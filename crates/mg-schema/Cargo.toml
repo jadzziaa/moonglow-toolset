@@ -1,0 +1,15 @@
+[package]
+name = "mg-schema"
+description = "Typed, lossless access to the game's GFF resources (field descriptors per resource type)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mg-core.workspace = true
+mg-gff.workspace = true
+
+[lints]
+workspace = true

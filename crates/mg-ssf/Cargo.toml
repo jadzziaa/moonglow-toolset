@@ -1,0 +1,15 @@
+[package]
+name = "mg-ssf"
+description = "SSF V1.0 soundsets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mg-core.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

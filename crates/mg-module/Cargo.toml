@@ -1,0 +1,23 @@
+[package]
+name = "mg-module"
+description = "The module workspace: open and save modules as archives or folders"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+indexmap.workspace = true
+mg-core.workspace = true
+mg-erf.workspace = true
+mg-gff.workspace = true
+mg-resman.workspace = true
+mg-schema.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+mg-testkit.workspace = true
+
+[lints]
+workspace = true

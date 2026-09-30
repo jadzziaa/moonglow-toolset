@@ -1,0 +1,130 @@
+//! Localized strings (`CExoLocString`): a talk-table reference plus optional
+//! per-language, per-gender overrides stored in the file itself.
+
+use std::borrow::Cow;
+
+use crate::lang::{Codepage, Gender, Language};
+use crate::strref::StrRef;
+
+/// Identifies one variant of a localized string: `language * 2 + gender`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct LocStringKey(pub u32);
+
+impl LocStringKey {
+    pub fn new(language: Language, gender: Gender) -> LocStringKey {
+        LocStringKey(language.0 * 2 + gender as u32)
+    }
+
+    pub fn language(self) -> Language {
+        Language(self.0 / 2)
+    }
+
+    pub fn gender(self) -> Gender {
+        if self.0.is_multiple_of(2) { Gender::Male } else { Gender::Female }
+    }
+}
+
+/// A localized string. The game shows the embedded variant for the player's
+/// language if there is one, otherwise the talk-table string.
+///
+/// Variants keep their file order and their raw bytes (see [`Codepage`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct LocString {
+    pub strref: StrRef,
+    pub strings: Vec<(LocStringKey, Vec<u8>)>,
+}
+
+impl LocString {
+    /// A string with only a talk-table reference.
+    pub fn from_strref(strref: StrRef) -> LocString {
+        LocString { strref, strings: Vec::new() }
+    }
+
+    /// A string with one embedded variant and no talk-table reference.
+    pub fn from_text(language: Language, gender: Gender, text: impl Into<Vec<u8>>) -> LocString {
+        LocString {
+            strref: StrRef::NONE,
+            strings: vec![(LocStringKey::new(language, gender), text.into())],
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.strref.is_none() && self.strings.is_empty()
+    }
+
+    /// The embedded bytes for a variant.
+    pub fn get(&self, language: Language, gender: Gender) -> Option<&[u8]> {
+        let key = LocStringKey::new(language, gender);
+        self.strings.iter().find(|(k, _)| *k == key).map(|(_, v)| v.as_slice())
+    }
+
+    /// The embedded variant decoded with the language's codepage.
+    pub fn text(&self, language: Language, gender: Gender) -> Option<Cow<'_, str>> {
+        self.get(language, gender).map(|b| language.codepage().decode(b))
+    }
+
+    /// Sets a variant, replacing it in place if present, else appending it.
+    pub fn set(&mut self, language: Language, gender: Gender, bytes: impl Into<Vec<u8>>) {
+        let key = LocStringKey::new(language, gender);
+        let bytes = bytes.into();
+        match self.strings.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, v)) => *v = bytes,
+            None => self.strings.push((key, bytes)),
+        }
+    }
+
+    /// Sets a variant from text; `None` if the language's codepage cannot
+    /// represent it.
+    pub fn set_text(&mut self, language: Language, gender: Gender, text: &str) -> Option<()> {
+        let bytes = language.codepage().encode(text)?.into_owned();
+        self.set(language, gender, bytes);
+        Some(())
+    }
+
+    /// Removes a variant; returns whether it existed.
+    pub fn remove(&mut self, language: Language, gender: Gender) -> bool {
+        let key = LocStringKey::new(language, gender);
+        let before = self.strings.len();
+        self.strings.retain(|(k, _)| *k != key);
+        self.strings.len() != before
+    }
+
+    /// Decodes a variant with an explicit codepage (for files whose codepage is
+    /// known to differ from the language default).
+    pub fn text_with(&self, key: LocStringKey, codepage: Codepage) -> Option<Cow<'_, str>> {
+        self.strings.iter().find(|(k, _)| *k == key).map(|(_, v)| codepage.decode(v))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys() {
+        let k = LocStringKey::new(Language::GERMAN, Gender::Female);
+        assert_eq!(k.0, 5);
+        assert_eq!(k.language(), Language::GERMAN);
+        assert_eq!(k.gender(), Gender::Female);
+    }
+
+    #[test]
+    fn set_replaces_in_place() {
+        let mut s = LocString::from_text(Language::ENGLISH, Gender::Male, "a");
+        s.set(Language::FRENCH, Gender::Male, "b");
+        s.set(Language::ENGLISH, Gender::Male, "c");
+        assert_eq!(s.strings.len(), 2);
+        assert_eq!(s.strings[0].1, b"c");
+        assert!(s.remove(Language::FRENCH, Gender::Male));
+        assert!(!s.remove(Language::FRENCH, Gender::Male));
+    }
+
+    #[test]
+    fn text_uses_language_codepage() {
+        let mut s = LocString::default();
+        s.set_text(Language::POLISH, Gender::Male, "Łódź").unwrap();
+        assert_eq!(s.get(Language::POLISH, Gender::Male).unwrap(), &[0xa3, 0xf3, 0x64, 0x9f]);
+        assert_eq!(s.text(Language::POLISH, Gender::Male).unwrap(), "Łódź");
+        assert!(s.set_text(Language::ENGLISH, Gender::Male, "Łódź").is_none());
+    }
+}

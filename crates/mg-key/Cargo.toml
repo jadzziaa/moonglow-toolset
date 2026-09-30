@@ -1,0 +1,19 @@
+[package]
+name = "mg-key"
+description = "KEY/BIF archives (the base game's resources)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+memmap2.workspace = true
+mg-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+mg-testkit.workspace = true
+
+[lints]
+workspace = true

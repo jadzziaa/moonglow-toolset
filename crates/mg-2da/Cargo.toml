@@ -1,0 +1,15 @@
+[package]
+name = "mg-2da"
+description = "2DA V2.0 tables: lenient parsing like the game, pretty writing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mg-core.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

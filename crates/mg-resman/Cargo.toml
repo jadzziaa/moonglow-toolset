@@ -1,0 +1,18 @@
+[package]
+name = "mg-resman"
+description = "Resource manager: containers stacked in the game's content load order"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+memmap2.workspace = true
+mg-core.workspace = true
+mg-erf.workspace = true
+mg-key.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

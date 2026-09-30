@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "GPL-3.0-only"
+publish = false
+
+[workspace.dependencies]
+# Moonglow crates
+mg-2da = { path = "crates/mg-2da" }
+mg-core = { path = "crates/mg-core" }
+mg-gff = { path = "crates/mg-gff" }
+mg-erf = { path = "crates/mg-erf" }
+mg-key = { path = "crates/mg-key" }
+mg-module = { path = "crates/mg-module" }
+mg-resman = { path = "crates/mg-resman" }
+mg-rules = { path = "crates/mg-rules" }
+mg-schema = { path = "crates/mg-schema" }
+mg-set = { path = "crates/mg-set" }
+mg-ssf = { path = "crates/mg-ssf" }
+mg-testkit = { path = "crates/mg-testkit" }
+mg-tlk = { path = "crates/mg-tlk" }
+
+# Third party
+anyhow = "1"
+base64 = "0.23"
+clap = { version = "4", features = ["derive"] }
+encoding_rs = "0.8"
+indexmap = "2"
+memmap2 = "0.9"
+proptest = "1"
+rayon = "1"
+ruzstd = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "warn"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.test]
+opt-level = 1

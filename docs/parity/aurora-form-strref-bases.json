@@ -1,0 +1,572 @@
+{
+ "TCOLORPICKER": {
+  "base": 168860,
+  "votes": 2,
+  "n": 3,
+  "second": 2
+ },
+ "TDLGABOUT": {
+  "base": 406804,
+  "votes": 3,
+  "n": 4,
+  "second": 1
+ },
+ "TDLGADDPOPUPTEXT": {
+  "base": 1220,
+  "votes": 3,
+  "n": 5,
+  "second": 2
+ },
+ "TDLGAREAPROPERTIES": {
+  "base": 467108,
+  "votes": 42,
+  "n": 49,
+  "second": 5
+ },
+ "TDLGAREATRANSITION": {
+  "base": 3588,
+  "votes": 13,
+  "n": 16,
+  "second": 1
+ },
+ "TDLGAREAWIZARD": {
+  "base": 17144,
+  "votes": 13,
+  "n": 13,
+  "second": 2
+ },
+ "TDLGBLUEPRINTWIZARD": {
+  "base": 183812,
+  "votes": 4,
+  "n": 4,
+  "second": 4
+ },
+ "TDLGCHOOSER": {
+  "base": 366372,
+  "votes": 3,
+  "n": 3,
+  "second": 2
+ },
+ "TDLGCOLORSELECTION": {
+  "base": 168848,
+  "votes": 2,
+  "n": 3,
+  "second": 2
+ },
+ "TDLGCOMMENTS": null,
+ "TDLGCONFIRMATION": null,
+ "TDLGCONVERSATIONEDITOR": {
+  "base": 32608,
+  "votes": 29,
+  "n": 60,
+  "second": 9
+ },
+ "TDLGCONVERSATIONEXPORTPICKER": null,
+ "TDLGCONVERSATIONINPUT": {
+  "base": 62416,
+  "votes": 3,
+  "n": 5,
+  "second": 2
+ },
+ "TDLGCONVERSATIONSEARCH": {
+  "base": 69972,
+  "votes": 13,
+  "n": 18,
+  "second": 2
+ },
+ "TDLGCONVERSATIONTEST": {
+  "base": 32992,
+  "votes": 1,
+  "n": 2,
+  "second": 1
+ },
+ "TDLGCREATUREEDIT": {
+  "base": 81336,
+  "votes": 150,
+  "n": 159,
+  "second": 14
+ },
+ "TDLGCREATUREWIZARD": {
+  "base": 142764,
+  "votes": 37,
+  "n": 43,
+  "second": 6
+ },
+ "TDLGDEFAULTSELECTOR": {
+  "base": 168848,
+  "votes": 2,
+  "n": 3,
+  "second": 2
+ },
+ "TDLGDOOREDIT": {
+  "base": 173504,
+  "votes": 10,
+  "n": 12,
+  "second": 3
+ },
+ "TDLGDOORWIZARD": {
+  "base": 183812,
+  "votes": 1,
+  "n": 1,
+  "second": 1
+ },
+ "TDLGENCOUNTEREDIT": {
+  "base": 188668,
+  "votes": 32,
+  "n": 38,
+  "second": 4
+ },
+ "TDLGENCOUNTERWIZARD": {
+  "base": 201096,
+  "votes": 3,
+  "n": 3,
+  "second": 1
+ },
+ "TDLGENVIRONMENT": {
+  "base": 434744,
+  "votes": 26,
+  "n": 30,
+  "second": 10
+ },
+ "TDLGFACTIONEDITOR": {
+  "base": 205684,
+  "votes": 14,
+  "n": 15,
+  "second": 4
+ },
+ "TDLGFACTIONSELECT": {
+  "base": 216776,
+  "votes": 7,
+  "n": 7,
+  "second": 2
+ },
+ "TDLGFINDINSTANCE": {
+  "base": 224020,
+  "votes": 7,
+  "n": 9,
+  "second": 2
+ },
+ "TDLGGENERATORCHOOSER": null,
+ "TDLGHAKPAK": {
+  "base": 234348,
+  "votes": 8,
+  "n": 10,
+  "second": 2
+ },
+ "TDLGIMPORTEXPORT": {
+  "base": 243564,
+  "votes": 21,
+  "n": 24,
+  "second": 6
+ },
+ "TDLGINVENTORY": {
+  "base": 684836,
+  "votes": 26,
+  "n": 28,
+  "second": 2
+ },
+ "TDLGITEMEDIT": {
+  "base": 247572,
+  "votes": 69,
+  "n": 73,
+  "second": 4
+ },
+ "TDLGITEMGENERATOREDIT": null,
+ "TDLGITEMWIZARD": {
+  "base": 285596,
+  "votes": 11,
+  "n": 15,
+  "second": 2
+ },
+ "TDLGJOURNALEDITOR": {
+  "base": 291496,
+  "votes": 16,
+  "n": 20,
+  "second": 4
+ },
+ "TDLGLOADSCREEN": {
+  "base": 301552,
+  "votes": 4,
+  "n": 5,
+  "second": 2
+ },
+ "TDLGLOCATION": {
+  "base": 308464,
+  "votes": 9,
+  "n": 9,
+  "second": 2
+ },
+ "TDLGLOCSTRING": {
+  "base": 487428,
+  "votes": 3,
+  "n": 3,
+  "second": 2
+ },
+ "TDLGMODULESELECT": {
+  "base": 344064,
+  "votes": 3,
+  "n": 5,
+  "second": 1
+ },
+ "TDLGMODULEWIZARD": {
+  "base": 349064,
+  "votes": 10,
+  "n": 15,
+  "second": 1
+ },
+ "TDLGMULTISELECT": {
+  "base": 458228,
+  "votes": 4,
+  "n": 4,
+  "second": 2
+ },
+ "TDLGNEWEDITSTRINGEXTERNAL": {
+  "base": 1027020,
+  "votes": 6,
+  "n": 6,
+  "second": 2
+ },
+ "TDLGOPTIONS": {
+  "base": 459636,
+  "votes": 66,
+  "n": 79,
+  "second": 3
+ },
+ "TDLGPALETTECHOOSER": {
+  "base": 739300,
+  "votes": 3,
+  "n": 3,
+  "second": 2
+ },
+ "TDLGPLACEABLEEDIT": {
+  "base": 830968,
+  "votes": 4,
+  "n": 7,
+  "second": 1
+ },
+ "TDLGPLACEABLEWIZARD": {
+  "base": 183812,
+  "votes": 1,
+  "n": 1,
+  "second": 1
+ },
+ "TDLGPLOTNODEWIZARD": {
+  "base": 863844,
+  "votes": 70,
+  "n": 75,
+  "second": 1
+ },
+ "TDLGPLOTWIZARD": {
+  "base": 876540,
+  "votes": 36,
+  "n": 42,
+  "second": 10
+ },
+ "TDLGPORTRAIT": {
+  "base": 892116,
+  "votes": 9,
+  "n": 9,
+  "second": 2
+ },
+ "TDLGPROGRESS": {
+  "base": 896036,
+  "votes": 2,
+  "n": 2,
+  "second": 1
+ },
+ "TDLGPROPEDIT": {
+  "base": 279796,
+  "votes": 12,
+  "n": 12,
+  "second": 2
+ },
+ "TDLGRESOPEN": {
+  "base": 485352,
+  "votes": 12,
+  "n": 14,
+  "second": 11
+ },
+ "TDLGRESOPENSOUND": null,
+ "TDLGRESOURCESELECTION": {
+  "base": 915948,
+  "votes": 4,
+  "n": 14,
+  "second": 2
+ },
+ "TDLGRESTYPESELECTOR": {
+  "base": 168848,
+  "votes": 2,
+  "n": 3,
+  "second": 2
+ },
+ "TDLGSCRIPTEDITOR": {
+  "base": 920036,
+  "votes": 23,
+  "n": 37,
+  "second": 3
+ },
+ "TDLGSCRIPTSEARCH": {
+  "base": 944704,
+  "votes": 11,
+  "n": 17,
+  "second": 2
+ },
+ "TDLGSCRIPTWIZARD": {
+  "base": 946492,
+  "votes": 106,
+  "n": 117,
+  "second": 7
+ },
+ "TDLGSITUATEDEDIT": {
+  "base": 168860,
+  "votes": 2,
+  "n": 2,
+  "second": 2
+ },
+ "TDLGSITUATEDMULTIEDITOR": {
+  "base": 994576,
+  "votes": 7,
+  "n": 8,
+  "second": 4
+ },
+ "TDLGSOUNDEDIT": {
+  "base": 995828,
+  "votes": 47,
+  "n": 63,
+  "second": 5
+ },
+ "TDLGSOUNDSETSELECT": {
+  "base": 1007500,
+  "votes": 6,
+  "n": 6,
+  "second": 2
+ },
+ "TDLGSOUNDWIZARD": {
+  "base": 1009500,
+  "votes": 16,
+  "n": 19,
+  "second": 1
+ },
+ "TDLGSTOREEDIT": {
+  "base": 1012804,
+  "votes": 32,
+  "n": 36,
+  "second": 3
+ },
+ "TDLGSTORESETUPWIZARD": {
+  "base": 1020584,
+  "votes": 17,
+  "n": 19,
+  "second": 1
+ },
+ "TDLGSTOREWIZARD": {
+  "base": 183812,
+  "votes": 1,
+  "n": 1,
+  "second": 1
+ },
+ "TDLGSYSTEMUSAGE": {
+  "base": 1029236,
+  "votes": 3,
+  "n": 4,
+  "second": 1
+ },
+ "TDLGTILEPROPERTIES": {
+  "base": 1040732,
+  "votes": 13,
+  "n": 13,
+  "second": 2
+ },
+ "TDLGTOKENSELECTOR": {
+  "base": 1046480,
+  "votes": 9,
+  "n": 9,
+  "second": 2
+ },
+ "TDLGTRIGGEREDIT": {
+  "base": 1053552,
+  "votes": 32,
+  "n": 43,
+  "second": 8
+ },
+ "TDLGTRIGGERWIZARD": {
+  "base": 1070804,
+  "votes": 3,
+  "n": 3,
+  "second": 1
+ },
+ "TDLGVARTABLE": {
+  "base": 1072684,
+  "votes": 8,
+  "n": 8,
+  "second": 2
+ },
+ "TDLGVERIFYMODULE": {
+  "base": 1077160,
+  "votes": 40,
+  "n": 42,
+  "second": 2
+ },
+ "TDLGWARNING": {
+  "base": 487692,
+  "votes": 4,
+  "n": 4,
+  "second": 2
+ },
+ "TDLGWAYPOINTEDIT": {
+  "base": 1104256,
+  "votes": 16,
+  "n": 18,
+  "second": 3
+ },
+ "TDLGWAYPOINTWIZARD": {
+  "base": 1109496,
+  "votes": 2,
+  "n": 3,
+  "second": 1
+ },
+ "TDLGWELCOME": {
+  "base": 1111284,
+  "votes": 8,
+  "n": 9,
+  "second": 2
+ },
+ "TDLGWIZARD": {
+  "base": 17144,
+  "votes": 5,
+  "n": 5,
+  "second": 5
+ },
+ "TFRABLUEPRINTSELECT": {
+  "base": 24212,
+  "votes": 4,
+  "n": 4,
+  "second": 1
+ },
+ "TFRACONVERSATIONTREE": {
+  "base": 73856,
+  "votes": 9,
+  "n": 11,
+  "second": 2
+ },
+ "TFRAENCOUNTERCREATURELIST": {
+  "base": 185304,
+  "votes": 3,
+  "n": 6,
+  "second": 2
+ },
+ "TFRAMAININVENTORY": {
+  "base": 314060,
+  "votes": 14,
+  "n": 15,
+  "second": 2
+ },
+ "TFRAMAINPALETTE": {
+  "base": 329784,
+  "votes": 13,
+  "n": 25,
+  "second": 4
+ },
+ "TFRAPLOTMANAGER": {
+  "base": 858476,
+  "votes": 6,
+  "n": 6,
+  "second": 2
+ },
+ "TFRAPROGRESS": null,
+ "TFRASCRIPTEDITORCOLOR": {
+  "base": 943460,
+  "votes": 2,
+  "n": 3,
+  "second": 1
+ },
+ "TFRASITUATEDADVANCED": {
+  "base": 977984,
+  "votes": 7,
+  "n": 9,
+  "second": 1
+ },
+ "TFRASITUATEDBASIC": {
+  "base": 981816,
+  "votes": 9,
+  "n": 9,
+  "second": 2
+ },
+ "TFRASITUATEDCOMMENTS": null,
+ "TFRASITUATEDDESC": {
+  "base": 247620,
+  "votes": 1,
+  "n": 1,
+  "second": 1
+ },
+ "TFRASITUATEDLOCK": {
+  "base": 985832,
+  "votes": 5,
+  "n": 6,
+  "second": 1
+ },
+ "TFRASITUATEDSCRIPTS": {
+  "base": 987256,
+  "votes": 25,
+  "n": 30,
+  "second": 16
+ },
+ "TFRASITUATEDTRAP": {
+  "base": 994208,
+  "votes": 10,
+  "n": 12,
+  "second": 10
+ },
+ "TFRMAREARESIZE": {
+  "base": 358728,
+  "votes": 13,
+  "n": 13,
+  "second": 3
+ },
+ "TFRMCREATURELEVELUPWIZARD": {
+  "base": 137612,
+  "votes": 8,
+  "n": 9,
+  "second": 5
+ },
+ "TFRMFRAME": {
+  "base": 519884,
+  "votes": 86,
+  "n": 129,
+  "second": 16
+ },
+ "TFRMHELP": {
+  "base": 569216,
+  "votes": 2,
+  "n": 2,
+  "second": 1
+ },
+ "TFRMIFOPROP": {
+  "base": 442176,
+  "votes": 71,
+  "n": 74,
+  "second": 24
+ },
+ "TFRMOBJECTLIST": null,
+ "TFRMPREVIEW": {
+  "base": 821492,
+  "votes": 23,
+  "n": 25,
+  "second": 6
+ },
+ "TFRMPROPERTIES": null,
+ "TFRMTRAP": {
+  "base": 994208,
+  "votes": 10,
+  "n": 12,
+  "second": 10
+ },
+ "TFRMVIEWER": null,
+ "TFRMVIEWERAREA": {
+  "base": 789324,
+  "votes": 28,
+  "n": 35,
+  "second": 2
+ },
+ "TSEDITCODECOMPLETIONLIST": null
+}

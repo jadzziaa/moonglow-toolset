@@ -1,0 +1,22 @@
+[package]
+name = "mg-gff"
+description = "GFF V3.2 reading and writing, lossless tree model and nwn-lib JSON"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+base64.workspace = true
+mg-core.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+mg-testkit.workspace = true
+proptest.workspace = true
+rayon.workspace = true
+
+[lints]
+workspace = true

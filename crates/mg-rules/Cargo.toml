@@ -1,0 +1,18 @@
+[package]
+name = "mg-rules"
+description = "Game data for the editors: resman plus talk tables, cached 2DAs, dropdown choices"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mg-2da.workspace = true
+mg-core.workspace = true
+mg-resman.workspace = true
+mg-tlk.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

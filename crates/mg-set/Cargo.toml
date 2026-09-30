@@ -1,0 +1,15 @@
+[package]
+name = "mg-set"
+description = "Tileset definitions (.set): terrains, crossers, rules, tiles, groups"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mg-core.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
