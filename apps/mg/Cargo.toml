@@ -13,6 +13,7 @@ clap.workspace = true
 mg-core.workspace = true
 mg-erf.workspace = true
 mg-gff.workspace = true
+mg-module.workspace = true
 mg-resman.workspace = true
 mg-tlk.workspace = true
 serde_json.workspace = true

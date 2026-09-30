@@ -315,6 +315,7 @@ dependencies = [
  "mg-core",
  "mg-erf",
  "mg-gff",
+ "mg-module",
  "mg-resman",
  "mg-tlk",
  "serde_json",

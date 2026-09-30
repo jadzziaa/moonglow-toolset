@@ -10,7 +10,8 @@ use clap::{Parser, Subcommand};
 use mg_core::{Codepage, ResType, StrRef};
 use mg_erf::{Erf, ErfWriter};
 use mg_gff::Gff;
-use mg_resman::{GameInstall, ResKey, ResMan};
+use mg_module::Module;
+use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
 
 #[derive(Parser)]
 #[command(name = "mg", version, about = "Moonglow Toolset command-line tools")]
@@ -54,6 +55,40 @@ enum Cmd {
     Layers,
     /// Print talk-table strings by StrRef.
     Tlk { strrefs: Vec<u32> },
+    /// Check a module for missing and unused resources.
+    Verify {
+        /// A module archive or folder.
+        module: PathBuf,
+        /// Also list module resources nothing references.
+        #[arg(long)]
+        unused: bool,
+    },
+    /// Report the resources a module's haks provide, their conflicts and the
+    /// base-game resources they override.
+    Haks { module: PathBuf },
+    /// Export resources and their dependencies from a module to an ERF.
+    Export {
+        module: PathBuf,
+        /// Resources to export (`name.ext`; an area brings its .git/.gic).
+        #[arg(required = true)]
+        resources: Vec<String>,
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Description stored in the ERF.
+        #[arg(long, default_value = "")]
+        comment: String,
+        /// Keep custom factions instead of resetting them to their parents.
+        #[arg(long)]
+        keep_factions: bool,
+    },
+    /// Import an ERF into a module and save it.
+    Import {
+        module: PathBuf,
+        erf: PathBuf,
+        /// Overwrite resources the module already has.
+        #[arg(long)]
+        overwrite: bool,
+    },
 }
 
 fn main() -> ExitCode {
@@ -145,6 +180,52 @@ fn run(cli: Cli) -> Result<()> {
                 println!("{:>3}  {:>7}  {:?}  {}", l.priority, l.container.len(), l.class, l.label);
             }
         }
+        Cmd::Verify { module, unused } => verify(&install(&cli)?, module, *unused)?,
+        Cmd::Haks { module } => {
+            let m = Module::open(module)?;
+            let report = mg_module::haks::hak_report(&install(&cli)?, &m.haks()?)?;
+            print!("{}", report.to_text());
+        }
+        Cmd::Export { module, resources, output, comment, keep_factions } => {
+            let m = Module::open(module)?;
+            let rm = module_resman(&install(&cli)?, &m)?;
+            let roots = resources.iter().map(|r| resource_key(r)).collect::<Result<Vec<_>>>()?;
+            for r in &roots {
+                if !m.contains(r) {
+                    bail!("{r} is not in the module");
+                }
+            }
+            let plan = mg_module::transfer::plan_export(&m, &roots, &rm);
+            for r in &plan.missing {
+                eprintln!(
+                    "warning: {} {} needs {:?} {}, found nowhere",
+                    r.from, r.path, r.kind, r.target
+                );
+            }
+            let erf =
+                mg_module::transfer::export_erf(&m, &plan.resources, comment, !keep_factions)?;
+            std::fs::write(output, erf)?;
+            eprintln!("exported {} resources", plan.resources.len());
+        }
+        Cmd::Import { module, erf, overwrite } => {
+            let mut m = Module::open(module)?;
+            let data = std::fs::read(erf)?;
+            let gi = install(&cli)?;
+            let rm = module_resman(&gi, &m)?;
+            let plan = mg_module::transfer::plan_import(&m, &data, &rm)?;
+            for r in &plan.missing {
+                eprintln!("warning: {} needs {:?} {}, found nowhere", r.from, r.kind, r.target);
+            }
+            let s = mg_module::transfer::import_erf(&mut m, &data, |_| *overwrite)?;
+            m.save()?;
+            eprintln!(
+                "imported {} new, replaced {}, skipped {} existing; new areas: {:?}",
+                s.added.len(),
+                s.replaced.len(),
+                s.skipped.len(),
+                s.new_areas.iter().map(|a| a.to_string()).collect::<Vec<_>>()
+            );
+        }
         Cmd::Tlk { strrefs } => {
             let gi = install(&cli)?;
             let data = std::fs::read(gi.talk_table(false))?;
@@ -153,6 +234,39 @@ fn run(cli: Cli) -> Result<()> {
                 println!("{s}\t{}", tlk.text(StrRef(s)).unwrap_or_default());
             }
         }
+    }
+    Ok(())
+}
+
+/// The resman for a module: the game, the module's haks and the module.
+fn module_resman(gi: &GameInstall, m: &Module) -> Result<ResMan> {
+    let mut rm = ResMan::for_game(gi)?;
+    let haks = m.haks()?;
+    for missing in rm.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>())? {
+        eprintln!("warning: hak {missing} not found");
+    }
+    rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+    Ok(rm)
+}
+
+fn verify(gi: &GameInstall, path: &Path, show_unused: bool) -> Result<()> {
+    let m = Module::open(path)?;
+    let rm = module_resman(gi, &m)?;
+    let missing = mg_module::verify::missing(&m, &rm);
+    for x in &missing {
+        let what = if x.uncompiled { "not compiled" } else { "missing" };
+        println!(
+            "{:?}\t{}{}\t{:?} {} {what}",
+            x.category, x.reference.from, x.reference.path, x.reference.kind, x.reference.target
+        );
+    }
+    println!("{} missing references", missing.len());
+    if show_unused {
+        let unused = mg_module::verify::unused(&m);
+        for k in &unused {
+            println!("unused\t{k}");
+        }
+        println!("{} unused resources", unused.len());
     }
     Ok(())
 }

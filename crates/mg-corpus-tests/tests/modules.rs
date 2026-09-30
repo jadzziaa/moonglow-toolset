@@ -77,3 +77,43 @@ fn shipped_modules_round_trip_through_the_workspace() {
     eprintln!("round-tripped {} modules", modules.len());
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
+
+/// The hak report for every shipped module with haks: each hak is found,
+/// every hak resource is listed with the haks that have it (first hak
+/// first), conflicts are exactly the multi-hak entries, and overrides exist
+/// in the base game.
+#[test]
+fn hak_reports_for_shipped_modules() {
+    use mg_module::haks::hak_report;
+    let root = corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let base = ResMan::for_game(&install).unwrap();
+    let mut checked = 0;
+    for path in bundled_modules(&root) {
+        let m = Module::open(&path).unwrap();
+        let haks = m.haks().unwrap();
+        if haks.is_empty() {
+            continue;
+        }
+        let report = hak_report(&install, &haks).unwrap();
+        let name = path.file_name().unwrap().to_string_lossy();
+        assert!(report.haks.iter().all(|(_, p)| p.is_some()), "{name}: a hak is missing");
+        // Resources in several haks are listed in Mod_HakList order.
+        for (k, list) in report.conflicts() {
+            let order: Vec<usize> =
+                list.iter().map(|h| haks.iter().position(|x| x == h).unwrap()).collect();
+            assert!(order.windows(2).all(|w| w[0] < w[1]), "{name}: {k} haks out of order");
+        }
+        assert!(report.overrides.keys().all(|k| base.contains(k)), "{name}: override not in base");
+        let text = report.to_text();
+        assert!(text.contains("Conflicting resources") && text.contains("Complete resource list"));
+        eprintln!(
+            "{name}: {} hak resources, {} conflicts, {} overrides",
+            report.resources.len(),
+            report.conflicts().count(),
+            report.overrides.len()
+        );
+        checked += 1;
+    }
+    assert!(checked >= 8);
+}

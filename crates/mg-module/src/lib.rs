@@ -7,6 +7,11 @@
 //! file is written next to the old one and renamed over it, after the old
 //! one is kept as a single backup.
 
+pub mod haks;
+pub mod refs;
+pub mod transfer;
+pub mod verify;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -289,6 +294,9 @@ impl Module {
 
     fn write_archive(&self, path: &Path) -> Result<(), ModuleError> {
         let bytes = self.to_archive_bytes()?;
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent).map_err(io(parent))?;
+        }
         let tmp = sibling(path, ".moonglow-tmp");
         std::fs::write(&tmp, &bytes).map_err(io(&tmp))?;
         std::fs::File::open(&tmp).and_then(|f| f.sync_all()).map_err(io(&tmp))?;

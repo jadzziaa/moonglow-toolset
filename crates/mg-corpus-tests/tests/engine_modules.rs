@@ -10,87 +10,12 @@ use mg_module::{Module, ModuleLocation};
 use mg_resman::ResKey;
 use mg_schema::{StructExt, ifo};
 use mg_testkit::engine::{ServerRun, run_server, server_binary};
+
 use mg_testkit::{bundled_modules, corpus, oracle_tool, scratch_dir};
 use rayon::prelude::*;
 
 mod common;
-use common::{compile, rewrite_all_gffs};
-
-/// Walks every area and object during module load, before any heartbeat or
-/// AI has run, yielding with `DelayCommand` only when the instruction budget
-/// runs low (then resuming at the same area and object). Ends with the done
-/// marker and padding that makes the server flush its buffered log.
-const PROBE: &str = r#"
-void Log(string s) { WriteTimestampedLogEntry(s); }
-
-void Finish()
-{
-    Log("MG_DONE");
-    int i;
-    for (i = 0; i < 2000; i++)
-        Log("MG_PAD ................................................................");
-}
-
-void ProbeFrom(int nArea, int nObj)
-{
-    int a = 0;
-    object oArea = GetFirstArea();
-    while (GetIsObjectValid(oArea) && a < nArea) { oArea = GetNextArea(); a++; }
-    while (GetIsObjectValid(oArea))
-    {
-        string sArea = GetResRef(oArea);
-        if (nObj == 0)
-            Log("MG_AREA " + sArea + "|" + GetTag(oArea) + "|" + GetName(oArea));
-        int i = 0;
-        object o = GetFirstObjectInArea(oArea);
-        while (GetIsObjectValid(o))
-        {
-            if (i >= nObj)
-            {
-                if (GetScriptInstructionsRemaining() < 20000)
-                {
-                    DelayCommand(0.0, ProbeFrom(a, i));
-                    return;
-                }
-                vector v = GetPosition(o);
-                Log("MG_OBJ " + sArea + "|" + IntToString(GetObjectType(o)) + "|" + GetTag(o)
-                    + "|" + GetResRef(o) + "|" + FloatToString(v.x, 0, 2) + "," + FloatToString(v.y, 0, 2)
-                    + "," + FloatToString(v.z, 0, 2) + "|" + FloatToString(GetFacing(o), 0, 1));
-            }
-            i++;
-            o = GetNextObjectInArea(oArea);
-        }
-        nObj = 0;
-        a++;
-        oArea = GetNextArea();
-    }
-    DelayCommand(0.0, Finish());
-}
-
-void main()
-{
-    Log("MG_MODULE " + GetName(GetModule()) + "|" + GetTag(GetModule()));
-    ProbeFrom(0, 0);
-}
-"#;
-
-/// The probe's view of the world, sorted. Creatures keep only their area,
-/// type, tag and blueprint: their AI may move them between probe chunks.
-fn world(run: &ServerRun) -> Vec<String> {
-    let mut lines: Vec<String> = ["MG_MODULE", "MG_AREA", "MG_OBJ"]
-        .iter()
-        .flat_map(|tag| run.values(tag).into_iter().map(move |v| format!("{tag} {v}")))
-        .map(|l| match l.strip_prefix("MG_OBJ ") {
-            Some(obj) if obj.split('|').nth(1) == Some("1") => {
-                let identity: Vec<&str> = obj.split('|').take(4).collect();
-                format!("MG_OBJ {} (creature)", identity.join("|"))
-            }
-            _ => l,
-        })
-        .collect();
-    lines.sort();
-    lines
-}
+use common::{PROBE, compile, rewrite_all_gffs, world};
 
 #[test]
 fn rewritten_modules_present_the_same_world_in_the_engine() {

@@ -24,7 +24,7 @@ Decisions taken (2026-09-30):
 | 0 Bootstrap | Done: workspace, lint/format, CI workflow (3 OS), corpus locator, oracle tools, engine test runner, Aurora harness, parity inventory. Builds clean for Linux, Windows and macOS targets. |
 | 1 Core formats | GFF, ERF (V1.0 + EE E1.0 read), KEY/BIF, 2DA, TLK, SET, SSF done; TXI and MTR arrive with the renderer (Phase 7), ITP with palettes |
 | 2 Resource manager and rules | Done: load order and game data (2DA cells, talk-table strings) checked against the engine |
-| 3 Schema and module workspace | Core done: typed field descriptors for all 19 authored GFF types (generated from the corpus), module workspace (archives and folders, atomic save), checked in the engine. To do: Aurora's defaults, import/export ERF, hak conflict check, reference graph, verify |
+| 3 Schema and module workspace | Done except Aurora's new-object defaults (captured with the wizards, Phases 5/8): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
 | 4+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
@@ -47,6 +47,11 @@ What the tests establish so far (all run in a few seconds, in release mode):
   rewritten modules present exactly the same world as the originals (every
   area, and 121,287 objects with type, tag, blueprint, position and facing;
   creatures by identity).
+- Verification: of 4,943 references checked across all shipped modules, the
+  989 Moonglow reports missing are unknown to the engine and the sampled
+  satisfied ones resolve there. An area exported from Prelude (92 resources
+  with dependencies) and imported into another module presents the same 22
+  objects in the engine.
 - All 47 shipped tilesets parse (1,192 primary rules between them; 73 data
   warnings, such as tiles using undeclared terrains, and 5 tile models BioWare
   never shipped); all 487 soundsets round-trip byte for byte.
@@ -289,7 +294,11 @@ with the editors that use them.
 from the schema observed in the shipped data
 (`docs/research/gff-observed-schema.md`); ✅ `mg-module`: archives and module
 folders, atomic save with backup, module info (areas, haks, custom TLK).
-Still to do: `mg-schema` for all authored GFF types with Aurora's defaults (captured from
+✅ reference graph, verify (missing and unused resources), hak conflict
+report, ERF export/import with dependencies, faction reset and area-list
+bookkeeping; CLI `mg verify`, `mg haks`, `mg export`, `mg import`.
+Deferred to the wizards (Phases 5 and 8): capturing Aurora's defaults for new
+objects. Original scope: `mg-schema` for all authored GFF types with Aurora's defaults (captured from
 Aurora's wizards), `mg-module`: open/save `.mod` and module folders, working
 copy, atomic save with backup, import/export ERF, haks and custom TLK (with the
 conflict check), reference graph, basic verify.
