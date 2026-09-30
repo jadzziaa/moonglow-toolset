@@ -76,6 +76,17 @@ pub struct CompileError {
     pub message: String,
 }
 
+impl CompileError {
+    /// Where the error is: the script (without `.nss`; an include when the
+    /// error is in one) and the 1-based line, from the message.
+    pub fn location(&self) -> Option<(String, usize)> {
+        let (file, rest) = self.message.split_once(".nss(")?;
+        let (line, _) = rest.split_once(')')?;
+        let file = file.rsplit([' ', ':', '/', '\\']).next().unwrap_or(file);
+        Some((file.to_string(), line.trim().parse().ok()?))
+    }
+}
+
 /// A compiled script.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Compiled {
@@ -290,5 +301,24 @@ impl Drop for Compiler<'_> {
     fn drop(&mut self) {
         // SAFETY: created by `scriptCompApiNewCompiler`, destroyed once.
         unsafe { scriptCompApiDestroyCompiler(self.raw) };
+    }
+}
+
+#[cfg(test)]
+mod location_tests {
+    use super::CompileError;
+
+    #[test]
+    fn error_locations() {
+        let e = |m: &str| CompileError { code: -1, message: m.to_string() };
+        assert_eq!(
+            e("broken.nss(4): ERROR: VARIABLE DEFINED WITHOUT TYPE").location(),
+            Some(("broken".into(), 4))
+        );
+        assert_eq!(
+            e("usesinc.nss: brokeninc.nss(1): ERROR: UNKNOWN STATE").location(),
+            Some(("brokeninc".into(), 1))
+        );
+        assert_eq!(e("\"x\": invalid script name").location(), None);
     }
 }

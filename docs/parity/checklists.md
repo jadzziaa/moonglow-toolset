@@ -95,3 +95,22 @@ unless given otherwise.
 | Entry: ID, Finish Category, Text + `…` | same | ✅ |
 | Apply / OK / Cancel | live edits, one undoable command each | — |
 | In the engine | `GetJournalQuestExperience` returns each category's XP by tag | ✅ (`engine_journal.rs`) |
+
+## Script Editor (`TdlgScriptEditor`, `TdlgScriptSearch`, `TSEditCodeCompletionList`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Syntax highlighting, line numbers | lexer highlighting (EE literals), line numbers, bookmarks marked; no wrapping | ✅ |
+| Compile (F7: save and compile) | Compile button saves and compiles this script; F7 compiles all | ✅ / — (F7 keeps compiling all) |
+| Compiler pane, double-click jumps to the line | Compiler tab; clicking a message goes to its line, in an include too (opened, or read-only for game scripts) | ✅ [compile_errors_go_to_their_line] |
+| Functions / Variables / Constants lists with Filter; custom ones bold; hover shows the prototype; double-click inserts | same, from `nwscript.nss` and the script with its includes | ✅ |
+| Templates list (script templates folder) | the `.txt` templates of the install's `data/scr` and the user's `scripttemplates` | ✅ |
+| Help pane (doc comment) | Help tab: the selected symbol, or the one under the cursor | ✅ |
+| Completion (F2), Enter to pick, `(` added for functions | F2 or Ctrl+Space, arrows, Enter/Tab, Esc | ✅ [script_editor_completion_find_bookmarks] |
+| Find (Ctrl+F), Find Next (F3), Replace (Ctrl+R): match case, whole word, backward, prompt, replace all | same (no per-replacement prompt: Replace does one, Replace All all) | ✅ |
+| Find In Files (open scripts / all module scripts) → Search Results | all module scripts (with unsaved editor text) → Search Results tab, click opens | ✅ |
+| Bookmarks (F5 toggle; Ctrl+Shift+1…9 / Ctrl+1…9) | F5 toggle, Bookmarks tab | ◐ (numbered bookmarks not yet) |
+| New (Ctrl+N), Save As (Ctrl+Alt+S), Save All, Close | Tools > New Script…, Save As…, module Save stores all edited scripts, tab close | ✅ |
+| Open (all resources / module / hak) | resource browser and the module tree | ✅ |
+| Print, colour options, indent with Tab | not yet | ✗ |
+| Large scripts | nwscript.nss (13,869 lines): 0.4 ms per idle frame, ~10 ms per keystroke | ✅ (`editor_perf.rs`) |

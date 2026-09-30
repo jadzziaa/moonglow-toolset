@@ -11,6 +11,7 @@ mod gff_view;
 pub mod journal_view;
 pub mod module_props;
 mod options;
+pub mod script_tools;
 mod script_view;
 pub mod settings;
 mod tabs;
@@ -128,6 +129,11 @@ pub struct Moonglow {
     pub module_page: module_props::Page,
     pub faction_view: faction_view::FactionView,
     pub journal_view: journal_view::JournalView,
+    pub script_tools: script_tools::ScriptTools,
+    /// The Save Script As window: the script and the new name.
+    pub(crate) script_save_as: Option<(ResKey, String)>,
+    /// The New Script window's name.
+    pub new_script: Option<String>,
     /// The hak conflict report being shown.
     pub hak_report: Option<String>,
     /// The custom talk table loaded into the game data, by name.
@@ -178,6 +184,9 @@ impl Moonglow {
             module_page: module_props::Page::default(),
             faction_view: faction_view::FactionView::default(),
             journal_view: journal_view::JournalView::default(),
+            script_tools: script_tools::ScriptTools::default(),
+            script_save_as: None,
+            new_script: None,
             hak_report: None,
             custom_tlk: None,
             var_edit: None,
@@ -244,6 +253,7 @@ impl Moonglow {
         options::ui(self, ui);
         transfer::ui(self, ui);
         widgets::ui(self, ui);
+        script_view::windows(self, ui);
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -376,6 +386,9 @@ impl Moonglow {
                 }
                 if ui.add_enabled(open, egui::Button::new("Journal Editor")).clicked() {
                     self.actions.push(Action::OpenTab(Tab::Journal));
+                }
+                if ui.add_enabled(open, egui::Button::new("New Script…")).clicked() {
+                    self.new_script = Some(String::new());
                 }
                 ui.separator();
                 if ui.button("Resource Browser").clicked() {
@@ -566,6 +579,7 @@ impl Moonglow {
     /// new module never saved.
     pub fn has_unsaved_work(&self) -> bool {
         self.ws.as_ref().is_some_and(|ws| ws.is_modified() || ws.module.location.is_none())
+            || self.scripts.values().any(|b| b.is_dirty())
     }
 
     fn new_module(&mut self, name: &str) {
@@ -788,9 +802,22 @@ impl Moonglow {
 
     fn save(&mut self, to: Option<PathBuf>) {
         let Some(ws) = &mut self.ws else { return };
-        // Script editors' unsaved text is not part of the module until saved
-        // there; say so rather than guess.
-        let dirty_scripts = self.scripts.values().filter(|b| b.is_dirty()).count();
+        // Script editors' unsaved text goes into the module first (one
+        // undoable command), as saving everything means.
+        let mut edits = Vec::new();
+        for (key, buf) in self.scripts.iter_mut().filter(|(_, b)| b.is_dirty()) {
+            buf.saved = buf.text.clone();
+            edits.push(mg_edit::Edit::SetResource {
+                key: *key,
+                data: Some(text::encode(&buf.text)),
+            });
+        }
+        if !edits.is_empty() {
+            let n = edits.len();
+            if let Err(e) = ws.apply(Command::new(format!("Save {n} script(s)"), edits)) {
+                self.log.error(e.to_string());
+            }
+        }
         let result = match to {
             Some(p) => {
                 let loc = if p.extension().is_some() {
@@ -813,11 +840,6 @@ impl Moonglow {
                 let path = self.module_path().unwrap_or_default();
                 self.log.info(format!("Saved {}", path.display()));
                 self.settings.remember(&path);
-                if dirty_scripts > 0 {
-                    self.log.warn(format!(
-                        "{dirty_scripts} script(s) have unsaved edits in their editors"
-                    ));
-                }
             }
             Err(e) => self.log.error(format!("Save failed: {e}")),
         }
@@ -896,6 +918,16 @@ impl Moonglow {
         self.install = self.settings.install();
         self.game = load_game(self.install.as_ref(), &mut self.log);
         self.load_order_changed();
+    }
+
+    /// A script editor's current text.
+    pub fn script_text(&self, key: ResKey) -> Option<String> {
+        self.scripts.get(&key).map(|b| b.text.clone())
+    }
+
+    /// A script editor's bookmarked lines (0-based).
+    pub fn script_bookmarks(&self, key: ResKey) -> Vec<usize> {
+        self.scripts.get(&key).map(|b| b.bookmarks.iter().copied().collect()).unwrap_or_default()
     }
 
     /// A resman view for things that need one without a game install (tests).

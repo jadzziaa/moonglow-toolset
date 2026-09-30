@@ -529,3 +529,89 @@ fn journal_editor_builds_what_aurora_builds() {
         2
     );
 }
+
+fn script_cursor(h: &Harness<'_, Moonglow>, key: ResKey) -> Option<(usize, usize)> {
+    let state = egui::text_edit::TextEditState::load(&h.ctx, egui::Id::new(("script", key)))?;
+    let r = state.cursor.char_range()?;
+    Some((r.primary.index.into(), r.secondary.index.into()))
+}
+
+#[test]
+fn script_editor_completion_find_bookmarks() {
+    let dir = mg_testkit::scratch_dir("ui-script-tools");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void MyHelper() {}\nvoid main()\n{\n    MyHe\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+
+    // Completion (F2) after "MyHe".
+    let after_prefix = text.find("MyHe\n").unwrap() + 4;
+    h.state_mut().script_tools.jump = Some((key, after_prefix));
+    h.run();
+    assert_eq!(script_cursor(&h, key), Some((after_prefix, after_prefix)));
+    h.key_press(egui::Key::F2);
+    h.run();
+    let c = h.state().script_tools.completion.clone().expect("completion list");
+    assert_eq!(c.items[0].name, "MyHelper");
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let edited = h.state().script_text(key).unwrap();
+    assert!(edited.contains("    MyHelper(\n"), "{edited:?}");
+
+    // Find (F3) selects the next match.
+    h.state_mut().script_tools.search.find = "main".into();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.key_press(egui::Key::F3);
+    h.run();
+    let (a, b) = script_cursor(&h, key).unwrap();
+    let start = edited.find("main").unwrap();
+    assert_eq!((a.min(b), a.max(b)), (start, start + 4));
+
+    // Bookmark (F5) on that line.
+    h.key_press(egui::Key::F5);
+    h.run();
+    assert!(h.state().script_bookmarks(key).contains(&1));
+
+    // Saving the module stores the editor's text.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run();
+    let saved = Module::open(&path).unwrap();
+    assert!(String::from_utf8_lossy(saved.get(&key).unwrap()).contains("MyHelper("));
+}
+
+#[test]
+fn compile_errors_go_to_their_line() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-compile-errors");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    int x = 1;\n    x = y + 2;\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Compile").click();
+    h.run();
+    let message = h.state().script_tools.messages.last().cloned().expect("a compiler message");
+    assert!(message.error);
+    assert_eq!(message.location, Some(("hello".to_string(), 4)));
+    // The message is in the log too; the Compiler tab's comes after it.
+    h.get_all_by_label(&message.text).last().unwrap().click();
+    h.run();
+    h.run();
+    let line4 = text.match_indices('\n').nth(2).unwrap().0 + 1;
+    assert_eq!(script_cursor(&h, key), Some((line4, line4)));
+}
