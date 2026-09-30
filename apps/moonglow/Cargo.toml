@@ -1,0 +1,18 @@
+[package]
+name = "moonglow"
+description = "Moonglow Toolset: a module toolset for Neverwinter Nights: Enhanced Edition"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+eframe.workspace = true
+egui.workspace = true
+mg-resman.workspace = true
+mg-ui.workspace = true
+rfd.workspace = true
+
+[lints]
+workspace = true

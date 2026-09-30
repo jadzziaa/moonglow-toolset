@@ -14,6 +14,7 @@ publish = false
 mg-2da = { path = "crates/mg-2da" }
 mg-core = { path = "crates/mg-core" }
 mg-gff = { path = "crates/mg-gff" }
+mg-edit = { path = "crates/mg-edit" }
 mg-erf = { path = "crates/mg-erf" }
 mg-key = { path = "crates/mg-key" }
 mg-module = { path = "crates/mg-module" }
@@ -25,16 +26,22 @@ mg-set = { path = "crates/mg-set" }
 mg-ssf = { path = "crates/mg-ssf" }
 mg-testkit = { path = "crates/mg-testkit" }
 mg-tlk = { path = "crates/mg-tlk" }
+mg-ui = { path = "crates/mg-ui" }
 
 # Third party
 anyhow = "1"
 base64 = "0.23"
 clap = { version = "4", features = ["derive"] }
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11", "persistence"] }
+egui = "0.36"
+egui_dock = "0.21"
+egui_kittest = "0.36"
 encoding_rs = "0.8"
 indexmap = "2"
 memmap2 = "0.9"
 proptest = "1"
 rayon = "1"
+rfd = "0.17"
 ruzstd = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }

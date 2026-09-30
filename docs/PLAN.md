@@ -26,7 +26,8 @@ Decisions taken (2026-09-30):
 | 2 Resource manager and rules | Done: load order and game data (2DA cells, talk-table strings) checked against the engine |
 | 3 Schema and module workspace | Done except Aurora's new-object defaults (captured with the wizards, Phases 5/8): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
 | 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
-| 5+ | Not started |
+| 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log; UI flows tested with `egui_kittest` |
+| 6+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
 
@@ -333,6 +334,21 @@ import/export, resource browser, undo/redo wiring. Early spike: a code-editor
 widget that stays fast on 10k-line scripts.
 **Exit:** create a module, edit its properties, save; it loads in the engine;
 `egui_kittest` UI tests cover the flows.
+
+Done so far: `mg-edit` (a workspace of cached GFF documents over the module;
+commands of field/list/resource edits, each with its inverse, so undo and redo
+restore every change, including unsaved GFF edits under a whole-resource
+replacement); `mg-ui` with the menu bar (File, Edit, Build), shortcuts
+(Ctrl+O/S/Z/Y, F7), the module tree with filter, docked tabs (welcome, module
+properties, scripts, any GFF resource), module properties (name, tag,
+description with its line ends kept, starting area, XP scale, custom TLK,
+time, events, haks in priority order, areas), the script editor (lexer
+highlighting, save, compile one, compile all), verify to the log;
+`apps/moonglow` (eframe on wgpu, native file dialogs). `egui_kittest` tests
+drive open, edit, undo/redo, save and reopen through the accessibility tree.
+Next: new-module wizard with Aurora's defaults, unsaved-changes prompt,
+settings and recent modules, TLK-driven labels, resource browser,
+import/export dialogs.
 
 ### Phase 6: Text-and-tree editors
 Localized string editor, variables, pickers; script editor (highlighting,
