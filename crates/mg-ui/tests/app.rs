@@ -1256,6 +1256,9 @@ fn showing_blueprint_editors_changes_nothing() {
         ("nw_aarcl001", ResType::UTI),
         ("nw_it_mpotion001", ResType::UTI),
         ("nw_maarcl002", ResType::UTI),
+        ("nw_bandit001", ResType::UTC),
+        ("nw_bartender", ResType::UTC),
+        ("nw_badger", ResType::UTC),
     ]
     .into_iter()
     .enumerate()
@@ -1403,4 +1406,40 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(cost_of(&mut h).0, plus_one);
+}
+
+#[test]
+fn creature_editor_levels_and_aligns() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_copy", ResType::UTC) else {
+        return;
+    };
+    let max_hp = |h: &mut Harness<'_, Moonglow>| {
+        let s = field(h, &key);
+        let sheet = mg_rules::CreatureSheet::from_gff(&s);
+        let game = h.state().game.as_ref().unwrap();
+        (s.integer("MaxHitPoints"), i64::from(game.creature_stats(&sheet).max_hit_points))
+    };
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    // A second class: one more level, so more hit points from Constitution,
+    // stored with the class in one undo step.
+    let (before, _) = max_hp(&mut h);
+    h.get_by_label("Add Class").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).list("ClassList").unwrap().len(), 2);
+    let (stored, computed) = max_hp(&mut h);
+    assert_eq!(stored, Some(computed));
+    assert_ne!(stored, before);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(field(&mut h, &key).list("ClassList").unwrap().len(), 1);
+    assert_eq!(max_hp(&mut h).0, before);
+    // An alignment preset sets both axes.
+    h.get_by_value("Chaotic Neutral").click();
+    h.run();
+    h.get_by_label("Lawful Good").click();
+    h.run();
+    let s = field(&mut h, &key);
+    assert_eq!((s.integer("GoodEvil"), s.integer("LawfulChaotic")), (Some(100), Some(100)));
 }

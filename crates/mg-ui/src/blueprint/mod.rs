@@ -19,6 +19,7 @@ use crate::widgets::{
 };
 use crate::{Action, Moonglow, Tab};
 
+mod creature;
 mod door;
 mod encounter;
 mod inventory;
@@ -36,6 +37,7 @@ pub(crate) fn has_editor(t: ResType) -> bool {
     matches!(
         t,
         ResType::UTW
+            | ResType::UTC
             | ResType::UTI
             | ResType::UTS
             | ResType::UTT
@@ -57,6 +59,7 @@ pub fn pages(t: ResType) -> &'static [&'static str] {
         ResType::UTD => &door::PAGES,
         ResType::UTP => &placeable::PAGES,
         ResType::UTI => &item::PAGES,
+        ResType::UTC => &creature::PAGES,
         _ => &[""],
     }
 }
@@ -469,10 +472,11 @@ impl Form<'_> {
     }
 }
 
-/// After a command: values derived from what it changed (an item's cost),
-/// as part of it.
+/// After a command: values derived from what it changed (an item's cost, a
+/// creature's maximum hit points), as part of it.
 pub(crate) fn after_apply(app: &mut Moonglow, cmd: &Command) {
     item::refresh_costs(app, cmd);
+    creature::refresh_hit_points(app, cmd);
 }
 
 /// Renames a blueprint (its resource and `TemplateResRef`, a store's
@@ -547,6 +551,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ResType::UTD => door::page(&mut form, ui, page),
         ResType::UTP => placeable::page(&mut form, ui, page),
         ResType::UTI => item::page(&mut form, ui, page),
+        ResType::UTC => creature::page(&mut form, ui, page),
         _ => {}
     });
 }

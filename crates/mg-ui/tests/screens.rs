@@ -156,6 +156,11 @@ fn blueprint_editors() {
         ("nw_wswmls010", ResType::UTI, &["General", "Appearance", "Properties"][..]),
         ("nw_aarcl004", ResType::UTI, &["General", "Appearance"][..]),
         ("nw_maarcl002", ResType::UTI, &["Appearance"][..]),
+        (
+            "nw_bartender",
+            ResType::UTC,
+            &["Basic", "Statistics", "Appearance", "Classes", "Skills", "Advanced"][..],
+        ),
     ] {
         let mut app = Moonglow::new(
             Some(GameInstall::new(&root, None, "en")),
