@@ -57,6 +57,39 @@ impl GameInstall {
     fn user(&self, sub: &str) -> Option<PathBuf> {
         self.user_dir.as_ref().map(|u| u.join(sub))
     }
+
+    /// Where hak paks are, in the order the game searches: the user's
+    /// `hak/`, then the install's `data/hk/`.
+    pub fn hak_dirs(&self) -> Vec<PathBuf> {
+        self.user("hak").into_iter().chain([self.root.join("data").join("hk")]).collect()
+    }
+
+    /// Where custom talk tables are: the user's `tlk/`.
+    pub fn tlk_dirs(&self) -> Vec<PathBuf> {
+        self.user("tlk").into_iter().collect()
+    }
+
+    /// Where movies are: the user's `movies/`, then the install's.
+    pub fn movie_dirs(&self) -> Vec<PathBuf> {
+        self.user("movies").into_iter().chain([self.root.join("movies")]).collect()
+    }
+
+    /// The names (without extension, lower case) of the files with an
+    /// extension in some directories, sorted and without duplicates.
+    pub fn file_names(dirs: &[PathBuf], ext: &str) -> Vec<String> {
+        let mut out: Vec<String> = dirs
+            .iter()
+            .filter_map(|d| std::fs::read_dir(d).ok())
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext)))
+            .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().to_lowercase()))
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
 }
 
 fn candidate_roots() -> Vec<PathBuf> {

@@ -1682,6 +1682,7 @@ dependencies = [
  "mg-schema",
  "mg-script",
  "mg-testkit",
+ "mg-tlk",
  "serde",
 ]
 

@@ -125,6 +125,8 @@ fn multi_line_text_keeps_its_line_ends() {
     app.open_module(&path);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
+    h.get_by_label("Description").click();
+    h.run();
     // Shown with plain line breaks in a multi-line box.
     let is_input = |n: &egui_kittest::Node<'_>| {
         n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput
@@ -385,4 +387,61 @@ fn browse_view_and_copy_a_game_resource() {
     h.run();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
     assert!(h.state().dock.find_tab(&Tab::Gff(key)).is_some(), "the copy opens in its editor");
+}
+
+#[test]
+fn module_name_in_every_language_and_variables() {
+    let dir = mg_testkit::scratch_dir("ui-loc-vars");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let info = |app: &mut Moonglow| {
+        let ws = app.ws.as_mut().unwrap();
+        ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap().root.clone()
+    };
+
+    // String Edit: add a German name.
+    h.get_by_label("…").click();
+    h.run();
+    h.get_by_label("Add Text").click();
+    h.run();
+    let edit = h.state().loc_edit.clone().expect("String Edit is open");
+    assert_eq!(edit.entries.len(), 1, "the sample name is empty; one new entry");
+    {
+        let e = h.state_mut().loc_edit.as_mut().unwrap();
+        e.entries[0].0 = Language::GERMAN;
+        e.entries[0].2 = "Beispiel".into();
+        e.strref = "12".into();
+    }
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    let name: LocString = info(h.state_mut()).read(&ifo::MOD_NAME);
+    assert_eq!(name.get(Language::GERMAN, Gender::Male), Some(&b"Beispiel"[..]));
+    assert_eq!(name.strref.0, 12);
+
+    // Variables on the Advanced tab.
+    h.get_by_label("Advanced").click();
+    h.run();
+    h.get_by_label("Variables (0)…").click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    {
+        let v = h.state_mut().var_edit.as_mut().unwrap();
+        v.rows[0].name = "nLevel".into();
+        v.rows[0].value = "7".into();
+    }
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    let vars = info(h.state_mut()).items(&ifo::VAR_TABLE).to_vec();
+    assert_eq!(vars.len(), 1);
+    assert_eq!(vars[0].get("Value"), Some(&mg_gff::Value::Int(7)));
+    // Each window's OK is one undoable step.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert!(info(h.state_mut()).items(&ifo::VAR_TABLE).is_empty());
 }

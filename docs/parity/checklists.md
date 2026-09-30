@@ -1,0 +1,70 @@
+# Parity checklists
+
+Aurora's dialogs (from `aurora-ui-inventory.md`) against Moonglow, control by
+control. ✅ done and tested, ◐ partly, ✗ not yet, — deliberately different
+(with the reason). Tests named in brackets are in `crates/mg-ui/tests/app.rs`
+unless given otherwise.
+
+## Module Properties (`TfrmIFOProp`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Basic: Name (primary language) + `…` all languages | Name field + `…` String Edit | ✅ [module_name_in_every_language_and_variables] |
+| Basic: Tag | Tag field | ✅ [edit_undo_save_reopen] |
+| Basic: Start Area, X/Y/Z (read-only; set by painting the start location) | read-only | ✅ (start location placement: Phase 9) |
+| Events: 21 module events with script picker `…` and Edit; OnModuleStart hidden | same order and labels, picker, Edit opens the script (module) or its read-only view (game); OnModuleStart shown only when set | ✅ |
+| Advanced: start month/day/hour/year, minutes per hour, dawn/dusk hour | same, ranges 1–12, 1–31, 0–23, 0–30000, 1–240, 0–23 | ✅ (Aurora's dawn/dusk spin allows −99…99 in a byte field; Moonglow keeps 0–23) |
+| Advanced: XP scale slider + number (0–200) | slider with number | ✅ |
+| Advanced: Starting Movie (movies/*.bik) | list of `.bik` in the user's and the install's `movies/` | ✅ |
+| Advanced: Variables `…` | Variables window | ✅ [module_name_in_every_language_and_variables] |
+| Description: memo + `…` all languages | multi-line field (line ends kept) + `…` | ✅ [multi_line_text_keeps_its_line_ends] |
+| Custom Content: hak list, Add (from hak folders), Remove, Move Up, Move Down | same; changes apply when the module is reopened | ✅ |
+| Custom Content: Check for Conflicts… (TdlgHakPak) | report window (the text of `mg haks`) | ◐ report text only; Aurora's dialog lists conflicts in a grid |
+| Custom Content: Custom Tlk File (tlk folder) | list of `.tlk` in the user's `tlk/`; the chosen table is loaded for StrRef lookups | ✅ |
+| OK / Cancel | every change is applied at once and undoable | — Moonglow edits live with undo instead of a modal OK |
+
+## String Edit (`TdlgLocString`, `TdlgNewEditStringExternal`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Grid of entries (language × gender) | one row per entry: language, gender, text | ✅ |
+| String Ref (TLK) | String Ref field, the talk table's text shown (custom TLK included) | ✅ |
+| Edit / Reset / Apply per entry | edit in place, Remove, Add Text | ✅ |
+| Line ends | CRLF kept where the text had it | ✅ [widgets::tests] |
+
+## Variables (`TdlgVarTable`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| List Name / Type / Value; Add, Replace, Delete | editable rows, Add, Delete | ✅ |
+| Types int, float, string | same, values checked before OK | ✅ [widgets::tests] |
+| Unknown fields (a `Comment` some shipped variables have) | kept | ✅ [widgets::tests] |
+
+## Select Resource (`TdlgResOpen`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| List of resources of a type from the module and the game, filter | same, with None to clear | ✅ |
+
+## Module and Area wizards (`TdlgModuleWizard`, `TdlgAreaWizard`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Module name, then areas, then finish | New Module (name), then the Area Wizard | ✅ [new_module_and_area_through_the_wizards] |
+| Area name, tileset list sorted by name, size presets Tiny/Small/Medium/Large and 2–32 per side | same | ✅ |
+| Launch Area Properties / Open in Area Viewer | not yet (area properties and viewer: Phases 7 and 9) | ✗ |
+| Files written (module.ifo, repute.fac, palettes, ARE/GIT/GIC) | identical apart from Aurora's random choices | ✅ (`mg-corpus-tests/tests/aurora_new.rs`, engine: `engine_new_module.rs`) |
+
+## Import / Export (`TdlgImportExport`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Export chosen resources (+ dependencies) to `.erf` | Export Resources window | ✅ [export_then_import_into_another_module] |
+| Import `.erf`, ask about overwriting | Import Resources window with overwrite choices, one undoable step | ✅ |
+
+## Options (`TdlgOptions`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Game and user folders | Tools > Options | ✅ [options_choose_the_game_folder] |
+| Script editor, area viewer, graphics options | not yet | ✗ |

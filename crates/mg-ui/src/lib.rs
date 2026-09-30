@@ -7,7 +7,7 @@
 mod browser;
 pub mod dialogs;
 mod gff_view;
-mod module_props;
+pub mod module_props;
 mod options;
 mod script_view;
 pub mod settings;
@@ -15,6 +15,7 @@ mod tabs;
 mod text;
 mod transfer;
 mod tree;
+pub mod widgets;
 pub mod wizards;
 
 use std::collections::HashMap;
@@ -51,6 +52,8 @@ pub enum Action {
     Export(ExportDraft),
     ImportDialog,
     Import(ImportDraft),
+    /// Reports the module's haks' conflicts.
+    HakReport,
     OptionsDialog,
     /// Uses these folders for the game and the user directory (reloading the
     /// game data; closes the module).
@@ -119,6 +122,16 @@ pub struct Moonglow {
     pub options: Option<OptionsDraft>,
     pub export: Option<ExportDraft>,
     pub browser: Browser,
+    pub loc_edit: Option<widgets::LocStringEdit>,
+    pub module_page: module_props::Page,
+    /// The hak conflict report being shown.
+    pub hak_report: Option<String>,
+    /// The custom talk table loaded into the game data, by name.
+    custom_tlk: Option<String>,
+    pub var_edit: Option<widgets::VarTableEdit>,
+    pub picker: Option<widgets::Picker>,
+    /// Resources chosen in the picker, by the field that asked.
+    pub(crate) picked: HashMap<egui::Id, mg_core::ResRef>,
     /// Resources open in read-only viewers, parsed once.
     pub(crate) viewed: HashMap<ResKey, std::sync::Arc<browser::Viewed>>,
     pub import: Option<ImportDraft>,
@@ -157,6 +170,13 @@ impl Moonglow {
             options: None,
             export: None,
             browser: Browser::new(),
+            loc_edit: None,
+            module_page: module_props::Page::default(),
+            hak_report: None,
+            custom_tlk: None,
+            var_edit: None,
+            picker: None,
+            picked: HashMap::new(),
             viewed: HashMap::new(),
             import: None,
             confirm_discard: None,
@@ -217,6 +237,19 @@ impl Moonglow {
         wizards::ui(self, ui);
         options::ui(self, ui);
         transfer::ui(self, ui);
+        widgets::ui(self, ui);
+        if let Some(report) = &self.hak_report {
+            let mut open = true;
+            egui::Window::new("Hak Pak Conflict Analysis")
+                .open(&mut open)
+                .default_size([600.0, 400.0])
+                .show(ui.ctx(), |ui| {
+                    egui::ScrollArea::both().show(ui, |ui| ui.monospace(report));
+                });
+            if !open {
+                self.hak_report = None;
+            }
+        }
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
@@ -451,6 +484,8 @@ impl Moonglow {
         }
         self.ws = Some(Workspace::new(m));
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
+        self.custom_tlk = None;
+        self.load_custom_tlk();
         self.load_order_changed();
     }
 
@@ -459,6 +494,53 @@ impl Moonglow {
     fn load_order_changed(&mut self) {
         self.browser.stale = true;
         self.viewed.clear();
+    }
+
+    /// Loads the module's custom talk table (from its haks or the user's
+    /// `tlk/` folder) when the module names another one than is loaded.
+    fn load_custom_tlk(&mut self) {
+        let (Some(ws), Some(game)) = (&self.ws, &mut self.game) else { return };
+        let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
+        if name == self.custom_tlk {
+            return;
+        }
+        self.custom_tlk = name.clone();
+        let Some(name) = name else {
+            game.set_custom_tlk(None);
+            return;
+        };
+        let data =
+            game.resman.get_named(&name, ResType::TLK).map(|d| d.into_owned()).ok().or_else(|| {
+                let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
+                dirs.iter().find_map(|d| std::fs::read(d.join(format!("{name}.tlk"))).ok())
+            });
+        match data.map(|d| mg_tlk::Tlk::read(&d)) {
+            Some(Ok(tlk)) => {
+                game.set_custom_tlk(Some(tlk));
+                self.log.info(format!("Custom talk table {name} loaded"));
+            }
+            Some(Err(e)) => {
+                game.set_custom_tlk(None);
+                self.log.error(format!("Custom talk table {name}: {e}"));
+            }
+            None => {
+                game.set_custom_tlk(None);
+                self.log.warn(format!("Custom talk table {name} not found"));
+            }
+        }
+        game.invalidate();
+    }
+
+    fn hak_report(&mut self) {
+        let (Some(ws), Some(install)) = (&self.ws, &self.install) else { return };
+        let haks = ws.module.haks().unwrap_or_default();
+        match mg_module::haks::hak_report(install, &haks) {
+            Ok(r) => {
+                self.log.info(format!("{} conflicting hak resources", r.conflicts().count()));
+                self.hak_report = Some(r.to_text());
+            }
+            Err(e) => self.log.error(format!("Hak report failed: {e}")),
+        }
     }
 
     /// Whether closing the module now would lose work: unsaved edits, or a
@@ -619,6 +701,7 @@ impl Moonglow {
             Action::Export(draft) => self.run_export(draft),
             Action::ImportDialog => self.open_import(),
             Action::Import(draft) => self.run_import(draft),
+            Action::HakReport => self.hak_report(),
             Action::OptionsDialog => {
                 self.options = Some(OptionsDraft::from_settings(&self.settings))
             }
@@ -661,8 +744,12 @@ impl Moonglow {
             }
             Action::Apply(cmd) => {
                 let Some(ws) = &mut self.ws else { return };
+                let custom_tlk = cmd.edits.iter().any(|e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"));
                 if let Err(e) = ws.apply(cmd) {
                     self.log.error(e.to_string());
+                }
+                if custom_tlk && ws.flush().is_ok() {
+                    self.load_custom_tlk();
                 }
             }
             Action::OpenTab(tab) => {
