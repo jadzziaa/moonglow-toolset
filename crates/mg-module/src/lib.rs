@@ -8,6 +8,7 @@
 //! one is kept as a single backup.
 
 pub mod build;
+pub mod dialog;
 pub mod factions;
 pub mod haks;
 pub mod journal;
