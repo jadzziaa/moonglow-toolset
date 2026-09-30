@@ -222,3 +222,21 @@ scripts (name, picker, Edit), Comments.
 | Sound Wizard's sound list filtered by category (`al_`/`as_` and a category name filter) | the picker opens filtered to `al_` or `as_` | ◐ |
 | Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | not yet: it needs the Levelup Wizard's package logic and the CR calculation | ✗ |
 | Item Wizard's Magical, Item Level and Quality (disabled in Aurora) | not offered | — |
+
+## Area viewer (`TfrmViewerArea`, the main frame's Object Filters and Preview toolbars)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Every area opens and draws: tiles (heights, turns, main and source lights, animation loops, day and night animations), placed creatures, doors, items and placeables | `mg_area` model and scene | ✅ (`areas.rs`: all 1462 shipped areas open and render; the only objects without models are the data's own) |
+| Object Filters: Show Creatures … Waypoints, Start Location, Show All, Show None | toggles in the view's toolbar (per view, not per frame) | ✅ [area_viewer_selects_moves_and_deletes] |
+| Preview: Fog, Use Area Lighting; day or night | Fog, Night; the area's lighting always | ◐ fog start is not measured yet (a linear guess) |
+| Display Grid | Grid (tile outlines at each tile's height) | ✅ |
+| Reorient Camera, Go to Start Location | the same | ✅ |
+| Camera: pad buttons and keys to pan, rotate, pitch, zoom | middle drag orbits (Shift: pans), the wheel zooms, arrow keys pan | ◐ no pad; Aurora's exact mouse bindings not checked |
+| Select (click; Ctrl adds), move by dragging, rotate | click, Ctrl + click, drag moves over the ground at the object's height, Shift + drag turns; each one undoable command writing only the fields that change | ✅ |
+| Delete (key and context menu) | the same | ✅ |
+| Waypoints, sounds, merchants: shown as models | markers (boxes) | ◐ |
+| Triggers and encounters: coloured outlines | outlines (encounters orange, the others green) | ◐ trigger colours by type not yet |
+| Moving an encounter moves its spawn points | they move with it | ? not checked against Aurora |
+| Objects stand on the walkmesh | they keep their height | ✗ walkmeshes not read yet |
+| Placing from the palette, Properties, Adjust Location, the rest of the context menu | not yet | ✗ |

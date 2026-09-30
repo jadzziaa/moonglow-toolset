@@ -6,8 +6,8 @@ use mg_core::ResType;
 use mg_resman::ResKey;
 
 use crate::{
-    Action, Moonglow, browser, dialog_view, faction_view, gff_view, journal_view, model_view,
-    module_props, script_view,
+    Action, Moonglow, area_view, browser, dialog_view, faction_view, gff_view, journal_view,
+    model_view, module_props, script_view,
 };
 
 /// A tab in the central area.
@@ -37,6 +37,8 @@ pub enum Tab {
     Palette,
     /// A blueprint in its Properties editor.
     Blueprint(ResKey),
+    /// An area, in the area viewer.
+    Area(mg_core::ResRef),
 }
 
 impl Tab {
@@ -44,6 +46,7 @@ impl Tab {
     pub fn for_resource(key: ResKey) -> Option<Tab> {
         match key.restype {
             ResType::NSS => Some(Tab::Script(key)),
+            ResType::ARE => Some(Tab::Area(key.resref)),
             ResType::IFO => Some(Tab::ModuleProperties),
             ResType::FAC => Some(Tab::Factions),
             ResType::JRL => Some(Tab::Journal),
@@ -84,6 +87,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Dialog(k) => k.to_string().into(),
             Tab::Resource(k) => format!("{k} (read-only)").into(),
             Tab::Model(k) => k.to_string().into(),
+            Tab::Area(r) => r.to_string().into(),
         }
     }
 
@@ -101,6 +105,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
             Tab::Model(k) => model_view::ui(self.app, ui, *k),
+            Tab::Area(r) => area_view::ui(self.app, ui, *r),
         }
     }
 

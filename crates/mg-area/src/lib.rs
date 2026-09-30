@@ -24,6 +24,8 @@ use mg_resman::ResKey;
 use mg_rules::GameData;
 use mg_set::Tileset;
 
+pub mod edit;
+pub mod pick;
 mod scene;
 
 pub use scene::{AreaScene, View, overview};
@@ -112,6 +114,26 @@ impl ObjectKind {
         ObjectKind::Trigger,
         ObjectKind::Waypoint,
     ];
+
+    /// Its position in [`ObjectKind::ALL`].
+    pub fn index(self) -> usize {
+        self as usize
+    }
+
+    /// What the toolset calls it (plural, as in its filters).
+    pub fn plural(self) -> &'static str {
+        match self {
+            ObjectKind::Creature => "Creatures",
+            ObjectKind::Door => "Doors",
+            ObjectKind::Encounter => "Encounters",
+            ObjectKind::Item => "Items",
+            ObjectKind::Placeable => "Placeables",
+            ObjectKind::Sound => "Sounds",
+            ObjectKind::Store => "Merchants",
+            ObjectKind::Trigger => "Triggers",
+            ObjectKind::Waypoint => "Waypoints",
+        }
+    }
 
     /// Its blueprint type.
     pub fn restype(self) -> ResType {

@@ -1570,6 +1570,7 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "mg-core",
+ "mg-edit",
  "mg-gff",
  "mg-mdl",
  "mg-module",
@@ -1826,6 +1827,7 @@ dependencies = [
  "fastrand",
  "glam",
  "mg-2da",
+ "mg-area",
  "mg-core",
  "mg-edit",
  "mg-erf",
@@ -1838,6 +1840,7 @@ dependencies = [
  "mg-rules",
  "mg-schema",
  "mg-script",
+ "mg-set",
  "mg-testkit",
  "mg-tlk",
  "serde",

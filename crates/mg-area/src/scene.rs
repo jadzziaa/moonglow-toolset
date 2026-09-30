@@ -19,7 +19,7 @@ use mg_render::scene::{AreaLight, Fog, Instance, PointLight, Scene};
 use mg_render::{Gpu, GpuModel};
 use mg_rules::GameData;
 
-use crate::{AreaModel, AreaTile, Lighting, TILE_SIZE};
+use crate::{AreaModel, AreaTile, Lighting, ObjectKind, TILE_SIZE};
 
 /// How to show the area.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -28,12 +28,18 @@ pub struct View {
     pub time: f32,
     pub night: bool,
     pub fog: bool,
+    /// Which kinds of object are drawn, by [`ObjectKind::index`].
+    pub show: [bool; 9],
 }
 
 impl View {
     /// The area as the toolset first shows it.
     pub fn of(area: &AreaModel) -> View {
-        View { time: 0.0, night: area.lighting.night_by_default(), fog: true }
+        View { time: 0.0, night: area.lighting.night_by_default(), fog: true, show: [true; 9] }
+    }
+
+    pub fn shows(&self, kind: ObjectKind) -> bool {
+        self.show[kind.index()]
     }
 }
 
@@ -53,14 +59,26 @@ impl Loaded {
     }
 }
 
-/// An area's models, loaded.
+/// An object's models and their bounds (rest pose, the object's own
+/// space).
 #[derive(Debug)]
+struct Shown {
+    composed: Composed,
+    bounds: (Vec3, Vec3),
+}
+
+/// An area's models, loaded. Models are kept by name (tiles) and by
+/// preview (objects), so that updating the scene after an edit loads only
+/// what is new.
+#[derive(Debug, Default)]
 pub struct AreaScene {
     /// By tile index.
     tiles: Vec<Option<Arc<Loaded>>>,
     /// By object (as in [`AreaModel::objects`]).
-    objects: Vec<Option<Arc<Composed>>>,
-    flame: Option<Loaded>,
+    objects: Vec<Option<Arc<Shown>>>,
+    tile_cache: HashMap<String, Option<Arc<Loaded>>>,
+    object_cache: HashMap<String, Option<Arc<Shown>>>,
+    flame: Option<Option<Loaded>>,
     sky: Option<Arc<GpuModel>>,
     /// lightcolor.2da colours by row.
     colors: Vec<Vec3>,
@@ -95,6 +113,20 @@ impl Models<'_> {
 impl AreaScene {
     /// Loads the models of `area`'s tiles and objects.
     pub fn new(gpu: &Gpu, game: &GameData, area: &AreaModel) -> AreaScene {
+        let mut scene = AreaScene { colors: light_colors(game), ..Default::default() };
+        scene.update(gpu, game, area);
+        let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        scene.sky = area
+            .lighting
+            .sky_model(game, false)
+            .and_then(|m| models.load(&m))
+            .map(|m| Arc::new(GpuModel::new(gpu, m)));
+        scene
+    }
+
+    /// Follows `area` after an edit: loads the models of tiles and objects
+    /// not seen before.
+    pub fn update(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel) {
         let models = Models { game, cache: RefCell::new(HashMap::new()) };
         let load = |name: &str| models.load(name);
         let loaded = |name: &str| -> Option<Loaded> {
@@ -103,13 +135,13 @@ impl AreaScene {
             Some(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims })
         };
         let mut missing = Vec::new();
-        let mut tile_models: HashMap<String, Option<Arc<Loaded>>> = HashMap::new();
-        let tiles = area
+        let tile_cache = &mut self.tile_cache;
+        self.tiles = area
             .tiles
             .iter()
             .map(|t| {
                 let name = t.model.as_ref()?;
-                tile_models
+                tile_cache
                     .entry(name.clone())
                     .or_insert_with(|| {
                         let l = loaded(name).map(Arc::new);
@@ -122,13 +154,13 @@ impl AreaScene {
             })
             .collect();
         // Objects that look the same share their models.
-        let mut composed: HashMap<String, Option<Arc<Composed>>> = HashMap::new();
-        let objects = area
+        let object_cache = &mut self.object_cache;
+        self.objects = area
             .objects
             .iter()
             .map(|o| {
                 let p = o.preview.as_ref()?;
-                composed
+                object_cache
                     .entry(format!("{p:?}"))
                     .or_insert_with(|| {
                         let c = Composed::new(gpu, p, &load);
@@ -136,25 +168,30 @@ impl AreaScene {
                             Some(c) => missing.extend(c.missing.iter().cloned()),
                             None => missing.push(p.base.model.clone()),
                         }
-                        c.map(Arc::new)
+                        c.map(|composed| {
+                            let bounds = composed.bounds();
+                            Arc::new(Shown { composed, bounds })
+                        })
                     })
                     .clone()
             })
             .collect();
-        missing.sort();
-        missing.dedup();
-        let flame = area
-            .tiles
-            .iter()
-            .any(|t| t.source_lights.iter().any(|&s| s > 0))
-            .then(|| loaded("fx_flame01"))
-            .flatten();
-        let sky = area
-            .lighting
-            .sky_model(game, false)
-            .and_then(|m| load(&m))
-            .map(|m| Arc::new(GpuModel::new(gpu, m)));
-        AreaScene { tiles, objects, flame, sky, colors: light_colors(game), missing }
+        let needs_flame = area.tiles.iter().any(|t| t.source_lights.iter().any(|&s| s > 0));
+        if needs_flame && self.flame.is_none() {
+            self.flame = Some(loaded("fx_flame01"));
+        }
+        self.missing.extend(missing);
+        self.missing.sort();
+        self.missing.dedup();
+    }
+
+    /// Object `i`'s box in its own space: its models' (rest pose), or a
+    /// marker's.
+    pub fn bounds(&self, area: &AreaModel, i: usize) -> (Vec3, Vec3) {
+        match self.objects.get(i) {
+            Some(Some(s)) => s.bounds,
+            _ => crate::pick::marker_bounds(area.objects[i].kind),
+        }
     }
 
     /// The scene of `area` (the model these models were loaded for) as
@@ -166,8 +203,9 @@ impl AreaScene {
             let Some(loaded) = loaded else { continue };
             self.tile(tile, loaded, view, &mut instances, &mut lights);
         }
-        for (o, c) in area.objects.iter().zip(&self.objects) {
-            let Some(c) = c else { continue };
+        for (o, shown) in area.objects.iter().zip(&self.objects) {
+            let Some(shown) = shown.as_ref().filter(|_| view.shows(o.kind)) else { continue };
+            let c = &shown.composed;
             let transform = o.transform();
             instances.extend(c.instances(c.idle.as_deref(), view.time, transform));
             lights.extend(c.point_lights(transform));
@@ -214,7 +252,7 @@ impl AreaScene {
             color(tile.main_lights[slot.min(1)])
         }));
         // Source lights: the flame at the tile's `sl1`/`sl2` node.
-        if let Some(flame) = &self.flame {
+        if let Some(Some(flame)) = &self.flame {
             for (slot, &value) in tile.source_lights.iter().enumerate() {
                 if value == 0 {
                     continue;
@@ -258,10 +296,9 @@ impl AreaScene {
         self.sky.is_some()
     }
 
-    /// How many distinct models the objects use.
+    /// How many distinct looks the objects have (each loaded once).
     pub fn object_models(&self) -> usize {
-        let mut seen: Vec<*const Composed> =
-            self.objects.iter().flatten().map(Arc::as_ptr).collect();
+        let mut seen: Vec<*const Shown> = self.objects.iter().flatten().map(Arc::as_ptr).collect();
         seen.sort();
         seen.dedup();
         seen.len()

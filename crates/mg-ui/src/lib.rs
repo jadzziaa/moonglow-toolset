@@ -4,6 +4,7 @@
 //! the module directly: they queue [`Action`]s, which run after the frame and
 //! turn edits into undoable [`mg_edit::Command`]s.
 
+pub mod area_view;
 pub mod blueprint;
 pub mod blueprint_wizard;
 mod browser;
@@ -157,6 +158,8 @@ pub struct Moonglow {
     /// The GPU for 3D views (from the window), if there is one.
     pub viewport: Option<model_view::Viewport3d>,
     pub model_views: HashMap<ResKey, model_view::ModelView>,
+    /// Open area viewers, by area.
+    pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
     /// The blueprint palettes pane.
     pub palette: palette_view::PaletteView,
     /// The hak conflict report being shown.
@@ -220,6 +223,7 @@ impl Moonglow {
             script_wizard: None,
             viewport: None,
             model_views: HashMap::new(),
+            area_views: HashMap::new(),
             palette: Default::default(),
             hak_report: None,
             custom_tlk: None,

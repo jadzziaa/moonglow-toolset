@@ -114,7 +114,9 @@ fn resources_open_in_their_editors() {
     let area = ResKey::parse("start", ResType::ARE).unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::for_resource(area).unwrap()));
     h.run();
-    h.get_by_label("start.are");
+    // The area viewer, with its object filters.
+    assert!(h.state().dock.find_tab(&Tab::Area(area.resref)).is_some());
+    h.get_by_label("Placeables");
 }
 
 #[test]
@@ -1623,4 +1625,132 @@ fn item_wizard_makes_a_weapon_with_its_cost() {
     assert_eq!(made.root.integer("BaseItem"), Some(3));
     assert_eq!(made.root.integer("Cost"), Some(70));
     assert_eq!(made.root.integer("PaletteID"), Some(33));
+}
+
+/// A module with a 4 by 4 rural area holding two waypoints, at (20, 20)
+/// and (30, 20), with the game's data and a GPU (`None` without either).
+fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    use mg_module::instances::{Placement, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let root = mg_testkit::nwn_root()?;
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return None;
+    }
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Area View", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bp = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let bp = Gff::read(&bp).unwrap();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let waypoints = [20.0, 30.0]
+        .map(|x| {
+            let at = Placement { position: [x, 20.0, 0.0], facing: 0.3 };
+            instance(ResType::UTW, &bp.root, at, &[]).unwrap()
+        })
+        .to_vec();
+    git.root.set("WaypointList", mg_gff::Value::List(waypoints));
+    m.set_gff(git_key, &git).unwrap();
+    let path = mg_testkit::scratch_dir(&format!("ui-area-{name}")).join("area.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    Some((h, area))
+}
+
+/// A waypoint's position in the workspace's GIT.
+fn waypoint(h: &mut Harness<'_, Moonglow>, area: ResRef, index: usize) -> Option<(f32, f32, u32)> {
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    let w = git.root.list("WaypointList")?.get(index)?;
+    Some((w.float("XPosition")?, w.float("YPosition")?, w.float("XOrientation")?.to_bits()))
+}
+
+fn screen(h: &Harness<'_, Moonglow>, area: ResRef, p: glam::Vec3) -> egui::Pos2 {
+    h.state().area_views[&area].screen_pos(p).expect("in view")
+}
+
+fn press(h: &Harness<'_, Moonglow>, pos: egui::Pos2, pressed: bool, modifiers: egui::Modifiers) {
+    let button = egui::PointerButton::Primary;
+    h.event_modifiers(egui::Event::PointerButton { pos, button, pressed, modifiers }, modifiers);
+}
+
+#[test]
+fn area_viewer_selects_moves_and_deletes() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("move") else { return };
+    let view = &h.state().area_views[&area];
+    let model = view.model.as_ref().expect("the area is read");
+    assert_eq!((model.width, model.height, model.objects.len()), (4, 4, 2));
+    assert!(model.problems.is_empty(), "{:?}", model.problems);
+    let (x0, y0, turn) = waypoint(&mut h, area, 0).unwrap();
+
+    // A click on the first waypoint's marker selects it.
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(on);
+    press(&h, on, true, egui::Modifiers::NONE);
+    press(&h, on, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+
+    // Dragged 5 m east (by its feet: the ground under the pointer moves it):
+    // one command moves it, its orientation untouched.
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    let to = screen(&h, area, Vec3::new(25.0, 20.0, 0.02));
+    press(&h, on, true, egui::Modifiers::NONE);
+    for k in 1..=4 {
+        h.hover_at(on + (to - on) * (k as f32 / 4.0));
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let (x, y, t) = waypoint(&mut h, area, 0).unwrap();
+    assert!((x - 25.0).abs() < 0.05 && (y - y0).abs() < 0.05, "moved to {x}, {y}");
+    assert_eq!(t, turn, "the orientation is not rewritten");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(waypoint(&mut h, area, 0).map(|w| (w.0, w.1)), Some((x0, y0)));
+
+    // Ctrl + click adds the second; Delete deletes both.
+    let second = screen(&h, area, Vec3::new(30.0, 20.0, 0.9));
+    h.hover_at(second);
+    press(&h, second, true, egui::Modifiers::COMMAND);
+    press(&h, second, false, egui::Modifiers::COMMAND);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].selection.len(), 2);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert_eq!(waypoint(&mut h, area, 0), None, "both deleted");
+    assert!(h.state().area_views[&area].selection.is_empty());
+    // Undo brings them back; the second stays selectable.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(waypoint(&mut h, area, 1).is_some());
+    h.hover_at(second);
+    press(&h, second, true, egui::Modifiers::NONE);
+    press(&h, second, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-move").join("area_view.png")).unwrap();
 }
