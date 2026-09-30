@@ -6,6 +6,7 @@ pub mod anim;
 pub mod assets;
 mod gpu;
 pub mod model;
+pub mod particles;
 mod renderer;
 pub mod scene;
 pub mod texture;

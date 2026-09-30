@@ -13,6 +13,7 @@ use mg_image::txi::Blending;
 use crate::Gpu;
 use crate::assets::Assets;
 use crate::model::{SkinVertex, Vertex};
+use crate::particles::{ParticleBlend, ParticleVertex};
 use crate::scene::{Camera, Scene};
 use crate::texture::GpuTexture;
 
@@ -104,6 +105,9 @@ pub struct Renderer {
     draw_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     pipelines: HashMap<(Pass, bool), wgpu::RenderPipeline>,
+    particle_frame_layout: wgpu::BindGroupLayout,
+    particle_pipelines: HashMap<ParticleBlend, wgpu::RenderPipeline>,
+    particle_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
     bone_buffer: wgpu::Buffer,
@@ -252,6 +256,74 @@ impl Renderer {
             });
             pipelines.insert((pass, skinned), pipeline);
         }
+        // Particles.
+        let particle_frame_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("particle frame"),
+                entries: &[uniform(0, false)],
+            });
+        let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("particles"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("particle.wgsl").into()),
+        });
+        let particle_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("particles"),
+            bind_group_layouts: &[Some(&particle_frame_layout), Some(&material_layout)],
+            immediate_size: 0,
+        });
+        let mut particle_pipelines = HashMap::new();
+        for blend in [ParticleBlend::Normal, ParticleBlend::Lighten, ParticleBlend::PunchThrough] {
+            let (entry, state, depth_write) = match blend {
+                ParticleBlend::Normal => {
+                    ("fs_blend", Some(wgpu::BlendState::ALPHA_BLENDING), false)
+                }
+                ParticleBlend::PunchThrough => ("fs_punch", None, true),
+                ParticleBlend::Lighten => (
+                    "fs_add",
+                    Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent::OVER,
+                    }),
+                    false,
+                ),
+            };
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("particles"),
+                layout: Some(&particle_layout),
+                vertex: wgpu::VertexState {
+                    module: &particle_shader,
+                    entry_point: Some("vs_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(ParticleVertex::LAYOUT)],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(depth_write),
+                    depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
+                fragment: Some(wgpu::FragmentState {
+                    module: &particle_shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: color_format,
+                        blend: state,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            });
+            particle_pipelines.insert(blend, pipeline);
+        }
         let buffer = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -278,6 +350,9 @@ impl Renderer {
             draw_layout,
             material_layout,
             pipelines,
+            particle_frame_layout,
+            particle_pipelines,
+            particle_buffer: buffer("particles", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer: buffer(
                 "frame",
                 std::mem::size_of::<FrameUniform>() as u64,
@@ -613,6 +688,80 @@ impl Renderer {
             self.materials.insert(d.material.clone(), group);
         }
 
+        // Particles: punch-through, then blended by render order, then
+        // additive; their textures bind like meshes'.
+        let mut batches: Vec<&crate::particles::ParticleBatch> =
+            scene.particles.iter().filter(|b| !b.vertices.is_empty()).collect();
+        batches.sort_by_key(|b| {
+            let rank = match b.blend {
+                ParticleBlend::PunchThrough => 0,
+                ParticleBlend::Normal => 1,
+                ParticleBlend::Lighten => 2,
+            };
+            (rank, b.render_order)
+        });
+        let mut particle_vertices: Vec<ParticleVertex> = Vec::new();
+        let mut particle_draws = Vec::new();
+        for b in &batches {
+            let key: MaterialKey = (b.texture.clone(), "chrome1".into(), (false, false));
+            if !self.materials.contains_key(&key) {
+                let tex = b.texture.as_deref().and_then(|t| self.texture(gpu, assets, t));
+                let sampler = self.sampler(gpu, (false, false));
+                let white = self.white.clone();
+                let view = tex.as_ref().map_or(&white.view, |t| &t.gpu.view);
+                let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("particle material"),
+                    layout: &self.material_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&white.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&self.env_sampler),
+                        },
+                    ],
+                });
+                self.materials.insert(key.clone(), group);
+            }
+            let start = particle_vertices.len() as u32;
+            particle_vertices.extend_from_slice(&b.vertices);
+            particle_draws.push((b.blend, key, start..particle_vertices.len() as u32));
+        }
+        let particle_bytes = std::mem::size_of_val(particle_vertices.as_slice());
+        if (self.particle_buffer.size() as usize) < particle_bytes {
+            self.particle_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("particles"),
+                size: particle_bytes.next_power_of_two() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if particle_bytes > 0 {
+            gpu.queue.write_buffer(
+                &self.particle_buffer,
+                0,
+                bytemuck::cast_slice(&particle_vertices),
+            );
+        }
+        let particle_frame = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("particle frame"),
+            layout: &self.particle_frame_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: self.frame_buffer.as_entire_binding(),
+            }],
+        });
+
         let bg = scene.background;
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         {
@@ -658,6 +807,15 @@ impl Renderer {
                 pass.set_vertex_buffer(0, d.vertices.slice(..));
                 pass.set_index_buffer(d.indices.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..d.count, 0, 0..1);
+            }
+            if !particle_draws.is_empty() {
+                pass.set_bind_group(0, &particle_frame, &[]);
+                pass.set_vertex_buffer(0, self.particle_buffer.slice(..));
+                for (blend, key, range) in &particle_draws {
+                    pass.set_pipeline(&self.particle_pipelines[blend]);
+                    pass.set_bind_group(1, &self.materials[key], &[]);
+                    pass.draw(range.clone(), 0..1);
+                }
             }
         }
         gpu.queue.submit([encoder.finish()]);

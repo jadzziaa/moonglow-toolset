@@ -276,3 +276,42 @@ fn animated_models_render() {
         assert!(changed > 1000, "{name}: {anim} looks like the rest pose");
     }
 }
+
+/// Emitters: a brazier's fire and smoke after three seconds of simulation.
+#[test]
+fn emitters_render() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let Some(gpu) = gpu() else { return };
+    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let dir = mg_testkit::scratch_dir("render-particles");
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    for name in ["plc_i05"] {
+        let Ok(data) = rm.get_named(name, mg_core::ResType::MDL) else { continue };
+        let model = Arc::new(Model::read(&data).unwrap());
+        let gm = Arc::new(GpuModel::new(&gpu, model.clone()));
+        let mut camera = framing(&gm);
+        camera.eye = camera.target + (camera.eye - camera.target) * 1.6;
+        let mut p = mg_render::particles::Particles::new(&model);
+        for _ in 0..30 {
+            p.update(&model, None, 0.0, 0.1, &gm.rest, Mat4::IDENTITY);
+        }
+        let batches = p.batches(&model, None, 0.0, &gm.rest, Mat4::IDENTITY, camera.view());
+        let quads: usize = batches.iter().map(|b| b.vertices.len() / 6).sum();
+        let scene = |particles| Scene {
+            instances: vec![Instance { model: gm.clone(), transform: Mat4::IDENTITY, pose: None }],
+            area: AreaLight::default(),
+            background: [0.1, 0.1, 0.12],
+            particles,
+            ..Default::default()
+        };
+        let without = r.render_image(&gpu, &rm, &scene(Vec::new()), &camera, 320, 320);
+        let with = r.render_image(&gpu, &rm, &scene(batches), &camera, 320, 320);
+        save(&with, &dir.join(format!("{name}.png")));
+        let changed = without.data.iter().zip(&with.data).filter(|(a, b)| a != b).count();
+        eprintln!("{name}: {quads} particles, {changed} bytes changed");
+        assert!(quads > 0 && changed > 500, "{name}: no visible particles");
+    }
+}

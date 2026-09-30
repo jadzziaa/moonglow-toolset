@@ -10,6 +10,7 @@ use glam::{Mat4, Vec3};
 use mg_core::ResType;
 use mg_mdl::Model;
 use mg_render::anim;
+use mg_render::particles::Particles;
 use mg_render::{AreaLight, Camera, Gpu, GpuModel, Instance, Renderer, Scene, Targets};
 use mg_resman::ResKey;
 
@@ -47,6 +48,8 @@ pub struct ModelView {
     supermodels: RefCell<HashMap<String, Option<Arc<Model>>>>,
     pub animation: Option<String>,
     pub playing: bool,
+    /// Light the model with its own light nodes.
+    pub model_lights: bool,
     pub time: f32,
     pub yaw: f32,
     pub pitch: f32,
@@ -54,6 +57,7 @@ pub struct ModelView {
     pub target: Vec3,
     targets: Option<(Targets, egui::TextureId)>,
     last_frame: Option<f64>,
+    particles: Option<Particles>,
 }
 
 impl ModelView {
@@ -75,6 +79,7 @@ impl ModelView {
             supermodels: RefCell::new(HashMap::new()),
             animation: None,
             playing: true,
+            model_lights: true,
             time: 0.0,
             yaw: -60f32.to_radians(),
             pitch: 20f32.to_radians(),
@@ -82,6 +87,7 @@ impl ModelView {
             target: Vec3::ZERO,
             targets: None,
             last_frame: None,
+            particles: None,
         };
         view.frame();
         view
@@ -182,6 +188,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
         if ui.button("Frame").on_hover_text("Fit the model in the view").clicked() {
             view.frame();
         }
+        ui.checkbox(&mut view.model_lights, "Lights")
+            .on_hover_text("Light the model with its own light nodes");
     });
 
     let Some(vp) = app.viewport.as_mut() else {
@@ -196,16 +204,38 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
 
     // Animation time.
     let now = ui.input(|i| i.time);
-    if let (Some(last), true) = (view.last_frame, view.playing) {
-        view.time += (now - last) as f32;
-    }
+    let dt = match (view.last_frame, view.playing) {
+        (Some(last), true) => (now - last) as f32,
+        _ => 0.0,
+    };
+    view.time += dt;
     view.last_frame = Some(now);
-    let pose = view.animation.as_ref().and_then(|name| {
+    let playing: Option<&mg_mdl::Animation> = view.animation.as_ref().and_then(|name| {
         let (_, owner) = anims.iter().find(|(n, _)| n == name)?;
-        let a = owner.animation(name)?;
-        Some(Arc::new(anim::pose(&model.model, a, view.time)))
+        owner.animation(name)
     });
-    if pose.is_some() && view.playing {
+    let pose = playing.map(|a| Arc::new(anim::pose(&model.model, a, view.time)));
+    let lights = if view.model_lights {
+        let p = pose.as_deref().unwrap_or(&model.rest);
+        anim::lights(&model.model, playing, view.time, p, Mat4::IDENTITY, &|_| None)
+    } else {
+        Vec::new()
+    };
+    // Particles run whenever the view plays.
+    let camera = view.camera();
+    let particles = view.particles.get_or_insert_with(|| Particles::new(&model.model));
+    let has_particles = !particles.is_empty();
+    let current_pose: &[Mat4] = pose.as_deref().map_or(&model.rest, Vec::as_slice);
+    particles.update(&model.model, playing, view.time, dt, current_pose, Mat4::IDENTITY);
+    let batches = particles.batches(
+        &model.model,
+        playing,
+        view.time,
+        current_pose,
+        Mat4::IDENTITY,
+        camera.view(),
+    );
+    if (pose.is_some() || has_particles) && view.playing {
         ui.ctx().request_repaint();
     }
 
@@ -234,6 +264,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
     let (targets, id) = view.targets.as_ref().expect("made above");
     let scene = Scene {
         instances: vec![Instance { model: model.clone(), transform: Mat4::IDENTITY, pose }],
+        lights,
+        particles: batches,
         area: AreaLight::default(),
         background: [0.16, 0.18, 0.21],
         ..Default::default()
@@ -247,7 +279,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
         &vp.gpu,
         assets,
         &scene,
-        &view.camera(),
+        &camera,
         targets.render_view(),
         targets.resolve_view(),
         &targets.depth,

@@ -86,6 +86,65 @@ pub fn pose(model: &Model, anim: &Animation, t: f32) -> Vec<Mat4> {
     out
 }
 
+/// The lights of a model instance: its light nodes at their posed
+/// positions, with colour, radius and multiplier from the animation where it
+/// keys them, else the rest values. Tile main lights (`…ml1`, `…ml2`) take
+/// their colour from `main_light` (the area's tile settings) when given.
+pub fn lights(
+    model: &Model,
+    anim: Option<&Animation>,
+    t: f32,
+    pose: &[Mat4],
+    transform: Mat4,
+    main_light: &dyn Fn(usize) -> Option<Vec3>,
+) -> Vec<crate::scene::PointLight> {
+    let t = anim.map_or(0.0, |a| if a.length > 0.0 { t.rem_euclid(a.length) } else { 0.0 });
+    let by_name: HashMap<String, usize> = anim
+        .map(|a| {
+            a.nodes.iter().enumerate().map(|(i, n)| (n.name.to_ascii_lowercase(), i)).collect()
+        })
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for (i, n) in model.nodes.iter().enumerate() {
+        let mg_mdl::NodeKind::Light(l) = &n.kind else { continue };
+        let keyed = |name: &str| -> Option<Vec<f32>> {
+            let a = anim?;
+            let an = &a.nodes[*by_name.get(&n.name.to_ascii_lowercase())?];
+            let c = an.controllers.iter().find(|c| c.name == name)?;
+            Some(sample(c, t))
+        };
+        let value = |name: &str| keyed(name).or_else(|| n.value(name).map(<[f32]>::to_vec));
+        let lower = n.name.to_ascii_lowercase();
+        let main = if lower.ends_with("ml1") {
+            Some(0)
+        } else if lower.ends_with("ml2") {
+            Some(1)
+        } else {
+            None
+        };
+        let color = match main.and_then(main_light) {
+            Some(c) => c,
+            None => match value("color").as_deref() {
+                Some([r, g, b, ..]) => Vec3::new(*r, *g, *b),
+                _ => Vec3::ONE,
+            },
+        };
+        let multiplier = value("multiplier").and_then(|v| v.first().copied()).unwrap_or(1.0);
+        let radius = value("radius").and_then(|v| v.first().copied()).unwrap_or(5.0);
+        if radius <= 0.0 || color == Vec3::ZERO {
+            continue;
+        }
+        out.push(crate::scene::PointLight {
+            position: transform.transform_point3(node_position(pose, i)),
+            color: color * multiplier,
+            radius,
+            ambient_only: l.ambient_only,
+            priority: l.priority.clamp(1, 5),
+        });
+    }
+    out
+}
+
 /// A node's position in a pose (for framing and attachments).
 pub fn node_position(pose: &[Mat4], node: usize) -> Vec3 {
     pose.get(node).map_or(Vec3::ZERO, |m| m.w_axis.truncate())

@@ -83,6 +83,8 @@ pub struct Scene {
     pub fog: Option<Fog>,
     /// Clear colour, gamma space.
     pub background: [f32; 3],
+    /// Particle quads, drawn after the meshes.
+    pub particles: Vec<crate::particles::ParticleBatch>,
 }
 
 /// A perspective camera.
