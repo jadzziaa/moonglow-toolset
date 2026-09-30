@@ -68,3 +68,17 @@ unless given otherwise.
 |---|---|---|
 | Game and user folders | Tools > Options | ✅ [options_choose_the_game_folder] |
 | Script editor, area viewer, graphics options | not yet | ✗ |
+
+## Faction Editor (`TdlgFactionEditor`, `TdlgFactionSelect`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Faction list | list, selection | ✅ |
+| Add Faction: name, Global Effect (default on), parent among the standard factions after PC | same; reputations copied from the parent both ways, missing entries written as 100, exactly as Aurora writes the file | ✅ (`aurora_factions.rs`: identical file) [faction_editor_adds_and_removes_factions] |
+| Remove Faction (not the standard five), confirmation | same; later factions renumbered as Aurora does; refused while objects use the faction (Aurora's handling of such objects is not captured yet) | ✅ / ◐ |
+| Change Faction Name | Change Name… | ✅ |
+| Global Effect per faction | checkbox (custom factions) | ✅ |
+| Basic: OpenGL chart of how the selected faction regards the others (drag bars to edit), Full Detail | sliders per faction with Aurora's colours, Full Detail adds how the others regard it | ✅ (sliders instead of a drawn chart) |
+| Advanced: grid, row regards column, editable 0–100 | same grid, coloured, hover says hostile/neutral/friendly like Aurora's status bar | ✅ |
+| Reputations in the engine | 36 creature pairs report `GetReputation` as written, after adding, editing and removing | ✅ (`engine_factions.rs`) |
+| OK / Cancel | live edits, one undoable command each | — |

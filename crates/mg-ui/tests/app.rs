@@ -445,3 +445,40 @@ fn module_name_in_every_language_and_variables() {
     h.run();
     assert!(info(h.state_mut()).items(&ifo::VAR_TABLE).is_empty());
 }
+
+#[test]
+fn faction_editor_adds_and_removes_factions() {
+    let dir = mg_testkit::scratch_dir("ui-factions");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    h.run();
+    let factions =
+        |app: &Moonglow| mg_module::factions::Factions::of_module(&app.ws.as_ref().unwrap().module);
+    assert_eq!(factions(h.state()).factions.len(), 5, "no repute.fac yet: the standard five");
+
+    h.get_by_label("Add Faction…").click();
+    h.run();
+    {
+        let add = h.state_mut().faction_view.adding.as_mut().unwrap();
+        add.name = "Guards".into();
+        add.parent = 4;
+    }
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    let f = factions(h.state());
+    assert_eq!(f.factions[5].name, "Guards");
+    assert_eq!(f.factions[5].parent, Some(4));
+    assert_eq!(f.reputation(5, 2), f.reputation(4, 2), "Guards regard Commoners as Defenders do");
+
+    // Removing (Guards is selected after adding) is one undoable step.
+    h.get_by_label("Remove Faction").click();
+    h.run();
+    assert_eq!(factions(h.state()).factions.len(), 5);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(factions(h.state()).factions.len(), 6);
+}

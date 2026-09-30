@@ -6,6 +6,7 @@
 
 mod browser;
 pub mod dialogs;
+pub mod faction_view;
 mod gff_view;
 pub mod module_props;
 mod options;
@@ -124,6 +125,7 @@ pub struct Moonglow {
     pub browser: Browser,
     pub loc_edit: Option<widgets::LocStringEdit>,
     pub module_page: module_props::Page,
+    pub faction_view: faction_view::FactionView,
     /// The hak conflict report being shown.
     pub hak_report: Option<String>,
     /// The custom talk table loaded into the game data, by name.
@@ -172,6 +174,7 @@ impl Moonglow {
             browser: Browser::new(),
             loc_edit: None,
             module_page: module_props::Page::default(),
+            faction_view: faction_view::FactionView::default(),
             hak_report: None,
             custom_tlk: None,
             var_edit: None,
@@ -268,6 +271,9 @@ impl Moonglow {
         if pressed(ui, Modifiers::COMMAND | Modifiers::ALT, Key::A) {
             self.actions.push(Action::AreaWizard);
         }
+        if pressed(ui, Modifiers::COMMAND | Modifiers::ALT, Key::F) && self.ws.is_some() {
+            self.actions.push(Action::OpenTab(Tab::Factions));
+        }
         if pressed(ui, Modifiers::COMMAND, Key::O) {
             self.actions.push(Action::OpenModuleDialog);
         }
@@ -359,6 +365,10 @@ impl Moonglow {
                 }
             });
             ui.menu_button("Tools", |ui| {
+                if ui.add_enabled(open, egui::Button::new("Faction Editor")).clicked() {
+                    self.actions.push(Action::OpenTab(Tab::Factions));
+                }
+                ui.separator();
                 if ui.button("Resource Browser").clicked() {
                     self.actions.push(Action::OpenTab(Tab::Resources));
                 }
