@@ -139,3 +139,35 @@ fn palettes() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     shoot(&mut h, &dir, "palettes");
 }
+
+#[test]
+#[ignore]
+fn blueprint_editors() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    for (name, t, pages) in [
+        ("nw_waypoint001", ResType::UTW, &["Basic", "Advanced"][..]),
+        ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
+    ] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        let game = app.game.as_ref().unwrap();
+        let data = game.resman.get_named(name, t).unwrap().into_owned();
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse(name, t).unwrap(), data);
+        let path = dir.join(format!("{name}.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        let key = ResKey::parse(name, t).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1000.0, 760.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        for page in pages {
+            h.state_mut().blueprint_pages.insert(key, page);
+            shoot(&mut h, &dir, &format!("{name}-{}", page.to_lowercase()));
+        }
+    }
+}

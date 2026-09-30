@@ -982,3 +982,111 @@ fn palette_edit_copy_and_delete() {
     h.run();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&copy));
 }
+
+/// A module with an edit copy of a standard blueprint, open in its editor
+/// (`None` without the game).
+fn blueprint_harness(
+    name: &str,
+    copy: &str,
+    t: ResType,
+) -> Option<(Harness<'static, Moonglow>, ResKey)> {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return None;
+    };
+    let dir = mg_testkit::scratch_dir(&format!("ui-bp-{name}"));
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let game = app.game.as_ref().unwrap();
+    let data = game.resman.get_named(name, t).unwrap().into_owned();
+    let key = ResKey::parse(copy, t).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "copy",
+        vec![mg_edit::Edit::SetResource { key, data: Some(data) }],
+    )));
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    let h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    Some((h, key))
+}
+
+fn field(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> mg_gff::Struct {
+    h.state_mut().ws.as_mut().unwrap().doc(key).unwrap().root.clone()
+}
+
+#[test]
+fn waypoint_editor_edits_and_renames() {
+    let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "waypoint_copy", ResType::UTW)
+    else {
+        return;
+    };
+    h.run();
+    // Tag (commits when focus leaves).
+    let tag = String::from_utf8_lossy(field(&mut h, &key).string("Tag").unwrap()).into_owned();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value(&tag).find(is_input).expect("the tag field").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&tag).find(is_input).unwrap().type_text("WP_RENAMED");
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.run();
+    assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"WP_RENAMED");
+    h.get_by_label("Advanced").click();
+    h.run();
+    // A map note.
+    h.get_by_label("Waypoint Contains a Map Note").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("HasMapNote"), Some(1));
+    // Rename: the tab follows.
+    h.state_mut().actions.push(mg_ui::Action::RenameBlueprint {
+        from: key,
+        to: ResRef::from_str("my_waypoint").unwrap(),
+    });
+    h.run();
+    let new = ResKey::parse("my_waypoint", ResType::UTW).unwrap();
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(ws.module.contains(&new) && !ws.module.contains(&key));
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(new)).is_some());
+    assert_eq!(field(&mut h, &new).resref("TemplateResRef").unwrap().to_string(), "my_waypoint");
+}
+
+#[test]
+fn sound_editor_lists_positions_and_times() {
+    let Some((mut h, key)) = blueprint_harness("animalcriesday", "sound_copy", ResType::UTS) else {
+        return;
+    };
+    h.run();
+    let before = field(&mut h, &key).list("Sounds").map_or(0, <[_]>::len);
+    // Add a sound through the picker.
+    h.get_by_label("Add Sounds…").click();
+    h.run();
+    // One the blueprint does not list yet (its own list shows the others).
+    h.state_mut().picker.as_mut().unwrap().filter = "as_cv_".into();
+    h.run();
+    h.get_all_by_label_contains("as_cv_").next().unwrap().click();
+    h.run();
+    let sounds = field(&mut h, &key).list("Sounds").unwrap().len();
+    assert_eq!(sounds, before + 1);
+    // Positioning: a random position sets both fields.
+    h.get_by_label("Positioning").click();
+    h.run();
+    h.get_by_label("Plays from a random position each time it is played").click();
+    h.run();
+    let s = field(&mut h, &key);
+    assert_eq!((s.integer("Positional"), s.integer("RandomPosition")), (Some(1), Some(1)));
+    // Specific hours.
+    h.get_by_label("Advanced").click();
+    h.run();
+    h.get_by_label("Specific Hours").click();
+    h.run();
+    h.get_by_label("3 PM").click();
+    h.run();
+    let s = field(&mut h, &key);
+    assert_eq!(s.integer("Times"), Some(0));
+    assert_ne!(s.integer("Hours").unwrap() & (1 << 15), 0);
+}

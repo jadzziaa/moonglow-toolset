@@ -35,6 +35,8 @@ pub enum Tab {
     Model(ResKey),
     /// The blueprint palettes.
     Palette,
+    /// A blueprint in its Properties editor.
+    Blueprint(ResKey),
 }
 
 impl Tab {
@@ -47,6 +49,7 @@ impl Tab {
             ResType::JRL => Some(Tab::Journal),
             ResType::DLG => Some(Tab::Dialog(key)),
             ResType::MDL => Some(Tab::Model(key)),
+            t if crate::blueprint::has_editor(t) => Some(Tab::Blueprint(key)),
             t if t.is_gff() => Some(Tab::Gff(key)),
             _ => None,
         }
@@ -75,6 +78,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Gff(k) => k.to_string().into(),
             Tab::Resources => "Resources".into(),
             Tab::Palette => "Palettes".into(),
+            Tab::Blueprint(k) => k.to_string().into(),
             Tab::Factions => "Factions".into(),
             Tab::Journal => "Journal".into(),
             Tab::Dialog(k) => k.to_string().into(),
@@ -91,6 +95,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
             Tab::Resources => browser::ui(self.app, ui),
             Tab::Palette => crate::palette_view::ui(self.app, ui),
+            Tab::Blueprint(k) => crate::blueprint::ui(self.app, ui, *k),
             Tab::Factions => faction_view::ui(self.app, ui),
             Tab::Journal => journal_view::ui(self.app, ui),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),

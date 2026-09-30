@@ -4,6 +4,7 @@
 //! the module directly: they queue [`Action`]s, which run after the frame and
 //! turn edits into undoable [`mg_edit::Command`]s.
 
+pub mod blueprint;
 mod browser;
 pub mod dialog_view;
 pub mod dialogs;
@@ -76,6 +77,11 @@ pub enum Action {
     Redo,
     Apply(Command),
     OpenTab(Tab),
+    /// Renames a blueprint (and points its editor at the new name).
+    RenameBlueprint {
+        from: ResKey,
+        to: mg_core::ResRef,
+    },
     CompileScripts,
     Verify,
     Quit,
@@ -131,6 +137,8 @@ pub struct Moonglow {
     pub browser: Browser,
     pub loc_edit: Option<widgets::LocStringEdit>,
     pub module_page: module_props::Page,
+    /// Each open blueprint editor's page.
+    pub blueprint_pages: blueprint::Pages,
     pub faction_view: faction_view::FactionView,
     pub journal_view: journal_view::JournalView,
     pub dialog_views: HashMap<ResKey, dialog_view::DialogView>,
@@ -196,6 +204,7 @@ impl Moonglow {
             browser: Browser::new(),
             loc_edit: None,
             module_page: module_props::Page::default(),
+            blueprint_pages: Default::default(),
             faction_view: faction_view::FactionView::default(),
             journal_view: journal_view::JournalView::default(),
             dialog_views: HashMap::new(),
@@ -850,6 +859,7 @@ impl Moonglow {
                     let _ = self.dock.set_active_tab(path);
                 }
             }
+            Action::RenameBlueprint { from, to } => blueprint::rename(self, from, to),
             Action::CompileScripts => self.compile_scripts(),
             Action::Verify => self.verify(),
             Action::Quit => self.quit_requested = true,
