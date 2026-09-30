@@ -116,32 +116,62 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
     let key = f.key;
     let list: Vec<Struct> = f.root.list("CreatureList").unwrap_or(&[]).to_vec();
     let names = f.blueprint_names(BlueprintKind::Creature);
+    // Each creature's tag, from its blueprint.
+    let tags: Vec<String> = list
+        .iter()
+        .map(|c| {
+            let r = c.resref("ResRef").unwrap_or(ResRef::EMPTY);
+            f.blueprint(BlueprintKind::Creature, r)
+                .and_then(|u| u.string("Tag").map(crate::text::decode))
+                .unwrap_or_default()
+        })
+        .collect();
     let mut add = None;
     let mut remove = None;
     let mut unique = None;
-    ui.columns(2, |cols| {
-        add = f.palette_picker(&mut cols[0], BlueprintKind::Creature, "Add Creature");
-        let ui = &mut cols[1];
-        egui::Grid::new(("ute-list", key)).num_columns(4).striped(true).show(ui, |ui| {
-            ui.strong("Creature");
-            ui.strong("CR");
-            ui.strong("Unique");
-            ui.label("");
-            ui.end_row();
-            for (i, c) in list.iter().enumerate() {
-                let resref = c.resref("ResRef").unwrap_or(ResRef::EMPTY);
-                let name = names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
-                ui.label(name).on_hover_text(resref.to_string());
-                ui.label(format!("{}", c.float("CR").unwrap_or(0.0)));
-                let mut single = c.integer("SingleSpawn").unwrap_or(0) != 0;
-                if ui.checkbox(&mut single, "").changed() {
-                    unique = Some((i, single));
-                }
-                if ui.small_button("Remove").clicked() {
-                    remove = Some(i);
-                }
-                ui.end_row();
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.set_width(280.0);
+            add = f.palette_picker(ui, BlueprintKind::Creature, "Add Creature");
+        });
+        ui.separator();
+        let sel_id = egui::Id::new(("ute-selected", key));
+        let mut selected: Option<usize> =
+            ui.data(|d| d.get_temp(sel_id)).filter(|&i: &usize| i < list.len());
+        ui.vertical(|ui| {
+            {
+                egui::Grid::new(("ute-list", key)).num_columns(5).striped(true).show(ui, |ui| {
+                    for h in ["CR", "Creature", "Tag", "Blueprint ResRef", "Unique"] {
+                        ui.strong(h);
+                    }
+                    ui.end_row();
+                    for (i, c) in list.iter().enumerate() {
+                        let resref = c.resref("ResRef").unwrap_or(ResRef::EMPTY);
+                        let name =
+                            names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
+                        ui.label(format!("{}", c.float("CR").unwrap_or(0.0)));
+                        if ui.selectable_label(selected == Some(i), name).clicked() {
+                            selected = Some(i);
+                        }
+                        ui.label(tags.get(i).cloned().unwrap_or_default());
+                        ui.label(resref.to_string());
+                        let mut single = c.integer("SingleSpawn").unwrap_or(0) != 0;
+                        if ui.checkbox(&mut single, "").changed() {
+                            unique = Some((i, single));
+                        }
+                        ui.end_row();
+                    }
+                });
             }
+            if ui.add_enabled(selected.is_some(), egui::Button::new("Remove Creature")).clicked() {
+                remove = selected.take();
+            }
+        });
+        ui.data_mut(|d| match selected {
+            Some(i) => {
+                d.insert_temp(sel_id, i);
+            }
+            None => d.remove::<usize>(sel_id),
         });
     });
     let path = GffPath::root();

@@ -1157,7 +1157,9 @@ fn encounter_editor_lists_creatures_and_respawns() {
     assert_eq!(added.resref("ResRef").unwrap().to_string(), "nw_badger");
     assert!(added.float("CR").unwrap() > 0.0);
     // Remove it again.
-    h.get_all_by_label("Remove").last().unwrap().click();
+    h.get_by_label("Badger").click();
+    h.run();
+    h.get_by_label("Remove Creature").click();
     h.run();
     assert_eq!(field(&mut h, &key).list("CreatureList").unwrap().len(), before);
     // Infinite respawns. Showing the page changes nothing, though the
