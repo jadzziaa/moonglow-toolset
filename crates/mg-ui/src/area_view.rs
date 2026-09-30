@@ -1,17 +1,26 @@
 //! The area viewer: an area's tiles and objects drawn with its lighting,
-//! a camera that orbits, pans and zooms, and objects to select, move, turn
-//! and delete, each change one undoable command on the area's GIT.
+//! a camera to move around it, objects to select, move, turn, raise and
+//! delete, and blueprints from the palette to place, each change one
+//! undoable command on the area's GIT.
 //!
-//! Mouse: a left click selects (Ctrl adds or removes), a left drag moves
-//! the selection over the ground and Shift + left drag turns it; a middle
-//! drag orbits, Shift + middle drag pans and the wheel zooms. Over the
-//! view, the arrow keys pan and Delete deletes the selection.
+//! Aurora's bindings: a click selects, a drag on the ground selects what is
+//! in the box, a drag moves the selection over the ground, Shift + right
+//! drag turns it and Alt + drag raises or lowers it; Ctrl + drag moves the
+//! camera, Ctrl + right or middle drag turns it, the wheel zooms (Shift or
+//! Ctrl: slowly), numpad 4, 6, 8, 2 move it, 7, 9, 1, 3 turn it and 5
+//! looks straight down. With a blueprint chosen in the palette, a click
+//! places it (Shift + click keeps it chosen; right click or Escape lets it
+//! go); triggers and encounters are drawn point by point, a double click
+//! closing the outline. Also: a middle drag turns the camera (Shift:
+//! moves it), the arrow keys move it, Ctrl + click adds to the selection
+//! and Delete deletes it.
 
 use std::f32::consts::FRAC_PI_2;
 
 use egui::{Color32, Pos2, Rect, Stroke};
 use glam::{Vec2, Vec3};
 use mg_area::pick::{Ray, pick, project};
+use mg_area::walk::Ground;
 use mg_area::{AreaModel, AreaScene, ObjectKind, TILE_SIZE, View};
 use mg_core::{ResRef, ResType};
 use mg_edit::Command;
@@ -26,6 +35,10 @@ use crate::{Action, Moonglow};
 /// Multisampling for the area view.
 const SAMPLES: u32 = 4;
 
+/// The steepest the camera looks down (just short of straight down, where
+/// "up" on screen would be undefined).
+const MAX_PITCH: f32 = 1.5695;
+
 /// The camera: orbiting a point on the ground.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Orbit {
@@ -38,15 +51,16 @@ pub struct Orbit {
 }
 
 impl Orbit {
-    /// Looking north at the area's centre from where all of it shows.
+    /// Looking straight down (north up) at the area's centre from where all
+    /// of it shows, as Aurora first shows an area.
     pub fn overview(area: &AreaModel) -> Orbit {
         let (w, h) = area.size();
         let span = w.max(h).max(TILE_SIZE);
         Orbit {
             target: Vec3::new(w / 2.0, h / 2.0, 0.0),
             yaw: -FRAC_PI_2,
-            pitch: 55f32.to_radians(),
-            distance: span * 1.2,
+            pitch: MAX_PITCH,
+            distance: span * 1.45,
         }
     }
 
@@ -57,14 +71,19 @@ impl Orbit {
     }
 }
 
-/// What a left drag does.
+/// What a drag does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Drag {
-    /// Moves the selection by the ground point's travel since `from`, on
-    /// the plane at height `z`.
-    Move { from: Vec3, z: f32, offset: Vec3 },
+    /// Moves the selection by the travel of the ground point under the
+    /// pointer since `from` (where it was pressed).
+    Move { from: Vec3, offset: Vec2 },
     /// Turns each selected object about itself.
     Turn { angle: f32 },
+    /// Raises or lowers the selection (not creatures: they stand on the
+    /// ground).
+    Lift { by: f32 },
+    /// Selects what is inside the box.
+    Box { from: Pos2, to: Pos2 },
 }
 
 /// An open area's view.
@@ -76,6 +95,8 @@ pub struct AreaView {
     /// The workspace revision `model` was read at.
     revision: Option<u64>,
     tileset: Option<(ResRef, Option<Tileset>)>,
+    /// The tiles' walkmeshes.
+    ground: Option<Ground>,
     pub error: Option<String>,
     pub orbit: Option<Orbit>,
     /// Selected objects: kind and index in its GIT list.
@@ -87,6 +108,8 @@ pub struct AreaView {
     pub show: [bool; 9],
     pub show_start: bool,
     drag: Option<Drag>,
+    /// The outline being drawn for a trigger or encounter.
+    pub outline: Vec<Vec3>,
     targets: Option<(Targets, egui::TextureId)>,
     time: f32,
     last_frame: Option<f64>,
@@ -102,6 +125,7 @@ impl AreaView {
             scene: None,
             revision: None,
             tileset: None,
+            ground: None,
             error: None,
             orbit: None,
             selection: Vec::new(),
@@ -111,6 +135,7 @@ impl AreaView {
             show: [true; 9],
             show_start: true,
             drag: None,
+            outline: Vec::new(),
             targets: None,
             time: 0.0,
             last_frame: None,
@@ -163,21 +188,52 @@ impl AreaView {
         pick(model, &ray, &|i| scene.bounds(model, i), &|k| self.show[k.index()])
     }
 
+    /// The ground point under the pointer: on the walkmesh, else on the
+    /// plane at height `z`.
+    fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
+        let ray = self.ray(pos)?;
+        self.ground.as_ref().and_then(|g| g.hit(&ray)).or_else(|| ray.at_height(z))
+    }
+
+    /// Where an object moved by `offset` stands: at the same height above
+    /// the ground as before (on it, for most; creatures always on it).
+    /// Outlines keep their height.
+    fn moved(&self, o: &mg_area::AreaObject, offset: Vec2) -> Vec3 {
+        let to = o.position.truncate() + offset;
+        let ground = self.ground.as_ref().filter(|_| !o.kind.has_outline());
+        let Some(g) = ground else { return to.extend(o.position.z) };
+        let ground_z = g.height(o.position.truncate(), o.position.z);
+        let lift = match o.kind {
+            ObjectKind::Creature => 0.0,
+            _ => ground_z.map_or(0.0, |z| o.position.z - z),
+        };
+        let near = o.position.z - lift;
+        g.height(to, near).map_or(to.extend(o.position.z), |z| to.extend(z + lift))
+    }
+
     /// Where each selected object stands and turns with the drag applied.
     fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
         let Some(model) = &self.model else { return Vec::new() };
-        let Some(drag) = self.drag else { return Vec::new() };
+        let Some(drag) = self.drag.filter(|d| !matches!(d, Drag::Box { .. })) else {
+            return Vec::new();
+        };
         self.selection
             .iter()
             .filter_map(|&(k, i)| self.object_at(k, i))
             .map(|i| {
                 let o = &model.objects[i];
                 match drag {
-                    Drag::Move { offset, .. } => (i, o.position + offset, o.rotation),
+                    Drag::Move { offset, .. } => (i, self.moved(o, offset), o.rotation),
                     Drag::Turn { angle } => {
                         let turns = !o.kind.has_outline() && o.kind != ObjectKind::Sound;
                         (i, o.position, if turns { o.rotation + angle } else { o.rotation })
                     }
+                    Drag::Lift { by } => {
+                        let lifts = o.kind != ObjectKind::Creature && !o.kind.has_outline();
+                        let by = if lifts { by } else { 0.0 };
+                        (i, o.position + Vec3::Z * by, o.rotation)
+                    }
+                    Drag::Box { .. } => (i, o.position, o.rotation),
                 }
             })
             .collect()
@@ -207,6 +263,10 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     }
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref());
     let model = AreaModel::read(game, &are.root, &git.root, tileset);
+    match &mut view.ground {
+        Some(g) => g.update(game, &model),
+        None => view.ground = Some(Ground::new(game, &model)),
+    }
     if view.orbit.is_none() {
         view.orbit = Some(Orbit::overview(&model));
         view.night = model.lighting.night_by_default();
@@ -303,7 +363,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             }
         }
     });
-    if let ([(kind, index)], Some(m)) = (view.selection.as_slice(), &view.model)
+    if let Some(key) = brush(app) {
+        let what = match ObjectKind::from_restype(key.restype) {
+            Some(k) if k.has_outline() => {
+                "click its corners, double click to close; right click or Escape: stop"
+            }
+            _ => "click to place (Shift + click: place more); right click or Escape: stop",
+        };
+        ui.weak(format!("Placing {}: {what}", key.resref));
+    } else if let ([(kind, index)], Some(m)) = (view.selection.as_slice(), &view.model)
         && let Some(o) = m.object(*kind, *index)
     {
         ui.weak(format!(
@@ -321,8 +389,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     } else {
         // Always a line, so that the view does not move when selecting.
         ui.weak(
-            "Click to select (Ctrl: add), drag to move, Shift + drag to turn; middle drag \
-             orbits (Shift: pans), the wheel zooms.",
+            "Click to select, drag to move or to select in a box, Shift + right drag to turn, \
+             Alt + drag to raise; Ctrl + drag moves the view, Ctrl + right drag turns it.",
         );
     }
 }
@@ -483,6 +551,25 @@ fn overlays(ui: &egui::Ui, view: &AreaView, shown: &AreaModel, start: Option<(Ve
             }
         }
     }
+    if let Some(Drag::Box { from, to }) = view.drag {
+        let r = Rect::from_two_pos(from, to);
+        painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::YELLOW), egui::StrokeKind::Inside);
+    }
+    if !view.outline.is_empty() {
+        let stroke = Stroke::new(2.0, Color32::from_rgb(120, 230, 255));
+        for w in view.outline.windows(2) {
+            line(w[0], w[1], stroke);
+        }
+        let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
+        if let (Some(last), Some(p)) = (view.outline.last(), pointer) {
+            line(*last, p, Stroke::new(1.0, stroke.color));
+        }
+        for p in &view.outline {
+            if let Some(c) = at(*p) {
+                painter.circle_filled(c, 3.0, stroke.color);
+            }
+        }
+    }
     if let (true, Some((p, facing))) = (view.show_start, start) {
         let stroke = Stroke::new(2.0, Color32::from_rgb(230, 90, 230));
         let ahead = p + Vec3::new(facing.cos(), facing.sin(), 0.0) * 1.5;
@@ -495,40 +582,50 @@ fn overlays(ui: &egui::Ui, view: &AreaView, shown: &AreaModel, start: Option<(Ve
 }
 
 fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
-    let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
-    // Camera: middle drag orbits (Shift: pans), the wheel zooms.
-    if response.dragged_by(egui::PointerButton::Middle)
-        && let Some(o) = &mut view.orbit
-    {
-        let d = response.drag_delta();
-        if shift {
-            pan(o, Vec2::new(-d.x, d.y) * o.distance * 0.0015);
-        } else {
-            o.yaw -= d.x * 0.01;
-            o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, 1.55);
+    let (shift, command, alt) =
+        ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
+    camera_input(ui, view, response, shift, command);
+    let hovered = response.hovered();
+
+    // Placing the palette's blueprint.
+    if let Some(key) = brush(app) {
+        let cancel = response.secondary_clicked()
+            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        if cancel {
+            app.palette.selected = None;
+            view.outline.clear();
+            return;
         }
+        if response.clicked()
+            && !command
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(at) = view.ground_at(pos, 0.0)
+        {
+            let kind = ObjectKind::from_restype(key.restype).expect("a brush places objects");
+            if kind.has_outline() {
+                // A double click's second click closes the outline.
+                if view.outline.last().is_none_or(|p| (*p - at).length() > 0.05) {
+                    view.outline.push(at);
+                }
+                // (Quick clicks after the last corner count as a triple.)
+                let closing = response.double_clicked() || response.triple_clicked();
+                if closing && view.outline.len() >= 3 {
+                    let outline = std::mem::take(&mut view.outline);
+                    place(app, view, key, outline[0], &outline);
+                    if !shift {
+                        app.palette.selected = None;
+                    }
+                }
+            } else {
+                place(app, view, key, at, &[]);
+                if !shift {
+                    app.palette.selected = None;
+                }
+            }
+        }
+        return;
     }
-    if response.hovered()
-        && let Some(o) = &mut view.orbit
-    {
-        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-        if scroll != 0.0 {
-            o.distance = (o.distance * (-scroll * 0.002).exp()).clamp(1.0, 2000.0);
-        }
-        let step = o.distance * 0.02;
-        let keys = ui.input(|i| {
-            [egui::Key::ArrowLeft, egui::Key::ArrowRight, egui::Key::ArrowUp, egui::Key::ArrowDown]
-                .map(|k| i.key_down(k))
-        });
-        let dir = Vec2::new(
-            f32::from(u8::from(keys[1])) - f32::from(u8::from(keys[0])),
-            f32::from(u8::from(keys[2])) - f32::from(u8::from(keys[3])),
-        );
-        if dir != Vec2::ZERO {
-            pan(o, dir * step);
-            ui.ctx().request_repaint();
-        }
-    }
+    view.outline.clear();
 
     // Selection.
     if response.clicked()
@@ -566,56 +663,215 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
     });
 
-    // Moving and turning.
-    // A drag starts once the pointer has moved: pick where it was pressed.
+    // Moving, turning, raising; selecting by a box. A drag starts once the
+    // pointer has moved: pick where it was pressed.
+    let origin = ui.input(|i| i.pointer.press_origin());
     if response.drag_started_by(egui::PointerButton::Primary)
-        && let Some(pos) = ui.input(|i| i.pointer.press_origin())
-        && let Some(i) = view.pick(pos)
-        && let Some(o) = view.model.as_ref().map(|m| m.objects[i].clone())
+        && !command
+        && let Some(pos) = origin
     {
-        if !view.selected(i) {
-            view.selection = vec![(o.kind, o.index)];
-        }
-        view.drag = if shift {
-            Some(Drag::Turn { angle: 0.0 })
+        let hit = view.pick(pos);
+        view.drag = if alt {
+            (!view.selection.is_empty()).then_some(Drag::Lift { by: 0.0 })
+        } else if let Some(i) = hit {
+            let o = view.model.as_ref().map(|m| m.objects[i].clone()).expect("picked");
+            if !view.selected(i) {
+                view.selection = vec![(o.kind, o.index)];
+            }
+            view.ground_at(pos, o.position.z).map(|from| Drag::Move { from, offset: Vec2::ZERO })
         } else {
-            view.ray(pos).and_then(|r| r.at_height(o.position.z)).map(|from| Drag::Move {
-                from,
-                z: o.position.z,
-                offset: Vec3::ZERO,
-            })
+            Some(Drag::Box { from: pos, to: pos })
         };
     }
-    if response.dragged_by(egui::PointerButton::Primary) {
-        let pointer = response.interact_pointer_pos();
-        let ground = |z: f32| pointer.and_then(|p| view.ray(p)).and_then(|r| r.at_height(z));
-        match view.drag {
-            Some(Drag::Move { from, z, .. }) => {
-                if let Some(now) = ground(z) {
-                    view.drag = Some(Drag::Move { from, z, offset: now - from });
+    if response.drag_started_by(egui::PointerButton::Secondary)
+        && shift
+        && !command
+        && !view.selection.is_empty()
+    {
+        view.drag = Some(Drag::Turn { angle: 0.0 });
+    }
+    let pointer = response.interact_pointer_pos();
+    match view.drag {
+        Some(Drag::Move { from, .. }) if response.dragged_by(egui::PointerButton::Primary) => {
+            if let Some(now) = pointer.and_then(|p| view.ground_at(p, from.z)) {
+                view.drag = Some(Drag::Move { from, offset: (now - from).truncate() });
+            }
+        }
+        Some(Drag::Lift { by }) if response.dragged_by(egui::PointerButton::Primary) => {
+            let scale = view.orbit.map_or(0.02, |o| o.distance * 0.002);
+            view.drag = Some(Drag::Lift { by: by - response.drag_delta().y * scale });
+        }
+        Some(Drag::Box { from, .. }) if response.dragged_by(egui::PointerButton::Primary) => {
+            if let Some(to) = pointer {
+                view.drag = Some(Drag::Box { from, to });
+            }
+        }
+        Some(Drag::Turn { angle }) if response.dragged_by(egui::PointerButton::Secondary) => {
+            view.drag = Some(Drag::Turn { angle: angle - response.drag_delta().x * 0.01 });
+        }
+        _ => {}
+    }
+    if response.drag_stopped() {
+        match view.drag.take() {
+            Some(Drag::Box { from, to }) => {
+                let inside = boxed(view, Rect::from_two_pos(from, to));
+                if !command {
+                    view.selection.clear();
+                }
+                for h in inside {
+                    if !view.selection.contains(&h) {
+                        view.selection.push(h);
+                    }
                 }
             }
-            Some(Drag::Turn { angle }) => {
-                view.drag = Some(Drag::Turn { angle: angle - response.drag_delta().x * 0.01 });
+            Some(drag) => {
+                view.drag = Some(drag);
+                let moved = view.dragged();
+                let label = match drag {
+                    Drag::Turn { .. } => "Rotate",
+                    Drag::Lift { .. } => "Raise",
+                    _ => "Move",
+                };
+                view.drag = None;
+                commit_moves(app, view, &moved, label);
             }
             None => {}
         }
     }
-    if response.drag_stopped_by(egui::PointerButton::Primary) {
-        let moved = view.dragged();
-        let label = match view.drag {
-            Some(Drag::Turn { .. }) => "Rotate",
-            _ => "Move",
-        };
-        view.drag = None;
-        commit_moves(app, view, &moved, label);
-    }
-    if response.hovered()
-        && !view.selection.is_empty()
-        && ui.input(|i| i.key_pressed(egui::Key::Delete))
-    {
+    if hovered && !view.selection.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
         delete(app, view);
     }
+}
+
+/// The camera: Ctrl + drag moves it, Ctrl + right or middle drag (or a
+/// middle drag) turns it, Shift + middle drag moves it, the wheel zooms;
+/// numpad and arrow keys.
+fn camera_input(
+    ui: &egui::Ui,
+    view: &mut AreaView,
+    response: &egui::Response,
+    shift: bool,
+    command: bool,
+) {
+    let rect = view.rect;
+    let Some(o) = &mut view.orbit else { return };
+    let d = response.drag_delta();
+    let turning = (response.dragged_by(egui::PointerButton::Middle) && !shift)
+        || (command && response.dragged_by(egui::PointerButton::Secondary));
+    if turning {
+        o.yaw -= d.x * 0.01;
+        o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, MAX_PITCH);
+    } else if (command && response.dragged_by(egui::PointerButton::Primary))
+        || (shift && response.dragged_by(egui::PointerButton::Middle))
+    {
+        // The ground follows the pointer.
+        let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan() / rect.height().max(1.0);
+        pan(o, Vec2::new(-d.x, d.y) * per_pixel);
+    }
+    if !response.hovered() {
+        return;
+    }
+    let (scroll, slow) =
+        ui.input(|i| (i.smooth_scroll_delta.y, i.modifiers.shift || i.modifiers.command));
+    if scroll != 0.0 {
+        let rate = if slow { 0.001 } else { 0.002 };
+        o.distance = (o.distance * (-scroll * rate).exp()).clamp(1.0, 2000.0);
+    }
+    use egui::Key;
+    let down = |k: Key| ui.input(|i| i.key_down(k));
+    let axis = |plus: &[Key], minus: &[Key]| {
+        f32::from(u8::from(plus.iter().any(|&k| down(k))))
+            - f32::from(u8::from(minus.iter().any(|&k| down(k))))
+    };
+    let dt = ui.input(|i| i.stable_dt).min(0.1);
+    let travel = Vec2::new(
+        axis(&[Key::ArrowRight, Key::Num6], &[Key::ArrowLeft, Key::Num4]),
+        axis(&[Key::ArrowUp, Key::Num8], &[Key::ArrowDown, Key::Num2]),
+    );
+    let turn = Vec2::new(axis(&[Key::Num9], &[Key::Num7]), axis(&[Key::Num1], &[Key::Num3]));
+    if travel != Vec2::ZERO {
+        pan(o, travel * o.distance * dt);
+    }
+    if turn != Vec2::ZERO {
+        o.yaw -= turn.x * 1.5 * dt;
+        o.pitch = (o.pitch + turn.y * 1.0 * dt).clamp(0.05, MAX_PITCH);
+    }
+    if travel != Vec2::ZERO || turn != Vec2::ZERO {
+        ui.ctx().request_repaint();
+    }
+    if ui.input(|i| i.key_pressed(Key::Num5))
+        && let Some(model) = &view.model
+    {
+        view.orbit = Some(Orbit::overview(model));
+    }
+}
+
+/// The objects (shown) whose position shows inside `rect`.
+fn boxed(view: &AreaView, rect: Rect) -> Vec<(ObjectKind, usize)> {
+    let Some(model) = &view.model else { return Vec::new() };
+    model
+        .objects
+        .iter()
+        .filter(|o| view.show[o.kind.index()])
+        .filter(|o| {
+            let at = if o.kind.has_outline() && !o.outline.is_empty() {
+                o.outline.iter().copied().sum::<Vec3>() / o.outline.len() as f32
+            } else {
+                o.position
+            };
+            view.screen_pos(at).is_some_and(|p| rect.contains(p))
+        })
+        .map(|o| (o.kind, o.index))
+        .collect()
+}
+
+/// The palette's chosen blueprint, if it is one to place.
+fn brush(app: &Moonglow) -> Option<ResKey> {
+    app.palette.selected.filter(|k| ObjectKind::from_restype(k.restype).is_some())
+}
+
+/// Places blueprint `key` at `at` (a trigger or encounter along `outline`,
+/// standing at its first point), as Aurora does, and selects it.
+fn place(app: &mut Moonglow, view: &mut AreaView, key: ResKey, at: Vec3, outline: &[Vec3]) {
+    use mg_module::instances::{OUTLINE_LIFT, Placement, Placing, instance};
+    let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return };
+    let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
+    let read = |k: ResKey| -> Option<mg_gff::Struct> {
+        let data = ws
+            .module
+            .get(&k)
+            .map(<[u8]>::to_vec)
+            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+        Gff::read(&data).ok().map(|g| g.root)
+    };
+    let Some(blueprint) = read(key) else {
+        app.log.error(format!("{key}: not found or not readable"));
+        return;
+    };
+    let items = |r: ResRef| read(ResKey::new(r, ResType::UTI));
+    let placing = Placing { game, item: &items };
+    let ground = |p: Vec3| view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
+    let lift = if kind == ObjectKind::Sound { mg_area::SOUND_HEIGHT } else { 0.0 };
+    let position = at + Vec3::Z * lift;
+    let relative: Vec<[f32; 3]> = outline
+        .iter()
+        .map(|p| [p.x - at.x, p.y - at.y, ground(*p).unwrap_or(p.z) + OUTLINE_LIFT])
+        .collect();
+    let placement = Placement { position: position.to_array(), rotation: 0.0 };
+    let Some(item) = instance(&placing, key.restype, &blueprint, placement, &relative) else {
+        return;
+    };
+    let git = view.git();
+    let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
+    let edit = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: kind.list().into(),
+        index,
+        item,
+    };
+    app.actions.push(Action::Apply(Command::new(format!("Place {}", key.resref), vec![edit])));
+    view.selection = vec![(kind, index)];
 }
 
 /// Moves the camera's target along the ground: `by.x` to the right of the

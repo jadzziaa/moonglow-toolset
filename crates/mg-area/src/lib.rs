@@ -27,11 +27,16 @@ use mg_set::Tileset;
 pub mod edit;
 pub mod pick;
 mod scene;
+pub mod walk;
 
 pub use scene::{AreaScene, View, overview};
 
 /// A tile's edge, metres.
 pub const TILE_SIZE: f32 = 10.0;
+
+/// How far above the ground sounds are placed, metres (three quarters of
+/// the sounds in the shipped areas stand exactly this high).
+pub const SOUND_HEIGHT: f32 = 1.5;
 
 /// Why an area's tileset could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -133,6 +138,11 @@ impl ObjectKind {
             ObjectKind::Trigger => "Triggers",
             ObjectKind::Waypoint => "Waypoints",
         }
+    }
+
+    /// The kind placed from a blueprint type.
+    pub fn from_restype(t: ResType) -> Option<ObjectKind> {
+        ObjectKind::ALL.into_iter().find(|k| k.restype() == t)
     }
 
     /// Its blueprint type.

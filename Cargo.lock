@@ -1700,6 +1700,7 @@ dependencies = [
  "mg-set",
  "mg-testkit",
  "mg-tiles",
+ "mg-tlk",
  "thiserror 2.0.21",
 ]
 

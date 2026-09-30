@@ -5,13 +5,15 @@
 //! cannot create, stand in the area as instances of theirs. It reports each
 //! object with the values the edits set, and the values Moonglow derives
 //! (an item's cost, a creature's hit points) agree with the engine's.
+//! Instances of the creature, chest, store, item and waypoint, placed the
+//! way Aurora places them (inventories in full), load with what they hold.
 
 use std::time::Duration;
 
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::ModuleLocation;
-use mg_module::instances::{Placement, git_list, instance};
+use mg_module::instances::{Placement, Placing, git_list, instance};
 use mg_module::new::{AreaSpec, add_area, new_module};
 use mg_resman::{GameInstall, ResKey};
 use mg_rules::{CreatureSheet, GameData, ItemValue};
@@ -63,6 +65,18 @@ void main()
     object n = GetObjectByTag("MG_UTS");
     Report(n, "");
 
+    // Instances placed in the area, their inventories expanded.
+    object ic = GetObjectByTag("MG_I_UTC");
+    Report(ic, GetTag(GetItemInSlot(INVENTORY_SLOT_RIGHTHAND, ic)) + "|" + GetTag(GetFirstItemInInventory(ic)) + "|" + I(GetMaxHitPoints(ic)));
+    object ip = GetObjectByTag("MG_I_UTP");
+    Report(ip, GetTag(GetFirstItemInInventory(ip)));
+    object im = GetObjectByTag("MG_I_UTM");
+    Report(im, I(GetStoreGold(im)) + "|" + GetTag(GetFirstItemInInventory(im)));
+    object ii = GetObjectByTag("MG_I_UTI");
+    Report(ii, I(GetGoldPieceValue(ii)));
+    object iw = GetObjectByTag("MG_I_UTW");
+    Report(iw, FloatToString(GetFacing(iw), 0, 0));
+
     Log("MG_DONE");
 }
 "#;
@@ -98,6 +112,11 @@ fn every_blueprint_type_in_the_engine() {
         AreaSpec { name: "Blueprints".into(), tileset: resref("ttr01"), width: 4, height: 4 };
     let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
 
+    let items = |r: ResRef| {
+        let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
+        Gff::read(&data).ok().map(|g| g.root)
+    };
+
     // An item with Enhancement +3 and the cost Moonglow derives for it.
     let mut uti = copy(&game, "nw_wswls001", "mg_uti", ResType::UTI);
     let enhancement = game.property_type(6).unwrap();
@@ -126,6 +145,11 @@ fn every_blueprint_type_in_the_engine() {
     classes[0].set("ClassLevel", Value::Short(3));
     utc.root.set("ClassList", Value::List(classes));
     let stats = game.creature_stats(&CreatureSheet::from_gff(&utc.root));
+    let mut potion = Struct::new(0);
+    potion.set("InventoryRes", Value::resref(resref("nw_it_mpotion001")));
+    potion.set("Repos_PosX", Value::Word(0));
+    potion.set("Repos_Posy", Value::Word(0));
+    utc.root.set("ItemList", Value::List(vec![potion]));
     utc.root.set("MaxHitPoints", Value::Short(stats.max_hit_points as i16));
 
     // A chest holding the item, a store selling it with 1234 gold.
@@ -153,15 +177,39 @@ fn every_blueprint_type_in_the_engine() {
     // The door, trigger, encounter and sound stand in the area.
     let git_key = ResKey::new(area, ResType::GIT);
     let mut git = m.gff(&git_key).unwrap().unwrap();
-    let square = [[-2.0, -2.0], [2.0, -2.0], [2.0, 2.0], [-2.0, 2.0]];
+    let square = [[-2.0, -2.0, 0.0], [2.0, -2.0, 0.0], [2.0, 2.0, 0.0], [-2.0, 2.0, 0.0]];
+    let placing = Placing { game: &game, item: &items };
     for (t, g, x) in [
         (ResType::UTD, &utd, 10.0),
         (ResType::UTT, &utt, 20.0),
         (ResType::UTE, &ute, 30.0),
         (ResType::UTS, &uts, 15.0),
     ] {
-        let at = Placement { position: [x, 30.0, 0.0], facing: 0.0 };
-        let placed = instance(t, &g.root, at, &square).unwrap();
+        let at = Placement { position: [x, 30.0, 0.0], rotation: 0.0 };
+        let placed = instance(&placing, t, &g.root, at, &square).unwrap();
+        let (list, _) = git_list(t).unwrap();
+        let mut items = git.root.list(list).unwrap_or(&[]).to_vec();
+        items.push(placed);
+        git.root.set(list, Value::List(items));
+    }
+    // Instances of the creature, chest, store, item and waypoint: their
+    // equipment and inventories in full, as Aurora places them.
+    let module_items = |r: ResRef| -> Option<Struct> {
+        if r == resref("mg_uti") { Some(uti.root.clone()) } else { items(r) }
+    };
+    let placing = Placing { game: &game, item: &module_items };
+    for (t, g, x) in [
+        (ResType::UTC, &utc, 12.0),
+        (ResType::UTP, &utp, 14.0),
+        (ResType::UTM, &utm, 16.0),
+        (ResType::UTI, &uti, 18.0),
+        (ResType::UTW, &utw, 22.0),
+    ] {
+        let mut bp = g.root.clone();
+        let tag = format!("MG_I_{}", t.extension().unwrap_or_default().to_uppercase());
+        bp.set("Tag", Value::String(tag.into_bytes()));
+        let at = Placement { position: [x, 20.0, 0.0], rotation: 0.0 };
+        let placed = instance(&placing, t, &bp, at, &[]).unwrap();
         let (list, _) = git_list(t).unwrap();
         let mut items = git.root.list(list).unwrap_or(&[]).to_vec();
         items.push(placed);
@@ -215,4 +263,19 @@ fn every_blueprint_type_in_the_engine() {
     }
     // The sound object is found by its tag.
     assert!(got.iter().any(|g| g.starts_with("MG_UTS|1|")), "{}", got.join("\n"));
+    // The placed ones, with what they hold: the bandit's longsword (its
+    // blueprint's) and the potion he carries, the chest's and the store's
+    // item; the item's cost; the waypoint facing north.
+    let weapon = utc.root.list("Equip_ItemList").unwrap().iter().find(|e| e.id == 0x10).unwrap();
+    let weapon = items(weapon.resref("EquippedRes").unwrap()).unwrap();
+    let weapon_tag = String::from_utf8_lossy(weapon.string("Tag").unwrap()).into_owned();
+    for e in [
+        format!("MG_I_UTC|1|1|{weapon_tag}|NW_IT_MPOTION001|{}", stats.max_hit_points),
+        "MG_I_UTP|1|64|MG_UTI".to_string(),
+        "MG_I_UTM|1|128|1234|MG_UTI".to_string(),
+        format!("MG_I_UTI|1|2|{cost}"),
+        "MG_I_UTW|1|32|90".to_string(),
+    ] {
+        assert!(got.contains(&e), "expected {e:?}; the engine reported:\n{}", got.join("\n"));
+    }
 }

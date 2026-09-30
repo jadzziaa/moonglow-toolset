@@ -24,6 +24,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 mg-testkit.workspace = true
+mg-tlk.workspace = true
 
 [lints]
 workspace = true

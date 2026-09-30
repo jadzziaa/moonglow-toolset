@@ -1630,7 +1630,7 @@ fn item_wizard_makes_a_weapon_with_its_cost() {
 /// A module with a 4 by 4 rural area holding two waypoints, at (20, 20)
 /// and (30, 20), with the game's data and a GPU (`None` without either).
 fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
-    use mg_module::instances::{Placement, instance};
+    use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = mg_testkit::nwn_root()?;
     if mg_render::Gpu::headless().is_none() {
@@ -1652,10 +1652,12 @@ fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let bp = Gff::read(&bp).unwrap();
     let git_key = ResKey::new(area, ResType::GIT);
     let mut git = m.gff(&git_key).unwrap().unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
     let waypoints = [20.0, 30.0]
         .map(|x| {
-            let at = Placement { position: [x, 20.0, 0.0], facing: 0.3 };
-            instance(ResType::UTW, &bp.root, at, &[]).unwrap()
+            let at = Placement { position: [x, 20.0, 0.0], rotation: 0.3 };
+            instance(&placing, ResType::UTW, &bp.root, at, &[]).unwrap()
         })
         .to_vec();
     git.root.set("WaypointList", mg_gff::Value::List(waypoints));
@@ -1670,8 +1672,10 @@ fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     app.set_render_state(rs.clone());
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    // Frames a 60th of a second apart, so that clicks can be double clicks.
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
@@ -1753,4 +1757,103 @@ fn area_viewer_selects_moves_and_deletes() {
     h.run_steps(2);
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-area-move").join("area_view.png")).unwrap();
+}
+
+#[test]
+fn area_viewer_places_draws_boxes_and_turns() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("place") else { return };
+    let git_list = |h: &mut Harness<'_, Moonglow>, list: &str| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list(list).unwrap_or(&[]).to_vec()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    };
+
+    // A waypoint from the palette, placed on the ground where clicked.
+    h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);
+    h.run_steps(1);
+    h.get_by_label_contains("Placing nw_waypoint001");
+    click(&mut h, Vec3::new(15.0, 30.0, 0.0));
+    h.run_steps(1);
+    let waypoints = git_list(&mut h, "WaypointList");
+    assert_eq!(waypoints.len(), 3);
+    let (x, y) =
+        (waypoints[2].float("XPosition").unwrap(), waypoints[2].float("YPosition").unwrap());
+    assert!((x - 15.0).abs() < 0.1 && (y - 30.0).abs() < 0.1, "placed at {x}, {y}");
+    assert_eq!(waypoints[2].float("YOrientation"), Some(1.0), "facing north, as Aurora");
+    assert!(h.state().palette.selected.is_none(), "one click, one waypoint");
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 2)]);
+
+    // A trigger, drawn: three corners, a double click on the fourth.
+    h.state_mut().palette.selected = ResKey::parse("newgeneric", ResType::UTT);
+    h.run_steps(1);
+    for p in [[30.0, 30.0], [36.0, 30.0], [36.0, 36.0]] {
+        click(&mut h, Vec3::new(p[0], p[1], 0.0));
+    }
+    let last = screen(&h, area, Vec3::new(30.0, 36.0, 0.0));
+    h.hover_at(last);
+    for _ in 0..2 {
+        press(&h, last, true, egui::Modifiers::NONE);
+        press(&h, last, false, egui::Modifiers::NONE);
+    }
+    h.run_steps(3);
+    let triggers = git_list(&mut h, "TriggerList");
+    assert_eq!(triggers.len(), 1, "the double click closes it");
+    let points = triggers[0].list("Geometry").unwrap();
+    assert_eq!(points.len(), 4);
+    // It stands at its first corner; its points are relative to it.
+    assert!((triggers[0].float("XPosition").unwrap() - 30.0).abs() < 0.1);
+    assert_eq!(points[0].float("PointX"), Some(0.0));
+    assert!((points[2].float("PointX").unwrap() - 6.0).abs() < 0.1);
+
+    // A box around the first two waypoints selects them.
+    let (a, b) = (
+        screen(&h, area, Vec3::new(17.0, 17.0, 0.0)),
+        screen(&h, area, Vec3::new(33.0, 23.0, 0.0)),
+    );
+    h.hover_at(a);
+    press(&h, a, true, egui::Modifiers::NONE);
+    for k in 1..=4 {
+        h.hover_at(a + (b - a) * (k as f32 / 4.0));
+    }
+    press(&h, b, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let mut selected = h.state().area_views[&area].selection.clone();
+    selected.sort();
+    assert_eq!(selected, [(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)]);
+
+    // Shift + right drag turns them: one command, orientations only.
+    let before = git_list(&mut h, "WaypointList");
+    let (from, to) = (a, a + egui::vec2(-80.0, 0.0));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.hover_at(from);
+    let right = |pressed, pos| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::SHIFT,
+    };
+    h.event(right(true, from));
+    for k in 1..=4 {
+        h.hover_at(from + (to - from) * (k as f32 / 4.0));
+    }
+    h.event(right(false, to));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(3);
+    let after = git_list(&mut h, "WaypointList");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Rotate"));
+    for i in 0..2 {
+        assert_eq!(before[i].float("XPosition"), after[i].float("XPosition"));
+        assert_ne!(before[i].float("XOrientation"), after[i].float("XOrientation"), "turned");
+    }
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-place").join("area_view.png")).unwrap();
 }

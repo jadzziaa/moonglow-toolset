@@ -1,6 +1,7 @@
 //! Every shipped area as the area editor shows it: its tileset and every
 //! tile's model load; every creature, door, item and placeable has a
-//! preview; and, with a GPU, every model loads and the area renders.
+//! preview; objects stand on the ground its walkmeshes make (sounds 1.5 m
+//! above it); and, with a GPU, every model loads and the area renders.
 //!
 //! Some shipped placeables show nothing in the game either: Wyvern Crown of
 //! Cormyr's hak blanks the placeables.2da rows its trees and benches use,
@@ -33,6 +34,7 @@ fn every_shipped_area_opens_and_renders() {
     let mut failures = Vec::new();
     let (mut areas, mut tiles, mut objects, mut rendered, mut invisible) = (0, 0, 0, 0, 0);
     let start = Instant::now();
+    let mut standing: std::collections::BTreeMap<ObjectKind, (usize, usize)> = Default::default();
     for path in bundled_modules(&root) {
         let module_name = path.file_stem().unwrap().to_string_lossy().into_owned();
         let m = Module::open(&path).unwrap();
@@ -68,6 +70,22 @@ fn every_shipped_area_opens_and_renders() {
             for p in &model.problems {
                 failures.push(format!("{at}: {p}"));
             }
+            // Objects stand on the ground: the walkmesh under them is at
+            // their height.
+            let ground = mg_area::walk::Ground::new(&game, &model);
+            for o in &model.objects {
+                if o.kind.has_outline() {
+                    continue;
+                }
+                let e = standing.entry(o.kind).or_insert((0, 0));
+                e.1 += 1;
+                // Sounds stand 1.5 m above it.
+                let lift = if o.kind == ObjectKind::Sound { mg_area::SOUND_HEIGHT } else { 0.0 };
+                let h = ground.height(o.position.truncate(), o.position.z - lift);
+                if h.is_some_and(|z| (z + lift - o.position.z).abs() < 0.02) {
+                    e.0 += 1;
+                }
+            }
             let placeables = git.root.list(ObjectKind::Placeable.list()).unwrap_or(&[]);
             for o in &model.objects {
                 let Some(p) = &o.problem else { continue };
@@ -96,6 +114,19 @@ fn every_shipped_area_opens_and_renders() {
          invisible), {rendered} rendered, in {:.0?}",
         start.elapsed()
     );
+    // Creatures, waypoints and stores are placed on the ground; sounds
+    // above it; placeables, doors and items are often lifted (onto tables,
+    // walls) or on door hooks at the area's edge.
+    for (kind, (on, all)) in &standing {
+        let share = *on as f64 / *all as f64;
+        eprintln!("{kind:?}: {on} of {all} on the ground ({:.1}%)", share * 100.0);
+        let least = match kind {
+            ObjectKind::Creature | ObjectKind::Waypoint | ObjectKind::Store => 0.95,
+            ObjectKind::Sound => 0.7,
+            _ => 0.6,
+        };
+        assert!(share >= least, "{kind:?}: only {:.1}% on the ground", share * 100.0);
+    }
     assert!(areas > 1000, "only {areas} areas");
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }

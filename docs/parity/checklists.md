@@ -228,15 +228,19 @@ scripts (name, picker, Edit), Comments.
 | Aurora | Moonglow | |
 |---|---|---|
 | Every area opens and draws: tiles (heights, turns, main and source lights, animation loops, day and night animations), placed creatures, doors, items and placeables | `mg_area` model and scene | ✅ (`areas.rs`: all 1462 shipped areas open and render; the only objects without models are the data's own) |
+| First view: straight down, north up, the whole area; numpad 5 returns to it | the same | ✅ |
 | Object Filters: Show Creatures … Waypoints, Start Location, Show All, Show None | toggles in the view's toolbar (per view, not per frame) | ✅ [area_viewer_selects_moves_and_deletes] |
 | Preview: Fog, Use Area Lighting; day or night | Fog, Night; the area's lighting always | ◐ fog start is not measured yet (a linear guess) |
 | Display Grid | Grid (tile outlines at each tile's height) | ✅ |
 | Reorient Camera, Go to Start Location | the same | ✅ |
-| Camera: pad buttons and keys to pan, rotate, pitch, zoom | middle drag orbits (Shift: pans), the wheel zooms, arrow keys pan | ◐ no pad; Aurora's exact mouse bindings not checked |
-| Select (click; Ctrl adds), move by dragging, rotate | click, Ctrl + click, drag moves over the ground at the object's height, Shift + drag turns; each one undoable command writing only the fields that change | ✅ |
+| Camera (nwn.wiki's Area Editor page): Ctrl + drag moves, Ctrl + right or middle drag turns, the wheel zooms (Shift or Ctrl: slowly), numpad 4 6 8 2 / 7 9 1 3 / 5 | the same; also a middle drag turns, Shift + middle drag moves, the arrow keys move | ◐ no camera pad |
+| Select: click, drag a box; move by dragging, Shift + right drag turns, Alt + drag raises | the same; also Ctrl + click adds or removes; each change one undoable command writing only the fields that change | ✅ [area_viewer_places_draws_boxes_and_turns] |
+| Objects stand on the walkmesh: creatures always; others keep their height when moved; sounds are placed 1.5 m up | tiles' `.wok` (else the model's walkmesh); an object moved keeps its height above the ground, creatures stay on it | ✅ (`areas.rs`: 97.5% of shipped creatures, 96% of waypoints and stores stand on the computed ground; 72% of sounds exactly 1.5 m above it) |
 | Delete (key and context menu) | the same | ✅ |
+| Place from the palette: click (Shift + click places more; right click or Escape stops); triggers and encounters drawn point by point, a double click closing them | the same (the palette's chosen blueprint) | ✅ |
+| What placing writes: the blueprint read into Aurora's object (defaults for missing fields, EE forms of old fields, parts for part-based creatures, twins), equipment and inventories in full, skill list, sound priority, store pages, encounter creatures by CR, Aurora's field order; no spawn point for encounters | `mg_module::instances` | ✅ (`aurora_instances.rs`: 15 instances placed by Aurora identical; `engine_blueprints.rs`: the engine loads them with what they hold) |
+| Doors: placed on tile door hooks | not yet (not captured) | ✗ |
 | Waypoints, sounds, merchants: shown as models | markers (boxes) | ◐ |
 | Triggers and encounters: coloured outlines | outlines (encounters orange, the others green) | ◐ trigger colours by type not yet |
 | Moving an encounter moves its spawn points | they move with it | ? not checked against Aurora |
-| Objects stand on the walkmesh | they keep their height | ✗ walkmeshes not read yet |
-| Placing from the palette, Properties, Adjust Location, the rest of the context menu | not yet | ✗ |
+| Properties, Adjust Location, the rest of the context menu; copy and paste | not yet | ✗ |
