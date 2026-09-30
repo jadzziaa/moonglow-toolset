@@ -192,7 +192,10 @@ impl Moonglow {
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.shortcuts(ui);
-        egui::Panel::top("menu").show(ui, |ui| self.menu(ui));
+        egui::Panel::top("menu").show(ui, |ui| {
+            self.menu(ui);
+            self.toolbar(ui);
+        });
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         egui::Panel::bottom("log")
             .resizable(true)
@@ -338,6 +341,46 @@ impl Moonglow {
                     self.actions.push(Action::Verify);
                 }
             });
+        });
+    }
+
+    /// Buttons for the common commands, below the menu as in Aurora.
+    fn toolbar(&mut self, ui: &mut egui::Ui) {
+        let open = self.ws.is_some();
+        let (undo, redo) = self
+            .ws
+            .as_ref()
+            .map_or((false, false), |ws| (ws.can_undo().is_some(), ws.can_redo().is_some()));
+        ui.horizontal(|ui| {
+            let mut button =
+                |ui: &mut egui::Ui, enabled: bool, label: &str, tip: &str, action: Action| {
+                    if ui
+                        .add_enabled(enabled, egui::Button::new(label).small())
+                        .on_hover_text(tip)
+                        .clicked()
+                    {
+                        self.actions.push(action);
+                    }
+                };
+            button(ui, true, "🗋 New", "New module (Ctrl+N)", Action::NewModuleDialog);
+            button(ui, true, "🗁 Open", "Open module (Ctrl+O)", Action::OpenModuleDialog);
+            button(ui, open, "💾 Save", "Save module (Ctrl+S)", Action::Save);
+            ui.separator();
+            button(ui, undo, "⟲ Undo", "Undo (Ctrl+Z)", Action::Undo);
+            button(ui, redo, "⟳ Redo", "Redo (Ctrl+Y)", Action::Redo);
+            ui.separator();
+            button(
+                ui,
+                open,
+                "ℹ Properties",
+                "Module properties",
+                Action::OpenTab(Tab::ModuleProperties),
+            );
+            button(ui, open, "🗺 New Area", "Area Wizard (Ctrl+Alt+A)", Action::AreaWizard);
+            button(ui, true, "🔍 Resources", "Resource browser", Action::OpenTab(Tab::Resources));
+            ui.separator();
+            button(ui, open, "⚙ Compile", "Compile all scripts (F7)", Action::CompileScripts);
+            button(ui, open, "✔ Verify", "Verify the module", Action::Verify);
         });
     }
 

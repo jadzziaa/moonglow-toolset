@@ -370,7 +370,8 @@ resources of the load order with their layer; read-only GFF, 2DA, script and
 text views; copy into the module, save to a file). The off-screen display
 also runs Moonglow itself for visual checks.
 The script editor spike is done (see §9: egui's editor is fast enough on
-the game's largest script). Next: toolbar; then Phase 6.
+the game's largest script), and a toolbar gives the common commands. Next:
+Phase 6.
 
 ### Phase 6: Text-and-tree editors
 Localized string editor, variables, pickers; script editor (highlighting,
