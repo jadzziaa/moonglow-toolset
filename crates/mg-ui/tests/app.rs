@@ -1950,3 +1950,69 @@ fn area_properties_edit_the_area() {
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-area-props").join("visual.png")).unwrap();
 }
+
+#[test]
+fn adjust_location_and_find_instance() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("adjust") else { return };
+    let waypoint = |h: &mut Harness<'_, Moonglow>, i: usize| -> mg_gff::Struct {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("WaypointList").unwrap()[i].clone()
+    };
+    // Select the first waypoint; Adjust Location from its context menu.
+    let at = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    h.hover_at(at);
+    let right = |pressed| egui::Event::PointerButton {
+        pos: at,
+        button: egui::PointerButton::Secondary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    h.event(right(true));
+    h.event(right(false));
+    h.run_steps(3);
+    h.get_by_label("Adjust Location…").click();
+    h.run_steps(3);
+    let adjust = h.state_mut().adjust.as_mut().expect("the window");
+    assert_eq!(adjust.objects, [(ObjectKind::Waypoint, 0)]);
+    assert!((adjust.position.x - 20.0).abs() < 1e-3);
+    // X to 12.5 and facing west: only those change.
+    adjust.position.x = 12.5;
+    adjust.facing = 180.0;
+    adjust.changed = [true, false, false, true];
+    let before = waypoint(&mut h, 0);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let after = waypoint(&mut h, 0);
+    assert_eq!(after.float("XPosition"), Some(12.5));
+    assert_eq!(after.float("YPosition"), before.float("YPosition"));
+    assert!((after.float("XOrientation").unwrap() + 1.0).abs() < 1e-5, "facing west");
+    assert!(h.state().adjust.is_none());
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Adjust location"));
+
+    // Find Instance: waypoints by tag, then go to one.
+    let tag = String::from_utf8_lossy(waypoint(&mut h, 1).string("Tag").unwrap()).into_owned();
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Find Instance…").click();
+    h.run_steps(2);
+    type_into_hint(&mut h, "tag", &tag.to_lowercase());
+    h.run_steps(2);
+    h.get_by_label("Search").click();
+    h.run_steps(2);
+    let found = h.state().find_instance.as_ref().unwrap().results.clone();
+    assert_eq!(found.len(), 2, "both waypoints share the blueprint's tag");
+    assert!(found.iter().all(|f| f.kind == ObjectKind::Waypoint && f.area == area));
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    let second = h.get_all_by_label(&found[1].template).nth(1).expect("the second result").rect();
+    h.run_steps(40);
+    h.hover_at(second.center());
+    for _ in 0..2 {
+        press(&h, second.center(), true, egui::Modifiers::NONE);
+        press(&h, second.center(), false, egui::Modifiers::NONE);
+    }
+    h.run_steps(4);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)]);
+}

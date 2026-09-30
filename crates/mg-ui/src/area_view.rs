@@ -299,6 +299,19 @@ fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     let mut view = app.area_views.remove(&area).unwrap_or_else(|| AreaView::new(area));
     refresh(app, &mut view);
+    // An object to go to (from Find Instance).
+    if let Some((a, kind, index)) = app.area_focus
+        && a == area
+        && let Some(o) = view.model.as_ref().and_then(|m| m.object(kind, index))
+    {
+        let at = o.position;
+        view.selection = vec![(kind, index)];
+        if let Some(orbit) = &mut view.orbit {
+            orbit.target = at;
+            orbit.distance = orbit.distance.min(25.0);
+        }
+        app.area_focus = None;
+    }
     toolbar(app, ui, &mut view);
     let start = start_location(app, area);
     if let Some(e) = &view.error {
@@ -679,6 +692,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             && let Some((kind, index)) = single
         {
             open_properties(app, view, kind, index);
+            ui.close();
+        }
+        let any = !view.selection.is_empty();
+        if ui.add_enabled(any, egui::Button::new("Adjust Location…")).clicked() {
+            app.adjust = crate::area_tools::adjust(view);
             ui.close();
         }
         if ui.add_enabled(!view.selection.is_empty(), egui::Button::new("Delete")).clicked() {

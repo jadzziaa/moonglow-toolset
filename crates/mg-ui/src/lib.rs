@@ -5,6 +5,7 @@
 //! turn edits into undoable [`mg_edit::Command`]s.
 
 mod area_props;
+pub mod area_tools;
 pub mod area_view;
 pub mod blueprint;
 pub mod blueprint_wizard;
@@ -161,6 +162,12 @@ pub struct Moonglow {
     pub model_views: HashMap<ResKey, model_view::ModelView>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
+    /// The Adjust Location window.
+    pub adjust: Option<area_tools::AdjustLocation>,
+    /// The Find Instance window.
+    pub find_instance: Option<area_tools::FindInstance>,
+    /// An object to show and select when its area's view is next drawn.
+    pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     /// The blueprint palettes pane.
     pub palette: palette_view::PaletteView,
     /// The hak conflict report being shown.
@@ -225,6 +232,9 @@ impl Moonglow {
             viewport: None,
             model_views: HashMap::new(),
             area_views: HashMap::new(),
+            adjust: None,
+            find_instance: None,
+            area_focus: None,
             palette: Default::default(),
             hak_report: None,
             custom_tlk: None,
@@ -302,6 +312,7 @@ impl Moonglow {
         dialog_view::windows(self, ui);
         dialog_view::test_window(self, ui);
         script_wizard::window(self, ui);
+        area_tools::windows(self, ui);
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -421,6 +432,9 @@ impl Moonglow {
                 ui.separator();
                 if ui.add_enabled(open, egui::Button::new("Module Properties")).clicked() {
                     self.actions.push(Action::OpenTab(Tab::ModuleProperties));
+                }
+                if ui.add_enabled(open, egui::Button::new("Find Instance…")).clicked() {
+                    self.find_instance.get_or_insert_with(Default::default);
                 }
             });
             ui.menu_button("Wizards", |ui| {
