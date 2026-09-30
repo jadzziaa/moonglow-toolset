@@ -24,7 +24,7 @@ use mg_area::walk::Ground;
 use mg_area::{AreaModel, AreaScene, ObjectKind, TILE_SIZE, View};
 use mg_core::{ResRef, ResType};
 use mg_edit::Command;
-use mg_gff::Gff;
+use mg_gff::{Gff, Value};
 use mg_render::{Camera, Targets};
 use mg_resman::ResKey;
 use mg_schema::{StructExt, ifo};
@@ -122,6 +122,10 @@ pub struct AreaView {
     pub outline: Vec<Vec3>,
     /// The copied objects follow the pointer, to be placed with a click.
     pub pasting: bool,
+    /// Where the context menu was opened (on the ground).
+    menu_at: Option<Vec3>,
+    /// A trigger or encounter whose outline is being drawn anew.
+    pub redraw: Option<(ObjectKind, usize)>,
     targets: Option<(Targets, egui::TextureId)>,
     time: f32,
     last_frame: Option<f64>,
@@ -149,6 +153,8 @@ impl AreaView {
             drag: None,
             outline: Vec::new(),
             pasting: false,
+            menu_at: None,
+            redraw: None,
             targets: None,
             time: 0.0,
             last_frame: None,
@@ -394,7 +400,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     });
     // One line, never wrapped, so that the view does not move when the
     // selection changes.
-    let status = if view.pasting {
+    let status = if view.redraw.is_some() {
+        "Redraw Polygon: click its corners, double click to close; right click or Escape: stop"
+            .to_string()
+    } else if view.pasting {
         "Pasting: click to place the copies; right click or Escape: stop".to_string()
     } else if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
@@ -706,6 +715,30 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         return;
     }
 
+    // Drawing a trigger's or encounter's outline anew.
+    if let Some((kind, index)) = view.redraw {
+        let cancel = response.secondary_clicked()
+            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        if cancel {
+            view.redraw = None;
+            view.outline.clear();
+        } else if response.clicked()
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(at) = view.ground_at(pos, 0.0)
+        {
+            if view.outline.last().is_none_or(|p| (*p - at).length() > 0.05) {
+                view.outline.push(at);
+            }
+            let closing = response.double_clicked() || response.triple_clicked();
+            if closing && view.outline.len() >= 3 {
+                let outline = std::mem::take(&mut view.outline);
+                redraw_outline(app, view, kind, index, &outline);
+                view.redraw = None;
+            }
+        }
+        return;
+    }
+
     // Placing the palette's blueprint.
     if let Some(key) = brush(app) {
         let cancel = response.secondary_clicked()
@@ -744,7 +777,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
         return;
     }
-    view.outline.clear();
+    if view.redraw.is_none() {
+        view.outline.clear();
+    }
 
     // Selection.
     if response.clicked()
@@ -785,27 +820,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         let (kind, index) = (o.kind, o.index);
         open_properties(app, view, kind, index);
     }
-    response.context_menu(|ui| {
-        let single = match view.selection.as_slice() {
-            [one] => Some(*one),
-            _ => None,
-        };
-        if ui.add_enabled(single.is_some(), egui::Button::new("Properties")).clicked()
-            && let Some((kind, index)) = single
-        {
-            open_properties(app, view, kind, index);
-            ui.close();
-        }
-        let any = !view.selection.is_empty();
-        if ui.add_enabled(any, egui::Button::new("Adjust Location…")).clicked() {
-            app.adjust = crate::area_tools::adjust(view);
-            ui.close();
-        }
-        if ui.add_enabled(!view.selection.is_empty(), egui::Button::new("Delete")).clicked() {
-            delete(app, view);
-            ui.close();
-        }
-    });
+    if response.secondary_clicked() {
+        view.menu_at = response.interact_pointer_pos().and_then(|p| view.ground_at(p, 0.0));
+    }
+    response.context_menu(|ui| context_menu(app, view, ui));
 
     // Moving, turning, raising; selecting by a box. A drag starts once the
     // pointer has moved: pick where it was pressed.
@@ -1131,4 +1149,205 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
         app.actions.push(Action::Apply(Command::new("Paste", edits)));
         view.selection = selection;
     }
+}
+
+/// The context menu of the selection: Properties, Adjust Location, what
+/// the object's type offers (Aurora's `pmViewerArea`), Variables, Delete.
+fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
+    let single = match view.selection.as_slice() {
+        [one] => Some(*one),
+        _ => None,
+    };
+    if ui.add_enabled(single.is_some(), egui::Button::new("Properties")).clicked()
+        && let Some((kind, index)) = single
+    {
+        open_properties(app, view, kind, index);
+        ui.close();
+    }
+    let any = !view.selection.is_empty();
+    if ui.add_enabled(any, egui::Button::new("Adjust Location…")).clicked() {
+        app.adjust = crate::area_tools::adjust(view);
+        ui.close();
+    }
+    let kinds: Vec<ObjectKind> = view.selection.iter().map(|(k, _)| *k).collect();
+    let all = |k: ObjectKind| !kinds.is_empty() && kinds.iter().all(|x| *x == k);
+    if all(ObjectKind::Door) {
+        if ui.button("Reverse Door").clicked() {
+            reverse_doors(app, view);
+            ui.close();
+        }
+        ui.menu_button("Initial State", |ui| {
+            for (state, text) in [(1, "Opened Forward"), (2, "Opened Backward"), (0, "Closed")] {
+                if ui.button(text).clicked() {
+                    set_on_selection(
+                        app,
+                        view,
+                        "Initial state",
+                        "AnimationState",
+                        Value::Byte(state),
+                    );
+                    ui.close();
+                }
+            }
+        });
+    }
+    if all(ObjectKind::Placeable) {
+        ui.menu_button("Initial State", |ui| {
+            for (state, text) in [
+                (0, "Default"),
+                (1, "Opened"),
+                (2, "Closed"),
+                (3, "Destroyed"),
+                (4, "Activated"),
+                (5, "Deactivated"),
+            ] {
+                if ui.button(text).clicked() {
+                    set_on_selection(
+                        app,
+                        view,
+                        "Initial state",
+                        "AnimationState",
+                        Value::Byte(state),
+                    );
+                    ui.close();
+                }
+            }
+        });
+    }
+    if all(ObjectKind::Sound) {
+        if ui.button("Mute").clicked() {
+            set_on_selection(app, view, "Mute", "Active", Value::Byte(0));
+            ui.close();
+        }
+        if ui.button("Turn On").clicked() {
+            set_on_selection(app, view, "Turn on", "Active", Value::Byte(1));
+            ui.close();
+        }
+    }
+    if let Some((kind, index)) = single.filter(|(k, _)| k.has_outline()) {
+        if ui.button("Redraw Polygon").clicked() {
+            view.redraw = Some((kind, index));
+            view.outline.clear();
+            ui.close();
+        }
+        if kind == ObjectKind::Encounter
+            && let Some(at) = view.menu_at
+            && ui.button("Add Spawn Point").clicked()
+        {
+            add_spawn_point(app, view, index, at);
+            ui.close();
+        }
+    }
+    if let Some((kind, index)) = single
+        && ui.button("Variables…").clicked()
+    {
+        let path = mg_edit::GffPath::root().item(kind.list(), index);
+        let list = app
+            .ws
+            .as_mut()
+            .and_then(|ws| ws.doc(&view.git()).ok())
+            .and_then(|g| path.get(&g.root))
+            .and_then(|s| s.list("VarTable"))
+            .unwrap_or(&[])
+            .to_vec();
+        let target = crate::widgets::FieldTarget::new(view.git(), path, "VarTable");
+        app.var_edit = Some(crate::widgets::VarTableEdit::new(target, &list));
+        ui.close();
+    }
+    ui.separator();
+    if ui.add_enabled(any, egui::Button::new("Delete")).clicked() {
+        delete(app, view);
+        ui.close();
+    }
+}
+
+/// Sets a field on every selected object (one command).
+fn set_on_selection(app: &mut Moonglow, view: &AreaView, what: &str, label: &str, value: Value) {
+    let edits = view
+        .selection
+        .iter()
+        .map(|&(kind, index)| mg_edit::Edit::SetField {
+            key: view.git(),
+            path: mg_edit::GffPath::root().item(kind.list(), index),
+            label: label.into(),
+            value: Some(value.clone()),
+        })
+        .collect();
+    app.actions.push(Action::Apply(Command::new(what, edits)));
+}
+
+/// Turns the selected doors half round (Aurora's Reverse Door).
+fn reverse_doors(app: &mut Moonglow, view: &AreaView) {
+    let moved: Vec<(usize, Vec3, f32)> = view
+        .selection
+        .iter()
+        .filter_map(|&(k, i)| {
+            let o = view.model.as_ref()?.object(k, i)?;
+            let at = view.object_at(k, i)?;
+            let turned = (o.rotation + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU);
+            Some((at, o.position, turned))
+        })
+        .collect();
+    commit_moves(app, view, &moved, "Reverse door");
+}
+
+/// Adds a spawn point to encounter `index` at `at` (Aurora's Add Spawn
+/// Point): a SpawnPointList entry (struct 2) in area coordinates.
+fn add_spawn_point(app: &mut Moonglow, view: &AreaView, index: usize, at: Vec3) {
+    let Some(ws) = app.ws.as_mut() else { return };
+    let path = mg_edit::GffPath::root().item(ObjectKind::Encounter.list(), index);
+    let count = ws
+        .doc(&view.git())
+        .ok()
+        .and_then(|g| path.get(&g.root))
+        .and_then(|s| s.list("SpawnPointList"))
+        .map_or(0, <[_]>::len);
+    let mut point = mg_gff::Struct::new(2);
+    for (label, v) in [("X", at.x), ("Y", at.y), ("Z", at.z), ("Orientation", 0.0)] {
+        point.set(label, Value::Float(v));
+    }
+    let edit = mg_edit::Edit::InsertItem {
+        key: view.git(),
+        path,
+        list: "SpawnPointList".into(),
+        index: count,
+        item: point,
+    };
+    app.actions.push(Action::Apply(Command::new("Add spawn point", vec![edit])));
+}
+
+/// Replaces a trigger's or encounter's outline with `outline` (relative to
+/// where the object stands; each point on the ground plus Aurora's lift).
+fn redraw_outline(
+    app: &mut Moonglow,
+    view: &AreaView,
+    kind: ObjectKind,
+    index: usize,
+    outline: &[Vec3],
+) {
+    let Some(o) = view.model.as_ref().and_then(|m| m.object(kind, index)) else { return };
+    let (id, labels) = match kind {
+        ObjectKind::Trigger => (3, ["PointX", "PointY", "PointZ"]),
+        _ => (1, ["X", "Y", "Z"]),
+    };
+    let lift = mg_module::instances::OUTLINE_LIFT;
+    let points = outline
+        .iter()
+        .map(|p| {
+            let ground = view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
+            let mut s = mg_gff::Struct::new(id);
+            let c = [p.x - o.position.x, p.y - o.position.y, ground.unwrap_or(p.z) + lift];
+            for (label, v) in labels.iter().zip(c) {
+                s.set(label, Value::Float(v));
+            }
+            s
+        })
+        .collect();
+    let edit = mg_edit::Edit::SetField {
+        key: view.git(),
+        path: mg_edit::GffPath::root().item(kind.list(), index),
+        label: "Geometry".into(),
+        value: Some(Value::List(points)),
+    };
+    app.actions.push(Action::Apply(Command::new("Redraw polygon", vec![edit])));
 }

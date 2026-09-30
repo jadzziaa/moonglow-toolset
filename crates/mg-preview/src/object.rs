@@ -71,5 +71,16 @@ pub fn door(game: &GameData, utd: &Struct) -> Result<Preview, PreviewError> {
     if !lk.has_model(&model) {
         return Err(PreviewError::NoModel(model));
     }
-    Ok(Preview { base: Part::new(model), parts: Vec::new(), idle: None, lights: Vec::new() })
+    // A placed door's initial state (`AnimationState`).
+    let idle = match utd.integer("AnimationState").unwrap_or(0) {
+        1 => "opened1",
+        2 => "opened2",
+        _ => "closed",
+    };
+    Ok(Preview {
+        base: Part::new(model),
+        parts: Vec::new(),
+        idle: Some(idle.into()),
+        lights: Vec::new(),
+    })
 }

@@ -2065,3 +2065,83 @@ fn copy_cut_and_paste_objects() {
     assert_eq!(waypoints(&mut h).len(), 2);
     assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(2));
 }
+
+#[test]
+fn context_menu_sets_states_mutes_and_adds_spawn_points() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("menu") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    // A chest, a sound and an encounter, placed.
+    {
+        let app = h.state_mut();
+        let game = app.game.as_ref().unwrap();
+        let read = |name: &str, t: ResType| {
+            Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+        };
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let square = [[-2.0, -2.0, 0.0], [2.0, -2.0, 0.0], [2.0, 2.0, 0.0], [-2.0, 2.0, 0.0]];
+        let mut edits = Vec::new();
+        for (name, t, x, outline) in [
+            ("plc_chest1", ResType::UTP, 12.0, &[][..]),
+            ("animalcriesday", ResType::UTS, 28.0, &[][..]),
+            ("nw_verminbeet", ResType::UTE, 20.0, &square[..]),
+        ] {
+            let at = Placement { position: [x, 30.0, 0.0], rotation: 0.0 };
+            let item = instance(&placing, t, &read(name, t), at, outline).unwrap();
+            let (list, _) = mg_module::instances::git_list(t).unwrap();
+            edits.push(mg_edit::Edit::InsertItem {
+                key: git_key,
+                path: mg_edit::GffPath::root(),
+                list: list.into(),
+                index: 0,
+                item,
+            });
+        }
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let first = |h: &mut Harness<'_, Moonglow>, list: &str| -> mg_gff::Struct {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list(list).unwrap()[0].clone()
+    };
+    let right_click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    // The chest: Initial State › Opened.
+    right_click(&mut h, Vec3::new(12.0, 30.0, 0.3));
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Placeable, 0)]);
+    h.get_by_label_contains("Initial State").hover();
+    h.run_steps(3);
+    h.get_by_label("Opened").click();
+    h.run_steps(3);
+    assert_eq!(first(&mut h, "Placeable List").integer("AnimationState"), Some(1));
+    // The sound: Mute.
+    right_click(&mut h, Vec3::new(28.0, 30.0, 1.9));
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Sound, 0)]);
+    h.get_by_label("Mute").click();
+    h.run_steps(3);
+    assert_eq!(first(&mut h, "SoundList").integer("Active"), Some(0));
+    // The encounter: a spawn point where the menu was opened.
+    right_click(&mut h, Vec3::new(21.0, 31.0, 0.0));
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Encounter, 0)]);
+    h.get_by_label("Add Spawn Point").click();
+    h.run_steps(3);
+    let spawns = first(&mut h, "Encounter List").list("SpawnPointList").unwrap().to_vec();
+    assert_eq!(spawns.len(), 1);
+    assert_eq!(spawns[0].id, 2);
+    assert!((spawns[0].float("X").unwrap() - 21.0).abs() < 0.1);
+    assert!((spawns[0].float("Y").unwrap() - 31.0).abs() < 0.1);
+}
