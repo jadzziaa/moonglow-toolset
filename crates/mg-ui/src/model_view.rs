@@ -224,7 +224,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
     // Particles run whenever the view plays.
     let camera = view.camera();
     let particles = view.particles.get_or_insert_with(|| Particles::new(&model.model));
-    let has_particles = !particles.is_empty();
     let current_pose: &[Mat4] = pose.as_deref().map_or(&model.rest, Vec::as_slice);
     particles.update(&model.model, playing, view.time, dt, current_pose, Mat4::IDENTITY);
     let batches = particles.batches(
@@ -235,7 +234,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
         Mat4::IDENTITY,
         camera.view(),
     );
-    if (pose.is_some() || has_particles) && view.playing {
+    // Keep drawing while something moves: an animation, or live particles.
+    if (pose.is_some() || !batches.is_empty()) && view.playing {
         ui.ctx().request_repaint();
     }
 
