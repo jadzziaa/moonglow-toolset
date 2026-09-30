@@ -97,9 +97,10 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     });
 }
 
-/// A creature blueprint's challenge rating and appearance.
-fn creature_entry(f: &mut Form<'_>, resref: ResRef) -> Struct {
-    let utc = f.blueprint(BlueprintKind::Creature, resref);
+/// An encounter's entry for a creature blueprint: its appearance and
+/// challenge rating.
+pub(crate) fn creature_entry(app: &mut crate::Moonglow, resref: ResRef) -> Struct {
+    let utc = super::picker::blueprint(app, BlueprintKind::Creature, resref);
     let mut s = Struct::new(0);
     s.set(
         "Appearance",
@@ -145,7 +146,7 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
     });
     let path = GffPath::root();
     if let Some(r) = add {
-        let item = creature_entry(f, r);
+        let item = creature_entry(f.app, r);
         f.app.actions.push(Action::Apply(Command::new(
             "Add creature",
             vec![Edit::InsertItem {

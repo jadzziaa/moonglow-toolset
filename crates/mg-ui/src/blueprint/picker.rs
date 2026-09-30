@@ -15,14 +15,7 @@ use crate::palette_view;
 impl Form<'_> {
     /// A blueprint's fields: the module's, else the game's.
     pub(crate) fn blueprint(&mut self, kind: BlueprintKind, resref: ResRef) -> Option<Struct> {
-        let key = ResKey::new(resref, kind.restype());
-        if let Some(root) =
-            self.app.ws.as_mut().and_then(|ws| ws.doc(&key).ok().map(|g| g.root.clone()))
-        {
-            return Some(root);
-        }
-        let data = self.app.game.as_ref()?.resman.get(&key).ok()?;
-        Gff::read(&data).ok().map(|g| g.root)
+        blueprint(self.app, kind, resref)
     }
 
     /// The names of a type's blueprints, from the standard and the custom
@@ -63,34 +56,57 @@ impl Form<'_> {
         add: &str,
     ) -> Option<ResRef> {
         let state_id = self.id(&format!("picker-{}", kind.name()));
-        // (custom palette, filter, chosen blueprint)
-        let (mut custom, mut filter, mut chosen): (bool, String, Option<ResRef>) =
-            ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
-        let mut taken = None;
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut custom, false, "Standard Palette");
-            ui.selectable_value(&mut custom, true, "Custom Palette");
-        });
-        ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Find"));
-        let palette = palette_view::palette(self.app, kind, custom);
-        let game = self.app.game.as_ref();
-        egui::ScrollArea::vertical().id_salt(state_id.with("tree")).max_height(360.0).show(
-            ui,
-            |ui| {
-                if let (Some(p), Some(game)) = (palette, game) {
-                    let filter = filter.to_lowercase();
-                    for (i, node) in p.nodes.iter().enumerate() {
-                        tree(ui, game, node, &filter, &mut chosen, &mut taken, state_id, &[i]);
-                    }
-                }
-            },
-        );
-        if ui.add_enabled(chosen.is_some(), egui::Button::new(add)).clicked() {
-            taken = chosen;
-        }
-        ui.data_mut(|d| d.insert_temp(state_id, (custom, filter, chosen)));
-        taken
+        palette_picker(self.app, ui, kind, add, state_id)
     }
+}
+
+/// A palette to choose blueprints from (see [`Form::palette_picker`]), its
+/// state kept under `state_id`.
+pub(crate) fn palette_picker(
+    app: &mut crate::Moonglow,
+    ui: &mut Ui,
+    kind: BlueprintKind,
+    add: &str,
+    state_id: egui::Id,
+) -> Option<ResRef> {
+    // (custom palette, filter, chosen blueprint)
+    let (mut custom, mut filter, mut chosen): (bool, String, Option<ResRef>) =
+        ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
+    let mut taken = None;
+    ui.horizontal(|ui| {
+        ui.selectable_value(&mut custom, false, "Standard Palette");
+        ui.selectable_value(&mut custom, true, "Custom Palette");
+    });
+    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Find"));
+    let palette = palette_view::palette(app, kind, custom);
+    let game = app.game.as_ref();
+    egui::ScrollArea::vertical().id_salt(state_id.with("tree")).max_height(360.0).show(ui, |ui| {
+        if let (Some(p), Some(game)) = (palette, game) {
+            let filter = filter.to_lowercase();
+            for (i, node) in p.nodes.iter().enumerate() {
+                tree(ui, game, node, &filter, &mut chosen, &mut taken, state_id, &[i]);
+            }
+        }
+    });
+    if ui.add_enabled(chosen.is_some(), egui::Button::new(add)).clicked() {
+        taken = chosen;
+    }
+    ui.data_mut(|d| d.insert_temp(state_id, (custom, filter, chosen)));
+    taken
+}
+
+/// A blueprint's fields: the module's, else the game's.
+pub(crate) fn blueprint(
+    app: &mut crate::Moonglow,
+    kind: BlueprintKind,
+    resref: ResRef,
+) -> Option<Struct> {
+    let key = ResKey::new(resref, kind.restype());
+    if let Some(root) = app.ws.as_mut().and_then(|ws| ws.doc(&key).ok().map(|g| g.root.clone())) {
+        return Some(root);
+    }
+    let data = app.game.as_ref()?.resman.get(&key).ok()?;
+    Gff::read(&data).ok().map(|g| g.root)
 }
 
 /// A palette branch.

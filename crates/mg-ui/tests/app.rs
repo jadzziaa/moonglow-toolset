@@ -1499,3 +1499,126 @@ fn creature_editor_lists() {
     let chest = equipped.iter().find(|s| s.id == 2).expect("armor equipped");
     assert_eq!(chest.resref("EquippedRes").unwrap().to_string(), "nw_aarcl001");
 }
+
+/// The sample module with the game's data (`None` without the game).
+fn game_harness(name: &str) -> Option<Harness<'static, Moonglow>> {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return None;
+    };
+    let dir = mg_testkit::scratch_dir(&format!("ui-wizard-{name}"));
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    Some(
+        Harness::builder()
+            .with_size(egui::vec2(1000.0, 800.0))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app),
+    )
+}
+
+fn module_gff(h: &mut Harness<'_, Moonglow>, name: &str, t: ResType) -> Option<Gff> {
+    let key = ResKey::parse(name, t).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    ws.module.gff(&key).map(|g| g.unwrap())
+}
+
+#[test]
+fn store_wizard_makes_aurora_s_store() {
+    use mg_module::palette::BlueprintKind;
+    let Some(mut h) = game_harness("store") else { return };
+    h.state_mut().blueprint_wizard =
+        Some(mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Store));
+    h.run();
+    h.get_by_label("Merchants").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    // The suggested name follows the category.
+    assert!(h.query_all_by_value("Merchants 001").next().is_some());
+    h.get_by_label("Finish").click();
+    h.run();
+    let made = module_gff(&mut h, "merchants001", ResType::UTM).expect("the store");
+    let r = ResRef::from_str("merchants001").unwrap();
+    assert_eq!(made, mg_module::blueprints::store(r, "Merchants 001", 5));
+    assert!(h.state().blueprint_wizard.is_none());
+}
+
+#[test]
+fn sound_wizard_steps_through_timing_positioning_and_waves() {
+    use mg_module::palette::BlueprintKind;
+    let Some(mut h) = game_harness("sound") else { return };
+    h.state_mut().blueprint_wizard =
+        Some(mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Sound));
+    h.run();
+    h.get_by_label("Civilization").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.get_by_label("Seamlessly looping").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    // Random positions are for single shots only.
+    assert!(h.get_by_label("Random Positional").accesskit_node().is_disabled());
+    h.get_by_label("Positional").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.get_by_label("Add Sounds…").click();
+    h.run();
+    h.state_mut().picker.as_mut().unwrap().filter = "al_cv_firecamp1".into();
+    h.run();
+    h.get_all_by_label_contains("al_cv_firecamp1").next().unwrap().click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.get_by_label("Finish").click();
+    h.run();
+    let made = module_gff(&mut h, "civilization001", ResType::UTS).expect("the sound");
+    let r = ResRef::from_str("civilization001").unwrap();
+    let fire = ResRef::from_str("al_cv_firecamp1").unwrap();
+    let expected = mg_module::blueprints::sound(
+        r,
+        "Civilization 001",
+        13,
+        mg_module::blueprints::SoundStyle::LoopingPositional,
+        &[fire],
+    );
+    assert_eq!(made, expected);
+    // Its properties open, as Aurora's Sound Wizard does by default.
+    let key = ResKey::parse("civilization001", ResType::UTS).unwrap();
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some());
+}
+
+#[test]
+fn item_wizard_makes_a_weapon_with_its_cost() {
+    use mg_module::palette::BlueprintKind;
+    let Some(mut h) = game_harness("item") else { return };
+    h.state_mut().blueprint_wizard =
+        Some(mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Item));
+    h.run();
+    h.get_by_label("Bastard Sword").scroll_to_me();
+    h.run();
+    h.get_by_label("Bastard Sword").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    type_into_hint(&mut h, "Name", "Wizard Sword");
+    h.get_by_label("Next >").click();
+    h.run();
+    for branch in ["Weapons", "Bladed"] {
+        h.get_by_label(branch).click();
+        h.run();
+    }
+    h.get_by_label("Bastard Swords").click();
+    h.run();
+    h.get_by_label("Finish").click();
+    h.run();
+    let made = module_gff(&mut h, "wizardsword", ResType::UTI).expect("the item");
+    assert_eq!(made.root.integer("BaseItem"), Some(3));
+    assert_eq!(made.root.integer("Cost"), Some(70));
+    assert_eq!(made.root.integer("PaletteID"), Some(33));
+}

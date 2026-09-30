@@ -5,6 +5,7 @@
 //! turn edits into undoable [`mg_edit::Command`]s.
 
 pub mod blueprint;
+pub mod blueprint_wizard;
 mod browser;
 pub mod dialog_view;
 pub mod dialogs;
@@ -130,6 +131,8 @@ pub struct Moonglow {
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
     pub wizard: Option<Wizard>,
+    /// An open blueprint wizard.
+    pub blueprint_wizard: Option<blueprint_wizard::BlueprintWizard>,
     pub settings: Settings,
     /// The Options window's pending values, while it is open.
     pub options: Option<OptionsDraft>,
@@ -198,6 +201,7 @@ impl Moonglow {
             laid_out: HashMap::new(),
             buffers: HashMap::new(),
             wizard: None,
+            blueprint_wizard: None,
             settings: Settings::default(),
             options: None,
             export: None,
@@ -285,6 +289,7 @@ impl Moonglow {
             self.dock = dock;
         });
         wizards::ui(self, ui);
+        blueprint_wizard::ui(self, ui);
         options::ui(self, ui);
         transfer::ui(self, ui);
         widgets::ui(self, ui);
@@ -416,6 +421,13 @@ impl Moonglow {
             ui.menu_button("Wizards", |ui| {
                 if ui.add_enabled(open, egui::Button::new("Area Wizard…")).clicked() {
                     self.actions.push(Action::AreaWizard);
+                }
+                ui.separator();
+                for kind in blueprint_wizard::KINDS {
+                    let text = format!("{} Wizard…", kind.label().trim_end_matches('s'));
+                    if ui.add_enabled(open, egui::Button::new(text)).clicked() {
+                        self.blueprint_wizard = Some(blueprint_wizard::BlueprintWizard::new(kind));
+                    }
                 }
             });
             ui.menu_button("Tools", |ui| {

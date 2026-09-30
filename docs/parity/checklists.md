@@ -165,7 +165,7 @@ unless given otherwise.
 |---|---|---|
 | Standard and Custom trees for creatures, doors, encounters, items, placeables, sounds, stores, triggers, waypoints (the game's `*palstd.itp`, the module's `*palcus.itp`) | Tools › Palettes (its own pane on the right): type, Standard or Custom, categories with their blueprints; creatures show their CR | ✅ [palette_edit_copy_and_delete] |
 | Custom palettes regenerated from the module's blueprints (category by `PaletteID`, stores `ID`; 255 hidden; creatures with CR and faction) | rebuilt from the blueprints on every save, and live in the pane | ✅ (`palettes.rs`: Chapter 1's nine custom palettes rebuild entry for entry, in order) |
-| Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview | ◐ (New waits for the blueprint wizards; the copy's resref rule is not yet checked against Aurora) |
+| Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview, New… (the type's wizard) | ◐ (the copy's resref rule is not yet checked against Aurora; creatures have no wizard yet) |
 | Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
 | Update Instances | not yet (with the area editor, Phase 9) | ✗ |
 | Selecting a blueprint arms placement in the area | with the area editor (Phase 9) | ✗ |
@@ -211,3 +211,14 @@ scripts (name, picker, Edit), Comments.
 | Creature Special Abilities (spell, caster level) | add from the spell list, caster level, remove | ✅ [creature_editor_lists] |
 | Creature inventory (`TdlgInventory`: equipment and natural equipment slots, backpack, Dropable, Pickpocketable, drag and drop) | an Inventory page: the item palette, the 18 slots (an item goes only where its base item's `EquipableSlots` allows), the backpack at the first free place | ◐ [creature_editor_lists] (Dropable and Pickpocketable not shown yet) |
 | Creature Template tab; the CR calculation; Levelup Wizard; Load/Save Script Set | not yet | ✗ |
+
+## Blueprint wizards (`TdlgBlueprintWizard` and each type's)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Door, Encounter, Item, Merchant, Placeable, Sound, Trigger and Waypoint Wizards (Wizards menu, palette New) | the same steps: the palette category (sorted by name, leaves only), the type's pages (waypoint tag and appearance; sound timing, positioning and waves; encounter creatures; item base type), the name ("<category> 001" by default), Launch Properties (on after the Sound Wizard only, as in Aurora) | ✅ [store_wizard_makes_aurora_s_store, sound_wizard_steps_through_timing_positioning_and_waves, item_wizard_makes_a_weapon_with_its_cost] |
+| What they make: every field, its type, order and value; the resref (letters and digits, a trailing number kept within 16 characters, `blueprint` and a number for names with other characters) and the tag | `mg_module::blueprints` | ✅ (`aurora_blueprints.rs`: 15 blueprints made by Aurora's wizards, identical) |
+| Trigger categories: Area Transition makes a transition, the trap strengths a trap of that strength (traps.2da DCs) | the same | ✅ |
+| Sound Wizard's sound list filtered by category (`al_`/`as_` and a category name filter) | the picker opens filtered to `al_` or `as_` | ◐ |
+| Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | not yet: it needs the Levelup Wizard's package logic and the CR calculation | ✗ |
+| Item Wizard's Magical, Item Level and Quality (disabled in Aurora) | not offered | — |
