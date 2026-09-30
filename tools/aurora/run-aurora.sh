@@ -5,6 +5,8 @@
 # touches the real NWN user folder (~/.local/share/Neverwinter Nights).
 #
 #   tools/aurora/run-aurora.sh            # start the toolset
+#   DISPLAY=$(tools/aurora/headless.sh start) tools/aurora/run-aurora.sh
+#                                         # ... off-screen, to drive with xdrive.py
 #   tools/aurora/run-aurora.sh kill       # stop it (and the prefix's wineserver)
 #   tools/aurora/run-aurora.sh extract-forms OUTDIR   # decode its VCL forms to text
 #

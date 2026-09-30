@@ -11,6 +11,7 @@ mod script_view;
 mod tabs;
 mod text;
 mod tree;
+pub mod wizards;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -18,20 +19,31 @@ use std::path::PathBuf;
 use egui_dock::{DockArea, DockState};
 use mg_core::ResType;
 use mg_edit::{Command, Workspace};
+use mg_module::new::AreaSpec;
 use mg_module::{Module, ModuleLocation};
 use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
 use mg_rules::GameData;
 
 pub use dialogs::{Dialogs, NoDialogs};
 pub use tabs::Tab;
+pub use wizards::{AreaWizard, Wizard};
 
 /// Something the user asked for, run after the frame is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
+    NewModuleDialog,
+    /// Creates a module with this name (then opens the Area Wizard).
+    NewModule(String),
+    AreaWizard,
+    NewArea(AreaSpec),
     OpenModuleDialog,
     OpenModule(PathBuf),
     Save,
     SaveAsDialog,
+    /// Saves, then runs the action if the module was saved.
+    SaveThen(Box<Action>),
+    /// Runs an action that would discard unsaved changes, without asking.
+    Proceed(Box<Action>),
     Close,
     Undo,
     Redo,
@@ -82,6 +94,9 @@ pub struct Moonglow {
     pub(crate) scripts: HashMap<ResKey, script_view::ScriptBuffer>,
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
+    pub wizard: Option<Wizard>,
+    /// An action waiting for the answer to "save changes?".
+    pub confirm_discard: Option<Action>,
     pub quit_requested: bool,
 }
 
@@ -124,6 +139,8 @@ impl Moonglow {
             dialogs,
             scripts: HashMap::new(),
             buffers: HashMap::new(),
+            wizard: None,
+            confirm_discard: None,
             quit_requested: false,
         }
     }
@@ -167,6 +184,7 @@ impl Moonglow {
             }
             self.dock = dock;
         });
+        wizards::ui(self, ui);
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
@@ -179,6 +197,12 @@ impl Moonglow {
         let pressed = |ui: &mut egui::Ui, m, k| {
             ui.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)))
         };
+        if pressed(ui, Modifiers::COMMAND, Key::N) {
+            self.actions.push(Action::NewModuleDialog);
+        }
+        if pressed(ui, Modifiers::COMMAND | Modifiers::ALT, Key::A) {
+            self.actions.push(Action::AreaWizard);
+        }
         if pressed(ui, Modifiers::COMMAND, Key::O) {
             self.actions.push(Action::OpenModuleDialog);
         }
@@ -202,6 +226,9 @@ impl Moonglow {
         let open = self.ws.is_some();
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
+                if ui.button("New Module…").clicked() {
+                    self.actions.push(Action::NewModuleDialog);
+                }
                 if ui.button("Open Module…").clicked() {
                     self.actions.push(Action::OpenModuleDialog);
                 }
@@ -241,6 +268,11 @@ impl Moonglow {
                 ui.separator();
                 if ui.add_enabled(open, egui::Button::new("Module Properties")).clicked() {
                     self.actions.push(Action::OpenTab(Tab::ModuleProperties));
+                }
+            });
+            ui.menu_button("Wizards", |ui| {
+                if ui.add_enabled(open, egui::Button::new("Area Wizard…")).clicked() {
+                    self.actions.push(Action::AreaWizard);
                 }
             });
             ui.menu_button("Build", |ui| {
@@ -293,29 +325,87 @@ impl Moonglow {
     pub fn open_module(&mut self, path: &std::path::Path) {
         match Module::open(path) {
             Ok(m) => {
-                self.close();
-                if let (Some(game), Some(gi)) = (&mut self.game, &self.install) {
-                    let haks = m.haks().unwrap_or_default();
-                    match game
-                        .resman
-                        .add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>())
-                    {
-                        Ok(missing) => {
-                            for h in missing {
-                                self.log.warn(format!("Hak {h} not found"));
-                            }
-                        }
-                        Err(e) => self.log.error(format!("Could not open the module's haks: {e}")),
-                    }
-                    game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
-                    game.invalidate();
-                }
                 self.log.info(format!("Opened {} ({} resources)", path.display(), m.len()));
-                self.ws = Some(Workspace::new(m));
-                self.dock = DockState::new(vec![Tab::ModuleProperties]);
+                self.use_module(m);
             }
             Err(e) => self.log.error(format!("Could not open {}: {e}", path.display())),
         }
+    }
+
+    /// Makes a module the open one, with its haks and itself layered into
+    /// the game data.
+    fn use_module(&mut self, m: Module) {
+        self.close();
+        if let (Some(game), Some(gi)) = (&mut self.game, &self.install) {
+            let haks = m.haks().unwrap_or_default();
+            match game.resman.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>()) {
+                Ok(missing) => {
+                    for h in missing {
+                        self.log.warn(format!("Hak {h} not found"));
+                    }
+                }
+                Err(e) => self.log.error(format!("Could not open the module's haks: {e}")),
+            }
+            game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
+            game.invalidate();
+        }
+        self.ws = Some(Workspace::new(m));
+        self.dock = DockState::new(vec![Tab::ModuleProperties]);
+    }
+
+    /// Whether closing the module now would lose work: unsaved edits, or a
+    /// new module never saved.
+    pub fn has_unsaved_work(&self) -> bool {
+        self.ws.as_ref().is_some_and(|ws| ws.is_modified() || ws.module.location.is_none())
+    }
+
+    fn new_module(&mut self, name: &str) {
+        let Some(game) = &self.game else {
+            self.log.error("Creating a module needs the game data");
+            return;
+        };
+        match mg_module::new::new_module(game, name, &mut fastrand::Rng::new()) {
+            Ok(m) => {
+                self.use_module(m);
+                self.log.info(format!("Created module {name}"));
+                self.run(Action::AreaWizard);
+            }
+            Err(e) => self.log.error(format!("Could not create the module: {e}")),
+        }
+    }
+
+    /// Adds an area through one undoable command.
+    fn new_area(&mut self, spec: &AreaSpec) {
+        let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
+        let mut staged = ws.module.clone();
+        let area =
+            match mg_module::new::add_area(&mut staged, game, spec, &mut fastrand::Rng::new()) {
+                Ok(a) => a,
+                Err(e) => {
+                    self.log.error(format!("Could not create the area: {e}"));
+                    return;
+                }
+            };
+        let edits: Vec<mg_edit::Edit> = staged
+            .keys()
+            .filter(|k| staged.get(k) != ws.module.get(k))
+            .map(|k| mg_edit::Edit::SetResource {
+                key: *k,
+                data: staged.get(k).map(<[u8]>::to_vec),
+            })
+            .collect();
+        match ws.apply(Command::new(format!("New area {area}"), edits)) {
+            Ok(()) => self.log.info(format!(
+                "Created area {area} ({}, {}×{})",
+                spec.tileset, spec.width, spec.height
+            )),
+            Err(e) => self.log.error(e.to_string()),
+        }
+        self.refresh_module_layer();
     }
 
     /// Closes the module (discarding unsaved changes; the caller asks first).
@@ -357,9 +447,44 @@ impl Moonglow {
         }
     }
 
-    /// Runs one action now.
+    /// Runs one action now. Actions that would discard unsaved work ask
+    /// first (see [`Moonglow::confirm_discard`]).
     pub fn run(&mut self, action: Action) {
+        let discards = matches!(
+            action,
+            Action::NewModuleDialog
+                | Action::OpenModuleDialog
+                | Action::OpenModule(_)
+                | Action::Close
+                | Action::Quit
+        );
+        if discards && self.has_unsaved_work() {
+            self.confirm_discard = Some(action);
+            return;
+        }
+        self.run_now(action);
+    }
+
+    fn run_now(&mut self, action: Action) {
         match action {
+            Action::NewModuleDialog => {
+                self.wizard = Some(Wizard::NewModule { name: "module000".into() });
+            }
+            Action::NewModule(name) => self.new_module(&name),
+            Action::AreaWizard => {
+                let (Some(ws), Some(game)) = (&self.ws, &self.game) else { return };
+                let areas = ws.module.keys_of(ResType::ARE).count();
+                self.wizard =
+                    Some(Wizard::NewArea(AreaWizard::new(mg_module::new::tilesets(game), areas)));
+            }
+            Action::NewArea(spec) => self.new_area(&spec),
+            Action::SaveThen(next) => {
+                self.save(None);
+                if !self.has_unsaved_work() {
+                    self.run_now(*next);
+                }
+            }
+            Action::Proceed(next) => self.run_now(*next),
             Action::OpenModuleDialog => {
                 let start = self
                     .install
@@ -373,7 +498,21 @@ impl Moonglow {
             Action::OpenModule(p) => self.open_module(&p),
             Action::Save => self.save(None),
             Action::SaveAsDialog => {
-                if let Some(p) = self.dialogs.save_module(self.module_path().as_deref()) {
+                // A new module is offered as <name>.mod in the modules folder.
+                let suggested = self.module_path().or_else(|| {
+                    let ws = self.ws.as_ref()?;
+                    let name = ws
+                        .module
+                        .info()
+                        .ok()?
+                        .root
+                        .locstring("Mod_Name")?
+                        .text(mg_core::Language::ENGLISH, mg_core::Gender::Male)?
+                        .into_owned();
+                    let dir = self.install.as_ref()?.user_dir.as_ref()?.join("modules");
+                    Some(dir.join(format!("{name}.mod")))
+                });
+                if let Some(p) = self.dialogs.save_module(suggested.as_deref()) {
                     self.save(Some(p));
                 }
             }
@@ -431,7 +570,7 @@ impl Moonglow {
                     .and_then(|_| ws.module.save_as(&loc).map_err(|e| e.to_string()))
             }
             None if ws.module.location.is_none() => {
-                self.actions.push(Action::SaveAsDialog);
+                self.run_now(Action::SaveAsDialog);
                 return;
             }
             None => ws.save().map_err(|e| e.to_string()),

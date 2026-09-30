@@ -101,6 +101,13 @@ enum Cmd {
 fn main() -> ExitCode {
     match run(Cli::parse()) {
         Ok(()) => ExitCode::SUCCESS,
+        // The reader went away (`mg cat x | head`): not an error.
+        Err(e)
+            if e.downcast_ref::<io::Error>()
+                .is_some_and(|e| e.kind() == io::ErrorKind::BrokenPipe) =>
+        {
+            ExitCode::SUCCESS
+        }
         Err(e) => {
             eprintln!("mg: {e:#}");
             ExitCode::FAILURE

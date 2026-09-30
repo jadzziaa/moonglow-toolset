@@ -9,6 +9,7 @@
 
 pub mod build;
 pub mod haks;
+pub mod new;
 pub mod refs;
 pub mod transfer;
 pub mod verify;

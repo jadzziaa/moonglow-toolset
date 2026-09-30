@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use mg_resman::GameInstall;
-use mg_ui::{Dialogs, Moonglow};
+use mg_ui::{Action, Dialogs, Moonglow};
 
 /// Native file dialogs.
 struct NativeDialogs;
@@ -40,6 +40,11 @@ struct App {
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Closing the window asks about unsaved work like File > Exit.
+        if ui.ctx().input(|i| i.viewport().close_requested()) && !self.moonglow.quit_requested {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.moonglow.actions.push(Action::Quit);
+        }
         self.moonglow.ui(ui);
         let title = self.moonglow.title();
         if title != self.title {

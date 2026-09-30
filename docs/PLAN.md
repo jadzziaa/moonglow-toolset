@@ -24,9 +24,9 @@ Decisions taken (2026-09-30):
 | 0 Bootstrap | Done: workspace, lint/format, CI workflow (3 OS), corpus locator, oracle tools, engine test runner, Aurora harness, parity inventory. Builds clean for Linux, Windows and macOS targets. |
 | 1 Core formats | GFF, ERF (V1.0 + EE E1.0 read), KEY/BIF, 2DA, TLK, SET, SSF done; TXI and MTR arrive with the renderer (Phase 7), ITP with palettes |
 | 2 Resource manager and rules | Done: load order and game data (2DA cells, talk-table strings) checked against the engine |
-| 3 Schema and module workspace | Done except Aurora's new-object defaults (captured with the wizards, Phases 5/8): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
+| 3 Schema and module workspace | Done except Aurora's blueprint defaults (Phase 8; module and area defaults done in Phase 5): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
 | 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
-| 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log; UI flows tested with `egui_kittest` |
+| 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
 | 6+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
@@ -180,7 +180,7 @@ in this list. ✅ = exists.
 | `mg-schema` ✅ | typed views of IFO, ARE, GIT, GIC, UTC/UTD/UTE/UTI/UTM/UTP/UTS/UTT/UTW, DLG, JRL, FAC, ITP; Aurora defaults |
 | `mg-rules` ✅ | 2DA/TLK-backed game data (appearance, baseitems, classes, feats, spells, skills, item properties, placeables, doors, portraits, sounds, ...) |
 | `mg-script` | compiler integration; NWScript lexer/parser/symbol index for the editor; nwscript.nss spec |
-| `mg-tiles` | tilesets, tile grid model, terrain painting engine with SET rules, walkmesh assembly |
+| `mg-tiles` (partial) | tilesets, tile grid model, terrain painting engine with SET rules, walkmesh assembly; so far the corner lattice, tile fitting and new-area terrain |
 | `mg-module` ✅ | module workspace: open/save, working copy, palettes, reference graph, verify, build, import/export, haks/TLK |
 | `mg-edit` | editor core: documents, commands, undo/redo, selection, tools (no UI) |
 | `mg-render` | renderer: scene, materials, EE lighting, animation, particles, picking, gizmos, offscreen mode |
@@ -190,7 +190,8 @@ in this list. ✅ = exists.
 
 Test support: `mg-testkit` ✅ (corpus locator, oracle tools, engine runner),
 `mg-corpus-tests` ✅ (corpus, differential and engine tests). Tools:
-`tools/aurora/` ✅ (Aurora under Wine, form decoder, inventory generator).
+`tools/aurora/` ✅ (Aurora under Wine, on the desktop or on an off-screen display driven by
+scripts; form decoder, inventory generator, wizard capture).
 
 ## 5. Key designs
 
@@ -346,9 +347,24 @@ time, events, haks in priority order, areas), the script editor (lexer
 highlighting, save, compile one, compile all), verify to the log;
 `apps/moonglow` (eframe on wgpu, native file dialogs). `egui_kittest` tests
 drive open, edit, undo/redo, save and reopen through the accessibility tree.
-Next: new-module wizard with Aurora's defaults, unsaved-changes prompt,
-settings and recent modules, TLK-driven labels, resource browser,
-import/export dialogs.
+New modules and areas (`mg_module::new`, on `mg-tiles`) are made as
+Aurora's Module and Area wizards make them, captured by driving Aurora on an
+off-screen display (`tools/aurora/headless.sh`, `xdrive.py`,
+`capture_new_areas.py`): module info, the five default factions, custom
+palettes derived from the game's palette skeletons (categories sorted with
+Windows' word sort, engine-only categories dropped), and for areas the
+`areag.ini` defaults, `environment.2da` lighting and weather, and tiles
+fitted to `Default` terrain with a `Floor` patch at the centre (group tiles
+excluded, variants, orientations and lights at random as Aurora does). All
+44 captured areas (every tileset, sizes 2 to 8, rectangles) match Aurora's
+field for field except the random choices, which are checked to be among
+Moonglow's candidates; a module made by Moonglow with an area per tileset
+runs in `nwserver`, which reports every area property and all tiles as
+written. Where no tile fits (a 5×5 Lizardfolk Interior) Aurora crashes;
+Moonglow reports it. File > New Module, Wizards > Area Wizard (one undoable
+command) and the unsaved-changes prompt are in the UI with tests.
+Next: settings and recent modules, TLK-driven labels, resource browser,
+import/export dialogs, options.
 
 ### Phase 6: Text-and-tree editors
 Localized string editor, variables, pickers; script editor (highlighting,

@@ -1503,6 +1503,7 @@ dependencies = [
 name = "mg-corpus-tests"
 version = "0.1.0"
 dependencies = [
+ "fastrand",
  "mg-2da",
  "mg-core",
  "mg-erf",
@@ -1516,6 +1517,7 @@ dependencies = [
  "mg-set",
  "mg-ssf",
  "mg-testkit",
+ "mg-tiles",
  "mg-tlk",
  "rayon",
  "serde_json",
@@ -1569,14 +1571,18 @@ dependencies = [
 name = "mg-module"
 version = "0.1.0"
 dependencies = [
+ "fastrand",
  "indexmap",
  "mg-core",
  "mg-erf",
  "mg-gff",
  "mg-resman",
+ "mg-rules",
  "mg-schema",
  "mg-script",
+ "mg-set",
  "mg-testkit",
+ "mg-tiles",
  "thiserror 2.0.21",
 ]
 
@@ -1640,6 +1646,16 @@ name = "mg-testkit"
 version = "0.1.0"
 
 [[package]]
+name = "mg-tiles"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "mg-core",
+ "mg-set",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "mg-tlk"
 version = "0.1.0"
 dependencies = [
@@ -1654,6 +1670,7 @@ dependencies = [
  "egui",
  "egui_dock",
  "egui_kittest",
+ "fastrand",
  "mg-core",
  "mg-edit",
  "mg-gff",

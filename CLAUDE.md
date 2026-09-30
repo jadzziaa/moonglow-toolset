@@ -32,6 +32,13 @@ tools, engine runner) and `mg-corpus-tests` (tests only). Binaries:
 harness and the form (DFM) decoder; `docs/research/` the research briefs
 (EE formats, rendering, tilesets, models, shaders, prior art).
 
+To drive Aurora (capture what it writes), run it on the off-screen display,
+never on the user's desktop: `D=$(tools/aurora/headless.sh start)`, then
+`DISPLAY=$D tools/aurora/run-aurora.sh` and `DISPLAY=$D tools/aurora/xdrive.py
+shot|click|key|type|windows`; `tools/aurora/headless.sh stop` when done.
+Captures that tests compare against go to `~/.local/share/moonglow-oracle/captures/`
+(`mg_testkit::aurora_capture!`); like game data, they are not committed.
+
 ## Rules
 
 - **Never write to the real NWN user folder** (`~/.local/share/Neverwinter

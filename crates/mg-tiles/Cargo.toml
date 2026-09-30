@@ -1,0 +1,19 @@
+[package]
+name = "mg-tiles"
+description = "Area tile grids: corner terrain lattice, fitting tileset tiles, new-area terrain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+fastrand.workspace = true
+mg-set.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+mg-core.workspace = true
+
+[lints]
+workspace = true

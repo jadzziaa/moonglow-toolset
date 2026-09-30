@@ -147,3 +147,122 @@ fn multi_line_text_keeps_its_line_ends() {
     let desc: LocString = g.root.read(&ifo::MOD_DESCRIPTION);
     assert_eq!(desc.get(Language::ENGLISH, Gender::Male), Some(&b"First\r\nSecond\r\nThird"[..]));
 }
+
+fn set_tag(app: &mut Moonglow, tag: &str) {
+    let key = ResKey::parse("module", ResType::IFO).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Module tag",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "Mod_Tag".into(),
+            value: Some(mg_gff::Value::String(tag.as_bytes().to_vec())),
+        }],
+    )));
+}
+
+#[test]
+fn closing_with_unsaved_changes_asks_first() {
+    let dir = mg_testkit::scratch_dir("ui-unsaved");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    set_tag(h.state_mut(), "EDITED");
+    h.run();
+
+    // Cancel keeps the module open.
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    h.get_by_label("Save changes to sample.mod?");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state().ws.is_some() && h.state().confirm_discard.is_none());
+
+    // Save saves, then closes.
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    assert!(h.state().ws.is_none());
+    assert_eq!(
+        Module::open(&path).unwrap().info().unwrap().root.read(&ifo::MOD_TAG).as_bytes(),
+        b"EDITED"
+    );
+
+    // Don't Save discards.
+    h.state_mut().open_module(&path);
+    set_tag(h.state_mut(), "DISCARDED");
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    h.get_by_label("Don't Save").click();
+    h.run();
+    assert!(h.state().ws.is_none());
+    assert_eq!(
+        Module::open(&path).unwrap().info().unwrap().root.read(&ifo::MOD_TAG).as_bytes(),
+        b"EDITED"
+    );
+}
+
+#[test]
+fn new_module_and_area_through_the_wizards() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-new-module");
+    let path = dir.join("wizard.mod");
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let app = Moonglow::new(
+        Some(install),
+        Box::new(NoDialogs { open: Vec::new(), save: vec![path.clone()] }),
+    );
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
+    h.run();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value("module000").find(is_input).expect("the name field").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value("module000").find(is_input).unwrap().type_text("Wizard Test");
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+
+    // The Area Wizard follows, as in Aurora's Module Wizard.
+    h.run();
+    h.get_by_label("Castle Interior").click();
+    h.run();
+    h.get_by_label("Small").click();
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    let key = ResKey::parse("area001", ResType::ARE).unwrap();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "{:?}", h.state().log.entries);
+    h.get_by_label_contains("Areas (1)");
+    let area = mg_gff::Gff::read(h.state().ws.as_ref().unwrap().module.get(&key).unwrap()).unwrap();
+    assert_eq!(area.root.read(&mg_schema::are::TILESET), ResRef::from_str("tic01").unwrap());
+    assert_eq!(
+        (area.root.read(&mg_schema::are::WIDTH), area.root.read(&mg_schema::are::HEIGHT)),
+        (4, 4)
+    );
+
+    // Save asks where (a new module), then the file has the module.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run();
+    assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+    let saved = Module::open(&path).unwrap();
+    let info = saved.info().unwrap();
+    assert_eq!(saved.areas().unwrap(), [ResRef::from_str("area001").unwrap()]);
+    assert_eq!(info.root.read(&ifo::MOD_ENTRY_AREA), ResRef::from_str("area001").unwrap());
+    assert!(saved.contains(&ResKey::parse("repute", ResType::FAC).unwrap()));
+
+    // Creating the area is one undoable step.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    assert!(!ws.module.contains(&key));
+    let info = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap();
+    assert!(info.root.items(&ifo::MOD_AREA_LIST).is_empty());
+}

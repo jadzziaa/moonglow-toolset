@@ -144,6 +144,32 @@ macro_rules! oracle_tool {
     };
 }
 
+/// A file captured from Aurora under Wine (`tools/aurora/`), kept in the
+/// oracle's state directory (`$MOONGLOW_ORACLE`, default
+/// `~/.local/share/moonglow-oracle`) under `captures/`.
+pub fn aurora_capture(name: &str) -> Option<PathBuf> {
+    let base = env::var_os("MOONGLOW_ORACLE").map(PathBuf::from).or_else(|| {
+        env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/moonglow-oracle"))
+    })?;
+    Some(base.join("captures").join(name)).filter(|p| p.is_file())
+}
+
+/// An Aurora capture ([`aurora_capture`]), or skip the test (fail with
+/// `MOONGLOW_REQUIRE_CORPUS=1`).
+#[macro_export]
+macro_rules! aurora_capture {
+    ($name:expr) => {
+        match $crate::aurora_capture($name) {
+            Some(p) => p,
+            None if $crate::corpus_required() => panic!("Aurora capture {} not found", $name),
+            None => {
+                eprintln!("skipped: Aurora capture {} not found (tools/aurora/)", $name);
+                return;
+            }
+        }
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
