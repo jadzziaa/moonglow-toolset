@@ -27,7 +27,8 @@ Decisions taken (2026-09-30):
 | 3 Schema and module workspace | Done except Aurora's blueprint defaults (Phase 8; module and area defaults done in Phase 5): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
 | 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
 | 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt, settings and recent modules, options, import/export, resource browser; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
-| 6+ | Not started |
+| 6 Text-and-tree editors | In progress: String Edit, Variables, resource pickers; Module Properties with Aurora's tabs; Faction, Journal and Conversation editors and the script editor's tools, each checked against Aurora's files (captured under Wine) and in the engine; parity checklists in `docs/parity/checklists.md` |
+| 7+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
 
@@ -380,6 +381,19 @@ wizard); conversation editor (tree, links, conditions/actions with parameters,
 animations, sounds, tokens, test); journal editor; faction editor.
 **Exit:** parity checklists for these editors complete; engine tests exercise the
 conversations, journal and factions they produce.
+
+Done so far: the shared editors (String Edit with StrRef and every
+language, Variables, Select Resource) and Module Properties with Aurora's
+tabs; the Faction Editor (`mg_module::factions`: Aurora's files exactly,
+GetReputation in the engine for every pair), the Journal Editor
+(`mg_module::journal`: Aurora's files exactly, XP by tag in the engine),
+the Conversation Editor (`mg_module::dialog`: Aurora's conversation as an
+outline; conditions with EE parameters and actions run in the engine), and
+the script editor's tools (symbol lists with help, compiler messages that
+go to their line, find/replace and find in files, bookmarks, completion,
+templates, new script and save as). Remaining (see the checklists): the
+Script Wizard, the conversation editor's search, bookmarks and test mode,
+numbered script bookmarks, editor colour options.
 
 ### Phase 7: Renderer and model viewer
 wgpu renderer with EE-style lighting (§5.5), textures (TGA/DDS/PLT/TXI), MTR
