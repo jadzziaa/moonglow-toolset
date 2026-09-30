@@ -71,6 +71,16 @@ impl Orbit {
     }
 }
 
+/// Objects copied from an area (Ctrl+C), to paste in any area.
+#[derive(Debug, Clone)]
+pub struct ObjectClip {
+    /// Each object as it was: its GIT struct, where it stood, and how high
+    /// above the ground.
+    pub objects: Vec<(mg_area::AreaObject, mg_gff::Struct, f32)>,
+    /// Where the first stood: the others keep their places around it.
+    pub anchor: Vec3,
+}
+
 /// What a drag does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Drag {
@@ -110,6 +120,8 @@ pub struct AreaView {
     drag: Option<Drag>,
     /// The outline being drawn for a trigger or encounter.
     pub outline: Vec<Vec3>,
+    /// The copied objects follow the pointer, to be placed with a click.
+    pub pasting: bool,
     targets: Option<(Targets, egui::TextureId)>,
     time: f32,
     last_frame: Option<f64>,
@@ -136,6 +148,7 @@ impl AreaView {
             show_start: true,
             drag: None,
             outline: Vec::new(),
+            pasting: false,
             targets: None,
             time: 0.0,
             last_frame: None,
@@ -381,7 +394,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     });
     // One line, never wrapped, so that the view does not move when the
     // selection changes.
-    let status = if let Some(key) = brush(app) {
+    let status = if view.pasting {
+        "Pasting: click to place the copies; right click or Escape: stop".to_string()
+    } else if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
             Some(k) if k.has_outline() => {
                 "click its corners, double click to close; right click or Escape: stop"
@@ -482,7 +497,7 @@ fn viewport(
             .sense(egui::Sense::click_and_drag()),
     );
     view.rect = response.rect;
-    overlays(ui, view, &shown, start);
+    overlays(ui, view, &shown, start, app.object_clip.as_ref());
     // Tiles animate: keep drawing while the view is on screen.
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     input(app, ui, view, &response);
@@ -490,7 +505,13 @@ fn viewport(
 
 /// Markers for objects without models, outlines, the grid, the start
 /// location and the selection, drawn over the view.
-fn overlays(ui: &egui::Ui, view: &AreaView, shown: &AreaModel, start: Option<(Vec3, f32)>) {
+fn overlays(
+    ui: &egui::Ui,
+    view: &AreaView,
+    shown: &AreaModel,
+    start: Option<(Vec3, f32)>,
+    clip: Option<&ObjectClip>,
+) {
     let painter = ui.painter_at(view.rect);
     let at = |p: Vec3| view.screen_pos(p);
     let line = |a: Vec3, b: Vec3, stroke: Stroke| {
@@ -568,6 +589,50 @@ fn overlays(ui: &egui::Ui, view: &AreaView, shown: &AreaModel, start: Option<(Ve
             }
         }
     }
+    if view.pasting
+        && let Some(clip) = clip
+        && let Some(at) = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0))
+    {
+        let stroke = Stroke::new(1.5, Color32::from_rgb(120, 230, 255));
+        for ((o, _, _), p) in clip.objects.iter().zip(pasted_positions(view, clip, at)) {
+            let (min, max) = match (&view.scene, o.kind.has_outline()) {
+                (_, true) => {
+                    let d = p - o.position;
+                    let n = o.outline.len();
+                    for k in 0..n {
+                        line(o.outline[k] + d, o.outline[(k + 1) % n] + d, stroke);
+                    }
+                    continue;
+                }
+                _ => mg_area::pick::marker_bounds(o.kind),
+            };
+            let t =
+                glam::Mat4::from_rotation_translation(glam::Quat::from_rotation_z(o.rotation), p);
+            let c = |i: usize| {
+                t.transform_point3(Vec3::new(
+                    if i & 1 == 0 { min.x } else { max.x },
+                    if i & 2 == 0 { min.y } else { max.y },
+                    if i & 4 == 0 { min.z } else { max.z },
+                ))
+            };
+            for (a, b) in [
+                (0, 1),
+                (1, 3),
+                (3, 2),
+                (2, 0),
+                (4, 5),
+                (5, 7),
+                (7, 6),
+                (6, 4),
+                (0, 4),
+                (1, 5),
+                (2, 6),
+                (3, 7),
+            ] {
+                line(c(a), c(b), stroke);
+            }
+        }
+    }
     if let Some(Drag::Box { from, to }) = view.drag {
         let r = Rect::from_two_pos(from, to);
         painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::YELLOW), egui::StrokeKind::Inside);
@@ -603,6 +668,43 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
     camera_input(ui, view, response, shift, command);
     let hovered = response.hovered();
+
+    // Copy, cut and paste (egui's events, or the keys where it sends none).
+    let typing = ui.ctx().memory(|m| m.focused().is_some());
+    let (copy, cut, pasted) = ui.input(|i| {
+        let key = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
+        let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
+        (
+            event(|e| matches!(e, egui::Event::Copy)) || key(egui::Key::C),
+            event(|e| matches!(e, egui::Event::Cut)) || key(egui::Key::X),
+            event(|e| matches!(e, egui::Event::Paste(_))) || key(egui::Key::V),
+        )
+    });
+    if hovered && !typing {
+        if (copy || cut) && !view.selection.is_empty() {
+            app.object_clip = copy_selection(app, view);
+            if cut {
+                delete(app, view);
+            }
+        }
+        if pasted && app.object_clip.is_some() {
+            view.pasting = true;
+        }
+    }
+    if view.pasting {
+        let cancel = response.secondary_clicked()
+            || (hovered && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+        if cancel {
+            view.pasting = false;
+        } else if response.clicked()
+            && let Some(pos) = response.interact_pointer_pos()
+            && let Some(at) = view.ground_at(pos, 0.0)
+        {
+            paste_at(app, view, at);
+            view.pasting = false;
+        }
+        return;
+    }
 
     // Placing the palette's blueprint.
     if let Some(key) = brush(app) {
@@ -956,5 +1058,77 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
     app.dock.retain_tabs(|t| !matches!(t, crate::Tab::Instance { area: a, .. } if *a == area));
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Delete", edits)));
+    }
+}
+
+/// The selected objects, with their GIT structs and heights above the
+/// ground, for the clipboard.
+fn copy_selection(app: &mut Moonglow, view: &AreaView) -> Option<ObjectClip> {
+    let model = view.model.as_ref()?;
+    let doc = app.ws.as_mut()?.doc(&view.git()).ok()?;
+    let mut objects = Vec::new();
+    for &(kind, index) in &view.selection {
+        let (Some(o), Some(s)) =
+            (model.object(kind, index), doc.root.list(kind.list()).and_then(|l| l.get(index)))
+        else {
+            continue;
+        };
+        let ground =
+            view.ground.as_ref().and_then(|g| g.height(o.position.truncate(), o.position.z));
+        let lift = match o.kind {
+            ObjectKind::Creature => 0.0,
+            _ => ground.map_or(0.0, |z| o.position.z - z),
+        };
+        objects.push((o.clone(), s.clone(), lift));
+    }
+    let anchor = objects.first()?.0.position;
+    Some(ObjectClip { objects, anchor })
+}
+
+/// Where each copied object would stand with the first at `at` (the ground
+/// under the pointer): the same places around it, the same heights above
+/// the ground (outlines at their own).
+fn pasted_positions(view: &AreaView, clip: &ObjectClip, at: Vec3) -> Vec<Vec3> {
+    clip.objects
+        .iter()
+        .map(|(o, _, lift)| {
+            let xy = at.truncate() + (o.position - clip.anchor).truncate();
+            if o.kind.has_outline() {
+                return xy.extend(o.position.z);
+            }
+            let ground = view.ground.as_ref().and_then(|g| g.height(xy, at.z));
+            xy.extend(ground.unwrap_or(at.z) + lift)
+        })
+        .collect()
+}
+
+/// Places copies of the clipboard's objects with the first at `at` (one
+/// command), and selects them.
+fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
+    let Some(clip) = app.object_clip.clone() else { return };
+    let git = view.git();
+    let Some(ws) = app.ws.as_mut() else { return };
+    let Ok(doc) = ws.doc(&git) else { return };
+    let mut counts: std::collections::HashMap<ObjectKind, usize> = ObjectKind::ALL
+        .into_iter()
+        .map(|k| (k, doc.root.list(k.list()).map_or(0, <[_]>::len)))
+        .collect();
+    let mut edits = Vec::new();
+    let mut selection = Vec::new();
+    for ((o, s, _), position) in clip.objects.iter().zip(pasted_positions(view, &clip, at)) {
+        let count = counts.get_mut(&o.kind).expect("every kind");
+        edits.push(mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: o.kind.list().into(),
+            index: *count,
+            item: mg_area::edit::moved(o, s, position, o.rotation),
+        });
+        selection.push((o.kind, *count));
+        *count += 1;
+    }
+    if !edits.is_empty() {
+        app.actions.push(Action::Apply(Command::new("Paste", edits)));
+        view.selection = selection;
     }
 }

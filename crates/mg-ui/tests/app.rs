@@ -2016,3 +2016,52 @@ fn adjust_location_and_find_instance() {
     h.run_steps(4);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)]);
 }
+
+#[test]
+fn copy_cut_and_paste_objects() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("paste") else { return };
+    let waypoints = |h: &mut Harness<'_, Moonglow>| -> Vec<(f32, f32)> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root
+            .list("WaypointList")
+            .unwrap()
+            .iter()
+            .map(|w| (w.float("XPosition").unwrap(), w.float("YPosition").unwrap()))
+            .collect()
+    };
+    // Both waypoints, copied.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    let over = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
+    h.hover_at(over);
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(2));
+    // Pasted with the first at (15, 30): the second 10 m east of it.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].pasting);
+    h.hover_at(over);
+    press(&h, over, true, egui::Modifiers::NONE);
+    press(&h, over, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let w = waypoints(&mut h);
+    assert_eq!(w.len(), 4);
+    let close = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 0.1 && (a.1 - b.1).abs() < 0.1;
+    assert!(close(w[2], (15.0, 30.0)) && close(w[3], (25.0, 30.0)), "{w:?}");
+    assert_eq!(
+        h.state().area_views[&area].selection,
+        [(ObjectKind::Waypoint, 2), (ObjectKind::Waypoint, 3)],
+        "the copies are selected"
+    );
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Paste"));
+    // Cut: the copies go (into the clipboard).
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::X);
+    h.run_steps(2);
+    assert_eq!(waypoints(&mut h).len(), 2);
+    assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(2));
+}

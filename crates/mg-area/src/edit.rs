@@ -12,21 +12,14 @@ use mg_resman::ResKey;
 
 use crate::{AreaObject, ObjectKind};
 
-/// The edits that move object `o` (its GIT struct `s`, in the GIT `git`)
-/// to `position`, its model turned by `rotation` (radians; see
-/// [`AreaObject::rotation`]). Triggers and encounters move with their
-/// outlines (their points are relative to the position); an encounter's
-/// spawn points, which are not, move along. Sounds, triggers and
-/// encounters do not turn.
-pub fn move_edits(
-    git: ResKey,
-    o: &AreaObject,
-    s: &Struct,
-    position: Vec3,
-    rotation: f32,
-) -> Vec<Edit> {
-    let path = GffPath::root().item(o.kind.list(), o.index);
-    let mut fields: Vec<(&str, f32)> = Vec::new();
+/// A field that moving an object changes: in the object itself (`None`) or
+/// in one of its spawn points.
+type Change = (Option<usize>, &'static str, Value);
+
+/// What moving object `o` (its GIT struct `s`) to `position`, turned by
+/// `rotation`, changes; only fields whose value changes.
+fn changes(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Vec<Change> {
+    let mut fields: Vec<(&'static str, f32)> = Vec::new();
     if o.kind.has_bearing() {
         fields.extend([("X", position.x), ("Y", position.y), ("Z", position.z)]);
         fields.push(("Bearing", rotation));
@@ -45,33 +38,67 @@ pub fn move_edits(
             fields.extend([("XOrientation", facing.cos()), ("YOrientation", facing.sin())]);
         }
     }
-    let mut edits: Vec<Edit> = fields
+    let mut out: Vec<Change> = fields
         .into_iter()
         .filter(|(label, v)| s.float(label) != Some(*v))
-        .map(|(label, v)| Edit::SetField {
-            key: git,
-            path: path.clone(),
-            label: label.into(),
-            value: Some(Value::Float(v)),
-        })
+        .map(|(label, v)| (None, label, Value::Float(v)))
         .collect();
     let delta = position - o.position;
     if o.kind == ObjectKind::Encounter && delta != Vec3::ZERO {
         for (i, p) in s.list("SpawnPointList").unwrap_or(&[]).iter().enumerate() {
             for (label, d) in [("X", delta.x), ("Y", delta.y), ("Z", delta.z)] {
-                if d == 0.0 {
-                    continue;
+                if d != 0.0 {
+                    out.push((Some(i), label, Value::Float(p.float(label).unwrap_or(0.0) + d)));
                 }
-                edits.push(Edit::SetField {
-                    key: git,
-                    path: path.item("SpawnPointList", i),
-                    label: label.into(),
-                    value: Some(Value::Float(p.float(label).unwrap_or(0.0) + d)),
-                });
             }
         }
     }
-    edits
+    out
+}
+
+/// The edits that move object `o` (its GIT struct `s`, in the GIT `git`)
+/// to `position`, its model turned by `rotation` (radians; see
+/// [`AreaObject::rotation`]). Triggers and encounters move with their
+/// outlines (their points are relative to the position); an encounter's
+/// spawn points, which are not, move along. Sounds, triggers and
+/// encounters do not turn.
+pub fn move_edits(
+    git: ResKey,
+    o: &AreaObject,
+    s: &Struct,
+    position: Vec3,
+    rotation: f32,
+) -> Vec<Edit> {
+    let path = GffPath::root().item(o.kind.list(), o.index);
+    changes(o, s, position, rotation)
+        .into_iter()
+        .map(|(spawn, label, value)| Edit::SetField {
+            key: git,
+            path: match spawn {
+                Some(i) => path.item("SpawnPointList", i),
+                None => path.clone(),
+            },
+            label: label.into(),
+            value: Some(value),
+        })
+        .collect()
+}
+
+/// A copy of object `o` (its GIT struct `s`) standing at `position`,
+/// turned by `rotation` (for pasting).
+pub fn moved(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Struct {
+    let mut copy = s.clone();
+    for (spawn, label, value) in changes(o, s, position, rotation) {
+        match spawn {
+            None => copy.set(label, value),
+            Some(i) => {
+                if let Some(p) = copy.list_mut("SpawnPointList").and_then(|l| l.get_mut(i)) {
+                    p.set(label, value);
+                }
+            }
+        }
+    }
+    copy
 }
 
 /// The edits that delete `objects` (kind and index in its list) from the
@@ -172,6 +199,20 @@ mod tests {
         assert_eq!(labels(&edits), ["1XPosition", "1YPosition", "1ZPosition", "2X"]);
         let Edit::SetField { value, .. } = &edits[3] else { unreachable!() };
         assert_eq!(value, &Some(Value::Float(7.0)));
+    }
+
+    #[test]
+    fn copies_stand_where_pasted() {
+        let mut e = Struct::new(7);
+        e.set("XPosition", Value::Float(1.0));
+        let mut spawn = Struct::new(2);
+        spawn.set("X", Value::Float(5.0));
+        e.set("SpawnPointList", Value::List(vec![spawn]));
+        let o = object(ObjectKind::Encounter, Vec3::new(1.0, 0.0, 0.0), 0.0);
+        let copy = moved(&o, &e, Vec3::new(4.0, 2.0, 0.0), 0.0);
+        assert_eq!((copy.float("XPosition"), copy.float("YPosition")), (Some(4.0), Some(2.0)));
+        assert_eq!(copy.list("SpawnPointList").unwrap()[0].float("X"), Some(8.0));
+        assert_eq!(e.float("XPosition"), Some(1.0), "the original is untouched");
     }
 
     #[test]

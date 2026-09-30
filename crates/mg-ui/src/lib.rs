@@ -166,6 +166,8 @@ pub struct Moonglow {
     pub adjust: Option<area_tools::AdjustLocation>,
     /// The Find Instance window.
     pub find_instance: Option<area_tools::FindInstance>,
+    /// Objects copied in an area viewer.
+    pub object_clip: Option<area_view::ObjectClip>,
     /// An object to show and select when its area's view is next drawn.
     pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     /// The blueprint palettes pane.
@@ -235,6 +237,7 @@ impl Moonglow {
             adjust: None,
             find_instance: None,
             area_focus: None,
+            object_clip: None,
             palette: Default::default(),
             hak_report: None,
             custom_tlk: None,
