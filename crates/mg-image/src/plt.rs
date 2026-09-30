@@ -55,7 +55,7 @@ impl Plt {
         let height = r.u32()?;
         check_size(width, height)?;
         let bytes = r.bytes(width as usize * height as usize * 2)?;
-        let pixels = bytes.chunks_exact(2).map(|p| [p[0], p[1]]).collect();
+        let pixels = bytes.as_chunks::<2>().0.to_vec();
         Ok(Plt { width, height, pixels })
     }
 
@@ -75,7 +75,7 @@ impl Plt {
     /// and indices past a palette's rows give opaque grey.
     pub fn colorize(&self, palettes: &[Option<&Rgba>; 10], colors: [u8; 10]) -> Rgba {
         let mut out = Rgba::new(self.width, self.height);
-        for (p, px) in self.pixels.iter().zip(out.data.chunks_exact_mut(4)) {
+        for (p, px) in self.pixels.iter().zip(out.data.as_chunks_mut::<4>().0) {
             let [grey, layer] = *p;
             let layer = (layer as usize).min(9);
             let c = palettes[layer]

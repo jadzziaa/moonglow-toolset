@@ -72,7 +72,7 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
         r.bytes(n * bpp)?.to_vec()
     };
     let mut img = Rgba::new(width, height);
-    for (px, out) in raw.chunks_exact(bpp).zip(img.data.chunks_exact_mut(4)) {
+    for (px, out) in raw.chunks_exact(bpp).zip(img.data.as_chunks_mut::<4>().0) {
         let c = match kind {
             Kind::True => color(px, bits, descriptor & 0x0F != 0),
             Kind::Grey => [px[0], px[0], px[0], if bpp == 2 { px[1] } else { 255 }],
@@ -92,11 +92,7 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     if descriptor & 0x10 != 0 {
         // Right-to-left.
         for line in img.data.chunks_exact_mut(row) {
-            let px: Vec<[u8; 4]> =
-                line.chunks_exact(4).rev().map(|p| [p[0], p[1], p[2], p[3]]).collect();
-            for (dst, p) in line.chunks_exact_mut(4).zip(px) {
-                dst.copy_from_slice(&p);
-            }
+            line.as_chunks_mut::<4>().0.reverse();
         }
     }
     if descriptor & 0x20 != 0 {

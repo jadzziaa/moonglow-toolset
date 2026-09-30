@@ -113,7 +113,7 @@ impl Texture {
             f => bc::decode(f, self.width, self.height, &self.mips[0]),
         };
         if !self.has_alpha {
-            for px in data.chunks_exact_mut(4) {
+            for px in data.as_chunks_mut::<4>().0 {
                 px[3] = 255;
             }
         }
