@@ -13,6 +13,7 @@ glam.workspace = true
 mg-2da.workspace = true
 mg-area.workspace = true
 mg-core.workspace = true
+mg-edit.workspace = true
 mg-erf.workspace = true
 mg-gff.workspace = true
 mg-image.workspace = true

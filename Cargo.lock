@@ -1601,6 +1601,7 @@ dependencies = [
  "mg-2da",
  "mg-area",
  "mg-core",
+ "mg-edit",
  "mg-erf",
  "mg-gff",
  "mg-image",
