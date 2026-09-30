@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
-use mg_mdl::{AnimMeshSets, Animation, Controller, Mesh, Model};
+use mg_mdl::{AnimMeshSets, AnimNode, Animation, Controller, Mesh, Model};
 
 use crate::model::{GpuModel, Vertex, local};
 use crate::scene::MeshState;
@@ -61,14 +61,49 @@ pub fn animations(
 /// The model-space transform of every node of `model` playing `anim` at
 /// time `t` (seconds, wrapped to the animation's length).
 pub fn pose(model: &Model, anim: &Animation, t: f32) -> Vec<Mat4> {
-    let t = if anim.length > 0.0 { t.rem_euclid(anim.length) } else { 0.0 };
-    let by_name: HashMap<String, usize> =
-        anim.nodes.iter().enumerate().map(|(i, n)| (n.name.to_ascii_lowercase(), i)).collect();
+    pose_layers(model, &[anim], t)
+}
+
+/// The animation nodes of `layers` by node name (lower case), in layer
+/// order, each with `t` wrapped to its layer's length.
+fn keyed<'a>(layers: &[&'a Animation], t: f32) -> HashMap<String, Vec<(&'a AnimNode, f32)>> {
+    let mut out: HashMap<String, Vec<_>> = HashMap::new();
+    for a in layers {
+        let at = if a.length > 0.0 { t.rem_euclid(a.length) } else { 0.0 };
+        for n in &a.nodes {
+            if !n.controllers.is_empty() || n.anim_mesh.is_some() {
+                out.entry(n.name.to_ascii_lowercase()).or_default().push((n, at));
+            }
+        }
+    }
+    out
+}
+
+/// A node's controllers across layers: a later layer's replaces an earlier
+/// one's of the same name.
+fn controllers<'a, 'b>(
+    nodes: &'b [(&'a AnimNode, f32)],
+) -> impl Iterator<Item = (&'a Controller, f32)> + use<'a, 'b> {
+    nodes.iter().enumerate().flat_map(move |(i, (n, t))| {
+        n.controllers
+            .iter()
+            .filter(move |c| {
+                !nodes[i + 1..].iter().any(|(m, _)| m.controllers.iter().any(|d| d.name == c.name))
+            })
+            .map(move |c| (c, *t))
+    })
+}
+
+/// A pose of several animations played together (a tile's `tiledefault`,
+/// `day` and animation loops): each controller follows the last layer that
+/// keys it.
+pub fn pose_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Mat4> {
+    let by_name = keyed(layers, t);
     let mut out: Vec<Mat4> = Vec::with_capacity(model.nodes.len());
     for n in &model.nodes {
         let (mut pos, mut orient, mut scale) = (n.position, n.orientation, n.scale);
-        if let Some(&i) = by_name.get(&n.name.to_ascii_lowercase()) {
-            for c in &anim.nodes[i].controllers {
+        if let Some(nodes) = by_name.get(&n.name.to_ascii_lowercase()) {
+            for (c, t) in controllers(nodes) {
                 let v = sample(c, t);
                 match (c.name.as_str(), v.len()) {
                     ("position", 3) => pos = [v[0], v[1], v[2]],
@@ -100,19 +135,26 @@ pub fn lights(
     transform: Mat4,
     main_light: &dyn Fn(usize) -> Option<Vec3>,
 ) -> Vec<crate::scene::PointLight> {
-    let t = anim.map_or(0.0, |a| if a.length > 0.0 { t.rem_euclid(a.length) } else { 0.0 });
-    let by_name: HashMap<String, usize> = anim
-        .map(|a| {
-            a.nodes.iter().enumerate().map(|(i, n)| (n.name.to_ascii_lowercase(), i)).collect()
-        })
-        .unwrap_or_default();
+    lights_layers(model, anim.as_slice(), t, pose, transform, main_light)
+}
+
+/// [`lights`] for several animations played together (see
+/// [`pose_layers`]).
+pub fn lights_layers(
+    model: &Model,
+    layers: &[&Animation],
+    t: f32,
+    pose: &[Mat4],
+    transform: Mat4,
+    main_light: &dyn Fn(usize) -> Option<Vec3>,
+) -> Vec<crate::scene::PointLight> {
+    let by_name = keyed(layers, t);
     let mut out = Vec::new();
     for (i, n) in model.nodes.iter().enumerate() {
         let mg_mdl::NodeKind::Light(l) = &n.kind else { continue };
         let keyed = |name: &str| -> Option<Vec<f32>> {
-            let a = anim?;
-            let an = &a.nodes[*by_name.get(&n.name.to_ascii_lowercase())?];
-            let c = an.controllers.iter().find(|c| c.name == name)?;
+            let nodes = by_name.get(&n.name.to_ascii_lowercase())?;
+            let (c, t) = controllers(nodes).filter(|(c, _)| c.name == name).last()?;
             Some(sample(c, t))
         };
         let value = |name: &str| keyed(name).or_else(|| n.value(name).map(<[f32]>::to_vec));
@@ -157,15 +199,19 @@ pub fn lights(
 /// samples `sample_period` apart from the animation's start (the last at
 /// its end), interpolated; normals are recomputed from the moved faces.
 pub fn mesh_state(model: &GpuModel, anim: &Animation, t: f32) -> MeshState {
-    let t = if anim.length > 0.0 { t.rem_euclid(anim.length) } else { 0.0 };
-    let by_name: HashMap<String, usize> =
-        anim.nodes.iter().enumerate().map(|(i, n)| (n.name.to_ascii_lowercase(), i)).collect();
+    mesh_state_layers(model, &[anim], t)
+}
+
+/// [`mesh_state`] for several animations played together (see
+/// [`pose_layers`]).
+pub fn mesh_state_layers(model: &GpuModel, layers: &[&Animation], t: f32) -> MeshState {
+    let by_name = keyed(layers, t);
     let mut state = MeshState::new(model);
     for (i, mesh) in model.meshes.iter().enumerate() {
         let name = model.model.nodes[mesh.node].name.to_ascii_lowercase();
-        let Some(an) = by_name.get(&name).map(|&k| &anim.nodes[k]) else { continue };
+        let Some(nodes) = by_name.get(&name) else { continue };
         let out = &mut state.meshes[i];
-        for c in &an.controllers {
+        for (c, t) in controllers(nodes) {
             let v = sample(c, t);
             match (c.name.as_str(), v.as_slice()) {
                 ("alpha", [a, ..]) => out.alpha = Some(*a),
@@ -173,7 +219,8 @@ pub fn mesh_state(model: &GpuModel, anim: &Animation, t: f32) -> MeshState {
                 _ => {}
             }
         }
-        if let (Some(sets), Some(data)) = (&an.anim_mesh, model.mesh_data(i)) {
+        let sets = nodes.iter().rev().find_map(|(n, t)| Some((n.anim_mesh.as_ref()?, *t)));
+        if let (Some((sets, t)), Some(data)) = (sets, model.mesh_data(i)) {
             out.vertices = animated_vertices(data, sets, t);
         }
     }
@@ -278,5 +325,42 @@ mod tests {
         };
         let half = Quat::from_slice(&sample(&q, 0.5));
         assert!(half.angle_between(Quat::from_rotation_z(0.5)) < 1e-4);
+    }
+
+    #[test]
+    fn layers_replace_controllers_of_the_same_name() {
+        let key = |name: &str, values: Vec<f32>| Controller {
+            name: name.into(),
+            columns: values.len(),
+            times: vec![0.0],
+            values,
+        };
+        let node = |name: &str, controllers| AnimNode {
+            name: name.into(),
+            controllers,
+            ..Default::default()
+        };
+        let mut model = Model::default();
+        model.nodes.push(mg_mdl::Node::new("root", mg_mdl::NodeKind::Dummy));
+        let mut child = mg_mdl::Node::new("A", mg_mdl::NodeKind::Dummy);
+        child.parent = Some(0);
+        model.nodes.push(child);
+        let turn = Quat::from_rotation_z(1.0).to_array().to_vec();
+        let first = Animation {
+            nodes: vec![node(
+                "a",
+                vec![key("position", vec![1.0, 0.0, 0.0]), key("orientation", turn)],
+            )],
+            ..Default::default()
+        };
+        let second = Animation {
+            nodes: vec![node("a", vec![key("position", vec![2.0, 0.0, 0.0])])],
+            ..Default::default()
+        };
+        let pose = pose_layers(&model, &[&first, &second], 0.0);
+        let (_, rotation, translation) = pose[1].to_scale_rotation_translation();
+        assert_eq!(translation, Vec3::new(2.0, 0.0, 0.0), "the later layer's position");
+        assert!(rotation.angle_between(Quat::from_rotation_z(1.0)) < 1e-5, "the earlier's turn");
+        assert_eq!(pose_layers(&model, &[&second, &first], 0.0)[1].w_axis.x, 1.0);
     }
 }

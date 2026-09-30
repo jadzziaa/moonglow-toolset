@@ -187,6 +187,7 @@ in this list. ✅ = exists.
 | `mg-edit` | editor core: documents, commands, undo/redo, selection, tools (no UI) |
 | `mg-render` (partial) | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles (done); picking, gizmos |
 | `mg-preview` ✅ | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colours; items; placeables; doors |
+| `mg-area` (partial) | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area |
 | `mg-ui` | egui widgets and editors |
 | `apps/mg` ✅ | CLI: `ls`, `pack`, `unpack`, `gff`, `which`, `cat`, `layers`, `tlk` so far; later build, verify, compile, diff, render |
 | `apps/moonglow` | the GUI application |

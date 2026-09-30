@@ -1565,6 +1565,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "mg-area"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "mg-core",
+ "mg-gff",
+ "mg-mdl",
+ "mg-module",
+ "mg-preview",
+ "mg-render",
+ "mg-resman",
+ "mg-rules",
+ "mg-set",
+ "mg-tlk",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "mg-core"
 version = "0.1.0"
 dependencies = [
@@ -1580,6 +1598,7 @@ dependencies = [
  "fastrand",
  "glam",
  "mg-2da",
+ "mg-area",
  "mg-core",
  "mg-erf",
  "mg-gff",

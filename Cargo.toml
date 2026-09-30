@@ -12,6 +12,7 @@ publish = false
 [workspace.dependencies]
 # Moonglow crates
 mg-2da = { path = "crates/mg-2da" }
+mg-area = { path = "crates/mg-area" }
 mg-core = { path = "crates/mg-core" }
 mg-gff = { path = "crates/mg-gff" }
 mg-image = { path = "crates/mg-image" }
