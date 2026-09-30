@@ -43,7 +43,7 @@ struct Draw {
     params: vec4<f32>,
     // specularity, roughness, metallicness overrides (0 = derive), texture has alpha
     material: vec4<f32>,
-    // x = number of lights for this draw
+    // x = number of lights for this draw, y = 1 if skinned, z = first bone
     light_count: vec4<u32>,
     // Up to 32 light indices.
     light_index: array<vec4<u32>, 8>,
@@ -51,6 +51,8 @@ struct Draw {
 
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var<storage, read> lights: array<Light>;
+// Skin bone matrices (bind pose to current pose, in the skin node's space).
+@group(0) @binding(2) var<storage, read> bones: array<mat4x4<f32>>;
 @group(1) @binding(0) var<uniform> draw: Draw;
 @group(2) @binding(0) var tex0: texture_2d<f32>;
 @group(2) @binding(1) var tex_env: texture_2d<f32>;
@@ -70,15 +72,45 @@ struct VertexOut {
     @location(2) uv: vec2<f32>,
 };
 
-@vertex
-fn vs_main(v: VertexIn) -> VertexOut {
+fn finish(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>) -> VertexOut {
     var out: VertexOut;
-    let p = draw.model_view * vec4<f32>(v.pos, 1.0);
+    let p = draw.model_view * vec4<f32>(pos, 1.0);
     out.pos_view = p.xyz;
     out.clip = frame.proj * p;
-    out.normal_view = (draw.normal_matrix * vec4<f32>(v.normal, 0.0)).xyz;
-    out.uv = v.uv;
+    out.normal_view = (draw.normal_matrix * vec4<f32>(normal, 0.0)).xyz;
+    out.uv = uv;
     return out;
+}
+
+@vertex
+fn vs_main(v: VertexIn) -> VertexOut {
+    return finish(v.pos, v.normal, v.uv);
+}
+
+struct SkinIn {
+    @location(3) bones: vec4<u32>,
+    @location(4) weights: vec4<f32>,
+};
+
+// Up to four bone influences, as the game's skinned shaders (vslit_sk).
+@vertex
+fn vs_skinned(v: VertexIn, s: SkinIn) -> VertexOut {
+    var pos = vec3<f32>(0.0);
+    var normal = vec3<f32>(0.0);
+    var total = 0.0;
+    for (var i = 0u; i < 4u; i = i + 1u) {
+        let w = s.weights[i];
+        if (w > 0.0) {
+            let m = bones[draw.light_count.z + s.bones[i]];
+            pos = pos + w * (m * vec4<f32>(v.pos, 1.0)).xyz;
+            normal = normal + w * (m * vec4<f32>(v.normal, 0.0)).xyz;
+            total = total + w;
+        }
+    }
+    if (total <= 0.0) {
+        return finish(v.pos, v.normal, v.uv);
+    }
+    return finish(pos / total, normal, v.uv);
 }
 
 fn lin(c: vec3<f32>) -> vec3<f32> {

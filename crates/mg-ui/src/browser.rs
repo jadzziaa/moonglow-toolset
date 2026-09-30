@@ -109,6 +109,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.selectable_label(false, egui::RichText::new(k.to_string()).monospace());
                     ui.weak(layer);
                     let tab = || match Tab::for_resource(*k) {
+                        Some(t @ Tab::Model(_)) => t,
                         Some(t) if in_module(k) => t,
                         _ => Tab::Resource(*k),
                     };

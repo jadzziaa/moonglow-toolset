@@ -27,6 +27,35 @@ impl Vertex {
     };
 }
 
+/// A skinned vertex's bones (indices into the skin's bone list) and
+/// weights.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct SkinVertex {
+    pub bones: [u32; 4],
+    pub weights: [f32; 4],
+}
+
+impl SkinVertex {
+    pub const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<SkinVertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![3 => Uint32x4, 4 => Float32x4],
+    };
+}
+
+/// A skinned mesh's bones and their weights on the GPU.
+#[derive(Debug)]
+pub struct GpuSkin {
+    /// Bone nodes.
+    pub bones: Vec<usize>,
+    /// Per bone: from the skin node's space to the bone's, in the bind
+    /// pose. Compiled models store it (and a few bind in a pose other than
+    /// the rest pose); for ASCII models it comes from the rest pose.
+    pub inverse_bind: Vec<Mat4>,
+    pub vertices: wgpu::Buffer,
+}
+
 /// A mesh's material, from the model.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Material {
@@ -51,6 +80,7 @@ pub struct GpuMesh {
     /// Local bounds.
     pub min: Vec3,
     pub max: Vec3,
+    pub skin: Option<GpuSkin>,
 }
 
 /// A model's meshes on the GPU.
@@ -58,12 +88,15 @@ pub struct GpuMesh {
 pub struct GpuModel {
     pub model: Arc<Model>,
     pub meshes: Vec<GpuMesh>,
+    /// The rest pose (model-space node transforms).
+    pub rest: Vec<Mat4>,
 }
 
 impl GpuModel {
     /// Uploads the meshes that render (walkmeshes and `render 0` shadow
     /// meshes are skipped).
     pub fn new(gpu: &Gpu, model: Arc<Model>) -> GpuModel {
+        let rest = rest_pose(&model);
         let mut meshes = Vec::new();
         for (i, node) in model.nodes.iter().enumerate() {
             let NodeKind::Mesh(m) = &node.kind else { continue };
@@ -101,6 +134,51 @@ impl GpuModel {
                     v.get(2).copied().unwrap_or(0.0),
                 )
             });
+            let skin = match &m.extra {
+                MeshExtra::Skin(s)
+                    if !s.bones.is_empty() && s.weights.len() == m.vertices.len() =>
+                {
+                    let data: Vec<SkinVertex> = s
+                        .weights
+                        .iter()
+                        .map(|w| SkinVertex {
+                            bones: w.map(|(b, _)| u32::from(b)),
+                            weights: w.map(|(_, x)| x),
+                        })
+                        .collect();
+                    let stored = s.inverse_bind.len() == model.nodes.len();
+                    let inverse_bind = s
+                        .bones
+                        .iter()
+                        .map(|&b| {
+                            if stored {
+                                let (q, t) = s.inverse_bind[b];
+                                let q = Quat::from_array(q);
+                                let q = if q.length_squared() > 1e-12 {
+                                    q.normalize()
+                                } else {
+                                    Quat::IDENTITY
+                                };
+                                Mat4::from_rotation_translation(q, Vec3::from(t))
+                            } else {
+                                rest[b].inverse() * rest[i]
+                            }
+                        })
+                        .collect();
+                    Some(GpuSkin {
+                        bones: s.bones.clone(),
+                        inverse_bind,
+                        vertices: gpu.device.create_buffer_init(
+                            &wgpu::util::BufferInitDescriptor {
+                                label: Some(&label),
+                                contents: bytemuck::cast_slice(&data),
+                                usage: wgpu::BufferUsages::VERTEX,
+                            },
+                        ),
+                    })
+                }
+                _ => None,
+            };
             meshes.push(GpuMesh {
                 node: i,
                 vertices: vb,
@@ -116,9 +194,10 @@ impl GpuModel {
                 },
                 min,
                 max,
+                skin,
             });
         }
-        GpuModel { model, meshes }
+        GpuModel { model, meshes, rest }
     }
 }
 

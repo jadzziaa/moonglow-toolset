@@ -39,6 +39,7 @@ bytemuck = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
 eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11", "persistence"] }
 egui = "0.36"
+egui-wgpu = "0.36"
 egui_dock = "0.21"
 egui_kittest = "0.36"
 encoding_rs = "0.8"

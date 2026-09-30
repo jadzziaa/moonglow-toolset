@@ -167,3 +167,112 @@ fn game_models_render() {
         assert!(share > 0.02 && share < 0.98, "{name}: {share}");
     }
 }
+
+/// The bind pose derived from the rest pose (a bone's model transform
+/// inverted, times the skin's), which the renderer uses for ASCII models,
+/// is the one compiled models store per node (`qbone_ref_inv`,
+/// `tbone_ref_inv`) for 98% of the bones of every skin in the game; the
+/// rest (a few oozes and dragon wings) were bound in another pose, and the
+/// renderer uses the stored values for compiled models.
+#[test]
+fn skin_bind_poses_match_the_stored_ones() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let (mut skins, mut bones, mut bad) = (0, 0, Vec::new());
+    for resref in rm.list(mg_core::ResType::MDL) {
+        let data = rm.get(&mg_resman::ResKey::new(resref, mg_core::ResType::MDL)).unwrap();
+        if !mg_mdl::is_binary(&data) {
+            continue;
+        }
+        let model = Model::read(&data).unwrap();
+        let rest = mg_render::rest_pose(&model);
+        for (i, n) in model.nodes.iter().enumerate() {
+            let Some(mg_mdl::MeshExtra::Skin(s)) = n.mesh().map(|m| &m.extra) else { continue };
+            if s.inverse_bind.len() != model.nodes.len() {
+                continue;
+            }
+            skins += 1;
+            for &b in &s.bones {
+                bones += 1;
+                let ours = rest[b].inverse() * rest[i];
+                let (q, t) = s.inverse_bind[b];
+                let stored = Mat4::from_rotation_translation(
+                    glam::Quat::from_array(q).normalize(),
+                    Vec3::from(t),
+                );
+                let close = ours
+                    .to_cols_array()
+                    .iter()
+                    .zip(stored.to_cols_array())
+                    .all(|(a, b)| (a - b).abs() < 2e-3 * a.abs().max(1.0));
+                if !close {
+                    // Scale anywhere on the path from the root.
+                    let mut scaled = false;
+                    let mut at = Some(b);
+                    while let Some(k) = at {
+                        scaled |= (model.nodes[k].scale - 1.0).abs() > 1e-4;
+                        at = model.nodes[k].parent;
+                    }
+                    bad.push(format!(
+                        "{}:{} bone {} (scaled path: {scaled})",
+                        model.name, n.name, model.nodes[b].name
+                    ));
+                }
+            }
+        }
+    }
+    eprintln!("{skins} skins, {bones} bones, {} differ", bad.len());
+    for b in bad.iter().take(10) {
+        eprintln!("  {b}");
+    }
+    assert!(skins > 300);
+    assert!(bad.len() * 50 < bones, "more than 2% of bind poses differ");
+}
+
+/// Animations, with supermodels and skins: a creature mid-walk and a
+/// placeable opening look different from their rest poses.
+#[test]
+fn animated_models_render() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let Some(gpu) = gpu() else { return };
+    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let load = |n: &str| {
+        rm.get_named(n, mg_core::ResType::MDL).ok().and_then(|d| Model::read(&d).ok()).map(Arc::new)
+    };
+    let dir = mg_testkit::scratch_dir("render-anim");
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    for (name, anim, t) in
+        [("c_golemerald", "walk", 0.3), ("plc_a01", "open", 0.5), ("c_wolf", "cwalk", 0.3)]
+    {
+        let model = load(name).unwrap();
+        let anims = mg_render::anim::animations(&model, &load);
+        let (_, owner) =
+            anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(anim)).unwrap_or_else(|| {
+                panic!("{name} has no {anim}: {:?}", anims.iter().map(|a| &a.0).collect::<Vec<_>>())
+            });
+        let pose = Arc::new(mg_render::anim::pose(&model, owner.animation(anim).unwrap(), t));
+        let gm = Arc::new(GpuModel::new(&gpu, model));
+        let camera = framing(&gm);
+        let mut images = Vec::new();
+        for p in [None, Some(pose.clone())] {
+            let scene = Scene {
+                instances: vec![Instance { model: gm.clone(), transform: Mat4::IDENTITY, pose: p }],
+                area: AreaLight::default(),
+                background: [0.2, 0.25, 0.3],
+                ..Default::default()
+            };
+            images.push(r.render_image(&gpu, &rm, &scene, &camera, 320, 320));
+        }
+        save(&images[0], &dir.join(format!("{name}-rest.png")));
+        save(&images[1], &dir.join(format!("{name}-{anim}.png")));
+        let changed = images[0].data.iter().zip(&images[1].data).filter(|(a, b)| a != b).count();
+        eprintln!("{name} {anim}: {changed} bytes differ");
+        assert!(changed > 1000, "{name}: {anim} looks like the rest pose");
+    }
+}

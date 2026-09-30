@@ -143,3 +143,12 @@ unless given otherwise.
 | Spell Check (text popup menu) | not yet | — (in EE it finds nothing: no lexicon ships; "Helo thre wrold." passes. Moonglow could use Hunspell dictionaries: an improvement for later) |
 | Text export/import (`actExportDialog`, `actImportDialog`, String/Char based) | not offered | — (hidden actions: no menu, button or shortcut reaches them) |
 | Scrap tab of cut lines | the clipboard holds one copied or cut branch | ◐ |
+
+## Model viewer (Aurora: blueprint previews; Moonglow: also any model from the resources)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Preview window: orbit, zoom | Resources > open a model: orbit (left drag), pan (right/middle drag), zoom (wheel), Frame | ✅ [model_viewer_plays_animations] |
+| Aurora's own lighting (no EE lighting) | the game's enhanced-lighting equations (area light, point lights, GGX specular, environment maps, fog) | ✅ improvement (`render.rs`: lighting matches a CPU evaluation) |
+| Animations (placeables, doors, creatures idle) | any animation of the model or its supermodels, play/pause; skins deform on the GPU with the stored bind poses | ✅ (`render.rs`: animated models; bind poses match the stored ones for 98% of bones) |
+| Emitters, dangly meshes, animated meshes, PLT colours from the blueprint | not yet | ✗ |

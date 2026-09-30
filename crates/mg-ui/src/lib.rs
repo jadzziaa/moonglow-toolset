@@ -10,6 +10,7 @@ pub mod dialogs;
 pub mod faction_view;
 mod gff_view;
 pub mod journal_view;
+pub mod model_view;
 pub mod module_props;
 mod options;
 pub mod script_tools;
@@ -141,6 +142,9 @@ pub struct Moonglow {
     /// The New Script window's name.
     pub new_script: Option<String>,
     pub script_wizard: Option<script_wizard::ScriptWizard>,
+    /// The GPU for 3D views (from the window), if there is one.
+    pub viewport: Option<model_view::Viewport3d>,
+    pub model_views: HashMap<ResKey, model_view::ModelView>,
     /// The hak conflict report being shown.
     pub hak_report: Option<String>,
     /// The custom talk table loaded into the game data, by name.
@@ -198,6 +202,8 @@ impl Moonglow {
             script_save_as: None,
             new_script: None,
             script_wizard: None,
+            viewport: None,
+            model_views: HashMap::new(),
             hak_report: None,
             custom_tlk: None,
             var_edit: None,
@@ -229,6 +235,11 @@ impl Moonglow {
 
     /// The application with saved settings: their game install (or the
     /// detected one) and recent modules.
+    /// Gives the app the window's GPU, for 3D views.
+    pub fn set_render_state(&mut self, render_state: egui_wgpu::RenderState) {
+        self.viewport = Some(model_view::Viewport3d::new(render_state));
+    }
+
     pub fn with_settings(settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
         let mut app = Moonglow::new(settings.install(), dialogs);
         app.settings = settings;

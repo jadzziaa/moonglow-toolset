@@ -9,19 +9,24 @@ publish.workspace = true
 
 [dependencies]
 egui.workspace = true
+egui-wgpu.workspace = true
 egui_dock.workspace = true
 fastrand.workspace = true
 mg-2da.workspace = true
 mg-core.workspace = true
 mg-edit.workspace = true
+glam.workspace = true
 mg-gff.workspace = true
+mg-mdl.workspace = true
 mg-module.workspace = true
+mg-render.workspace = true
 mg-resman.workspace = true
 mg-rules.workspace = true
 mg-schema.workspace = true
 mg-script.workspace = true
 mg-tlk.workspace = true
 serde.workspace = true
+wgpu.workspace = true
 
 [dev-dependencies]
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot"] }

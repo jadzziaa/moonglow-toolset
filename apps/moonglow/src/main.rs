@@ -80,6 +80,20 @@ fn main() -> eframe::Result<()> {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
             .with_title("Moonglow Toolset"),
+        wgpu_options: egui_wgpu::WgpuConfiguration {
+            wgpu_setup: egui_wgpu::WgpuSetup::CreateNew(egui_wgpu::WgpuSetupCreateNew {
+                // Game textures are mostly BC-compressed: upload them as
+                // they are where the GPU can read them.
+                device_descriptor: std::sync::Arc::new(|adapter| wgpu::DeviceDescriptor {
+                    label: Some("moonglow"),
+                    required_features: adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC,
+                    required_limits: adapter.limits(),
+                    ..Default::default()
+                }),
+                ..egui_wgpu::WgpuSetupCreateNew::without_display_handle()
+            }),
+            ..Default::default()
+        },
         ..Default::default()
     };
     eframe::run_native(
@@ -89,6 +103,9 @@ fn main() -> eframe::Result<()> {
             let settings: Settings =
                 cc.storage.and_then(|s| eframe::get_value(s, SETTINGS_KEY)).unwrap_or_default();
             let mut moonglow = Moonglow::with_settings(settings, Box::new(NativeDialogs));
+            if let Some(rs) = &cc.wgpu_render_state {
+                moonglow.set_render_state(rs.clone());
+            }
             // `moonglow path/to/module.mod` opens a module at start.
             if let Some(path) = std::env::args_os().nth(1) {
                 moonglow.open_module(Path::new(&path));

@@ -12,7 +12,7 @@ use mg_image::txi::Blending;
 
 use crate::Gpu;
 use crate::assets::Assets;
-use crate::model::Vertex;
+use crate::model::{SkinVertex, Vertex};
 use crate::scene::{Camera, Scene};
 use crate::texture::GpuTexture;
 
@@ -91,6 +91,7 @@ struct Draw {
     uniform: DrawUniform,
     material: MaterialKey,
     vertices: wgpu::Buffer,
+    skin: Option<wgpu::Buffer>,
     indices: wgpu::Buffer,
     count: u32,
 }
@@ -102,9 +103,10 @@ pub struct Renderer {
     frame_layout: wgpu::BindGroupLayout,
     draw_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
-    pipelines: HashMap<Pass, wgpu::RenderPipeline>,
+    pipelines: HashMap<(Pass, bool), wgpu::RenderPipeline>,
     frame_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
+    bone_buffer: wgpu::Buffer,
     draw_buffer: wgpu::Buffer,
     draw_stride: u64,
     white: Arc<GpuTexture>,
@@ -151,6 +153,16 @@ impl Renderer {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let draw_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -183,7 +195,10 @@ impl Renderer {
             immediate_size: 0,
         });
         let mut pipelines = HashMap::new();
-        for pass in [Pass::Opaque, Pass::Blend, Pass::Additive] {
+        for (pass, skinned) in [Pass::Opaque, Pass::Blend, Pass::Additive]
+            .into_iter()
+            .flat_map(|p| [(p, false), (p, true)])
+        {
             let blend = match pass {
                 Pass::Opaque => None,
                 Pass::Blend => Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -201,9 +216,13 @@ impl Renderer {
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: Some("vs_main"),
+                    entry_point: Some(if skinned { "vs_skinned" } else { "vs_main" }),
                     compilation_options: Default::default(),
-                    buffers: &[Some(Vertex::LAYOUT)],
+                    buffers: if skinned {
+                        &[Some(Vertex::LAYOUT), Some(SkinVertex::LAYOUT)]
+                    } else {
+                        &[Some(Vertex::LAYOUT)]
+                    },
                 },
                 primitive: wgpu::PrimitiveState {
                     front_face: wgpu::FrontFace::Ccw,
@@ -231,7 +250,7 @@ impl Renderer {
                 multiview_mask: None,
                 cache: None,
             });
-            pipelines.insert(pass, pipeline);
+            pipelines.insert((pass, skinned), pipeline);
         }
         let buffer = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
@@ -265,6 +284,7 @@ impl Renderer {
                 wgpu::BufferUsages::UNIFORM,
             ),
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
+            bone_buffer: buffer("bones", 64 * 64, wgpu::BufferUsages::STORAGE),
             draw_buffer: buffer("draws", draw_stride * 64, wgpu::BufferUsages::UNIFORM),
             draw_stride,
             white: Arc::new(GpuTexture::solid(gpu, "white", [255; 4])),
@@ -387,16 +407,21 @@ impl Renderer {
 
         // Draws.
         let mut draws: Vec<Draw> = Vec::new();
+        let mut bones: Vec<[[f32; 4]; 4]> = Vec::new();
         for inst in &scene.instances {
-            let rest;
-            let pose: &Vec<Mat4> = match &inst.pose {
-                Some(p) => p,
-                None => {
-                    rest = crate::model::rest_pose(&inst.model.model);
-                    &rest
-                }
-            };
+            let rest = &inst.model.rest;
+            let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
             for mesh in &inst.model.meshes {
+                // Bones: bind pose to current pose, in the skin node's space.
+                let bone_base = bones.len() as u32;
+                if let Some(skin) = &mesh.skin {
+                    let skin_now = pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+                    let to_skin = skin_now.inverse();
+                    for (&b, inverse_bind) in skin.bones.iter().zip(&skin.inverse_bind) {
+                        let now = pose.get(b).copied().unwrap_or(Mat4::IDENTITY);
+                        bones.push(cols(to_skin * now * *inverse_bind));
+                    }
+                }
                 let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
                 let model_view = view * world;
                 let centre = world.transform_point3((mesh.min + mesh.max) * 0.5);
@@ -454,7 +479,12 @@ impl Renderer {
                             if decal { 1.0 } else { 0.0 },
                         ],
                         material: [spec[0], spec[1], spec[2], if has_alpha { 1.0 } else { 0.0 }],
-                        light_count: [chosen.len() as u32, 0, 0, 0],
+                        light_count: [
+                            chosen.len() as u32,
+                            u32::from(mesh.skin.is_some()),
+                            bone_base,
+                            0,
+                        ],
                         light_index,
                     },
                     material: (
@@ -463,6 +493,7 @@ impl Renderer {
                         clamp,
                     ),
                     vertices: mesh.vertices.clone(),
+                    skin: mesh.skin.as_ref().map(|s| s.vertices.clone()),
                     indices: mesh.indices.clone(),
                     count: mesh.index_count,
                 });
@@ -484,6 +515,20 @@ impl Renderer {
                 }
             })
         });
+
+        // Bones.
+        let bone_bytes = 64 * bones.len().max(1);
+        if (self.bone_buffer.size() as usize) < bone_bytes {
+            self.bone_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("bones"),
+                size: bone_bytes.next_power_of_two() as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !bones.is_empty() {
+            gpu.queue.write_buffer(&self.bone_buffer, 0, bytemuck::cast_slice(&bones));
+        }
 
         // Upload per-draw data.
         let needed = self.draw_stride * draws.len().max(1) as u64;
@@ -518,6 +563,7 @@ impl Renderer {
                     binding: 1,
                     resource: self.light_buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry { binding: 2, resource: self.bone_buffer.as_entire_binding() },
             ],
         });
         let draw_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -599,9 +645,13 @@ impl Renderer {
             pass.set_bind_group(0, &frame_group, &[]);
             let mut current = None;
             for (i, d) in draws.iter().enumerate() {
-                if current != Some(d.pass) {
-                    pass.set_pipeline(&self.pipelines[&d.pass]);
-                    current = Some(d.pass);
+                let key = (d.pass, d.skin.is_some());
+                if current != Some(key) {
+                    pass.set_pipeline(&self.pipelines[&key]);
+                    current = Some(key);
+                }
+                if let Some(skin) = &d.skin {
+                    pass.set_vertex_buffer(1, skin.slice(..));
                 }
                 pass.set_bind_group(1, &draw_group, &[(i as u64 * self.draw_stride) as u32]);
                 pass.set_bind_group(2, &self.materials[&d.material], &[]);

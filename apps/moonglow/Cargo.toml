@@ -10,9 +10,11 @@ publish.workspace = true
 [dependencies]
 eframe.workspace = true
 egui.workspace = true
+egui-wgpu.workspace = true
 mg-resman.workspace = true
 mg-ui.workspace = true
 rfd.workspace = true
+wgpu.workspace = true
 
 [lints]
 workspace = true

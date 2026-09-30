@@ -2,6 +2,7 @@
 //! "enhanced lighting" shaders light them (`docs/research/notes_shaders.md`),
 //! drawn into a window's frame or offscreen.
 
+pub mod anim;
 pub mod assets;
 mod gpu;
 pub mod model;

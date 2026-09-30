@@ -1778,15 +1778,19 @@ name = "mg-ui"
 version = "0.1.0"
 dependencies = [
  "egui",
+ "egui-wgpu",
  "egui_dock",
  "egui_kittest",
  "fastrand",
+ "glam",
  "mg-2da",
  "mg-core",
  "mg-edit",
  "mg-erf",
  "mg-gff",
+ "mg-mdl",
  "mg-module",
+ "mg-render",
  "mg-resman",
  "mg-rules",
  "mg-schema",
@@ -1795,6 +1799,7 @@ dependencies = [
  "mg-tlk",
  "serde",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]
@@ -1823,9 +1828,11 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "egui-wgpu",
  "mg-resman",
  "mg-ui",
  "rfd",
+ "wgpu",
 ]
 
 [[package]]

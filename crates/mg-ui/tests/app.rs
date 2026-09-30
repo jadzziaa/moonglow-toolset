@@ -875,3 +875,37 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
     let g = doc(&mut h);
     assert!(g.root.list("EntryList").unwrap()[0].resref("Script").unwrap().is_empty());
 }
+
+#[test]
+fn model_viewer_plays_animations() {
+    let root = mg_testkit::corpus!();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.run();
+    h.get_by_label_contains(" nodes, ");
+    // Choose "open" from the animation list.
+    h.get_by_label("Animation").click();
+    h.run();
+    h.get_by_label("open").click();
+    // A playing animation keeps repainting: step frames.
+    h.run_steps(3);
+    assert_eq!(h.state().model_views[&key].animation.as_deref(), Some("open"));
+    let img = h.render().expect("render");
+    assert!(img.width() > 0);
+}
