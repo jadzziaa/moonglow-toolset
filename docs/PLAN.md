@@ -310,13 +310,14 @@ conflict check), reference graph, basic verify.
 saved modules load and run their start-up in `nwserver`.
 
 ### Phase 4: Script back end (compiler ✅)
-✅ The official compiler built in (`mg-script`, C API, per-thread instances),
-module compile (`mg_module::build`, `mg compile`), checked against
-`nwn_script_comp` on every shipped script. Remaining: The official compiler built in (`cc` crate, C API) on all three platforms,
-`mg script compile`, NWScript front end (lexer, parser, symbol index),
-nwscript.nss spec.
-**Exit:** compiling every script in the bundled modules gives the same NCS as
-`nwn_script_comp` and the shipped NCS where source and binary match.
+✅ The official compiler built in (`mg-script`: vendored C++ built with the
+`cc` crate, C API, per-thread instances), module compile (`mg_module::build`,
+`mg compile`). Remaining: the NWScript front end for the editor (lexer,
+declaration parser and symbol index, nwscript.nss spec), and building on
+Windows and macOS in CI.
+**Exit:** ✅ compiling every script in the base game and the shipped modules
+gives the same NCS as `nwn_script_comp` (the shipped NCS match only where the
+same compiler produced them: 68%).
 
 ### Phase 5: Application shell
 egui app with a docked layout like Aurora's (module tree, tabbed editors,
