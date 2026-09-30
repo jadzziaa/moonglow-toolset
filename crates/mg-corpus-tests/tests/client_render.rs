@@ -81,7 +81,8 @@ void main()
 }
 "#;
 
-/// Settings for a controlled comparison (merged into the client's defaults).
+/// Settings for a controlled comparison (merged into the client's defaults),
+/// with Moonglow's texture filtering (8× anisotropic).
 const SETTINGS: &str = r#"[graphics]
 	[graphics.fbo]
 		[graphics.fbo.hdr-bloom]
@@ -120,17 +121,22 @@ const SETTINGS: &str = r#"[graphics]
 		enabled = false
 	[graphics.tile-borders]
 		enabled = false
+	[graphics.video]
+		[graphics.video.anisotropic-filtering]
+			mode = 8
 "#;
 
 /// Regions compared (fractions of the image, top-left origin), clear of the
-/// game's GUI, with the largest mean difference allowed per channel.
+/// game's GUI, with the largest mean difference allowed per channel. Most
+/// match within 1; the far floor, which borders a dark wall, within 5 (the
+/// fitted camera is a fraction of a pixel off).
 const REGIONS: [(&str, [f32; 4], f32); 6] = [
-    ("centre floor", [0.40, 0.47, 0.60, 0.56], 10.0),
-    ("left floor", [0.18, 0.45, 0.35, 0.60], 10.0),
-    ("right floor", [0.65, 0.45, 0.82, 0.60], 10.0),
-    ("far floor", [0.35, 0.28, 0.65, 0.34], 10.0),
-    ("armoire", [0.48, 0.39, 0.52, 0.44], 10.0),
-    ("left wall", [0.05, 0.30, 0.12, 0.40], 10.0),
+    ("centre floor", [0.40, 0.47, 0.60, 0.56], 3.0),
+    ("left floor", [0.18, 0.45, 0.35, 0.60], 3.0),
+    ("right floor", [0.65, 0.45, 0.82, 0.60], 3.0),
+    ("far floor", [0.35, 0.28, 0.65, 0.34], 6.0),
+    ("armoire", [0.48, 0.39, 0.52, 0.44], 3.0),
+    ("left wall", [0.05, 0.30, 0.12, 0.40], 3.0),
 ];
 
 /// A scene's lighting.
@@ -149,7 +155,10 @@ fn repo() -> PathBuf {
 }
 
 /// Runs the client until the scene is ready and screenshots its window.
+/// One client at a time: the screenshot finds the window by its title.
 fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
+    static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _only = ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     // In single player the game's server logs to the client's log.
     let log = dir.join("user/logs/nwclientLog1.txt");
     let _ = std::fs::remove_file(&log);
@@ -324,8 +333,9 @@ fn moonglow_scene(gpu: &Gpu, game: &GameData, are: &Gff, light: Lighting) -> (Sc
     instances.push(Instance::new(
         armoire,
         Mat4::from_rotation_translation(
-            // Models face −Y: a facing of f degrees turns them by f + 90.
-            Quat::from_rotation_z((270f32 + 90.0).to_radians()),
+            // The game turns a model by its facing − 90°: the model's +Y
+            // points along the facing (matched against the client).
+            Quat::from_rotation_z((270f32 - 90.0).to_radians()),
             pc + Vec3::new(0.0, AHEAD, 0.0),
         ),
     ));

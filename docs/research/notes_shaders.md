@@ -189,7 +189,7 @@ Derived in `inc_common` / `inc_config`:
 | `lightAreaAmbient` | vec3 | sun/moon ambient |
 | `lightAreaDiffuse` | vec3 | sun/moon diffuse |
 | `lightAreaDiffuseDirection` | vec3 | direction **to** the sun/moon, view space [INF from use in N·L] |
-| `materialFrontAmbient` | vec4 | MDL `ambient` (default 1,1,1; pre-.17 compiled models 0.2) |
+| `materialFrontAmbient` | vec4 | lin(MDL `ambient`) (default 1,1,1; pre-.17 compiled models 0.2); diffuse and emissive likewise linearised (M.3) |
 | `materialFrontDiffuse` | vec4 | MDL `diffuse` (default 1,1,1; old 0.8) with **alpha = mesh `alpha`** |
 | `materialFrontEmissive` | vec4 | MDL `selfillumcolor` (animatable). Debug modes `RevertColorSpace` these ⇒ they are uploaded **linear** |
 | `materialFrontSpecular`, `materialFrontShininess` | | uploaded, unused |
@@ -442,6 +442,11 @@ Constants: `specMin=0.04`, `roughMin=0.125` (GGX), `roughMax=0.55`, legacy env f
 - **AO**: `occ = clamp(h_blurred(mip bias 7 − log2(depth)) − h, 0, 0.9)`; `AO = (1−occ)²`.
   - `fSurfaceFade = 1/mix(1, 0.1, AO²)`.
   - AO multiplies Ambient and the env-specular term.
+
+### D.6b What the reference scenes showed (client comparisons, `client_render.rs`)
+- High Quality (`shader-quality = "High Quality"`, SHADER_QUALITY_MODE 2) softens N·L: `2·smoothstep(0, 2, 0.8·N·L + 0.2)`, light reaching to N·L > −0.25 (normal-mapped: > 0). The game's default setting is "Performance" (1), without softening.
+- A model placed with facing f (degrees) is turned by f − 90°: its +Y axis points along the facing. (A script-created armoire facing the camera shows its back.)
+- With material colours linearised and softening, floors, walls and a placeable match the client within 1/255 per region mean.
 
 ### D.7 Quality-mode differences (summary)
 | | q0 | q1 | q2 |
@@ -853,7 +858,7 @@ Sources: CHANGELOG.md / patchnotes (85.32 → 37-17), `Neverwinter Nights Enhanc
    - The wiki's "0–200" range conflicts with the 0–15 values seen in AREs and environment.2da.
    - Needs an in-game measurement, or reading the toolset DFM trackbar max.
 2. ~~Uniform values from settings~~: answered in E.6. Still open: the role of the MDL `multiplier` (Moonglow multiplies the colour; every light tested had 1).
-3. **Colour space of uploaded colours**: lights and ARE colours are linearised (E.6). Still open: MDL material ambient/diffuse/selfillum (tiles read back as 1, 1).
+3. ~~Colour space of uploaded colours~~: lights, ARE colours and MDL material ambient, diffuse and self-illumination (`selfillumcolor`, also animated) are all linearised with pow 2.2 (read back: tic01 floor diffuse 0.659 → 0.400; plc_c01 0.557 → 0.276; a lamp's "on" self-illumination 0.769 → 0.561). Tiles and placeables alike, static or not.
 4. ~~Default `lightAreaDiffuseDirection`~~: (4000, 4500, 7000) normalised, sun and moon (E.1). Still open: how dawn/dusk colours are interpolated (1 h?).
 5. **Toolset rendering mode**: does nwtoolset run with GAMMA_CORRECTION/FRAGMENT_LIGHTING on, or vertex static lighting (it has "Compute Static Lighting" and `controlpart gidy_sun`)? What MAX_NUM_LIGHTS and shader quality does it use? Which set (day/night) does its area view show?
 6. **Texture slots 11 vs 12** (FB colour vs depth): the wiki pages contradict each other. They are named samplers, so only custom shaders care.

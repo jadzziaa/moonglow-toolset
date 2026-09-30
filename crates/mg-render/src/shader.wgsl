@@ -2,9 +2,13 @@
 // inc_lighting, inc_material): per-fragment lighting in view space, linear
 // and unclamped ("enhanced lighting"), textures linearised with pow 2.2,
 // Lambert diffuse and GGX specular without 1/pi, Schlick Fresnel (^5) and
-// geometric term (k = roughness), the legacy environment-map rule (texture
-// alpha = 1 - reflectivity), EE point-light attenuation, then back to gamma,
-// fog in gamma space and the "legacy balanced" colour clamp.
+// geometric term (k = roughness), light softening and translucence (the
+// "High Quality" setting), the legacy environment-map rule (texture alpha =
+// 1 - reflectivity), EE point-light attenuation, then back to gamma, fog in
+// gamma space and the "legacy balanced" colour clamp. Normal, specular,
+// roughness, height (parallax and occlusion) and self-illumination maps as
+// the normal-mapped variants (fslit_nm); their tangent frame comes from
+// screen-space derivatives instead of vertex tangents.
 
 struct Frame {
     view: mat4x4<f32>,
@@ -18,9 +22,10 @@ struct Frame {
     fog: vec4<f32>,
     // Gamma space.
     fog_color: vec4<f32>,
-    // 1 / max intensity, falloff factor, light count, unused
+    // 1 / max intensity, falloff factor, light count, target height (pixels)
     light_params: vec4<f32>,
-    // Minimum light (the GUI "scene colour"), linear.
+    // Minimum light (the GUI "scene colour"), linear; w = debug view
+    // (1: material diffuse).
     scene_color: vec4<f32>,
 };
 
@@ -32,7 +37,9 @@ struct Light {
 };
 
 struct Draw {
-    model_view: mat4x4<f32>,
+    // Model to world; the view matrix is the frame's, so coplanar meshes
+    // (tile floors) get equal depths and the first drawn stays.
+    world: mat4x4<f32>,
     normal_matrix: mat4x4<f32>,
     // Material diffuse, a = mesh alpha.
     diffuse: vec4<f32>,
@@ -43,6 +50,13 @@ struct Draw {
     params: vec4<f32>,
     // specularity, roughness, metallicness overrides (0 = derive), texture has alpha
     material: vec4<f32>,
+    // normal, specular, roughness, height map bound
+    maps: vec4<f32>,
+    // self-illumination map bound, displacement offset, displacement
+    // multiplier, normal-mapped variant
+    maps2: vec4<f32>,
+    // Custom specular colour (linear), w = 1 when set.
+    spec_color: vec4<f32>,
     // x = number of lights for this draw, y = 1 if skinned, z = first bone
     light_count: vec4<u32>,
     // Up to 32 light indices.
@@ -58,6 +72,11 @@ struct Draw {
 @group(2) @binding(1) var tex_env: texture_2d<f32>;
 @group(2) @binding(2) var samp0: sampler;
 @group(2) @binding(3) var samp_env: sampler;
+@group(2) @binding(4) var tex_normal: texture_2d<f32>;
+@group(2) @binding(5) var tex_spec: texture_2d<f32>;
+@group(2) @binding(6) var tex_rough: texture_2d<f32>;
+@group(2) @binding(7) var tex_height: texture_2d<f32>;
+@group(2) @binding(8) var tex_illum: texture_2d<f32>;
 
 struct VertexIn {
     @location(0) pos: vec3<f32>,
@@ -74,7 +93,7 @@ struct VertexOut {
 
 fn finish(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>) -> VertexOut {
     var out: VertexOut;
-    let p = draw.model_view * vec4<f32>(pos, 1.0);
+    let p = frame.view * (draw.world * vec4<f32>(pos, 1.0));
     out.pos_view = p.xyz;
     out.clip = frame.proj * p;
     out.normal_view = (draw.normal_matrix * vec4<f32>(normal, 0.0)).xyz;
@@ -149,10 +168,106 @@ struct Accum {
     specular: vec3<f32>,
 };
 
+fn normalize_or_zero(x: vec3<f32>) -> vec3<f32> {
+    let l2 = dot(x, x);
+    if (l2 > 1e-30) {
+        return x * inverseSqrt(l2);
+    }
+    return vec3<f32>(0.0);
+}
+
+// The tangent frame (columns +u, +v, the surface normal; view space) from
+// screen-space derivatives of the position and texture coordinates
+// (Schüler's cotangent frame; negated because framebuffer y points down).
+fn tangent_frame(
+    n: vec3<f32>,
+    dp1: vec3<f32>,
+    dp2: vec3<f32>,
+    duv1: vec2<f32>,
+    duv2: vec2<f32>,
+) -> mat3x3<f32> {
+    let dp2perp = cross(dp2, n);
+    let dp1perp = cross(n, dp1);
+    let t = -(dp2perp * duv1.x + dp1perp * duv2.x);
+    let b = -(dp2perp * duv1.y + dp1perp * duv2.y);
+    return mat3x3<f32>(normalize_or_zero(t), normalize_or_zero(b), n);
+}
+
+fn height_at(uv: vec2<f32>, duv1: vec2<f32>, duv2: vec2<f32>) -> f32 {
+    return textureSampleGrad(tex_height, samp0, uv, duv1, duv2).r;
+}
+
+// Parallax: the game's iterative search (inc_displacement), height read as
+// depth 1 - h. `v` points towards the eye.
+fn displace(
+    uv0: vec2<f32>,
+    tsb: mat3x3<f32>,
+    v: vec3<f32>,
+    surface_n: vec3<f32>,
+    pos_view: vec3<f32>,
+    duv1: vec2<f32>,
+    duv2: vec2<f32>,
+) -> vec2<f32> {
+    var multiplier = draw.maps2.z;
+    if (multiplier == 0.0) {
+        multiplier = 1.0;
+    }
+    var modifier = 1.0 + 0.5 * dot(-v, surface_n);
+    modifier = modifier * modifier / (max(-pos_view.z, 1e-3) * 0.125);
+    var iterations =
+        32.0 * multiplier * clamp(modifier * frame.light_params.w / 1080.0, 0.0, 1.0);
+    if (iterations <= 0.5) {
+        return uv0;
+    }
+    let vd = transpose(tsb) * v;
+    iterations = floor(iterations + 0.5);
+    var segment = 1.0 / iterations;
+    let h = 0.5 * vd.z + 0.5;
+    var step = vd.xy * 0.05 * ((1.0 - vd.z) / (h * h) + 1.0);
+    let start = uv0 + draw.maps2.y * step;
+    step = step * multiplier;
+    var delta = 1.0 - height_at(start, duv1, duv2);
+    var current = delta * segment;
+    for (var i = i32(iterations); i > 1; i = i - 1) {
+        delta = 1.0 - height_at(start - step * current, duv1, duv2) - current;
+        if (delta < 0.0) {
+            delta = delta / max(current, 1e-4);
+            segment = segment * 0.5;
+        } else {
+            delta = delta / max(1.0 - current, 1e-4);
+        }
+        current = current + delta * segment;
+    }
+    return start - step * current;
+}
+
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    // Derivatives first, while every fragment of the quad is running.
+    let dp1 = dpdx(in.pos_view);
+    let dp2 = dpdy(in.pos_view);
+    let duv1 = dpdx(in.uv);
+    let duv2 = dpdy(in.uv);
     let env_mapped = draw.params.y > 0.5;
     let has_texture = draw.params.z > 0.5;
+    let normal_mapped = draw.maps.x > 0.5;
+    let spec_mapped = draw.maps.y > 0.5;
+    let rough_mapped = draw.maps.z > 0.5;
+    let height_mapped = draw.maps.w > 0.5;
+    let nm_variant = draw.maps2.w > 0.5;
+    let surface_n = normalize(select(-in.normal_view, in.normal_view, front));
+    let v = -normalize(in.pos_view);
+
+    // Tangent frame and parallax.
+    var uv = in.uv;
+    var tsb = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), surface_n);
+    if (normal_mapped || height_mapped) {
+        tsb = tangent_frame(surface_n, dp1, dp2, duv1, duv2);
+        if (height_mapped) {
+            uv = displace(uv, tsb, v, surface_n, in.pos_view, duv1, duv2);
+        }
+    }
+
     var color = vec4<f32>(1.0, 1.0, 1.0, clamp(draw.diffuse.a, 0.0, 1.0));
     if (env_mapped && color.a <= draw.params.x) {
         discard;
@@ -162,7 +277,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var tex = vec4<f32>(1.0);
     var env_level = 0.0;
     if (has_texture) {
-        tex = textureSample(tex0, samp0, in.uv);
+        tex = textureSampleGrad(tex0, samp0, uv, duv1, duv2);
         if (draw.material.w < 0.5) {
             tex.a = 1.0;
         }
@@ -183,34 +298,74 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         }
     }
 
+    // Debug view: the material colour as uploaded.
+    if (frame.scene_color.w == 1.0) {
+        return vec4<f32>(draw.diffuse.rgb, 1.0);
+    }
+
     // Unlit (TXI decal).
     if (draw.params.w > 0.5) {
         return vec4<f32>(color_clamp(gam(color.rgb)), color.a);
     }
 
-    var n = normalize(select(-in.normal_view, in.normal_view, front));
-    let v = -normalize(in.pos_view);
+    // The normal map: RG only, Z rebuilt.
+    var n = surface_n;
+    if (normal_mapped) {
+        let t = textureSampleGrad(tex_normal, samp0, uv, duv1, duv2).rg * 2.0 - 1.0;
+        n = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
+    }
+
+    // Occlusion from the height map's local depth.
+    var ao = 1.0;
+    var surface_fade = 10.0;
+    if (height_mapped) {
+        let blur = exp2(max(0.0, 7.0 - log2(max(-in.pos_view.z, 1e-3))));
+        let around = height_at(uv, duv1 * blur, duv2 * blur);
+        let occlusion = clamp(around - height_at(uv, duv1, duv2), 0.0, 0.9);
+        ao = (1.0 - occlusion) * (1.0 - occlusion);
+        surface_fade = 1.0 / mix(1.0, 0.1, ao * ao);
+    }
 
     // Material values (SetupSpecularity).
     let albedo = color.rgb * draw.diffuse.rgb;
     var spec0 = 0.04;
     if (draw.material.x > 0.0) {
         spec0 = draw.material.x;
+    } else if (spec_mapped) {
+        spec0 = textureSampleGrad(tex_spec, samp0, uv, duv1, duv2).r;
     } else if (env_mapped) {
         spec0 = mix(0.04, 0.98, min(env_level * 8.0, 1.0));
     }
+    let env_rough = mix(0.55, 0.125, min(env_level * 2.5, 1.0));
     var rough = 0.55;
     if (draw.material.y > 0.0) {
         rough = draw.material.y;
+    } else if (rough_mapped) {
+        rough = textureSampleGrad(tex_rough, samp0, uv, duv1, duv2).r;
+    } else if (spec_mapped) {
+        rough = mix(0.125, 0.55, (1.0 - spec0) * (1.0 - spec0));
+        if (env_mapped) {
+            rough = min(rough, env_rough);
+        }
     } else if (env_mapped) {
-        rough = mix(0.55, 0.125, min(env_level * 2.5, 1.0));
+        rough = env_rough;
     }
     var metal = clamp(10.0 * spec0 - 0.4, 0.0, 1.0);
     if (draw.material.z > 0.0) {
         metal = draw.material.z;
+    } else if (nm_variant) {
+        let m = spec0 * spec0;
+        metal = clamp(m / (0.04 + 0.96 * m), 0.0, 1.0);
     }
-    let max_albedo = max(albedo.r, max(albedo.g, albedo.b));
-    let spec_color = mix(vec3<f32>(min(1.0, max_albedo / 0.217638)), albedo, metal);
+    var spec_color: vec3<f32>;
+    if (draw.spec_color.w > 0.5) {
+        spec_color = draw.spec_color.rgb;
+    } else if (height_mapped) {
+        spec_color = mix(vec3<f32>(1.0), albedo, metal);
+    } else {
+        let max_albedo = max(albedo.r, max(albedo.g, albedo.b));
+        spec_color = mix(vec3<f32>(min(1.0, max_albedo / 0.217638)), albedo, metal);
+    }
 
     // Bend normals facing away from the eye.
     var n_dot_v = dot(n, v);
@@ -220,6 +375,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     }
     let r2 = rough * rough;
     let k = rough;
+    // Light through transparent surfaces from behind.
+    let translucence = 1.0 - color.a;
 
     var acc: Accum;
     acc.ambient = frame.area_ambient.rgb;
@@ -253,11 +410,21 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
             l = normalize(to_light);
             c = light.color.rgb;
         }
-        let n_dot_l = dot(n, l);
-        if (n_dot_l <= 0.0) {
+        var n_dot_l = dot(n, l);
+        if (translucence > 0.0 && n_dot_l < 0.0) {
+            acc.diffuse = acc.diffuse + c * (att * -n_dot_l * translucence);
+        }
+        // Softened: light reaches a little past the terminator.
+        if (n_dot_l <= select(-0.25, 0.0, nm_variant)) {
             continue;
         }
-        let a = att * n_dot_l;
+        var a = att;
+        if (nm_variant) {
+            // No light around corners of the surface itself.
+            a = a * clamp(dot(surface_n, l) * surface_fade, 0.0, 1.0);
+        }
+        a = a * 2.0 * smoothstep(0.0, 2.0, n_dot_l * 0.8 + 0.2);
+        n_dot_l = max(n_dot_l, 0.0);
         acc.diffuse = acc.diffuse + c * a;
         let v_dot_h = sqrt(dot(v, l) * 0.5 + 0.5);
         let n_dot_h = clamp((n_dot_l + n_dot_v) * 0.5 / max(v_dot_h, 1e-4), 0.0, 1.0);
@@ -266,16 +433,20 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         acc.specular = acc.specular + c * a * (1.0 / (den * den)) * g_l * fresnel(spec0, v_dot_h);
     }
 
-    let ambient = acc.ambient * draw.ambient.rgb;
+    var ambient = acc.ambient * draw.ambient.rgb;
     let diffuse = acc.diffuse * draw.diffuse.rgb;
     var specular = acc.specular * (r2 * 0.25) / (n_dot_v * (1.0 - k) + k);
     let env_spec = mix(fresnel(spec0, n_dot_v), spec0, sqrt(rough));
     let lod = clamp(rough * 30.0 - 1.0, 0.0, 10.0);
     let env_sample = lin(textureSampleLevel(tex_env, samp_env, env_coords(n, in.pos_view), lod).rgb);
-    specular = specular + (ambient + diffuse) * env_sample * env_spec;
+    specular = specular + (ambient + diffuse) * env_sample * ao * env_spec;
+    ambient = ambient * ao;
     var total = draw.emissive.rgb + (1.0 - env_spec) * (ambient + diffuse);
     total = max(total, min(frame.scene_color.rgb * draw.diffuse.rgb, vec3<f32>(1.0)));
     var rgb = color.rgb * total;
+    if (draw.maps2.x > 0.5) {
+        rgb = rgb + lin(textureSampleGrad(tex_illum, samp0, uv, duv1, duv2).rgb);
+    }
     if (color.a > 0.001 && color.a < 1.0) {
         specular = specular / max(color.a, 0.1);
     }

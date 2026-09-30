@@ -60,13 +60,16 @@ struct LightUniform {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 struct DrawUniform {
-    model_view: [[f32; 4]; 4],
+    world: [[f32; 4]; 4],
     normal_matrix: [[f32; 4]; 4],
     diffuse: [f32; 4],
     ambient: [f32; 4],
     emissive: [f32; 4],
     params: [f32; 4],
     material: [f32; 4],
+    maps: [f32; 4],
+    maps2: [f32; 4],
+    spec_color: [f32; 4],
     light_count: [u32; 4],
     light_index: [[u32; 4]; 8],
 }
@@ -87,11 +90,37 @@ struct TextureEntry {
     env: Option<String>,
     decal: bool,
     clamp: (bool, bool),
-    spec: [f32; 3],
 }
 
-/// A material bind group's key: base texture, environment map, clamping.
-type MaterialKey = (Option<String>, String, (bool, bool));
+/// Texture slots: diffuse, normal, specular, roughness, height,
+/// self-illumination.
+const SLOTS: usize = 6;
+
+/// A material bind group's key: the slots' textures, the environment map,
+/// clamping.
+type MaterialKey = ([Option<String>; SLOTS], String, (bool, bool));
+
+/// What a mesh's textures and MTR resolve to.
+#[derive(Debug, Default)]
+struct Slots {
+    /// Per slot, the texture name to load.
+    names: [Option<String>; SLOTS],
+    /// MTR parameters (0: none).
+    specularity: f32,
+    roughness: f32,
+    metallicness: f32,
+    displacement_offset: f32,
+    displacement_multiplier: f32,
+    /// MTR `CustomSpecularColor`, linear.
+    specular_color: Option<glam::Vec3>,
+    /// The game's normal-mapped shader variant (`_nm`): a render hint, or
+    /// any map beyond the diffuse texture.
+    normal_variant: bool,
+}
+
+/// The key of a mesh's slots: MDL bitmap and texture1–3, MTR name, render
+/// hint.
+type SlotKey = (Option<String>, [Option<String>; 3], Option<String>, bool);
 
 /// One draw, ready to sort.
 struct Draw {
@@ -108,8 +137,19 @@ struct Draw {
     count: u32,
 }
 
+/// What the renderer draws: the lit scene, or a value for comparing with
+/// the game's (through a debug shader in the game).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DebugView {
+    #[default]
+    Lit,
+    /// Each lit mesh's material diffuse colour, linear, as uploaded.
+    MaterialDiffuse,
+}
+
 #[derive(Debug)]
 pub struct Renderer {
+    pub debug: DebugView,
     color_format: wgpu::TextureFormat,
     sample_count: u32,
     frame_layout: wgpu::BindGroupLayout,
@@ -128,9 +168,15 @@ pub struct Renderer {
     draw_stride: u64,
     white: Arc<GpuTexture>,
     textures: HashMap<String, Option<Arc<TextureEntry>>>,
+    slots: HashMap<SlotKey, Arc<Slots>>,
     materials: HashMap<MaterialKey, wgpu::BindGroup>,
     samplers: HashMap<(bool, bool), wgpu::Sampler>,
     env_sampler: wgpu::Sampler,
+}
+
+/// A gamma-space colour in linear space.
+fn lin(c: glam::Vec3) -> glam::Vec3 {
+    c.max(glam::Vec3::ZERO).powf(2.2)
 }
 
 fn cols(m: Mat4) -> [[f32; 4]; 4] {
@@ -204,7 +250,17 @@ impl Renderer {
         };
         let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("material"),
-            entries: &[texture_entry(0), texture_entry(1), sampler_entry(2), sampler_entry(3)],
+            entries: &[
+                texture_entry(0),
+                texture_entry(1),
+                sampler_entry(2),
+                sampler_entry(3),
+                texture_entry(4),
+                texture_entry(5),
+                texture_entry(6),
+                texture_entry(7),
+                texture_entry(8),
+            ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("lit"),
@@ -357,6 +413,7 @@ impl Renderer {
             ..Default::default()
         });
         Renderer {
+            debug: DebugView::Lit,
             color_format,
             sample_count,
             frame_layout,
@@ -378,6 +435,7 @@ impl Renderer {
             draw_stride,
             white: Arc::new(GpuTexture::solid(gpu, "white", [255; 4])),
             textures: HashMap::new(),
+            slots: HashMap::new(),
             materials: HashMap::new(),
             samplers: HashMap::new(),
             env_sampler,
@@ -391,7 +449,97 @@ impl Renderer {
     /// Forgets loaded textures (after the resources change).
     pub fn clear_textures(&mut self) {
         self.textures.clear();
+        self.slots.clear();
         self.materials.clear();
+    }
+
+    /// A mesh's texture slots and MTR parameters: an MTR named by the model,
+    /// else one named like its bitmap, overrides the model's textures slot
+    /// by slot.
+    fn slots(&mut self, assets: &dyn Assets, mat: &crate::model::Material) -> Arc<Slots> {
+        let key: SlotKey =
+            (mat.texture.clone(), mat.maps.clone(), mat.mtr.clone(), mat.normal_mapped);
+        if let Some(s) = self.slots.get(&key) {
+            return s.clone();
+        }
+        let mtr = mat
+            .mtr
+            .as_deref()
+            .and_then(|n| assets.material(n))
+            .or_else(|| mat.texture.as_deref().and_then(|n| assets.material(n)));
+        let mut out = Slots::default();
+        out.names[0] = mat.texture.clone();
+        for (i, m) in mat.maps.iter().enumerate() {
+            out.names[i + 1] = m.clone();
+        }
+        if let Some(mtr) = &mtr {
+            // Slot 0 keeps the bitmap: its texture lookup follows an MTR of
+            // the same name itself (and a PLT's MTR names no texture0).
+            if mat.mtr.is_some() && mtr.textures[0].is_some() {
+                out.names[0] = mtr.textures[0].clone();
+            }
+            for i in 1..SLOTS {
+                if mtr.textures[i].is_some() {
+                    out.names[i] = mtr.textures[i].clone();
+                }
+            }
+            let f = |p: &str| mtr.float(p).and_then(|v| v.first().copied()).unwrap_or(0.0);
+            out.specularity = f("Specularity");
+            out.roughness = f("Roughness");
+            out.metallicness = f("Metallicness");
+            out.displacement_offset = f("DisplacementOffset");
+            out.displacement_multiplier = f("DisplacementMultiplier");
+            out.specular_color = mtr
+                .float("CustomSpecularColor")
+                .filter(|v| v.len() >= 3 && v[..3].iter().any(|&c| c > 0.0))
+                .map(|v| glam::Vec3::new(v[0], v[1], v[2]).powf(2.2));
+        }
+        out.normal_variant = mat.normal_mapped
+            || mtr.as_ref().is_some_and(|m| m.renderhint != mg_image::mtr::RenderHint::None)
+            || out.names[1..].iter().any(Option::is_some);
+        let out = Arc::new(out);
+        self.slots.insert(key, out.clone());
+        out
+    }
+
+    /// The bind group for a material key, made on first use.
+    fn material_group(&mut self, gpu: &Gpu, assets: &dyn Assets, key: &MaterialKey) {
+        if self.materials.contains_key(key) {
+            return;
+        }
+        let textures: Vec<Option<Arc<TextureEntry>>> =
+            key.0.iter().map(|n| n.as_deref().and_then(|t| self.texture(gpu, assets, t))).collect();
+        let env = self.texture(gpu, assets, &key.1);
+        let sampler = self.sampler(gpu, key.2);
+        let white = self.white.clone();
+        let view = |i: usize| textures[i].as_ref().map_or(&white.view, |t| &t.gpu.view);
+        let env_view = env.as_ref().map_or(&white.view, |t| &t.gpu.view);
+        let tex = |binding, view| wgpu::BindGroupEntry {
+            binding,
+            resource: wgpu::BindingResource::TextureView(view),
+        };
+        let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("material"),
+            layout: &self.material_layout,
+            entries: &[
+                tex(0, view(0)),
+                tex(1, env_view),
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.env_sampler),
+                },
+                tex(4, view(1)),
+                tex(5, view(2)),
+                tex(6, view(3)),
+                tex(7, view(4)),
+                tex(8, view(5)),
+            ],
+        });
+        self.materials.insert(key.clone(), group);
     }
 
     fn texture(&mut self, gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<Arc<TextureEntry>> {
@@ -399,17 +547,12 @@ impl Renderer {
             return t.clone();
         }
         let entry = assets.texture(name).map(|t| {
-            let spec = t.mtr.as_ref().map_or([0.0; 3], |m| {
-                let f = |p: &str| m.float(p).and_then(|v| v.first().copied()).unwrap_or(0.0);
-                [f("Specularity"), f("Roughness"), f("Metallicness")]
-            });
             Arc::new(TextureEntry {
                 gpu: GpuTexture::upload(gpu, name, &t.texture, t.txi.mipmap()),
                 blending: t.txi.blending(),
                 env: t.txi.envmap().map(str::to_ascii_lowercase),
                 decal: t.txi.decal(),
                 clamp: t.txi.clamp(),
-                spec,
             })
         });
         self.textures.insert(name.to_string(), entry.clone());
@@ -466,9 +609,14 @@ impl Renderer {
             fog_color: scene.fog.map_or([0.0; 4], |f| f.color.extend(1.0).to_array()),
             light_params: {
                 let (max_inv, falloff) = attenuation_params();
-                [max_inv, falloff, scene.lights.len() as f32, 0.0]
+                [max_inv, falloff, scene.lights.len() as f32, size.1 as f32]
             },
-            scene_color: [0.0; 4],
+            scene_color: [
+                0.0,
+                0.0,
+                0.0,
+                if self.debug == DebugView::MaterialDiffuse { 1.0 } else { 0.0 },
+            ],
         };
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
 
@@ -528,14 +676,18 @@ impl Renderer {
                 let model_view = view * world;
                 let centre = world.transform_point3((mesh.min + mesh.max) * 0.5);
                 let radius = world.transform_vector3((mesh.max - mesh.min) * 0.5).length();
-                let tex =
-                    mesh.material.texture.as_deref().and_then(|t| self.texture(gpu, assets, t));
                 let mat = &mesh.material;
-                let (blending, env, decal, clamp, spec, has_alpha) = match &tex {
-                    Some(t) => {
-                        (t.blending, t.env.clone(), t.decal, t.clamp, t.spec, t.gpu.has_alpha)
-                    }
-                    None => (Blending::Default, None, false, (false, false), [0.0; 3], false),
+                let slots = self.slots(assets, mat);
+                let tex = slots.names[0].as_deref().and_then(|t| self.texture(gpu, assets, t));
+                let bound: Vec<bool> = slots
+                    .names
+                    .iter()
+                    .map(|n| n.as_deref().is_some_and(|t| self.texture(gpu, assets, t).is_some()))
+                    .collect();
+                let flag = |b: bool| if b { 1.0 } else { 0.0 };
+                let (blending, env, decal, clamp, has_alpha) = match &tex {
+                    Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.gpu.has_alpha),
+                    None => (Blending::Default, None, false, (false, false), false),
                 };
                 let env_mapped = env.is_some();
                 let pass = if blending == Blending::Additive {
@@ -568,18 +720,35 @@ impl Renderer {
                     depth: -view.transform_point3(centre).z,
                     hint: mat.transparency_hint,
                     uniform: DrawUniform {
-                        model_view: cols(model_view),
+                        world: cols(world),
                         normal_matrix: cols(normal),
-                        diffuse: mat.diffuse.extend(alpha).to_array(),
-                        ambient: mat.ambient.extend(1.0).to_array(),
-                        emissive: emissive.extend(1.0).to_array(),
+                        // MDL colours are gamma space; the game linearises
+                        // them (read back from its uniforms).
+                        diffuse: lin(mat.diffuse).extend(alpha).to_array(),
+                        ambient: lin(mat.ambient).extend(1.0).to_array(),
+                        emissive: lin(emissive).extend(1.0).to_array(),
                         params: [
                             discard,
                             if env_mapped { 1.0 } else { 0.0 },
                             if tex.is_some() { 1.0 } else { 0.0 },
                             if decal { 1.0 } else { 0.0 },
                         ],
-                        material: [spec[0], spec[1], spec[2], if has_alpha { 1.0 } else { 0.0 }],
+                        material: [
+                            slots.specularity,
+                            slots.roughness,
+                            slots.metallicness,
+                            flag(has_alpha),
+                        ],
+                        maps: [flag(bound[1]), flag(bound[2]), flag(bound[3]), flag(bound[4])],
+                        maps2: [
+                            flag(bound[5]),
+                            slots.displacement_offset,
+                            slots.displacement_multiplier,
+                            flag(slots.normal_variant),
+                        ],
+                        spec_color: slots
+                            .specular_color
+                            .map_or([0.0; 4], |c| c.extend(1.0).to_array()),
                         light_count: [
                             chosen.len() as u32,
                             u32::from(mesh.skin.is_some()),
@@ -589,7 +758,11 @@ impl Renderer {
                         light_index,
                     },
                     material: (
-                        tex.as_ref().map(|_| mat.texture.clone().unwrap_or_default()),
+                        std::array::from_fn(
+                            |i| {
+                                if bound[i] { slots.names[i].clone() } else { None }
+                            },
+                        ),
                         env.unwrap_or_else(|| "chrome1".into()),
                         clamp,
                     ),
@@ -695,38 +868,7 @@ impl Renderer {
             }],
         });
         for d in &draws {
-            if self.materials.contains_key(&d.material) {
-                continue;
-            }
-            let tex = d.material.0.as_deref().and_then(|t| self.texture(gpu, assets, t));
-            let env = self.texture(gpu, assets, &d.material.1);
-            let sampler = self.sampler(gpu, d.material.2);
-            let white = self.white.clone();
-            let tex_view = tex.as_ref().map_or(&white.view, |t| &t.gpu.view);
-            let env_view = env.as_ref().map_or(&white.view, |t| &t.gpu.view);
-            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("material"),
-                layout: &self.material_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(tex_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(env_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&self.env_sampler),
-                    },
-                ],
-            });
-            self.materials.insert(d.material.clone(), group);
+            self.material_group(gpu, assets, &d.material);
         }
 
         // Particles: punch-through, then blended by render order, then
@@ -744,36 +886,10 @@ impl Renderer {
         let mut particle_vertices: Vec<ParticleVertex> = Vec::new();
         let mut particle_draws = Vec::new();
         for b in &batches {
-            let key: MaterialKey = (b.texture.clone(), "chrome1".into(), (false, false));
-            if !self.materials.contains_key(&key) {
-                let tex = b.texture.as_deref().and_then(|t| self.texture(gpu, assets, t));
-                let sampler = self.sampler(gpu, (false, false));
-                let white = self.white.clone();
-                let view = tex.as_ref().map_or(&white.view, |t| &t.gpu.view);
-                let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("particle material"),
-                    layout: &self.material_layout,
-                    entries: &[
-                        wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::TextureView(view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 1,
-                            resource: wgpu::BindingResource::TextureView(&white.view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 2,
-                            resource: wgpu::BindingResource::Sampler(&sampler),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 3,
-                            resource: wgpu::BindingResource::Sampler(&self.env_sampler),
-                        },
-                    ],
-                });
-                self.materials.insert(key.clone(), group);
-            }
+            let mut names: [Option<String>; SLOTS] = Default::default();
+            names[0] = b.texture.clone();
+            let key: MaterialKey = (names, "chrome1".into(), (false, false));
+            self.material_group(gpu, assets, &key);
             let start = particle_vertices.len() as u32;
             particle_vertices.extend_from_slice(&b.vertices);
             particle_draws.push((b.blend, key, start..particle_vertices.len() as u32));

@@ -23,6 +23,12 @@ pub struct LoadedTexture {
 pub trait Assets {
     /// A texture by the name a model uses (lower case).
     fn texture(&self, name: &str) -> Option<LoadedTexture>;
+
+    /// An MTR by name (lower case).
+    fn material(&self, name: &str) -> Option<Mtr> {
+        let _ = name;
+        None
+    }
 }
 
 impl Assets for ResMan {
@@ -43,6 +49,11 @@ impl Assets for ResMan {
             }
         };
         Some(LoadedTexture { texture, txi, mtr })
+    }
+
+    fn material(&self, name: &str) -> Option<Mtr> {
+        let resref = ResRef::from_str(name).ok()?;
+        self.get(&ResKey::new(resref, ResType::MTR)).ok().map(|d| Mtr::parse(&d))
     }
 }
 

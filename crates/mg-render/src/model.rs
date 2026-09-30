@@ -61,6 +61,12 @@ pub struct GpuSkin {
 pub struct Material {
     /// The texture name (bitmap), lower case.
     pub texture: Option<String>,
+    /// `texture1`–`texture3`: normal, specular and roughness maps.
+    pub maps: [Option<String>; 3],
+    /// An MTR named by the model (`materialname`).
+    pub mtr: Option<String>,
+    /// `renderhint NormalAndSpecMapped` (or `NormalTangents`).
+    pub normal_mapped: bool,
     pub diffuse: Vec3,
     pub ambient: Vec3,
     pub emissive: Vec3,
@@ -180,6 +186,9 @@ impl GpuModel {
                 index_count: indices.len() as u32,
                 material: Material {
                     texture: m.textures[0].clone(),
+                    maps: [m.textures[1].clone(), m.textures[2].clone(), m.textures[3].clone()],
+                    mtr: m.material.clone(),
+                    normal_mapped: m.renderhint.as_deref().is_some_and(|h| h != "none"),
                     diffuse: Vec3::from(m.diffuse),
                     ambient: Vec3::from(m.ambient),
                     emissive,

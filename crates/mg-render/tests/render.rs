@@ -40,14 +40,19 @@ fn quad() -> Model {
 }
 
 /// The shader's equations for an untextured white surface, one area light
-/// and a white environment map (all vectors in view space).
+/// (softened, as at the "High Quality" setting) and a white environment map
+/// (all vectors in view space).
 fn expected(n: Vec3, v: Vec3, l: Vec3, ambient: Vec3, diffuse: Vec3) -> Vec3 {
     let fresnel = |s0: f32, c: f32| s0 + (1.0 - s0) * (1.0 - c).powi(5);
     let (spec0, rough) = (0.04f32, 0.55f32);
     let (r2, k) = (rough * rough, rough);
     let n_dot_v = n.dot(v);
     let n_dot_l = n.dot(l);
-    let d = diffuse * n_dot_l;
+    let smoothstep = |x: f32| {
+        let t = (x / 2.0).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    let d = diffuse * 2.0 * smoothstep(n_dot_l * 0.8 + 0.2);
     let v_dot_h = (v.dot(l) * 0.5 + 0.5).sqrt();
     let n_dot_h = ((n_dot_l + n_dot_v) * 0.5 / v_dot_h).clamp(0.0, 1.0);
     let den = n_dot_h * n_dot_h * (r2 - 1.0) + 1.0;
@@ -67,7 +72,8 @@ fn lighting_matches_the_equations() {
     let area = AreaLight {
         ambient: Vec3::new(0.05, 0.04, 0.03),
         diffuse: Vec3::new(0.6, 0.5, 0.4),
-        direction: Vec3::new(0.3, -0.2, 1.0).normalize(),
+        // Grazing (N·L ≈ 0.45), where softening shows.
+        direction: Vec3::new(1.0, -0.6, 0.6).normalize(),
     };
     let scene =
         Scene { instances: vec![Instance::new(model, Mat4::IDENTITY)], area, ..Default::default() };
@@ -437,4 +443,178 @@ fn dangly_meshes_sway() {
         d.update(1.0 / 30.0, &gm.rest, at(0.5), Vec3::ZERO);
     }
     assert!(!d.moving());
+}
+
+/// Textures and MTRs held in memory.
+#[derive(Default)]
+struct TestAssets {
+    textures: std::collections::HashMap<String, mg_image::Texture>,
+    materials: std::collections::HashMap<String, mg_image::mtr::Mtr>,
+}
+
+impl TestAssets {
+    /// A 4×4 texture of one colour.
+    fn solid(&mut self, name: &str, rgba: [u8; 4]) {
+        let data = rgba.repeat(16);
+        let t = mg_image::Rgba { width: 4, height: 4, data }.into_texture(true);
+        self.textures.insert(name.into(), t);
+    }
+}
+
+impl mg_render::Assets for TestAssets {
+    fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+        Some(mg_render::LoadedTexture {
+            texture: self.textures.get(name)?.clone(),
+            txi: Default::default(),
+            mtr: None,
+        })
+    }
+
+    fn material(&self, name: &str) -> Option<mg_image::mtr::Mtr> {
+        self.materials.get(name).cloned()
+    }
+}
+
+/// Material maps, as the game's normal-mapped shaders read them: a flat
+/// normal map changes nothing, a tilted one turns the surface towards or
+/// away from the light along the texture's u axis; a specular map makes
+/// the surface shinier; a self-illumination map lights it in the dark; a
+/// height map shifts the texture; an MTR's slots and parameters apply.
+#[test]
+fn material_maps_shade() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.solid("white", [200, 200, 200, 255]);
+    assets.solid("flat_n", [128, 128, 255, 255]);
+    // Normal (±0.5, 0, 0.87) in tangent space: towards +u or −u.
+    assets.solid("plus_u_n", [191, 128, 255, 255]);
+    assets.solid("minus_u_n", [64, 128, 255, 255]);
+    // Towards +v (green up, as OpenGL normal maps).
+    assets.solid("plus_v_n", [128, 191, 255, 255]);
+    assets.solid("shiny_s", [255, 255, 255, 255]);
+    assets.solid("dull_s", [10, 10, 10, 255]);
+    assets.solid("glow_i", [255, 255, 255, 255]);
+    // A checkerboard and a height map with a pit on one side.
+    let checker: Vec<u8> = (0..64u32)
+        .flat_map(|i| {
+            if (i % 8 / 2 + i / 16) % 2 == 0 { [250, 250, 250, 255] } else { [20, 20, 20, 255] }
+        })
+        .collect();
+    assets.textures.insert(
+        "checker".into(),
+        mg_image::Rgba { width: 8, height: 8, data: checker }.into_texture(false),
+    );
+    let height: Vec<u8> = (0..64u32)
+        .flat_map(|i| if i % 8 < 4 { [255, 255, 255, 255] } else { [0, 0, 0, 255] })
+        .collect();
+    assets.textures.insert(
+        "pits_h".into(),
+        mg_image::Rgba { width: 8, height: 8, data: height }.into_texture(false),
+    );
+    let mut mtr = mg_image::mtr::Mtr::default();
+    mtr.textures[1] = Some("plus_u_n".into());
+    mtr.params.push(("Roughness".into(), mg_image::mtr::Param::Float(vec![0.9])));
+    assets.materials.insert("tilted".into(), mtr);
+
+    // The quad with u along +X, lit from +X and above, seen from above.
+    let model = |bitmap: &str, maps: [Option<&str>; 3], mtr: Option<&str>| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.source_uv = vec![0, 1, 2, 3];
+        mesh.textures[0] = Some(bitmap.into());
+        for (i, t) in maps.iter().enumerate() {
+            mesh.textures[i + 1] = t.map(String::from);
+        }
+        mesh.material = mtr.map(String::from);
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.6,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut shot = |m: Arc<GpuModel>, area: AreaLight| {
+        let scene =
+            Scene { instances: vec![Instance::new(m, Mat4::IDENTITY)], area, ..Default::default() };
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64)
+    };
+    let lit = AreaLight {
+        ambient: Vec3::splat(0.02),
+        diffuse: Vec3::splat(0.8),
+        direction: Vec3::new(1.0, 0.0, 1.0).normalize(),
+    };
+    let grey = |img: &mg_image::Rgba| {
+        let p = img.pixel(32, 32);
+        (f32::from(p[0]) + f32::from(p[1]) + f32::from(p[2])) / 3.0
+    };
+    let plain = grey(&shot(model("white", [None; 3], None), lit));
+    let flat = grey(&shot(model("white", [Some("flat_n"), None, None], None), lit));
+    let towards = grey(&shot(model("white", [Some("plus_u_n"), None, None], None), lit));
+    let away = grey(&shot(model("white", [Some("minus_u_n"), None, None], None), lit));
+    eprintln!("plain {plain}, flat normal map {flat}, towards {towards}, away {away}");
+    assert!((plain - flat).abs() <= 3.0);
+    assert!(towards > flat + 10.0 && away < flat - 10.0);
+
+    let shiny = grey(&shot(model("white", [None, Some("shiny_s"), None], None), lit));
+    let dull = grey(&shot(model("white", [None, Some("dull_s"), None], None), lit));
+    eprintln!("specular map: shiny {shiny}, dull {dull}");
+    assert!((shiny - dull).abs() > 5.0);
+
+    // +v is +Y on the quad: lit from +Y, a +v tilt brightens.
+    let from_y = AreaLight { direction: Vec3::new(0.0, 1.0, 1.0).normalize(), ..lit };
+    let plain_y = grey(&shot(model("white", [None; 3], None), from_y));
+    let towards_v = grey(&shot(model("white", [Some("plus_v_n"), None, None], None), from_y));
+    eprintln!("lit from +Y: plain {plain_y}, towards +v {towards_v}");
+    assert!(towards_v > plain_y + 10.0);
+
+    let dark = AreaLight { ambient: Vec3::ZERO, diffuse: Vec3::ZERO, direction: Vec3::Z };
+    let unlit = grey(&shot(model("white", [None; 3], None), dark));
+    assert!(unlit < 5.0, "unlit {unlit}");
+    // Self-illumination comes through an MTR (slot 5).
+    let mut glow = mg_image::mtr::Mtr::default();
+    glow.textures[5] = Some("glow_i".into());
+    assets.materials.insert("glow".into(), glow);
+    let mut r2 = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let scene = Scene {
+        instances: vec![Instance::new(model("white", [None; 3], Some("glow")), Mat4::IDENTITY)],
+        area: dark,
+        ..Default::default()
+    };
+    let glowing = grey(&r2.render_image(&gpu, &assets, &scene, &camera, 64, 64));
+    eprintln!("self-illumination map in the dark: {glowing}");
+    assert!(glowing > 240.0);
+
+    // Height map: the checkerboard shifts and the pits darken; no NaNs
+    // (black) on the lit quad.
+    let mut pits = mg_image::mtr::Mtr::default();
+    pits.textures[4] = Some("pits_h".into());
+    assets.materials.insert("pits".into(), pits);
+    let mut r3 = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut shot3 = |m: Arc<GpuModel>| {
+        let scene = Scene {
+            instances: vec![Instance::new(m, Mat4::IDENTITY)],
+            area: lit,
+            ..Default::default()
+        };
+        r3.render_image(&gpu, &assets, &scene, &camera, 64, 64)
+    };
+    let flat_checker = shot3(model("checker", [None; 3], None));
+    let displaced = shot3(model("checker", [None; 3], Some("pits")));
+    let changed = flat_checker.data.iter().zip(&displaced.data).filter(|(a, b)| a != b).count();
+    let black = (16..48)
+        .flat_map(|y| (16..48).map(move |x| (x, y)))
+        .filter(|&(x, y)| displaced.pixel(x, y)[..3] == [0, 0, 0])
+        .count();
+    eprintln!("height map: {changed} bytes differ, {black} black pixels");
+    assert!(changed > 100 && black == 0);
+
+    // An MTR named by the model: its normal map and roughness apply.
+    let tilted = grey(&shot3(model("white", [None; 3], Some("tilted"))));
+    let plain_again = grey(&shot3(model("white", [None; 3], None)));
+    eprintln!("MTR normal map: {tilted} (plain {plain_again})");
+    assert!(tilted > plain_again + 10.0);
 }
