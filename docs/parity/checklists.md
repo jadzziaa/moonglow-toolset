@@ -244,4 +244,5 @@ scripts (name, picker, Edit), Comments.
 | Triggers and encounters: coloured outlines | outlines (encounters orange, the others green) | ◐ trigger colours by type not yet |
 | Moving an encounter moves its spawn points | they move with it | ? not checked against Aurora |
 | Properties of a placed object (double click, context menu): the blueprint's dialog without its palette fields | the blueprint editors on the object's GIT entry (Blueprint ResRef shown read-only, no Category or Comments); cost and hit points kept up to date as for blueprints | ◐ [placed_objects_open_their_properties]; inventories of placed objects not editable yet |
+| Area Properties (`TdlgAreaProperties`): Basic, Visual (lighting schemes; Customize Environment's colours, fog, shadows, day and night, fog clip, sky box, weather), Audio, Events, Advanced, Comments | a tab with the same pages (the environment inline on Visual); a scheme also re-picks the tiles' lights, as Aurora warns | ◐ [area_properties_edit_the_area]; no Load/Save Script Set or Load Default; ResRef not editable (renaming an area: later) |
 | Adjust Location, the rest of the context menu; copy and paste | not yet | ✗ |

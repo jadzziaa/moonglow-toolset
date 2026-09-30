@@ -4,6 +4,7 @@
 //! the module directly: they queue [`Action`]s, which run after the frame and
 //! turn edits into undoable [`mg_edit::Command`]s.
 
+mod area_props;
 pub mod area_view;
 pub mod blueprint;
 pub mod blueprint_wizard;
@@ -511,20 +512,28 @@ impl Moonglow {
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            match (self.module_path(), &self.ws) {
-                (Some(p), _) => ui.label(p.display().to_string()),
-                (None, Some(_)) => ui.label("New module, not saved yet"),
-                (None, None) => ui.label("No module"),
-            };
-            if self.ws.as_ref().is_some_and(Workspace::is_modified) {
-                ui.label("(modified)");
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                match &self.install {
-                    Some(gi) => ui.label(gi.root.display().to_string()),
-                    None => ui.label("No game install"),
+        let module = match (self.module_path(), &self.ws) {
+            (Some(p), _) => p.display().to_string(),
+            (None, Some(_)) => "New module, not saved yet".to_string(),
+            (None, None) => "No module".to_string(),
+        };
+        let modified = self.ws.as_ref().is_some_and(Workspace::is_modified);
+        let install = match &self.install {
+            Some(gi) => gi.root.display().to_string(),
+            None => "No game install".to_string(),
+        };
+        // The game's folder on the right, the module's on the left; each
+        // shortened (with the whole path on hover) rather than overlapping.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.scope(|ui| {
+                ui.set_max_width(ui.available_width() * 0.4);
+                ui.add(egui::Label::new(&install).truncate()).on_hover_text(&install);
+            });
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                if modified {
+                    ui.label("(modified)");
                 }
+                ui.add(egui::Label::new(&module).truncate()).on_hover_text(&module);
             });
         });
     }

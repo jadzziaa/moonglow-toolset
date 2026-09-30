@@ -57,6 +57,21 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                         open = Some(k);
                     }
                     r.context_menu(|ui| {
+                        if k.restype == ResType::ARE {
+                            if ui.button("View Area").clicked() {
+                                app.actions.push(Action::OpenTab(Tab::Area(k.resref)));
+                            }
+                            if ui.button("Properties").clicked() {
+                                app.actions.push(Action::OpenTab(Tab::AreaProperties(k.resref)));
+                            }
+                            for t in [ResType::ARE, ResType::GIT] {
+                                let g = ResKey::new(k.resref, t);
+                                if ui.button(format!("Fields of {g}")).clicked() {
+                                    app.actions.push(Action::OpenTab(Tab::Gff(g)));
+                                }
+                            }
+                            ui.separator();
+                        }
                         if ui.button("Export…").clicked() {
                             app.actions.push(Action::ExportDialog(vec![k]));
                         }

@@ -1898,3 +1898,55 @@ fn placed_objects_open_their_properties() {
     h.run_steps(2);
     assert_eq!(tag_of(&mut h, 1), tag);
 }
+
+#[test]
+fn area_properties_edit_the_area() {
+    let Some((mut h, area)) = area_harness("area-props") else { return };
+    let are = |h: &mut Harness<'_, Moonglow>| -> mg_gff::Struct {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
+    };
+    h.get_by_label("Area Properties").click();
+    h.run_steps(2);
+    assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_some());
+
+    // Advanced: the tag.
+    h.get_by_label("Advanced").click();
+    h.run_steps(2);
+    let tag = String::from_utf8_lossy(are(&mut h).string("Tag").unwrap()).into_owned();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value(&tag).find(is_input).expect("the tag field").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&tag).find(is_input).unwrap().type_text("FIELD_TAG");
+    h.run_steps(2);
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    assert_eq!(are(&mut h).string("Tag"), Some(&b"FIELD_TAG"[..]));
+
+    // Visual: a lighting scheme sets the lighting and the tiles' lights in
+    // one command.
+    h.get_by_label("Visual").click();
+    h.run_steps(2);
+    let game_row = 2; // environment.2da ExteriorDark
+    let name = {
+        let game = h.state().game.as_ref().unwrap();
+        let t = game.table("environment").unwrap();
+        let strref = t.get(game_row, "STRREF").unwrap().trim().parse::<u32>().unwrap();
+        game.string(mg_core::StrRef(strref)).unwrap()
+    };
+    h.get_by_label(&name).click();
+    h.run_steps(3);
+    let a = are(&mut h);
+    assert_eq!(a.integer("LightingScheme"), Some(game_row as i64));
+    assert_eq!(a.integer("SunAmbientColor"), Some(0x32_3A_3C), "ExteriorDark's 60, 58, 50");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lighting scheme"));
+    // Always dark.
+    h.get_by_label("Always Dark").click();
+    h.run_steps(2);
+    let a = are(&mut h);
+    assert_eq!((a.integer("DayNightCycle"), a.integer("IsNight")), (Some(0), Some(1)));
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-props").join("visual.png")).unwrap();
+}

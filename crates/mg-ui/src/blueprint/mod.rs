@@ -305,6 +305,33 @@ impl Form<'_> {
         }
     }
 
+    /// A colour stored as 0x00BBGGRR (ARE lighting), with a colour picker;
+    /// what is picked is stored when the picker closes (one command).
+    pub(crate) fn color(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        let current = self.int(label) as u32;
+        let pending_id = self.id(label).with("pending");
+        let pending: Option<u32> = ui.data(|d| d.get_temp(pending_id));
+        let shown = pending.unwrap_or(current);
+        let mut rgb = [shown & 0xFF, (shown >> 8) & 0xFF, (shown >> 16) & 0xFF].map(|c| c as u8);
+        let (changed, open) = ui
+            .push_id(self.id(label), |ui| {
+                let popup = ui.auto_id_with("popup");
+                let changed = ui.color_edit_button_srgb(&mut rgb).changed();
+                (changed, egui::Popup::is_id_open(ui.ctx(), popup))
+            })
+            .inner;
+        let picked = u32::from(rgb[0]) | u32::from(rgb[1]) << 8 | u32::from(rgb[2]) << 16;
+        if changed {
+            ui.data_mut(|d| d.insert_temp(pending_id, picked));
+        }
+        if !open && let Some(v) = ui.data(|d| d.get_temp::<u32>(pending_id)) {
+            ui.data_mut(|d| d.remove::<u32>(pending_id));
+            if v != current {
+                self.set_int(what, label, i64::from(v), FieldType::Dword);
+            }
+        }
+    }
+
     /// A checkbox for a flag (BYTE 0 or 1); the value.
     pub(crate) fn check(&mut self, ui: &mut Ui, text: &str, label: &str) -> bool {
         let current = self.int(label) != 0;

@@ -39,6 +39,8 @@ pub enum Tab {
     Blueprint(ResKey),
     /// An area, in the area viewer.
     Area(mg_core::ResRef),
+    /// An area's Properties.
+    AreaProperties(mg_core::ResRef),
     /// An object placed in an area (its entry in the area's GIT), in its
     /// Properties editor.
     Instance { area: mg_core::ResRef, path: mg_edit::GffPath },
@@ -92,6 +94,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Model(k) => k.to_string().into(),
             Tab::Area(r) => r.to_string().into(),
             Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),
+            Tab::AreaProperties(area) => format!("{area} (Area Properties)").into(),
         }
     }
 
@@ -110,6 +113,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
             Tab::Model(k) => model_view::ui(self.app, ui, *k),
             Tab::Area(r) => area_view::ui(self.app, ui, *r),
+            Tab::AreaProperties(area) => crate::area_props::ui(self.app, ui, *area),
             Tab::Instance { area, path } => {
                 let git = ResKey::new(*area, ResType::GIT);
                 crate::blueprint::edit(self.app, ui, git, path.clone());

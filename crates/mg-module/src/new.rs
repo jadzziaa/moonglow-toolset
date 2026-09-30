@@ -321,6 +321,65 @@ pub fn tag_for(name: &str) -> String {
 /// Adds a new area to a module, as Aurora's Area Wizard makes it, and
 /// returns its resref. The module's first area becomes its starting area,
 /// entered at the centre facing north.
+/// A lighting scheme (an environment.2da row, Aurora's Area Properties ›
+/// Visual): the area's sun, moon, fog, shadows, day and night and weather,
+/// and colours its tiles' lights are picked from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Scheme {
+    pub row: usize,
+    fields: Vec<(&'static str, Value)>,
+    /// Main light 1, main light 2 and source light colours to pick from.
+    lights: [[u8; 4]; 3],
+}
+
+impl Scheme {
+    pub fn read(game: &GameData, row: usize) -> Result<Scheme, NewError> {
+        let env = game.table("environment").map_err(|e| res_error("environment.2da", e))?;
+        let int = |col: &str| env.get_int(row, col).unwrap_or(0);
+        let color = |prefix: &str| {
+            let c = |part: &str| (int(&format!("{prefix}_{part}")) as u32) & 0xff;
+            Value::Dword(c("RED") | c("GREEN") << 8 | c("BLUE") << 16)
+        };
+        let byte = |col: &str| Value::Byte(int(col) as u8);
+        let day_night = env.get(row, "DAYNIGHT").unwrap_or("cycle").to_ascii_lowercase();
+        let shadow_alpha = env.get_float(row, "SHADOW_ALPHA").unwrap_or(0.0);
+        let fields = vec![
+            ("MoonAmbientColor", color("DARK_AMB")),
+            ("MoonDiffuseColor", color("DARK_DIFF")),
+            ("MoonFogAmount", byte("DARK_FOG")),
+            ("MoonFogColor", color("DARK_FOG")),
+            ("MoonShadows", byte("DARK_SHADOWS")),
+            ("SunAmbientColor", color("LIGHT_AMB")),
+            ("SunDiffuseColor", color("LIGHT_DIFF")),
+            ("SunFogAmount", byte("LIGHT_FOG")),
+            ("SunFogColor", color("LIGHT_FOG")),
+            ("SunShadows", byte("LIGHT_SHADOWS")),
+            ("IsNight", Value::Byte(u8::from(day_night == "night"))),
+            ("LightingScheme", Value::Byte(row as u8)),
+            ("ShadowOpacity", Value::Byte((shadow_alpha * 100.0).round() as u8)),
+            ("DayNightCycle", Value::Byte(u8::from(day_night == "cycle"))),
+            ("ChanceRain", Value::Int(int("RAIN"))),
+            ("ChanceSnow", Value::Int(int("SNOW"))),
+            ("ChanceLightning", Value::Int(int("LIGHTNING"))),
+            ("WindPower", Value::Int(int("WIND"))),
+        ];
+        let lights = ["MAIN1_COLOR", "MAIN2_COLOR", "SECONDARY_COLOR"]
+            .map(|prefix| [1, 2, 3, 4].map(|n| int(&format!("{prefix}{n}")) as u8));
+        Ok(Scheme { row, fields, lights })
+    }
+
+    /// The ARE fields the scheme sets, in the order a new area has them.
+    pub fn fields(&self) -> Vec<(&'static str, Value)> {
+        self.fields.clone()
+    }
+
+    /// A tile's lights (main 1, main 2 and source), each one of the
+    /// scheme's four colours at random.
+    pub fn tile_lights(&self, rng: &mut fastrand::Rng) -> [u8; 3] {
+        self.lights.map(|colors| colors[rng.u32(1..=4) as usize - 1])
+    }
+}
+
 pub fn add_area(
     module: &mut Module,
     game: &GameData,
@@ -346,17 +405,7 @@ pub fn add_area(
     let tiles = mg_tiles::fill(&index, &lattice, rng).map_err(tiles_error)?;
 
     let defaults = AreaDefaults::for_tileset(game, spec.tileset)?;
-    let env = game.table("environment").map_err(|e| res_error("environment.2da", e))?;
-    let row = defaults.env_scheme;
-    let env_int = |col: &str| env.get_int(row, col).unwrap_or(0);
-    let color = |prefix: &str| {
-        let c = |part: &str| (env_int(&format!("{prefix}_{part}")) as u32) & 0xff;
-        c("RED") | c("GREEN") << 8 | c("BLUE") << 16
-    };
-    let pick = |rng: &mut fastrand::Rng, prefix: &str| {
-        env_int(&format!("{prefix}{}", rng.u32(1..=4))) as u8
-    };
-
+    let scheme = Scheme::read(game, defaults.env_scheme)?;
     let taken = |r: &ResRef| module.contains(&ResKey::new(*r, ResType::ARE));
     let area = resref_for(&spec.name, taken);
     let mut are = Gff::new(*b"ARE ");
@@ -372,28 +421,14 @@ pub fn add_area(
     r.write(&are::FLAGS, defaults.flags);
     r.write(&are::MOD_SPOT_CHECK, defaults.spot_check);
     r.write(&are::MOD_LISTEN_CHECK, defaults.listen_check);
-    r.write(&are::MOON_AMBIENT_COLOR, color("DARK_AMB"));
-    r.write(&are::MOON_DIFFUSE_COLOR, color("DARK_DIFF"));
-    r.write(&are::MOON_FOG_AMOUNT, env_int("DARK_FOG") as u8);
-    r.write(&are::MOON_FOG_COLOR, color("DARK_FOG"));
-    r.write(&are::MOON_SHADOWS, env_int("DARK_SHADOWS") as u8);
-    r.write(&are::SUN_AMBIENT_COLOR, color("LIGHT_AMB"));
-    r.write(&are::SUN_DIFFUSE_COLOR, color("LIGHT_DIFF"));
-    r.write(&are::SUN_FOG_AMOUNT, env_int("LIGHT_FOG") as u8);
-    r.write(&are::SUN_FOG_COLOR, color("LIGHT_FOG"));
-    r.write(&are::SUN_SHADOWS, env_int("LIGHT_SHADOWS") as u8);
-    let day_night = env.get(row, "DAYNIGHT").unwrap_or("cycle").to_ascii_lowercase();
-    r.write(&are::IS_NIGHT, u8::from(day_night == "night"));
-    r.write(&are::LIGHTING_SCHEME, row as u8);
-    let shadow_alpha = env.get_float(row, "SHADOW_ALPHA").unwrap_or(0.0);
-    r.write(&are::SHADOW_OPACITY, (shadow_alpha * 100.0).round() as u8);
-    r.write(&are::FOG_CLIP_DIST, 45.0);
-    r.write(&are::SKY_BOX, 0);
-    r.write(&are::DAY_NIGHT_CYCLE, u8::from(day_night == "cycle"));
-    r.write(&are::CHANCE_RAIN, env_int("RAIN"));
-    r.write(&are::CHANCE_SNOW, env_int("SNOW"));
-    r.write(&are::CHANCE_LIGHTNING, env_int("LIGHTNING"));
-    r.write(&are::WIND_POWER, env_int("WIND"));
+    for (label, value) in scheme.fields() {
+        // Aurora writes these two between the lighting and the weather.
+        if label == "DayNightCycle" {
+            r.write(&are::FOG_CLIP_DIST, 45.0);
+            r.write(&are::SKY_BOX, 0);
+        }
+        r.set(label, value);
+    }
     r.write(&are::LOAD_SCREEN_ID, 0);
     r.write(&are::PLAYER_VS_PLAYER, defaults.pvp);
     r.write(&are::NO_REST, defaults.no_rest);
@@ -413,9 +448,9 @@ pub fn add_area(
         s.write(&t::TILE_ID, p.tile as i32);
         s.write(&t::TILE_ORIENTATION, i32::from(p.orientation));
         s.write(&t::TILE_HEIGHT, p.height);
-        s.write(&t::TILE_MAIN_LIGHT1, pick(rng, "MAIN1_COLOR"));
-        s.write(&t::TILE_MAIN_LIGHT2, pick(rng, "MAIN2_COLOR"));
-        let source = pick(rng, "SECONDARY_COLOR");
+        let [main1, main2, source] = scheme.tile_lights(rng);
+        s.write(&t::TILE_MAIN_LIGHT1, main1);
+        s.write(&t::TILE_MAIN_LIGHT2, main2);
         s.write(&t::TILE_SRC_LIGHT1, source);
         s.write(&t::TILE_SRC_LIGHT2, source);
         s.write(&t::TILE_ANIM_LOOP1, u8::from(tile.anim_loops[0]));

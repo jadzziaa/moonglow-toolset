@@ -335,6 +335,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         ui.toggle_value(&mut view.night, "Night").on_hover_text("Show the area at night");
         ui.toggle_value(&mut view.fog, "Fog");
         ui.toggle_value(&mut view.grid, "Grid").on_hover_text("Display Grid");
+        if ui.button("Area Properties").clicked() {
+            app.actions.push(Action::OpenTab(crate::Tab::AreaProperties(view.area)));
+        }
         if ui.button("Reorient Camera").clicked()
             && let Some(o) = &mut view.orbit
         {
