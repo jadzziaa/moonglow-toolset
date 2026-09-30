@@ -26,7 +26,7 @@ Decisions taken (2026-09-30):
 | 2 Resource manager and rules | Done: load order and game data (2DA cells, talk-table strings) checked against the engine |
 | 3 Schema and module workspace | Done except Aurora's blueprint defaults (Phase 8; module and area defaults done in Phase 5): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
 | 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
-| 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
+| 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt, settings and recent modules, options, import/export, resource browser; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
 | 6+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
@@ -363,8 +363,13 @@ runs in `nwserver`, which reports every area property and all tiles as
 written. Where no tile fits (a 5×5 Lizardfolk Interior) Aurora crashes;
 Moonglow reports it. File > New Module, Wizards > Area Wizard (one undoable
 command) and the unsaved-changes prompt are in the UI with tests.
-Next: settings and recent modules, TLK-driven labels, resource browser,
-import/export dialogs, options.
+Also done: settings kept between runs (recent modules, game and user
+folders; Tools > Options), File > Import/Export (with dependencies, overwrite
+choices, one undoable import), and the resource browser (all ~114,000
+resources of the load order with their layer; read-only GFF, 2DA, script and
+text views; copy into the module, save to a file). The off-screen display
+also runs Moonglow itself for visual checks.
+Next: the script editor spike on 10,000-line scripts, toolbar.
 
 ### Phase 6: Text-and-tree editors
 Localized string editor, variables, pickers; script editor (highlighting,

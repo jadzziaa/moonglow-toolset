@@ -5,7 +5,7 @@ use egui_dock::TabViewer;
 use mg_core::ResType;
 use mg_resman::ResKey;
 
-use crate::{Action, Moonglow, gff_view, module_props, script_view};
+use crate::{Action, Moonglow, browser, gff_view, module_props, script_view};
 
 /// A tab in the central area.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -18,6 +18,10 @@ pub enum Tab {
     Script(ResKey),
     /// Any GFF resource, as an editable field tree.
     Gff(ResKey),
+    /// The resource browser.
+    Resources,
+    /// A resource from the load order, read-only.
+    Resource(ResKey),
 }
 
 impl Tab {
@@ -52,6 +56,8 @@ impl TabViewer for Viewer<'_> {
                 format!("{k}{}", if dirty { " *" } else { "" }).into()
             }
             Tab::Gff(k) => k.to_string().into(),
+            Tab::Resources => "Resources".into(),
+            Tab::Resource(k) => format!("{k} (read-only)").into(),
         }
     }
 
@@ -61,6 +67,8 @@ impl TabViewer for Viewer<'_> {
             Tab::ModuleProperties => module_props::ui(self.app, ui),
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
+            Tab::Resources => browser::ui(self.app, ui),
+            Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
         }
     }
 
@@ -75,15 +83,32 @@ fn welcome(app: &mut Moonglow, ui: &mut Ui) {
         ui.heading("Moonglow Toolset");
         ui.label("A module toolset for Neverwinter Nights: Enhanced Edition.");
         ui.add_space(20.0);
+        if ui.button("New Module…").clicked() {
+            app.actions.push(Action::NewModuleDialog);
+        }
         if ui.button("Open Module…").clicked() {
             app.actions.push(Action::OpenModuleDialog);
+        }
+        if !app.settings.recent.is_empty() {
+            ui.add_space(20.0);
+            ui.strong("Recent modules");
+            for p in app.settings.recent.clone() {
+                let name =
+                    p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                if ui.link(name).on_hover_text(p.display().to_string()).clicked() {
+                    app.actions.push(Action::OpenModule(p));
+                }
+            }
         }
         if app.game.is_none() {
             ui.add_space(10.0);
             ui.colored_label(
                 ui.visuals().warn_fg_color,
-                "No game data: set NWN_ROOT to your Neverwinter Nights installation.",
+                "No game data: choose your Neverwinter Nights installation in Tools > Options.",
             );
+            if ui.button("Options…").clicked() {
+                app.actions.push(Action::OptionsDialog);
+            }
         }
     });
 }

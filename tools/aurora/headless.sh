@@ -25,8 +25,10 @@ case "${1:-start}" in
     fi
     mkdir -p "$H/config"
     # Xwayland passes XTEST input on to the compositor (EIS); allow that
-    # without the interactive prompt.
+    # without the interactive prompt. A locked screen would swallow the
+    # input: no lock screen (--no-lockscreen) and no locking when idle.
     printf '[Xwayland]\nXwaylandEisNoPrompt=true\n' > "$H/config/kwinrc"
+    printf '[Daemon]\nAutolock=false\nLockOnResume=false\n' > "$H/config/kscreenlockerrc"
     rm -f "$H/display"
     cat > "$H/started.sh" <<EOF
 #!/bin/sh
@@ -36,6 +38,7 @@ EOF
     chmod +x "$H/started.sh"
     env -u DISPLAY -u WAYLAND_DISPLAY XDG_CONFIG_HOME="$H/config" \
       setsid dbus-run-session -- kwin_wayland --virtual --xwayland \
+      --no-lockscreen --no-global-shortcuts \
       --socket moonglow-oracle --width 1280 --height 1024 "$H/started.sh" \
       > "$H/kwin.log" 2>&1 &
     echo $! > "$H/session.pid"

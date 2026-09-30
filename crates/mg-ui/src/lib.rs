@@ -4,12 +4,16 @@
 //! the module directly: they queue [`Action`]s, which run after the frame and
 //! turn edits into undoable [`mg_edit::Command`]s.
 
+mod browser;
 pub mod dialogs;
 mod gff_view;
 mod module_props;
+mod options;
 mod script_view;
+pub mod settings;
 mod tabs;
 mod text;
+mod transfer;
 mod tree;
 pub mod wizards;
 
@@ -24,8 +28,12 @@ use mg_module::{Module, ModuleLocation};
 use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
 use mg_rules::GameData;
 
-pub use dialogs::{Dialogs, NoDialogs};
+pub use browser::Browser;
+pub use dialogs::{Dialogs, FileKind, NoDialogs};
+pub use options::OptionsDraft;
+pub use settings::Settings;
 pub use tabs::Tab;
+pub use transfer::{ExportDraft, ImportDraft};
 pub use wizards::{AreaWizard, Wizard};
 
 /// Something the user asked for, run after the frame is drawn.
@@ -38,6 +46,15 @@ pub enum Action {
     NewArea(AreaSpec),
     OpenModuleDialog,
     OpenModule(PathBuf),
+    /// Opens the Export window with these resources chosen.
+    ExportDialog(Vec<ResKey>),
+    Export(ExportDraft),
+    ImportDialog,
+    Import(ImportDraft),
+    OptionsDialog,
+    /// Uses these folders for the game and the user directory (reloading the
+    /// game data; closes the module).
+    ApplyOptions(OptionsDraft),
     Save,
     SaveAsDialog,
     /// Saves, then runs the action if the module was saved.
@@ -95,6 +112,14 @@ pub struct Moonglow {
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
     pub wizard: Option<Wizard>,
+    pub settings: Settings,
+    /// The Options window's pending values, while it is open.
+    pub options: Option<OptionsDraft>,
+    pub export: Option<ExportDraft>,
+    pub browser: Browser,
+    /// Resources open in read-only viewers, parsed once.
+    pub(crate) viewed: HashMap<ResKey, std::sync::Arc<browser::Viewed>>,
+    pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
     pub quit_requested: bool,
@@ -113,22 +138,7 @@ impl Moonglow {
     /// The application over a game install (loaded now; failures are logged).
     pub fn new(install: Option<GameInstall>, dialogs: Box<dyn Dialogs>) -> Moonglow {
         let mut log = Log::default();
-        let game = match &install {
-            Some(gi) => match GameData::open(gi) {
-                Ok(g) => {
-                    log.info(format!("Game data loaded from {}", gi.root.display()));
-                    Some(g)
-                }
-                Err(e) => {
-                    log.error(format!("Could not load the game data: {e}"));
-                    None
-                }
-            },
-            None => {
-                log.warn("No Neverwinter Nights installation found; set NWN_ROOT.");
-                None
-            }
-        };
+        let game = load_game(install.as_ref(), &mut log);
         Moonglow {
             install,
             game,
@@ -140,6 +150,12 @@ impl Moonglow {
             scripts: HashMap::new(),
             buffers: HashMap::new(),
             wizard: None,
+            settings: Settings::default(),
+            options: None,
+            export: None,
+            browser: Browser::new(),
+            viewed: HashMap::new(),
+            import: None,
             confirm_discard: None,
             quit_requested: false,
         }
@@ -160,6 +176,14 @@ impl Moonglow {
             (Some(_), None) => "Moonglow Toolset - (new module)".into(),
             _ => "Moonglow Toolset".into(),
         }
+    }
+
+    /// The application with saved settings: their game install (or the
+    /// detected one) and recent modules.
+    pub fn with_settings(settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
+        let mut app = Moonglow::new(settings.install(), dialogs);
+        app.settings = settings;
+        app
     }
 
     /// Draws the whole application.
@@ -185,6 +209,8 @@ impl Moonglow {
             self.dock = dock;
         });
         wizards::ui(self, ui);
+        options::ui(self, ui);
+        transfer::ui(self, ui);
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
@@ -232,12 +258,30 @@ impl Moonglow {
                 if ui.button("Open Module…").clicked() {
                     self.actions.push(Action::OpenModuleDialog);
                 }
+                let recent = self.settings.recent.clone();
+                ui.add_enabled_ui(!recent.is_empty(), |ui| {
+                    ui.menu_button("Recent Modules", |ui| {
+                        for p in recent {
+                            if ui.button(p.display().to_string()).clicked() {
+                                self.actions.push(Action::OpenModule(p));
+                            }
+                        }
+                    });
+                });
                 if ui.add_enabled(open, egui::Button::new("Save")).clicked() {
                     self.actions.push(Action::Save);
                 }
                 if ui.add_enabled(open, egui::Button::new("Save As…")).clicked() {
                     self.actions.push(Action::SaveAsDialog);
                 }
+                ui.separator();
+                if ui.add_enabled(open, egui::Button::new("Import…")).clicked() {
+                    self.actions.push(Action::ImportDialog);
+                }
+                if ui.add_enabled(open, egui::Button::new("Export…")).clicked() {
+                    self.actions.push(Action::ExportDialog(Vec::new()));
+                }
+                ui.separator();
                 if ui.add_enabled(open, egui::Button::new("Close")).clicked() {
                     self.actions.push(Action::Close);
                 }
@@ -275,6 +319,14 @@ impl Moonglow {
                     self.actions.push(Action::AreaWizard);
                 }
             });
+            ui.menu_button("Tools", |ui| {
+                if ui.button("Resource Browser").clicked() {
+                    self.actions.push(Action::OpenTab(Tab::Resources));
+                }
+                if ui.button("Options…").clicked() {
+                    self.actions.push(Action::OptionsDialog);
+                }
+            });
             ui.menu_button("Build", |ui| {
                 if ui.add_enabled(open, egui::Button::new("Compile All Scripts")).clicked() {
                     self.actions.push(Action::CompileScripts);
@@ -288,9 +340,10 @@ impl Moonglow {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            match self.module_path() {
-                Some(p) => ui.label(p.display().to_string()),
-                None => ui.label("No module"),
+            match (self.module_path(), &self.ws) {
+                (Some(p), _) => ui.label(p.display().to_string()),
+                (None, Some(_)) => ui.label("New module, not saved yet"),
+                (None, None) => ui.label("No module"),
             };
             if self.ws.as_ref().is_some_and(Workspace::is_modified) {
                 ui.label("(modified)");
@@ -327,6 +380,7 @@ impl Moonglow {
             Ok(m) => {
                 self.log.info(format!("Opened {} ({} resources)", path.display(), m.len()));
                 self.use_module(m);
+                self.settings.remember(path);
             }
             Err(e) => self.log.error(format!("Could not open {}: {e}", path.display())),
         }
@@ -351,6 +405,14 @@ impl Moonglow {
         }
         self.ws = Some(Workspace::new(m));
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
+        self.load_order_changed();
+    }
+
+    /// The game data's layers changed: the browser and the read-only
+    /// viewers show them anew.
+    fn load_order_changed(&mut self) {
+        self.browser.stale = true;
+        self.viewed.clear();
     }
 
     /// Whether closing the module now would lose work: unsaved edits, or a
@@ -414,6 +476,7 @@ impl Moonglow {
         self.scripts.clear();
         self.buffers.clear();
         self.dock = DockState::new(vec![Tab::Welcome]);
+        self.load_order_changed();
         if let Some(game) = &mut self.game {
             let module_layers: Vec<String> = game
                 .resman
@@ -430,7 +493,7 @@ impl Moonglow {
     }
 
     /// Refreshes the module layer of the game data after edits.
-    fn refresh_module_layer(&mut self) {
+    pub(crate) fn refresh_module_layer(&mut self) {
         let (Some(game), Some(ws)) = (&mut self.game, &mut self.ws) else { return };
         if ws.flush().is_err() {
             return;
@@ -438,6 +501,7 @@ impl Moonglow {
         game.resman.remove("module");
         game.resman.add(priority::MODULE, "module", LayerClass::Erf, ws.module.container());
         game.invalidate();
+        self.load_order_changed();
     }
 
     fn run_actions(&mut self) {
@@ -455,6 +519,7 @@ impl Moonglow {
             Action::NewModuleDialog
                 | Action::OpenModuleDialog
                 | Action::OpenModule(_)
+                | Action::ApplyOptions(_)
                 | Action::Close
                 | Action::Quit
         );
@@ -491,11 +556,27 @@ impl Moonglow {
                     .as_ref()
                     .and_then(|gi| gi.user_dir.as_ref())
                     .map(|u| u.join("modules"));
-                if let Some(p) = self.dialogs.open_module(start.as_deref()) {
+                if let Some(p) = self.dialogs.open_file(FileKind::Module, start.as_deref()) {
                     self.open_module(&p);
                 }
             }
             Action::OpenModule(p) => self.open_module(&p),
+            Action::ExportDialog(keys) => {
+                if self.ws.is_some() {
+                    self.export = Some(ExportDraft {
+                        selected: keys.into_iter().collect(),
+                        dependencies: true,
+                        ..Default::default()
+                    });
+                }
+            }
+            Action::Export(draft) => self.run_export(draft),
+            Action::ImportDialog => self.open_import(),
+            Action::Import(draft) => self.run_import(draft),
+            Action::OptionsDialog => {
+                self.options = Some(OptionsDraft::from_settings(&self.settings))
+            }
+            Action::ApplyOptions(draft) => self.apply_options(draft),
             Action::Save => self.save(None),
             Action::SaveAsDialog => {
                 // A new module is offered as <name>.mod in the modules folder.
@@ -512,7 +593,7 @@ impl Moonglow {
                     let dir = self.install.as_ref()?.user_dir.as_ref()?.join("modules");
                     Some(dir.join(format!("{name}.mod")))
                 });
-                if let Some(p) = self.dialogs.save_module(suggested.as_deref()) {
+                if let Some(p) = self.dialogs.save_file(FileKind::Module, suggested.as_deref()) {
                     self.save(Some(p));
                 }
             }
@@ -577,8 +658,9 @@ impl Moonglow {
         };
         match result {
             Ok(()) => {
-                self.log
-                    .info(format!("Saved {}", self.module_path().unwrap_or_default().display()));
+                let path = self.module_path().unwrap_or_default();
+                self.log.info(format!("Saved {}", path.display()));
+                self.settings.remember(&path);
                 if dirty_scripts > 0 {
                     self.log.warn(format!(
                         "{dirty_scripts} script(s) have unsaved edits in their editors"
@@ -653,8 +735,39 @@ impl Moonglow {
         self.log.info(format!("Verify: {} missing reference(s)", missing.len()));
     }
 
+    /// Uses new game and user folders: closes the module and reloads the
+    /// game data.
+    fn apply_options(&mut self, draft: OptionsDraft) {
+        let settings = draft.apply(&self.settings);
+        self.close();
+        self.settings = settings;
+        self.install = self.settings.install();
+        self.game = load_game(self.install.as_ref(), &mut self.log);
+        self.load_order_changed();
+    }
+
     /// A resman view for things that need one without a game install (tests).
     pub fn resman(&self) -> Option<&ResMan> {
         self.game.as_ref().map(|g| &g.resman)
+    }
+}
+
+/// Loads the game data of an install, logging the outcome.
+fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<GameData> {
+    match install {
+        Some(gi) => match GameData::open(gi) {
+            Ok(g) => {
+                log.info(format!("Game data loaded from {}", gi.root.display()));
+                Some(g)
+            }
+            Err(e) => {
+                log.error(format!("Could not load the game data from {}: {e}", gi.root.display()));
+                None
+            }
+        },
+        None => {
+            log.warn("No Neverwinter Nights installation found; choose it in Tools > Options.");
+            None
+        }
     }
 }

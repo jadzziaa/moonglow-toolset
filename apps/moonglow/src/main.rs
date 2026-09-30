@@ -2,26 +2,29 @@
 
 use std::path::{Path, PathBuf};
 
-use mg_resman::GameInstall;
-use mg_ui::{Action, Dialogs, Moonglow};
+use mg_ui::{Action, Dialogs, FileKind, Moonglow, Settings};
 
 /// Native file dialogs.
 struct NativeDialogs;
 
 impl Dialogs for NativeDialogs {
-    fn open_module(&mut self, start: Option<&Path>) -> Option<PathBuf> {
-        let mut d =
-            rfd::FileDialog::new().add_filter("Module", &["mod", "nwm"]).set_title("Open Module");
+    fn open_file(&mut self, kind: FileKind, start: Option<&Path>) -> Option<PathBuf> {
+        let mut d = rfd::FileDialog::new().set_title(kind.title(false));
+        if let Some((name, exts)) = kind.filter(false) {
+            d = d.add_filter(name, exts);
+        }
         if let Some(s) = start {
             d = d.set_directory(s);
         }
         d.pick_file()
     }
 
-    fn save_module(&mut self, current: Option<&Path>) -> Option<PathBuf> {
-        let mut d =
-            rfd::FileDialog::new().add_filter("Module", &["mod"]).set_title("Save Module As");
-        if let Some(c) = current {
+    fn save_file(&mut self, kind: FileKind, suggested: Option<&Path>) -> Option<PathBuf> {
+        let mut d = rfd::FileDialog::new().set_title(kind.title(true));
+        if let Some((name, exts)) = kind.filter(true) {
+            d = d.add_filter(name, exts);
+        }
+        if let Some(c) = suggested {
             if let Some(dir) = c.parent() {
                 d = d.set_directory(dir);
             }
@@ -31,7 +34,18 @@ impl Dialogs for NativeDialogs {
         }
         d.save_file()
     }
+
+    fn pick_folder(&mut self, title: &str, start: Option<&Path>) -> Option<PathBuf> {
+        let mut d = rfd::FileDialog::new().set_title(title);
+        if let Some(s) = start {
+            d = d.set_directory(s);
+        }
+        d.pick_folder()
+    }
 }
+
+/// Where eframe keeps the settings.
+const SETTINGS_KEY: &str = "moonglow-settings";
 
 struct App {
     moonglow: Moonglow,
@@ -55,15 +69,13 @@ impl eframe::App for App {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
     }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, SETTINGS_KEY, &self.moonglow.settings);
+    }
 }
 
 fn main() -> eframe::Result<()> {
-    let install = GameInstall::detect();
-    let mut moonglow = Moonglow::new(install, Box::new(NativeDialogs));
-    // `moonglow path/to/module.mod` opens a module at start.
-    if let Some(path) = std::env::args_os().nth(1) {
-        moonglow.open_module(Path::new(&path));
-    }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
@@ -73,6 +85,15 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Moonglow Toolset",
         options,
-        Box::new(|_cc| Ok(Box::new(App { moonglow, title: String::new() }))),
+        Box::new(|cc| {
+            let settings: Settings =
+                cc.storage.and_then(|s| eframe::get_value(s, SETTINGS_KEY)).unwrap_or_default();
+            let mut moonglow = Moonglow::with_settings(settings, Box::new(NativeDialogs));
+            // `moonglow path/to/module.mod` opens a module at start.
+            if let Some(path) = std::env::args_os().nth(1) {
+                moonglow.open_module(Path::new(&path));
+            }
+            Ok(Box::new(App { moonglow, title: String::new() }))
+        }),
     )
 }

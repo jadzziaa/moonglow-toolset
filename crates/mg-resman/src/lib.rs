@@ -211,6 +211,22 @@ impl ResMan {
         None
     }
 
+    /// Every distinct resource with the index of the layer that provides it
+    /// (the highest that has it), sorted by name and type.
+    pub fn entries(&self) -> Vec<(ResKey, usize)> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for (i, l) in self.layers.iter().enumerate() {
+            for k in l.container.keys() {
+                if seen.insert(k) {
+                    out.push((k, i));
+                }
+            }
+        }
+        out.sort_by_key(|(k, _)| (k.resref, k.restype.extension().unwrap_or_default()));
+        out
+    }
+
     /// Every distinct resource of a type across all layers, sorted by name.
     pub fn list(&self, restype: ResType) -> Vec<ResRef> {
         let mut seen = HashSet::new();
@@ -233,6 +249,23 @@ mod tests {
 
     fn key(n: &str, t: ResType) -> ResKey {
         ResKey::parse(n, t).unwrap()
+    }
+
+    #[test]
+    fn entries_name_the_providing_layer() {
+        let (mut low, mut high) = (MemContainer::new(), MemContainer::new());
+        low.insert(key("a", ResType::NSS), b"low".to_vec());
+        low.insert(key("b", ResType::NSS), b"low".to_vec());
+        high.insert(key("a", ResType::NSS), b"high".to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "low", LayerClass::Key, low);
+        rm.add(priority::OVERRIDE, "high", LayerClass::Directory, high);
+        let entries: Vec<(String, &str)> = rm
+            .entries()
+            .iter()
+            .map(|(k, i)| (k.to_string(), rm.layers()[*i].label.as_str()))
+            .collect();
+        assert_eq!(entries, [("a.nss".to_string(), "high"), ("b.nss".to_string(), "low")]);
     }
 
     #[test]

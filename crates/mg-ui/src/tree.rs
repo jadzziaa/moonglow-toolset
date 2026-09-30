@@ -52,9 +52,15 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                         ResType::ARE | ResType::DLG | ResType::NSS => k.resref.to_string(),
                         _ => k.to_string(),
                     };
-                    if ui.selectable_label(false, label).double_clicked() {
+                    let r = ui.selectable_label(false, label);
+                    if r.double_clicked() {
                         open = Some(k);
                     }
+                    r.context_menu(|ui| {
+                        if ui.button("Export…").clicked() {
+                            app.actions.push(Action::ExportDialog(vec![k]));
+                        }
+                    });
                 }
             });
     }

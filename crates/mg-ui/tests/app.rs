@@ -31,7 +31,7 @@ fn sample_module(dir: &std::path::Path) -> std::path::PathBuf {
 }
 
 fn app_with(open: Vec<std::path::PathBuf>) -> Moonglow {
-    Moonglow::new(None, Box::new(NoDialogs { open, save: Vec::new() }))
+    Moonglow::new(None, Box::new(NoDialogs { open, ..Default::default() }))
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn new_module_and_area_through_the_wizards() {
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let app = Moonglow::new(
         Some(install),
-        Box::new(NoDialogs { open: Vec::new(), save: vec![path.clone()] }),
+        Box::new(NoDialogs { save: vec![path.clone()], ..Default::default() }),
     );
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
@@ -265,4 +265,124 @@ fn new_module_and_area_through_the_wizards() {
     assert!(!ws.module.contains(&key));
     let info = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap();
     assert!(info.root.items(&ifo::MOD_AREA_LIST).is_empty());
+}
+
+#[test]
+fn recent_modules_reopen_from_the_welcome_page() {
+    let dir = mg_testkit::scratch_dir("ui-recent");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    assert_eq!(app.settings.recent, std::slice::from_ref(&path));
+    app.close();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("sample.mod").click();
+    h.run();
+    assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+}
+
+#[test]
+fn options_choose_the_game_folder() {
+    let dir = mg_testkit::scratch_dir("ui-options");
+    let app = Moonglow::new(
+        None,
+        Box::new(NoDialogs { folders: vec![dir.clone()], ..Default::default() }),
+    );
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    // Browse picks a folder that is not a game install.
+    h.get_all_by_label("Browse…").next().unwrap().click();
+    h.run();
+    h.get_by_label("Not a game installation (no data/nwn_base.key).");
+    h.get_by_label("OK").click();
+    h.run();
+    assert_eq!(h.state().settings.game_root.as_deref(), Some(dir.as_path()));
+    assert_eq!(h.state().install.as_ref().map(|i| i.root.clone()), Some(dir.clone()));
+    assert!(h.state().game.is_none());
+    assert!(
+        h.state().log.entries.iter().any(|(_, m)| m.starts_with("Could not load the game data"))
+    );
+}
+
+#[test]
+fn export_then_import_into_another_module() {
+    let dir = mg_testkit::scratch_dir("ui-transfer");
+    let source = sample_module(&dir);
+    let erf = dir.join("start.erf");
+    let area = ResKey::parse("start", ResType::ARE).unwrap();
+
+    // Export the area from the sample module.
+    let mut app = Moonglow::new(
+        None,
+        Box::new(NoDialogs {
+            save: vec![erf.clone()],
+            open: vec![erf.clone()],
+            ..Default::default()
+        }),
+    );
+    app.open_module(&source);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![area]));
+    h.run();
+    h.get_by_label("Export 1…").click();
+    h.run();
+    let bytes = std::fs::read(&erf).unwrap();
+    let archive = mg_erf::Erf::read(&bytes).unwrap();
+    assert!(archive.entries.iter().any(|e| e.resref == area.resref && e.restype == ResType::ARE));
+
+    // Import it into a module without areas.
+    let target = dir.join("target.mod");
+    let mut m = Module::new();
+    let mut info = Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_TAG, ExoString::from("TARGET"));
+    m.set_info(&info).unwrap();
+    m.save_as(&ModuleLocation::Archive(target.clone())).unwrap();
+    h.state_mut().open_module(&target);
+    h.state_mut().actions.push(mg_ui::Action::ImportDialog);
+    h.run();
+    h.get_by_label("Import").click();
+    h.run();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    assert!(ws.module.contains(&area));
+    assert_eq!(ws.module.areas().unwrap(), [area.resref]);
+    // One undoable step.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&area));
+}
+
+#[test]
+fn browse_view_and_copy_a_game_resource() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-browser");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
+    h.run();
+    // The module's own script is listed from the module layer.
+    h.state_mut().browser.filter = "hello".into();
+    h.run();
+    h.get_by_label("hello.nss");
+    h.get_by_label("module");
+
+    // A game blueprint: listed from the keys, viewed read-only, copied in.
+    h.state_mut().browser.filter = "nw_it_torch001".into();
+    h.run();
+    h.get_by_label("nw_it_torch001.uti").click_secondary();
+    h.run();
+    h.get_by_label("Open").click();
+    h.run();
+    let key = ResKey::parse("nw_it_torch001", ResType::UTI).unwrap();
+    assert!(h.state().dock.find_tab(&Tab::Resource(key)).is_some());
+    h.get_by_label("LocalizedName");
+    h.get_by_label("Copy to Module").click();
+    h.run();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
+    assert!(h.state().dock.find_tab(&Tab::Gff(key)).is_some(), "the copy opens in its editor");
 }

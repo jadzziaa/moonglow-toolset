@@ -1671,8 +1671,10 @@ dependencies = [
  "egui_dock",
  "egui_kittest",
  "fastrand",
+ "mg-2da",
  "mg-core",
  "mg-edit",
+ "mg-erf",
  "mg-gff",
  "mg-module",
  "mg-resman",
@@ -1680,6 +1682,7 @@ dependencies = [
  "mg-schema",
  "mg-script",
  "mg-testkit",
+ "serde",
 ]
 
 [[package]]
