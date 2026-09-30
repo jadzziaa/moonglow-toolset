@@ -114,3 +114,23 @@ unless given otherwise.
 | Open (all resources / module / hak) | resource browser and the module tree | ✅ |
 | Print, colour options, indent with Tab | not yet | ✗ |
 | Large scripts | nwscript.nss (13,869 lines): 0.4 ms per idle frame, ~10 ms per keystroke | ✅ (`editor_perf.rs`) |
+
+## Conversation Editor (`TdlgConversationEditor`, `TfraConversationTree`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Tree: Root, NPC lines `[OWNER] - text` / `[tag] - text` (red), PC lines (blue), `[END DIALOGUE]`, `[CONTINUE]`, links grey | same; conditions marked `?` with the script on hover | ✅ |
+| Add (with Root: a greeting; with a line: a line of the other kind), new conversation with `nw_walk_wp` end scripts | same; the file's fields, order and defaults as Aurora's | ✅ (`aurora_dialog.rs`) [conversation_editor_builds_and_links] |
+| Input Text popup for a new line | the new line is selected and its Text field edited in place | — |
+| Copy, Cut, Paste, Paste As Link, Delete | same; Delete removes the branch and every link to it, then renumbers | ✅ (`dialog.rs` tests) |
+| Expand All, Collapse All; highlight filters (comments, actions, quests, animations, sounds) | same | ✅ |
+| Speaker Tag (combo of module creature tags, Add) | text field | ◐ (creature tag list: with blueprints, Phase 8) |
+| Text + `…` all languages; Insert Token (stringtokens.2da, highlight tokens) | same | ✅ |
+| Text Appears When…: script, `…`, Edit, EE parameters (+/−), script preview | same | ✅ (engine: conditions in order with parameters, `engine_dialog.rs`) |
+| Actions Taken: script, parameters, preview | same | ✅ (engine: the action runs with its parameter) |
+| Other Actions: animation (Aurora's list), sound (`…`, Play), journal category and entry, Edit | animation list with Aurora's values, sound picker, journal and entry from the module's journal | ◐ (sound preview needs audio) |
+| Comments (node comment; link comment on links) | same | ✅ |
+| Current File: end scripts normal/aborted, Stop Camera Zoom In | same | ✅ |
+| Status bar: line letters/words, file words | line letters and words, file words | ✅ |
+| Bookmarks, Search / Replace, Find In Files, Test, spell check, text export/import, Script Wizard | not yet | ✗ |
+| Scrap tab of cut lines | the clipboard holds one copied or cut branch | ◐ |

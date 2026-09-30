@@ -615,3 +615,83 @@ fn compile_errors_go_to_their_line() {
     let line4 = text.match_indices('\n').nth(2).unwrap().0 + 1;
     assert_eq!(script_cursor(&h, key), Some((line4, line4)));
 }
+
+#[test]
+fn conversation_editor_builds_and_links() {
+    let dir = mg_testkit::scratch_dir("ui-dialog");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.new_dialog = Some("capdlg".into());
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    let key = ResKey::parse("capdlg", ResType::DLG).unwrap();
+    assert!(h.state().dock.find_tab(&Tab::Dialog(key)).is_some());
+
+    let is_text = |n: &egui_kittest::Node<'_>| {
+        n.accesskit_node().role() == egui::accesskit::Role::MultilineTextInput
+    };
+    let add_line = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        h.get_by_label("Add").click();
+        h.run();
+        h.get_all_by_role(egui::accesskit::Role::MultilineTextInput).find(is_text).unwrap().click();
+        h.run();
+        h.get_all_by_role(egui::accesskit::Role::MultilineTextInput)
+            .find(is_text)
+            .unwrap()
+            .type_text(text);
+        h.run();
+        h.key_press(egui::Key::Tab);
+        h.run();
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        h.get_by_label(label).click();
+        h.run();
+    };
+    add_line(&mut h, "Hello there.");
+    add_line(&mut h, "Who are you?");
+    add_line(&mut h, "A traveller.");
+    click(&mut h, "Root");
+    add_line(&mut h, "Go away.");
+    click(&mut h, "Who are you?");
+    click(&mut h, "Copy");
+    click(&mut h, "[OWNER] - Go away.");
+    click(&mut h, "Paste As Link");
+
+    let doc = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone()
+    };
+    let ours = doc(&mut h);
+    let texts = |g: &Gff| -> Vec<String> {
+        mg_module::dialog::outline(g)
+            .iter()
+            .map(|l| l.split('|').take(3).collect::<Vec<_>>().join("|"))
+            .collect()
+    };
+    assert_eq!(
+        texts(&ours),
+        [
+            "Entry|Hello there.|",
+            "  Reply|Who are you?|",
+            "    Entry|A traveller.|",
+            "Entry|Go away.|",
+            "  Reply|Who are you?|link"
+        ]
+    );
+    assert_eq!(ours.root.dword("NumWords"), Some(9));
+    if let Some(capture) = mg_testkit::aurora_capture("dialog/capdlg.dlg") {
+        let aurora = Gff::read(&std::fs::read(capture).unwrap()).unwrap();
+        assert_eq!(texts(&ours), texts(&aurora));
+    }
+
+    // Deleting "Hello there." takes its branch and the link to it; undo
+    // brings both back.
+    click(&mut h, "[OWNER] - Hello there.");
+    click(&mut h, "Delete");
+    assert_eq!(texts(&doc(&mut h)), ["Entry|Go away.|"]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(texts(&doc(&mut h)).len(), 5);
+}

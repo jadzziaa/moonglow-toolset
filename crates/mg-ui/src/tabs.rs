@@ -6,7 +6,8 @@ use mg_core::ResType;
 use mg_resman::ResKey;
 
 use crate::{
-    Action, Moonglow, browser, faction_view, gff_view, journal_view, module_props, script_view,
+    Action, Moonglow, browser, dialog_view, faction_view, gff_view, journal_view, module_props,
+    script_view,
 };
 
 /// A tab in the central area.
@@ -26,6 +27,8 @@ pub enum Tab {
     Factions,
     /// The Journal Editor.
     Journal,
+    /// A conversation.
+    Dialog(ResKey),
     /// A resource from the load order, read-only.
     Resource(ResKey),
 }
@@ -38,6 +41,7 @@ impl Tab {
             ResType::IFO => Some(Tab::ModuleProperties),
             ResType::FAC => Some(Tab::Factions),
             ResType::JRL => Some(Tab::Journal),
+            ResType::DLG => Some(Tab::Dialog(key)),
             t if t.is_gff() => Some(Tab::Gff(key)),
             _ => None,
         }
@@ -67,6 +71,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Resources => "Resources".into(),
             Tab::Factions => "Factions".into(),
             Tab::Journal => "Journal".into(),
+            Tab::Dialog(k) => k.to_string().into(),
             Tab::Resource(k) => format!("{k} (read-only)").into(),
         }
     }
@@ -80,6 +85,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Resources => browser::ui(self.app, ui),
             Tab::Factions => faction_view::ui(self.app, ui),
             Tab::Journal => journal_view::ui(self.app, ui),
+            Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
         }
     }

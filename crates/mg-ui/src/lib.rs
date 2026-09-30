@@ -5,6 +5,7 @@
 //! turn edits into undoable [`mg_edit::Command`]s.
 
 mod browser;
+pub mod dialog_view;
 pub mod dialogs;
 pub mod faction_view;
 mod gff_view;
@@ -129,6 +130,10 @@ pub struct Moonglow {
     pub module_page: module_props::Page,
     pub faction_view: faction_view::FactionView,
     pub journal_view: journal_view::JournalView,
+    pub dialog_views: HashMap<ResKey, dialog_view::DialogView>,
+    pub dialog_clip: Option<dialog_view::DialogClip>,
+    /// The New Conversation window's name.
+    pub new_dialog: Option<String>,
     pub script_tools: script_tools::ScriptTools,
     /// The Save Script As window: the script and the new name.
     pub(crate) script_save_as: Option<(ResKey, String)>,
@@ -184,6 +189,9 @@ impl Moonglow {
             module_page: module_props::Page::default(),
             faction_view: faction_view::FactionView::default(),
             journal_view: journal_view::JournalView::default(),
+            dialog_views: HashMap::new(),
+            dialog_clip: None,
+            new_dialog: None,
             script_tools: script_tools::ScriptTools::default(),
             script_save_as: None,
             new_script: None,
@@ -254,6 +262,7 @@ impl Moonglow {
         transfer::ui(self, ui);
         widgets::ui(self, ui);
         script_view::windows(self, ui);
+        dialog_view::windows(self, ui);
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -381,6 +390,9 @@ impl Moonglow {
                 }
             });
             ui.menu_button("Tools", |ui| {
+                if ui.add_enabled(open, egui::Button::new("New Conversation…")).clicked() {
+                    self.new_dialog = Some(String::new());
+                }
                 if ui.add_enabled(open, egui::Button::new("Faction Editor")).clicked() {
                     self.actions.push(Action::OpenTab(Tab::Factions));
                 }
