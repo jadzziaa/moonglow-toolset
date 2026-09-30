@@ -14,5 +14,5 @@ pub mod texture;
 pub use assets::{Assets, LoadedTexture, NoAssets};
 pub use gpu::Gpu;
 pub use model::{GpuModel, rest_pose};
-pub use renderer::{MAX_LIGHTS, Renderer, Targets};
+pub use renderer::{MAX_LIGHTS, Renderer, Targets, attenuation_params};
 pub use scene::{AreaLight, Camera, Fog, Instance, PointLight, Scene};

@@ -42,6 +42,13 @@ shot|click|key|type|windows`; `tools/aurora/headless.sh stop` when done.
 Captures that tests compare against go to `~/.local/share/moonglow-oracle/captures/`
 (`mg_testkit::aurora_capture!`); like game data, they are not committed.
 
+The game client is the renderer's oracle (`crates/mg-corpus-tests/tests/client_render.rs`,
+ignored: `DISPLAY=:1 cargo test -p mg-corpus-tests --test client_render -- --ignored`).
+It starts a scratch module with `+TestNewModule` and screenshots the client's
+window. To read what the client actually computes, put a patched copy of the
+game's own shader include in the scratch user directory's `override` (as
+`light_uniforms_match_the_client` does): no tracing tools needed.
+
 ## Rules
 
 - **Never write to the real NWN user folder** (`~/.local/share/Neverwinter
@@ -49,6 +56,11 @@ Captures that tests compare against go to `~/.local/share/moonglow-oracle/captur
   `target/test-output/` (`mg_testkit::engine`); the Aurora oracle runs in its
   own Wine prefix and user directory (`tools/aurora/run-aurora.sh`, state in
   `~/.local/share/moonglow-oracle`).
+- **Run the game client only through `tools/nwclient/run-client.sh
+  SCRATCH`**, on the off-screen display: a bubblewrap sandbox with a
+  read-only system, Steam hidden (no Steam API, presence or cloud sync), no
+  network, D-Bus or audio, and only SCRATCH writable (its user directory is
+  SCRATCH/user). It refuses the desktop display :0.
 - **Test servers stay private.** Run `nwserver` only through
   `mg_testkit::engine::run_server`, which passes `-publicserver 0` and random
   passwords; without them the server registers on Beamdog's public server

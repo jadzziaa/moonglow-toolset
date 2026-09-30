@@ -405,6 +405,9 @@ meshes, emitters, offscreen snapshots; previews for part-based creatures (armour
 placeables, doors.
 **Exit:** reference scenes look like in-game screenshots of the same scene
 (within a tolerance set from the first comparisons).
+Status: the reference scenes (`client_render.rs`: sun; tile lights) match
+the client within 10/255 per region, and the light uniforms Moonglow uploads
+equal the client's (read back through a debug shader).
 
 ### Phase 8: Blueprints and palettes
 Standard and custom palettes, blueprint wizards and editors for items (item

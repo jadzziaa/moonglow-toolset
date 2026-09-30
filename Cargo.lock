@@ -1578,6 +1578,7 @@ name = "mg-corpus-tests"
 version = "0.1.0"
 dependencies = [
  "fastrand",
+ "glam",
  "mg-2da",
  "mg-core",
  "mg-erf",
@@ -1586,6 +1587,7 @@ dependencies = [
  "mg-key",
  "mg-mdl",
  "mg-module",
+ "mg-render",
  "mg-resman",
  "mg-rules",
  "mg-schema",
@@ -1595,8 +1597,10 @@ dependencies = [
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",
+ "png",
  "rayon",
  "serde_json",
+ "wgpu",
 ]
 
 [[package]]

@@ -89,7 +89,8 @@ pub fn pose(model: &Model, anim: &Animation, t: f32) -> Vec<Mat4> {
 /// The lights of a model instance: its light nodes at their posed
 /// positions, with colour, radius and multiplier from the animation where it
 /// keys them, else the rest values. Tile main lights (`…ml1`, `…ml2`) take
-/// their colour from `main_light` (the area's tile settings) when given.
+/// their colour from `main_light` (the area's tile settings) when given, and
+/// then the engine's radius: 10 for main light 1, 5 for main light 2.
 pub fn lights(
     model: &Model,
     anim: Option<&Animation>,
@@ -122,25 +123,30 @@ pub fn lights(
         } else {
             None
         };
-        let color = match main.and_then(main_light) {
-            Some(c) => c,
+        let tile = main.and_then(|slot| Some((slot, main_light(slot)?)));
+        let color = match tile {
+            Some((_, c)) => c,
             None => match value("color").as_deref() {
                 Some([r, g, b, ..]) => Vec3::new(*r, *g, *b),
                 _ => Vec3::ONE,
             },
         };
         let multiplier = value("multiplier").and_then(|v| v.first().copied()).unwrap_or(1.0);
-        let radius = value("radius").and_then(|v| v.first().copied()).unwrap_or(5.0);
+        let radius = match tile {
+            Some((0, _)) => 10.0,
+            Some(_) => 5.0,
+            None => value("radius").and_then(|v| v.first().copied()).unwrap_or(5.0),
+        };
         if radius <= 0.0 || color == Vec3::ZERO {
             continue;
         }
-        out.push(crate::scene::PointLight {
-            position: transform.transform_point3(node_position(pose, i)),
-            color: color * multiplier,
+        out.push(crate::scene::PointLight::new(
+            transform.transform_point3(node_position(pose, i)),
+            color * multiplier,
             radius,
-            ambient_only: l.ambient_only,
-            priority: l.priority.clamp(1, 5),
-        });
+            l.ambient_only,
+            l.priority.clamp(1, 5),
+        ));
     }
     out
 }

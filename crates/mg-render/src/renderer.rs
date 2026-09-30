@@ -19,11 +19,20 @@ use crate::texture::GpuTexture;
 
 /// Lights per draw, as the game's default `max-lights`.
 pub const MAX_LIGHTS: usize = 32;
-/// The game's `max-intensity` and `intensity-at-range` settings give these.
+/// The game's `max-intensity` and `intensity-at-range` settings. It
+/// linearises them and uploads 1 / max and a falloff factor that makes the
+/// attenuation's denominator 1 / at-range where d = cutoff / 2 (both read
+/// back from its uniforms).
 const MAX_INTENSITY: f32 = 1.5;
-const FALLOFF: f32 = 12.33;
-/// A light's cutoff is its radius times this (`cutoff-range-multiplier`).
-const CUTOFF: f32 = 2.0;
+const INTENSITY_AT_RANGE: f32 = 0.2;
+
+/// The attenuation uniforms: 1 / max intensity and the falloff factor, as
+/// the game computes them from its default settings.
+pub fn attenuation_params() -> (f32, f32) {
+    let max_inv = MAX_INTENSITY.powf(-2.2);
+    let m2 = crate::scene::CUTOFF_RANGE_MULTIPLIER.powi(2);
+    (max_inv, m2 * (INTENSITY_AT_RANGE.powf(-2.2) - max_inv))
+}
 /// The default alpha test.
 const ALPHA_DISCARD: f32 = 0.2;
 
@@ -450,7 +459,10 @@ impl Renderer {
             area_dir: area_dir.extend(0.0).to_array(),
             fog,
             fog_color: scene.fog.map_or([0.0; 4], |f| f.color.extend(1.0).to_array()),
-            light_params: [1.0 / MAX_INTENSITY, FALLOFF, scene.lights.len() as f32, 0.0],
+            light_params: {
+                let (max_inv, falloff) = attenuation_params();
+                [max_inv, falloff, scene.lights.len() as f32, 0.0]
+            },
             scene_color: [0.0; 4],
         };
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
@@ -460,7 +472,7 @@ impl Renderer {
             .lights
             .iter()
             .map(|l| {
-                let r2 = (l.radius * CUTOFF).powi(2);
+                let r2 = l.cutoff * l.cutoff;
                 LightUniform {
                     pos: view.transform_point3(l.position).extend(1.0).to_array(),
                     color: l.color.extend(if l.ambient_only { -r2 } else { r2 }).to_array(),
@@ -527,7 +539,7 @@ impl Renderer {
                     .enumerate()
                     .filter_map(|(i, l)| {
                         let d = l.position.distance(centre) - radius;
-                        (d <= l.radius * CUTOFF).then_some((l.priority, d, i as u32))
+                        (d <= l.cutoff).then_some((l.priority, d, i as u32))
                     })
                     .collect();
                 chosen.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
@@ -909,5 +921,17 @@ impl Targets {
     /// The resolve target with MSAA.
     pub fn resolve_view(&self) -> Option<&wgpu::TextureView> {
         self.msaa_view.as_ref().map(|_| &self.color_view)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// The client's `lightMaxIntensityInv` and `lightFalloffFactor` with the
+    /// default settings.
+    #[test]
+    fn attenuation_matches_the_game() {
+        let (max_inv, falloff) = super::attenuation_params();
+        assert!((max_inv - 0.4098).abs() < 1e-3, "{max_inv}");
+        assert!((falloff - 136.31).abs() < 0.1, "{falloff}");
     }
 }

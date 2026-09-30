@@ -149,8 +149,8 @@ unless given otherwise.
 | Aurora | Moonglow | |
 |---|---|---|
 | Preview window: orbit, zoom | Resources > open a model: orbit (left drag), pan (right/middle drag), zoom (wheel), Frame | ✅ [model_viewer_plays_animations] |
-| Aurora's own lighting (no EE lighting) | the game's enhanced-lighting equations (area light, point lights, GGX specular, environment maps, fog) | ✅ improvement (`render.rs`: lighting matches a CPU evaluation) |
+| Aurora's own lighting (no EE lighting) | the game's enhanced-lighting equations (area light, point lights, GGX specular, environment maps, fog) | ✅ improvement (`render.rs`: lighting matches a CPU evaluation; `client_render.rs`: reference scenes within 10/255 of the game client, light uniforms equal to the client's) |
 | Animations (placeables, doors, creatures idle) | any animation of the model or its supermodels, play/pause; skins deform on the GPU with the stored bind poses | ✅ (`render.rs`: animated models; bind poses match the stored ones for 98% of bones) |
-| Light nodes light the model (Aurora: no) | light nodes as point lights (colour, radius, multiplier, animated), tile main lights take the area's colours | ✅ |
+| Light nodes light the model (Aurora: no) | light nodes as point lights (colour, radius, multiplier, animated), converted as the game does (colours above 1 reach further); tile main lights take the area's colours and the engine's radii | ✅ [lights_convert_like_the_game] |
 | Emitters | fountain, single and explosion emitters with flip-book textures, colour, alpha and size over life, camera-facing, upright, ground-aligned and motion-blur quads, alpha, additive and punch-through blending | ◐ (`render.rs`: a brazier's fire and smoke; lightning, point-to-point and chunk emitters not yet) |
 | Dangly meshes, animated meshes, PLT colours from the blueprint | not yet | ✗ |

@@ -16,18 +16,43 @@ pub struct Instance {
     pub pose: Option<Arc<Vec<Mat4>>>,
 }
 
-/// A point light.
+/// A point light, as the game uploads it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PointLight {
     pub position: Vec3,
-    /// Linear colour (lightcolor.2da values go straight in; above 1 is
-    /// brighter).
+    /// Linear colour, at most 1 per channel.
     pub color: Vec3,
-    /// The light's radius; the cutoff is twice that.
-    pub radius: f32,
+    /// The distance where the light ends, metres.
+    pub cutoff: f32,
     pub ambient_only: bool,
     /// 1 (highest) to 5: which lights are kept past 32.
     pub priority: u32,
+}
+
+/// The game's `cutoff-range-multiplier` setting.
+pub const CUTOFF_RANGE_MULTIPLIER: f32 = 2.0;
+
+impl PointLight {
+    /// A light from a model's (or lightcolor.2da's) colour and radius, the
+    /// way the game converts them (checked against its uniforms): a colour
+    /// brighter than 1 is scaled down to a largest channel of 1 and reaches
+    /// that much further instead; the colour is then linearised.
+    pub fn new(
+        position: Vec3,
+        color: Vec3,
+        radius: f32,
+        ambient_only: bool,
+        priority: u32,
+    ) -> Self {
+        let intensity = color.max_element().max(1.0);
+        PointLight {
+            position,
+            color: (color / intensity).max(Vec3::ZERO).powf(2.2),
+            cutoff: radius * CUTOFF_RANGE_MULTIPLIER * intensity,
+            ambient_only,
+            priority,
+        }
+    }
 }
 
 /// The sun or moon.
@@ -118,5 +143,34 @@ impl Camera {
 
     pub fn projection(&self, aspect: f32) -> Mat4 {
         Mat4::perspective_rh(self.fov_y, aspect.max(1e-3), self.near, self.far)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The client's uniforms for these lights (read back through a debug
+    /// shader): colour and cutoff.
+    #[test]
+    fn lights_convert_like_the_game() {
+        let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 1e-3;
+        let cases = [
+            // Tile main light 1, lightcolor White, BrightWhite, DimWhite, Yellow.
+            (Vec3::splat(1.2), 10.0, Vec3::ONE, 24.0),
+            (Vec3::splat(2.0), 10.0, Vec3::ONE, 40.0),
+            (Vec3::splat(0.6), 10.0, Vec3::splat(0.3250), 20.0),
+            (Vec3::new(1.9, 1.7, 0.06), 10.0, Vec3::new(1.0, 0.7830, 0.0005), 38.0),
+            // Main light 2, White.
+            (Vec3::splat(1.2), 5.0, Vec3::ONE, 12.0),
+            // Source lights (fx_flame01, radius 7): animation 1, PaleDarkBlue.
+            (Vec3::splat(2.0), 7.0, Vec3::ONE, 28.0),
+            (Vec3::new(0.7, 0.7, 1.2), 7.0, Vec3::new(0.3055, 0.3055, 1.0), 16.8),
+        ];
+        for (color, radius, want_color, want_cutoff) in cases {
+            let l = PointLight::new(Vec3::ZERO, color, radius, false, 4);
+            assert!(close(l.color, want_color), "{color}: {}", l.color);
+            assert!((l.cutoff - want_cutoff).abs() < 1e-3, "{color}: {}", l.cutoff);
+        }
     }
 }

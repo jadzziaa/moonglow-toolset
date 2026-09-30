@@ -180,10 +180,10 @@ Derived in `inc_common` / `inc_config`:
 |---|---|---|
 | `numLights` | int | lights in the per-draw arrays (≤ MAX_NUM_LIGHTS) |
 | `lightPosition[i]` | vec4 | **view-space** light position (the shader does `lightPosition[i].xyz − vPosView`; the wiki's "world" is wrong) |
-| `lightColor[i]` | vec4 | (GAMMA_CORRECTION=1) rgb = light colour (linear [INF]); **a = cutoff distance², negative ⇒ ambient-only light** |
+| `lightColor[i]` | vec4 | (GAMMA_CORRECTION=1) rgb = linear light colour, at most 1; **a = cutoff distance², negative ⇒ ambient-only light** (values: E.6) |
 | `lightAmbient[i]`, `lightDiffuse[i]`, `lightQuadraticAtten[i]` | | legacy path (GAMMA_CORRECTION=0): a light is ambient-only when `lightAmbient.rgb ≠ 0` |
-| `lightMaxIntensityInv` | float | 1 / `graphics.lighting.max-intensity` [INF] |
-| `lightFalloffFactor` | float | derived from `intensity-at-range` [INF] (see D) |
+| `lightMaxIntensityInv` | float | 1 / lin(`graphics.lighting.max-intensity`) (E.6) |
+| `lightFalloffFactor` | float | from `intensity-at-range` and the cutoff multiplier (E.6) |
 | `lightCutoffRangeMultiplier` | | uploaded, not read by stock shaders ([ENG]) |
 | `staticLighting` | int | 1 if the mesh has baked per-vertex static light (`vColor`, `vStaticLightDir`) |
 | `lightAreaAmbient` | vec3 | sun/moon ambient |
@@ -479,18 +479,18 @@ Mapping to shaders:
   - light `gidy_sun_diff`: shadow 1, radius 100000, colour 1/1/1
   - the engine and toolset overwrite both colours via `controlpart sun gidy_sun_amb|gidy_sun_diff color r g b` ([ENG])
   - [WIKI] places it at (4000, 4500, 7000); the legacy `fsfblvls` detects "area light" as `lightPosition.z > 6999.9`
-  - [INF] the default direction ≈ normalize(4000, 4500, 7000) = (0.43, 0.49, 0.76) if no script sets it. Not verified for EE.
+  - The default direction is normalize(4000, 4500, 7000) = (0.4332, 0.4874, 0.7581) for both sun and moon: `GetAreaLightDirection` in a new area returns it (engine test `engine_area_light.rs`).
 - [INF] colours reach the shader as ARE/255, linearised (pow 2.2) in enhanced mode. Evidence: all other colour uniforms are linear, the fog colour is explicitly "always gamma".
 
 ### E.2 Tile main lights (`Tile_MainLight1/2`, BYTE)
 - Index 0–31 into **lightcolor.2da** (`TILE_MAIN_LIGHT_COLOR_*` 0..31; 0 = Black = off).
-- Applied to the tile model's light nodes `<tile>ml1` / `<tile>ml2` (case-insensitive). No node ⇒ the toolset greys out the control. The MDL `color` is ignored; the node's radius and multiplier are kept.
+- Applied to the tile model's light nodes `<tile>ml1` / `<tile>ml2` (case-insensitive). No node ⇒ the toolset greys out the control. The MDL `color` and `radius` are ignored (radius 10 for ml1, 5 for ml2, verified in E.6); the multiplier is kept [INF].
 - Base tiles checked:
   - `tno01_a01_01`: ml1 radius 14, ml2 radius 5
   - `ttr01_a01_01`: ml1 radius 14
   - all: `isdynamic 0`, `shadow 0`, `affectdynamic 1`, `lightpriority 5`, `fadinglight 1`, `multiplier 1`
-- [WIKI] claims the engine forces ml1 radius 10 / shadowradius 12 and ml2 radius 5 / shadowradius 8, priority 4, shadow 1. This conflicts with the tile data; unverified.
-- lightcolor.2da `RED/GREEN/BLUE` are **HDR multipliers up to 2.4** (e.g. 3 BrightWhite = 2.0; 18 PaleBlue = 1.4/1.4/2.4). `TOOLSETRED/GREEN/BLUE` (≤1) are UI swatch colours: the toolset reads both sets, the game reads RGB ([ENG]).
+- [WIKI] the engine forces ml1 radius 10 / shadowradius 12 and ml2 radius 5 / shadowradius 8, priority 4, shadow 1. The radii are verified (E.6); the rest is not.
+- lightcolor.2da `RED/GREEN/BLUE` go up to 2.4 (e.g. 3 BrightWhite = 2.0; 18 PaleBlue = 1.4/1.4/2.4); above 1 they lengthen the light's range, not its brightness (E.6). `TOOLSETRED/GREEN/BLUE` (≤1) are UI swatch colours: the toolset reads both sets, the game reads RGB ([ENG]).
 - Enhanced mode: they are ordinary point lights in the per-draw array. Static (non-dynamic) tile lights are not recomputed per frame ([CL] .15).
 - Vertex mode: they are **baked per vertex** into `vColor` + `vStaticLightDir` by `ComputeStaticLighting` ([ENG]; [CL] "Toolset: Update static lighting after changing tile light properties").
 
@@ -507,8 +507,8 @@ Mapping to shaders:
 ### E.5 MDL light-node fields ([WIKI] MDL ASCII)
 | Field | Meaning |
 |---|---|
-| `radius` | range in metres; the cutoff is range × `graphics.lighting.cutoff-range-multiplier` (2.0) [INF] |
-| `multiplier` | intensity. Whether it scales intensity or range in EE is unclear |
+| `radius` | range in metres; the cutoff is range × `graphics.lighting.cutoff-range-multiplier` (2.0) × the colour's intensity (E.6) |
+| `multiplier` | intensity. Not verified in EE (Moonglow multiplies the colour, so it lengthens the range above 1) |
 | `color` | light colour |
 | `ambientonly` | → negative `lightColor.a`, no N·L |
 | `nDynamicType` / `isdynamic` | 0 = static (bakeable), 1 = dynamic |
@@ -522,17 +522,23 @@ Mapping to shaders:
 
 Player light: always one, from progfx.2da (darkvision / low-light / default).
 
-### E.6 Attenuation constants (settings; [WIKI] Area Lighting defaults, user settings.tml identical)
-Defaults: `max-lights 32` (3–128), `cutoff-range-multiplier 2.0`, `max-intensity 1.5`, `intensity-at-range 0.2`, `max-casting-lights` 0–3.
+### E.6 Uploaded light values (read back from the client)
+Verified by `client_render.rs` `light_uniforms_match_the_client`: a debug copy of `inc_standard.shd` in the user `override` folder paints the uniforms into the image. Game 89.8193.37-17, default settings (`max-intensity 1.5`, `intensity-at-range 0.2`, `cutoff-range-multiplier 2.0`).
+```
+lightMaxIntensityInv = 1 / lin(1.5)                              = 0.4098
+lightFalloffFactor   = m² · (1/lin(0.2) − 1/lin(1.5)),  m = 2   = 136.33
+   → the denominator is 1/lin(0.2) where d = cutoff/m (the light's radius); lin(x) = x^2.2
+per light, colour c (MDL colour × multiplier, or lightcolor.2da RED/GREEN/BLUE):
+   intensity    = max(1, max channel of c)
+   lightColor   = lin(c / intensity)                  // at most 1 per channel
+   lightColor.a = ±(radius · m · intensity)²          // brighter colours reach further instead
+tile main lights: radius 10 (ml1) / 5 (ml2), whatever the MDL says (tic01 ml1 has 14)
+source lights: fx_flame01's radius 7, colour from the animation's colour key
+area: lightAreaAmbient/Diffuse = lin(ARE colour), 0x00BBGGRR
+```
+Examples: White 1.2 → colour 1, cutoff 24 m; BrightWhite 2.0 → 1, 40 m; DimWhite 0.6 → 0.325, 20 m; Yellow (1.9, 1.7, 0.06) → (1, 0.783, 0.0005), 38 m.
 
-[INF] Reconstructed uniforms (the shader formula is exact; the mapping of settings to uniforms is my inference):
-```
-R_cut = radius * 2.0 ;  lightColor.a = ±R_cut²
-lightMaxIntensityInv = 1/1.5
-att(d) = (1 − d²/R_cut²) / (1/1.5 + k·d²/R_cut²)      → att(0) = 1.5
-choose k so att(radius) = 0.2 :  k = (m²−1)/I_r − m²/I_max = 3/0.2 − 4/1.5 ≈ 12.33 (m = 2)
-```
-Legacy: `att = 1/(1 + q·d²)`, 8 lights, sun as a positional light at z≈7000.
+The earlier reconstruction (att(0) = 1.5, k ≈ 12.33, colours uploaded as-is) made tile lights ~10× too bright.
 
 ---------------------------------------------------------------------------------------------------
 
@@ -846,13 +852,13 @@ Sources: CHANGELOG.md / patchnotes (85.32 → 37-17), `Neverwinter Nights Enhanc
    - Is fogEnd exactly FogClipDist, and does a skybox add +90 to fogEnd or only to the far clip?
    - The wiki's "0–200" range conflicts with the 0–15 values seen in AREs and environment.2da.
    - Needs an in-game measurement, or reading the toolset DFM trackbar max.
-2. **Uniform values from settings**: exact `lightColor.a` (R_cut = radius×multiplier×2?), `lightFalloffFactor`, `lightMaxIntensityInv`. My reconstruction (k≈12.33) is inference. The role of MDL `multiplier` is also unknown.
-3. **Colour space of uploaded colours**: are ARE ambient/diffuse, lightcolor.2da values and MDL ambient/diffuse/selfillum linearised (pow 2.2) before upload in enhanced mode? Debug code implies material colours are linear; fog is documented as gamma.
-4. **Default `lightAreaDiffuseDirection`** when no script sets it: gidy_sun position (4000, 4500, 7000)? Is it moon-specific? How are dawn/dusk colours interpolated (1 h?)?
+2. ~~Uniform values from settings~~: answered in E.6. Still open: the role of the MDL `multiplier` (Moonglow multiplies the colour; every light tested had 1).
+3. **Colour space of uploaded colours**: lights and ARE colours are linearised (E.6). Still open: MDL material ambient/diffuse/selfillum (tiles read back as 1, 1).
+4. ~~Default `lightAreaDiffuseDirection`~~: (4000, 4500, 7000) normalised, sun and moon (E.1). Still open: how dawn/dusk colours are interpolated (1 h?).
 5. **Toolset rendering mode**: does nwtoolset run with GAMMA_CORRECTION/FRAGMENT_LIGHTING on, or vertex static lighting (it has "Compute Static Lighting" and `controlpart gidy_sun`)? What MAX_NUM_LIGHTS and shader quality does it use? Which set (day/night) does its area view show?
 6. **Texture slots 11 vs 12** (FB colour vs depth): the wiki pages contradict each other. They are named samplers, so only custom shaders care.
 7. **Cubemap face order** for `filerange 6` (`name0..5`) and the axis convention (NWN is Z-up; `m_view_inv` reflection in world space).
-8. **Tile main-light overrides**: does the engine really force radius 10/5, shadowradius 12/8, shadow 1, priority 4 (wiki), or keep the MDL values (radius 14/5 seen)?
+8. **Tile main-light overrides**: radius 10/5 is forced (E.6). Not checked: shadowradius 12/8, shadow 1, priority 4.
 9. **Shadow plane colour/alpha source** (`vColor` of the plane = ShadowOpacity?). How are static sun projections built? Only relevant if shadows are implemented.
 10. **SSAO composite blend mode**; the framebuffer format (RGBA8 vs 16F) with and without bloom; how `NO_DISCARD` is chosen per material.
 11. `vso` is referenced by nwtoolset.exe but absent from resman. What does the toolset do with it?

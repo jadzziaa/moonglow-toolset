@@ -3,6 +3,7 @@
 
     xdrive.py windows                 # viewable top-level windows: id, title, geometry
     xdrive.py shot OUT.png [--scale S] # screenshot of the whole display
+    xdrive.py winshot TITLE OUT.png   # screenshot of one window (title contains TITLE)
     xdrive.py click X Y [--right|--double]
     xdrive.py key KEY [KEY...]        # e.g. Return, Tab, alt+f, ctrl+s
     xdrive.py type TEXT               # types printable ASCII text
@@ -59,6 +60,17 @@ def shot(path, scale=1.0):
     if scale != 1.0:
         canvas = canvas.resize((int(g.width * scale), int(g.height * scale)))
     canvas.save(path)
+
+
+def winshot(title, path):
+    """The contents of the first window whose title contains `title` (also
+    where other windows cover it)."""
+    for w, name, _x, _y, width, height in viewable_windows():
+        if title in name:
+            raw = w.get_image(0, 0, width, height, X.ZPixmap, 0xFFFFFFFF)
+            Image.frombytes("RGB", (width, height), raw.data, "raw", "BGRX").save(path)
+            return 0
+    return 1
 
 
 def move(x, y):
@@ -134,6 +146,8 @@ def main(argv):
     elif cmd == "shot":
         scale = float(args[args.index("--scale") + 1]) if "--scale" in args else 1.0
         shot(args[0], scale)
+    elif cmd == "winshot":
+        return winshot(args[0], args[1])
     elif cmd == "click":
         x, y = int(args[0]), int(args[1])
         click(x, y, 3 if "--right" in args else 1, 2 if "--double" in args else 1)
