@@ -93,6 +93,11 @@ impl BlueprintKind {
         if self == BlueprintKind::Store { "ID" } else { "PaletteID" }
     }
 
+    /// The field that holds a blueprint's own resref (stores: `ResRef`).
+    pub fn resref_field(self) -> &'static str {
+        if self == BlueprintKind::Store { "ResRef" } else { "TemplateResRef" }
+    }
+
     /// The field that holds a blueprint's name (creatures: first name).
     pub fn name_field(self) -> &'static str {
         match self {

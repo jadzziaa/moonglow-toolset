@@ -5,6 +5,7 @@
 //! one; Preview shows it in the 3D viewer.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use mg_core::ResRef;
 use mg_edit::{Command, Edit};
@@ -24,9 +25,9 @@ pub struct PaletteView {
     pub custom: bool,
     /// Shows only blueprints whose name or resref contains this.
     pub filter: String,
-    standard: HashMap<BlueprintKind, Palette>,
-    /// The custom palette built for a workspace revision.
-    custom_cache: Option<(u64, BlueprintKind, Palette)>,
+    standard: HashMap<BlueprintKind, Arc<Palette>>,
+    /// Custom palettes, each built for a workspace revision.
+    custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
     pub selected: Option<ResKey>,
 }
 
@@ -37,7 +38,7 @@ impl Default for PaletteView {
             custom: false,
             filter: String::new(),
             standard: HashMap::new(),
-            custom_cache: None,
+            custom_cache: HashMap::new(),
             selected: None,
         }
     }
@@ -55,7 +56,7 @@ pub fn copy_resref(from: &str, taken: &dyn Fn(&str) -> bool) -> Option<ResRef> {
 }
 
 /// Copies a blueprint into the module under a new resref (its
-/// `TemplateResRef` too); the new key.
+/// `TemplateResRef`, a store's `ResRef`, too); the new key.
 fn edit_copy(app: &mut Moonglow, key: ResKey) -> Option<ResKey> {
     let game = app.game.as_ref()?;
     let ws = app.ws.as_mut()?;
@@ -70,7 +71,9 @@ fn edit_copy(app: &mut Moonglow, key: ResKey) -> Option<ResKey> {
         k.is_some_and(|k| ws.module.contains(&k) || game.resman.get(&k).is_ok())
     };
     let resref = copy_resref(&key.resref.to_string(), &taken)?;
-    gff.root.set("TemplateResRef", Value::resref(resref));
+    let field =
+        BlueprintKind::from_restype(key.restype).map_or("TemplateResRef", |k| k.resref_field());
+    gff.root.set(field, Value::resref(resref));
     let new = ResKey::new(resref, key.restype);
     let cmd = Command::new(
         format!("Edit copy of {key}"),
@@ -85,6 +88,42 @@ fn edit_copy(app: &mut Moonglow, key: ResKey) -> Option<ResKey> {
     }
 }
 
+/// A palette: the game's standard one, or the module's custom one (built
+/// from its blueprints, again after each change); cached.
+pub(crate) fn palette(
+    app: &mut Moonglow,
+    kind: BlueprintKind,
+    custom: bool,
+) -> Option<Arc<Palette>> {
+    let game = app.game.as_ref()?;
+    let view = &mut app.palette;
+    if !custom {
+        let p = view.standard.entry(kind).or_insert_with(|| {
+            Arc::new(
+                game.resman
+                    .get_named(&format!("{}palstd", kind.name()), mg_core::ResType::ITP)
+                    .ok()
+                    .and_then(|d| Gff::read(&d).ok())
+                    .map(|g| Palette::read(&g))
+                    .unwrap_or_default(),
+            )
+        });
+        return Some(p.clone());
+    }
+    let ws = app.ws.as_mut()?;
+    let rev = ws.revision();
+    if view.custom_cache.get(&kind).is_none_or(|(r, _)| *r != rev) {
+        let built = ws
+            .flush()
+            .ok()
+            .and_then(|()| rebuild_custom_palette(&ws.module, game, kind).ok())
+            .map(|g| Palette::read(&g))
+            .unwrap_or_default();
+        view.custom_cache.insert(kind, (rev, Arc::new(built)));
+    }
+    view.custom_cache.get(&kind).map(|(_, p)| p.clone())
+}
+
 enum Pick {
     Edit(ResKey),
     EditCopy(ResKey),
@@ -93,10 +132,10 @@ enum Pick {
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
-    let Some(game) = app.game.as_ref() else {
+    if app.game.is_none() {
         ui.label("No game data.");
         return;
-    };
+    }
     let mut view = std::mem::take(&mut app.palette);
     ui.horizontal_wrapped(|ui| {
         for kind in BlueprintKind::ALL {
@@ -115,38 +154,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 
     // The palette to show.
     let kind = view.kind;
-    let palette: Option<&Palette> = if view.custom {
-        match &mut app.ws {
-            Some(ws) => {
-                let rev = ws.revision();
-                if view.custom_cache.as_ref().is_none_or(|(r, k, _)| *r != rev || *k != kind) {
-                    let built = ws
-                        .flush()
-                        .ok()
-                        .and_then(|()| rebuild_custom_palette(&ws.module, game, kind).ok())
-                        .map(|g| Palette::read(&g))
-                        .unwrap_or_default();
-                    view.custom_cache = Some((rev, kind, built));
-                }
-                view.custom_cache.as_ref().map(|(_, _, p)| p)
-            }
-            None => None,
-        }
-    } else {
-        Some(&*view.standard.entry(kind).or_insert_with(|| {
-            game.resman
-                .get_named(&format!("{}palstd", kind.name()), mg_core::ResType::ITP)
-                .ok()
-                .and_then(|d| Gff::read(&d).ok())
-                .map(|g| Palette::read(&g))
-                .unwrap_or_default()
-        }))
-    };
-    let Some(palette) = palette else {
+    app.palette = view;
+    let shown = palette(app, kind, app.palette.custom);
+    let mut view = std::mem::take(&mut app.palette);
+    let Some(palette) = shown else {
         ui.label("No module open.");
         app.palette = view;
         return;
     };
+    let game = app.game.as_ref().expect("checked");
 
     let filter = view.filter.to_lowercase();
     let custom = view.custom;

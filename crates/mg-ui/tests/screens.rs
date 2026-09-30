@@ -148,6 +148,9 @@ fn blueprint_editors() {
     for (name, t, pages) in [
         ("nw_waypoint001", ResType::UTW, &["Basic", "Advanced"][..]),
         ("animalcriesday", ResType::UTS, &["Basic", "Positioning", "Advanced"][..]),
+        ("x0_trapavg_shuri", ResType::UTT, &["Basic", "Trap", "Advanced"][..]),
+        ("nw_verminbeet", ResType::UTE, &["Basic", "Creature List", "Advanced"][..]),
+        ("nw_storebar01", ResType::UTM, &["Basic", "Inventory", "Restrictions"][..]),
     ] {
         let mut app = Moonglow::new(
             Some(GameInstall::new(&root, None, "en")),
@@ -167,7 +170,8 @@ fn blueprint_editors() {
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         for page in pages {
             h.state_mut().blueprint_pages.insert(key, page);
-            shoot(&mut h, &dir, &format!("{name}-{}", page.to_lowercase()));
+            let page_name = page.to_lowercase().replace(' ', "-");
+            shoot(&mut h, &dir, &format!("{name}-{page_name}"));
         }
     }
 }

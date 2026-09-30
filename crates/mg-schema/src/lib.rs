@@ -239,6 +239,39 @@ pub struct FieldInfo {
     pub field_type: FieldType,
 }
 
+/// The top-level fields of a resource type's files, as observed in the
+/// game's data (empty for types without a schema).
+pub fn root_fields(restype: mg_core::ResType) -> &'static [FieldInfo] {
+    use mg_core::ResType as T;
+    match restype {
+        T::ARE => are::FIELDS,
+        T::DLG => dlg::FIELDS,
+        T::FAC => fac::FIELDS,
+        T::GIC => gic::FIELDS,
+        T::GIT => git::FIELDS,
+        T::IFO => ifo::FIELDS,
+        T::ITP => itp::FIELDS,
+        T::JRL => jrl::FIELDS,
+        T::PTM => ptm::FIELDS,
+        T::PTT => ptt::FIELDS,
+        T::UTC => utc::FIELDS,
+        T::UTD => utd::FIELDS,
+        T::UTE => ute::FIELDS,
+        T::UTI => uti::FIELDS,
+        T::UTM => utm::FIELDS,
+        T::UTP => utp::FIELDS,
+        T::UTS => uts::FIELDS,
+        T::UTT => utt::FIELDS,
+        T::UTW => utw::FIELDS,
+        _ => &[],
+    }
+}
+
+/// The type a resource type's top-level field has in the game's data.
+pub fn root_field_type(restype: mg_core::ResType, label: &str) -> Option<FieldType> {
+    root_fields(restype).iter().find(|f| f.label == label).map(|f| f.field_type)
+}
+
 /// Fields of a struct that its schema does not list (EE, NWNX or
 /// third-party additions). They are kept on save; this is for reporting.
 pub fn unknown_fields<'a>(s: &'a Struct, known: &[FieldInfo]) -> Vec<&'a Label> {
@@ -254,6 +287,15 @@ mod tests {
     use mg_core::StrRef;
 
     use super::*;
+
+    #[test]
+    fn root_field_types_by_resource_type() {
+        use mg_core::ResType;
+        assert_eq!(root_field_type(ResType::UTE, "RecCreatures"), Some(FieldType::Int));
+        assert_eq!(root_field_type(ResType::UTT, "PortraitId"), Some(FieldType::Word));
+        assert_eq!(root_field_type(ResType::UTM, "ID"), Some(FieldType::Byte));
+        assert_eq!(root_field_type(ResType::NSS, "Anything"), None);
+    }
 
     #[test]
     fn reads_default_on_missing_or_mismatched_type() {

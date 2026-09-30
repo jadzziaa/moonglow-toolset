@@ -38,7 +38,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         f.category(ui, BlueprintKind::Waypoint);
         ui.end_row();
         ui.label("Appearance Type");
-        f.choice(ui, "Appearance", "Appearance", &appearances);
+        f.choice(ui, "Appearance", "Appearance", &appearances, mg_gff::FieldType::Byte);
         ui.end_row();
     });
 }

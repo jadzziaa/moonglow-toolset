@@ -78,7 +78,7 @@ fn number<T: egui::emath::Numeric + GffValue>(
     range: std::ops::RangeInclusive<T>,
 ) {
     let mut v = current;
-    let r = ui.add(egui::DragValue::new(&mut v).range(range));
+    let r = ui.add(egui::DragValue::new(&mut v).range(range).clamp_existing_to_range(false));
     if (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current {
         app.actions.push(set(what, f, v));
     }
@@ -254,7 +254,7 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
 
         ui.label("XP scale");
         let mut xp = root.read(&ifo::MOD_XP_SCALE);
-        let r = ui.add(egui::Slider::new(&mut xp, 0..=200));
+        let r = ui.add(egui::Slider::new(&mut xp, 0..=200).clamping(egui::SliderClamping::Edits));
         if r.drag_stopped() || (r.changed() && !r.dragged()) {
             app.actions.push(set("Experience scale", &ifo::MOD_XP_SCALE, xp));
         }

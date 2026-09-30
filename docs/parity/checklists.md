@@ -170,3 +170,25 @@ unless given otherwise.
 | Update Instances | not yet (with the area editor, Phase 9) | ✗ |
 | Selecting a blueprint arms placement in the area | with the area editor (Phase 9) | ✗ |
 | In-place rename of custom blueprints | not yet (names are edited in the blueprint editors) | ✗ |
+
+## Blueprint editors (object Properties dialogs)
+
+Each blueprint opens in its own tab with the dialog's pages; every change
+is one undoable command, integer fields keep their stored type (a missing
+field takes the type the game's files give it), fields the editor does not
+show are kept, and a stored value outside a field's range is shown as it is
+(only edits are clamped). Aurora's OK/Cancel are the module's undo and save.
+Shared parts: Name (`…` for all languages), Tag, palette Category, Blueprint
+ResRef (renames the blueprint, a store's `ResRef` field), Variables…,
+scripts (name, picker, Edit), Comments.
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Waypoint (`TdlgWaypointEdit`): Basic (appearance), Advanced (map note), Description, Comments | the same pages | ✅ [waypoint_editor_edits_and_renames] |
+| Sound (`TdlgSoundEdit`): Basic (sound list add/remove/move, volume), Positioning, Advanced (hours, play style and order, intervals, variations), Comments | the same pages; no playback (Moonglow has no audio yet) | ◐ [sound_editor_lists_positions_and_times] (Play, and Priority from prioritygroups.2da, not yet) |
+| Trigger (`TdlgTriggerEdit`): Basic (type), Area Transition (destination tag and type, Setup Area Transition, loading screen), Trap (`TfrmTrap`), Scripts, Advanced (faction, key, cursor, portrait, highlight height), Comments | the same pages; Setup Area Transition lists the tagged doors and waypoints in the module's areas | ✅ [trigger_editor_sets_the_type_and_trap] |
+| Encounter (`TdlgEncounterEdit`): Basic (difficulty, spawn option, min/max creatures), Creature List (palette, CR, Unique), Scripts, Advanced (active, player only, faction, respawns), Comments | the same pages; the difficulty sets `DifficultyIndex` and its encdifficulty.2da `VALUE` | ✅ [encounter_editor_lists_creatures_and_respawns] |
+| Store (`TdlgStoreEdit`): Basic (mark up/down, identify price, stolen goods, max buy price, gold), Advanced (scripts), Restrictions (will not / will only buy base items), Comments | the same pages | ✅ [store_editor_stocks_prices_and_restricts] (the amount a checked Will Identify / Max Buy Price / Limited Gold starts at is not yet checked against Aurora) |
+| Store inventory (`TdlgInventory`, store mode): item palette, the five store pages, Infinite | an Inventory page: item palette, the pages (by the base item's `StorePanel`), items placed at the first free place in the 10-wide grid, Infinite, Remove | ◐ (a list, not Aurora's icon grid; drag between places not yet) |
+| Update Instances | with the area editor (Phase 9) | ✗ |
+| Door, Placeable, Item, Creature editors | not yet | ✗ |

@@ -132,6 +132,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             let r = ui.add(
                                 egui::DragValue::new(&mut rep)
                                     .range(0..=100)
+                                    .clamp_existing_to_range(false)
                                     .custom_formatter(|v, _| format!("{v:.0}")),
                             );
                             ui.painter().rect_stroke(r.rect, 2.0, egui::Stroke::new(2.0, color(rep)), egui::StrokeKind::Outside);
@@ -169,14 +170,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             let label = if how.is_empty() {
                                 f.factions[target as usize].name.clone()
                             } else if p == s {
-                                format!("→ {}", f.factions[target as usize].name)
+                                format!("Toward {}", f.factions[target as usize].name)
                             } else {
-                                format!("← {}", f.factions[p as usize].name)
+                                format!("From {}", f.factions[p as usize].name)
                             };
                             ui.label(label);
                             let mut rep = f.reputation(p, target).unwrap_or(mg_module::factions::DEFAULT_REPUTATION);
                             let before = rep;
-                            let r = ui.add(egui::Slider::new(&mut rep, 0..=100).show_value(true));
+                            let r = ui.add(egui::Slider::new(&mut rep, 0..=100).clamping(egui::SliderClamping::Edits).show_value(true));
                             let fill = r.rect.with_max_x(r.rect.min.x + 4.0);
                             ui.painter().rect_filled(fill, 0.0, color(rep));
                             ui.weak(attitude(rep));

@@ -1090,3 +1090,148 @@ fn sound_editor_lists_positions_and_times() {
     assert_eq!(s.integer("Times"), Some(0));
     assert_ne!(s.integer("Hours").unwrap() & (1 << 15), 0);
 }
+
+/// Types into the text field with placeholder `hint` (a live filter).
+fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
+    h.run();
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(text);
+    h.run();
+}
+
+#[test]
+fn trigger_editor_sets_the_type_and_trap() {
+    let Some((mut h, key)) = blueprint_harness("trackstrigger", "trigger_copy", ResType::UTT)
+    else {
+        return;
+    };
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("Type"), Some(0));
+    // Area transition settings apply to transitions only.
+    h.get_by_label("Area Transition").click();
+    h.run();
+    assert!(h.query_by_label_contains("apply to Area Transition triggers").is_some());
+    h.get_by_label("Basic").click();
+    h.run();
+    // Trigger Type › Trap (the option in the combo's popup, after the tab).
+    h.get_by_value("Generic").click();
+    h.run();
+    h.get_all_by_label("Trap").last().unwrap().click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("Type"), Some(2));
+    h.get_all_by_label("Trap").next().unwrap().click();
+    h.run();
+    let trapped = field(&mut h, &key).integer("TrapFlag").unwrap_or(0);
+    h.get_by_label("Is Trapped").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("TrapFlag"), Some(1 - trapped));
+}
+
+#[test]
+fn encounter_editor_lists_creatures_and_respawns() {
+    let Some((mut h, key)) = blueprint_harness("nw_verminbeet", "encounter_copy", ResType::UTE)
+    else {
+        return;
+    };
+    h.run();
+    let before = field(&mut h, &key).list("CreatureList").map_or(0, <[_]>::len);
+    h.get_by_label("Creature List").click();
+    h.run();
+    // Find a badger in the standard palette and add it.
+    type_into_hint(&mut h, "Find", "nw_badger");
+    let badger = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::Button
+            && n.label().is_some_and(|l| l.starts_with("Badger"))
+    };
+    h.get(egui_kittest::kittest::by().predicate(badger)).click();
+    h.run();
+    h.get_by_label("Add Creature").click();
+    h.run();
+    let list = field(&mut h, &key).list("CreatureList").unwrap().to_vec();
+    assert_eq!(list.len(), before + 1);
+    let added = list.last().unwrap();
+    assert_eq!(added.resref("ResRef").unwrap().to_string(), "nw_badger");
+    assert!(added.float("CR").unwrap() > 0.0);
+    // Remove it again.
+    h.get_all_by_label("Remove").last().unwrap().click();
+    h.run();
+    assert_eq!(field(&mut h, &key).list("CreatureList").unwrap().len(), before);
+    // Infinite respawns. Showing the page changes nothing, though the
+    // blueprint's Respawns (0) is outside the field's range.
+    let respawns = field(&mut h, &key).integer("Respawns");
+    h.get_by_label("Advanced").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("Respawns"), respawns);
+    assert_ne!(h.state().ws.as_ref().unwrap().can_undo(), Some("Respawns"));
+    if field(&mut h, &key).integer("Reset") != Some(1) {
+        h.get_by_label("Encounter Respawns").click();
+        h.run();
+    }
+    // Infinite is −1; turning it off leaves one respawn.
+    let infinite = field(&mut h, &key).integer("Respawns") == Some(-1);
+    h.get_by_label("Infinite Respawn").click();
+    h.run();
+    let expected = if infinite { 1 } else { -1 };
+    assert_eq!(field(&mut h, &key).integer("Respawns"), Some(expected));
+}
+
+#[test]
+fn store_editor_stocks_prices_and_restricts() {
+    let Some((mut h, key)) = blueprint_harness("nw_storebar01", "store_copy", ResType::UTM) else {
+        return;
+    };
+    h.run();
+    // Limited gold (a store without the field has unlimited gold).
+    assert!(matches!(field(&mut h, &key).integer("StoreGold"), None | Some(-1)));
+    h.get_by_label("Has Limited Gold").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("StoreGold"), Some(1000));
+    // A longsword goes on the weapons page, at the first free place.
+    h.get_by_label("Inventory…").click();
+    h.run();
+    let weapons = |s: &mg_gff::Struct| {
+        s.list("StoreList")
+            .unwrap()
+            .iter()
+            .find(|p| p.id == 4)
+            .and_then(|p| p.list("ItemList"))
+            .map_or(Vec::new(), <[_]>::to_vec)
+    };
+    let before = weapons(&field(&mut h, &key));
+    type_into_hint(&mut h, "Find", "nw_wswls001");
+    let sword = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::Button && n.label().is_some_and(|l| l == "Longsword")
+    };
+    h.get(egui_kittest::kittest::by().predicate(sword)).click();
+    h.run();
+    h.get_by_label("Add Item").click();
+    h.run();
+    let after = weapons(&field(&mut h, &key));
+    assert_eq!(after.len(), before.len() + 1);
+    let added = after.last().unwrap();
+    assert_eq!(added.resref("InventoryRes").unwrap().to_string(), "nw_wswls001");
+    let at = (added.integer("Repos_PosX").unwrap(), added.integer("Repos_Posy").unwrap());
+    let at_before: Vec<_> = before
+        .iter()
+        .map(|i| (i.integer("Repos_PosX").unwrap(), i.integer("Repos_Posy").unwrap()))
+        .collect();
+    assert!(!at_before.contains(&at), "{at:?} is taken");
+    // The store will not buy torches, then will only buy them.
+    h.get_by_label("Restrictions").click();
+    h.run();
+    type_into_hint(&mut h, "Find", "Torch");
+    h.get_by_label("Torch").click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    let bases = |s: &mg_gff::Struct, list: &str| -> Vec<i64> {
+        s.list(list).unwrap_or(&[]).iter().filter_map(|i| i.integer("BaseItem")).collect()
+    };
+    assert_eq!(bases(&field(&mut h, &key), "WillNotBuy"), [15]);
+    h.get_by_label("Store will ONLY buy the following items").click();
+    h.run();
+    let s = field(&mut h, &key);
+    assert_eq!((bases(&s, "WillNotBuy"), bases(&s, "WillOnlyBuy")), (vec![], vec![15]));
+    assert_eq!(s.list("WillOnlyBuy").unwrap()[0].id, 97869);
+}

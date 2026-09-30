@@ -481,14 +481,15 @@ pub(crate) fn commit_text(
     (r.lost_focus() && *buf != shown).then(|| from_editor(buf, crlf))
 }
 
-/// A number field committed when it changes (a drag: when released).
+/// A number field committed when it changes (a drag: when released). A
+/// stored value outside `range` is shown as it is: only edits are clamped.
 pub(crate) fn commit_number<T: egui::emath::Numeric>(
     ui: &mut Ui,
     current: T,
     range: std::ops::RangeInclusive<T>,
 ) -> Option<T> {
     let mut v = current;
-    let r = ui.add(egui::DragValue::new(&mut v).range(range));
+    let r = ui.add(egui::DragValue::new(&mut v).range(range).clamp_existing_to_range(false));
     ((r.drag_stopped() || (r.changed() && !r.dragged())) && v != current).then_some(v)
 }
 

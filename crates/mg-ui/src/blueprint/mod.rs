@@ -19,12 +19,17 @@ use crate::widgets::{
 };
 use crate::{Action, Moonglow, Tab};
 
+mod encounter;
+mod picker;
+mod situated;
 mod sound;
+mod store;
+mod trigger;
 mod waypoint;
 
 /// Whether a blueprint type has its own editor.
 pub(crate) fn has_editor(t: ResType) -> bool {
-    matches!(t, ResType::UTW | ResType::UTS)
+    matches!(t, ResType::UTW | ResType::UTS | ResType::UTT | ResType::UTE | ResType::UTM)
 }
 
 /// Each open editor's page.
@@ -43,7 +48,7 @@ fn english(ls: &LocString) -> String {
 }
 
 /// A value of an integer field, of the type the field has (else `default`).
-fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> Value {
+pub(super) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> Value {
     let t = existing.map_or(default, Value::field_type);
     match t {
         FieldType::Byte => Value::Byte(v.clamp(0, 255) as u8),
@@ -89,8 +94,10 @@ impl Form<'_> {
         )));
     }
 
-    /// Sets an integer field, keeping its stored type.
+    /// Sets an integer field, keeping its stored type (for a field the
+    /// blueprint lacks: the type the game's files give it, else `default`).
     pub(crate) fn set_int(&mut self, what: &str, label: &str, v: i64, default: FieldType) {
+        let default = mg_schema::root_field_type(self.key.restype, label).unwrap_or(default);
         let value = integer(self.root.get(label), v, default);
         self.set(what, label, value);
     }
@@ -155,6 +162,20 @@ impl Form<'_> {
         }
     }
 
+    /// Sets several fields in one command.
+    pub(crate) fn set_fields(&mut self, what: &str, fields: Vec<(&str, Value)>) {
+        let edits = fields
+            .into_iter()
+            .map(|(label, value)| Edit::SetField {
+                key: self.key,
+                path: GffPath::root(),
+                label: label.to_string(),
+                value: Some(value),
+            })
+            .collect();
+        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+    }
+
     /// Sets several integer fields in one command.
     pub(crate) fn set_many(&mut self, what: &str, fields: &[(&str, i64, FieldType)]) {
         let edits = fields
@@ -163,7 +184,11 @@ impl Form<'_> {
                 key: self.key,
                 path: GffPath::root(),
                 label: label.to_string(),
-                value: Some(integer(self.root.get(label), *v, *t)),
+                value: Some(integer(
+                    self.root.get(label),
+                    *v,
+                    mg_schema::root_field_type(self.key.restype, label).unwrap_or(*t),
+                )),
             })
             .collect();
         self.app.actions.push(Action::Apply(Command::new(what, edits)));
@@ -179,7 +204,7 @@ impl Form<'_> {
     ) {
         let current = self.int(label);
         let mut v = current;
-        let r = ui.add(egui::Slider::new(&mut v, range));
+        let r = ui.add(egui::Slider::new(&mut v, range).clamping(egui::SliderClamping::Edits));
         if (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current {
             self.set_int(what, label, v, FieldType::Byte);
         }
@@ -196,7 +221,13 @@ impl Form<'_> {
     ) {
         let current = self.root.float(label).unwrap_or(0.0);
         let mut v = current;
-        let r = ui.add(egui::DragValue::new(&mut v).range(range).speed(speed).max_decimals(2));
+        let r = ui.add(
+            egui::DragValue::new(&mut v)
+                .range(range)
+                .clamp_existing_to_range(false)
+                .speed(speed)
+                .max_decimals(2),
+        );
         if (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current {
             self.set(what, label, Value::Float(v));
         }
@@ -212,8 +243,14 @@ impl Form<'_> {
     ) {
         let current = self.int(label) as f32 / 1000.0;
         let mut v = current;
-        let r = ui
-            .add(egui::DragValue::new(&mut v).range(range).speed(0.1).max_decimals(3).suffix(" s"));
+        let r = ui.add(
+            egui::DragValue::new(&mut v)
+                .range(range)
+                .clamp_existing_to_range(false)
+                .speed(0.1)
+                .max_decimals(3)
+                .suffix(" s"),
+        );
         if (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current {
             self.set_int(what, label, (v * 1000.0).round() as i64, FieldType::Dword);
         }
@@ -230,7 +267,6 @@ impl Form<'_> {
     }
 
     /// A number in `range`.
-    #[allow(dead_code)] // for the editors that follow
     pub(crate) fn number(
         &mut self,
         ui: &mut Ui,
@@ -243,25 +279,45 @@ impl Form<'_> {
         }
     }
 
-    /// A choice among 2DA rows (the field holds the row).
-    pub(crate) fn choice(&mut self, ui: &mut Ui, what: &str, label: &str, choices: &[Choice]) {
+    /// A choice among 2DA rows (the field holds the row; `default` is its
+    /// type when the blueprint lacks it). Long lists get a filter.
+    pub(crate) fn choice(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        choices: &[Choice],
+        default: FieldType,
+    ) {
         let current = self.int(label);
         let shown = choices
             .iter()
             .find(|c| c.row as i64 == current)
             .map_or_else(|| format!("({current})"), |c| c.text.clone());
+        let filter_id = self.id(&format!("{label}#filter"));
+        let mut pick = None;
         egui::ComboBox::from_id_salt(self.id(label)).selected_text(shown).width(220.0).show_ui(
             ui,
             |ui| {
-                for c in choices {
-                    if ui.selectable_label(c.row as i64 == current, &c.text).clicked()
-                        && c.row as i64 != current
-                    {
-                        self.set_int(what, label, c.row as i64, FieldType::Dword);
+                let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+                if choices.len() > 30 {
+                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
+                    ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
+                }
+                let filter = filter.to_lowercase();
+                for c in choices
+                    .iter()
+                    .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
+                {
+                    if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
+                        pick = Some(c.row as i64);
                     }
                 }
             },
         );
+        if let Some(v) = pick.filter(|&v| v != current) {
+            self.set_int(what, label, v, default);
+        }
     }
 
     /// A resource name with a picker.
@@ -274,7 +330,6 @@ impl Form<'_> {
     }
 
     /// A script field: name, picker and Edit.
-    #[allow(dead_code)] // for the editors that follow
     pub(crate) fn script(&mut self, ui: &mut Ui, what: &str, label: &str) {
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
         ui.horizontal(|ui| {
@@ -365,7 +420,8 @@ impl Form<'_> {
     }
 }
 
-/// Renames a blueprint (its resource and `TemplateResRef`) as one undoable
+/// Renames a blueprint (its resource and `TemplateResRef`, a store's
+/// `ResRef`) as one undoable
 /// command, and points its editor at the new name.
 pub(crate) fn rename(app: &mut Moonglow, from: ResKey, to: ResRef) {
     let Some(ws) = &mut app.ws else { return };
@@ -376,7 +432,9 @@ pub(crate) fn rename(app: &mut Moonglow, from: ResKey, to: ResRef) {
     }
     let result = ws.flush().map_err(|e| e.to_string()).and_then(|()| {
         let mut g = ws.doc(&from).map_err(|e| e.to_string())?.clone();
-        g.root.set("TemplateResRef", Value::resref(to));
+        let field = BlueprintKind::from_restype(from.restype)
+            .map_or("TemplateResRef", |k| k.resref_field());
+        g.root.set(field, Value::resref(to));
         let data = g.to_bytes().map_err(|e| e.to_string())?;
         ws.apply(Command::new(
             format!("Rename {from} to {new}"),
@@ -418,6 +476,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let pages: &[&'static str] = match key.restype {
         ResType::UTW => &waypoint::PAGES,
         ResType::UTS => &sound::PAGES,
+        ResType::UTT => &trigger::PAGES,
+        ResType::UTE => &encounter::PAGES,
+        ResType::UTM => &store::PAGES,
         _ => &[""],
     };
     let mut page = app.blueprint_pages.get(&key).copied().unwrap_or(pages[0]);
@@ -432,6 +493,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match key.restype {
         ResType::UTW => waypoint::page(&mut form, ui, page),
         ResType::UTS => sound::page(&mut form, ui, page),
+        ResType::UTT => trigger::page(&mut form, ui, page),
+        ResType::UTE => encounter::page(&mut form, ui, page),
+        ResType::UTM => store::page(&mut form, ui, page),
         _ => {}
     });
 }
