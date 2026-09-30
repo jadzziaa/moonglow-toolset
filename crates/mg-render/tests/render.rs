@@ -280,7 +280,8 @@ fn animated_models_render() {
     }
 }
 
-/// Emitters: a brazier's fire and smoke after three seconds of simulation.
+/// Emitters: a brazier's fire and smoke, and a tile's lightning, after three
+/// seconds of simulation.
 #[test]
 fn emitters_render() {
     let Some(root) = mg_testkit::nwn_root() else {
@@ -291,7 +292,9 @@ fn emitters_render() {
     let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
     let dir = mg_testkit::scratch_dir("render-particles");
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    for name in ["plc_i05"] {
+    // The tile's bolts are 0.2 m strips with a thin line in them, seen from
+    // across the whole tile: a few pixels.
+    for (name, min_changed) in [("plc_i05", 500), ("tsw01_a03_01", 20)] {
         let Ok(data) = rm.get_named(name, mg_core::ResType::MDL) else { continue };
         let model = Arc::new(Model::read(&data).unwrap());
         let gm = Arc::new(GpuModel::new(&gpu, model.clone()));
@@ -315,7 +318,7 @@ fn emitters_render() {
         save(&with, &dir.join(format!("{name}.png")));
         let changed = without.data.iter().zip(&with.data).filter(|(a, b)| a != b).count();
         eprintln!("{name}: {quads} particles, {changed} bytes changed");
-        assert!(quads > 0 && changed > 500, "{name}: no visible particles");
+        assert!(quads > 0 && changed > min_changed, "{name}: no visible particles");
     }
 }
 

@@ -3,10 +3,23 @@
 //!
 //! - Fountain emitters spawn `birthrate` particles a second from a
 //!   `xsize` × `ysize` cm rectangle, along the emitter's +Z within a cone of
-//!   `spread` radians, at `velocity` plus up to `randvel` m/s; Single ones
-//!   keep one particle; Explosion ones spawn `birthrate` at once when their
-//!   `detonate` key passes. Lightning and point-to-point emitters, and
-//!   chunk (model) particles, are not drawn yet.
+//!   `spread` radians, at `velocity` plus up to `randvel` m/s (a `trail`
+//!   spawntype: `birthrate` a metre the emitter moves); Single ones keep one
+//!   particle; Explosion ones spawn `birthrate` at once when their
+//!   `detonate` key passes.
+//! - Point-to-point emitters (`p2p`) send particles to their reference
+//!   child: Bezier ones (`p2p_sel` 1) along a curve with `p2p_bezier2`/`3`
+//!   tangents on Z, taking `combinetime` seconds (else their life); Gravity
+//!   ones (`p2p_sel` 0) pulled at `grav` m/s², keeping `drag` of their speed
+//!   a second (1: all, so they overshoot and swing back), gone within
+//!   `threshold` of the target.
+//! - Lightning emitters draw a jagged bolt to their reference child, struck
+//!   anew every `lightningdelay` seconds: `lightningsubdiv` (else
+//!   `birthrate`) halvings, each bend up to `lightningscale` × a fifth of its
+//!   segment, the end within `lightningradius` of the target.
+//! - `Linked` particles are drawn as one strip through them in birth order.
+//! - Chunk emitters throw models (`chunkName`) instead of quads, scaled by
+//!   the size, tumbling at `particlerot` turns a second: [`Particles::chunks`].
 //! - Particles live `lifeexp` seconds, fall with `mass` (× 9.8 m/s²; negative
 //!   rises), spin `particlerot` turns a second, and go from `colorstart`,
 //!   `alphastart` and `sizestart` (metres) to the end values. Textures are
@@ -15,7 +28,8 @@
 //! - `inherit`/`inherit_local` particles move with the emitter; others stay
 //!   where they were born.
 //!
-//! The gravity scale is a guess: the wiki only says positive mass falls.
+//! The gravity scale, the drag and Bezier details and the lightning shape
+//! are guesses from the wiki's descriptions, not measured.
 
 use glam::{Mat4, Quat, Vec2, Vec3};
 use mg_mdl::{Animation, Model, NodeKind};
@@ -64,6 +78,8 @@ pub struct ParticleBatch {
 struct Particle {
     /// World space, or the emitter's space for inheriting emitters.
     pos: Vec3,
+    /// Where it was born (same space), for Bezier paths.
+    origin: Vec3,
     vel: Vec3,
     age: f32,
     life: f32,
@@ -74,10 +90,31 @@ struct Particle {
 #[derive(Debug, Clone)]
 struct EmitterSim {
     node: usize,
+    /// The reference child that point-to-point and lightning emitters aim at.
+    target: Option<usize>,
     particles: Vec<Particle>,
     /// Fractional particles owed.
     owed: f32,
     last_time: Option<f32>,
+    /// World position at the last update (trail emitters).
+    last_pos: Option<Vec3>,
+    /// Lightning: the current bolt (world space) and its age.
+    bolt: Vec<Vec3>,
+    bolt_age: f32,
+}
+
+/// A chunk particle: a model to draw where it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Chunk {
+    /// The model (`chunkName`), lower case.
+    pub model: String,
+    pub transform: Mat4,
+}
+
+/// A point on a cubic Bezier curve.
+fn bezier(p0: Vec3, p1: Vec3, p2: Vec3, p3: Vec3, u: f32) -> Vec3 {
+    let v = 1.0 - u;
+    p0 * (v * v * v) + p1 * (3.0 * v * v * u) + p2 * (3.0 * v * u * u) + p3 * (u * u * u)
 }
 
 /// A small, deterministic random source.
@@ -147,13 +184,31 @@ impl Particles {
             .iter()
             .enumerate()
             .filter(|(_, n)| matches!(n.kind, NodeKind::Emitter(_)))
-            .map(|(node, _)| EmitterSim { node, particles: Vec::new(), owed: 0.0, last_time: None })
+            .map(|(node, n)| EmitterSim {
+                node,
+                target: n
+                    .children
+                    .iter()
+                    .copied()
+                    .find(|&c| matches!(model.nodes[c].kind, NodeKind::Reference(_))),
+                particles: Vec::new(),
+                owed: 0.0,
+                last_time: None,
+                last_pos: None,
+                bolt: Vec::new(),
+                bolt_age: 0.0,
+            })
             .collect();
         Particles { emitters, rng: Rng(0x9E37_79B9_7F4A_7C15) }
     }
 
     pub fn is_empty(&self) -> bool {
         self.emitters.is_empty()
+    }
+
+    /// Whether anything is showing (particles or a bolt).
+    pub fn live(&self) -> bool {
+        self.emitters.iter().any(|e| !e.particles.is_empty() || !e.bolt.is_empty())
     }
 
     /// Advances by `dt` seconds; `time` is the animation's time (for keyed
@@ -179,15 +234,99 @@ impl Particles {
             let inherit = em.flags & (0x40 | 0x100) != 0;
             let life = p("lifeexp", 1.0);
             let gravity = Vec3::new(0.0, 0.0, -9.8 * p("mass", 0.0));
+            let update = em.update.to_ascii_lowercase();
+            let target_world = e.target.map(|t| {
+                transform.transform_point3(pose.get(t).map_or(Vec3::ZERO, |m| m.w_axis.truncate()))
+            });
+            let here = world.w_axis.truncate();
+
+            // Lightning: a new bolt now and then.
+            if update == "lightning" {
+                e.bolt_age += dt;
+                let delay = p("lightningdelay", 0.0).max(0.0);
+                if let Some(target) = target_world
+                    && (e.bolt.is_empty() || e.bolt_age >= delay)
+                {
+                    e.bolt_age = 0.0;
+                    let rng = &mut self.rng;
+                    let radius = p("lightningradius", 0.0).max(0.0);
+                    let end = target
+                        + Vec3::new(
+                            rng.range(-1.0, 1.0),
+                            rng.range(-1.0, 1.0),
+                            rng.range(-1.0, 1.0),
+                        ) * radius;
+                    let subdiv = param_v(model, e.node, at, "lightningsubdiv")
+                        .and_then(|v| v.first().copied())
+                        .unwrap_or_else(|| p("birthrate", 0.0))
+                        .clamp(0.0, 9.0) as u32;
+                    let scale = p("lightningscale", 0.0).max(0.0);
+                    let mut bolt = vec![here, end];
+                    for _ in 0..subdiv.max(1) {
+                        let mut next = Vec::with_capacity(bolt.len() * 2);
+                        for w in bolt.windows(2) {
+                            let (a, b) = (w[0], w[1]);
+                            let len = a.distance(b);
+                            let jitter = Vec3::new(
+                                rng.range(-1.0, 1.0),
+                                rng.range(-1.0, 1.0),
+                                rng.range(-1.0, 1.0),
+                            ) * (scale * len * 0.2);
+                            next.push(a);
+                            next.push((a + b) * 0.5 + jitter);
+                        }
+                        next.push(*bolt.last().expect("two points"));
+                        bolt = next;
+                    }
+                    e.bolt = bolt;
+                }
+                e.last_time = Some(t);
+                continue;
+            }
+
+            // Point to point: aim at the reference child.
+            let p2p = em.flags & 0x1 != 0 && target_world.is_some();
+            let bezier_path = em.flags & 0x2 != 0;
+            let to_space = |w: Vec3| if inherit { world.inverse().transform_point3(w) } else { w };
+            let target = target_world.map(to_space);
+            let z_axis = if inherit {
+                Vec3::Z
+            } else {
+                world.transform_vector3(Vec3::Z).normalize_or(Vec3::Z)
+            };
+            let (src, trg) = (p("p2p_bezier2", 0.0), p("p2p_bezier3", 0.0));
+            let travel = if p("combinetime", 0.0) > 0.0 { p("combinetime", 0.0) } else { life };
+            let (grav, drag, threshold) = (p("grav", 0.0), p("drag", 1.0), p("threshold", 0.0));
+
             // Age and move.
             e.particles.retain_mut(|q| {
                 q.age += dt;
-                q.vel += gravity * dt;
-                q.pos += q.vel * dt;
+                match target {
+                    Some(tg) if p2p && bezier_path => {
+                        let u = (q.age / travel.max(1e-3)).clamp(0.0, 1.0);
+                        q.pos = bezier(q.origin, q.origin + z_axis * src, tg + z_axis * trg, tg, u);
+                    }
+                    Some(tg) if p2p => {
+                        let to = tg - q.pos;
+                        let dist = to.length();
+                        if threshold > 0.0 && dist < threshold {
+                            return false;
+                        }
+                        q.vel = q.vel * drag.clamp(0.0, 1.0).powf(dt)
+                            + to.normalize_or_zero() * grav * dt;
+                        q.pos += q.vel * dt;
+                    }
+                    _ => {
+                        q.vel += gravity * dt;
+                        q.pos += q.vel * dt;
+                    }
+                }
                 q.life < 0.0 || q.age < q.life
             });
             // Spawn.
-            let update = em.update.to_ascii_lowercase();
+            let moved = e.last_pos.map_or(0.0, |last| last.distance(here));
+            e.last_pos = Some(here);
+            let trail = em.spawntype == 1;
             let count = match update.as_str() {
                 "single" => usize::from(e.particles.is_empty()),
                 "explosion" => {
@@ -206,7 +345,7 @@ impl Particles {
                     if fired { p("birthrate", 0.0).max(0.0) as usize } else { 0 }
                 }
                 "fountain" => {
-                    e.owed += p("birthrate", 0.0).max(0.0) * dt;
+                    e.owed += p("birthrate", 0.0).max(0.0) * if trail { moved } else { dt };
                     let n = e.owed.floor();
                     e.owed -= n;
                     n as usize
@@ -236,6 +375,7 @@ impl Particles {
                 let frame0 = if em.flags & 0x20 != 0 { rng.range(0.0, 64.0) } else { 0.0 };
                 e.particles.push(Particle {
                     pos,
+                    origin: pos,
                     vel: if update == "single" { Vec3::ZERO } else { vel },
                     age: 0.0,
                     life: if update == "single" && em.looping { -1.0 } else { life },
@@ -263,9 +403,29 @@ impl Particles {
         let eye = inv_view.w_axis.truncate();
         let (cam_right, cam_up) = (inv_view.x_axis.truncate(), inv_view.y_axis.truncate());
         let mut out = Vec::new();
+        let blend_of = |em: &mg_mdl::Emitter| match em.blend.to_ascii_lowercase().as_str() {
+            "lighten" => ParticleBlend::Lighten,
+            "punch-through" | "punchthrough" => ParticleBlend::PunchThrough,
+            _ => ParticleBlend::Normal,
+        };
         for e in &self.emitters {
             let node = &model.nodes[e.node];
             let NodeKind::Emitter(em) = &node.kind else { continue };
+            if e.bolt.len() >= 2 {
+                let p = |name, default| param(model, e.node, at, name, default);
+                let width = if p("sizestart", 0.0) > 0.0 { p("sizestart", 0.0) } else { 0.1 };
+                let c = color3(param_v(model, e.node, at, "colorstart"), Vec3::ONE);
+                let color = [c.x, c.y, c.z, p("alphastart", 1.0)];
+                let points: Vec<(Vec3, f32, [f32; 4])> =
+                    e.bolt.iter().map(|&q| (q, width, color)).collect();
+                out.push(ParticleBatch {
+                    texture: em.texture.clone(),
+                    blend: blend_of(em),
+                    render_order: em.render_order,
+                    vertices: strip(&points, eye),
+                });
+                continue;
+            }
             if e.particles.is_empty() || em.chunk.is_some() {
                 continue;
             }
@@ -284,6 +444,27 @@ impl Particles {
             let (gx, gy) = (em.xgrid.max(1), em.ygrid.max(1));
             let frames = (f1 - f0 + 1.0).max(1.0);
             let render = em.render.to_ascii_lowercase();
+            if render == "linked" {
+                // One strip through the particles, oldest first.
+                let mut order: Vec<&Particle> = e.particles.iter().collect();
+                order.sort_by(|a, b| b.age.total_cmp(&a.age));
+                let points: Vec<(Vec3, f32, [f32; 4])> = order
+                    .iter()
+                    .map(|q| {
+                        let k = if q.life > 0.0 { (q.age / q.life).clamp(0.0, 1.0) } else { 0.0 };
+                        let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
+                        let c = c0.lerp(c1, k);
+                        (pos, s0 + (s1 - s0) * k, [c.x, c.y, c.z, a0 + (a1 - a0) * k])
+                    })
+                    .collect();
+                out.push(ParticleBatch {
+                    texture: em.texture.clone(),
+                    blend: blend_of(em),
+                    render_order: em.render_order,
+                    vertices: strip(&points, eye),
+                });
+                continue;
+            }
             let mut quads: Vec<(f32, [ParticleVertex; 6])> = Vec::new();
             for q in &e.particles {
                 let k = if q.life > 0.0 { (q.age / q.life).clamp(0.0, 1.0) } else { 0.0 };
@@ -339,11 +520,7 @@ impl Particles {
                 ];
                 quads.push((pos.distance_squared(eye), quad));
             }
-            let blend = match em.blend.to_ascii_lowercase().as_str() {
-                "lighten" => ParticleBlend::Lighten,
-                "punch-through" | "punchthrough" => ParticleBlend::PunchThrough,
-                _ => ParticleBlend::Normal,
-            };
+            let blend = blend_of(em);
             if blend == ParticleBlend::Normal {
                 quads.sort_by(|a, b| b.0.total_cmp(&a.0));
             }
@@ -356,6 +533,73 @@ impl Particles {
         }
         out
     }
+
+    /// Chunk emitters' particles: their models where they are, tumbling.
+    pub fn chunks(
+        &self,
+        model: &Model,
+        anim: Option<&Animation>,
+        time: f32,
+        pose: &[Mat4],
+        transform: Mat4,
+    ) -> Vec<Chunk> {
+        let t = anim.map_or(time, |a| if a.length > 0.0 { time.rem_euclid(a.length) } else { 0.0 });
+        let at = anim.map(|a| (a, t));
+        let mut out = Vec::new();
+        for e in &self.emitters {
+            let NodeKind::Emitter(em) = &model.nodes[e.node].kind else { continue };
+            let Some(chunk) = &em.chunk else { continue };
+            let p = |name, default| param(model, e.node, at, name, default);
+            let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
+            let inherit = em.flags & (0x40 | 0x100) != 0;
+            let (s0, s1) = (p("sizestart", 1.0), p("sizeend", 1.0));
+            let spin = p("particlerot", 0.0) * std::f32::consts::TAU;
+            for q in &e.particles {
+                let k = if q.life > 0.0 { (q.age / q.life).clamp(0.0, 1.0) } else { 0.0 };
+                let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
+                // A tumbling axis fixed per particle (from its random angle).
+                let axis = Vec3::new(q.rot.cos(), q.rot.sin(), 0.5).normalize();
+                let rot = Quat::from_axis_angle(axis, q.rot + spin * q.age);
+                out.push(Chunk {
+                    model: chunk.to_ascii_lowercase(),
+                    transform: Mat4::from_scale_rotation_translation(
+                        Vec3::splat(s0 + (s1 - s0) * k),
+                        rot,
+                        pos,
+                    ),
+                });
+            }
+        }
+        out
+    }
+}
+
+/// Camera-facing quads joining points (position, width, colour), the
+/// texture's v running along the strip.
+fn strip(points: &[(Vec3, f32, [f32; 4])], eye: Vec3) -> Vec<ParticleVertex> {
+    let mut out = Vec::new();
+    let n = points.len().saturating_sub(1).max(1) as f32;
+    for (i, w) in points.windows(2).enumerate() {
+        let ((a, wa, ca), (b, wb, cb)) = (w[0], w[1]);
+        let side =
+            |p: Vec3, width: f32| (b - a).cross(eye - p).normalize_or(Vec3::X) * (width * 0.5);
+        let (sa, sb) = (side(a, wa), side(b, wb));
+        let (va, vb) = (i as f32 / n, (i + 1) as f32 / n);
+        let v = |p: Vec3, u: f32, v: f32, c: [f32; 4]| ParticleVertex {
+            pos: p.to_array(),
+            uv: [u, v],
+            color: c,
+        };
+        out.extend([
+            v(a - sa, 0.0, va, ca),
+            v(a + sa, 1.0, va, ca),
+            v(b + sb, 1.0, vb, cb),
+            v(a - sa, 0.0, va, ca),
+            v(b + sb, 1.0, vb, cb),
+            v(b - sb, 0.0, vb, cb),
+        ]);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -413,5 +657,141 @@ mod tests {
             p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
         }
         assert!(p.emitters[0].particles.iter().all(|q| q.age <= 1.0));
+    }
+
+    /// An emitter (root dummy, emitter, reference child 2 m below).
+    fn emitter(e: Emitter, params: &[(&str, f32)]) -> Model {
+        let mut root = Node::new("m", NodeKind::Dummy);
+        root.children = vec![1];
+        let mut n = Node::new("em", NodeKind::Emitter(e));
+        n.parent = Some(0);
+        n.children = vec![2];
+        for (name, v) in params {
+            n.controllers.push(Controller::constant(name, &[*v]));
+        }
+        let mut r = Node::new("target", NodeKind::Reference(Default::default()));
+        r.parent = Some(1);
+        r.position = [0.0, 0.0, -2.0];
+        Model { name: "m".into(), nodes: vec![root, n, r], ..Default::default() }
+    }
+
+    #[test]
+    fn lightning_strikes_its_target() {
+        let e =
+            Emitter { update: "Lightning".into(), render: "Linked".into(), ..Default::default() };
+        let m = emitter(
+            e,
+            &[
+                ("birthrate", 3.0),
+                ("lightningradius", 0.1),
+                ("lightningscale", 1.0),
+                ("sizestart", 0.2),
+            ],
+        );
+        let pose = crate::rest_pose(&m);
+        let mut p = Particles::new(&m);
+        p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        let bolt = &p.emitters[0].bolt;
+        assert_eq!(bolt.len(), 9, "three halvings: eight segments");
+        assert_eq!(bolt[0], Vec3::ZERO);
+        assert!(bolt[8].distance(Vec3::new(0.0, 0.0, -2.0)) <= 0.1 * 3f32.sqrt() + 1e-5);
+        assert!(bolt.iter().any(|q| q.x != 0.0 || q.y != 0.0), "jagged");
+        assert!(p.live());
+        let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, -1.0), Vec3::new(0.0, 0.0, -1.0), Vec3::Z);
+        let b = p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, view);
+        assert_eq!(b[0].vertices.len(), 8 * 6);
+    }
+
+    #[test]
+    fn point_to_point_particles_reach_the_target() {
+        let target = Vec3::new(0.0, 0.0, -2.0);
+        // Gravity: pulled in, overshooting and swinging back (drag 1).
+        let gravity = Emitter {
+            update: "Fountain".into(),
+            render: "Normal".into(),
+            flags: 0x1,
+            ..Default::default()
+        };
+        let m = emitter(
+            gravity,
+            &[("birthrate", 20.0), ("lifeexp", 3.0), ("grav", 4.0), ("drag", 0.5)],
+        );
+        let pose = crate::rest_pose(&m);
+        let mut p = Particles::new(&m);
+        for _ in 0..30 {
+            p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        }
+        let old: Vec<&Particle> = p.emitters[0].particles.iter().filter(|q| q.age > 1.5).collect();
+        assert!(!old.is_empty());
+        assert!(old.iter().all(|q| q.pos.distance(target) < 1.5), "pulled towards the target");
+        // Bezier: at the target after combinetime.
+        let bezier_em = Emitter {
+            update: "Fountain".into(),
+            render: "Normal".into(),
+            flags: 0x1 | 0x2,
+            ..Default::default()
+        };
+        let m = emitter(
+            bezier_em,
+            &[("birthrate", 10.0), ("lifeexp", 2.0), ("combinetime", 1.0), ("p2p_bezier2", 1.0)],
+        );
+        let mut p = Particles::new(&m);
+        for _ in 0..15 {
+            p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        }
+        for q in &p.emitters[0].particles {
+            if q.age >= 1.0 {
+                assert!(q.pos.distance(target) < 1e-4, "arrived: {:?}", q.pos);
+            } else if q.age > 0.0 {
+                assert!(q.pos.z > -2.0 && q.pos.distance(target) > 1e-4, "on the way");
+            }
+        }
+    }
+
+    #[test]
+    fn chunks_and_trails() {
+        let chunky = Emitter {
+            update: "Fountain".into(),
+            render: "Normal".into(),
+            chunk: Some("Plc_Chunk_W01".into()),
+            ..Default::default()
+        };
+        let m = emitter(
+            chunky,
+            &[("birthrate", 10.0), ("lifeexp", 5.0), ("sizestart", 0.1), ("sizeend", 0.1)],
+        );
+        let pose = crate::rest_pose(&m);
+        let mut p = Particles::new(&m);
+        for _ in 0..10 {
+            p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+        }
+        let chunks = p.chunks(&m, None, 0.0, &pose, Mat4::IDENTITY);
+        assert!(!chunks.is_empty() && chunks.iter().all(|c| c.model == "plc_chunk_w01"));
+        let (scale, _, _) = chunks[0].transform.to_scale_rotation_translation();
+        assert!((scale - Vec3::splat(0.1)).abs().max_element() < 1e-4);
+        // Chunks draw as models, not quads.
+        let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, 1.0), Vec3::ZERO, Vec3::Z);
+        assert!(p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, view).is_empty());
+
+        // A trail: birthrate per metre moved, none standing still.
+        let trail = Emitter {
+            update: "Fountain".into(),
+            render: "Normal".into(),
+            spawntype: 1,
+            ..Default::default()
+        };
+        let m = emitter(trail, &[("birthrate", 5.0), ("lifeexp", 10.0)]);
+        let mut p = Particles::new(&m);
+        for i in 0..=10 {
+            p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+            let _ = i;
+        }
+        assert!(p.emitters[0].particles.is_empty());
+        for i in 1..=10 {
+            let at = Mat4::from_translation(Vec3::new(i as f32 * 0.2, 0.0, 0.0));
+            p.update(&m, None, 0.0, 0.1, &pose, at);
+        }
+        let n = p.emitters[0].particles.len();
+        assert!((9..=10).contains(&n), "{n} particles over 2 m");
     }
 }

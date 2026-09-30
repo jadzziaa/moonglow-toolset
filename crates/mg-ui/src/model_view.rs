@@ -60,6 +60,8 @@ pub struct ModelView {
     last_frame: Option<f64>,
     particles: Option<Particles>,
     dangly: Option<Dangly>,
+    /// Chunk emitters' models, by name.
+    chunk_models: HashMap<String, Option<Arc<GpuModel>>>,
 }
 
 impl ModelView {
@@ -91,6 +93,7 @@ impl ModelView {
             last_frame: None,
             particles: None,
             dangly: None,
+            chunk_models: HashMap::new(),
         };
         view.frame();
         view
@@ -243,9 +246,30 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
     let dangly = view.dangly.get_or_insert_with(|| Dangly::new(&model));
     dangly.update(dt, current_pose, Mat4::IDENTITY, Vec3::ZERO);
     dangly.apply(&mut state, current_pose, Mat4::IDENTITY);
+    // Chunk emitters' models.
+    let chunks = particles.chunks(&model.model, playing, view.time, current_pose, Mat4::IDENTITY);
+    let live = particles.live();
+    let mut chunk_instances = Vec::new();
+    for c in chunks {
+        let gm = view
+            .chunk_models
+            .entry(c.model.clone())
+            .or_insert_with(|| {
+                let m = app
+                    .game
+                    .as_ref()
+                    .and_then(|g| g.resman.get_named(&c.model, ResType::MDL).ok())
+                    .and_then(|d| Model::read(&d).ok())?;
+                Some(Arc::new(GpuModel::new(&vp.gpu, Arc::new(m))))
+            })
+            .clone();
+        if let Some(gm) = gm {
+            chunk_instances.push(Instance::new(gm, c.transform));
+        }
+    }
     // Keep drawing while something moves: an animation, live particles or
     // dangly meshes.
-    if (pose.is_some() || !batches.is_empty() || dangly.moving()) && view.playing {
+    if (pose.is_some() || live || dangly.moving()) && view.playing {
         ui.ctx().request_repaint();
     }
 
@@ -273,11 +297,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
     }
     let (targets, id) = view.targets.as_ref().expect("made above");
     let scene = Scene {
-        instances: vec![Instance {
+        instances: std::iter::once(Instance {
             pose,
             state: Some(Arc::new(state)),
             ..Instance::new(model.clone(), Mat4::IDENTITY)
-        }],
+        })
+        .chain(chunk_instances)
+        .collect(),
         lights,
         particles: batches,
         area: AreaLight::default(),
