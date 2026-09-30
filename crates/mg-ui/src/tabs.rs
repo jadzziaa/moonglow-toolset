@@ -33,6 +33,8 @@ pub enum Tab {
     Resource(ResKey),
     /// A model, in the 3D viewer.
     Model(ResKey),
+    /// The blueprint palettes.
+    Palette,
 }
 
 impl Tab {
@@ -72,6 +74,7 @@ impl TabViewer for Viewer<'_> {
             }
             Tab::Gff(k) => k.to_string().into(),
             Tab::Resources => "Resources".into(),
+            Tab::Palette => "Palettes".into(),
             Tab::Factions => "Factions".into(),
             Tab::Journal => "Journal".into(),
             Tab::Dialog(k) => k.to_string().into(),
@@ -87,6 +90,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
             Tab::Resources => browser::ui(self.app, ui),
+            Tab::Palette => crate::palette_view::ui(self.app, ui),
             Tab::Factions => faction_view::ui(self.app, ui),
             Tab::Journal => journal_view::ui(self.app, ui),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),

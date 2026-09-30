@@ -13,6 +13,7 @@ pub mod factions;
 pub mod haks;
 pub mod journal;
 pub mod new;
+pub mod palette;
 pub mod refs;
 pub mod script_wizard;
 pub mod transfer;

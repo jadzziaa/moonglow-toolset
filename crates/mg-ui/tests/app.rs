@@ -938,3 +938,47 @@ fn blueprint_previews_open() {
     let img = h.render().expect("render");
     assert!(img.width() > 0);
 }
+
+#[test]
+fn palette_edit_copy_and_delete() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    // The standard waypoints: the "Tavern" waypoint (nw_wp_tavern).
+    let tavern = app.game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    app.palette.filter = "nw_wp_tavern".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label(&tavern).click_secondary();
+    h.run();
+    h.get_by_label("Edit Copy").click();
+    h.run();
+    // A copy in the module, shown in the Custom palette.
+    let copy = ResKey::parse("nw_wp_tavern001", ResType::UTW).unwrap();
+    let gff = h.state_mut().ws.as_mut().unwrap().doc(&copy).unwrap().clone();
+    assert_eq!(gff.root.resref("TemplateResRef").unwrap().to_string(), "nw_wp_tavern001");
+    assert!(h.state().palette.custom);
+    // Custom palettes list blueprints under their own names.
+    let name = mg_module::palette::blueprint_name(
+        mg_module::palette::BlueprintKind::Waypoint,
+        &gff.root,
+        h.state().game.as_ref().unwrap(),
+    );
+    h.run();
+    h.get_by_label(&name).click_secondary();
+    h.run();
+    h.get_by_label("Delete").click();
+    h.run();
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&copy));
+    // Undo brings it back.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&copy));
+}

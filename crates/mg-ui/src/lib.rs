@@ -13,6 +13,7 @@ pub mod journal_view;
 pub mod model_view;
 pub mod module_props;
 mod options;
+pub mod palette_view;
 pub mod script_tools;
 mod script_view;
 pub mod script_wizard;
@@ -145,6 +146,8 @@ pub struct Moonglow {
     /// The GPU for 3D views (from the window), if there is one.
     pub viewport: Option<model_view::Viewport3d>,
     pub model_views: HashMap<ResKey, model_view::ModelView>,
+    /// The blueprint palettes pane.
+    pub palette: palette_view::PaletteView,
     /// The hak conflict report being shown.
     pub hak_report: Option<String>,
     /// The custom talk table loaded into the game data, by name.
@@ -204,6 +207,7 @@ impl Moonglow {
             script_wizard: None,
             viewport: None,
             model_views: HashMap::new(),
+            palette: Default::default(),
             hak_report: None,
             custom_tlk: None,
             var_edit: None,
@@ -419,6 +423,9 @@ impl Moonglow {
                     self.new_script = Some(String::new());
                 }
                 ui.separator();
+                if ui.button("Palettes").clicked() {
+                    self.actions.push(Action::OpenTab(Tab::Palette));
+                }
                 if ui.button("Resource Browser").clicked() {
                     self.actions.push(Action::OpenTab(Tab::Resources));
                 }
@@ -471,6 +478,7 @@ impl Moonglow {
             );
             button(ui, open, "🗺 New Area", "Area Wizard (Ctrl+Alt+A)", Action::AreaWizard);
             button(ui, true, "🔍 Resources", "Resource browser", Action::OpenTab(Tab::Resources));
+            button(ui, true, "📦 Palettes", "Blueprint palettes", Action::OpenTab(Tab::Palette));
             ui.separator();
             button(ui, open, "⚙ Compile", "Compile all scripts (F7)", Action::CompileScripts);
             button(ui, open, "✔ Verify", "Verify the module", Action::Verify);
@@ -815,7 +823,27 @@ impl Moonglow {
             }
             Action::OpenTab(tab) => {
                 if self.dock.find_tab(&tab).is_none() {
-                    self.dock.push_to_focused_leaf(tab.clone());
+                    if tab == Tab::Palette {
+                        // Its own pane on the right, as in Aurora.
+                        self.dock.main_surface_mut().split_right(
+                            egui_dock::NodeIndex::root(),
+                            0.72,
+                            vec![tab.clone()],
+                        );
+                    } else {
+                        // Not into the palette's pane.
+                        let palette = self.dock.find_tab(&Tab::Palette);
+                        let in_palette = self
+                            .dock
+                            .focused_leaf()
+                            .zip(palette)
+                            .is_some_and(|(f, p)| f.surface == p.surface && f.node == p.node);
+                        if in_palette {
+                            self.dock.push_to_first_leaf(tab.clone());
+                        } else {
+                            self.dock.push_to_focused_leaf(tab.clone());
+                        }
+                    }
                 }
                 // Bring it to the front, new or not.
                 if let Some(path) = self.dock.find_tab(&tab) {
@@ -844,6 +872,17 @@ impl Moonglow {
             let n = edits.len();
             if let Err(e) = ws.apply(Command::new(format!("Save {n} script(s)"), edits)) {
                 self.log.error(e.to_string());
+            }
+        }
+        // The custom palettes list the module's blueprints, as Aurora keeps
+        // them.
+        if let Some(game) = &self.game {
+            let rebuilt = ws
+                .flush()
+                .map_err(|e| e.to_string())
+                .and_then(|()| mg_module::palette::rebuild_custom_palettes(&mut ws.module, game));
+            if let Err(e) = rebuilt {
+                self.log.error(format!("Custom palettes: {e}"));
             }
         }
         let result = match to {

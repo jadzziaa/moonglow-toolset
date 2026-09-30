@@ -119,6 +119,8 @@ pub struct Workspace {
     redo: Vec<Command>,
     /// Commands applied since the last save (undo past it counts down).
     changes_since_save: isize,
+    /// Counts every change (apply, undo, redo), for views that cache.
+    revision: u64,
 }
 
 impl Workspace {
@@ -129,7 +131,13 @@ impl Workspace {
             undo: Vec::new(),
             redo: Vec::new(),
             changes_since_save: 0,
+            revision: 0,
         }
+    }
+
+    /// A number that changes whenever the module does (through commands).
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// A GFF document, parsed on first use and cached.
@@ -165,6 +173,7 @@ impl Workspace {
         self.undo.push(inverse);
         self.redo.clear();
         self.changes_since_save += 1;
+        self.revision += 1;
         Ok(())
     }
 
@@ -175,6 +184,7 @@ impl Workspace {
         let label = forward.label.clone();
         self.redo.push(forward);
         self.changes_since_save -= 1;
+        self.revision += 1;
         Ok(Some(label))
     }
 
@@ -185,6 +195,7 @@ impl Workspace {
         let label = inverse.label.clone();
         self.undo.push(inverse);
         self.changes_since_save += 1;
+        self.revision += 1;
         Ok(Some(label))
     }
 

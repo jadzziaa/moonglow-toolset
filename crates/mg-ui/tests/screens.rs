@@ -124,3 +124,18 @@ fn blueprint_preview() {
     h.run_steps(4);
     shoot(&mut h, &dir, "blueprint-preview");
 }
+
+#[test]
+#[ignore]
+fn palettes() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    app.palette.filter = "bear".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    shoot(&mut h, &dir, "palettes");
+}

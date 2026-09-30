@@ -158,3 +158,15 @@ unless given otherwise.
 | Normal, specular, roughness, height (parallax, occlusion) and self-illumination maps, from MDL `texture1`–`3` or an MTR (named by `materialname` or like the bitmap) with its parameters | as the game's normal-mapped shaders; tangent frames from screen-space derivatives | ✅ (`render.rs`: synthetic maps shade as expected; the base game ships almost none) [material_maps_shade] |
 | Environment maps | TXI `envmaptexture`/`bumpyshinytexture` (`default`: the object's, then the area's, then `chrome1`), the object's own (appearance `ENVMAP`: its textures' alpha becomes reflectivity), 2D sphere maps and cube maps (TXI `cube 1`, faces `name0`…`name5`) | ✅ [environment_maps_reflect] |
 | Blueprint previews (Aurora: creature, item, placeable and door previews in their editors and palettes) | Resources › Preview (and the blueprint editors in Phase 8): part-based creatures (skeleton, body or armour parts, robes hiding parts, head or helmet, cloak), single-model creatures, wings, tails, weapons and shields in hand, PLT colours, appearance environment maps, the idle animation; items (simple, layered, composite, armour on a body); placeables (their state's animation, light, reflection); doors | ✅ (`previews.rs`: base-game blueprints assemble and draw) [blueprint_previews_open] |
+
+## Palettes (`TfraMainPalette`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Standard and Custom trees for creatures, doors, encounters, items, placeables, sounds, stores, triggers, waypoints (the game's `*palstd.itp`, the module's `*palcus.itp`) | Tools › Palettes (its own pane on the right): type, Standard or Custom, categories with their blueprints; creatures show their CR | ✅ [palette_edit_copy_and_delete] |
+| Custom palettes regenerated from the module's blueprints (category by `PaletteID`, stores `ID`; 255 hidden; creatures with CR and faction) | rebuilt from the blueprints on every save, and live in the pane | ✅ (`palettes.rs`: Chapter 1's nine custom palettes rebuild entry for entry, in order) |
+| Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview | ◐ (New waits for the blueprint wizards; the copy's resref rule is not yet checked against Aurora) |
+| Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
+| Update Instances | not yet (with the area editor, Phase 9) | ✗ |
+| Selecting a blueprint arms placement in the area | with the area editor (Phase 9) | ✗ |
+| In-place rename of custom blueprints | not yet (names are edited in the blueprint editors) | ✗ |
