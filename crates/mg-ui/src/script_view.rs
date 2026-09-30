@@ -17,6 +17,20 @@ pub(crate) struct ScriptBuffer {
     pub(crate) text: String,
     /// The text as last loaded or saved.
     pub(crate) saved: String,
+    /// The module's bytes the text was last compared with (address and
+    /// length), to decode them again only when they change.
+    source: (usize, usize),
+}
+
+/// The laid-out text of a script editor, reused while the text, width and
+/// theme stay the same (a large script takes milliseconds to highlight and
+/// lay out).
+#[derive(Debug, Clone)]
+pub(crate) struct LaidOut {
+    text: String,
+    wrap: f32,
+    dark: bool,
+    galley: std::sync::Arc<egui::Galley>,
 }
 
 impl ScriptBuffer {
@@ -82,15 +96,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui.label(format!("{key} is no longer in the module."));
         return;
     };
-    let module_text = decode(bytes);
-    let buf = app
-        .scripts
-        .entry(key)
-        .or_insert_with(|| ScriptBuffer { text: module_text.clone(), saved: module_text.clone() });
-    if !buf.is_dirty() && buf.saved != module_text {
-        // Changed underneath (undo, import): follow the module.
-        buf.text = module_text.clone();
-        buf.saved = module_text;
+    let source = (bytes.as_ptr() as usize, bytes.len());
+    let Moonglow { scripts, laid_out, actions, .. } = app;
+    let buf = scripts.entry(key).or_insert_with(|| {
+        let text = decode(bytes);
+        ScriptBuffer { text: text.clone(), saved: text, source }
+    });
+    if buf.source != source {
+        buf.source = source;
+        let module_text = decode(bytes);
+        if !buf.is_dirty() && buf.saved != module_text {
+            // Changed underneath (undo, import): follow the module.
+            buf.text = module_text.clone();
+            buf.saved = module_text;
+        }
     }
     let mut save = false;
     let mut compile = false;
@@ -104,10 +123,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     ui.separator();
     let dark = ui.visuals().dark_mode;
     let default = ui.visuals().text_color();
+    let cached = laid_out.entry(key).or_insert(None);
     let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap: f32| {
+        if let Some(c) =
+            cached.as_ref().filter(|c| c.wrap == wrap && c.dark == dark && c.text == text.as_str())
+        {
+            return c.galley.clone();
+        }
         let mut job = highlight(text.as_str(), dark, default);
         job.wrap.max_width = wrap;
-        ui.fonts_mut(|f| f.layout_job(job))
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        *cached =
+            Some(LaidOut { text: text.as_str().to_string(), wrap, dark, galley: galley.clone() });
+        galley
     };
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         ui.add(
@@ -123,7 +151,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let text = buf.text.clone();
         if buf.is_dirty() {
             buf.saved = text.clone();
-            app.actions.push(Action::Apply(Command::new(
+            actions.push(Action::Apply(Command::new(
                 format!("Edit {key}"),
                 vec![Edit::SetResource { key, data: Some(encode(&text)) }],
             )));
@@ -177,5 +205,22 @@ mod tests {
         let job = highlight(src, true, Color32::WHITE);
         assert_eq!(job.text, src);
         assert!(job.sections.len() > 10);
+    }
+}
+
+#[cfg(test)]
+mod perf {
+    /// Timing only: `cargo test --release -p mg-ui --lib highlight_speed -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn highlight_speed() {
+        let Some(root) = mg_testkit::nwn_root() else { return };
+        let game =
+            mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+        let data = game.resman.get_named("nwscript", mg_core::ResType::NSS).unwrap();
+        let text = String::from_utf8_lossy(&data).into_owned();
+        let t = std::time::Instant::now();
+        let job = super::highlight(&text, true, egui::Color32::WHITE);
+        println!("highlight: {:?}, {} sections", t.elapsed(), job.sections.len());
     }
 }

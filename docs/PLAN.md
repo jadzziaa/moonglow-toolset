@@ -369,7 +369,8 @@ choices, one undoable import), and the resource browser (all ~114,000
 resources of the load order with their layer; read-only GFF, 2DA, script and
 text views; copy into the module, save to a file). The off-screen display
 also runs Moonglow itself for visual checks.
-Next: the script editor spike on 10,000-line scripts, toolbar.
+The script editor spike is done (see §9: egui's editor is fast enough on
+the game's largest script). Next: toolbar; then Phase 6.
 
 ### Phase 6: Text-and-tree editors
 Localized string editor, variables, pickers; script editor (highlighting,
@@ -462,7 +463,7 @@ game assets are loaded from the user's install and never redistributed.
 | --- | --- |
 | Tile painting behaviour is undocumented | SET rules plus recorded Aurora scenarios (L4) from early on |
 | EE lighting looks off | Model derived from the stock shaders; compared with client screenshots (L5); stock-shader translation as a fallback (§5.5) |
-| egui text editing on large scripts | Spike in Phase 5; fall back to a custom virtualized code editor widget |
+| egui text editing on large scripts | Resolved (Phase 5 spike): with the laid-out text cached between frames, `nwscript.nss` (13,869 lines) costs 0.4 ms per idle frame and ~10 ms per keystroke (190 ms to open, 140 ms for the first edit); `crates/mg-ui/tests/editor_perf.rs` |
 | Building the C++ compiler on all platforms | Plain C++ with no dependencies; CI builds it on all three; `nwn_script_comp` as a fallback |
 | Aurora defaults we cannot see | Capture them from Aurora's wizards into fixtures |
 | Scope | Parity checklist drives order; editors ship without previews until Phase 7 lands |

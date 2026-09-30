@@ -109,6 +109,8 @@ pub struct Moonglow {
     pub dialogs: Box<dyn Dialogs>,
     /// Open script editors' text, by script.
     pub(crate) scripts: HashMap<ResKey, script_view::ScriptBuffer>,
+    /// Script editors' laid-out text, reused between frames.
+    pub(crate) laid_out: HashMap<ResKey, Option<script_view::LaidOut>>,
     /// Pending text of single-line fields being edited, by widget id.
     pub(crate) buffers: HashMap<egui::Id, String>,
     pub wizard: Option<Wizard>,
@@ -148,6 +150,7 @@ impl Moonglow {
             actions: Vec::new(),
             dialogs,
             scripts: HashMap::new(),
+            laid_out: HashMap::new(),
             buffers: HashMap::new(),
             wizard: None,
             settings: Settings::default(),
