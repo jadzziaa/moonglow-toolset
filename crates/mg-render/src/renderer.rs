@@ -101,6 +101,8 @@ struct Draw {
     uniform: DrawUniform,
     material: MaterialKey,
     vertices: wgpu::Buffer,
+    /// Replaced vertices: their bytes in the frame's dynamic buffer.
+    dynamic: Option<std::ops::Range<u64>>,
     skin: Option<wgpu::Buffer>,
     indices: wgpu::Buffer,
     count: u32,
@@ -117,6 +119,8 @@ pub struct Renderer {
     particle_frame_layout: wgpu::BindGroupLayout,
     particle_pipelines: HashMap<ParticleBlend, wgpu::RenderPipeline>,
     particle_buffer: wgpu::Buffer,
+    /// Animated and dangly meshes' vertices, rewritten every frame.
+    dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
     bone_buffer: wgpu::Buffer,
@@ -362,6 +366,7 @@ impl Renderer {
             particle_frame_layout,
             particle_pipelines,
             particle_buffer: buffer("particles", 1 << 16, wgpu::BufferUsages::VERTEX),
+            dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer: buffer(
                 "frame",
                 std::mem::size_of::<FrameUniform>() as u64,
@@ -495,10 +500,20 @@ impl Renderer {
         // Draws.
         let mut draws: Vec<Draw> = Vec::new();
         let mut bones: Vec<[[f32; 4]; 4]> = Vec::new();
+        let mut dynamic: Vec<Vertex> = Vec::new();
         for inst in &scene.instances {
             let rest = &inst.model.rest;
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
-            for mesh in &inst.model.meshes {
+            for (j, mesh) in inst.model.meshes.iter().enumerate() {
+                let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
+                let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
+                let emissive = replaced.and_then(|r| r.selfillum).unwrap_or(mesh.material.emissive);
+                let dynamic_range = replaced.and_then(|r| r.vertices.as_ref()).map(|v| {
+                    let size = std::mem::size_of::<Vertex>() as u64;
+                    let start = dynamic.len() as u64 * size;
+                    dynamic.extend_from_slice(v);
+                    start..dynamic.len() as u64 * size
+                });
                 // Bones: bind pose to current pose, in the skin node's space.
                 let bone_base = bones.len() as u32;
                 if let Some(skin) = &mesh.skin {
@@ -525,8 +540,7 @@ impl Renderer {
                 let env_mapped = env.is_some();
                 let pass = if blending == Blending::Additive {
                     Pass::Additive
-                } else if mat.alpha < 1.0 || (has_alpha && !env_mapped) || mat.transparency_hint > 0
-                {
+                } else if alpha < 1.0 || (has_alpha && !env_mapped) || mat.transparency_hint > 0 {
                     Pass::Blend
                 } else {
                     Pass::Opaque
@@ -556,9 +570,9 @@ impl Renderer {
                     uniform: DrawUniform {
                         model_view: cols(model_view),
                         normal_matrix: cols(normal),
-                        diffuse: mat.diffuse.extend(mat.alpha).to_array(),
+                        diffuse: mat.diffuse.extend(alpha).to_array(),
                         ambient: mat.ambient.extend(1.0).to_array(),
-                        emissive: mat.emissive.extend(1.0).to_array(),
+                        emissive: emissive.extend(1.0).to_array(),
                         params: [
                             discard,
                             if env_mapped { 1.0 } else { 0.0 },
@@ -580,6 +594,7 @@ impl Renderer {
                         clamp,
                     ),
                     vertices: mesh.vertices.clone(),
+                    dynamic: dynamic_range,
                     skin: mesh.skin.as_ref().map(|s| s.vertices.clone()),
                     indices: mesh.indices.clone(),
                     count: mesh.index_count,
@@ -615,6 +630,20 @@ impl Renderer {
         }
         if !bones.is_empty() {
             gpu.queue.write_buffer(&self.bone_buffer, 0, bytemuck::cast_slice(&bones));
+        }
+
+        // Replaced vertices.
+        let dynamic_bytes = std::mem::size_of_val(dynamic.as_slice());
+        if (self.dynamic_buffer.size() as usize) < dynamic_bytes {
+            self.dynamic_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("dynamic vertices"),
+                size: dynamic_bytes.next_power_of_two() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if dynamic_bytes > 0 {
+            gpu.queue.write_buffer(&self.dynamic_buffer, 0, bytemuck::cast_slice(&dynamic));
         }
 
         // Upload per-draw data.
@@ -816,7 +845,12 @@ impl Renderer {
                 }
                 pass.set_bind_group(1, &draw_group, &[(i as u64 * self.draw_stride) as u32]);
                 pass.set_bind_group(2, &self.materials[&d.material], &[]);
-                pass.set_vertex_buffer(0, d.vertices.slice(..));
+                match &d.dynamic {
+                    Some(range) => {
+                        pass.set_vertex_buffer(0, self.dynamic_buffer.slice(range.clone()))
+                    }
+                    None => pass.set_vertex_buffer(0, d.vertices.slice(..)),
+                }
                 pass.set_index_buffer(d.indices.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..d.count, 0, 0..1);
             }

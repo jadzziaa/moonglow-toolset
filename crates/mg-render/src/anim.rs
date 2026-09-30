@@ -8,9 +8,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{Mat4, Quat, Vec3};
-use mg_mdl::{Animation, Controller, Model};
+use mg_mdl::{AnimMeshSets, Animation, Controller, Mesh, Model};
 
-use crate::model::local;
+use crate::model::{GpuModel, Vertex, local};
+use crate::scene::MeshState;
 
 /// A controller's value at `t` (clamped to its keys).
 pub fn sample(c: &Controller, t: f32) -> Vec<f32> {
@@ -149,6 +150,104 @@ pub fn lights(
         ));
     }
     out
+}
+
+/// What `anim` at `t` changes in `model`'s meshes: animated alpha and
+/// self-illumination, and animated meshes' vertices. The vertex sets are
+/// samples `sample_period` apart from the animation's start (the last at
+/// its end), interpolated; normals are recomputed from the moved faces.
+pub fn mesh_state(model: &GpuModel, anim: &Animation, t: f32) -> MeshState {
+    let t = if anim.length > 0.0 { t.rem_euclid(anim.length) } else { 0.0 };
+    let by_name: HashMap<String, usize> =
+        anim.nodes.iter().enumerate().map(|(i, n)| (n.name.to_ascii_lowercase(), i)).collect();
+    let mut state = MeshState::new(model);
+    for (i, mesh) in model.meshes.iter().enumerate() {
+        let name = model.model.nodes[mesh.node].name.to_ascii_lowercase();
+        let Some(an) = by_name.get(&name).map(|&k| &anim.nodes[k]) else { continue };
+        let out = &mut state.meshes[i];
+        for c in &an.controllers {
+            let v = sample(c, t);
+            match (c.name.as_str(), v.as_slice()) {
+                ("alpha", [a, ..]) => out.alpha = Some(*a),
+                ("selfillumcolor", [r, g, b, ..]) => out.selfillum = Some(Vec3::new(*r, *g, *b)),
+                _ => {}
+            }
+        }
+        if let (Some(sets), Some(data)) = (&an.anim_mesh, model.mesh_data(i)) {
+            out.vertices = animated_vertices(data, sets, t);
+        }
+    }
+    state
+}
+
+/// An animated mesh's vertices at `t`.
+fn animated_vertices(m: &Mesh, sets: &AnimMeshSets, t: f32) -> Option<Vec<Vertex>> {
+    if sets.vertex_sets.is_empty() && sets.uv_sets.is_empty() {
+        return None;
+    }
+    // Set `k` and the fraction towards `k + 1` at `t`.
+    let at = |count: usize| -> (usize, usize, f32) {
+        let f = if sets.sample_period > 0.0 { t / sets.sample_period } else { 0.0 };
+        let last = count.saturating_sub(1);
+        let k = (f.floor().max(0.0) as usize).min(last);
+        (k, (k + 1).min(last), (f - k as f32).clamp(0.0, 1.0))
+    };
+    let mut out = crate::model::mesh_vertices(m);
+    if !sets.vertex_sets.is_empty() {
+        let (a, b, f) = at(sets.vertex_sets.len());
+        let (a, b) = (&sets.vertex_sets[a], &sets.vertex_sets[b]);
+        for (v, &s) in out.iter_mut().zip(&m.source) {
+            let s = s as usize;
+            if let (Some(p), Some(q)) = (a.get(s), b.get(s)) {
+                v.pos = Vec3::from(*p).lerp(Vec3::from(*q), f).to_array();
+            }
+        }
+        smooth_normals(m, &mut out);
+    }
+    if !sets.uv_sets.is_empty() {
+        let (a, b, f) = at(sets.uv_sets.len());
+        let (a, b) = (&sets.uv_sets[a], &sets.uv_sets[b]);
+        let source = if m.source_uv.len() == out.len() { &m.source_uv } else { &m.source };
+        for (v, &s) in out.iter_mut().zip(source) {
+            let s = s as usize;
+            if let (Some(p), Some(q)) = (a.get(s), b.get(s)) {
+                v.uv = glam::Vec2::from(*p).lerp(glam::Vec2::from(*q), f).to_array();
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Normals from the faces around each vertex. Vertices that had the same
+/// position and normal at rest (split only by UV seams) share one, so hard
+/// edges stay hard.
+fn smooth_normals(m: &Mesh, out: &mut [Vertex]) {
+    let mut class: HashMap<([u32; 3], [u32; 3]), usize> = HashMap::new();
+    let classes: Vec<usize> = (0..out.len())
+        .map(|i| {
+            let p = m.vertices[i].map(f32::to_bits);
+            let n = m.normals.get(i).copied().unwrap_or_default().map(f32::to_bits);
+            let next = class.len();
+            *class.entry((p, n)).or_insert(next)
+        })
+        .collect();
+    let mut sum = vec![Vec3::ZERO; class.len()];
+    for f in &m.faces {
+        let [a, b, c] = f.vertices.map(|v| v as usize);
+        if a.max(b).max(c) >= out.len() {
+            continue;
+        }
+        let (pa, pb, pc) = (Vec3::from(out[a].pos), Vec3::from(out[b].pos), Vec3::from(out[c].pos));
+        let n = (pb - pa).cross(pc - pa);
+        for v in [a, b, c] {
+            sum[classes[v]] += n;
+        }
+    }
+    for (v, &k) in out.iter_mut().zip(&classes) {
+        if let Some(n) = sum[k].try_normalize() {
+            v.normal = n.to_array();
+        }
+    }
 }
 
 /// A node's position in a pose (for framing and attachments).

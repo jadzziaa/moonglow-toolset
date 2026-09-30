@@ -14,6 +14,39 @@ pub struct Instance {
     pub transform: Mat4,
     /// Model-space node transforms (a pose); `None` for the rest pose.
     pub pose: Option<Arc<Vec<Mat4>>>,
+    /// What animations and dangly meshes change in the meshes; `None` for
+    /// the model's own values.
+    pub state: Option<Arc<MeshState>>,
+}
+
+impl Instance {
+    /// An instance in its rest pose.
+    pub fn new(model: Arc<GpuModel>, transform: Mat4) -> Instance {
+        Instance { model, transform, pose: None, state: None }
+    }
+}
+
+/// Per mesh of a [`GpuModel`] (same order): values that replace the
+/// model's own at a moment.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MeshState {
+    pub meshes: Vec<MeshOverride>,
+}
+
+/// A mesh's replaced values.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MeshOverride {
+    pub alpha: Option<f32>,
+    pub selfillum: Option<Vec3>,
+    /// Vertices (animated or dangly meshes), in the mesh's own order.
+    pub vertices: Option<Vec<crate::model::Vertex>>,
+}
+
+impl MeshState {
+    /// Nothing replaced, for `model`.
+    pub fn new(model: &GpuModel) -> MeshState {
+        MeshState { meshes: vec![MeshOverride::default(); model.meshes.len()] }
+    }
 }
 
 /// A point light, as the game uploads it.

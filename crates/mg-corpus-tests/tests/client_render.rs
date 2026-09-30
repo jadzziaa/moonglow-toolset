@@ -317,19 +317,18 @@ fn moonglow_scene(gpu: &Gpu, game: &GameData, are: &Gff, light: Lighting) -> (Sc
             transform,
             &|slot| color(if slot == 0 { ml1 } else { ml2 }),
         ));
-        instances.push(Instance { model, transform, pose: None });
+        instances.push(Instance::new(model, transform));
     }
     let pc = Vec3::new(20.0, 20.0, 0.0);
     let armoire = Arc::new(GpuModel::new(gpu, load("plc_a01").unwrap()));
-    instances.push(Instance {
-        model: armoire,
-        transform: Mat4::from_rotation_translation(
+    instances.push(Instance::new(
+        armoire,
+        Mat4::from_rotation_translation(
             // Models face −Y: a facing of f degrees turns them by f + 90.
             Quat::from_rotation_z((270f32 + 90.0).to_radians()),
             pc + Vec3::new(0.0, AHEAD, 0.0),
         ),
-        pose: None,
-    });
+    ));
     let scene = Scene {
         instances,
         lights,

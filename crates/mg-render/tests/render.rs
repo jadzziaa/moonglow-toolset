@@ -69,11 +69,8 @@ fn lighting_matches_the_equations() {
         diffuse: Vec3::new(0.6, 0.5, 0.4),
         direction: Vec3::new(0.3, -0.2, 1.0).normalize(),
     };
-    let scene = Scene {
-        instances: vec![Instance { model, transform: Mat4::IDENTITY, pose: None }],
-        area,
-        ..Default::default()
-    };
+    let scene =
+        Scene { instances: vec![Instance::new(model, Mat4::IDENTITY)], area, ..Default::default() };
     let camera = Camera {
         eye: Vec3::new(0.0, -2.0, 4.0),
         target: Vec3::ZERO,
@@ -153,7 +150,7 @@ fn game_models_render() {
         let model = Arc::new(GpuModel::new(&gpu, Arc::new(Model::read(&data).unwrap())));
         let camera = framing(&model);
         let scene = Scene {
-            instances: vec![Instance { model, transform: Mat4::IDENTITY, pose: None }],
+            instances: vec![Instance::new(model, Mat4::IDENTITY)],
             area: AreaLight::default(),
             background: [0.2, 0.25, 0.3],
             ..Default::default()
@@ -262,7 +259,7 @@ fn animated_models_render() {
         let mut images = Vec::new();
         for p in [None, Some(pose.clone())] {
             let scene = Scene {
-                instances: vec![Instance { model: gm.clone(), transform: Mat4::IDENTITY, pose: p }],
+                instances: vec![Instance { pose: p, ..Instance::new(gm.clone(), Mat4::IDENTITY) }],
                 area: AreaLight::default(),
                 background: [0.2, 0.25, 0.3],
                 ..Default::default()
@@ -301,7 +298,7 @@ fn emitters_render() {
         let batches = p.batches(&model, None, 0.0, &gm.rest, Mat4::IDENTITY, camera.view());
         let quads: usize = batches.iter().map(|b| b.vertices.len() / 6).sum();
         let scene = |particles| Scene {
-            instances: vec![Instance { model: gm.clone(), transform: Mat4::IDENTITY, pose: None }],
+            instances: vec![Instance::new(gm.clone(), Mat4::IDENTITY)],
             area: AreaLight::default(),
             background: [0.1, 0.1, 0.12],
             particles,
@@ -314,4 +311,130 @@ fn emitters_render() {
         eprintln!("{name}: {quads} particles, {changed} bytes changed");
         assert!(quads > 0 && changed > 500, "{name}: no visible particles");
     }
+}
+
+/// Mesh animations: a water tile's animated mesh (its vertex and UV sets
+/// interpolated at the right times) and a placeable whose "on" animation
+/// lights a mesh look different from their rest state.
+#[test]
+fn mesh_animations_render() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let Some(gpu) = gpu() else { return };
+    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let load = |n: &str| {
+        rm.get_named(n, mg_core::ResType::MDL).ok().and_then(|d| Model::read(&d).ok()).map(Arc::new)
+    };
+    let dir = mg_testkit::scratch_dir("render-mesh-anim");
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    for (name, anim, t) in [("tno01_i69_01", "default", 3.0), ("plc_k01", "on", 0.5)] {
+        let model = load(name).unwrap();
+        let a = model.animation(anim).unwrap_or_else(|| panic!("{name}: no {anim}"));
+        let gm = Arc::new(GpuModel::new(&gpu, model.clone()));
+        let state = mg_render::anim::mesh_state(&gm, a, t);
+        assert!(
+            state.meshes.iter().any(|m| m.vertices.is_some() || m.selfillum.is_some()),
+            "{name}: {anim} changes no mesh"
+        );
+        // Animated vertices: between two sets, halfway at 1.5 periods.
+        for (i, m) in state.meshes.iter().enumerate() {
+            let Some(v) = &m.vertices else { continue };
+            let data = gm.mesh_data(i).unwrap();
+            assert_eq!(v.len(), data.vertices.len());
+            let node = &model.nodes[gm.meshes[i].node];
+            let an = a.nodes.iter().find(|n| n.name.eq_ignore_ascii_case(&node.name)).unwrap();
+            let sets = an.anim_mesh.as_ref().unwrap();
+            let mid = mg_render::anim::mesh_state(&gm, a, sets.sample_period * 1.5);
+            let mid = mid.meshes[i].vertices.as_ref().unwrap();
+            let (s, u) = (data.source[0] as usize, data.source_uv[0] as usize);
+            let want =
+                (Vec3::from(sets.vertex_sets[1][s]) + Vec3::from(sets.vertex_sets[2][s])) / 2.0;
+            assert!(Vec3::from(mid[0].pos).distance(want) < 1e-4, "{name}: vertex");
+            let want_uv =
+                (glam::Vec2::from(sets.uv_sets[1][u]) + glam::Vec2::from(sets.uv_sets[2][u])) / 2.0;
+            assert!(glam::Vec2::from(mid[0].uv).distance(want_uv) < 1e-4, "{name}: UV");
+        }
+        let pose = Arc::new(mg_render::anim::pose(&model, a, t));
+        let camera = framing(&gm);
+        let mut images = Vec::new();
+        for animated in [false, true] {
+            let inst = if animated {
+                Instance {
+                    pose: Some(pose.clone()),
+                    state: Some(Arc::new(state.clone())),
+                    ..Instance::new(gm.clone(), Mat4::IDENTITY)
+                }
+            } else {
+                Instance::new(gm.clone(), Mat4::IDENTITY)
+            };
+            let scene = Scene {
+                instances: vec![inst],
+                area: AreaLight::default(),
+                background: [0.2, 0.25, 0.3],
+                ..Default::default()
+            };
+            images.push(r.render_image(&gpu, &rm, &scene, &camera, 320, 320));
+        }
+        save(&images[1], &dir.join(format!("{name}-{anim}.png")));
+        let changed = images[0].data.iter().zip(&images[1].data).filter(|(a, b)| a != b).count();
+        eprintln!("{name} {anim}: {changed} bytes differ");
+        assert!(changed > 500, "{name}: {anim} looks like the rest state");
+    }
+}
+
+/// Dangly meshes: a creature's hair and coat lag when it moves, within
+/// their limits, and draw bent.
+#[test]
+fn dangly_meshes_sway() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let Some(gpu) = gpu() else { return };
+    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let model =
+        Arc::new(Model::read(&rm.get_named("c_antoine", mg_core::ResType::MDL).unwrap()).unwrap());
+    let gm = Arc::new(GpuModel::new(&gpu, model));
+    let mut d = mg_render::dangly::Dangly::new(&gm);
+    assert!(!d.is_empty());
+    let at = |x: f32| Mat4::from_translation(Vec3::new(x, 0.0, 0.0));
+    d.update(0.0, &gm.rest, at(0.0), Vec3::ZERO);
+    // Walking pace, then a stop.
+    for i in 1..=10 {
+        d.update(1.0 / 30.0, &gm.rest, at(i as f32 * 0.05), Vec3::ZERO);
+    }
+    let offset = d.max_offset(&gm.rest, at(0.5));
+    assert!(offset > 1e-3 && offset < 0.05, "offset {offset}");
+    let mut state = mg_render::MeshState::new(&gm);
+    d.apply(&mut state, &gm.rest, at(0.5));
+    let bent = state.meshes.iter().filter(|m| m.vertices.is_some()).count();
+    assert!(bent > 0);
+    let mut camera = framing(&gm);
+    camera.eye += Vec3::X * 0.5;
+    camera.target += Vec3::X * 0.5;
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let render = |r: &mut Renderer, state: Option<mg_render::MeshState>| {
+        let scene = Scene {
+            instances: vec![Instance {
+                state: state.map(Arc::new),
+                ..Instance::new(gm.clone(), at(0.5))
+            }],
+            area: AreaLight::default(),
+            background: [0.2, 0.25, 0.3],
+            ..Default::default()
+        };
+        r.render_image(&gpu, &rm, &scene, &camera, 320, 320)
+    };
+    let still = render(&mut r, None);
+    let moving = render(&mut r, Some(state));
+    let changed = still.data.iter().zip(&moving.data).filter(|(a, b)| a != b).count();
+    eprintln!("{bent} dangly meshes bent by up to {offset:.4} m: {changed} bytes differ");
+    assert!(changed > 50);
+    // Standing still, they settle.
+    for _ in 0..600 {
+        d.update(1.0 / 30.0, &gm.rest, at(0.5), Vec3::ZERO);
+    }
+    assert!(!d.moving());
 }

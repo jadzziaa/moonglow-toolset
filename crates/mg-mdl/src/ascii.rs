@@ -338,6 +338,7 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh) {
                     m.colors.push(colors.get(v).copied().unwrap_or([255; 4]));
                 }
                 m.source.push(v as u32);
+                m.source_uv.push(t as u32);
                 i
             });
         }
@@ -565,7 +566,7 @@ fn parents(raws: &[RawNode<'_>]) -> Vec<Option<usize>> {
     out
 }
 
-fn anim_node(raw: &RawNode<'_>, source_counts: &HashMap<String, usize>) -> AnimNode {
+fn anim_node(raw: &RawNode<'_>, source_counts: &HashMap<String, (usize, usize)>) -> AnimNode {
     let node_flags = type_flags(&raw.ty);
     let mut n = AnimNode { name: raw.name.clone(), ..Default::default() };
     for (k, rows) in &raw.keys {
@@ -585,12 +586,17 @@ fn anim_node(raw: &RawNode<'_>, source_counts: &HashMap<String, usize>) -> AnimN
     let verts = vec3s(raw.list("animverts"));
     let tverts = vec2s(raw.list("animtverts"));
     if !verts.is_empty() || !tverts.is_empty() {
-        let count = source_counts.get(&raw.name.to_ascii_lowercase()).copied().unwrap_or(0);
+        let (count, uv_count) =
+            source_counts.get(&raw.name.to_ascii_lowercase()).copied().unwrap_or((0, 0));
         let split3 = |v: &[Vec3]| -> Vec<Vec<Vec3>> {
             if count == 0 { Vec::new() } else { v.chunks(count).map(<[Vec3]>::to_vec).collect() }
         };
         let split2 = |v: &[Vec2]| -> Vec<Vec<Vec2>> {
-            if count == 0 { Vec::new() } else { v.chunks(count).map(<[Vec2]>::to_vec).collect() }
+            if uv_count == 0 {
+                Vec::new()
+            } else {
+                v.chunks(uv_count).map(<[Vec2]>::to_vec).collect()
+            }
         };
         n.anim_mesh = Some(AnimMeshSets {
             sample_period: num(raw.prop("sampleperiod").and_then(|v| v.first())),
@@ -707,10 +713,16 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
     }
     model.nodes = nodes;
 
-    // Animations: nodes in pre-order, animated vertices over the mesh's
-    // source vertices.
-    let source_counts: HashMap<String, usize> =
-        geometry.iter().map(|r| (r.name.to_ascii_lowercase(), r.list("verts").len())).collect();
+    // Animations: nodes in pre-order, animated vertices and UVs over the
+    // mesh's source vertices and texture vertices.
+    let source_counts: HashMap<String, (usize, usize)> = geometry
+        .iter()
+        .map(|r| {
+            let uvs =
+                if r.list("tverts").is_empty() { r.list("tverts0") } else { r.list("tverts") };
+            (r.name.to_ascii_lowercase(), (r.list("verts").len(), uvs.len()))
+        })
+        .collect();
     for (mut anim, raws) in anims {
         let parent_of = parents(&raws);
         let (order, new_index) = preorder(&parent_of);

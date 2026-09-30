@@ -4,6 +4,7 @@
 
 pub mod anim;
 pub mod assets;
+pub mod dangly;
 mod gpu;
 pub mod model;
 pub mod particles;
@@ -15,4 +16,4 @@ pub use assets::{Assets, LoadedTexture, NoAssets};
 pub use gpu::Gpu;
 pub use model::{GpuModel, rest_pose};
 pub use renderer::{MAX_LIGHTS, Renderer, Targets, attenuation_params};
-pub use scene::{AreaLight, Camera, Fog, Instance, PointLight, Scene};
+pub use scene::{AreaLight, Camera, Fog, Instance, MeshOverride, MeshState, PointLight, Scene};

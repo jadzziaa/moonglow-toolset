@@ -153,4 +153,6 @@ unless given otherwise.
 | Animations (placeables, doors, creatures idle) | any animation of the model or its supermodels, play/pause; skins deform on the GPU with the stored bind poses | ✅ (`render.rs`: animated models; bind poses match the stored ones for 98% of bones) |
 | Light nodes light the model (Aurora: no) | light nodes as point lights (colour, radius, multiplier, animated), converted as the game does (colours above 1 reach further); tile main lights take the area's colours and the engine's radii | ✅ [lights_convert_like_the_game] |
 | Emitters | fountain, single and explosion emitters with flip-book textures, colour, alpha and size over life, camera-facing, upright, ground-aligned and motion-blur quads, alpha, additive and punch-through blending | ◐ (`render.rs`: a brazier's fire and smoke; lightning, point-to-point and chunk emitters not yet) |
-| Dangly meshes, animated meshes, PLT colours from the blueprint | not yet | ✗ |
+| Animated meshes (water, waterfalls, door skins), animated alpha and self-illumination | vertex and UV sets sampled `sampleperiod` apart and interpolated, normals recomputed; alpha and self-illumination keys | ✅ (`render.rs`: a water tile and a lamp's "on" animation) [mesh_animations_render] |
+| Dangly meshes (hair, cloaks, pennants) | a damped spring per vertex within displacement × constraint; an approximation, the game's dynamics are undocumented | ◐ (`render.rs`: a creature's hair and coat lag and settle) [dangly_meshes_sway] |
+| PLT colours from the blueprint | not yet | ✗ |

@@ -316,6 +316,9 @@ pub struct Mesh {
     /// Each render vertex's vertex in the source list (ASCII) or itself
     /// (binary); per-vertex data such as weights is indexed by it.
     pub source: Vec<u32>,
+    /// Each render vertex's texture vertex in the source `tverts` list
+    /// (ASCII) or itself (binary); animated UVs are indexed by it.
+    pub source_uv: Vec<u32>,
     pub extra: MeshExtra,
 }
 
@@ -387,7 +390,8 @@ pub struct AnimNode {
     pub parent: Option<usize>,
     pub controllers: Vec<Controller>,
     /// Vertex animation: sample period, vertex sets and UV sets, each set a
-    /// full list over the mesh's source vertices (ASCII) or vertices.
+    /// full list over the mesh's source vertices and source texture
+    /// vertices (ASCII) or its vertices (binary).
     pub anim_mesh: Option<AnimMeshSets>,
 }
 

@@ -30,7 +30,7 @@ fn check(m: &Model) -> Option<String> {
         if mesh.uvs.iter().any(|uv| !uv.is_empty() && uv.len() != count) {
             return Some(format!("{}: UV count", n.name));
         }
-        if mesh.source.len() != count {
+        if mesh.source.len() != count || mesh.source_uv.len() != count {
             return Some(format!("{}: source count", n.name));
         }
         match &mesh.extra {
@@ -61,6 +61,19 @@ fn check(m: &Model) -> Option<String> {
                 if c.values.len() != c.times.len() * c.columns {
                     return Some(format!("{}/{}: {} values", a.name, n.name, c.name));
                 }
+            }
+            // Animated vertices and UVs cover the mesh's sources.
+            let (Some(sets), Some(NodeKind::Mesh(mesh))) = (
+                &n.anim_mesh,
+                m.nodes.iter().find(|g| g.name.eq_ignore_ascii_case(&n.name)).map(|g| &g.kind),
+            ) else {
+                continue;
+            };
+            let need = |src: &[u32]| src.iter().max().map_or(0, |&x| x as usize + 1);
+            if sets.vertex_sets.iter().any(|v| v.len() < need(&mesh.source))
+                || sets.uv_sets.iter().any(|v| v.len() < need(&mesh.source_uv))
+            {
+                return Some(format!("{}/{}: animated mesh sets", a.name, n.name));
             }
         }
     }

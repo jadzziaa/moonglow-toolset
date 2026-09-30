@@ -5,14 +5,14 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Quat, Vec3};
-use mg_mdl::{MeshExtra, Model, NodeKind};
+use mg_mdl::{Mesh, MeshExtra, Model, NodeKind};
 use wgpu::util::DeviceExt;
 
 use crate::Gpu;
 
 /// A vertex as the shader reads it.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct Vertex {
     pub pos: [f32; 3],
     pub normal: [f32; 3],
@@ -103,13 +103,7 @@ impl GpuModel {
             if !m.render || m.faces.is_empty() || matches!(m.extra, MeshExtra::Aabb(_)) {
                 continue;
             }
-            let vertices: Vec<Vertex> = (0..m.vertices.len())
-                .map(|v| Vertex {
-                    pos: m.vertices[v],
-                    normal: m.normals.get(v).copied().unwrap_or([0.0, 0.0, 1.0]),
-                    uv: m.uvs[0].get(v).copied().unwrap_or([0.0, 0.0]),
-                })
-                .collect();
+            let vertices = mesh_vertices(m);
             let indices: Vec<u32> = m.faces.iter().flat_map(|f| f.vertices).collect();
             let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for p in &m.vertices {
@@ -198,6 +192,27 @@ impl GpuModel {
             });
         }
         GpuModel { model, meshes, rest }
+    }
+}
+
+/// A mesh's vertices as uploaded.
+pub fn mesh_vertices(m: &Mesh) -> Vec<Vertex> {
+    (0..m.vertices.len())
+        .map(|v| Vertex {
+            pos: m.vertices[v],
+            normal: m.normals.get(v).copied().unwrap_or([0.0, 0.0, 1.0]),
+            uv: m.uvs[0].get(v).copied().unwrap_or([0.0, 0.0]),
+        })
+        .collect()
+}
+
+impl GpuModel {
+    /// The model data of mesh `index` (of [`GpuModel::meshes`]).
+    pub fn mesh_data(&self, index: usize) -> Option<&Mesh> {
+        match &self.model.nodes.get(self.meshes.get(index)?.node)?.kind {
+            NodeKind::Mesh(m) => Some(m),
+            _ => None,
+        }
     }
 }
 

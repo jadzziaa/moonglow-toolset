@@ -216,6 +216,7 @@ impl<'a> Bin<'a> {
             })
             .collect::<Result<_, MdlError>>()?;
         m.source = (0..count as u32).collect();
+        m.source_uv = m.source.clone();
         m.extra = if node_flags & flags::SKIN != 0 {
             MeshExtra::Skin(self.skin(n, count)?)
         } else if node_flags & flags::DANGLY != 0 {

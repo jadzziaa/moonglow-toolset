@@ -10,8 +10,9 @@ use glam::{Mat4, Vec3};
 use mg_core::ResType;
 use mg_mdl::Model;
 use mg_render::anim;
+use mg_render::dangly::Dangly;
 use mg_render::particles::Particles;
-use mg_render::{AreaLight, Camera, Gpu, GpuModel, Instance, Renderer, Scene, Targets};
+use mg_render::{AreaLight, Camera, Gpu, GpuModel, Instance, MeshState, Renderer, Scene, Targets};
 use mg_resman::ResKey;
 
 use crate::Moonglow;
@@ -58,6 +59,7 @@ pub struct ModelView {
     targets: Option<(Targets, egui::TextureId)>,
     last_frame: Option<f64>,
     particles: Option<Particles>,
+    dangly: Option<Dangly>,
 }
 
 impl ModelView {
@@ -88,6 +90,7 @@ impl ModelView {
             targets: None,
             last_frame: None,
             particles: None,
+            dangly: None,
         };
         view.frame();
         view
@@ -234,8 +237,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
         Mat4::IDENTITY,
         camera.view(),
     );
-    // Keep drawing while something moves: an animation, or live particles.
-    if (pose.is_some() || !batches.is_empty()) && view.playing {
+    // Animated alpha, self-illumination and vertices; dangly meshes.
+    let mut state =
+        playing.map_or_else(|| MeshState::new(&model), |a| anim::mesh_state(&model, a, view.time));
+    let dangly = view.dangly.get_or_insert_with(|| Dangly::new(&model));
+    dangly.update(dt, current_pose, Mat4::IDENTITY, Vec3::ZERO);
+    dangly.apply(&mut state, current_pose, Mat4::IDENTITY);
+    // Keep drawing while something moves: an animation, live particles or
+    // dangly meshes.
+    if (pose.is_some() || !batches.is_empty() || dangly.moving()) && view.playing {
         ui.ctx().request_repaint();
     }
 
@@ -263,7 +273,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
     }
     let (targets, id) = view.targets.as_ref().expect("made above");
     let scene = Scene {
-        instances: vec![Instance { model: model.clone(), transform: Mat4::IDENTITY, pose }],
+        instances: vec![Instance {
+            pose,
+            state: Some(Arc::new(state)),
+            ..Instance::new(model.clone(), Mat4::IDENTITY)
+        }],
         lights,
         particles: batches,
         area: AreaLight::default(),
