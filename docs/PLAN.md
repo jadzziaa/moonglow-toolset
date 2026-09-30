@@ -27,7 +27,7 @@ Decisions taken (2026-09-30):
 | 3 Schema and module workspace | Done except Aurora's blueprint defaults (Phase 8; module and area defaults done in Phase 5): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
 | 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
 | 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt, settings and recent modules, options, import/export, resource browser; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
-| 6 Text-and-tree editors | In progress: String Edit, Variables, resource pickers; Module Properties with Aurora's tabs; Faction, Journal and Conversation editors and the script editor's tools, each checked against Aurora's files (captured under Wine) and in the engine; parity checklists in `docs/parity/checklists.md` |
+| 6 Text-and-tree editors | Done: String Edit, Variables, resource pickers; Module Properties with Aurora's tabs; Faction, Journal and Conversation editors and the script editor's tools, each checked against Aurora's files (captured under Wine) and in the engine; parity checklists in `docs/parity/checklists.md` |
 | 7+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
@@ -391,11 +391,12 @@ the Conversation Editor (`mg_module::dialog`: Aurora's conversation as an
 outline; conditions with EE parameters and actions run in the engine), and
 the script editor's tools (symbol lists with help, compiler messages that
 go to their line, find/replace and find in files, bookmarks, completion,
-templates, new script and save as), and the Script Wizard
+templates, new script and save as, numbered bookmarks, colour options),
+and the Script Wizard
 (`mg_module::script_wizard`: Aurora's captured scripts byte for byte, except
-where Aurora's output does not compile or work in EE). Remaining (see the
-checklists): numbered script bookmarks, editor colour options,
-conversation spell check and text export.
+where Aurora's output does not compile or work in EE). Conversation spell
+check does nothing in Aurora EE and text export/import has no UI, so neither
+is needed for parity.
 
 ### Phase 7: Renderer and model viewer
 wgpu renderer with EE-style lighting (§5.5), textures (TGA/DDS/PLT/TXI), MTR

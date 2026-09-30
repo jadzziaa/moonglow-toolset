@@ -1750,6 +1750,7 @@ dependencies = [
  "mg-testkit",
  "mg-tlk",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

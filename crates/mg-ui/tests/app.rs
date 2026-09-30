@@ -580,6 +580,19 @@ fn script_editor_completion_find_bookmarks() {
     h.run();
     assert!(h.state().script_bookmarks(key).contains(&1));
 
+    // Numbered bookmark 2 on that line (Ctrl+Shift+2), then back to it from
+    // the top (Ctrl+2).
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Num2);
+    h.run();
+    assert_eq!(h.state().script_numbered_bookmarks(key), [(2, 1)]);
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Num2);
+    h.run();
+    h.run();
+    let line1 = edited.find('\n').unwrap() + 1;
+    assert_eq!(script_cursor(&h, key), Some((line1, line1)));
+
     // Saving the module stores the editor's text.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
     h.run();

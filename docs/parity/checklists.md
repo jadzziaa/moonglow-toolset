@@ -109,10 +109,12 @@ unless given otherwise.
 | Completion (F2), Enter to pick, `(` added for functions | F2 or Ctrl+Space, arrows, Enter/Tab, Esc | ✅ [script_editor_completion_find_bookmarks] |
 | Find (Ctrl+F), Find Next (F3), Replace (Ctrl+R): match case, whole word, backward, prompt, replace all | same (no per-replacement prompt: Replace does one, Replace All all) | ✅ |
 | Find In Files (open scripts / all module scripts) → Search Results | all module scripts (with unsaved editor text) → Search Results tab, click opens | ✅ |
-| Bookmarks (F5 toggle; Ctrl+Shift+1…9 / Ctrl+1…9) | F5 toggle, Bookmarks tab | ◐ (numbered bookmarks not yet) |
+| Bookmarks (F5 toggle; Ctrl+Shift+1…9 / Ctrl+1…9) | F5 toggle; Ctrl+Shift+1…9 sets, Ctrl+1…9 goes; the gutter shows ◆ or the number; Bookmarks tab | ✅ [script_editor_completion_find_bookmarks] |
 | New (Ctrl+N), Save As (Ctrl+Alt+S), Save All, Close | Tools > New Script…, Save As…, module Save stores all edited scripts, tab close | ✅ |
 | Open (all resources / module / hak) | resource browser and the module tree | ✅ |
-| Print, colour options, indent with Tab | not yet | ✗ |
+| Options › Script Editor: font, colours of text, comment, directive, identifier, keyword, number, string, error, with a preview | font size and a colour per element (else the light or dark theme's), preview, reset; applied without reloading the game | ✅ (`options.rs` tests) |
+| Options › Script Editor: templates folder, auto-compile, debug info (.ndb), external editor | not yet | ✗ |
+| Print, indent with Tab | not yet | ✗ |
 | Large scripts | nwscript.nss (13,869 lines): 0.4 ms per idle frame, ~10 ms per keystroke | ✅ (`editor_perf.rs`) |
 
 ## Conversation Editor (`TdlgConversationEditor`, `TfraConversationTree`)
@@ -138,5 +140,6 @@ unless given otherwise.
 | Script Wizard (Text Appears When…: abilities, class and level, gender, race, alignment, feats, skills, skill checks, items, local variables, random; Actions Taken: rewards, take gold/XP/items, set locals, attack or open a store, faction change; name sc_NNN/at_NNN, start the editor) | same pages and lists; Finish writes, compiles and sets the script in one undoable command | ✅ (`aurora_script_wizard.rs`: Aurora's five captured scripts byte for byte, all compile) [script_wizard_writes_compiles_and_sets_scripts] |
 | Script Wizard output that does not work in EE: store with appraise checks plus a party reward (`nw_i0_tool` and `nw_i0_plot` both define `HasItem`: no compile), Take XP (`GiveXPToCreature` ignores negative amounts) | `nw_i0_plot` only, party XP as a loop; Take XP with `SetXP` | ✅ (improvement) |
 | String local variables: "is equal to" only | also "is not equal to" | ✅ (improvement) |
-| Spell check, text export/import | not yet | ✗ |
+| Spell Check (text popup menu) | not yet | — (in EE it finds nothing: no lexicon ships; "Helo thre wrold." passes. Moonglow could use Hunspell dictionaries: an improvement for later) |
+| Text export/import (`actExportDialog`, `actImportDialog`, String/Char based) | not offered | — (hidden actions: no menu, button or shortcut reaches them) |
 | Scrap tab of cut lines | the clipboard holds one copied or cut branch | ◐ |

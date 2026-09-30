@@ -8,6 +8,28 @@ use serde::{Deserialize, Serialize};
 /// How many recent modules File > Recent Modules keeps.
 pub const RECENT_MAX: usize = 10;
 
+/// The script editor's syntax elements, in the order of
+/// [`ScriptStyle::colors`] (Aurora's Options > Script Editor list).
+pub const SCRIPT_ELEMENTS: [&str; 8] =
+    ["Text", "Comment", "Directive", "Keyword", "Number", "String", "Constant", "Error"];
+
+/// The script editor's look (Options > Script Editor).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ScriptStyle {
+    /// Font size in points.
+    pub font_size: u8,
+    /// A colour (sRGB) for each of [`SCRIPT_ELEMENTS`]; `None` follows the
+    /// light or dark theme.
+    pub colors: [Option<[u8; 3]>; 8],
+}
+
+impl Default for ScriptStyle {
+    fn default() -> ScriptStyle {
+        ScriptStyle { font_size: 13, colors: [None; 8] }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -18,6 +40,7 @@ pub struct Settings {
     /// The NWN user folder (haks, override, modules), when not the detected
     /// one.
     pub user_dir: Option<PathBuf>,
+    pub script_style: ScriptStyle,
 }
 
 impl Settings {
@@ -44,6 +67,16 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_saved_before_script_styles_still_load() {
+        let s: Settings = serde_json::from_str(r#"{"recent":["a.mod"]}"#).unwrap();
+        assert_eq!(s.script_style, ScriptStyle::default());
+        let mut t = s.clone();
+        t.script_style.colors[3] = Some([1, 2, 3]);
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+        assert_eq!(back, t);
+    }
 
     #[test]
     fn recent_modules_are_most_recent_first_without_duplicates() {

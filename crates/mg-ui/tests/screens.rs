@@ -59,3 +59,20 @@ fn script_wizard_pages() {
         shoot(&mut h, &dir, &format!("wizard-{prefix}-name"));
     }
 }
+
+#[test]
+#[ignore]
+fn options_window() {
+    use egui_kittest::kittest::Queryable;
+    let dir = mg_testkit::scratch_dir("screens-options");
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.settings.script_style.colors[3] = Some([255, 128, 0]);
+    app.options = Some(mg_ui::OptionsDraft::from_settings(&app.settings));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Script Editor").click();
+    shoot(&mut h, &dir, "options");
+}

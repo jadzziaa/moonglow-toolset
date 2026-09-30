@@ -947,6 +947,14 @@ impl Moonglow {
         self.scripts.get(&key).map(|b| b.bookmarks.iter().copied().collect()).unwrap_or_default()
     }
 
+    /// A script editor's numbered bookmarks: number and line (0-based).
+    pub fn script_numbered_bookmarks(&self, key: ResKey) -> Vec<(usize, usize)> {
+        self.scripts
+            .get(&key)
+            .map(|b| b.numbered.iter().enumerate().filter_map(|(n, l)| Some((n, (*l)?))).collect())
+            .unwrap_or_default()
+    }
+
     /// A resman view for things that need one without a game install (tests).
     pub fn resman(&self) -> Option<&ResMan> {
         self.game.as_ref().map(|g| &g.resman)

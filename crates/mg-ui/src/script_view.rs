@@ -11,6 +11,7 @@ use mg_script::lex::{TokenKind, tokenize};
 use crate::script_tools::{
     self as tools, Completion, InfoTab, Message, SideTab, Symbol, SymbolKind,
 };
+use crate::settings::ScriptStyle;
 use crate::text::{decode, encode};
 use crate::{Action, Moonglow, Tab};
 
@@ -25,16 +26,19 @@ pub(crate) struct ScriptBuffer {
     source: (usize, usize),
     /// Bookmarked lines (0-based).
     pub(crate) bookmarks: std::collections::BTreeSet<usize>,
+    /// Numbered bookmarks 1 to 9 (index 0 unused): Ctrl+Shift+N sets one,
+    /// Ctrl+N goes there.
+    pub(crate) numbered: [Option<usize>; 10],
 }
 
 /// The laid-out text of a script editor, reused while the text, width and
-/// theme stay the same (a large script takes milliseconds to highlight and
+/// colours stay the same (a large script takes milliseconds to highlight and
 /// lay out).
 #[derive(Debug, Clone)]
 pub(crate) struct LaidOut {
     text: String,
     wrap: f32,
-    dark: bool,
+    palette: Palette,
     galley: std::sync::Arc<egui::Galley>,
 }
 
@@ -44,50 +48,86 @@ impl ScriptBuffer {
     }
 }
 
-fn color(kind: TokenKind, dark: bool) -> Color32 {
-    let (kw, com, lit, dir, konst, unknown) = if dark {
-        (
-            Color32::from_rgb(86, 156, 214),
-            Color32::from_rgb(106, 153, 85),
-            Color32::from_rgb(206, 145, 120),
-            Color32::from_rgb(197, 134, 192),
-            Color32::from_rgb(79, 193, 255),
-            Color32::RED,
-        )
-    } else {
-        (
-            Color32::from_rgb(0, 0, 200),
-            Color32::from_rgb(0, 128, 0),
-            Color32::from_rgb(163, 21, 21),
-            Color32::from_rgb(128, 0, 128),
-            Color32::from_rgb(0, 112, 193),
-            Color32::RED,
-        )
-    };
+/// The script editor's colours (one per [`SCRIPT_ELEMENTS`](crate::settings::SCRIPT_ELEMENTS))
+/// and font size.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Palette {
+    pub(crate) colors: [Color32; 8],
+    pub(crate) size: f32,
+}
+
+impl Palette {
+    /// The theme's colours for each element.
+    pub(crate) fn defaults(dark: bool, text: Color32) -> [Color32; 8] {
+        let rgb = Color32::from_rgb;
+        if dark {
+            [
+                text,
+                rgb(106, 153, 85),
+                rgb(197, 134, 192),
+                rgb(86, 156, 214),
+                rgb(206, 145, 120),
+                rgb(206, 145, 120),
+                rgb(79, 193, 255),
+                Color32::RED,
+            ]
+        } else {
+            [
+                text,
+                rgb(0, 128, 0),
+                rgb(128, 0, 128),
+                rgb(0, 0, 200),
+                rgb(163, 21, 21),
+                rgb(163, 21, 21),
+                rgb(0, 112, 193),
+                Color32::RED,
+            ]
+        }
+    }
+
+    /// The colours of a style: its own where set, else the theme's.
+    pub(crate) fn new(style: &ScriptStyle, dark: bool, text: Color32) -> Palette {
+        let mut colors = Palette::defaults(dark, text);
+        for (c, own) in colors.iter_mut().zip(style.colors) {
+            if let Some([r, g, b]) = own {
+                *c = Color32::from_rgb(r, g, b);
+            }
+        }
+        Palette { colors, size: f32::from(style.font_size.clamp(6, 48)) }
+    }
+
+    /// For a `Ui`: the app's style and the `Ui`'s theme.
+    pub(crate) fn for_ui(style: &ScriptStyle, ui: &Ui) -> Palette {
+        Palette::new(style, ui.visuals().dark_mode, ui.visuals().text_color())
+    }
+
+    fn font(&self) -> FontId {
+        FontId::monospace(self.size)
+    }
+}
+
+/// The element a token is coloured as.
+fn element(kind: TokenKind) -> usize {
     match kind {
-        TokenKind::Keyword => kw,
-        TokenKind::LineComment | TokenKind::BlockComment { .. } => com,
-        TokenKind::String { .. }
-        | TokenKind::RawString { .. }
-        | TokenKind::HashedString { .. }
-        | TokenKind::Int
-        | TokenKind::Float => lit,
-        TokenKind::Directive => dir,
-        TokenKind::BuiltinConstant => konst,
-        TokenKind::Unknown => unknown,
-        _ => Color32::PLACEHOLDER,
+        TokenKind::LineComment | TokenKind::BlockComment { .. } => 1,
+        TokenKind::Directive => 2,
+        TokenKind::Keyword => 3,
+        TokenKind::Int | TokenKind::Float => 4,
+        TokenKind::String { .. } | TokenKind::RawString { .. } | TokenKind::HashedString { .. } => {
+            5
+        }
+        TokenKind::BuiltinConstant => 6,
+        TokenKind::Unknown => 7,
+        _ => 0,
     }
 }
 
 /// Lays the text out with token colours.
-pub(crate) fn highlight(text: &str, dark: bool, default: Color32) -> LayoutJob {
+pub(crate) fn highlight(text: &str, palette: &Palette) -> LayoutJob {
     let mut job = LayoutJob::default();
-    let font = FontId::monospace(13.0);
+    let font = palette.font();
     for t in tokenize(text.as_bytes()) {
-        let mut c = color(t.kind, dark);
-        if c == Color32::PLACEHOLDER {
-            c = default;
-        }
+        let c = palette.colors[element(t.kind)];
         // Tokens end on character boundaries except inside malformed UTF-8,
         // which the text (a String) cannot contain.
         job.append(&text[t.span], 0.0, TextFormat::simple(font.clone(), c));
@@ -144,7 +184,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let source = (bytes.as_ptr() as usize, bytes.len());
     app.scripts.entry(key).or_insert_with(|| {
         let text = decode(bytes);
-        ScriptBuffer { text: text.clone(), saved: text, source, bookmarks: Default::default() }
+        ScriptBuffer {
+            text: text.clone(),
+            saved: text,
+            source,
+            bookmarks: Default::default(),
+            numbered: [None; 10],
+        }
     });
     {
         let buf = app.scripts.get_mut(&key).expect("just inserted");
@@ -192,6 +238,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut find_next = false;
     let mut toggle_bookmark = false;
     let mut complete = false;
+    let mut set_numbered = None;
+    let mut go_numbered = None;
     if focused {
         use egui::{Key, KeyboardShortcut, Modifiers};
         let pressed = |m, k| ui.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
@@ -200,6 +248,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         find_next = pressed(Modifiers::NONE, Key::F3);
         toggle_bookmark = pressed(Modifiers::NONE, Key::F5);
         complete = pressed(Modifiers::NONE, Key::F2) || pressed(Modifiers::COMMAND, Key::Space);
+        const DIGITS: [Key; 9] = [
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+            Key::Num7,
+            Key::Num8,
+            Key::Num9,
+        ];
+        for (i, k) in DIGITS.into_iter().enumerate() {
+            if pressed(Modifiers::COMMAND | Modifiers::SHIFT, k) {
+                set_numbered = Some(i + 1);
+            } else if pressed(Modifiers::COMMAND, k) {
+                go_numbered = Some(i + 1);
+            }
+        }
     }
 
     let mut save = false;
@@ -254,6 +320,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             buf.bookmarks.insert(line);
         }
         app.script_tools.info = InfoTab::Bookmarks;
+    }
+    if let Some(n) = set_numbered {
+        let at = cursor(&ctx, key).map_or(0, |c| c.0);
+        let buf = app.scripts.get_mut(&key).expect("open");
+        let line = tools::line_of(&buf.text, at);
+        // Setting a number again on its line clears it.
+        buf.numbered[n] = if buf.numbered[n] == Some(line) { None } else { Some(line) };
+        app.script_tools.info = InfoTab::Bookmarks;
+    }
+    if let Some(line) = go_numbered.and_then(|n| app.scripts[&key].numbered[n]) {
+        let at = tools::line_start(&app.scripts[&key].text, line);
+        app.script_tools.jump = Some((key, at));
     }
     if complete && let Some((at, _)) = cursor(&ctx, key) {
         let (start, prefix) = tools::word_before(&app.scripts[&key].text, at);
@@ -405,6 +483,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     },
                     InfoTab::Bookmarks => {
                         let buf = &app.scripts[&key];
+                        for (n, line) in buf.numbered.iter().enumerate() {
+                            let Some(line) = line else { continue };
+                            let text = buf.text.lines().nth(*line).unwrap_or_default().trim();
+                            if ui
+                                .selectable_label(false, format!("[{n}] {:>5}: {text}", line + 1))
+                                .on_hover_text(format!("Ctrl+{n}"))
+                                .clicked()
+                            {
+                                jump = Some((key, tools::line_start(&buf.text, *line)));
+                            }
+                        }
                         for line in &buf.bookmarks {
                             let text = buf.text.lines().nth(*line).unwrap_or_default().trim();
                             if ui
@@ -432,8 +521,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         });
 
     // The editor with line numbers.
-    let dark = ui.visuals().dark_mode;
-    let default = ui.visuals().text_color();
+    let palette = Palette::for_ui(&app.settings.script_style, ui);
     let Moonglow { scripts, laid_out, script_tools, .. } = app;
     let buf = scripts.get_mut(&key).expect("open");
     if let Some(text) = insert_text {
@@ -479,24 +567,31 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     let cached = laid_out.entry(key).or_insert(None);
     let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap: f32| {
-        if let Some(c) =
-            cached.as_ref().filter(|c| c.wrap == wrap && c.dark == dark && c.text == text.as_str())
+        if let Some(c) = cached
+            .as_ref()
+            .filter(|c| c.wrap == wrap && c.palette == palette && c.text == text.as_str())
         {
             return c.galley.clone();
         }
         // Code does not wrap (the editor scrolls sideways), which also
         // keeps the line numbers beside their lines.
-        let mut job = highlight(text.as_str(), dark, default);
+        let mut job = highlight(text.as_str(), &palette);
         job.wrap.max_width = f32::INFINITY;
         let galley = ui.fonts_mut(|f| f.layout_job(job));
-        *cached =
-            Some(LaidOut { text: text.as_str().to_string(), wrap, dark, galley: galley.clone() });
+        *cached = Some(LaidOut {
+            text: text.as_str().to_string(),
+            wrap,
+            palette,
+            galley: galley.clone(),
+        });
         galley
     };
     let lines = buf.text.split('\n').count();
     let numbers: String = (1..=lines)
         .map(|n| {
-            if buf.bookmarks.contains(&(n - 1)) {
+            if let Some(b) = buf.numbered.iter().position(|l| *l == Some(n - 1)) {
+                format!("{b}{n:>5}\n")
+            } else if buf.bookmarks.contains(&(n - 1)) {
                 format!("◆{n:>5}\n")
             } else {
                 format!("{n:>6}\n")
@@ -509,10 +604,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         |ui| {
             ui.horizontal_top(|ui| {
                 ui.add(
-                    egui::Label::new(
-                        egui::RichText::new(numbers).font(FontId::monospace(13.0)).weak(),
-                    )
-                    .selectable(false),
+                    egui::Label::new(egui::RichText::new(numbers).font(palette.font()).weak())
+                        .selectable(false),
                 );
                 let out = egui::TextEdit::multiline(&mut buf.text)
                     .code_editor()
@@ -709,7 +802,8 @@ mod tests {
     #[test]
     fn highlighting_keeps_the_text() {
         let src = "void main() { // hi\n  int x = 0x1F; string s = \"é\"; }";
-        let job = highlight(src, true, Color32::WHITE);
+        let style = ScriptStyle::default();
+        let job = highlight(src, &Palette::new(&style, true, Color32::WHITE));
         assert_eq!(job.text, src);
         assert!(job.sections.len() > 10);
     }
@@ -727,7 +821,12 @@ mod perf {
         let data = game.resman.get_named("nwscript", mg_core::ResType::NSS).unwrap();
         let text = String::from_utf8_lossy(&data).into_owned();
         let t = std::time::Instant::now();
-        let job = super::highlight(&text, true, egui::Color32::WHITE);
+        let palette = super::Palette::new(
+            &crate::settings::ScriptStyle::default(),
+            true,
+            egui::Color32::WHITE,
+        );
+        let job = super::highlight(&text, &palette);
         println!("highlight: {:?}, {} sections", t.elapsed(), job.sections.len());
     }
 }

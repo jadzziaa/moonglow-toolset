@@ -211,15 +211,12 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             Err(e) => app.log.error(format!("Could not write {}: {e}", path.display())),
         }
     }
+    let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| match &viewed.content {
         Content::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
         Content::TwoDa(t) => two_da(ui, t),
         Content::Script(text) => {
-            let job = crate::script_view::highlight(
-                text,
-                ui.visuals().dark_mode,
-                ui.visuals().text_color(),
-            );
+            let job = crate::script_view::highlight(text, &palette);
             ui.label(job);
         }
         Content::Text(text) | Content::Binary(text) => {
