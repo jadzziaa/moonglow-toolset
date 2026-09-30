@@ -10,6 +10,7 @@
 pub mod build;
 pub mod factions;
 pub mod haks;
+pub mod journal;
 pub mod new;
 pub mod refs;
 pub mod transfer;

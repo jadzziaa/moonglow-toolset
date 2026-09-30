@@ -498,3 +498,39 @@ mod tests {
         assert_eq!(bad.value(), None);
     }
 }
+
+/// A text field that commits when focus leaves it (one line, or several
+/// with their line-end style kept). Returns the new text then.
+pub(crate) fn commit_text(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    id: egui::Id,
+    current: &str,
+    multiline: bool,
+    width: f32,
+) -> Option<String> {
+    let (shown, crlf) = to_editor(current);
+    let buf = app.buffers.entry(id).or_insert_with(|| shown.clone());
+    let edit = if multiline {
+        egui::TextEdit::multiline(buf).desired_rows(6)
+    } else {
+        egui::TextEdit::singleline(buf)
+    };
+    let r = ui.add(edit.id(id).desired_width(width));
+    if !r.has_focus() && !r.lost_focus() && *buf != shown {
+        // Changed underneath (undo, another selection): show the value.
+        *buf = shown.clone();
+    }
+    (r.lost_focus() && *buf != shown).then(|| from_editor(buf, crlf))
+}
+
+/// A number field committed when it changes (a drag: when released).
+pub(crate) fn commit_number<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    current: T,
+    range: std::ops::RangeInclusive<T>,
+) -> Option<T> {
+    let mut v = current;
+    let r = ui.add(egui::DragValue::new(&mut v).range(range));
+    ((r.drag_stopped() || (r.changed() && !r.dragged())) && v != current).then_some(v)
+}

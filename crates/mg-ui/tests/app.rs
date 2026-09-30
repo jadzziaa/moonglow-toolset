@@ -482,3 +482,50 @@ fn faction_editor_adds_and_removes_factions() {
     h.run();
     assert_eq!(factions(h.state()).factions.len(), 6);
 }
+
+#[test]
+fn journal_editor_builds_what_aurora_builds() {
+    let dir = mg_testkit::scratch_dir("ui-journal");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Journal));
+    h.run();
+    // As Aurora was driven: two categories, two entries in the first, one
+    // in the second.
+    let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        h.get_by_label(label).click();
+        h.run();
+    };
+    click(&mut h, "Add");
+    click(&mut h, "Root");
+    click(&mut h, "Add");
+    click(&mut h, "Category000  [Category000]");
+    click(&mut h, "Add");
+    click(&mut h, "Category000  [Category000]");
+    click(&mut h, "Add");
+    click(&mut h, "Category001  [Category001]");
+    click(&mut h, "Add");
+    let key = ResKey::parse("module", ResType::JRL).unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let ours = Gff::read(ws.module.get(&key).unwrap()).unwrap();
+    let cats = ours.root.items(&mg_schema::jrl::CATEGORIES);
+    assert_eq!(cats.len(), 2);
+    assert_eq!(mg_module::journal::entries(&cats[0]).len(), 2);
+    if let Some(capture) = mg_testkit::aurora_capture("journal/two-categories.jrl") {
+        assert_eq!(ours, Gff::read(&std::fs::read(capture).unwrap()).unwrap());
+    }
+    // Deleting an entry is one undoable step.
+    click(&mut h, "[0002] Entry002");
+    click(&mut h, "Delete");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let doc = ws.doc(&key).unwrap();
+    assert_eq!(
+        mg_module::journal::entries(&doc.root.items(&mg_schema::jrl::CATEGORIES)[0]).len(),
+        2
+    );
+}

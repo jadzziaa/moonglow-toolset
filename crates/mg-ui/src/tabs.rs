@@ -5,7 +5,9 @@ use egui_dock::TabViewer;
 use mg_core::ResType;
 use mg_resman::ResKey;
 
-use crate::{Action, Moonglow, browser, faction_view, gff_view, module_props, script_view};
+use crate::{
+    Action, Moonglow, browser, faction_view, gff_view, journal_view, module_props, script_view,
+};
 
 /// A tab in the central area.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,6 +24,8 @@ pub enum Tab {
     Resources,
     /// The Faction Editor.
     Factions,
+    /// The Journal Editor.
+    Journal,
     /// A resource from the load order, read-only.
     Resource(ResKey),
 }
@@ -33,6 +37,7 @@ impl Tab {
             ResType::NSS => Some(Tab::Script(key)),
             ResType::IFO => Some(Tab::ModuleProperties),
             ResType::FAC => Some(Tab::Factions),
+            ResType::JRL => Some(Tab::Journal),
             t if t.is_gff() => Some(Tab::Gff(key)),
             _ => None,
         }
@@ -61,6 +66,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Gff(k) => k.to_string().into(),
             Tab::Resources => "Resources".into(),
             Tab::Factions => "Factions".into(),
+            Tab::Journal => "Journal".into(),
             Tab::Resource(k) => format!("{k} (read-only)").into(),
         }
     }
@@ -73,6 +79,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
             Tab::Resources => browser::ui(self.app, ui),
             Tab::Factions => faction_view::ui(self.app, ui),
+            Tab::Journal => journal_view::ui(self.app, ui),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
         }
     }

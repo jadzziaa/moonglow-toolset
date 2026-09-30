@@ -82,3 +82,16 @@ unless given otherwise.
 | Advanced: grid, row regards column, editable 0–100 | same grid, coloured, hover says hostile/neutral/friendly like Aurora's status bar | ✅ |
 | Reputations in the engine | 36 creature pairs report `GetReputation` as written, after adding, editing and removing | ✅ (`engine_factions.rs`) |
 | OK / Cancel | live edits, one undoable command each | — |
+
+## Journal Editor (`TdlgJournalEditor`)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Tree Root → categories → entries (`[0001] - text`) | same (`[0001] text`, "(finishes)" marked) | ✅ |
+| Add: with Root a category, with a category an entry, disabled on an entry | same | ✅ [journal_editor_builds_what_aurora_builds] |
+| New category: CategoryNNN name and tag, priority Lowest, XP 0, no picture; new entry: next ID, text EntryNNN | same; the file equals Aurora's | ✅ (`aurora_journal.rs`, and through the UI) |
+| Copy, Cut, Paste, Delete | same (paste appends; IDs are kept) | ✅ |
+| Category: Name + `…`, Tag (32), Priority (Highest…Lowest), XP, Comments | same | ✅ |
+| Entry: ID, Finish Category, Text + `…` | same | ✅ |
+| Apply / OK / Cancel | live edits, one undoable command each | — |
+| In the engine | `GetJournalQuestExperience` returns each category's XP by tag | ✅ (`engine_journal.rs`) |
