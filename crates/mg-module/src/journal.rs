@@ -99,7 +99,7 @@ mod tests {
         assert_eq!(c1.id, 1);
         assert_eq!(c1.read(&jrl::categories::TAG).as_bytes(), b"Category001");
         // A taken number moves on.
-        let taken = new_category(&[c1.clone()]);
+        let taken = new_category(std::slice::from_ref(&c1));
         assert_eq!(taken.read(&jrl::categories::TAG).as_bytes(), b"Category002");
         let e1 = new_entry(&[]);
         let mut e5 = new_entry(std::slice::from_ref(&e1));

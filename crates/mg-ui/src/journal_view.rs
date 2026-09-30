@@ -134,11 +134,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             view.clipboard = view.selected.map(copied);
             delete = true;
         }
-        let paste_ok = match (&view.clipboard, view.selected) {
-            (Some(Clip::Category(_)), _) => true,
-            (Some(Clip::Entry(_)), Some(_)) => true,
-            _ => false,
-        };
+        let paste_ok = matches!(
+            (&view.clipboard, view.selected),
+            (Some(Clip::Category(_)), _) | (Some(Clip::Entry(_)), Some(_))
+        );
         if ui.add_enabled(paste_ok, egui::Button::new("Paste")).clicked() {
             match (view.clipboard.clone(), view.selected) {
                 (Some(Clip::Category(s)), _) => {

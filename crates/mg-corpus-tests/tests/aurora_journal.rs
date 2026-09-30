@@ -12,8 +12,7 @@ fn journal_editor_matches_aurora() {
     let aurora =
         Gff::read(&std::fs::read(aurora_capture!("journal/two-categories.jrl")).unwrap()).unwrap();
     let mut g = new_journal();
-    let mut cats = Vec::new();
-    cats.push(new_category(&cats));
+    let mut cats = vec![new_category(&[])];
     cats.push(new_category(&cats));
     for (c, n) in [(0, 2), (1, 1)] {
         let mut list = entries(&cats[c]).to_vec();
