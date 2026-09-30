@@ -132,5 +132,8 @@ unless given otherwise.
 | Comments (node comment; link comment on links) | same | ✅ |
 | Current File: end scripts normal/aborted, Stop Camera Zoom In | same | ✅ |
 | Status bar: line letters/words, file words | line letters and words, file words | ✅ |
-| Bookmarks, Search / Replace, Find In Files, Test, spell check, text export/import, Script Wizard | not yet | ✗ |
+| Bookmarks (list, double-click to go) | Bookmark toggles the selected line; the Bookmarks tab lists them, click selects | ✅ [conversation_search_bookmarks_and_test] |
+| Search: find, replace, match case, whole word, current file / all files in module | Search tab: find (this conversation or all), results select the line or open the conversation, Replace All in this one | ✅ (language and gender scopes: English only) |
+| Test (click through the conversation) | Test window: greetings, then each line's next lines, Back, Done; conditions not evaluated | ✅ |
+| Spell check, text export/import, Script Wizard | not yet | ✗ |
 | Scrap tab of cut lines | the clipboard holds one copied or cut branch | ◐ |

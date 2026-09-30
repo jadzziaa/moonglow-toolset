@@ -49,6 +49,34 @@ pub struct DialogView {
     /// sound (Aurora's filter buttons).
     pub highlight: [bool; 5],
     pub token_picker: bool,
+    /// Aurora's bottom tabs: Data, Bookmarks, Search.
+    pub bottom: Bottom,
+    /// Bookmarked lines.
+    pub bookmarks: Vec<(Kind, u32)>,
+    pub search: DialogSearch,
+    /// Test mode: the lines visited, the current one last.
+    pub test: Option<Vec<(Kind, u32)>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Bottom {
+    #[default]
+    Data,
+    Bookmarks,
+    Search,
+}
+
+/// Find / Replace in conversations.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DialogSearch {
+    pub find: String,
+    pub replace: String,
+    pub match_case: bool,
+    pub whole_word: bool,
+    /// All conversations in the module, not only this one.
+    pub all_files: bool,
+    /// Conversation, line, and its text.
+    pub results: Vec<(ResKey, Kind, u32, String)>,
 }
 
 /// What Copy and Cut put aside (shared by all conversations, like Aurora's
@@ -210,6 +238,44 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui,
         |ui| {
             let words = g.root.dword("NumWords").unwrap_or(0);
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut view.bottom, Bottom::Data, "Data");
+                ui.selectable_value(&mut view.bottom, Bottom::Bookmarks, "Bookmarks");
+                ui.selectable_value(&mut view.bottom, Bottom::Search, "Search");
+                ui.separator();
+                let sel = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
+                if ui.add_enabled(sel.is_some(), egui::Button::new("Bookmark").small()).clicked()
+                    && let Some(r) = sel
+                {
+                    let t = target_of(r);
+                    if let Some(i) = view.bookmarks.iter().position(|b| *b == t) {
+                        view.bookmarks.remove(i);
+                    } else {
+                        view.bookmarks.push(t);
+                    }
+                }
+                if ui.button("Test").on_hover_text("Click through the conversation").clicked() {
+                    view.test = Some(Vec::new());
+                }
+            });
+            ui.separator();
+            if view.bottom == Bottom::Bookmarks {
+                for (kind, index) in view.bookmarks.clone() {
+                    let Some(n) = node(&g, kind, index) else { continue };
+                    if ui
+                        .selectable_label(false, format!("{kind:?} {index}: {}", text(n)))
+                        .clicked()
+                        && let Some((parent, pos)) = mg_module::dialog::owner(&g, kind, index)
+                    {
+                        view.selected = Some(Row { parent, pos });
+                    }
+                }
+                return;
+            }
+            if view.bottom == Bottom::Search {
+                search_pane(app, ui, key, &g, &mut view, &mut actions);
+                return;
+            }
             // A row added this frame appears once the command has run.
             match view.selected.filter(|r| r.pos < links(&g, r.parent).len()) {
                 None => {
@@ -848,4 +914,182 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         },
     );
     app.new_dialog = if close { None } else { Some(name) };
+}
+
+fn matches(text: &str, find: &str, s: &DialogSearch) -> bool {
+    let o = crate::script_tools::SearchOptions {
+        match_case: s.match_case,
+        whole_word: s.whole_word,
+        backwards: false,
+    };
+    crate::script_tools::find(text, find, 0, &o).is_some()
+}
+
+/// The Search pane: find in this conversation or all of them, replace in
+/// this one.
+fn search_pane(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    key: ResKey,
+    g: &Gff,
+    view: &mut DialogView,
+    actions: &mut Vec<Action>,
+) {
+    let s = &mut view.search;
+    egui::Grid::new(("dlg-search", key)).num_columns(2).show(ui, |ui| {
+        ui.label("Find What");
+        ui.text_edit_singleline(&mut s.find);
+        ui.end_row();
+        ui.label("Replace With");
+        ui.text_edit_singleline(&mut s.replace);
+        ui.end_row();
+    });
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut s.match_case, "Match Case");
+        ui.checkbox(&mut s.whole_word, "Match Whole Word Only");
+        ui.checkbox(&mut s.all_files, "All Files in Module");
+    });
+    let mut find = false;
+    let mut replace_all = false;
+    ui.horizontal(|ui| {
+        find = ui.add_enabled(!s.find.is_empty(), egui::Button::new("Find")).clicked();
+        replace_all = ui
+            .add_enabled(!s.find.is_empty() && !s.all_files, egui::Button::new("Replace All"))
+            .clicked();
+    });
+    if find {
+        let keys: Vec<ResKey> = if s.all_files {
+            let mut k: Vec<ResKey> = app
+                .ws
+                .as_ref()
+                .map(|w| w.module.keys_of(ResType::DLG).copied().collect())
+                .unwrap_or_default();
+            k.sort();
+            k
+        } else {
+            vec![key]
+        };
+        let mut results = Vec::new();
+        for k in keys {
+            let doc = if k == key {
+                Some(g.clone())
+            } else {
+                app.ws.as_mut().and_then(|w| w.doc(&k).ok().cloned())
+            };
+            let Some(d) = doc else { continue };
+            for kind in [Kind::Entry, Kind::Reply] {
+                for (i, n) in mg_module::dialog::nodes(&d, kind).iter().enumerate() {
+                    let t = text(n);
+                    if matches(&t, &s.find, s) {
+                        results.push((k, kind, i as u32, t));
+                    }
+                }
+            }
+        }
+        s.results = results;
+    }
+    if replace_all {
+        let mut ng = g.clone();
+        let mut n = 0;
+        for kind in [Kind::Entry, Kind::Reply] {
+            if let Some(list) = ng.root.list_mut(kind.list()) {
+                for line in list {
+                    let t = text(line);
+                    let o = crate::script_tools::SearchOptions {
+                        match_case: s.match_case,
+                        whole_word: s.whole_word,
+                        backwards: false,
+                    };
+                    let (new, count) =
+                        crate::script_tools::replace_all(&t, &s.find, &s.replace, &o);
+                    if count > 0 {
+                        let ls = line.locstring("Text").cloned().unwrap_or_default();
+                        line.set("Text", with_english(ls, &new).into_value());
+                        n += count;
+                    }
+                }
+            }
+        }
+        if n > 0 {
+            actions.push(replace(key, "Replace text", &ng));
+        }
+        app.log.info(format!("Replaced {n} in {key}"));
+    }
+    ui.separator();
+    for (k, kind, index, t) in s.results.clone() {
+        let label = if k == key {
+            format!("{kind:?} {index}: {t}")
+        } else {
+            format!("{k}: {kind:?} {index}: {t}")
+        };
+        if ui.selectable_label(false, label).clicked() {
+            if k == key {
+                if let Some((parent, pos)) = mg_module::dialog::owner(g, kind, index) {
+                    view.selected = Some(Row { parent, pos });
+                }
+            } else {
+                actions.push(Action::OpenTab(Tab::Dialog(k)));
+            }
+        }
+    }
+}
+
+/// Test mode: click through the conversation from a greeting, as a player
+/// would, without evaluating conditions.
+pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
+    let open: Vec<ResKey> =
+        app.dialog_views.iter().filter(|(_, v)| v.test.is_some()).map(|(k, _)| *k).collect();
+    for key in open {
+        let Some(g) = app.ws.as_mut().and_then(|w| w.doc(&key).ok().cloned()) else { continue };
+        let view = app.dialog_views.get_mut(&key).expect("listed");
+        let mut path = view.test.clone().unwrap_or_default();
+        let mut close = false;
+        egui::Window::new(format!("Conversation Test: {key}")).collapsible(false).show(
+            ui.ctx(),
+            |ui| {
+                let next: Vec<(Kind, u32, bool)> = match path.last() {
+                    None => links(&g, Parent::Root)
+                        .iter()
+                        .map(|l| (Kind::Entry, link_index(l), false))
+                        .collect(),
+                    Some(&(k, i)) => {
+                        if let Some(n) = node(&g, k, i) {
+                            let who = if k == Kind::Entry { "NPC" } else { "You" };
+                            ui.label(RichText::new(format!("{who}: {}", text(n))).strong());
+                        }
+                        links(&g, Parent::Node(k, i))
+                            .iter()
+                            .map(|l| (k.child(), link_index(l), is_link(l)))
+                            .collect()
+                    }
+                };
+                ui.separator();
+                if next.is_empty() {
+                    ui.weak("[END DIALOGUE]");
+                }
+                for (k, i, _) in next {
+                    let Some(n) = node(&g, k, i) else { continue };
+                    let t = text(n);
+                    let label = match (k, t.is_empty()) {
+                        (Kind::Reply, true) => "[CONTINUE]".to_string(),
+                        (Kind::Entry, _) => format!("NPC: {t}"),
+                        (Kind::Reply, false) => t,
+                    };
+                    if ui.button(label).clicked() {
+                        path.push((k, i));
+                    }
+                }
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(!path.is_empty(), egui::Button::new("<-- Back")).clicked() {
+                        path.pop();
+                    }
+                    if ui.button("Done").clicked() {
+                        close = true;
+                    }
+                });
+            },
+        );
+        view.test = if close { None } else { Some(path) };
+    }
 }

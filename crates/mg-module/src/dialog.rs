@@ -221,6 +221,24 @@ pub fn add_link(g: &mut Gff, parent: Parent, target: u32) -> bool {
     true
 }
 
+/// The owning link of a line: its parent and position.
+pub fn owner(g: &Gff, kind: Kind, index: u32) -> Option<(Parent, usize)> {
+    let parents = std::iter::once(Parent::Root).chain(
+        [Kind::Entry, Kind::Reply]
+            .into_iter()
+            .flat_map(|k| (0..nodes(g, k).len() as u32).map(move |i| Parent::Node(k, i))),
+    );
+    for p in parents {
+        if p.child_kind() != kind {
+            continue;
+        }
+        if let Some(pos) = links(g, p).iter().position(|l| !is_link(l) && link_index(l) == index) {
+            return Some((p, pos));
+        }
+    }
+    None
+}
+
 /// Every line reachable through owning links from the starting list.
 fn owned(g: &Gff) -> HashSet<(Kind, u32)> {
     let mut seen = HashSet::new();
@@ -527,6 +545,14 @@ mod tests {
         assert_eq!(nodes(&g, Kind::Reply).len(), 0);
         assert_eq!(outline(&g), ["Entry|Go away.||if ()|do ()|anim 0|"]);
         assert_eq!(g.root.dword("NumWords"), Some(2));
+    }
+
+    #[test]
+    fn owners() {
+        let g = sample();
+        assert_eq!(owner(&g, Kind::Entry, 0), Some((Parent::Root, 0)));
+        assert_eq!(owner(&g, Kind::Reply, 0), Some((Parent::Node(Kind::Entry, 0), 0)));
+        assert_eq!(owner(&g, Kind::Entry, 1), Some((Parent::Node(Kind::Reply, 0), 0)));
     }
 
     #[test]

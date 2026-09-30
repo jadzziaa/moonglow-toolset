@@ -695,3 +695,71 @@ fn conversation_editor_builds_and_links() {
     h.run();
     assert_eq!(texts(&doc(&mut h)).len(), 5);
 }
+
+#[test]
+fn conversation_search_bookmarks_and_test() {
+    use mg_module::dialog::{Kind, Parent, add_link, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("ui-dialog-tools");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    let hello = add_node(&mut g, Parent::Root, "Hello there.");
+    let who = add_node(&mut g, Parent::Node(Kind::Entry, hello), "Who are you?");
+    add_node(&mut g, Parent::Node(Kind::Reply, who), "A traveller.");
+    let go = add_node(&mut g, Parent::Root, "Go away.");
+    add_link(&mut g, Parent::Node(Kind::Entry, go), who);
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        h.get_by_label(label).click();
+        h.run();
+    };
+
+    // Search finds the line and selects it in the tree.
+    click(&mut h, "Search");
+    h.state_mut().dialog_views.get_mut(&key).unwrap().search.find = "traveller".into();
+    h.run();
+    click(&mut h, "Find");
+    let results = h.state().dialog_views[&key].search.results.clone();
+    assert_eq!(results.len(), 1);
+    click(&mut h, &format!("Entry {}: A traveller.", results[0].2));
+    let selected = h.state().dialog_views[&key].selected.unwrap();
+    assert_eq!(selected.parent, Parent::Node(Kind::Reply, who));
+
+    // A bookmark on it.
+    click(&mut h, "Bookmark");
+    assert_eq!(h.state().dialog_views[&key].bookmarks, [(Kind::Entry, results[0].2)]);
+
+    // Replace All in this conversation.
+    h.state_mut().dialog_views.get_mut(&key).unwrap().search.find = "Go away.".into();
+    h.state_mut().dialog_views.get_mut(&key).unwrap().search.replace = "Leave.".into();
+    h.run();
+    click(&mut h, "Replace All");
+    let doc = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    assert!(mg_module::dialog::outline(&doc).iter().any(|l| l.starts_with("Entry|Leave.|")));
+
+    // Test mode walks greeting → reply → answer, and back.
+    click(&mut h, "Test");
+    click(&mut h, "NPC: Hello there.");
+    // The tree has a row of the same text: look inside the test window.
+    let window =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
+    h.get_all_by_label("Conversation Test: talk.dlg")
+        .find(window)
+        .unwrap()
+        .get_by_label("Who are you?")
+        .click();
+    h.run();
+    click(&mut h, "NPC: A traveller.");
+    h.get_by_label("[END DIALOGUE]");
+    click(&mut h, "<-- Back");
+    assert_eq!(h.state().dialog_views[&key].test.as_ref().unwrap().len(), 2);
+    click(&mut h, "Done");
+    assert!(h.state().dialog_views[&key].test.is_none());
+}

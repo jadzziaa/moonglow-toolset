@@ -392,8 +392,8 @@ outline; conditions with EE parameters and actions run in the engine), and
 the script editor's tools (symbol lists with help, compiler messages that
 go to their line, find/replace and find in files, bookmarks, completion,
 templates, new script and save as). Remaining (see the checklists): the
-Script Wizard, the conversation editor's search, bookmarks and test mode,
-numbered script bookmarks, editor colour options.
+Script Wizard, numbered script bookmarks, editor colour options,
+conversation spell check and text export.
 
 ### Phase 7: Renderer and model viewer
 wgpu renderer with EE-style lighting (§5.5), textures (TGA/DDS/PLT/TXI), MTR

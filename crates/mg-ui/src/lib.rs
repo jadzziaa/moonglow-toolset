@@ -263,6 +263,7 @@ impl Moonglow {
         widgets::ui(self, ui);
         script_view::windows(self, ui);
         dialog_view::windows(self, ui);
+        dialog_view::test_window(self, ui);
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
