@@ -135,5 +135,8 @@ unless given otherwise.
 | Bookmarks (list, double-click to go) | Bookmark toggles the selected line; the Bookmarks tab lists them, click selects | ✅ [conversation_search_bookmarks_and_test] |
 | Search: find, replace, match case, whole word, current file / all files in module | Search tab: find (this conversation or all), results select the line or open the conversation, Replace All in this one | ✅ (language and gender scopes: English only) |
 | Test (click through the conversation) | Test window: greetings, then each line's next lines, Back, Done; conditions not evaluated | ✅ |
-| Spell check, text export/import, Script Wizard | not yet | ✗ |
+| Script Wizard (Text Appears When…: abilities, class and level, gender, race, alignment, feats, skills, skill checks, items, local variables, random; Actions Taken: rewards, take gold/XP/items, set locals, attack or open a store, faction change; name sc_NNN/at_NNN, start the editor) | same pages and lists; Finish writes, compiles and sets the script in one undoable command | ✅ (`aurora_script_wizard.rs`: Aurora's five captured scripts byte for byte, all compile) [script_wizard_writes_compiles_and_sets_scripts] |
+| Script Wizard output that does not work in EE: store with appraise checks plus a party reward (`nw_i0_tool` and `nw_i0_plot` both define `HasItem`: no compile), Take XP (`GiveXPToCreature` ignores negative amounts) | `nw_i0_plot` only, party XP as a loop; Take XP with `SetXP` | ✅ (improvement) |
+| String local variables: "is equal to" only | also "is not equal to" | ✅ (improvement) |
+| Spell check, text export/import | not yet | ✗ |
 | Scrap tab of cut lines | the clipboard holds one copied or cut branch | ◐ |

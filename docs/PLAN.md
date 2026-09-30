@@ -391,8 +391,10 @@ the Conversation Editor (`mg_module::dialog`: Aurora's conversation as an
 outline; conditions with EE parameters and actions run in the engine), and
 the script editor's tools (symbol lists with help, compiler messages that
 go to their line, find/replace and find in files, bookmarks, completion,
-templates, new script and save as). Remaining (see the checklists): the
-Script Wizard, numbered script bookmarks, editor colour options,
+templates, new script and save as), and the Script Wizard
+(`mg_module::script_wizard`: Aurora's captured scripts byte for byte, except
+where Aurora's output does not compile or work in EE). Remaining (see the
+checklists): numbered script bookmarks, editor colour options,
 conversation spell check and text export.
 
 ### Phase 7: Renderer and model viewer

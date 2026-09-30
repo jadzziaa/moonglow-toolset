@@ -642,26 +642,36 @@ pub(crate) fn find_in_script(app: &mut Moonglow, ctx: &egui::Context, key: ResKe
     }
 }
 
-/// Compiles one script (its text as in the editor) and stores the bytecode.
-fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) {
-    let Some(ws) = &app.ws else { return };
+/// Compiles a script's source, resolving includes in the module, then the
+/// game.
+pub(crate) fn compile_source(
+    app: &Moonglow,
+    key: ResKey,
+    text: &str,
+) -> Result<Vec<u8>, mg_script::compiler::CompileError> {
     let source = encode(text);
-    let module = &ws.module;
+    let module = app.ws.as_ref().map(|w| &w.module);
     let resman = app.game.as_ref().map(|g| &g.resman);
     let name = key.resref.to_lowercase().to_string();
-    let result = {
-        let mut c = Compiler::new(|n: &str, t: ResType| {
-            if t == ResType::NSS && n.eq_ignore_ascii_case(&name) {
-                return Some(source.clone());
-            }
-            let k = ResKey::parse(n, t)?;
-            module
-                .get(&k)
-                .map(<[u8]>::to_vec)
-                .or_else(|| resman?.get(&k).ok().map(|d| d.into_owned()))
-        });
-        c.compile(&name)
-    };
+    let mut c = Compiler::new(|n: &str, t: ResType| {
+        if t == ResType::NSS && n.eq_ignore_ascii_case(&name) {
+            return Some(source.clone());
+        }
+        let k = ResKey::parse(n, t)?;
+        module
+            .and_then(|m| m.get(&k))
+            .map(<[u8]>::to_vec)
+            .or_else(|| resman?.get(&k).ok().map(|d| d.into_owned()))
+    });
+    c.compile(&name).map(|out| out.ncs)
+}
+
+/// Compiles one script (its text as in the editor) and stores the bytecode.
+fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) {
+    if app.ws.is_none() {
+        return;
+    }
+    let result = compile_source(app, key, text);
     app.script_tools.messages.retain(|m| m.script != key);
     app.script_tools.info = InfoTab::Compiler;
     match result {
@@ -669,7 +679,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) {
             let ncs = ResKey::new(key.resref, ResType::NCS);
             app.actions.push(Action::Apply(Command::new(
                 format!("Compile {key}"),
-                vec![Edit::SetResource { key: ncs, data: Some(out.ncs) }],
+                vec![Edit::SetResource { key: ncs, data: Some(out) }],
             )));
             app.log.info(format!("{key}: compiled"));
             app.script_tools.messages.push(Message {

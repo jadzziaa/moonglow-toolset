@@ -14,6 +14,7 @@ pub mod module_props;
 mod options;
 pub mod script_tools;
 mod script_view;
+pub mod script_wizard;
 pub mod settings;
 mod tabs;
 mod text;
@@ -139,6 +140,7 @@ pub struct Moonglow {
     pub(crate) script_save_as: Option<(ResKey, String)>,
     /// The New Script window's name.
     pub new_script: Option<String>,
+    pub script_wizard: Option<script_wizard::ScriptWizard>,
     /// The hak conflict report being shown.
     pub hak_report: Option<String>,
     /// The custom talk table loaded into the game data, by name.
@@ -195,6 +197,7 @@ impl Moonglow {
             script_tools: script_tools::ScriptTools::default(),
             script_save_as: None,
             new_script: None,
+            script_wizard: None,
             hak_report: None,
             custom_tlk: None,
             var_edit: None,
@@ -264,6 +267,7 @@ impl Moonglow {
         script_view::windows(self, ui);
         dialog_view::windows(self, ui);
         dialog_view::test_window(self, ui);
+        script_wizard::window(self, ui);
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")

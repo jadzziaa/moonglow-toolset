@@ -637,6 +637,10 @@ fn script_with_params(
             }));
         }
     });
+    if ui.button("Script Wizard…").on_hover_text("Write a new script from a few choices").clicked()
+    {
+        app.open_script_wizard(key, path.clone(), label, salt == "cond");
+    }
     // The pairs being edited live in a buffer until a field loses focus or a
     // row is added or removed; with no field focused the file's pairs show.
     let stored = params(s, list);

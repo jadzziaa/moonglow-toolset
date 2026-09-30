@@ -763,3 +763,102 @@ fn conversation_search_bookmarks_and_test() {
     click(&mut h, "Done");
     assert!(h.state().dialog_views[&key].test.is_none());
 }
+
+#[test]
+fn script_wizard_writes_compiles_and_sets_scripts() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-script-wizard");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.new_dialog = Some("wizdlg".into());
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    let key = ResKey::parse("wizdlg", ResType::DLG).unwrap();
+    h.get_by_label("Add").click();
+    h.run();
+    h.run();
+
+    let window =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
+    let in_wizard = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        h.get_all_by_label("Script Wizard")
+            .find(window)
+            .expect("the wizard")
+            .get_by_label(label)
+            .click();
+        h.run();
+    };
+    let type_in_wizard = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        let w = h.get_all_by_label("Script Wizard").find(window).unwrap();
+        let field = w.get_all_by_role(egui::accesskit::Role::TextInput).next().expect("a field");
+        field.click();
+        h.run();
+        let w = h.get_all_by_label("Script Wizard").find(window).unwrap();
+        w.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text(text);
+        h.run();
+    };
+
+    // A condition: female, carrying key_1.
+    h.get_by_label("Script Wizard…").click();
+    h.run();
+    h.run();
+    for label in ["Gender", "Item In Inventory", "Next >", "Female", "Next >"] {
+        in_wizard(&mut h, label);
+    }
+    type_in_wizard(&mut h, "key_1");
+    for label in ["Add", "Next >", "Finish"] {
+        in_wizard(&mut h, label);
+    }
+    h.run();
+    let module = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.clone();
+    let sc = String::from_utf8(
+        module(&h).get(&ResKey::parse("sc_001", ResType::NSS).unwrap()).unwrap().to_vec(),
+    )
+    .unwrap();
+    assert!(sc.contains("if(GetGender(GetPCSpeaker()) != GENDER_FEMALE)"), "{sc}");
+    assert!(sc.contains("if(!HasItem(GetPCSpeaker(), \"key_1\"))"), "{sc}");
+    assert!(module(&h).contains(&ResKey::parse("sc_001", ResType::NCS).unwrap()));
+    let doc = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone()
+    };
+    let g = doc(&mut h);
+    let start = &g.root.list("StartingList").unwrap()[0];
+    assert_eq!(start.resref("Active").unwrap().as_str(), Some("sc_001"));
+
+    // An action: 50 gold.
+    h.get_by_label("Actions Taken").click();
+    h.run();
+    h.get_by_label("Script Wizard…").click();
+    h.run();
+    h.run();
+    for label in ["Give rewards", "Next >"] {
+        in_wizard(&mut h, label);
+    }
+    type_in_wizard(&mut h, "50");
+    for label in ["Next >", "Finish"] {
+        in_wizard(&mut h, label);
+    }
+    h.run();
+    let at = String::from_utf8(
+        module(&h).get(&ResKey::parse("at_001", ResType::NSS).unwrap()).unwrap().to_vec(),
+    )
+    .unwrap();
+    assert!(at.contains("\tGiveGoldToCreature(GetPCSpeaker(), 50);\r\n"), "{at}");
+    let g = doc(&mut h);
+    assert_eq!(
+        g.root.list("EntryList").unwrap()[0].resref("Script").unwrap().as_str(),
+        Some("at_001")
+    );
+
+    // One undo takes the script, its bytecode and the field back.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert!(!module(&h).contains(&ResKey::parse("at_001", ResType::NSS).unwrap()));
+    assert!(!module(&h).contains(&ResKey::parse("at_001", ResType::NCS).unwrap()));
+    let g = doc(&mut h);
+    assert!(g.root.list("EntryList").unwrap()[0].resref("Script").unwrap().is_empty());
+}

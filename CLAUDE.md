@@ -26,7 +26,9 @@ Cargo workspace, layered bottom-up (a crate depends only on crates listed
 before it in `docs/PLAN.md` §4): `crates/mg-core` (ResRef, ResType, languages,
 LocString, binary helpers), `mg-gff`, `mg-erf`, `mg-key`, `mg-2da`, `mg-tlk`,
 ... `mg-edit` (undoable workspace), `mg-ui` (egui app; UI tests with
-`egui_kittest` in `crates/mg-ui/tests`), `mg-testkit` (corpus locator, oracle
+`egui_kittest` in `crates/mg-ui/tests`; to look at a window's layout,
+render it with `tests/screens.rs`: `cargo test -p mg-ui --test screens --
+--ignored` writes PNGs to `target/test-output/screens/`), `mg-testkit` (corpus locator, oracle
 tools, engine runner) and `mg-corpus-tests` (tests only). Binaries:
 `apps/mg` (CLI) and `apps/moonglow` (the GUI). `tools/aurora/` holds the Aurora oracle
 harness and the form (DFM) decoder; `docs/research/` the research briefs
