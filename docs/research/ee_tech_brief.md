@@ -797,7 +797,7 @@ rgb = gam(rgb) ; rgb = mix(rgb, fogColor, fog)                 // fog AFTER gamm
   - `end ≈ FogClipDist` (default 45), also the tile/static render distance
   - a skybox adds +90 m of render distance
   - dynamic placeables/doors 45 m, creatures 35 m
-  - `start` comes from `Sun/MoonFogAmount` (0–15): **the formula is unknown** (measure in game)
+  - `start = min(30 − Sun/MoonFogAmount, end − 1)` m, measured in the client (fog always on; amounts 0–200)
 - **Skybox:** skyboxes.2da DAWN/DAY/DUSK/NIGHT models via `vsvt/fst` (never fogged), centred on the viewer; `skyfade1.mdl` blends fog at the horizon.
 - **Shadows:** stencil shadow volumes from `shadow 1` trimeshes (often `render 0` proxies) extruded on the GPU, plus a darkening plane (`ShadowOpacity`). Casters: the sun (static projections), plus ≤3 dynamic `shadow 1` lights. `beaming` meshes render as translucent light shafts. **Optional for an editor.**
 - **Post pass** (`fsfbpostpr`, always runs): sharpen → DoF → toon → dynamic contrast → vibrance → gamma (`pow(rgb, Gamma/2.2)`, 2.2 = identity) → **ColorClamp tonemap**:

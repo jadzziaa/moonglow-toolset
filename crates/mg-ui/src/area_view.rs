@@ -130,7 +130,7 @@ impl AreaView {
             orbit: None,
             selection: Vec::new(),
             night: false,
-            fog: true,
+            fog: false,
             grid: true,
             show: [true; 9],
             show_start: true,

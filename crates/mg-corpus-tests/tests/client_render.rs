@@ -468,6 +468,13 @@ float MgValue(int k)
     if (k == 3) return lightFalloffFactor / 4096.0;
     if (k >= 4 && k < 7) return lightAreaAmbient[k - 4] / 4.0;
     if (k >= 7 && k < 10) return lightAreaDiffuse[k - 7] / 4.0;
+#if FOG == 1
+    if (k == 10) return fogParams.x;
+    if (k == 11) return fogParams.y / 1024.0;
+    if (k == 12) return fogParams.z / 1024.0;
+    if (k == 13) return fogParams.w;
+    if (k >= 14 && k < 17) return fogColor[k - 14];
+#endif
     if (k >= 32 && k < 32 + 8 * 8)
     {
         int i = (k - 32) / 8;
@@ -621,6 +628,76 @@ fn light_uniforms_match_the_client() {
             if (client - moonglow).abs() > tolerance {
                 failures.push(format!("{name}: {what}: client {client}, moonglow {moonglow}"));
             }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// L5: the client's fog uniforms (read back through the debug shader) are
+/// Moonglow's fog: the end at the fog clip distance, the start the fog
+/// amount nearer than 30 m (at most 1 m before the end), with or without a
+/// skybox. `MG_FOG_CASES=amount:clip,...` measures others.
+#[test]
+#[ignore]
+fn fog_uniforms_match_the_client() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let shader = debug_shader(&game);
+    let cases: Vec<(u8, f32, u8)> = std::env::var("MG_FOG_CASES")
+        .ok()
+        .map(|v| {
+            v.split(',')
+                .map(|c| {
+                    let (a, d) = c.split_once(':').unwrap();
+                    (a.parse().unwrap(), d.parse().unwrap(), 0)
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| vec![(0, 45.0, 0), (10, 45.0, 0), (50, 100.0, 1), (0, 25.0, 0)]);
+    let mut failures = Vec::new();
+    for (amount, clip, sky) in cases {
+        let dir = scratch_dir(&format!("client_fog_{amount}_{clip}"));
+        let light =
+            Lighting { ambient: 0x404040, diffuse: 0xB0B0B0, main_light: 0, only_tile: None };
+        let (mut m, mut are) = build_module(&game, &dir, light);
+        are.root.set("SunFogAmount", Value::Byte(amount));
+        are.root.set("SunFogColor", Value::Dword(0x806040));
+        are.root.set("FogClipDist", Value::Float(clip));
+        are.root.set("SkyBox", Value::Byte(sky));
+        let area =
+            m.info().unwrap().root.list("Mod_Area_list").unwrap()[0].resref("Area_Name").unwrap();
+        m.set_gff(ResKey::new(area, ResType::ARE), &are).unwrap();
+        std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+        std::fs::write(dir.join("user/override/inc_standard.shd"), &shader).unwrap();
+        m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+        let Some(client) = client_screenshot(&dir, "MgScene") else {
+            panic!("fog {amount}: the client did not reach the scene (see {})", dir.display());
+        };
+        // The start from 1 / (end - start): the read-back clamps below 0.
+        let end = debug_value(&client, 12, 1024.0);
+        let start = end - 1.0 / debug_value(&client, 13, 1.0);
+        let color = [14, 15, 16].map(|k| debug_value(&client, k, 1.0));
+        let lighting = mg_area::Lighting::read(&are.root, None);
+        let ours = mg_area::fog(&lighting, false);
+        eprintln!(
+            "fog {amount} clip {clip} sky {sky}: client {start:.2}..{end:.2}, \
+             moonglow {:.2}..{:.2}",
+            ours.start, ours.end
+        );
+        let close = |a: f32, b: f32, tolerance: f32| (a - b).abs() <= tolerance;
+        if debug_value(&client, 10, 1.0) < 0.5 {
+            failures.push(format!("fog {amount}: the client has fog off"));
+        }
+        if !close(start, ours.start, 0.3) || !close(end, ours.end, 0.1) {
+            failures.push(format!(
+                "fog {amount} clip {clip}: client {start}..{end}, moonglow {}..{}",
+                ours.start, ours.end
+            ));
+        }
+        if (0..3).any(|c| !close(color[c], ours.color[c], 0.003)) {
+            failures.push(format!("fog {amount}: colour {color:?} vs {}", ours.color));
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

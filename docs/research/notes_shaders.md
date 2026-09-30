@@ -556,7 +556,7 @@ The earlier reconstruction (att(0) = 1.5, k ≈ 12.33, colours uploaded as-is) m
 - `fogEnd` ≈ `FogClipDist`, which is also the far clip / render distance for tiles and static placeables.
   - A skybox adds **+90 m** to the render distance ([WIKI]).
   - Dynamic placeables and doors: 45 m; creatures: 35 m.
-- `fogStart` comes from `Sun/MoonFogAmount` (0–15; higher = fog closer). **The exact formula is unknown.** Console `fogstart/fogend` exist.
+- `fogStart` comes from `Sun/MoonFogAmount`: **measured in the client** (its `fogParams` uniform read back through a patched `inc_standard.shd`, `client_render.rs` `fog_uniforms_match_the_client`): `fogEnd = FogClipDist` and `fogStart = min(30 − FogAmount, fogEnd − 1)` metres; fog is always enabled, even at amount 0, and a skybox changes neither. EE's Area Properties take amounts 0–200 (past 30 the fog starts behind the camera). Console `fogstart/fogend` exist.
 - Skybox:
   - drawn with `vsvt/fst` (FOG 0 → never fogged), centred on the player
   - **`skyfade1.mdl`** (texture `skyblurpoly.tga`, colour = how much fog, alpha = how much sky shows) blends fog colour over the horizon and below

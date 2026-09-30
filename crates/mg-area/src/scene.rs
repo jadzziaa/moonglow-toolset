@@ -33,9 +33,10 @@ pub struct View {
 }
 
 impl View {
-    /// The area as the toolset first shows it.
+    /// The area as the toolset first shows it (without fog, as Aurora's
+    /// Scene › Fog starts unchecked).
     pub fn of(area: &AreaModel) -> View {
-        View { time: 0.0, night: area.lighting.night_by_default(), fog: true, show: [true; 9] }
+        View { time: 0.0, night: area.lighting.night_by_default(), fog: false, show: [true; 9] }
     }
 
     pub fn shows(&self, kind: ObjectKind) -> bool {
@@ -212,7 +213,7 @@ impl AreaScene {
         }
         let l = &area.lighting;
         let sky = l.sky(view.night);
-        let fog = if view.fog { fog(l, view.night) } else { None };
+        let fog = view.fog.then(|| fog(l, view.night));
         let background = fog.map_or([0.0; 3], |f| f.color.to_array());
         Scene {
             instances,
@@ -322,19 +323,17 @@ fn sun_direction() -> Vec3 {
     Vec3::new(4000.0, 4500.0, 7000.0).normalize()
 }
 
-/// The area's fog: it ends at `FogClipDist` and starts nearer the more fog
-/// there is. How the engine turns `FogAmount` (0–15) into the start is not
-/// measured yet; this takes a linear scale (0 none, 15 at the camera).
-fn fog(l: &Lighting, night: bool) -> Option<Fog> {
+/// The area's fog, as the client sets it (its fog uniforms read back in
+/// `client_render.rs`): always on, ending at `FogClipDist` and starting
+/// `FogAmount` metres nearer than 30 m (so past 30 it starts behind the
+/// camera), at most 1 m before its end; its colour as stored (gamma space).
+pub fn fog(l: &Lighting, night: bool) -> Fog {
     let sky = l.sky(night);
-    if sky.fog_amount == 0 {
-        return None;
-    }
-    let end = l.fog_clip.max(1.0);
-    let start = end * (1.0 - f32::from(sky.fog_amount.min(15)) / 15.0);
+    let end = l.fog_clip;
+    let start = (30.0 - f32::from(sky.fog_amount)).min(end - 1.0);
     let c = sky.fog_color;
     let ch = |shift: u32| ((c >> shift) & 0xFF) as f32 / 255.0;
-    Some(Fog { start, end, color: Vec3::new(ch(0), ch(8), ch(16)) })
+    Fog { start, end, color: Vec3::new(ch(0), ch(8), ch(16)) }
 }
 
 /// Where a camera sees the whole area from above, for a first view.

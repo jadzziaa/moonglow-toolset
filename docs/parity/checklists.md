@@ -230,7 +230,7 @@ scripts (name, picker, Edit), Comments.
 | Every area opens and draws: tiles (heights, turns, main and source lights, animation loops, day and night animations), placed creatures, doors, items and placeables | `mg_area` model and scene | ✅ (`areas.rs`: all 1462 shipped areas open and render; the only objects without models are the data's own) |
 | First view: straight down, north up, the whole area; numpad 5 returns to it | the same | ✅ |
 | Object Filters: Show Creatures … Waypoints, Start Location, Show All, Show None | toggles in the view's toolbar (per view, not per frame) | ✅ [area_viewer_selects_moves_and_deletes] |
-| Preview: Fog, Use Area Lighting; day or night | Fog, Night; the area's lighting always | ◐ fog start is not measured yet (a linear guess) |
+| Preview: Fog, Use Area Lighting; day or night | Fog (off at first, as Aurora's Scene › Fog), Night; the area's lighting always | ✅ the fog is the client's: it ends at the fog clip distance and starts the fog amount nearer than 30 m (`client_render.rs`, measured uniforms) |
 | Display Grid | Grid (tile outlines at each tile's height) | ✅ |
 | Reorient Camera, Go to Start Location | the same | ✅ |
 | Camera (nwn.wiki's Area Editor page): Ctrl + drag moves, Ctrl + right or middle drag turns, the wheel zooms (Shift or Ctrl: slowly), numpad 4 6 8 2 / 7 9 1 3 / 5 | the same; also a middle drag turns, Shift + middle drag moves, the arrow keys move | ◐ no camera pad |
