@@ -196,6 +196,193 @@ impl GameData {
     }
 }
 
+/// An item property type (an itempropdef.2da row) and the tables that
+/// qualify it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyType {
+    pub row: u16,
+    /// The toolset's name (`Name`).
+    pub name: String,
+    /// The table of subtypes (`SubTypeResRef`), lower case.
+    pub subtypes: Option<String>,
+    /// The iprp_costtable.2da row of its values (`CostTableResRef`; 0 is
+    /// the empty table).
+    pub cost_table: u8,
+    /// The iprp_paramtable.2da row of its parameter (`Param1ResRef`); a
+    /// subtype table may give one per subtype instead.
+    pub param1: Option<u8>,
+}
+
+impl GameData {
+    /// An item property type.
+    pub fn property_type(&self, row: u16) -> Option<PropertyType> {
+        let t = self.table("itempropdef").ok()?;
+        let r = row as usize;
+        let name = t
+            .get_int(r, "Name")
+            .and_then(|s| self.string(mg_core::StrRef(s as u32)))
+            .filter(|s| !s.is_empty())
+            .or_else(|| t.get(r, "Label").map(str::to_string))?;
+        Some(PropertyType {
+            row,
+            name,
+            subtypes: t.get(r, "SubTypeResRef").map(str::to_lowercase),
+            cost_table: t.get_int(r, "CostTableResRef").map_or(0, |v| v.clamp(0, 255) as u8),
+            param1: t.get_int(r, "Param1ResRef").map(|v| v.clamp(0, 255) as u8),
+        })
+    }
+
+    /// The property types a base item can have (itemprops.2da, in the column
+    /// baseitems.2da `PropColumn` names), by name.
+    pub fn available_properties(&self, base_item: u32) -> Vec<PropertyType> {
+        let column = self
+            .table("baseitems")
+            .ok()
+            .and_then(|t| t.get_int(base_item as usize, "PropColumn"))
+            .filter(|&c| c >= 0);
+        let Some(column) = column else { return Vec::new() };
+        let Ok(props) = self.table("itemprops") else { return Vec::new() };
+        let mut out: Vec<PropertyType> = (0..props.len())
+            .filter(|&row| props.cell(row, column as usize) == Some("1"))
+            .filter_map(|row| self.property_type(row as u16))
+            .collect();
+        out.sort_by_key(|t| t.name.to_lowercase());
+        out
+    }
+
+    /// Rows of a table with a name (its `Name` string, else its `Label`),
+    /// skipping unnamed ones such as the "Random" rows.
+    fn named_rows(&self, table: &str, keep: impl Fn(usize) -> bool) -> Vec<crate::Choice> {
+        let Ok(t) = self.table(table) else { return Vec::new() };
+        (0..t.len())
+            .filter(|&row| keep(row))
+            .filter_map(|row| {
+                let name = t.get_int(row, "Name")?;
+                let text = self
+                    .string(mg_core::StrRef(name as u32))
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| t.get(row, "Label").map(str::to_string))?;
+                Some(crate::Choice { row, text })
+            })
+            .collect()
+    }
+
+    /// The use column (iprp_spells.2da) or cost column (iprp_chargecost.2da)
+    /// that applies to a base item: potions and wands have their own.
+    fn use_column(
+        &self,
+        base_item: u32,
+        potion: &'static str,
+        wand: &'static str,
+    ) -> Option<&'static str> {
+        let column = self.table("baseitems").ok()?.get_int(base_item as usize, "PropColumn")?;
+        match column {
+            8 => Some(potion),
+            10 => Some(wand),
+            _ => None,
+        }
+    }
+
+    /// A property type's subtypes for a base item (Cast Spell: the spells
+    /// usable on it).
+    pub fn property_subtypes(&self, t: &PropertyType, base_item: u32) -> Vec<crate::Choice> {
+        let Some(table) = &t.subtypes else { return Vec::new() };
+        let spells = self.table(table).ok().filter(|_| table == "iprp_spells");
+        let column = self.use_column(base_item, "PotionUse", "WandUse").unwrap_or("GeneralUse");
+        self.named_rows(table, |row| {
+            spells.as_ref().is_none_or(|s| s.get_int(row, column).unwrap_or(1) != 0)
+        })
+    }
+
+    /// The values of a cost table (Cast Spell's charges: those that apply
+    /// to the base item).
+    pub fn property_costs(&self, cost_table: u8, base_item: u32) -> Vec<crate::Choice> {
+        if cost_table == 0 {
+            return Vec::new();
+        }
+        let Some(table) = self.text("iprp_costtable", cost_table as usize, "Name") else {
+            return Vec::new();
+        };
+        let table = table.to_lowercase();
+        let charges = self.table(&table).ok().filter(|_| table == "iprp_chargecost");
+        let column = self.use_column(base_item, "PotionCost", "WandCost");
+        self.named_rows(&table, |row| match (&charges, column) {
+            (Some(c), Some(col)) => c.get_int(row, col).unwrap_or(0) != 0,
+            _ => true,
+        })
+    }
+
+    /// The parameter table (iprp_paramtable.2da row) of a property with a
+    /// subtype: the type's, else the subtype's `Param1ResRef`.
+    pub fn property_param_table(&self, t: &PropertyType, subtype: u16) -> Option<u8> {
+        t.param1.or_else(|| {
+            let table = t.subtypes.as_ref()?;
+            let v = self.table(table).ok()?.get_int(subtype as usize, "Param1ResRef")?;
+            u8::try_from(v).ok()
+        })
+    }
+
+    /// A parameter table's values.
+    pub fn property_params(&self, param_table: u8) -> Vec<crate::Choice> {
+        match self.text("iprp_paramtable", param_table as usize, "TableResRef") {
+            Some(t) => self.named_rows(&t.to_lowercase(), |_| true),
+            None => Vec::new(),
+        }
+    }
+
+    /// A new property of a type, for a base item: its first subtype, value
+    /// and parameter.
+    pub fn new_property(&self, t: &PropertyType, base_item: u32) -> ItemProperty {
+        let subtype = self.property_subtypes(t, base_item).first().map_or(0, |c| c.row as u16);
+        let cost_value =
+            self.property_costs(t.cost_table, base_item).first().map_or(0, |c| c.row as u16);
+        let param1 = self.property_param_table(t, subtype);
+        let param1_value =
+            param1.and_then(|p| self.property_params(p).first().map(|c| c.row as u8)).unwrap_or(0);
+        ItemProperty {
+            property: t.row,
+            subtype,
+            cost_table: t.cost_table,
+            cost_value,
+            param1: param1.unwrap_or(255),
+            param1_value,
+            chance: 100,
+        }
+    }
+
+    /// A property as the game describes it: its game name (`GameStrRef`, as
+    /// "Enhancement Bonus:"), then its subtype, value and parameter.
+    pub fn property_text(&self, p: &ItemProperty) -> String {
+        let Ok(defs) = self.table("itempropdef") else { return format!("({})", p.property) };
+        let r = p.property as usize;
+        let string = |s: Option<i32>| {
+            s.and_then(|s| self.string(mg_core::StrRef(s as u32))).filter(|s| !s.is_empty())
+        };
+        let mut parts = vec![
+            string(defs.get_int(r, "GameStrRef"))
+                .or_else(|| string(defs.get_int(r, "Name")))
+                .unwrap_or_else(|| format!("({})", p.property)),
+        ];
+        let name_of = |table: Option<String>, row: usize| {
+            let t = self.table(&table?.to_lowercase()).ok()?;
+            string(t.get_int(row, "Name")).or_else(|| t.get(row, "Label").map(str::to_string))
+        };
+        let Some(t) = self.property_type(p.property) else { return parts.remove(0) };
+        if t.subtypes.is_some() {
+            parts.extend(name_of(t.subtypes.clone(), p.subtype as usize));
+        }
+        if p.cost_table != 0 {
+            let table = self.text("iprp_costtable", p.cost_table as usize, "Name");
+            parts.extend(name_of(table, p.cost_value as usize));
+        }
+        if p.param1 != 255 {
+            let table = self.text("iprp_paramtable", p.param1 as usize, "TableResRef");
+            parts.extend(name_of(table, p.param1_value as usize));
+        }
+        parts.join(" ")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mg_core::{Language, ResType};
