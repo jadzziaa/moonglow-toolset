@@ -386,7 +386,10 @@ fn browse_view_and_copy_a_game_resource() {
     h.get_by_label("Copy to Module").click();
     h.run();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
-    assert!(h.state().dock.find_tab(&Tab::Gff(key)).is_some(), "the copy opens in its editor");
+    assert!(
+        h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(),
+        "the copy opens in its editor"
+    );
 }
 
 #[test]
@@ -994,7 +997,7 @@ fn blueprint_harness(
         eprintln!("skipped: no game install");
         return None;
     };
-    let dir = mg_testkit::scratch_dir(&format!("ui-bp-{name}"));
+    let dir = mg_testkit::scratch_dir(&format!("ui-bp-{copy}"));
     let path = sample_module(&dir);
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
@@ -1249,6 +1252,10 @@ fn showing_blueprint_editors_changes_nothing() {
         ("x2_storethief003", ResType::UTM),
         ("nw_door_ttr_01", ResType::UTD),
         ("plc_chest1", ResType::UTP),
+        ("nw_wswls001", ResType::UTI),
+        ("nw_aarcl001", ResType::UTI),
+        ("nw_it_mpotion001", ResType::UTI),
+        ("nw_maarcl002", ResType::UTI),
     ]
     .into_iter()
     .enumerate()
@@ -1349,4 +1356,51 @@ fn placeable_editor_fills_its_inventory() {
     h.run();
     assert_eq!(field(&mut h, &key).integer("Static"), Some(1));
     assert!(h.get_by_label("Has Inventory").accesskit_node().is_disabled());
+}
+
+#[test]
+fn item_editor_adds_properties_and_keeps_the_cost() {
+    let Some((mut h, key)) = blueprint_harness("nw_wswls001", "sword_copy", ResType::UTI) else {
+        return;
+    };
+    let cost_of = |h: &mut Harness<'_, Moonglow>| {
+        let s = field(h, &key);
+        let value = mg_rules::ItemValue::from_gff(&s);
+        let game = h.state().game.as_ref().unwrap();
+        (s.integer("Cost"), Some(i64::from(game.item_cost(&value))))
+    };
+    h.run();
+    h.get_by_label("Properties").click();
+    h.run();
+    let before = field(&mut h, &key).list("PropertiesList").map_or(0, <[_]>::len);
+    // Far down the list: scrolled to first.
+    h.get_by_label("Enhancement Bonus").scroll_to_me();
+    h.run();
+    h.get_by_label("Enhancement Bonus").click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    let props = field(&mut h, &key).list("PropertiesList").unwrap().to_vec();
+    assert_eq!(props.len(), before + 1);
+    assert_eq!(props.last().unwrap().integer("PropertyName"), Some(6));
+    // The stored cost follows the properties.
+    let (stored, computed) = cost_of(&mut h);
+    assert_eq!(stored, computed);
+    let plus_one = stored;
+    // The new property is selected: its value, +1, becomes +3.
+    h.get_by_value("+1").click();
+    h.run();
+    h.get_by_label("+3").click();
+    h.run();
+    assert_eq!(
+        field(&mut h, &key).list("PropertiesList").unwrap().last().unwrap().integer("CostValue"),
+        Some(3)
+    );
+    let (stored, computed) = cost_of(&mut h);
+    assert_eq!(stored, computed);
+    assert!(stored > plus_one);
+    // One undo takes back the value and its cost.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(cost_of(&mut h).0, plus_one);
 }

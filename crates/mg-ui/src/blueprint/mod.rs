@@ -22,6 +22,7 @@ use crate::{Action, Moonglow, Tab};
 mod door;
 mod encounter;
 mod inventory;
+mod item;
 mod picker;
 mod placeable;
 mod situated;
@@ -35,6 +36,7 @@ pub(crate) fn has_editor(t: ResType) -> bool {
     matches!(
         t,
         ResType::UTW
+            | ResType::UTI
             | ResType::UTS
             | ResType::UTT
             | ResType::UTE
@@ -54,6 +56,7 @@ pub fn pages(t: ResType) -> &'static [&'static str] {
         ResType::UTM => &store::PAGES,
         ResType::UTD => &door::PAGES,
         ResType::UTP => &placeable::PAGES,
+        ResType::UTI => &item::PAGES,
         _ => &[""],
     }
 }
@@ -416,7 +419,8 @@ impl Form<'_> {
             .find(|(id, _)| i64::from(*id) == current)
             .map_or_else(|| format!("({current})"), |(_, name)| name.clone());
         let mut pick = None;
-        egui::ComboBox::from_id_salt(self.id(label)).selected_text(shown).width(260.0).show_ui(
+        let width = ui.available_width().clamp(120.0, 260.0);
+        egui::ComboBox::from_id_salt(self.id(label)).selected_text(shown).width(width).show_ui(
             ui,
             |ui| {
                 for (id, name) in &categories {
@@ -463,6 +467,12 @@ impl Form<'_> {
             }
         }
     }
+}
+
+/// After a command: values derived from what it changed (an item's cost),
+/// as part of it.
+pub(crate) fn after_apply(app: &mut Moonglow, cmd: &Command) {
+    item::refresh_costs(app, cmd);
 }
 
 /// Renames a blueprint (its resource and `TemplateResRef`, a store's
@@ -536,6 +546,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ResType::UTM => store::page(&mut form, ui, page),
         ResType::UTD => door::page(&mut form, ui, page),
         ResType::UTP => placeable::page(&mut form, ui, page),
+        ResType::UTI => item::page(&mut form, ui, page),
         _ => {}
     });
 }

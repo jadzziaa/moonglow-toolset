@@ -51,9 +51,9 @@ fn equipped(utc: &Struct, slot: u32, item: &dyn Fn(ResRef) -> Option<Gff>) -> Op
     }
 }
 
-/// A number field.
+/// A part number field (its EE twin where there is one).
 fn number(s: &Struct, label: &str) -> i64 {
-    s.integer(label).unwrap_or(0)
+    mg_rules::items::part_number(s, label).unwrap_or(0)
 }
 
 /// A creature blueprint (UTC fields; equipped items through `item`).

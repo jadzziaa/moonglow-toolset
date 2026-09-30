@@ -823,9 +823,12 @@ impl Moonglow {
             Action::Apply(cmd) => {
                 let Some(ws) = &mut self.ws else { return };
                 let custom_tlk = cmd.edits.iter().any(|e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"));
-                if let Err(e) = ws.apply(cmd) {
-                    self.log.error(e.to_string());
+                let edits = cmd.clone();
+                match ws.apply(cmd) {
+                    Ok(()) => blueprint::after_apply(self, &edits),
+                    Err(e) => self.log.error(e.to_string()),
                 }
+                let Some(ws) = &mut self.ws else { return };
                 if custom_tlk && ws.flush().is_ok() {
                     self.load_custom_tlk();
                 }

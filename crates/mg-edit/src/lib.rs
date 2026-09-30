@@ -22,6 +22,8 @@ pub enum EditError {
     BadPath { key: ResKey, path: GffPath },
     #[error("{key}: {message}")]
     Invalid { key: ResKey, message: String },
+    #[error("no command to amend")]
+    NothingToAmend,
     #[error(transparent)]
     Module(#[from] ModuleError),
 }
@@ -173,6 +175,22 @@ impl Workspace {
         self.undo.push(inverse);
         self.redo.clear();
         self.changes_since_save += 1;
+        self.revision += 1;
+        Ok(())
+    }
+
+    /// Runs more edits as part of the last command, so that one undo
+    /// reverts both (a value derived from what the command changed, such as
+    /// an item's cost). On failure nothing is changed.
+    pub fn amend(&mut self, edits: Vec<Edit>) -> Result<(), EditError> {
+        let Some(label) = self.undo.last().map(|c| c.label.clone()) else {
+            return Err(EditError::NothingToAmend);
+        };
+        let inverse = self.run(&Command::new(label, edits))?;
+        let last = self.undo.last_mut().expect("checked above");
+        // Undo reverts the amendment first, then the command.
+        let earlier = std::mem::replace(&mut last.edits, inverse.edits);
+        last.edits.extend(earlier);
         self.revision += 1;
         Ok(())
     }
@@ -413,6 +431,31 @@ mod tests {
         let root = &ws.doc(&k).unwrap().root;
         assert_eq!(root.items(&git::CREATURE_LIST).len(), 1);
         assert!(!root.items(&git::CREATURE_LIST)[0].contains("Tag"));
+    }
+
+    #[test]
+    fn amendments_undo_and_redo_with_their_command() {
+        let mut ws = workspace();
+        let k = key("module", ResType::IFO);
+        let set = |label: &str, v: i32| Edit::SetField {
+            key: k,
+            path: GffPath::root(),
+            label: label.into(),
+            value: Some(Value::Int(v)),
+        };
+        assert!(matches!(ws.amend(vec![set("B", 1)]), Err(EditError::NothingToAmend)));
+        ws.apply(Command::new("Set A", vec![set("A", 1)])).unwrap();
+        ws.amend(vec![set("B", 2), set("A", 3)]).unwrap();
+        let root = |ws: &mut Workspace| {
+            let r = &ws.doc(&k).unwrap().root;
+            (r.integer("A"), r.integer("B"))
+        };
+        assert_eq!(root(&mut ws), (Some(3), Some(2)));
+        assert_eq!(ws.can_undo(), Some("Set A"));
+        assert_eq!(ws.undo().unwrap().as_deref(), Some("Set A"));
+        assert_eq!(root(&mut ws), (None, None));
+        ws.redo().unwrap();
+        assert_eq!(root(&mut ws), (Some(3), Some(2)));
     }
 
     #[test]

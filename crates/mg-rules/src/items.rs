@@ -196,6 +196,18 @@ impl GameData {
     }
 }
 
+/// The EE twin of a model or body part field: `x` and the label, cut to
+/// 16 characters (`xArmorPart_LBice`), a WORD for part numbers past 255.
+pub fn wide_label(label: &str) -> String {
+    format!("x{label}").chars().take(16).collect()
+}
+
+/// A model or body part number: the EE twin's where there is one, else the
+/// BYTE field's.
+pub fn part_number(s: &mg_gff::Struct, label: &str) -> Option<i64> {
+    s.integer(&wide_label(label)).or_else(|| s.integer(label))
+}
+
 /// An item property type (an itempropdef.2da row) and the tables that
 /// qualify it.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -38,7 +38,7 @@ pub(crate) fn item_parts(
     let class = cell(&baseitems, row, "ItemClass")
         .ok_or(PreviewError::NoRow { table: "baseitems", row: base })?
         .to_ascii_lowercase();
-    let n = |field: &str| uti.integer(field).unwrap_or(0);
+    let n = |field: &str| mg_rules::items::part_number(uti, field).unwrap_or(0);
     // Item environment maps are the default one whatever baseitems says.
     let part = |model: String| {
         let mut p = Part::new(model);

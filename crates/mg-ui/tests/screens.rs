@@ -153,6 +153,9 @@ fn blueprint_editors() {
         ("nw_storebar01", ResType::UTM, &["Basic", "Inventory", "Restrictions"][..]),
         ("nw_door_ttr_01", ResType::UTD, &["Basic", "Lock", "Area Transition", "Advanced"][..]),
         ("plc_chest1", ResType::UTP, &["Basic", "Scripts", "Advanced"][..]),
+        ("nw_wswmls010", ResType::UTI, &["General", "Appearance", "Properties"][..]),
+        ("nw_aarcl004", ResType::UTI, &["General", "Appearance"][..]),
+        ("nw_maarcl002", ResType::UTI, &["Appearance"][..]),
     ] {
         let mut app = Moonglow::new(
             Some(GameInstall::new(&root, None, "en")),

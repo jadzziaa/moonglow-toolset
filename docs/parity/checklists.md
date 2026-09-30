@@ -197,4 +197,8 @@ scripts (name, picker, Edit), Comments.
 | Load Script Set / Save Script Set | not yet | ✗ |
 | Showing a page never changes the blueprint | every page of each editor, on blueprints with odd values | ✅ [showing_blueprint_editors_changes_nothing] |
 | Update Instances | with the area editor (Phase 9) | ✗ |
-| Item and Creature editors | not yet | ✗ |
+| Item (`TdlgItemEdit`) General: name, tag, resref, base type, category, stack size (1 to the base item's `Stacking`), charges (0–250), additional cost, plot, stolen; Total Cost, weight, damage, critical, damage type, armor class and armor penalties, required level and Lore | the same; the cost is the engine's (every base-game item agrees with `nwserver`, `engine_item_cost.rs`), and every change stores it in `Cost` within the same undo step | ✅ [item_editor_adds_properties_and_keeps_the_cost] (Required Level and Lore read itemvalue.2da and skillvsitemcost.2da as described, not yet checked against Aurora) |
+| Item Appearance: simple (icon grid), layered (+ colours), composite weapons (top/middle/bottom model and colour), armor (18 parts and robe, colour chooser) | model numbers from the models that exist (cloaks: cloakmodel.2da), weapon parts by shape and colour, armor parts from parts_*.2da, colours as numbers; EE part twins (`xModelPart1`, `xArmorPart_*`) read and written | ◐ (no icon grid or colour swatches yet; the Preview button shows the model) |
+| Item Properties (`tvMaster`, `tvAssigned`, `TdlgPropEdit`): available by the base item (itemprops.2da), add, remove, edit subtype, cost value, parameter, chance; Identified, Undroppable | the same, the parameters edited in place under the assigned list | ✅ (`item_properties.rs`: every property of every base-game item is offered as the editor lists it) |
+| Item Description: unidentified, identified, the base type's description, the property text | the same; Variables | ✅ |
+| Creature editor | not yet | ✗ |
