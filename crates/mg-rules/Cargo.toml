@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 mg-2da.workspace = true
 mg-core.workspace = true
+mg-gff.workspace = true
 mg-resman.workspace = true
 mg-tlk.workspace = true
 thiserror.workspace = true

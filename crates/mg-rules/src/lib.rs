@@ -16,6 +16,9 @@ use mg_resman::{GameInstall, ResError, ResKey, ResMan};
 use mg_tlk::Tlk;
 use thiserror::Error;
 
+pub mod items;
+pub use items::{ItemProperty, ItemValue};
+
 #[derive(Debug, Error)]
 pub enum RulesError {
     #[error(transparent)]

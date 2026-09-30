@@ -1735,6 +1735,7 @@ version = "0.1.0"
 dependencies = [
  "mg-2da",
  "mg-core",
+ "mg-gff",
  "mg-resman",
  "mg-tlk",
  "thiserror 2.0.21",
