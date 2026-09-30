@@ -1573,6 +1573,7 @@ dependencies = [
  "mg-core",
  "mg-erf",
  "mg-gff",
+ "mg-image",
  "mg-key",
  "mg-module",
  "mg-resman",
@@ -1619,6 +1620,14 @@ dependencies = [
  "proptest",
  "rayon",
  "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "mg-image"
+version = "0.1.0"
+dependencies = [
+ "mg-core",
  "thiserror 2.0.21",
 ]
 

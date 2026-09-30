@@ -13,6 +13,7 @@ mg-2da.workspace = true
 mg-core.workspace = true
 mg-erf.workspace = true
 mg-gff.workspace = true
+mg-image.workspace = true
 mg-key.workspace = true
 mg-module.workspace = true
 mg-resman.workspace = true
