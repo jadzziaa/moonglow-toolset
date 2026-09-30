@@ -28,7 +28,7 @@ Decisions taken (2026-09-30):
 | 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
 | 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt, settings and recent modules, options, import/export, resource browser; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
 | 6 Text-and-tree editors | Done: String Edit, Variables, resource pickers; Module Properties with Aurora's tabs; Faction, Journal and Conversation editors and the script editor's tools, each checked against Aurora's files (captured under Wine) and in the engine; parity checklists in `docs/parity/checklists.md` |
-| 7 Renderer and model viewer | In progress: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR |
+| 7 Renderer and model viewer | In progress: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR; models (all 32,832 in the game read, binary and ASCII; the two readers agree through nwnmdlcomp on a sample of 176) |
 | 8+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
@@ -177,7 +177,7 @@ in this list. ✅ = exists.
 | `mg-ssf` ✅ | soundsets |
 | `mg-resman` ✅ | layered resolution in the engine's order, DDS/TGA rule, install detection |
 | `mg-image` ✅ | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
-| `mg-mdl` | MDL binary and ASCII, WOK/PWK/DWK walkmeshes |
+| `mg-mdl` (partial) | MDL binary and ASCII (done), WOK/PWK/DWK walkmeshes |
 | `mg-schema` ✅ | typed views of IFO, ARE, GIT, GIC, UTC/UTD/UTE/UTI/UTM/UTP/UTS/UTT/UTW, DLG, JRL, FAC, ITP; Aurora defaults |
 | `mg-rules` ✅ | 2DA/TLK-backed game data (appearance, baseitems, classes, feats, spells, skills, item properties, placeables, doors, portraits, sounds, ...) |
 | `mg-script` | compiler integration; NWScript lexer/parser/symbol index for the editor; nwscript.nss spec |

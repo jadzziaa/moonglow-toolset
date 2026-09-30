@@ -17,8 +17,9 @@ cargo fmt                                       # rustfmt.toml: width 100, "Max"
 
 Corpus tests read the installed game: `NWN_ROOT` (or the Steam default path)
 and neverwinter.nim's tools as oracles (`NWN_TOOLS_BIN`, default
-`~/.local/opt/neverwinter/bin`). `MOONGLOW_REQUIRE_CORPUS=1` turns skips into
-failures.
+`~/.local/opt/neverwinter/bin`), plus nwnmdlcomp for models (also found in
+`~/Projects/neverblender/tools/bin`) and Pillow (`python3`) for textures.
+`MOONGLOW_REQUIRE_CORPUS=1` turns skips into failures.
 
 ## Layout
 

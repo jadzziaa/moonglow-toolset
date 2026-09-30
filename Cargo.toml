@@ -18,6 +18,7 @@ mg-image = { path = "crates/mg-image" }
 mg-edit = { path = "crates/mg-edit" }
 mg-erf = { path = "crates/mg-erf" }
 mg-key = { path = "crates/mg-key" }
+mg-mdl = { path = "crates/mg-mdl" }
 mg-module = { path = "crates/mg-module" }
 mg-resman = { path = "crates/mg-resman" }
 mg-rules = { path = "crates/mg-rules" }

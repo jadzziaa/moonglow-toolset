@@ -1575,6 +1575,7 @@ dependencies = [
  "mg-gff",
  "mg-image",
  "mg-key",
+ "mg-mdl",
  "mg-module",
  "mg-resman",
  "mg-rules",
@@ -1638,6 +1639,14 @@ dependencies = [
  "memmap2",
  "mg-core",
  "mg-testkit",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "mg-mdl"
+version = "0.1.0"
+dependencies = [
+ "mg-core",
  "thiserror 2.0.21",
 ]
 

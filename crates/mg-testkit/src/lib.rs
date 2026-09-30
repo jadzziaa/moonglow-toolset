@@ -112,9 +112,10 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// A neverwinter.nim command-line tool (e.g. `"nwn_gff"`) to use as a test
-/// oracle: from `$NWN_TOOLS_BIN`, then `~/.local/opt/neverwinter/bin`, then
-/// `PATH`.
+/// A command-line tool to use as a test oracle: a neverwinter.nim tool (e.g.
+/// `"nwn_gff"`) or nwnmdlcomp (as built by Neverblender's tools): from
+/// `$NWN_TOOLS_BIN`, then `~/.local/opt/neverwinter/bin`, then
+/// `~/Projects/neverblender/tools/bin`, then `PATH`.
 pub fn nwn_tool(name: &str) -> Option<PathBuf> {
     let exe = format!("{name}{}", env::consts::EXE_SUFFIX);
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -122,7 +123,8 @@ pub fn nwn_tool(name: &str) -> Option<PathBuf> {
         dirs.push(d.into());
     }
     if let Some(h) = env::var_os("HOME") {
-        dirs.push(PathBuf::from(h).join(".local/opt/neverwinter/bin"));
+        dirs.push(PathBuf::from(&h).join(".local/opt/neverwinter/bin"));
+        dirs.push(PathBuf::from(h).join("Projects/neverblender/tools/bin"));
     }
     if let Some(path) = env::var_os("PATH") {
         dirs.extend(env::split_paths(&path));
