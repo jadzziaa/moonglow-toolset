@@ -19,8 +19,11 @@ use crate::widgets::{
 };
 use crate::{Action, Moonglow, Tab};
 
+mod door;
 mod encounter;
+mod inventory;
 mod picker;
+mod placeable;
 mod situated;
 mod sound;
 mod store;
@@ -29,7 +32,30 @@ mod waypoint;
 
 /// Whether a blueprint type has its own editor.
 pub(crate) fn has_editor(t: ResType) -> bool {
-    matches!(t, ResType::UTW | ResType::UTS | ResType::UTT | ResType::UTE | ResType::UTM)
+    matches!(
+        t,
+        ResType::UTW
+            | ResType::UTS
+            | ResType::UTT
+            | ResType::UTE
+            | ResType::UTM
+            | ResType::UTD
+            | ResType::UTP
+    )
+}
+
+/// The pages of a blueprint type's editor.
+pub fn pages(t: ResType) -> &'static [&'static str] {
+    match t {
+        ResType::UTW => &waypoint::PAGES,
+        ResType::UTS => &sound::PAGES,
+        ResType::UTT => &trigger::PAGES,
+        ResType::UTE => &encounter::PAGES,
+        ResType::UTM => &store::PAGES,
+        ResType::UTD => &door::PAGES,
+        ResType::UTP => &placeable::PAGES,
+        _ => &[""],
+    }
 }
 
 /// Each open editor's page.
@@ -331,13 +357,32 @@ impl Form<'_> {
 
     /// A script field: name, picker and Edit.
     pub(crate) fn script(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        let types = [ResType::NSS, ResType::NCS];
+        self.linked(ui, &format!("{what} script"), label, &types, ResType::NSS, Tab::Script);
+    }
+
+    /// The conversation: name, picker and Edit.
+    pub(crate) fn conversation(&mut self, ui: &mut Ui) {
+        self.linked(ui, "Conversation", "Conversation", &[ResType::DLG], ResType::DLG, Tab::Dialog);
+    }
+
+    /// A resource name with a picker (of `types`) and Edit, which opens the
+    /// module's `edit` resource in its editor (`tab`), else the game's.
+    fn linked(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        types: &[ResType],
+        edit: ResType,
+        tab: fn(ResKey) -> Tab,
+    ) {
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
         ui.horizontal(|ui| {
-            let types = [ResType::NSS, ResType::NCS];
-            if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, &types) {
-                self.set(&format!("{what} script"), label, Value::resref(v));
+            if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
+                self.set(what, label, Value::resref(v));
             }
-            let key = ResKey::new(current, ResType::NSS);
+            let key = ResKey::new(current, edit);
             let in_module = self.app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
             let in_game = self.app.game.as_ref().is_some_and(|g| g.resman.contains(&key));
             if ui
@@ -347,7 +392,7 @@ impl Form<'_> {
                 )
                 .clicked()
             {
-                let tab = if in_module { Tab::Script(key) } else { Tab::Resource(key) };
+                let tab = if in_module { tab(key) } else { Tab::Resource(key) };
                 self.app.actions.push(Action::OpenTab(tab));
             }
         });
@@ -473,14 +518,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             return;
         }
     };
-    let pages: &[&'static str] = match key.restype {
-        ResType::UTW => &waypoint::PAGES,
-        ResType::UTS => &sound::PAGES,
-        ResType::UTT => &trigger::PAGES,
-        ResType::UTE => &encounter::PAGES,
-        ResType::UTM => &store::PAGES,
-        _ => &[""],
-    };
+    let pages = pages(key.restype);
     let mut page = app.blueprint_pages.get(&key).copied().unwrap_or(pages[0]);
     ui.horizontal(|ui| {
         for p in pages {
@@ -496,6 +534,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ResType::UTT => trigger::page(&mut form, ui, page),
         ResType::UTE => encounter::page(&mut form, ui, page),
         ResType::UTM => store::page(&mut form, ui, page),
+        ResType::UTD => door::page(&mut form, ui, page),
+        ResType::UTP => placeable::page(&mut form, ui, page),
         _ => {}
     });
 }

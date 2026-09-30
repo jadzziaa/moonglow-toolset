@@ -151,6 +151,8 @@ fn blueprint_editors() {
         ("x0_trapavg_shuri", ResType::UTT, &["Basic", "Trap", "Advanced"][..]),
         ("nw_verminbeet", ResType::UTE, &["Basic", "Creature List", "Advanced"][..]),
         ("nw_storebar01", ResType::UTM, &["Basic", "Inventory", "Restrictions"][..]),
+        ("nw_door_ttr_01", ResType::UTD, &["Basic", "Lock", "Area Transition", "Advanced"][..]),
+        ("plc_chest1", ResType::UTP, &["Basic", "Scripts", "Advanced"][..]),
     ] {
         let mut app = Moonglow::new(
             Some(GameInstall::new(&root, None, "en")),

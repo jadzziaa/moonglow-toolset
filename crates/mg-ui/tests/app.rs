@@ -1235,3 +1235,118 @@ fn store_editor_stocks_prices_and_restricts() {
     assert_eq!((bases(&s, "WillNotBuy"), bases(&s, "WillOnlyBuy")), (vec![], vec![15]));
     assert_eq!(s.list("WillOnlyBuy").unwrap()[0].id, 97869);
 }
+
+#[test]
+fn showing_blueprint_editors_changes_nothing() {
+    // Every page of every editor, on blueprints with values outside the
+    // fields' ranges (Respawns 0, missing fields, generic doors).
+    for (i, (name, t)) in [
+        ("nw_waypoint001", ResType::UTW),
+        ("animalcriesday", ResType::UTS),
+        ("x0_trapavg_shuri", ResType::UTT),
+        ("nw_verminbeet", ResType::UTE),
+        ("nw_storebar01", ResType::UTM),
+        ("x2_storethief003", ResType::UTM),
+        ("nw_door_ttr_01", ResType::UTD),
+        ("plc_chest1", ResType::UTP),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let Some((mut h, key)) = blueprint_harness(name, &format!("copy{i}"), t) else {
+            return;
+        };
+        for page in mg_ui::blueprint::pages(t) {
+            h.state_mut().blueprint_pages.insert(key, page);
+            h.run();
+        }
+        let ws = h.state().ws.as_ref().unwrap();
+        assert_eq!(ws.can_undo(), Some("copy"), "{name}");
+    }
+}
+
+#[test]
+fn door_editor_sets_appearance_lock_and_transition() {
+    let Some((mut h, key)) = blueprint_harness("nw_door_ttr_01", "door_copy", ResType::UTD) else {
+        return;
+    };
+    h.run();
+    // A generic door: its Generic Appearance (and the old byte field).
+    let generic = {
+        let game = h.state().game.as_ref().unwrap();
+        let cols = mg_rules::ChoiceColumns { name: Some("Name"), label: Some("Label") };
+        game.choices("genericdoors", cols).unwrap()
+    };
+    assert_eq!(field(&mut h, &key).integer("Appearance"), Some(0));
+    h.get_by_value(&generic[0].text).click();
+    h.run();
+    h.get_by_label(&generic[1].text).click();
+    h.run();
+    let s = field(&mut h, &key);
+    assert_eq!(s.integer("GenericType_New"), Some(generic[1].row as i64));
+    assert_eq!(s.integer("GenericType"), Some(generic[1].row as i64));
+    // Lock.
+    h.get_by_label("Lock").click();
+    h.run();
+    h.get_by_label("Locked").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("Locked"), Some(1));
+    // Area transition to a waypoint.
+    h.get_by_label("Area Transition").click();
+    h.run();
+    h.get_by_label("Waypoint").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("LinkedToFlags"), Some(2));
+    // No Interrupt is Interruptable 0.
+    h.get_by_label("Advanced").click();
+    h.run();
+    h.get_by_label("No Interrupt").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("Interruptable"), Some(0));
+}
+
+#[test]
+fn placeable_editor_fills_its_inventory() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_copy", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Inventory…").click();
+    h.run();
+    type_into_hint(&mut h, "Find", "nw_it_torch001");
+    let torch = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::Button && n.label().is_some_and(|l| l == "Torch")
+    };
+    h.get(egui_kittest::kittest::by().predicate(torch)).click();
+    h.run();
+    for _ in 0..2 {
+        h.get_by_label("Add Item").click();
+        h.run();
+    }
+    // Torches are 1×3: the second goes beside the first.
+    let items = field(&mut h, &key).list("ItemList").unwrap().to_vec();
+    let at: Vec<_> = items
+        .iter()
+        .map(|i| {
+            (
+                i.resref("InventoryRes").unwrap().to_string(),
+                i.integer("Repos_PosX").unwrap(),
+                i.integer("Repos_Posy").unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(at, [("nw_it_torch001".into(), 0, 0), ("nw_it_torch001".into(), 1, 0)]);
+    // An older blueprint's portrait is a resref (po_ and the portraits.2da
+    // base resref); without a repute.fac, the standard factions.
+    h.get_by_label("Advanced").click();
+    h.run();
+    assert!(h.query_by_value("PLC_A08_").is_some());
+    assert!(h.query_by_value("Hostile").is_some());
+    // A static placeable holds nothing: Has Inventory is disabled.
+    h.get_by_label("Basic").click();
+    h.run();
+    h.get_by_label("Static").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("Static"), Some(1));
+    assert!(h.get_by_label("Has Inventory").accesskit_node().is_disabled());
+}

@@ -9,7 +9,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 
-use super::{Form, situated};
+use super::{Form, inventory, situated};
 use crate::Action;
 use crate::widgets::commit_number;
 
@@ -27,9 +27,6 @@ const STORE_PAGES: [(u32, &str); 5] = [
 
 /// The `StoreList` struct id of each baseitems.2da `StorePanel`.
 const PANEL_PAGE: [u32; 5] = [0, 4, 2, 3, 1];
-
-/// A store page is a grid this many cells wide.
-const GRID_WIDTH: u32 = 10;
 
 /// The struct id of `WillNotBuy` and `WillOnlyBuy` items.
 const BASE_ITEM_ID: u32 = mg_schema::utm::WILL_NOT_BUY.item_id;
@@ -133,55 +130,15 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     situated::scripts(f, ui, &[("OnOpenStore", "OnOpenStore"), ("OnStoreClosed", "OnStoreClosed")]);
 }
 
-/// An item's store page (`StoreList` struct id) and size in cells, from
-/// its base item.
-fn item_layout(f: &mut Form<'_>, resref: ResRef) -> (u32, u32, u32) {
-    let base = f.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
-    let table = f.app.game.as_ref().and_then(|g| g.table("baseitems").ok());
-    let cell = |col: &str| {
-        let t = table.as_ref()?;
-        t.get_int(usize::try_from(base?).ok()?, col).and_then(|v| u32::try_from(v).ok())
-    };
-    let page = cell("StorePanel").and_then(|p| PANEL_PAGE.get(p as usize).copied()).unwrap_or(1);
-    let w = cell("InvSlotWidth").unwrap_or(1).clamp(1, GRID_WIDTH);
-    let h = cell("InvSlotHeight").unwrap_or(1).max(1);
-    (page, w, h)
-}
-
-/// The first free place for a `w`×`h` item, row by row, among `taken`
-/// rectangles (x, y, w, h).
-fn place(taken: &[(u32, u32, u32, u32)], w: u32, h: u32) -> (u32, u32) {
-    let free = |x: u32, y: u32| {
-        taken
-            .iter()
-            .all(|&(tx, ty, tw, th)| x + w <= tx || tx + tw <= x || y + h <= ty || ty + th <= y)
-    };
-    (0..)
-        .find_map(|y| (0..=GRID_WIDTH - w).find(|&x| free(x, y)).map(|x| (x, y)))
-        .expect("an empty row fits any item")
-}
-
 /// Adds an item to the page its base item belongs on, at the first free
 /// place; the page's struct id.
 fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
-    let (page, w, h) = item_layout(f, resref);
+    let page =
+        f.item_fit(resref).panel.and_then(|p| PANEL_PAGE.get(p as usize).copied()).unwrap_or(1);
     let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
     let index = pages.iter().position(|p| p.id == page);
     let items = index.and_then(|i| pages[i].list("ItemList")).unwrap_or(&[]).to_vec();
-    let taken: Vec<_> = items
-        .iter()
-        .map(|it| {
-            let (_, w, h) = item_layout(f, it.resref("InventoryRes").unwrap_or(ResRef::EMPTY));
-            let x = it.integer("Repos_PosX").unwrap_or(0) as u32;
-            let y = it.integer("Repos_Posy").unwrap_or(0) as u32;
-            (x, y, w, h)
-        })
-        .collect();
-    let (x, y) = place(&taken, w, h);
-    let mut item = Struct::new(items.len() as u32);
-    item.set("InventoryRes", Value::resref(resref));
-    item.set("Repos_PosX", Value::Word(x as u16));
-    item.set("Repos_Posy", Value::Word(y as u16));
+    let mut item = f.inventory_item(&items, resref);
     item.set("Infinite", Value::Byte(0));
     let edit = match index {
         Some(i) => Edit::InsertItem {
@@ -221,7 +178,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         .unwrap_or(0);
     let mut shown: u32 = ui.data(|d| d.get_temp(shown_id)).unwrap_or(first);
     let mut add = None;
-    let mut edits: Vec<(&str, Edit)> = Vec::new();
+    let mut edits = Vec::new();
     ui.columns(2, |cols| {
         add = f.palette_picker(&mut cols[0], BlueprintKind::Item, "Add Item");
         let ui = &mut cols[1];
@@ -241,47 +198,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         };
         let path = GffPath::root().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
-        egui::ScrollArea::vertical().id_salt(("utm-items", key)).max_height(400.0).show(ui, |ui| {
-            egui::Grid::new(("utm-items-grid", key, shown)).num_columns(3).striped(true).show(
-                ui,
-                |ui| {
-                    ui.strong("Item");
-                    ui.strong("Infinite");
-                    ui.label("");
-                    ui.end_row();
-                    for (i, it) in items.iter().enumerate() {
-                        let resref = it.resref("InventoryRes").unwrap_or(ResRef::EMPTY);
-                        let name =
-                            names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
-                        ui.label(name).on_hover_text(resref.to_string());
-                        let mut infinite = it.integer("Infinite").unwrap_or(0) != 0;
-                        if ui.checkbox(&mut infinite, "").changed() {
-                            edits.push((
-                                "Infinite store item",
-                                Edit::SetField {
-                                    key,
-                                    path: path.item("ItemList", i),
-                                    label: "Infinite".into(),
-                                    value: Some(Value::Byte(u8::from(infinite))),
-                                },
-                            ));
-                        }
-                        if ui.small_button("Remove").clicked() {
-                            edits.push((
-                                "Remove store item",
-                                Edit::RemoveItem {
-                                    key,
-                                    path: path.clone(),
-                                    list: "ItemList".into(),
-                                    index: i,
-                                },
-                            ));
-                        }
-                        ui.end_row();
-                    }
-                },
-            );
-        });
+        edits = inventory::item_list(ui, key, &path, items, &names, true);
     });
     if let Some(r) = add {
         shown = add_item(f, r);
@@ -449,34 +366,4 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
         f.set_fields(what, fields);
     }
     ui.data_mut(|d| d.insert_temp(state_id, (only, filter, left, right)));
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn items_take_the_first_free_place() {
-        // The jewelry page of x2_storethief003: rings (1×1) fill the gaps
-        // amulets (1×2) leave in the second row.
-        let mut taken = Vec::new();
-        let sizes = [2, 2, 2, 1, 1, 2, 2, 2, 2, 1];
-        for h in sizes {
-            let at = place(&taken, 1, h);
-            taken.push((at.0, at.1, 1, h));
-        }
-        assert_eq!(
-            taken.iter().map(|t| (t.0, t.1)).collect::<Vec<_>>(),
-            (0..10).map(|x| (x, 0)).collect::<Vec<_>>()
-        );
-        assert_eq!(place(&taken, 1, 1), (3, 1));
-        taken.push((3, 1, 1, 1));
-        assert_eq!(place(&taken, 1, 1), (4, 1));
-        taken.push((4, 1, 1, 1));
-        assert_eq!(place(&taken, 1, 1), (9, 1));
-        taken.push((9, 1, 1, 1));
-        assert_eq!(place(&taken, 1, 2), (0, 2));
-        // Wide items wrap to the next row that fits them.
-        assert_eq!(place(&[(0, 0, 9, 1)], 2, 1), (0, 1));
-    }
 }
