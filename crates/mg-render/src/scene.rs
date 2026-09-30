@@ -17,12 +17,16 @@ pub struct Instance {
     /// What animations and dangly meshes change in the meshes; `None` for
     /// the model's own values.
     pub state: Option<Arc<MeshState>>,
+    /// The object's environment map (appearance.2da `ENVMAP`, resolved):
+    /// meshes whose texture names none reflect it, their texture alpha
+    /// being the reflectivity. `None`: only what textures ask for.
+    pub env_map: Option<String>,
 }
 
 impl Instance {
     /// An instance in its rest pose.
     pub fn new(model: Arc<GpuModel>, transform: Mat4) -> Instance {
-        Instance { model, transform, pose: None, state: None }
+        Instance { model, transform, pose: None, state: None, env_map: None }
     }
 }
 
@@ -143,6 +147,9 @@ pub struct Scene {
     pub background: [f32; 3],
     /// Particle quads, drawn after the meshes.
     pub particles: Vec<crate::particles::ParticleBatch>,
+    /// The area's environment map (the tileset's `EnvMap`), for textures
+    /// asking for `default`; `chrome1` when `None`.
+    pub env_map: Option<String>,
 }
 
 /// A perspective camera.

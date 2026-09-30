@@ -105,9 +105,10 @@ impl Txi {
         self.int("decal").is_some_and(|v| v != 0)
     }
 
-    /// The environment map (`default`: the area's).
+    /// The environment map, `envmaptexture` or `bumpyshinytexture`
+    /// (`default`: the object's or area's).
     pub fn envmap(&self) -> Option<&str> {
-        self.value("envmaptexture")
+        self.value("envmaptexture").or_else(|| self.value("bumpyshinytexture"))
     }
 
     /// A cube map stored as six files `name0`…`name5`.

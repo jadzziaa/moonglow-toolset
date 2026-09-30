@@ -450,6 +450,7 @@ fn dangly_meshes_sway() {
 struct TestAssets {
     textures: std::collections::HashMap<String, mg_image::Texture>,
     materials: std::collections::HashMap<String, mg_image::mtr::Mtr>,
+    txis: std::collections::HashMap<String, mg_image::txi::Txi>,
 }
 
 impl TestAssets {
@@ -465,13 +466,17 @@ impl mg_render::Assets for TestAssets {
     fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
         Some(mg_render::LoadedTexture {
             texture: self.textures.get(name)?.clone(),
-            txi: Default::default(),
+            txi: self.txis.get(name).cloned().unwrap_or_default(),
             mtr: None,
         })
     }
 
     fn material(&self, name: &str) -> Option<mg_image::mtr::Mtr> {
         self.materials.get(name).cloned()
+    }
+
+    fn txi(&self, name: &str) -> Option<mg_image::txi::Txi> {
+        self.txis.get(name).cloned()
     }
 }
 
@@ -617,4 +622,82 @@ fn material_maps_shade() {
     let plain_again = grey(&shot3(model("white", [None; 3], None)));
     eprintln!("MTR normal map: {tilted} (plain {plain_again})");
     assert!(tilted > plain_again + 10.0);
+}
+
+/// Environment maps: a cube map (TXI `cube 1`, faces `name0`…`name5`)
+/// reflects its up face on a mirror-like floor; a texture that names no
+/// environment map reflects the object's (its alpha the reflectivity)
+/// instead of being cut out; the base game's cube maps load.
+#[test]
+fn environment_maps_reflect() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    let txi = |text: &str| mg_image::txi::Txi::parse(text.as_bytes());
+    // Faces +X, -X, +Y, -Y, +Z (up: red), -Z (down: blue).
+    let colours =
+        [[40, 40, 40], [40, 40, 40], [40, 40, 40], [40, 40, 40], [255, 0, 0], [0, 0, 255]];
+    for (i, c) in colours.iter().enumerate() {
+        assets.solid(&format!("sky{i}"), [c[0], c[1], c[2], 255]);
+    }
+    assets.txis.insert("sky".into(), txi("cube 1\nfilerange 6\n"));
+    // A mirror: grey, alpha 0 (fully reflective under the legacy rule).
+    assets.solid("mirror", [128, 128, 128, 0]);
+    assets.txis.insert("mirror".into(), txi("envmaptexture sky\n"));
+    assets.solid("plain_clear", [128, 128, 128, 0]);
+
+    let camera = Camera {
+        // Steep: the reflected view points mostly up (+Z).
+        eye: Vec3::new(0.0, -0.8, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.6,
+        near: 0.1,
+        far: 100.0,
+    };
+    let quad_with = |bitmap: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let lit =
+        AreaLight { ambient: Vec3::splat(0.05), diffuse: Vec3::splat(0.05), direction: Vec3::Z };
+    let mut shot = |inst: Instance| {
+        let scene = Scene {
+            instances: vec![inst],
+            area: lit,
+            background: [0.0, 1.0, 0.0],
+            ..Default::default()
+        };
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64).pixel(32, 32)
+    };
+    let mirror = shot(Instance::new(quad_with("mirror"), Mat4::IDENTITY));
+    eprintln!("mirror floor under a red sky: {mirror:?}");
+    // Fully reflective under the legacy rule means metal: the reflection
+    // takes the grey albedo's brightness, tinted by the sky.
+    assert!(mirror[0] > mirror[2] + 8 && mirror[0] > mirror[1] + 8, "{mirror:?}");
+
+    // No TXI environment map: cut out by its alpha, unless the object has
+    // an environment map.
+    let clear = shot(Instance::new(quad_with("plain_clear"), Mat4::IDENTITY));
+    let object_env = shot(Instance {
+        env_map: Some("sky".into()),
+        ..Instance::new(quad_with("plain_clear"), Mat4::IDENTITY)
+    });
+    eprintln!("alpha 0 texture: alone {clear:?}, with the object's environment map {object_env:?}");
+    assert_eq!(clear[..3], [0, 255, 0]);
+    assert!(object_env[0] > object_env[1] + 8, "{object_env:?}");
+
+    // The base game's cube maps: TXI and six faces.
+    if let Some(root) = mg_testkit::nwn_root() {
+        let rm =
+            mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+        use mg_render::Assets;
+        for name in ["ttr01__env", "tno01__env"] {
+            assert!(rm.txi(name).is_some_and(|t| t.cube()), "{name}");
+            for i in 0..6 {
+                assert!(Assets::texture(&rm, &format!("{name}{i}")).is_some(), "{name}{i}");
+            }
+        }
+    }
 }

@@ -291,7 +291,7 @@ Env map sources:
 
 Cubemaps:
 - The TXI has `cube 1` + `filerange 6` → six files `name0..name5` (e.g. `tno01__env0..5.tga/.dds`, 64² TGA).
-- The face order is not documented [INF: GL order +X,−X,+Y,−Y,+Z,−Z; CL .26 "Fixed GL CubeMap load order"].
+- The face order is not documented [INF: GL order +X,−X,+Y,−Y,+Z,−Z; CL .26 "Fixed GL CubeMap load order"]. [DATA] supports +Z (up) = face 4: `tno01__env4` is the bright sky face, the others horizon gradients. How the side faces are turned is not verified. Moonglow samples world-space directions (+Z up) with that order.
 
 Texture formats:
 - TGA

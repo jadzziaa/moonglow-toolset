@@ -70,6 +70,7 @@ struct DrawUniform {
     maps: [f32; 4],
     maps2: [f32; 4],
     spec_color: [f32; 4],
+    extra: [f32; 4],
     light_count: [u32; 4],
     light_index: [[u32; 4]; 8],
 }
@@ -90,6 +91,8 @@ struct TextureEntry {
     env: Option<String>,
     decal: bool,
     clamp: (bool, bool),
+    /// A cube map (six faces).
+    cube: bool,
 }
 
 /// Texture slots: diffuse, normal, specular, roughness, height,
@@ -167,6 +170,7 @@ pub struct Renderer {
     draw_buffer: wgpu::Buffer,
     draw_stride: u64,
     white: Arc<GpuTexture>,
+    white_cube: Arc<GpuTexture>,
     textures: HashMap<String, Option<Arc<TextureEntry>>>,
     slots: HashMap<SlotKey, Arc<Slots>>,
     materials: HashMap<MaterialKey, wgpu::BindGroup>,
@@ -260,6 +264,16 @@ impl Renderer {
                 texture_entry(6),
                 texture_entry(7),
                 texture_entry(8),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 9,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -434,6 +448,11 @@ impl Renderer {
             draw_buffer: buffer("draws", draw_stride * 64, wgpu::BufferUsages::UNIFORM),
             draw_stride,
             white: Arc::new(GpuTexture::solid(gpu, "white", [255; 4])),
+            white_cube: Arc::new(GpuTexture::upload_cube(gpu, "white cube", &{
+                let face =
+                    mg_image::Rgba { width: 1, height: 1, data: vec![255; 4] }.into_texture(false);
+                std::array::from_fn(|_| face.clone())
+            })),
             textures: HashMap::new(),
             slots: HashMap::new(),
             materials: HashMap::new(),
@@ -511,9 +530,13 @@ impl Renderer {
             key.0.iter().map(|n| n.as_deref().and_then(|t| self.texture(gpu, assets, t))).collect();
         let env = self.texture(gpu, assets, &key.1);
         let sampler = self.sampler(gpu, key.2);
-        let white = self.white.clone();
+        let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
         let view = |i: usize| textures[i].as_ref().map_or(&white.view, |t| &t.gpu.view);
-        let env_view = env.as_ref().map_or(&white.view, |t| &t.gpu.view);
+        let (env_view, cube_view) = match &env {
+            Some(t) if t.cube => (&white.view, &t.gpu.view),
+            Some(t) => (&t.gpu.view, &white_cube.view),
+            None => (&white.view, &white_cube.view),
+        };
         let tex = |binding, view| wgpu::BindGroupEntry {
             binding,
             resource: wgpu::BindingResource::TextureView(view),
@@ -537,6 +560,7 @@ impl Renderer {
                 tex(6, view(3)),
                 tex(7, view(4)),
                 tex(8, view(5)),
+                tex(9, cube_view),
             ],
         });
         self.materials.insert(key.clone(), group);
@@ -546,8 +570,26 @@ impl Renderer {
         if let Some(t) = self.textures.get(name) {
             return t.clone();
         }
+        // A cube map: a TXI with `cube 1` and six faces `name0`…`name5`.
+        if let Some(txi) = assets.txi(name).filter(|t| t.cube()) {
+            let faces: Option<Vec<mg_image::Texture>> =
+                (0..6).map(|i| assets.texture(&format!("{name}{i}")).map(|t| t.texture)).collect();
+            if let Some(faces) = faces.and_then(|f| <[mg_image::Texture; 6]>::try_from(f).ok()) {
+                let entry = Some(Arc::new(TextureEntry {
+                    gpu: GpuTexture::upload_cube(gpu, name, &faces),
+                    blending: txi.blending(),
+                    env: None,
+                    decal: false,
+                    clamp: (true, true),
+                    cube: true,
+                }));
+                self.textures.insert(name.to_string(), entry.clone());
+                return entry;
+            }
+        }
         let entry = assets.texture(name).map(|t| {
             Arc::new(TextureEntry {
+                cube: false,
                 gpu: GpuTexture::upload(gpu, name, &t.texture, t.txi.mipmap()),
                 blending: t.txi.blending(),
                 env: t.txi.envmap().map(str::to_ascii_lowercase),
@@ -689,7 +731,21 @@ impl Renderer {
                     Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.gpu.has_alpha),
                     None => (Blending::Default, None, false, (false, false), false),
                 };
+                // The environment map: the texture's (TXI), `default` or
+                // none there meaning the object's, then the area's.
+                let fallback = || inst.env_map.clone().or_else(|| scene.env_map.clone());
+                let env = match env {
+                    Some(e) if e.eq_ignore_ascii_case("default") => {
+                        Some(fallback().unwrap_or_else(|| "chrome1".into()))
+                    }
+                    Some(e) => Some(e),
+                    None => inst.env_map.clone(),
+                };
                 let env_mapped = env.is_some();
+                let env_cube = env
+                    .as_deref()
+                    .and_then(|e| self.texture(gpu, assets, &e.to_ascii_lowercase()))
+                    .is_some_and(|t| t.cube);
                 let pass = if blending == Blending::Additive {
                     Pass::Additive
                 } else if alpha < 1.0 || (has_alpha && !env_mapped) || mat.transparency_hint > 0 {
@@ -749,6 +805,7 @@ impl Renderer {
                         spec_color: slots
                             .specular_color
                             .map_or([0.0; 4], |c| c.extend(1.0).to_array()),
+                        extra: [flag(env_cube), 0.0, 0.0, 0.0],
                         light_count: [
                             chosen.len() as u32,
                             u32::from(mesh.skin.is_some()),
@@ -763,7 +820,7 @@ impl Renderer {
                                 if bound[i] { slots.names[i].clone() } else { None }
                             },
                         ),
-                        env.unwrap_or_else(|| "chrome1".into()),
+                        env.map_or_else(|| "chrome1".into(), |e| e.to_ascii_lowercase()),
                         clamp,
                     ),
                     vertices: mesh.vertices.clone(),

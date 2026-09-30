@@ -29,6 +29,13 @@ pub trait Assets {
         let _ = name;
         None
     }
+
+    /// A TXI by name (lower case), also where no image has the name (a
+    /// cube map's faces are `name0`…`name5`).
+    fn txi(&self, name: &str) -> Option<Txi> {
+        let _ = name;
+        None
+    }
 }
 
 impl Assets for ResMan {
@@ -54,6 +61,11 @@ impl Assets for ResMan {
     fn material(&self, name: &str) -> Option<Mtr> {
         let resref = ResRef::from_str(name).ok()?;
         self.get(&ResKey::new(resref, ResType::MTR)).ok().map(|d| Mtr::parse(&d))
+    }
+
+    fn txi(&self, name: &str) -> Option<Txi> {
+        let resref = ResRef::from_str(name).ok()?;
+        self.get(&ResKey::new(resref, ResType::TXI)).ok().map(|d| Txi::parse(&d))
     }
 }
 

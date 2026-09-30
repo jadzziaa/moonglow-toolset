@@ -121,6 +121,57 @@ impl GpuTexture {
         GpuTexture { texture, view, has_alpha: tex.has_alpha }
     }
 
+    /// A cube map from six faces in the game's order (+X, −X, +Y, −Y, +Z,
+    /// −Z, world axes: +Z is up), one level (the game samples level 0).
+    /// Faces of another size than the first are scaled to it.
+    pub fn upload_cube(gpu: &Gpu, label: &str, faces: &[Texture; 6]) -> GpuTexture {
+        let rgba: Vec<mg_image::Rgba> = faces.iter().map(Texture::to_rgba).collect();
+        let (w, h) = (rgba[0].width.max(1), rgba[0].height.max(1));
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 6 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (layer, face) in rgba.iter().enumerate() {
+            let data = if (face.width, face.height) == (w, h) {
+                face.data.clone()
+            } else {
+                // Nearest-neighbour to the first face's size.
+                (0..h)
+                    .flat_map(|y| (0..w).map(move |x| (x, y)))
+                    .flat_map(|(x, y)| {
+                        face.pixel(x * face.width.max(1) / w, y * face.height.max(1) / h)
+                    })
+                    .collect()
+            };
+            gpu.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: layer as u32 },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &data,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(w * 4),
+                    rows_per_image: Some(h),
+                },
+                wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            );
+        }
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::Cube),
+            ..Default::default()
+        });
+        GpuTexture { texture, view, has_alpha: false }
+    }
+
     /// A 1×1 texture of one colour.
     pub fn solid(gpu: &Gpu, label: &str, rgba: [u8; 4]) -> GpuTexture {
         let tex = mg_image::Rgba { width: 1, height: 1, data: rgba.to_vec() }.into_texture(true);

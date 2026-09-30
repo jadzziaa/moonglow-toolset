@@ -57,6 +57,8 @@ struct Draw {
     maps2: vec4<f32>,
     // Custom specular colour (linear), w = 1 when set.
     spec_color: vec4<f32>,
+    // x = the environment map is a cube map
+    extra: vec4<f32>,
     // x = number of lights for this draw, y = 1 if skinned, z = first bone
     light_count: vec4<u32>,
     // Up to 32 light indices.
@@ -77,6 +79,7 @@ struct Draw {
 @group(2) @binding(6) var tex_rough: texture_2d<f32>;
 @group(2) @binding(7) var tex_height: texture_2d<f32>;
 @group(2) @binding(8) var tex_illum: texture_2d<f32>;
+@group(2) @binding(9) var tex_env_cube: texture_cube<f32>;
 
 struct VertexIn {
     @location(0) pos: vec3<f32>,
@@ -438,7 +441,15 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var specular = acc.specular * (r2 * 0.25) / (n_dot_v * (1.0 - k) + k);
     let env_spec = mix(fresnel(spec0, n_dot_v), spec0, sqrt(rough));
     let lod = clamp(rough * 30.0 - 1.0, 0.0, 10.0);
-    let env_sample = lin(textureSampleLevel(tex_env, samp_env, env_coords(n, in.pos_view), lod).rgb);
+    var env_sample: vec3<f32>;
+    if (draw.extra.x > 0.5) {
+        // Cube maps: the reflected view in world space, level 0.
+        let r = reflect(-v, n);
+        let to_world = transpose(mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz));
+        env_sample = lin(textureSampleLevel(tex_env_cube, samp_env, to_world * r, 0.0).rgb);
+    } else {
+        env_sample = lin(textureSampleLevel(tex_env, samp_env, env_coords(n, in.pos_view), lod).rgb);
+    }
     specular = specular + (ambient + diffuse) * env_sample * ao * env_spec;
     ambient = ambient * ao;
     var total = draw.emissive.rgb + (1.0 - env_spec) * (ambient + diffuse);
