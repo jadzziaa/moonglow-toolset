@@ -243,4 +243,5 @@ scripts (name, picker, Edit), Comments.
 | Waypoints, sounds, merchants: shown as models | markers (boxes) | ◐ |
 | Triggers and encounters: coloured outlines | outlines (encounters orange, the others green) | ◐ trigger colours by type not yet |
 | Moving an encounter moves its spawn points | they move with it | ? not checked against Aurora |
-| Properties, Adjust Location, the rest of the context menu; copy and paste | not yet | ✗ |
+| Properties of a placed object (double click, context menu): the blueprint's dialog without its palette fields | the blueprint editors on the object's GIT entry (Blueprint ResRef shown read-only, no Category or Comments); cost and hit points kept up to date as for blueprints | ◐ [placed_objects_open_their_properties]; inventories of placed objects not editable yet |
+| Adjust Location, the rest of the context menu; copy and paste | not yet | ✗ |

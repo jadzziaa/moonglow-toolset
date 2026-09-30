@@ -39,6 +39,9 @@ pub enum Tab {
     Blueprint(ResKey),
     /// An area, in the area viewer.
     Area(mg_core::ResRef),
+    /// An object placed in an area (its entry in the area's GIT), in its
+    /// Properties editor.
+    Instance { area: mg_core::ResRef, path: mg_edit::GffPath },
 }
 
 impl Tab {
@@ -88,6 +91,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Resource(k) => format!("{k} (read-only)").into(),
             Tab::Model(k) => k.to_string().into(),
             Tab::Area(r) => r.to_string().into(),
+            Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),
         }
     }
 
@@ -106,12 +110,30 @@ impl TabViewer for Viewer<'_> {
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
             Tab::Model(k) => model_view::ui(self.app, ui, *k),
             Tab::Area(r) => area_view::ui(self.app, ui, *r),
+            Tab::Instance { area, path } => {
+                let git = ResKey::new(*area, ResType::GIT);
+                crate::blueprint::edit(self.app, ui, git, path.clone());
+            }
         }
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
         *tab != Tab::Welcome
     }
+}
+
+/// A placed object's tab title: its tag and where it is.
+fn instance_title(app: &mut Moonglow, area: mg_core::ResRef, path: &mg_edit::GffPath) -> String {
+    let git = ResKey::new(area, ResType::GIT);
+    let tag = app
+        .ws
+        .as_mut()
+        .and_then(|ws| ws.doc(&git).ok())
+        .and_then(|g| path.get(&g.root))
+        .and_then(|s| s.string("Tag"))
+        .map(|t| String::from_utf8_lossy(t).into_owned())
+        .unwrap_or_default();
+    format!("{tag} ({area})")
 }
 
 fn welcome(app: &mut Moonglow, ui: &mut Ui) {

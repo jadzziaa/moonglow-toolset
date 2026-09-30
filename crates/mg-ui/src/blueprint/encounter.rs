@@ -3,7 +3,7 @@
 
 use egui::Ui;
 use mg_core::ResRef;
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_rules::{Choice, ChoiceColumns};
@@ -113,6 +113,7 @@ pub(crate) fn creature_entry(app: &mut crate::Moonglow, resref: ResRef) -> Struc
 }
 
 fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let list: Vec<Struct> = f.root.list("CreatureList").unwrap_or(&[]).to_vec();
     let names = f.blueprint_names(BlueprintKind::Creature);
@@ -174,7 +175,7 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
             None => d.remove::<usize>(sel_id),
         });
     });
-    let path = GffPath::root();
+    let path = base.clone();
     if let Some(r) = add {
         let item = creature_entry(f.app, r);
         f.app.actions.push(Action::Apply(Command::new(

@@ -58,6 +58,17 @@ impl GffPath {
         p
     }
 
+    /// The struct this path leads to from `s`.
+    pub fn get<'a>(&self, mut s: &'a Struct) -> Option<&'a Struct> {
+        for step in &self.0 {
+            s = match step {
+                Step::Field(l) => s.child(l)?,
+                Step::Item(l, i) => s.list(l)?.get(*i)?,
+            };
+        }
+        Some(s)
+    }
+
     fn resolve<'a>(&self, mut s: &'a mut Struct) -> Option<&'a mut Struct> {
         for step in &self.0 {
             s = match step {

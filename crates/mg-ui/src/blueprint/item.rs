@@ -11,10 +11,9 @@ use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::{ResType, StrRef};
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
-use mg_resman::ResKey;
 use mg_rules::items::{ItemProperty, ItemValue, PropertyType, part_number, wide_label};
 use mg_rules::{Choice, GameData};
 
@@ -38,28 +37,19 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 /// After a command: the `Cost` of each item it changed, recomputed, as part
 /// of the same command.
 pub(crate) fn refresh_costs(app: &mut Moonglow, cmd: &Command) {
-    let mut keys: Vec<ResKey> = cmd
-        .edits
-        .iter()
-        .filter_map(|e| match e {
-            Edit::SetField { key, label, .. } if label != "Cost" => Some(*key),
-            Edit::InsertItem { key, .. } | Edit::RemoveItem { key, .. } => Some(*key),
-            _ => None,
-        })
-        .filter(|k| k.restype == ResType::UTI)
-        .collect();
-    keys.dedup();
+    let objects = super::changed_objects(cmd, ResType::UTI, "Cost");
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
     let mut edits = Vec::new();
-    for key in keys {
+    for (key, path) in objects {
         let Ok(g) = ws.doc(&key) else { continue };
-        let cost = game.item_cost(&ItemValue::from_gff(&g.root));
-        if g.root.integer("Cost") != Some(i64::from(cost)) {
+        let Some(item) = path.get(&g.root) else { continue };
+        let cost = game.item_cost(&ItemValue::from_gff(item));
+        if item.integer("Cost") != Some(i64::from(cost)) {
             edits.push(Edit::SetField {
                 key,
-                path: GffPath::root(),
+                path,
                 label: "Cost".into(),
-                value: Some(super::integer(g.root.get("Cost"), cost.into(), FieldType::Dword)),
+                value: Some(super::integer(item.get("Cost"), cost.into(), FieldType::Dword)),
             });
         }
     }
@@ -461,6 +451,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
 }
 
 fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
+    let here = f.path.clone();
     let key = f.key;
     let base = f.int("BaseItem").max(0) as u32;
     let assigned: Vec<ItemProperty> =
@@ -561,7 +552,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             "Add property",
             vec![Edit::InsertItem {
                 key,
-                path: GffPath::root(),
+                path: here.clone(),
                 list: "PropertiesList".into(),
                 index: assigned.len(),
                 item: property_struct(&p),
@@ -574,7 +565,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             "Remove property",
             vec![Edit::RemoveItem {
                 key,
-                path: GffPath::root(),
+                path: here.clone(),
                 list: "PropertiesList".into(),
                 index: i,
             }],
@@ -607,8 +598,9 @@ fn property_editor(
     index: usize,
     p: &ItemProperty,
 ) {
+    let here = f.path.clone();
     let Some(t) = game.property_type(p.property) else { return };
-    let path = GffPath::root().item("PropertiesList", index);
+    let path = here.clone().item("PropertiesList", index);
     let mut changes: Vec<(&str, Value)> = Vec::new();
     egui::Grid::new(("uti-prop", f.key, index)).num_columns(2).spacing([12.0, 6.0]).show(
         ui,

@@ -363,18 +363,20 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             }
         }
     });
-    if let Some(key) = brush(app) {
+    // One line, never wrapped, so that the view does not move when the
+    // selection changes.
+    let status = if let Some(key) = brush(app) {
         let what = match ObjectKind::from_restype(key.restype) {
             Some(k) if k.has_outline() => {
                 "click its corners, double click to close; right click or Escape: stop"
             }
             _ => "click to place (Shift + click: place more); right click or Escape: stop",
         };
-        ui.weak(format!("Placing {}: {what}", key.resref));
+        format!("Placing {}: {what}", key.resref)
     } else if let ([(kind, index)], Some(m)) = (view.selection.as_slice(), &view.model)
         && let Some(o) = m.object(*kind, *index)
     {
-        ui.weak(format!(
+        format!(
             "{:?} {} ({}) at {:.2}, {:.2}, {:.2}, facing {:.0}°",
             kind,
             o.tag,
@@ -383,16 +385,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             o.position.y,
             o.position.z,
             o.facing().to_degrees().rem_euclid(360.0),
-        ));
+        )
     } else if view.selection.len() > 1 {
-        ui.weak(format!("{} objects selected", view.selection.len()));
+        format!("{} objects selected", view.selection.len())
     } else {
-        // Always a line, so that the view does not move when selecting.
-        ui.weak(
-            "Click to select, drag to move or to select in a box, Shift + right drag to turn, \
-             Alt + drag to raise; Ctrl + drag moves the view, Ctrl + right drag turns it.",
-        );
-    }
+        "Click to select, drag to move or to select in a box, Shift + right drag to turn, \
+         Alt + drag to raise; Ctrl + drag moves the view, Ctrl + right drag turns it."
+            .to_string()
+    };
+    ui.add(egui::Label::new(egui::RichText::new(&status).weak()).truncate()).on_hover_text(status);
 }
 
 fn viewport(
@@ -656,7 +657,27 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     {
         view.selection = vec![(o.kind, o.index)];
     }
+    // A double click opens the object's Properties (a quick one after
+    // another click counts as a triple).
+    if (response.double_clicked() || response.triple_clicked())
+        && let Some(pos) = response.interact_pointer_pos()
+        && let Some(i) = view.pick(pos)
+        && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
+    {
+        let (kind, index) = (o.kind, o.index);
+        open_properties(app, view, kind, index);
+    }
     response.context_menu(|ui| {
+        let single = match view.selection.as_slice() {
+            [one] => Some(*one),
+            _ => None,
+        };
+        if ui.add_enabled(single.is_some(), egui::Button::new("Properties")).clicked()
+            && let Some((kind, index)) = single
+        {
+            open_properties(app, view, kind, index);
+            ui.close();
+        }
         if ui.add_enabled(!view.selection.is_empty(), egui::Button::new("Delete")).clicked() {
             delete(app, view);
             ui.close();
@@ -899,9 +920,19 @@ fn commit_moves(app: &mut Moonglow, view: &AreaView, moved: &[(usize, Vec3, f32)
     }
 }
 
+/// Opens (or shows) the Properties of the placed object `index` of `kind`.
+fn open_properties(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: usize) {
+    let path = mg_edit::GffPath::root().item(kind.list(), index);
+    app.actions.push(Action::OpenTab(crate::Tab::Instance { area: view.area, path }));
+}
+
 fn delete(app: &mut Moonglow, view: &mut AreaView) {
     let edits = mg_area::edit::delete_edits(view.git(), &view.selection);
     view.selection.clear();
+    // Objects after the deleted ones move up their lists: their Properties
+    // would show others.
+    let area = view.area;
+    app.dock.retain_tabs(|t| !matches!(t, crate::Tab::Instance { area: a, .. } if *a == area));
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Delete", edits)));
     }

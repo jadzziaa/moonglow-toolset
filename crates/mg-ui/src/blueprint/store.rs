@@ -5,7 +5,7 @@
 
 use egui::Ui;
 use mg_core::ResRef;
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 
@@ -79,7 +79,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
         ui.label("");
         if ui.button("Inventory…").on_hover_text("Edit inventory contents").clicked() {
-            f.app.blueprint_pages.insert(f.key, "Inventory");
+            f.app.blueprint_pages.insert((f.key, f.path.clone()), "Inventory");
         }
         ui.end_row();
     });
@@ -133,6 +133,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
 /// Adds an item to the page its base item belongs on, at the first free
 /// place; the page's struct id.
 fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
+    let base = f.path.clone();
     let page =
         f.item_fit(resref).panel.and_then(|p| PANEL_PAGE.get(p as usize).copied()).unwrap_or(1);
     let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
@@ -143,7 +144,7 @@ fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
     let edit = match index {
         Some(i) => Edit::InsertItem {
             key: f.key,
-            path: GffPath::root().item("StoreList", i),
+            path: base.clone().item("StoreList", i),
             list: "ItemList".into(),
             index: items.len(),
             item,
@@ -153,7 +154,7 @@ fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
             p.set("ItemList", Value::List(vec![item]));
             Edit::InsertItem {
                 key: f.key,
-                path: GffPath::root(),
+                path: base.clone(),
                 list: "StoreList".into(),
                 index: pages.len(),
                 item: p,
@@ -165,6 +166,7 @@ fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
 }
 
 fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let pages = f.root.list("StoreList").unwrap_or(&[]).to_vec();
     let names = f.blueprint_names(BlueprintKind::Item);
@@ -196,7 +198,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             ui.weak("No items on this page.");
             return;
         };
-        let path = GffPath::root().item("StoreList", index);
+        let path = base.clone().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
         edits = inventory::item_list(ui, key, &path, items, &names, true);
     });
@@ -231,6 +233,7 @@ fn base_items(f: &Form<'_>) -> Vec<(i64, String)> {
 }
 
 fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let list = |label: &str| -> Vec<i64> {
         f.root.list(label).unwrap_or(&[]).iter().filter_map(|s| s.integer("BaseItem")).collect()
@@ -347,7 +350,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
             "Add restricted item",
             vec![Edit::InsertItem {
                 key,
-                path: GffPath::root(),
+                path: base.clone(),
                 list: label.into(),
                 index: current.len(),
                 item: s,
@@ -358,7 +361,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
     if let Some(i) = remove.and_then(|row| current.iter().position(|&r| r == row)) {
         f.app.actions.push(Action::Apply(Command::new(
             "Remove restricted item",
-            vec![Edit::RemoveItem { key, path: GffPath::root(), list: label.into(), index: i }],
+            vec![Edit::RemoveItem { key, path: base.clone(), list: label.into(), index: i }],
         )));
         right = None;
     }

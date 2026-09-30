@@ -184,7 +184,7 @@ fn blueprint_editors() {
             .with_size(egui::vec2(1000.0, 760.0))
             .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
         for page in pages {
-            h.state_mut().blueprint_pages.insert(key, page);
+            h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), page);
             let page_name = page.to_lowercase().replace(' ', "-");
             shoot(&mut h, &dir, &format!("{name}-{page_name}"));
         }

@@ -1273,7 +1273,7 @@ fn showing_blueprint_editors_changes_nothing() {
             return;
         };
         for page in mg_ui::blueprint::pages(t) {
-            h.state_mut().blueprint_pages.insert(key, page);
+            h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), page);
             h.run();
         }
         let ws = h.state().ws.as_ref().unwrap();
@@ -1856,4 +1856,45 @@ fn area_viewer_places_draws_boxes_and_turns() {
     }
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-area-place").join("area_view.png")).unwrap();
+}
+
+#[test]
+fn placed_objects_open_their_properties() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("properties") else { return };
+    let tag_of = |h: &mut Harness<'_, Moonglow>, i: usize| -> String {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let w = &git.root.list("WaypointList").unwrap()[i];
+        String::from_utf8_lossy(w.string("Tag").unwrap()).into_owned()
+    };
+    // A double click on the second waypoint opens its Properties.
+    let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
+    h.run_steps(40);
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+    }
+    h.run_steps(3);
+    let path = mg_edit::GffPath::root().item("WaypointList", 1);
+    let tab = Tab::Instance { area, path };
+    assert!(h.state().dock.find_tab(&tab).is_some(), "the Properties tab");
+    // Its tag, edited there, changes that waypoint only: one command.
+    let tag = tag_of(&mut h, 1);
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value(&tag).find(is_input).expect("the tag field").click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&tag).find(is_input).unwrap().type_text("WP_PLACED");
+    h.run_steps(2);
+    h.key_press(egui::Key::Tab);
+    h.run_steps(3);
+    assert_eq!(tag_of(&mut h, 1), "WP_PLACED");
+    assert_eq!(tag_of(&mut h, 0), tag, "the other is untouched");
+    // Blueprint-only fields are not offered.
+    assert!(h.query_by_label("Comments").is_none());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(tag_of(&mut h, 1), tag);
 }

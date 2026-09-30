@@ -42,6 +42,7 @@ fn filter(ui: &mut Ui, id: egui::Id) -> String {
 }
 
 pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let all = f
         .app
@@ -81,11 +82,11 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         Some((row, true)) => {
             let mut s = Struct::new(FEAT_ID);
             s.set("Feat", Value::Word(row as u16));
-            apply(f, "Add feat", vec![insert(key, GffPath::root(), "FeatList", list.len(), s)]);
+            apply(f, "Add feat", vec![insert(key, base.clone(), "FeatList", list.len(), s)]);
         }
         Some((row, false)) => {
             if let Some(i) = list.iter().position(|&r| r == row as i64) {
-                apply(f, "Remove feat", vec![remove(key, GffPath::root(), "FeatList", i)]);
+                apply(f, "Remove feat", vec![remove(key, base.clone(), "FeatList", i)]);
             }
         }
         None => {}
@@ -112,6 +113,7 @@ fn class_spells(game: &GameData, class: usize) -> Vec<(usize, String, usize)> {
 }
 
 pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let Some(game) = f.app.game.as_ref() else { return };
     let Ok(classes) = game.table("classes") else { return };
@@ -175,7 +177,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         if summary.is_empty() { "none".to_string() } else { summary.join(", ") }
     ));
     let needle = filter(ui, id.with("find"));
-    let path = GffPath::root().item("ClassList", index);
+    let path = base.clone().item("ClassList", index);
     let mut change: Option<(usize, usize, i64)> = None; // (spell, level, delta)
     egui::ScrollArea::vertical().id_salt(("utc-spell-list", key)).show(ui, |ui| {
         egui::Grid::new(("utc-spell-grid", key, which)).num_columns(3).striped(true).show(
@@ -240,6 +242,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
 }
 
 pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let names = f
         .app
@@ -280,7 +283,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                         s.set("SpellFlags", Value::Byte(1));
                         edits.push((
                             "Add special ability",
-                            insert(key, GffPath::root(), "SpecAbilityList", list.len(), s),
+                            insert(key, base.clone(), "SpecAbilityList", list.len(), s),
                         ));
                     }
                 }
@@ -301,7 +304,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                         "Caster level",
                         Edit::SetField {
                             key,
-                            path: GffPath::root().item("SpecAbilityList", i),
+                            path: base.clone().item("SpecAbilityList", i),
                             label: "SpellCasterLevel".into(),
                             value: Some(Value::Byte(v as u8)),
                         },
@@ -310,7 +313,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                 if ui.small_button("Remove").clicked() {
                     edits.push((
                         "Remove special ability",
-                        remove(key, GffPath::root(), "SpecAbilityList", i),
+                        remove(key, base.clone(), "SpecAbilityList", i),
                     ));
                 }
                 ui.end_row();
@@ -356,6 +359,7 @@ fn item_slots(f: &mut Form<'_>, resref: ResRef) -> u32 {
 }
 
 pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let equipped: Vec<Struct> = f.root.list("Equip_ItemList").unwrap_or(&[]).to_vec();
     let backpack: Vec<Struct> = f.root.list("ItemList").unwrap_or(&[]).to_vec();
@@ -388,14 +392,14 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                     if ui.add_enabled(at.is_some(), egui::Button::new("Remove").small()).clicked()
                         && let Some(i) = at
                     {
-                        edits.push(("Unequip", remove(key, GffPath::root(), "Equip_ItemList", i)));
+                        edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
                     }
                     ui.end_row();
                 }
             });
             ui.separator();
             ui.strong("Backpack");
-            let path = GffPath::root();
+            let path = base.clone();
             edits.extend(inventory::item_list(ui, key, &path, &backpack, &names, false));
         });
     });
@@ -408,16 +412,16 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             let mut e = Vec::new();
             // One item per slot; the list is kept in slot order.
             if let Some(i) = equipped.iter().position(|s| s.id == bit) {
-                e.push(remove(key, GffPath::root(), "Equip_ItemList", i));
+                e.push(remove(key, base.clone(), "Equip_ItemList", i));
             }
             let at = equipped.iter().filter(|s| s.id < bit).count();
-            e.push(insert(key, GffPath::root(), "Equip_ItemList", at, s));
+            e.push(insert(key, base.clone(), "Equip_ItemList", at, s));
             apply(f, "Equip", e);
         }
     }
     if let Some(r) = add {
         let item = f.inventory_item(&backpack, r);
-        apply(f, "Add item", vec![insert(key, GffPath::root(), "ItemList", backpack.len(), item)]);
+        apply(f, "Add item", vec![insert(key, base.clone(), "ItemList", backpack.len(), item)]);
     }
     for (what, e) in edits {
         apply(f, what, vec![e]);

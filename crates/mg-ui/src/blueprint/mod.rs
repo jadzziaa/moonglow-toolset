@@ -66,13 +66,18 @@ pub fn pages(t: ResType) -> &'static [&'static str] {
 }
 
 /// Each open editor's page.
-pub type Pages = HashMap<ResKey, &'static str>;
+/// Each open editor's page, by document and the object's path in it.
+pub type Pages = HashMap<(ResKey, GffPath), &'static str>;
 
 /// A blueprint's fields, laid out.
 pub(crate) struct Form<'a> {
     pub app: &'a mut Moonglow,
+    /// The document: the blueprint, or the area's GIT for a placed object.
     pub key: ResKey,
-    /// The blueprint as it is now.
+    /// Where the object is in it: the root for a blueprint, its entry in a
+    /// GIT list for a placed object.
+    pub path: GffPath,
+    /// The object as it is now.
     pub root: Struct,
 }
 
@@ -107,11 +112,22 @@ impl Form<'_> {
     }
 
     fn id(&self, name: &str) -> egui::Id {
-        egui::Id::new(("blueprint", self.key, name))
+        egui::Id::new(("blueprint", self.key, &self.path, name))
     }
 
     fn target(&self, label: &str) -> FieldTarget {
-        FieldTarget::new(self.key, GffPath::root(), label)
+        FieldTarget::new(self.key, self.path.clone(), label)
+    }
+
+    /// Whether this is an object placed in an area (not a blueprint).
+    pub(crate) fn is_instance(&self) -> bool {
+        !self.path.0.is_empty()
+    }
+
+    /// The object's blueprint type (for a placed object, from its GIT
+    /// list).
+    pub(crate) fn restype(&self) -> ResType {
+        instance_type(&self.path).unwrap_or(self.key.restype)
     }
 
     /// Sets a field (one undoable command named `what`).
@@ -120,7 +136,7 @@ impl Form<'_> {
             what,
             vec![Edit::SetField {
                 key: self.key,
-                path: GffPath::root(),
+                path: self.path.clone(),
                 label: label.to_string(),
                 value: Some(value),
             }],
@@ -130,7 +146,7 @@ impl Form<'_> {
     /// Sets an integer field, keeping its stored type (for a field the
     /// blueprint lacks: the type the game's files give it, else `default`).
     pub(crate) fn set_int(&mut self, what: &str, label: &str, v: i64, default: FieldType) {
-        let default = mg_schema::root_field_type(self.key.restype, label).unwrap_or(default);
+        let default = mg_schema::root_field_type(self.restype(), label).unwrap_or(default);
         let value = integer(self.root.get(label), v, default);
         self.set(what, label, value);
     }
@@ -201,7 +217,7 @@ impl Form<'_> {
             .into_iter()
             .map(|(label, value)| Edit::SetField {
                 key: self.key,
-                path: GffPath::root(),
+                path: self.path.clone(),
                 label: label.to_string(),
                 value: Some(value),
             })
@@ -215,12 +231,12 @@ impl Form<'_> {
             .iter()
             .map(|(label, v, t)| Edit::SetField {
                 key: self.key,
-                path: GffPath::root(),
+                path: self.path.clone(),
                 label: label.to_string(),
                 value: Some(integer(
                     self.root.get(label),
                     *v,
-                    mg_schema::root_field_type(self.key.restype, label).unwrap_or(*t),
+                    mg_schema::root_field_type(self.restype(), label).unwrap_or(*t),
                 )),
             })
             .collect();
@@ -408,6 +424,10 @@ impl Form<'_> {
     /// The palette category (Aurora: read-only text and `…`): a list of the
     /// type's categories.
     pub(crate) fn category(&mut self, ui: &mut Ui, kind: BlueprintKind) {
+        if self.is_instance() {
+            ui.weak("(placed in an area)");
+            return;
+        }
         let Some(game) = self.app.game.as_ref() else { return };
         let categories = game
             .resman
@@ -451,6 +471,14 @@ impl Form<'_> {
     /// The blueprint's resref (Aurora's "Blueprint ResRef"): changing it
     /// renames the blueprint.
     pub(crate) fn blueprint_resref(&mut self, ui: &mut Ui) {
+        if self.is_instance() {
+            // A placed object names the blueprint it was made from.
+            let field = BlueprintKind::from_restype(self.restype())
+                .map_or("TemplateResRef", |k| k.resref_field());
+            let template = self.root.resref(field).map(|r| r.to_string()).unwrap_or_default();
+            ui.label(template).on_hover_text("The blueprint it was placed from");
+            return;
+        }
         let current = self.key.resref;
         let id = self.id("TemplateResRef");
         let buf = self.app.buffers.entry(id).or_insert_with(|| current.to_string());
@@ -475,6 +503,39 @@ impl Form<'_> {
 
 /// After a command: values derived from what it changed (an item's cost, a
 /// creature's maximum hit points), as part of it.
+/// The objects of type `restype` a command changed (other than by setting
+/// `derived`, the field kept from them): blueprints at their root, placed
+/// objects at their GIT entry.
+pub(crate) fn changed_objects(
+    cmd: &Command,
+    restype: ResType,
+    derived: &str,
+) -> Vec<(ResKey, GffPath)> {
+    let list = mg_module::instances::git_list(restype).map(|(l, _)| l);
+    let mut out: Vec<(ResKey, GffPath)> = Vec::new();
+    for e in &cmd.edits {
+        let (key, path) = match e {
+            Edit::SetField { key, path, label, .. } if label != derived => (key, path),
+            Edit::InsertItem { key, path, .. } | Edit::RemoveItem { key, path, .. } => (key, path),
+            _ => continue,
+        };
+        let object = if key.restype == restype {
+            GffPath::root()
+        } else if key.restype == ResType::GIT
+            && let Some(step @ mg_edit::Step::Item(l, _)) = path.0.first()
+            && Some(l.as_str()) == list
+        {
+            GffPath(vec![step.clone()])
+        } else {
+            continue;
+        };
+        if !out.contains(&(*key, object.clone())) {
+            out.push((*key, object));
+        }
+    }
+    out
+}
+
 pub(crate) fn after_apply(app: &mut Moonglow, cmd: &Command) {
     item::refresh_costs(app, cmd);
     creature::refresh_hit_points(app, cmd);
@@ -512,8 +573,8 @@ pub(crate) fn rename(app: &mut Moonglow, from: ResKey, to: ResRef) {
                     *tab = Tab::Blueprint(new);
                 }
             }
-            if let Some(p) = app.blueprint_pages.remove(&from) {
-                app.blueprint_pages.insert(new, p);
+            if let Some(p) = app.blueprint_pages.remove(&(from, GffPath::root())) {
+                app.blueprint_pages.insert((new, GffPath::root()), p);
             }
         }
         Err(e) => app.log.error(e),
@@ -522,28 +583,74 @@ pub(crate) fn rename(app: &mut Moonglow, from: ResKey, to: ResRef) {
 
 /// A blueprint editor tab.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    edit(app, ui, key, GffPath::root());
+}
+
+/// The blueprint type of the object at `path` in a GIT (its list's).
+pub(crate) fn instance_type(path: &GffPath) -> Option<ResType> {
+    let Some(mg_edit::Step::Item(list, _)) = path.0.first() else { return None };
+    [
+        ResType::UTC,
+        ResType::UTD,
+        ResType::UTE,
+        ResType::UTI,
+        ResType::UTP,
+        ResType::UTS,
+        ResType::UTM,
+        ResType::UTT,
+        ResType::UTW,
+    ]
+    .into_iter()
+    .find(|t| mg_module::instances::git_list(*t).is_some_and(|(l, _)| l == list))
+}
+
+/// The pages of a placed object's Properties: its blueprint's, less the
+/// blueprint's comments and (not yet for placed objects) inventories.
+pub(crate) fn instance_pages(t: ResType) -> Vec<&'static str> {
+    pages(t)
+        .iter()
+        .copied()
+        .filter(|p| !matches!(*p, "Comments" | "Inventory" | "Contents" | "Store"))
+        .collect()
+}
+
+/// The Properties of the object at `path` in the document `key` (a
+/// blueprint at the root, or an object placed in an area's GIT).
+pub(crate) fn edit(app: &mut Moonglow, ui: &mut Ui, key: ResKey, path: GffPath) {
     let Some(ws) = &mut app.ws else {
         ui.label("No module is open.");
         return;
     };
     let root = match ws.doc(&key) {
-        Ok(g) => g.root.clone(),
+        Ok(g) => match path.get(&g.root) {
+            Some(s) => s.clone(),
+            None => {
+                ui.label("This object is no longer there.");
+                return;
+            }
+        },
         Err(e) => {
             ui.colored_label(ui.visuals().error_fg_color, e.to_string());
             return;
         }
     };
-    let pages = pages(key.restype);
-    let mut page = app.blueprint_pages.get(&key).copied().unwrap_or(pages[0]);
+    let restype = instance_type(&path).unwrap_or(key.restype);
+    let pages: Vec<&str> =
+        if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
+    let page_key = (key, path.clone());
+    let mut page = app.blueprint_pages.get(&page_key).copied().unwrap_or(pages[0]);
+    if !pages.contains(&page) {
+        page = pages[0];
+    }
     ui.horizontal_wrapped(|ui| {
-        for p in pages {
-            ui.selectable_value(&mut page, p, *p);
+        for p in &pages {
+            ui.selectable_value(&mut page, *p, *p);
         }
     });
-    app.blueprint_pages.insert(key, page);
+    app.blueprint_pages.insert(page_key, page);
     ui.separator();
-    let mut form = Form { app, key, root };
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match key.restype {
+    let mut form = Form { app, key, path, root };
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match restype {
         ResType::UTW => waypoint::page(&mut form, ui, page),
         ResType::UTS => sound::page(&mut form, ui, page),
         ResType::UTT => trigger::page(&mut form, ui, page),

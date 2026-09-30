@@ -3,7 +3,7 @@
 //! (Aurora's Inventory… dialog) as its own page.
 
 use egui::Ui;
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct};
 use mg_module::palette::BlueprintKind;
 use mg_rules::ChoiceColumns;
@@ -94,7 +94,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                 .on_hover_text("Edit inventory contents")
                 .clicked()
             {
-                f.app.blueprint_pages.insert(f.key, "Inventory");
+                f.app.blueprint_pages.insert((f.key, f.path.clone()), "Inventory");
             }
         });
         ui.end_row();
@@ -124,6 +124,7 @@ fn treasure(f: &mut Form<'_>, ui: &mut Ui) {
 
 /// The items the placeable holds.
 fn contents(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     if f.int("HasInventory") == 0 {
         ui.weak("The placeable has no inventory (Basic › Has Inventory).");
         return;
@@ -135,13 +136,13 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let mut edits = Vec::new();
     ui.columns(2, |cols| {
         add = f.palette_picker(&mut cols[0], BlueprintKind::Item, "Add Item");
-        edits = inventory::item_list(&mut cols[1], key, &GffPath::root(), &items, &names, false);
+        edits = inventory::item_list(&mut cols[1], key, &base, &items, &names, false);
     });
     if let Some(r) = add {
         let item = f.inventory_item(&items, r);
         let edit = Edit::InsertItem {
             key,
-            path: GffPath::root(),
+            path: base.clone(),
             list: "ItemList".into(),
             index: items.len(),
             item,

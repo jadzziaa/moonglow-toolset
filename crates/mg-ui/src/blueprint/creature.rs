@@ -74,32 +74,20 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 /// After a command: the `MaxHitPoints` of each creature it changed,
 /// recomputed, as part of the same command.
 pub(crate) fn refresh_hit_points(app: &mut Moonglow, cmd: &Command) {
-    let mut keys: Vec<ResKey> = cmd
-        .edits
-        .iter()
-        .filter_map(|e| match e {
-            Edit::SetField { key, label, .. } if label != "MaxHitPoints" => Some(*key),
-            Edit::InsertItem { key, .. } | Edit::RemoveItem { key, .. } => Some(*key),
-            _ => None,
-        })
-        .filter(|k| k.restype == ResType::UTC)
-        .collect();
-    keys.dedup();
+    let objects = super::changed_objects(cmd, ResType::UTC, "MaxHitPoints");
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
     let mut edits = Vec::new();
-    for key in keys {
+    for (key, path) in objects {
         let Ok(g) = ws.doc(&key) else { continue };
-        let max = game.creature_stats(&CreatureSheet::from_gff(&g.root)).max_hit_points;
-        if g.root.integer("MaxHitPoints") != Some(i64::from(max)) {
+        let Some(creature) = path.get(&g.root) else { continue };
+        let max = game.creature_stats(&CreatureSheet::from_gff(creature)).max_hit_points;
+        if creature.integer("MaxHitPoints") != Some(i64::from(max)) {
+            let old = creature.get("MaxHitPoints");
             edits.push(Edit::SetField {
                 key,
-                path: GffPath::root(),
+                path,
                 label: "MaxHitPoints".into(),
-                value: Some(super::integer(
-                    g.root.get("MaxHitPoints"),
-                    max.into(),
-                    FieldType::Short,
-                )),
+                value: Some(super::integer(old, max.into(), FieldType::Short)),
             });
         }
     }
@@ -417,6 +405,7 @@ const ALIGNMENTS: [(&str, i64, i64); 9] = [
 ];
 
 fn classes(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let all = choices(f, "classes", "Name", "Label");
     let packages = choices(f, "packages", "Name", "Label");
@@ -452,7 +441,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
     egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, c) in list.iter().enumerate() {
-            let path = GffPath::root().item("ClassList", i);
+            let path = base.clone().item("ClassList", i);
             ui.label(format!("Class {}", i + 1));
             let class = c.integer("Class").unwrap_or(0);
             if let Some(v) = situated::pick(ui, key, &format!("class{i}"), &all, class) {
@@ -470,7 +459,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                     "Remove class",
                     vec![Edit::RemoveItem {
                         key,
-                        path: GffPath::root(),
+                        path: base.clone(),
                         list: "ClassList".into(),
                         index: i,
                     }],
@@ -490,7 +479,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
             "Add class",
             vec![Edit::InsertItem {
                 key,
-                path: GffPath::root(),
+                path: base.clone(),
                 list: "ClassList".into(),
                 index: list.len(),
                 item: s,
@@ -512,6 +501,7 @@ fn set(key: ResKey, path: &GffPath, label: &str, value: Value) -> Edit {
 }
 
 fn skills(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let key = f.key;
     let skills = choices(f, "skills", "Name", "Label");
     let list: Vec<Struct> = f.root.list("SkillList").unwrap_or(&[]).to_vec();
@@ -543,14 +533,14 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
                 s.set("Rank", Value::Byte(0));
                 Edit::InsertItem {
                     key,
-                    path: GffPath::root(),
+                    path: base.clone(),
                     list: "SkillList".into(),
                     index: i,
                     item: s,
                 }
             })
             .collect();
-        edits.push(set(key, &GffPath::root().item("SkillList", row), "Rank", Value::Byte(v as u8)));
+        edits.push(set(key, &base.item("SkillList", row), "Rank", Value::Byte(v as u8)));
         f.app.actions.push(Action::Apply(Command::new("Skill rank", edits)));
     }
 }

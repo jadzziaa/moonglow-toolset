@@ -3,7 +3,7 @@
 
 use egui::Ui;
 use mg_core::{ResRef, ResType};
-use mg_edit::{Command, Edit, GffPath};
+use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
 
@@ -43,6 +43,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
 
 /// The Sounds list: add (picker), remove, move up and down.
 fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
+    let base = f.path.clone();
     let sounds: Vec<ResRef> = f
         .root
         .list("Sounds")
@@ -76,7 +77,7 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
                 "Add sound",
                 vec![Edit::InsertItem {
                     key,
-                    path: GffPath::root(),
+                    path: base.clone(),
                     list: "Sounds".into(),
                     index: sounds.len(),
                     item: item(r),
@@ -88,13 +89,13 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
         }
         let remove = |i: usize| Edit::RemoveItem {
             key,
-            path: GffPath::root(),
+            path: base.clone(),
             list: "Sounds".into(),
             index: i,
         };
         let insert = |i: usize, r: ResRef| Edit::InsertItem {
             key,
-            path: GffPath::root(),
+            path: base.clone(),
             list: "Sounds".into(),
             index: i,
             item: item(r),
