@@ -11,6 +11,7 @@ pub mod build;
 pub mod dialog;
 pub mod factions;
 pub mod haks;
+pub mod instances;
 pub mod journal;
 pub mod new;
 pub mod palette;

@@ -610,7 +610,17 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         ui.strong("Challenge Rating");
         egui::Grid::new(("utc-cr", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
             ui.label("Adjustment");
-            f.number(ui, "CR adjustment", "CRAdjust", -100..=100);
+            // The rating is the calculated one plus the adjustment: a new
+            // adjustment moves it by the difference.
+            let adjust = f.int("CRAdjust");
+            if let Some(v) = commit_number(ui, adjust, -100..=100) {
+                let rating = (cr + (v - adjust) as f32).max(0.0);
+                let adjust_value = super::integer(f.root.get("CRAdjust"), v, FieldType::Int);
+                f.set_fields(
+                    "CR adjustment",
+                    vec![("CRAdjust", adjust_value), ("ChallengeRating", Value::Float(rating))],
+                );
+            }
             ui.end_row();
             ui.label("Challenge Rating");
             ui.label(format!("{cr}"));
