@@ -465,7 +465,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1084,6 +1084,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "glam"
+version = "0.30.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
 name = "glifo"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1668,6 +1677,23 @@ dependencies = [
  "mg-testkit",
  "mg-tiles",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "mg-render"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+ "mg-core",
+ "mg-image",
+ "mg-mdl",
+ "mg-resman",
+ "mg-testkit",
+ "png",
+ "pollster 0.4.0",
+ "thiserror 2.0.21",
+ "wgpu",
 ]
 
 [[package]]

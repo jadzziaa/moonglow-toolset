@@ -20,6 +20,7 @@ mg-erf = { path = "crates/mg-erf" }
 mg-key = { path = "crates/mg-key" }
 mg-mdl = { path = "crates/mg-mdl" }
 mg-module = { path = "crates/mg-module" }
+mg-render = { path = "crates/mg-render" }
 mg-resman = { path = "crates/mg-resman" }
 mg-rules = { path = "crates/mg-rules" }
 mg-schema = { path = "crates/mg-schema" }
@@ -34,6 +35,7 @@ mg-ui = { path = "crates/mg-ui" }
 # Third party
 anyhow = "1"
 base64 = "0.23"
+bytemuck = { version = "1", features = ["derive"] }
 clap = { version = "4", features = ["derive"] }
 eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11", "persistence"] }
 egui = "0.36"
@@ -41,8 +43,11 @@ egui_dock = "0.21"
 egui_kittest = "0.36"
 encoding_rs = "0.8"
 fastrand = "2"
+glam = { version = "0.30", features = ["bytemuck"] }
 indexmap = "2"
 memmap2 = "0.9"
+png = "0.18"
+pollster = "0.4"
 proptest = "1"
 rayon = "1"
 rfd = "0.17"
@@ -50,6 +55,7 @@ ruzstd = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
+wgpu = "30"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

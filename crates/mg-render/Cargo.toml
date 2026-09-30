@@ -1,0 +1,26 @@
+[package]
+name = "mg-render"
+description = "The wgpu renderer: models, textures and EE-style lighting, on screen or offscreen"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytemuck.workspace = true
+glam.workspace = true
+mg-core.workspace = true
+mg-image.workspace = true
+mg-mdl.workspace = true
+mg-resman.workspace = true
+pollster.workspace = true
+thiserror.workspace = true
+wgpu.workspace = true
+
+[dev-dependencies]
+mg-testkit.workspace = true
+png.workspace = true
+
+[lints]
+workspace = true

@@ -28,7 +28,7 @@ Decisions taken (2026-09-30):
 | 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
 | 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt, settings and recent modules, options, import/export, resource browser; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
 | 6 Text-and-tree editors | Done: String Edit, Variables, resource pickers; Module Properties with Aurora's tabs; Faction, Journal and Conversation editors and the script editor's tools, each checked against Aurora's files (captured under Wine) and in the engine; parity checklists in `docs/parity/checklists.md` |
-| 7 Renderer and model viewer | In progress: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR; models (all 32,832 in the game read, binary and ASCII; the two readers agree through nwnmdlcomp on a sample of 176) |
+| 7 Renderer and model viewer | In progress: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR; models (all 32,832 in the game read, binary and ASCII; the two readers agree through nwnmdlcomp on a sample of 176); the wgpu renderer with the game's lighting equations (checked against a CPU evaluation) drawing models offscreen |
 | 8+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
@@ -184,7 +184,7 @@ in this list. ✅ = exists.
 | `mg-tiles` (partial) | tilesets, tile grid model, terrain painting engine with SET rules, walkmesh assembly; so far the corner lattice, tile fitting and new-area terrain |
 | `mg-module` ✅ | module workspace: open/save, working copy, palettes, reference graph, verify, build, import/export, haks/TLK |
 | `mg-edit` | editor core: documents, commands, undo/redo, selection, tools (no UI) |
-| `mg-render` | renderer: scene, materials, EE lighting, animation, particles, picking, gizmos, offscreen mode |
+| `mg-render` (partial) | renderer: scene, materials, EE lighting, offscreen mode (done); animation, particles, picking, gizmos |
 | `mg-ui` | egui widgets and editors |
 | `apps/mg` ✅ | CLI: `ls`, `pack`, `unpack`, `gff`, `which`, `cat`, `layers`, `tlk` so far; later build, verify, compile, diff, render |
 | `apps/moonglow` | the GUI application |
