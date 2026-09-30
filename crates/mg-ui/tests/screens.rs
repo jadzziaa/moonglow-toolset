@@ -13,8 +13,8 @@ use mg_ui::script_wizard::{ScriptWizard, Step};
 use mg_ui::{Moonglow, NoDialogs};
 
 fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
-    h.run();
-    h.run();
+    // Steps rather than runs: animated views keep repainting.
+    h.run_steps(3);
     let image = h.render().expect("render");
     image.save(dir.join(format!("{name}.png"))).unwrap();
 }
@@ -100,4 +100,27 @@ fn model_viewer() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
     shoot(&mut h, &dir, "model-viewer");
+}
+
+#[test]
+#[ignore]
+fn blueprint_preview() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-model");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(
+        ResKey::parse("nw_halfdra002", ResType::UTC).unwrap(),
+    )));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "blueprint-preview");
 }

@@ -306,6 +306,23 @@ impl Struct {
         double: Double -> f64,
     }
 
+    /// An integer field of any integer type (BYTE, CHAR, WORD, SHORT,
+    /// DWORD, INT, DWORD64, INT64), for fields whose type differs between
+    /// game versions.
+    pub fn integer(&self, label: &str) -> Option<i64> {
+        match self.get(label)? {
+            Value::Byte(v) => Some(i64::from(*v)),
+            Value::Char(v) => Some(i64::from(*v)),
+            Value::Word(v) => Some(i64::from(*v)),
+            Value::Short(v) => Some(i64::from(*v)),
+            Value::Dword(v) => Some(i64::from(*v)),
+            Value::Int(v) => Some(i64::from(*v)),
+            Value::Dword64(v) => i64::try_from(*v).ok(),
+            Value::Int64(v) => Some(*v),
+            _ => None,
+        }
+    }
+
     /// The bytes of a `CExoString` field.
     pub fn string(&self, label: &str) -> Option<&[u8]> {
         match self.get(label)? {

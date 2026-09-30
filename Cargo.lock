@@ -1684,6 +1684,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "mg-preview"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "mg-2da",
+ "mg-core",
+ "mg-gff",
+ "mg-mdl",
+ "mg-render",
+ "mg-resman",
+ "mg-rules",
+ "mg-testkit",
+ "png",
+ "thiserror 2.0.21",
+ "wgpu",
+]
+
+[[package]]
 name = "mg-render"
 version = "0.1.0"
 dependencies = [
@@ -1794,6 +1812,7 @@ dependencies = [
  "mg-gff",
  "mg-mdl",
  "mg-module",
+ "mg-preview",
  "mg-render",
  "mg-resman",
  "mg-rules",

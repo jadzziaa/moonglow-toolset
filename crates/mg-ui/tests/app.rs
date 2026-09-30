@@ -909,3 +909,32 @@ fn model_viewer_plays_animations() {
     let img = h.render().expect("render");
     assert!(img.width() > 0);
 }
+
+#[test]
+fn blueprint_previews_open() {
+    let root = mg_testkit::corpus!();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    // A gnome with robe, cloak and crossbow: its skeleton, standing idle.
+    let key = ResKey::parse("nw_hen_bod_05", ResType::UTC).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // The idle animation plays from the start: step frames.
+    h.run_steps(4);
+    h.get_by_label_contains("pmg0: ");
+    assert_eq!(h.state().model_views[&key].animation.as_deref(), Some("pause1"));
+    let img = h.render().expect("render");
+    assert!(img.width() > 0);
+}

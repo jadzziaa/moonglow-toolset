@@ -1,6 +1,7 @@
-//! The model viewer: any model from the resources, drawn with the game's
-//! lighting, turned by dragging (left: orbit, right or middle: pan, wheel:
-//! zoom), with its animations (and its supermodels') to play.
+//! The model viewer: any model from the resources, or what a creature, item,
+//! placeable or door blueprint looks like (`mg_preview`), drawn with the
+//! game's lighting, turned by dragging (left: orbit, right or middle: pan,
+//! wheel: zoom), with its animations (and its supermodels') to play.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -8,7 +9,10 @@ use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
 use mg_core::ResType;
+use mg_gff::Gff;
 use mg_mdl::Model;
+use mg_preview::Preview;
+use mg_preview::compose::Composed;
 use mg_render::anim;
 use mg_render::dangly::Dangly;
 use mg_render::particles::Particles;
@@ -62,30 +66,78 @@ pub struct ModelView {
     dangly: Option<Dangly>,
     /// Chunk emitters' models, by name.
     chunk_models: HashMap<String, Option<Arc<GpuModel>>>,
+    /// The base model with its attached parts (a blueprint's body parts,
+    /// equipment, wings and tails).
+    composed: Option<Composed>,
+}
+
+/// What a resource looks like: a model, or a blueprint's preview.
+fn preview_of(app: &Moonglow, key: ResKey) -> Result<Preview, String> {
+    let game = app.game.as_ref().ok_or("No game data.")?;
+    let data = |k: &ResKey| {
+        app.ws
+            .as_ref()
+            .and_then(|w| w.module.get(k).map(<[u8]>::to_vec))
+            .or_else(|| game.resman.get(k).ok().map(|d| d.into_owned()))
+    };
+    if key.restype == ResType::MDL {
+        return Ok(Preview::model(&key.resref.to_string()));
+    }
+    let gff = data(&key)
+        .and_then(|d| Gff::read(&d).ok())
+        .ok_or_else(|| format!("{key}: not found or not readable"))?;
+    let items =
+        |r: mg_core::ResRef| data(&ResKey::new(r, ResType::UTI)).and_then(|d| Gff::read(&d).ok());
+    let preview = match key.restype {
+        ResType::UTC => mg_preview::creature(game, &gff.root, &items),
+        ResType::UTI => mg_preview::item(game, &gff.root),
+        ResType::UTP => mg_preview::placeable(game, &gff.root),
+        ResType::UTD => mg_preview::door(game, &gff.root),
+        t => return Err(format!("{key}: no preview for {t:?}")),
+    };
+    preview.map_err(|e| format!("{key}: {e}"))
+}
+
+/// Whether the viewer can show a resource type.
+pub(crate) fn previewable(t: ResType) -> bool {
+    matches!(t, ResType::MDL | ResType::UTC | ResType::UTI | ResType::UTP | ResType::UTD)
 }
 
 impl ModelView {
     fn open(app: &Moonglow, key: ResKey) -> ModelView {
-        let model = (|| {
+        let composed = (|| {
             let vp = app.viewport.as_ref().ok_or("No GPU: the model viewer needs one.")?;
             let game = app.game.as_ref().ok_or("No game data.")?;
-            let data = app
-                .ws
-                .as_ref()
-                .and_then(|w| w.module.get(&key).map(<[u8]>::to_vec))
-                .or_else(|| game.resman.get(&key).ok().map(|d| d.into_owned()))
-                .ok_or_else(|| format!("{key} not found"))?;
-            let m = Model::read(&data).map_err(|e| format!("{key}: {e}"))?;
-            Ok(Arc::new(GpuModel::new(&vp.gpu, Arc::new(m))))
+            let preview = preview_of(app, key)?;
+            // Models from the module first, then the game.
+            let load = |name: &str| -> Option<Arc<Model>> {
+                let k = ResKey::parse(name, ResType::MDL)?;
+                let data = app
+                    .ws
+                    .as_ref()
+                    .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
+                    .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+                Model::read(&data).ok().map(Arc::new)
+            };
+            Composed::new(&vp.gpu, &preview, &load).ok_or_else(|| {
+                format!("{key}: model {} not found or not readable", preview.base.model)
+            })
         })();
+        let model = composed.as_ref().map(|c| c.base().clone()).map_err(Clone::clone);
+        let animation = composed
+            .as_ref()
+            .ok()
+            .and_then(|c| c.idle.clone().filter(|i| c.animations().contains(i)));
+        let composed = composed.ok();
         let mut view = ModelView {
             model,
             supermodels: RefCell::new(HashMap::new()),
-            animation: None,
+            animation,
             playing: true,
             model_lights: true,
             time: 0.0,
-            yaw: -60f32.to_radians(),
+            // Models face +Y: from the front, a little to the side.
+            yaw: 60f32.to_radians(),
             pitch: 20f32.to_radians(),
             distance: 5.0,
             target: Vec3::ZERO,
@@ -94,6 +146,7 @@ impl ModelView {
             particles: None,
             dangly: None,
             chunk_models: HashMap::new(),
+            composed,
         };
         view.frame();
         view
@@ -101,6 +154,13 @@ impl ModelView {
 
     /// Fits the camera to the model's rest pose.
     pub fn frame(&mut self) {
+        if let Some(c) = &self.composed {
+            let (min, max) = c.bounds();
+            self.target = (min + max) * 0.5;
+            let radius = ((max - min).length() * 0.5).max(0.1);
+            self.distance = radius / 20f32.to_radians().sin() * 1.1;
+            return;
+        }
         let Ok(m) = &self.model else { return };
         let pose = mg_render::rest_pose(&m.model);
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -172,6 +232,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
             model.model.nodes.len(),
             model.meshes.len()
         ));
+        if let Some(c) = view.composed.as_ref().filter(|c| c.part_count() > 0) {
+            ui.weak(format!("+ {} parts", c.part_count()))
+                .on_hover_text("Body parts, equipment, wings and tails from the blueprint");
+            if !c.missing.is_empty() {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    format!("{} missing", c.missing.len()),
+                )
+                .on_hover_text(c.missing.join("\n"));
+            }
+        }
         if let Some(s) = &model.model.supermodel {
             ui.weak(format!("supermodel {s}"));
         }
@@ -296,14 +367,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
         view.targets = Some((targets, id));
     }
     let (targets, id) = view.targets.as_ref().expect("made above");
+    // The base (with the viewer's animated meshes and dangly state), then
+    // what hangs from it.
+    let mut instances = match &view.composed {
+        Some(c) => c.instances(view.animation.as_deref(), view.time, Mat4::IDENTITY),
+        None => vec![Instance::new(model.clone(), Mat4::IDENTITY)],
+    };
+    if let Some(base) = instances.first_mut() {
+        base.pose = pose;
+        base.state = Some(Arc::new(state));
+    }
+    instances.extend(chunk_instances);
+    let mut lights = lights;
+    if let Some(c) = &view.composed {
+        lights.extend(c.point_lights(Mat4::IDENTITY));
+    }
     let scene = Scene {
-        instances: std::iter::once(Instance {
-            pose,
-            state: Some(Arc::new(state)),
-            ..Instance::new(model.clone(), Mat4::IDENTITY)
-        })
-        .chain(chunk_instances)
-        .collect(),
+        instances,
         lights,
         particles: batches,
         area: AreaLight::default(),

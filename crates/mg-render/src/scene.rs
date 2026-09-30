@@ -21,12 +21,25 @@ pub struct Instance {
     /// meshes whose texture names none reflect it, their texture alpha
     /// being the reflectivity. `None`: only what textures ask for.
     pub env_map: Option<String>,
+    /// Colours for PLT textures by layer (skin, hair, metal 1 and 2, cloth
+    /// 1 and 2, leather 1 and 2, tattoo 1 and 2); `None`: colour 0.
+    pub plt_colors: Option<[u8; 10]>,
+    /// Texture names to use instead of the model's (lower case).
+    pub textures: Option<Arc<std::collections::HashMap<String, String>>>,
 }
 
 impl Instance {
     /// An instance in its rest pose.
     pub fn new(model: Arc<GpuModel>, transform: Mat4) -> Instance {
-        Instance { model, transform, pose: None, state: None, env_map: None }
+        Instance {
+            model,
+            transform,
+            pose: None,
+            state: None,
+            env_map: None,
+            plt_colors: None,
+            textures: None,
+        }
     }
 }
 

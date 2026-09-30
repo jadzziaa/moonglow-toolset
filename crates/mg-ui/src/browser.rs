@@ -120,6 +120,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         if ui.button("Open").clicked() {
                             actions.push(Action::OpenTab(tab()));
                         }
+                        if k.restype != ResType::MDL
+                            && crate::model_view::previewable(k.restype)
+                            && ui
+                                .button("Preview")
+                                .on_hover_text("See it in the 3D viewer")
+                                .clicked()
+                        {
+                            actions.push(Action::OpenTab(Tab::Model(*k)));
+                        }
                     });
                 });
             }

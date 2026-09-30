@@ -12,7 +12,7 @@ mod renderer;
 pub mod scene;
 pub mod texture;
 
-pub use assets::{Assets, LoadedTexture, NoAssets};
+pub use assets::{Assets, LoadedTexture, NoAssets, colored_name, split_colors};
 pub use gpu::Gpu;
 pub use model::{GpuModel, rest_pose};
 pub use renderer::{DebugView, MAX_LIGHTS, Renderer, Targets, attenuation_params};

@@ -38,8 +38,23 @@ pub trait Assets {
     }
 }
 
+/// A texture name with PLT colours (layer order), for [`Assets::texture`]:
+/// `name#c0,c1,…,c9`.
+pub fn colored_name(name: &str, colors: [u8; 10]) -> String {
+    let c: Vec<String> = colors.iter().map(u8::to_string).collect();
+    format!("{name}#{}", c.join(","))
+}
+
+/// A texture name and the PLT colours it carries, if any.
+pub fn split_colors(name: &str) -> (&str, Option<[u8; 10]>) {
+    let Some((base, list)) = name.split_once('#') else { return (name, None) };
+    let values: Vec<u8> = list.split(',').filter_map(|v| v.parse().ok()).collect();
+    (base, <[u8; 10]>::try_from(values).ok())
+}
+
 impl Assets for ResMan {
     fn texture(&self, name: &str) -> Option<LoadedTexture> {
+        let (name, colors) = split_colors(name);
         let resref = ResRef::from_str(name).ok()?;
         let mtr = self.get(&ResKey::new(resref, ResType::MTR)).ok().map(|d| Mtr::parse(&d));
         let image = match mtr.as_ref().and_then(|m| m.textures[0].clone()) {
@@ -52,7 +67,7 @@ impl Assets for ResMan {
             Some((t, data)) => mg_image::read(t, &data).ok()?,
             None => {
                 let data = self.get(&ResKey::new(image, ResType::PLT)).ok()?;
-                plt_default(self, &Plt::read(&data).ok()?)?
+                plt_colored(self, &Plt::read(&data).ok()?, colors.unwrap_or([0; 10]))?
             }
         };
         Some(LoadedTexture { texture, txi, mtr })
@@ -69,8 +84,8 @@ impl Assets for ResMan {
     }
 }
 
-/// A PLT coloured with colour 0 of every layer.
-fn plt_default(rm: &ResMan, plt: &Plt) -> Option<Texture> {
+/// A PLT coloured with a colour per layer.
+fn plt_colored(rm: &ResMan, plt: &Plt, colors: [u8; 10]) -> Option<Texture> {
     let palettes: Vec<Option<Rgba>> = PALETTES
         .iter()
         .map(|p| {
@@ -79,7 +94,7 @@ fn plt_default(rm: &ResMan, plt: &Plt) -> Option<Texture> {
         })
         .collect();
     let refs: [Option<&Rgba>; 10] = std::array::from_fn(|i| palettes[i].as_ref());
-    Some(plt.colorize(&refs, [0; 10]).into_texture(true))
+    Some(plt.colorize(&refs, colors).into_texture(true))
 }
 
 /// No textures (tests, untextured previews).

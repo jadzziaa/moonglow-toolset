@@ -720,9 +720,24 @@ impl Renderer {
                 let radius = world.transform_vector3((mesh.max - mesh.min) * 0.5).length();
                 let mat = &mesh.material;
                 let slots = self.slots(assets, mat);
-                let tex = slots.names[0].as_deref().and_then(|t| self.texture(gpu, assets, t));
-                let bound: Vec<bool> = slots
-                    .names
+                // The instance's texture renames, and its PLT colours on the
+                // diffuse texture.
+                let names: [Option<String>; SLOTS] = std::array::from_fn(|i| {
+                    slots.names[i].as_ref().map(|n| {
+                        let n = inst
+                            .textures
+                            .as_ref()
+                            .and_then(|t| t.get(n))
+                            .cloned()
+                            .unwrap_or_else(|| n.clone());
+                        match (i, inst.plt_colors) {
+                            (0, Some(c)) => crate::assets::colored_name(&n, c),
+                            _ => n,
+                        }
+                    })
+                });
+                let tex = names[0].as_deref().and_then(|t| self.texture(gpu, assets, t));
+                let bound: Vec<bool> = names
                     .iter()
                     .map(|n| n.as_deref().is_some_and(|t| self.texture(gpu, assets, t).is_some()))
                     .collect();
@@ -815,11 +830,7 @@ impl Renderer {
                         light_index,
                     },
                     material: (
-                        std::array::from_fn(
-                            |i| {
-                                if bound[i] { slots.names[i].clone() } else { None }
-                            },
-                        ),
+                        std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }),
                         env.map_or_else(|| "chrome1".into(), |e| e.to_ascii_lowercase()),
                         clamp,
                     ),

@@ -28,7 +28,7 @@ Decisions taken (2026-09-30):
 | 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
 | 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt, settings and recent modules, options, import/export, resource browser; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
 | 6 Text-and-tree editors | Done: String Edit, Variables, resource pickers; Module Properties with Aurora's tabs; Faction, Journal and Conversation editors and the script editor's tools, each checked against Aurora's files (captured under Wine) and in the engine; parity checklists in `docs/parity/checklists.md` |
-| 7 Renderer and model viewer | In progress: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR; models (all 32,832 in the game read, binary and ASCII; the two readers agree through nwnmdlcomp on a sample of 176); the wgpu renderer with the game's lighting equations (checked against a CPU evaluation), animations with supermodels, GPU skinning with the stored bind poses; the model viewer (Resources: open any model) |
+| 7 Renderer and model viewer | Done: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR; models (all 32,832 in the game read, binary and ASCII; the two readers agree through nwnmdlcomp on a sample of 176); the wgpu renderer with the game's lighting (its uniforms read back from the client and matched; reference scenes within 1/255 of the client per region), material maps, environment and cube maps, animations with supermodels, GPU skinning, animated and dangly meshes, emitters (fountain, explosion, point-to-point, lightning, chunks); blueprint previews (`mg-preview`); the model viewer (Resources: open any model or preview a blueprint) |
 | 8+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
@@ -184,7 +184,8 @@ in this list. ✅ = exists.
 | `mg-tiles` (partial) | tilesets, tile grid model, terrain painting engine with SET rules, walkmesh assembly; so far the corner lattice, tile fitting and new-area terrain |
 | `mg-module` ✅ | module workspace: open/save, working copy, palettes, reference graph, verify, build, import/export, haks/TLK |
 | `mg-edit` | editor core: documents, commands, undo/redo, selection, tools (no UI) |
-| `mg-render` (partial) | renderer: scene, materials, EE lighting, offscreen mode, animation and skinning (done); particles, picking, gizmos |
+| `mg-render` (partial) | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles (done); picking, gizmos |
+| `mg-preview` ✅ | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colours; items; placeables; doors |
 | `mg-ui` | egui widgets and editors |
 | `apps/mg` ✅ | CLI: `ls`, `pack`, `unpack`, `gff`, `which`, `cat`, `layers`, `tlk` so far; later build, verify, compile, diff, render |
 | `apps/moonglow` | the GUI application |
@@ -398,16 +399,19 @@ where Aurora's output does not compile or work in EE). Conversation spell
 check does nothing in Aurora EE and text export/import has no UI, so neither
 is needed for parity.
 
-### Phase 7: Renderer and model viewer
+### Phase 7: Renderer and model viewer ✅
 wgpu renderer with EE-style lighting (§5.5), textures (TGA/DDS/PLT/TXI), MTR
 materials, MDL (ASCII and binary, all node types), animation, skinning, dangly
 meshes, emitters, offscreen snapshots; previews for part-based creatures (armour parts, PLT colours), items,
 placeables, doors.
 **Exit:** reference scenes look like in-game screenshots of the same scene
 (within a tolerance set from the first comparisons).
-Status: the reference scenes (`client_render.rs`: sun; tile lights) match
-the client within 10/255 per region, and the light uniforms Moonglow uploads
-equal the client's (read back through a debug shader).
+**Exit met:** the reference scenes (`client_render.rs`: sun; tile lights)
+match the client within 1/255 per region mean (a floor region on a dark
+wall's edge within 5; tolerances 3 and 6), and the light uniforms Moonglow
+uploads equal the client's (read back through a debug shader). Known
+approximations: dangly-mesh dynamics and the point-to-point and lightning
+emitter details follow the wiki's descriptions, not measurements.
 
 ### Phase 8: Blueprints and palettes
 Standard and custom palettes, blueprint wizards and editors for items (item
