@@ -17,6 +17,7 @@ mg-module.workspace = true
 mg-resman.workspace = true
 mg-rules.workspace = true
 mg-schema.workspace = true
+mg-script.workspace = true
 mg-set.workspace = true
 mg-ssf.workspace = true
 mg-testkit.workspace = true

@@ -20,6 +20,7 @@ mg-module = { path = "crates/mg-module" }
 mg-resman = { path = "crates/mg-resman" }
 mg-rules = { path = "crates/mg-rules" }
 mg-schema = { path = "crates/mg-schema" }
+mg-script = { path = "crates/mg-script" }
 mg-set = { path = "crates/mg-set" }
 mg-ssf = { path = "crates/mg-ssf" }
 mg-testkit = { path = "crates/mg-testkit" }

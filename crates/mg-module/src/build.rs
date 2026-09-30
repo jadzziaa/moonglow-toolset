@@ -1,0 +1,151 @@
+//! Building a module: compiling its scripts (Aurora's Build › Compile).
+
+use std::sync::Mutex;
+
+use mg_core::ResType;
+use mg_resman::{ResKey, ResMan};
+use mg_script::{CompileError, Compiler};
+
+use crate::Module;
+
+/// The result of compiling one script.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptResult {
+    pub script: ResKey,
+    pub result: Result<(), CompileError>,
+}
+
+/// A script and its bytecode (empty for include files) or error.
+type Compiled = (ResKey, Result<Vec<u8>, CompileError>);
+
+/// Which scripts to compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptSelection {
+    /// Every script source in the module.
+    All,
+    /// Sources that have no compiled script in the module yet.
+    Uncompiled,
+}
+
+/// Compiles the module's scripts on all cores, storing each `.ncs` in the
+/// module. Sources are looked up in the module first, then in `resman` (its
+/// haks and the game), as the game would. Scripts without an entry point
+/// (include files) are checked but produce nothing and are not errors.
+pub fn compile_scripts(
+    module: &mut Module,
+    resman: &ResMan,
+    selection: ScriptSelection,
+) -> Vec<ScriptResult> {
+    let names: Vec<ResKey> = module
+        .keys_of(ResType::NSS)
+        .filter(|k| match selection {
+            ScriptSelection::All => true,
+            ScriptSelection::Uncompiled => !module.contains(&ResKey::new(k.resref, ResType::NCS)),
+        })
+        .copied()
+        .collect();
+    if names.is_empty() {
+        return Vec::new();
+    }
+    let outputs: Mutex<Vec<Compiled>> = Mutex::new(Vec::new());
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(names.len());
+    let chunk = names.len().div_ceil(threads);
+    let snapshot: &Module = module;
+    std::thread::scope(|s| {
+        for part in names.chunks(chunk) {
+            let outputs = &outputs;
+            s.spawn(move || {
+                let resolve = |name: &str, t: ResType| {
+                    let k = ResKey::parse(name, t)?;
+                    snapshot
+                        .get(&k)
+                        .map(<[u8]>::to_vec)
+                        .or_else(|| resman.get(&k).ok().map(|d| d.into_owned()))
+                };
+                let mut c = Compiler::new(resolve);
+                let mut probe = Compiler::new(resolve);
+                probe.set_require_entry_point(false);
+                let mut local = Vec::new();
+                for k in part {
+                    let name = k.resref.to_lowercase().to_string();
+                    let result = match c.compile(&name) {
+                        Ok(out) => Ok(out.ncs),
+                        // An include file: valid if it checks without an
+                        // entry point; then there is nothing to store.
+                        Err(e) => match probe.compile(&name) {
+                            Ok(_) => Ok(Vec::new()),
+                            Err(_) => Err(e),
+                        },
+                    };
+                    local.push((*k, result));
+                }
+                outputs.lock().expect("no panics while holding the lock").extend(local);
+            });
+        }
+    });
+    let mut results = outputs.into_inner().expect("threads joined");
+    // Report in module order.
+    let order: std::collections::HashMap<ResKey, usize> =
+        names.iter().enumerate().map(|(i, k)| (*k, i)).collect();
+    results.sort_by_key(|(k, _)| order[k]);
+    results
+        .into_iter()
+        .map(|(k, r)| {
+            let result = r.map(|ncs| {
+                if !ncs.is_empty() {
+                    module.set(ResKey::new(k.resref, ResType::NCS), ncs);
+                }
+            });
+            ScriptResult { script: k, result }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use mg_core::ResRef;
+    use mg_resman::{LayerClass, MemContainer, priority};
+
+    use super::*;
+
+    fn key(s: &str, t: ResType) -> ResKey {
+        ResKey::new(ResRef::from_str(s).unwrap(), t)
+    }
+
+    #[test]
+    fn compiles_module_scripts_and_skips_includes() {
+        let mut base = MemContainer::new();
+        base.insert(
+            key("nwscript", ResType::NSS),
+            &b"#define ENGINE_NUM_STRUCTURES 0\nvoid PrintString(string s);\n"[..],
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        let mut m = Module::new();
+        m.set(key("inc_greet", ResType::NSS), b"string Hi() { return \"hi\"; }\n".to_vec());
+        m.set(
+            key("say", ResType::NSS),
+            b"#include \"inc_greet\"\nvoid main() { PrintString(Hi()); }\n".to_vec(),
+        );
+        m.set(key("broken", ResType::NSS), b"void main() { Nope(); }\n".to_vec());
+
+        let results = compile_scripts(&mut m, &rm, ScriptSelection::All);
+        let summary: Vec<(String, bool)> =
+            results.iter().map(|r| (r.script.to_string(), r.result.is_ok())).collect();
+        assert_eq!(
+            summary,
+            [
+                ("inc_greet.nss".into(), true),
+                ("say.nss".into(), true),
+                ("broken.nss".into(), false)
+            ]
+        );
+        assert!(m.contains(&key("say", ResType::NCS)));
+        assert!(!m.contains(&key("inc_greet", ResType::NCS)), "includes produce no bytecode");
+        assert!(results[2].result.as_ref().unwrap_err().message.contains("UNDEFINED IDENTIFIER"));
+
+        // Only what has no compiled script yet.
+        let again = compile_scripts(&mut m, &rm, ScriptSelection::Uncompiled);
+        assert_eq!(again.len(), 2, "the include and the broken script");
+    }
+}

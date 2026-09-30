@@ -81,6 +81,13 @@ enum Cmd {
         #[arg(long)]
         keep_factions: bool,
     },
+    /// Compile a module's scripts and save it (Build › Compile).
+    Compile {
+        module: PathBuf,
+        /// Only scripts without a compiled version.
+        #[arg(long)]
+        uncompiled: bool,
+    },
     /// Import an ERF into a module and save it.
     Import {
         module: PathBuf,
@@ -206,6 +213,22 @@ fn run(cli: Cli) -> Result<()> {
                 mg_module::transfer::export_erf(&m, &plan.resources, comment, !keep_factions)?;
             std::fs::write(output, erf)?;
             eprintln!("exported {} resources", plan.resources.len());
+        }
+        Cmd::Compile { module, uncompiled } => {
+            let mut m = Module::open(module)?;
+            let rm = module_resman(&install(&cli)?, &m)?;
+            let sel = if *uncompiled {
+                mg_module::build::ScriptSelection::Uncompiled
+            } else {
+                mg_module::build::ScriptSelection::All
+            };
+            let results = mg_module::build::compile_scripts(&mut m, &rm, sel);
+            let failed: Vec<_> = results.iter().filter_map(|r| r.result.as_ref().err()).collect();
+            for e in &failed {
+                println!("{}", e.message);
+            }
+            m.save()?;
+            eprintln!("compiled {} scripts, {} failed", results.len() - failed.len(), failed.len());
         }
         Cmd::Import { module, erf, overwrite } => {
             let mut m = Module::open(module)?;
