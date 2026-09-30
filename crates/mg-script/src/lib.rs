@@ -2,6 +2,9 @@
 //! script tooling built on it.
 
 pub mod compiler;
+pub mod lex;
+pub mod outline;
+pub mod spec;
 
 pub use compiler::{CompileError, Compiled, Compiler};
 

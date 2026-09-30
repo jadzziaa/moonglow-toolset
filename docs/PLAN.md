@@ -25,7 +25,7 @@ Decisions taken (2026-09-30):
 | 1 Core formats | GFF, ERF (V1.0 + EE E1.0 read), KEY/BIF, 2DA, TLK, SET, SSF done; TXI and MTR arrive with the renderer (Phase 7), ITP with palettes |
 | 2 Resource manager and rules | Done: load order and game data (2DA cells, talk-table strings) checked against the engine |
 | 3 Schema and module workspace | Done except Aurora's new-object defaults (captured with the wizards, Phases 5/8): typed field descriptors for all 19 authored GFF types, module workspace (archives and folders, atomic save), reference graph, verify (missing/unused), hak conflict report, ERF export/import; all checked in the engine |
-| 4 Script back end | Compiler built in and checked (33,196 scripts byte-identical to `nwn_script_comp`), module compile; NWScript front end (lexer, declarations, nwscript.nss spec) in progress |
+| 4 Script back end | Done: compiler built in (33,196 scripts byte-identical to `nwn_script_comp`), module compile, NWScript front end (lexer, outline, nwscript.nss spec) checked against the compiler's debug output and nwn.py |
 | 5+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
@@ -56,6 +56,10 @@ What the tests establish so far (all run in a few seconds, in release mode):
 - The built-in compiler (Beamdog's, vendored and built from source) compiles
   all 33,196 scripts in the base game and the shipped modules (with their
   haks) byte for byte as `nwn_script_comp` does.
+- For all 33,121 compilable shipped scripts, the outline of the script and
+  its includes names exactly the functions (with types), constants and
+  structs in the compiler's debug output; the spec parser agrees with
+  nwn.py's (which misses 78 constants with lowercase names).
 - All 47 shipped tilesets parse (1,192 primary rules between them; 73 data
   warnings, such as tiles using undeclared terrains, and 5 tile models BioWare
   never shipped); all 487 soundsets round-trip byte for byte.
@@ -309,12 +313,14 @@ conflict check), reference graph, basic verify.
 **Exit:** open → save of every bundled module is semantically identical, and the
 saved modules load and run their start-up in `nwserver`.
 
-### Phase 4: Script back end (compiler ✅)
+### Phase 4: Script back end ✅
 ✅ The official compiler built in (`mg-script`: vendored C++ built with the
 `cc` crate, C API, per-thread instances), module compile (`mg_module::build`,
-`mg compile`). Remaining: the NWScript front end for the editor (lexer,
-declaration parser and symbol index, nwscript.nss spec), and building on
-Windows and macOS in CI.
+`mg compile`); ✅ NWScript front end for the editor: a lexer that covers
+every byte (EE literals: raw and hashed strings, binary and octal), a
+tolerant declaration parser (includes, defines, structs, globals, functions
+with docs) and the `nwscript.nss` spec (1,187 functions, 6,279 constants,
+engine structures). Remaining: building the C++ on Windows and macOS in CI.
 **Exit:** ✅ compiling every script in the base game and the shipped modules
 gives the same NCS as `nwn_script_comp` (the shipped NCS match only where the
 same compiler produced them: 68%).
