@@ -1259,6 +1259,8 @@ fn showing_blueprint_editors_changes_nothing() {
         ("nw_bandit001", ResType::UTC),
         ("nw_bartender", ResType::UTC),
         ("nw_badger", ResType::UTC),
+        ("db_tanarukk_do", ResType::UTC),
+        ("nw_bandit004", ResType::UTC),
     ]
     .into_iter()
     .enumerate()
@@ -1442,4 +1444,58 @@ fn creature_editor_levels_and_aligns() {
     h.run();
     let s = field(&mut h, &key);
     assert_eq!((s.integer("GoodEvil"), s.integer("LawfulChaotic")), (Some(100), Some(100)));
+}
+
+#[test]
+fn creature_editor_lists() {
+    let Some((mut h, key)) = blueprint_harness("db_tanarukk_do", "sorc_copy", ResType::UTC) else {
+        return;
+    };
+    let count =
+        |h: &mut Harness<'_, Moonglow>, list: &str| field(h, &key).list(list).map_or(0, <[_]>::len);
+    h.run();
+    // A feat.
+    h.get_by_label("Feats").click();
+    h.run();
+    // Alertness is feat 0; the checkbox toggles it.
+    let has_alertness = |h: &mut Harness<'_, Moonglow>| {
+        field(h, &key).list("FeatList").unwrap().iter().any(|f| f.integer("Feat") == Some(0))
+    };
+    let had = has_alertness(&mut h);
+    type_into_hint(&mut h, "Find", "Alertness");
+    h.get_by_label("Alertness").click();
+    h.run();
+    assert_eq!(has_alertness(&mut h), !had);
+    // A known spell for the sorcerer (level 1: Magic Missile).
+    h.get_by_label("Spells").click();
+    h.run();
+    let known = |h: &mut Harness<'_, Moonglow>| {
+        let classes = field(h, &key).list("ClassList").unwrap().to_vec();
+        let sorcerer = classes.iter().find(|c| c.integer("Class") == Some(9)).unwrap();
+        sorcerer.list("KnownList1").map_or(0, <[_]>::len)
+    };
+    let before = known(&mut h);
+    type_into_hint(&mut h, "Find", "Magic Missile");
+    h.get_by_label("Magic Missile").click();
+    h.run();
+    assert_eq!(known(&mut h), before + 1);
+    // A special ability.
+    h.get_by_label("Special Abilities").click();
+    h.run();
+    let specials = count(&mut h, "SpecAbilityList");
+    type_into_hint(&mut h, "Find", "Fireball");
+    h.get_all_by_label("Fireball").next().unwrap().click();
+    h.run();
+    assert_eq!(count(&mut h, "SpecAbilityList"), specials + 1);
+    // Armor, chosen in the palette, equipped in the armor slot (the second).
+    h.get_by_label("Inventory").click();
+    h.run();
+    type_into_hint(&mut h, "Find", "nw_aarcl001");
+    h.get_by_label("Leather Armor").click();
+    h.run();
+    h.get_all_by_label("Equip").nth(1).unwrap().click();
+    h.run();
+    let equipped = field(&mut h, &key).list("Equip_ItemList").unwrap().to_vec();
+    let chest = equipped.iter().find(|s| s.id == 2).expect("armor equipped");
+    assert_eq!(chest.resref("EquippedRes").unwrap().to_string(), "nw_aarcl001");
 }

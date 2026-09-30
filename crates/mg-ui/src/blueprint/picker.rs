@@ -47,6 +47,12 @@ impl Form<'_> {
         out
     }
 
+    /// The blueprint chosen (clicked) in a type's palette picker.
+    pub(crate) fn palette_chosen(&self, ui: &Ui, kind: BlueprintKind) -> Option<ResRef> {
+        let state_id = self.id(&format!("picker-{}", kind.name()));
+        ui.data(|d| d.get_temp::<(bool, String, Option<ResRef>)>(state_id)).and_then(|s| s.2)
+    }
+
     /// A palette to choose blueprints from: Standard or Custom, a filter and
     /// the tree; a click chooses, a double-click or `add` takes it. The
     /// blueprint taken.

@@ -161,6 +161,11 @@ fn blueprint_editors() {
             ResType::UTC,
             &["Basic", "Statistics", "Appearance", "Classes", "Skills", "Advanced"][..],
         ),
+        (
+            "db_tanarukk_do",
+            ResType::UTC,
+            &["Feats", "Spells", "Special Abilities", "Inventory"][..],
+        ),
     ] {
         let mut app = Moonglow::new(
             Some(GameInstall::new(&root, None, "en")),

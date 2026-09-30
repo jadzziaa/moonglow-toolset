@@ -1,5 +1,6 @@
 //! Creature Properties (`TdlgCreatureEdit`): Basic, Statistics, Appearance,
-//! Classes, Skills, Scripts, Advanced, Comments.
+//! Classes, Skills, Feats, Spells, Special Abilities, the inventory, Scripts,
+//! Advanced, Comments.
 //!
 //! Every change also stores the creature's recomputed `MaxHitPoints` (in
 //! the same undoable command), as Aurora does on OK.
@@ -16,12 +17,24 @@ use mg_rules::creatures::{ABILITIES, modifier};
 use mg_rules::items::{part_number, wide_label};
 use mg_rules::{Choice, ChoiceColumns, CreatureSheet, GameData};
 
-use super::{Form, situated};
+use super::{Form, creature_lists, situated};
 use crate::widgets::commit_number;
 use crate::{Action, Moonglow, Tab};
 
-pub(super) const PAGES: [&str; 8] =
-    ["Basic", "Statistics", "Appearance", "Classes", "Skills", "Scripts", "Advanced", "Comments"];
+pub(super) const PAGES: [&str; 12] = [
+    "Basic",
+    "Statistics",
+    "Appearance",
+    "Classes",
+    "Skills",
+    "Feats",
+    "Spells",
+    "Special Abilities",
+    "Inventory",
+    "Scripts",
+    "Advanced",
+    "Comments",
+];
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {
@@ -30,6 +43,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
         "Appearance" => appearance(f, ui),
         "Classes" => classes(f, ui),
         "Skills" => skills(f, ui),
+        "Feats" => creature_lists::feats(f, ui),
+        "Spells" => creature_lists::spells(f, ui),
+        "Special Abilities" => creature_lists::special_abilities(f, ui),
+        "Inventory" => creature_lists::inventory(f, ui),
         "Scripts" => situated::scripts(
             f,
             ui,

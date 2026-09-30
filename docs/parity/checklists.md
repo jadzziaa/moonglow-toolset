@@ -206,4 +206,8 @@ scripts (name, picker, Edit), Comments.
 | Creature Appearance: body parts, head, wings, tail, colour chooser | parts from the models that exist for the body (`p{gender}{race}{phenotype}_{part}`), EE part twins, wings, tail, colours as numbers | ◐ (no colour swatches; Preview shows the model) |
 | Creature Classes: alignment presets, 8 classes with levels, package, Levelup Wizard | presets and both axes, up to 8 classes (add, change, remove), package | ◐ (no Levelup Wizard yet) |
 | Creature Skills, Scripts, Advanced (treasure, decay, lootable, disarmable, plot, no permanent death, immortal, faction and Edit Factions, CR adjustment, subrace, deity, sound set, perception range, variables) | the same | ✅ |
-| Creature Feats, Spells, Special Abilities, Template, Inventory; the CR calculation; Load/Save Script Set | not yet | ✗ |
+| Creature Feats (grid with filter, summary) | every feat with a name, a filter, Assigned only, a count | ✅ [creature_editor_lists] (the granted/available marks not yet) |
+| Creature Spells: class radio, level filter, prepared counts or known spells, metamagic, summary, clear/save/load class spell list | the spellcasting classes (classes.2da `SpellCaster`), their spells (`SpellTableColumn`), prepared counts (`MemorizesSpells`) or known checkboxes, a level filter and summary | ◐ [creature_editor_lists] (metamagic and spell list files not yet) |
+| Creature Special Abilities (spell, caster level) | add from the spell list, caster level, remove | ✅ [creature_editor_lists] |
+| Creature inventory (`TdlgInventory`: equipment and natural equipment slots, backpack, Dropable, Pickpocketable, drag and drop) | an Inventory page: the item palette, the 18 slots (an item goes only where its base item's `EquipableSlots` allows), the backpack at the first free place | ◐ [creature_editor_lists] (Dropable and Pickpocketable not shown yet) |
+| Creature Template tab; the CR calculation; Levelup Wizard; Load/Save Script Set | not yet | ✗ |

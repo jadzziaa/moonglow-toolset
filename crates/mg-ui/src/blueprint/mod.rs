@@ -20,6 +20,7 @@ use crate::widgets::{
 use crate::{Action, Moonglow, Tab};
 
 mod creature;
+mod creature_lists;
 mod door;
 mod encounter;
 mod inventory;
@@ -534,7 +535,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     };
     let pages = pages(key.restype);
     let mut page = app.blueprint_pages.get(&key).copied().unwrap_or(pages[0]);
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         for p in pages {
             ui.selectable_value(&mut page, p, *p);
         }
