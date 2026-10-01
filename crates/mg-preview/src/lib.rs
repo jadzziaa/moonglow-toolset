@@ -22,7 +22,7 @@ mod creature;
 mod item;
 mod object;
 
-pub use creature::creature;
+pub use creature::{CreatureLook, creature, creature_look};
 pub use item::item;
 pub use object::{door, placeable};
 

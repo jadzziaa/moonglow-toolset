@@ -8,7 +8,7 @@ use mg_core::{ResRef, ResType};
 use mg_gff::Gff;
 use mg_mdl::Model;
 use mg_preview::compose::Composed;
-use mg_preview::{Preview, creature, door, item, placeable};
+use mg_preview::{CreatureLook, Preview, creature, creature_look, door, item, placeable};
 use mg_render::{AreaLight, Camera, Gpu, Renderer, Scene};
 use mg_resman::GameInstall;
 use mg_rules::GameData;
@@ -31,6 +31,36 @@ fn items(game: &GameData) -> impl Fn(ResRef) -> Option<Gff> + '_ {
 
 fn models(p: &Preview) -> Vec<&str> {
     std::iter::once(p.base.model.as_str()).chain(p.parts.iter().map(|x| x.model.as_str())).collect()
+}
+
+#[test]
+fn creatures_by_appearance() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    // A human woman: her skeleton, a bare body (every part but the belt and
+    // shoulders, the right foot included) and the head asked for.
+    let look = CreatureLook { gender: 1, head: 3, colors: [5, 6, 7, 8], ..CreatureLook::new(6) };
+    let p = creature_look(&game, &look).unwrap();
+    let names = models(&p);
+    eprintln!("appearance 6, female: {names:?}");
+    assert_eq!(p.base.model, "pfh0");
+    for part in ["footr", "footl", "chest", "pelvis", "handr", "neck"] {
+        assert!(names.contains(&format!("pfh0_{part}001").as_str()), "{part}");
+    }
+    assert!(!names.iter().any(|n| n.contains("belt") || n.contains("sho")));
+    let head = p.parts.iter().find(|x| x.model == "pfh0_head003").unwrap();
+    assert_eq!(head.attach.as_deref(), Some("head_g"));
+    assert_eq!(head.colors.unwrap()[..2], [5, 6]);
+    // Wings when asked.
+    let winged = CreatureLook { wings: 1, ..CreatureLook::new(0) };
+    let p = creature_look(&game, &winged).unwrap();
+    assert!(p.parts.iter().any(|x| x.attach.as_deref() == Some("wings")));
+    // A single-model creature: its model alone.
+    let badger = creature_look(&game, &CreatureLook::new(8)).unwrap();
+    assert_eq!(models(&badger), ["c_badger"]);
+    assert!(creature_look(&game, &CreatureLook::new(60_000)).is_err());
 }
 
 #[test]

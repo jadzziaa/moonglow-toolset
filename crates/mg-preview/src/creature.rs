@@ -3,7 +3,7 @@
 //! single-model ones (S, F, L); wings and tails; weapons and shields.
 
 use mg_core::ResRef;
-use mg_gff::{Gff, Struct};
+use mg_gff::{Gff, Struct, Value};
 use mg_rules::GameData;
 
 use crate::{
@@ -54,6 +54,71 @@ fn equipped(utc: &Struct, slot: u32, item: &dyn Fn(ResRef) -> Option<Gff>) -> Op
 /// A part number field (its EE twin where there is one).
 fn number(s: &Struct, label: &str) -> i64 {
     mg_rules::items::part_number(s, label).unwrap_or(0)
+}
+
+/// A creature's looks without a blueprint: an appearance row and the body
+/// a blueprint would choose, wearing nothing (for browsing appearances).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CreatureLook {
+    /// appearance.2da row.
+    pub appearance: u16,
+    /// gender.2da row (0 male, 1 female).
+    pub gender: u8,
+    /// phenotype.2da row.
+    pub phenotype: u8,
+    /// The head's model number (part-based creatures).
+    pub head: u8,
+    /// The body parts' model number: every part but the belt and the
+    /// shoulders, which a bare body lacks.
+    pub body: u8,
+    /// PLT colours: skin, hair, tattoo 1 and 2.
+    pub colors: [u8; 4],
+    /// wingmodel.2da and tailmodel.2da rows (0: none).
+    pub wings: u32,
+    pub tail: u32,
+}
+
+impl CreatureLook {
+    /// An appearance with the first head and body parts, colour 0.
+    pub fn new(appearance: u16) -> CreatureLook {
+        CreatureLook {
+            appearance,
+            gender: 0,
+            phenotype: 0,
+            head: 1,
+            body: 1,
+            colors: [0; 4],
+            wings: 0,
+            tail: 0,
+        }
+    }
+
+    /// The blueprint fields [`creature`] reads for this look.
+    pub fn to_utc(&self) -> Struct {
+        let mut utc = Struct::new(0);
+        utc.set("Appearance_Type", Value::Word(self.appearance));
+        utc.set("Gender", Value::Byte(self.gender));
+        utc.set("Phenotype", Value::Int(i32::from(self.phenotype)));
+        utc.set("Appearance_Head", Value::Byte(self.head));
+        for (mdlname, field, _) in PARTS {
+            let bare = matches!(mdlname, "belt" | "shor" | "shol");
+            utc.set(field, Value::Byte(if bare { 0 } else { self.body }));
+        }
+        for (field, v) in ["Color_Skin", "Color_Hair", "Color_Tattoo1", "Color_Tattoo2"]
+            .into_iter()
+            .zip(self.colors)
+        {
+            utc.set(field, Value::Byte(v));
+        }
+        utc.set("Wings_New", Value::Dword(self.wings));
+        utc.set("Tail_New", Value::Dword(self.tail));
+        utc
+    }
+}
+
+/// A creature by its looks alone ([`CreatureLook`]).
+pub fn creature_look(game: &GameData, look: &CreatureLook) -> Result<Preview, PreviewError> {
+    creature(game, &look.to_utc(), &|_| None)
 }
 
 /// A creature blueprint (UTC fields; equipped items through `item`).
