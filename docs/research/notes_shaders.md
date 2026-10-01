@@ -717,7 +717,7 @@ See C and D.5.
 - Static tile geometry is combined into buckets and baked into world-space vertex data ([CL] .37).
 
 ### Vertex colours
-- MDL `colors` → `vCustomColor`, unused by stock shaders.
+- MDL `colors` → `vCustomColor`, unused by stock shaders. Moonglow does not upload them (nor `tverts1–3`), so it draws as the stock shaders do; tangents it uploads where the model has them (§ normal map TSB above), else it takes the frame from screen-space derivatives.
 - `vColor` = engine-baked static lighting (vertex-lit mode only).
 
 ### PLT (`fs_pltgen`)

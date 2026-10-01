@@ -17,13 +17,19 @@ pub struct Vertex {
     pub pos: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
+    /// The tangent and the bitangent's sign, where the model has them
+    /// (`tangents`, or compiled with a render hint); zero otherwise, and
+    /// the shader takes the tangent frame from screen-space derivatives.
+    pub tangent: [f32; 4],
 }
 
 impl Vertex {
     pub const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
         array_stride: std::mem::size_of::<Vertex>() as u64,
         step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2],
+        attributes: &wgpu::vertex_attr_array![
+            0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 5 => Float32x4
+        ],
     };
 }
 
@@ -211,6 +217,7 @@ pub fn mesh_vertices(m: &Mesh) -> Vec<Vertex> {
             pos: m.vertices[v],
             normal: m.normals.get(v).copied().unwrap_or([0.0, 0.0, 1.0]),
             uv: m.uvs[0].get(v).copied().unwrap_or([0.0, 0.0]),
+            tangent: m.tangents.get(v).copied().unwrap_or([0.0; 4]),
         })
         .collect()
 }

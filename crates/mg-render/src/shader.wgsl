@@ -7,8 +7,9 @@
 // 1 - reflectivity), EE point-light attenuation, then back to gamma, fog in
 // gamma space and the "legacy balanced" colour clamp. Normal, specular,
 // roughness, height (parallax and occlusion) and self-illumination maps as
-// the normal-mapped variants (fslit_nm); their tangent frame comes from
-// screen-space derivatives instead of vertex tangents.
+// the normal-mapped variants (fslit_nm); their tangent frame is the stock
+// shaders' (the vertex tangent, the bitangent N × T by its sign) where the
+// model has tangents, else from screen-space derivatives.
 
 struct Frame {
     view: mat4x4<f32>,
@@ -85,6 +86,8 @@ struct VertexIn {
     @location(0) pos: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    // Tangent and the bitangent's sign; zero without tangents.
+    @location(5) tangent: vec4<f32>,
 };
 
 struct VertexOut {
@@ -92,9 +95,10 @@ struct VertexOut {
     @location(0) pos_view: vec3<f32>,
     @location(1) normal_view: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) tangent_view: vec4<f32>,
 };
 
-fn finish(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>) -> VertexOut {
+fn finish(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, tangent: vec4<f32>) -> VertexOut {
     var out: VertexOut;
     let p = frame.view * (draw.world * vec4<f32>(pos, 1.0));
     out.pos_view = p.xyz;
@@ -105,12 +109,14 @@ fn finish(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>) -> VertexOut {
     }
     out.normal_view = (draw.normal_matrix * vec4<f32>(normal, 0.0)).xyz;
     out.uv = uv;
+    let t = frame.view * (draw.world * vec4<f32>(tangent.xyz, 0.0));
+    out.tangent_view = vec4<f32>(t.xyz, tangent.w);
     return out;
 }
 
 @vertex
 fn vs_main(v: VertexIn) -> VertexOut {
-    return finish(v.pos, v.normal, v.uv);
+    return finish(v.pos, v.normal, v.uv, v.tangent);
 }
 
 struct SkinIn {
@@ -123,6 +129,7 @@ struct SkinIn {
 fn vs_skinned(v: VertexIn, s: SkinIn) -> VertexOut {
     var pos = vec3<f32>(0.0);
     var normal = vec3<f32>(0.0);
+    var tangent = vec3<f32>(0.0);
     var total = 0.0;
     for (var i = 0u; i < 4u; i = i + 1u) {
         let w = s.weights[i];
@@ -130,13 +137,14 @@ fn vs_skinned(v: VertexIn, s: SkinIn) -> VertexOut {
             let m = bones[draw.light_count.z + s.bones[i]];
             pos = pos + w * (m * vec4<f32>(v.pos, 1.0)).xyz;
             normal = normal + w * (m * vec4<f32>(v.normal, 0.0)).xyz;
+            tangent = tangent + w * (m * vec4<f32>(v.tangent.xyz, 0.0)).xyz;
             total = total + w;
         }
     }
     if (total <= 0.0) {
-        return finish(v.pos, v.normal, v.uv);
+        return finish(v.pos, v.normal, v.uv, v.tangent);
     }
-    return finish(pos / total, normal, v.uv);
+    return finish(pos / total, normal, v.uv, vec4<f32>(tangent, v.tangent.w));
 }
 
 fn lin(c: vec3<f32>) -> vec3<f32> {
@@ -269,7 +277,14 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var uv = in.uv;
     var tsb = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), surface_n);
     if (normal_mapped || height_mapped) {
-        tsb = tangent_frame(surface_n, dp1, dp2, duv1, duv2);
+        let t = in.tangent_view.xyz;
+        if (in.tangent_view.w != 0.0 && dot(t, t) > 1e-12) {
+            let tn = normalize(t);
+            let handed = select(-1.0, 1.0, in.tangent_view.w >= 0.0);
+            tsb = mat3x3<f32>(tn, cross(surface_n, tn) * handed, surface_n);
+        } else {
+            tsb = tangent_frame(surface_n, dp1, dp2, duv1, duv2);
+        }
         if (height_mapped) {
             uv = displace(uv, tsb, v, surface_n, in.pos_view, duv1, duv2);
         }

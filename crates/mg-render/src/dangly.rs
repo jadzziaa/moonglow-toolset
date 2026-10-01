@@ -168,6 +168,7 @@ mod tests {
                 pos: [i as f32, 0.0, 0.0],
                 normal: [0.0, 0.0, 1.0],
                 uv: [0.0; 2],
+                tangent: [0.0; 4],
             })
             .collect();
         DanglyMesh {

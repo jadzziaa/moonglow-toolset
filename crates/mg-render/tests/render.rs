@@ -527,12 +527,17 @@ fn material_maps_shade() {
     mtr.params.push(("Roughness".into(), mg_image::mtr::Param::Float(vec![0.9])));
     assets.materials.insert("tilted".into(), mtr);
 
-    // The quad with u along +X, lit from +X and above, seen from above.
+    // The quad with u along +X, lit from +X and above, seen from above;
+    // with tangents, when given.
+    let tangents = std::cell::Cell::new(None::<[f32; 4]>);
     let model = |bitmap: &str, maps: [Option<&str>; 3], mtr: Option<&str>| {
         let mut m = quad();
         let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
         mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         mesh.source_uv = vec![0, 1, 2, 3];
+        if let Some(t) = tangents.get() {
+            mesh.tangents = vec![t; 4];
+        }
         mesh.textures[0] = Some(bitmap.into());
         for (i, t) in maps.iter().enumerate() {
             mesh.textures[i + 1] = t.map(String::from);
@@ -581,6 +586,24 @@ fn material_maps_shade() {
     let towards_v = grey(&shot(model("white", [Some("plus_v_n"), None, None], None), from_y));
     eprintln!("lit from +Y: plain {plain_y}, towards +v {towards_v}");
     assert!(towards_v > plain_y + 10.0);
+
+    // The model's own tangents, as the stock shaders take them: along +u
+    // they agree with the derivatives' frame; turned to +v, a +u tilt leans
+    // towards +Y; a negative sign turns the bitangent to −v.
+    tangents.set(Some([1.0, 0.0, 0.0, 1.0]));
+    let towards_t = grey(&shot(model("white", [Some("plus_u_n"), None, None], None), lit));
+    let towards_v_t = grey(&shot(model("white", [Some("plus_v_n"), None, None], None), from_y));
+    tangents.set(Some([0.0, 1.0, 0.0, 1.0]));
+    let turned = grey(&shot(model("white", [Some("plus_u_n"), None, None], None), from_y));
+    tangents.set(Some([1.0, 0.0, 0.0, -1.0]));
+    let mirrored = grey(&shot(model("white", [Some("plus_v_n"), None, None], None), from_y));
+    tangents.set(None);
+    eprintln!(
+        "tangents along +u: {towards_t}, {towards_v_t}; along +v: {turned}; mirrored {mirrored}"
+    );
+    assert!((towards_t - towards).abs() <= 2.0 && (towards_v_t - towards_v).abs() <= 2.0);
+    assert!(turned > plain_y + 10.0);
+    assert!(mirrored < plain_y - 10.0);
 
     let dark = AreaLight { ambient: Vec3::ZERO, diffuse: Vec3::ZERO, direction: Vec3::Z };
     let unlit = grey(&shot(model("white", [None; 3], None), dark));
