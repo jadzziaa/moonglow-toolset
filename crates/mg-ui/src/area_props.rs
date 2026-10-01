@@ -284,13 +284,15 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef) {
 }
 
 fn events(f: &mut Form<'_>, ui: &mut Ui) {
+    let events = ["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"].map(|l| (l, l));
     egui::Grid::new(("are-events", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        for label in ["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"] {
+        for (label, field) in events {
             ui.label(label);
-            f.script(ui, label, label);
+            f.script(ui, label, field);
             ui.end_row();
         }
     });
+    f.script_set_buttons(ui, &events);
 }
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {

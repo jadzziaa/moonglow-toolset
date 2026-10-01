@@ -11,6 +11,8 @@ pub enum FileKind {
     Erf,
     /// Any file (resource export).
     Any,
+    /// A script set: `.ini`.
+    ScriptSet,
 }
 
 impl FileKind {
@@ -22,6 +24,8 @@ impl FileKind {
             (FileKind::Erf, true) => "Export",
             (FileKind::Any, false) => "Open",
             (FileKind::Any, true) => "Save As",
+            (FileKind::ScriptSet, false) => "Load Script Set",
+            (FileKind::ScriptSet, true) => "Save Script Set",
         }
     }
 
@@ -32,6 +36,7 @@ impl FileKind {
             (FileKind::Module, true) => Some(("Module", &["mod"])),
             (FileKind::Erf, _) => Some(("Exported resources", &["erf"])),
             (FileKind::Any, _) => None,
+            (FileKind::ScriptSet, _) => Some(("Script sets", &["ini"])),
         }
     }
 }

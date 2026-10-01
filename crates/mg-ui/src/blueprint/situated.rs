@@ -83,6 +83,7 @@ pub(super) fn scripts(f: &mut Form<'_>, ui: &mut Ui, events: &[(&str, &str)]) {
             ui.end_row();
         }
     });
+    f.script_set_buttons(ui, events);
 }
 
 /// The module's factions (repute.fac), as choices by index; without one,

@@ -13,6 +13,7 @@ use mg_module::palette::{BlueprintKind, Palette};
 use mg_resman::ResKey;
 use mg_rules::Choice;
 
+use crate::dialogs::FileKind;
 use crate::text::{decode, encode, with_english};
 use crate::widgets::{
     FieldTarget, LocStringEdit, VarTableEdit, commit_number, commit_text, resref_field,
@@ -424,6 +425,77 @@ impl Form<'_> {
     pub(crate) fn script(&mut self, ui: &mut Ui, what: &str, label: &str) {
         let types = [ResType::NSS, ResType::NCS];
         self.linked(ui, &format!("{what} script"), label, &types, ResType::NSS, Tab::Script);
+    }
+
+    /// Load Script Set and Save Script Set (`.ini`, `mg_module::script_set`)
+    /// for a page's events (label, field); nothing for a page whose events
+    /// script sets do not name (a store's). Loading sets every event of the
+    /// page, those the file leaves out to none, in one command.
+    pub(crate) fn script_set_buttons(&mut self, ui: &mut Ui, events: &[(&str, &str)]) {
+        use mg_module::script_set;
+        let keyed: Vec<(&'static str, &str)> = events
+            .iter()
+            .filter_map(|(_, field)| Some((script_set::key(field)?, *field)))
+            .collect();
+        if keyed.is_empty() {
+            return;
+        }
+        let (mut load, mut save) = (false, false);
+        ui.horizontal(|ui| {
+            load = ui
+                .button("Load Script Set")
+                .on_hover_text("Set the scripts from a script set file (.ini)")
+                .clicked();
+            save = ui
+                .button("Save Script Set")
+                .on_hover_text("Save these scripts as a script set file (.ini)")
+                .clicked();
+        });
+        if load {
+            // The game's script sets are in data/scr.
+            let start = self.app.install.as_ref().map(|i| i.root.join("data").join("scr"));
+            let Some(path) = self.app.dialogs.open_file(FileKind::ScriptSet, start.as_deref())
+            else {
+                return;
+            };
+            let text = match std::fs::read(&path) {
+                Ok(b) => decode(&b),
+                Err(e) => {
+                    self.app.log.error(format!("{}: {e}", path.display()));
+                    return;
+                }
+            };
+            let set = script_set::read(&text);
+            let mut fields = Vec::new();
+            for (key, field) in &keyed {
+                let name = set.get(key).map_or("", String::as_str);
+                match ResRef::from_str(name) {
+                    Ok(r) => fields.push((*field, Value::resref(r))),
+                    Err(_) => self
+                        .app
+                        .log
+                        .warn(format!("{}: {key}: {name:?} is not a script name", path.display())),
+                }
+            }
+            self.set_fields("Load script set", fields);
+        }
+        if save
+            && let Some(path) = self
+                .app
+                .dialogs
+                .save_file(FileKind::ScriptSet, Some(std::path::Path::new("scripts.ini")))
+        {
+            let names: Vec<(&str, String)> = keyed
+                .iter()
+                .map(|(key, field)| {
+                    (*key, self.root.resref(field).unwrap_or(ResRef::EMPTY).to_string())
+                })
+                .collect();
+            let pairs: Vec<(&str, &str)> = names.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            if let Err(e) = std::fs::write(&path, encode(&script_set::write(&pairs))) {
+                self.app.log.error(format!("{}: {e}", path.display()));
+            }
+        }
     }
 
     /// The conversation: name, picker and Edit.

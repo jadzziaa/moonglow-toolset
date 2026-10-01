@@ -18,6 +18,7 @@ pub mod new;
 pub mod palette;
 pub mod palette_add;
 pub mod refs;
+pub mod script_set;
 pub mod script_wizard;
 pub mod transfer;
 pub mod verify;

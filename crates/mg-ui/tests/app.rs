@@ -2910,3 +2910,39 @@ fn build_module_compiles_and_reports() {
     let cr = enc.root.list("CreatureList").unwrap()[0].float("CR").unwrap();
     assert!(cr < 99.0, "CR {cr}");
 }
+
+#[test]
+fn script_sets_save_and_load() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_scripts", ResType::UTC)
+    else {
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-script-set");
+    let path = dir.join("bandit.ini");
+    h.run();
+    h.get_by_label("Scripts").click();
+    h.run();
+    // Saved in Aurora's layout: [ResRefs], Aurora's event names.
+    let spawn = field(&mut h, &key).resref("ScriptSpawn").unwrap();
+    h.state_mut().dialogs =
+        Box::new(mg_ui::NoDialogs { save: vec![path.clone()], ..Default::default() });
+    h.get_by_label("Save Script Set").click();
+    h.run();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("[ResRefs]\r\nOnBlocked="), "{text}");
+    assert!(text.contains(&format!("OnSpawn={spawn}\r\n")), "{text}");
+    assert!(text.contains("OnSpellCast="), "Aurora's name for OnSpellCastAt: {text}");
+    // A set that names only OnSpawn: loading it sets OnSpawn and clears
+    // the others, in one undoable step.
+    std::fs::write(&path, "[ResRefs]\r\nOnSpawn=mg_spawn\r\n").unwrap();
+    h.state_mut().dialogs =
+        Box::new(mg_ui::NoDialogs { open: vec![path.clone()], ..Default::default() });
+    h.get_by_label("Load Script Set").click();
+    h.run();
+    let s = field(&mut h, &key);
+    assert_eq!(s.resref("ScriptSpawn"), Some(ResRef::from_str("mg_spawn").unwrap()));
+    assert_eq!(s.resref("ScriptHeartbeat"), Some(ResRef::EMPTY));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(field(&mut h, &key).resref("ScriptSpawn"), Some(spawn));
+}
