@@ -210,6 +210,8 @@ pub struct Moonglow {
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
     pub quit_requested: bool,
+    /// Test Module asked to minimize the window (Options › General).
+    pub minimize_requested: bool,
 }
 
 impl std::fmt::Debug for Moonglow {
@@ -280,6 +282,7 @@ impl Moonglow {
             import: None,
             confirm_discard: None,
             quit_requested: false,
+            minimize_requested: false,
         }
     }
 
@@ -315,6 +318,9 @@ impl Moonglow {
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        if std::mem::take(&mut self.minimize_requested) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+        }
         self.shortcuts(ui);
         egui::Panel::top("menu").show(ui, |ui| {
             self.menu(ui);
@@ -989,6 +995,10 @@ impl Moonglow {
     }
 
     fn save(&mut self, to: Option<PathBuf>) {
+        // Options > General: Build module on save.
+        if self.settings.build_on_save && self.ws.is_some() {
+            build_view::build_on_save(self);
+        }
         let Some(ws) = &mut self.ws else { return };
         // Script editors' unsaved text goes into the module first (one
         // undoable command), as saving everything means.
@@ -1115,7 +1125,11 @@ impl Moonglow {
             return;
         };
         match test_module::command(&client, user, &name).spawn() {
-            Ok(_) => self.log.info(format!("Testing {name}")),
+            Ok(_) => {
+                self.log.info(format!("Testing {name}"));
+                // Options > General: Minimize Toolset on test module.
+                self.minimize_requested = self.settings.minimize_on_test;
+            }
             Err(e) => self.log.error(format!("Test Module: {}: {e}", client.display())),
         }
     }

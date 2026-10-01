@@ -73,8 +73,11 @@ fn options_window() {
         .wgpu()
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
+    shoot(&mut h, &dir, "options-folders");
+    h.get_by_label("General").click();
+    shoot(&mut h, &dir, "options-general");
     h.get_by_label("Script Editor").click();
-    shoot(&mut h, &dir, "options");
+    shoot(&mut h, &dir, "options-script-editor");
 }
 
 #[test]

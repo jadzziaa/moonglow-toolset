@@ -67,7 +67,11 @@ unless given otherwise.
 | Aurora | Moonglow | |
 |---|---|---|
 | Game and user folders | Tools > Options | ✅ [options_choose_the_game_folder] |
-| Script editor, area viewer, graphics options | not yet | ✗ |
+| Options as pages (Aurora's tree): Area, General, Script Editor, Conversation Editor, Spell Checking, Sounds, Language | pages Folders, General, Script Editor | ◐ |
+| General: Build module on save; Minimize Toolset on test module | the same | ✅ [build_on_save_opens_the_results_when_something_is_wrong]; minimizing is the window manager's (not tested) |
+| General: welcome dialog at startup, the warnings (reserved resref names, creature spells, inventory, colour depth, character set, resource in hak, standard resource overwrite), environment mapping, module backups, always open module folders | not yet | ✗ |
+| Area: background colour, encounter spawn point markers, door orientation arrows, undo levels | not yet (undo is unlimited) | ✗ |
+| Conversation Editor, Spell Checking, Sounds, Language pages | not yet (no dictionary or audio) | ✗ |
 
 ## Faction Editor (`TdlgFactionEditor`, `TdlgFactionSelect`)
 
@@ -113,7 +117,7 @@ unless given otherwise.
 | New (Ctrl+N), Save As (Ctrl+Alt+S), Save All, Close | Tools > New Script…, Save As…, module Save stores all edited scripts, tab close | ✅ |
 | Open (all resources / module / hak) | resource browser and the module tree | ✅ |
 | Options › Script Editor: font, colours of text, comment, directive, identifier, keyword, number, string, error, with a preview | font size and a colour per element (else the light or dark theme's), preview, reset; applied without reloading the game | ✅ (`options.rs` tests) |
-| Options › Script Editor: templates folder, auto-compile, debug info (.ndb), external editor | not yet | ✗ |
+| Options › Script Editor: templates folder, auto-compile, debug info (.ndb), external editor | the templates folder (listed with `data/scr` and `scripttemplates`), compile on save, `.ndb` with each compiled script; font size and colours | ✅ [saving_a_script_compiles_it_with_debug_information_when_chosen] / external editor ✗ |
 | Print, indent with Tab | not yet | ✗ |
 | Large scripts | nwscript.nss (13,869 lines): 0.4 ms per idle frame, ~10 ms per keystroke | ✅ (`editor_perf.rs`) |
 

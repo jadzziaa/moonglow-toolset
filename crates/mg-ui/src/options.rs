@@ -1,5 +1,7 @@
-//! Tools > Options: where the game and the NWN user folder are, and the
-//! script editor's font size and colours.
+//! Tools > Options (Aurora's `TdlgOptions`), as pages: Folders (where the
+//! game and the NWN user folder are), General (Build module on save,
+//! Minimize Toolset on test module) and Script Editor (compile on save,
+//! debug information, the code templates folder, font size and colours).
 
 use std::path::PathBuf;
 
@@ -10,13 +12,28 @@ use crate::script_view::Palette;
 use crate::settings::{SCRIPT_ELEMENTS, ScriptStyle};
 use crate::{Action, Moonglow, Settings};
 
+/// The Options window's pages.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OptionsPage {
+    #[default]
+    Folders,
+    General,
+    ScriptEditor,
+}
+
 /// The Options window's fields: folders as typed (empty to detect), and
-/// the script editor's style.
+/// the other options.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct OptionsDraft {
+    pub page: OptionsPage,
     pub game_root: String,
     pub user_dir: String,
     pub script_style: ScriptStyle,
+    pub build_on_save: bool,
+    pub minimize_on_test: bool,
+    pub auto_compile: bool,
+    pub debug_info: bool,
+    pub script_templates: String,
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -31,9 +48,15 @@ fn path(s: &str) -> Option<PathBuf> {
 impl OptionsDraft {
     pub fn from_settings(s: &Settings) -> OptionsDraft {
         OptionsDraft {
+            page: OptionsPage::default(),
             game_root: text(&s.game_root),
             user_dir: text(&s.user_dir),
             script_style: s.script_style.clone(),
+            build_on_save: s.build_on_save,
+            minimize_on_test: s.minimize_on_test,
+            auto_compile: s.auto_compile,
+            debug_info: s.debug_info,
+            script_templates: text(&s.script_templates),
         }
     }
 
@@ -43,6 +66,11 @@ impl OptionsDraft {
             game_root: path(&self.game_root),
             user_dir: path(&self.user_dir),
             script_style: self.script_style.clone(),
+            build_on_save: self.build_on_save,
+            minimize_on_test: self.minimize_on_test,
+            auto_compile: self.auto_compile,
+            debug_info: self.debug_info,
+            script_templates: path(&self.script_templates),
             ..s.clone()
         }
     }
@@ -56,6 +84,7 @@ impl OptionsDraft {
 enum Browse {
     Game,
     User,
+    Templates,
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
@@ -69,43 +98,96 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(&ctx, |ui| {
-            ui.label("Neverwinter Nights installation");
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut draft.game_root).desired_width(360.0));
-                if ui.button("Browse…").clicked() {
-                    browse = Some(Browse::Game);
-                }
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(110.0);
+                    for (page, name) in [
+                        (OptionsPage::Folders, "Folders"),
+                        (OptionsPage::General, "General"),
+                        (OptionsPage::ScriptEditor, "Script Editor"),
+                    ] {
+                        ui.selectable_value(&mut draft.page, page, name);
+                    }
+                });
+                ui.add_space(12.0);
+                ui.vertical(|ui| match draft.page {
+                    OptionsPage::Folders => {
+                        ui.label("Neverwinter Nights installation");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut draft.game_root)
+                                    .desired_width(300.0),
+                            );
+                            if ui.button("Browse…").clicked() {
+                                browse = Some(Browse::Game);
+                            }
+                        });
+                        match path(&draft.game_root) {
+                            Some(p) if GameInstall::is_install(&p) => {
+                                ui.weak("A game installation.")
+                            }
+                            Some(_) => ui.colored_label(
+                                ui.visuals().error_fg_color,
+                                "Not a game installation (no data/nwn_base.key).",
+                            ),
+                            None => match &detected {
+                                Some(d) => ui.weak(format!("Empty: found at {}", d.root.display())),
+                                None => ui.colored_label(
+                                    ui.visuals().warn_fg_color,
+                                    "Empty, and none found.",
+                                ),
+                            },
+                        };
+                        ui.add_space(8.0);
+                        ui.label("NWN user folder (haks, override, modules)");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut draft.user_dir)
+                                    .desired_width(300.0),
+                            );
+                            if ui.button("Browse…").clicked() {
+                                browse = Some(Browse::User);
+                            }
+                        });
+                        if path(&draft.user_dir).is_none() {
+                            match detected.as_ref().and_then(|d| d.user_dir.as_ref()) {
+                                Some(u) => ui.weak(format!("Empty: {}", u.display())),
+                                None => ui.weak("Empty: none"),
+                            };
+                        }
+                    }
+                    OptionsPage::General => {
+                        ui.checkbox(&mut draft.build_on_save, "Build module on save")
+                            .on_hover_text("Run Build Module (with its defaults) before saving");
+                        ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
+                    }
+                    OptionsPage::ScriptEditor => {
+                        ui.label("Code Templates Directory");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut draft.script_templates)
+                                    .desired_width(300.0),
+                            );
+                            if ui.button("Browse…").clicked() {
+                                browse = Some(Browse::Templates);
+                            }
+                        });
+                        ui.weak("Listed with the game's (data/scr) and scripttemplates.");
+                        ui.checkbox(
+                            &mut draft.auto_compile,
+                            "Automatically Compile Scripts on Save",
+                        );
+                        ui.checkbox(
+                            &mut draft.debug_info,
+                            "Generate Debug Information When Compiling Scripts",
+                        )
+                        .on_hover_text("Store a .ndb with each compiled script, for debuggers");
+                        ui.add_space(6.0);
+                        script_style(ui, &mut draft.script_style);
+                    }
+                });
             });
-            match path(&draft.game_root) {
-                Some(p) if GameInstall::is_install(&p) => ui.weak("A game installation."),
-                Some(_) => ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    "Not a game installation (no data/nwn_base.key).",
-                ),
-                None => match &detected {
-                    Some(d) => ui.weak(format!("Empty: found at {}", d.root.display())),
-                    None => ui.colored_label(ui.visuals().warn_fg_color, "Empty, and none found."),
-                },
-            };
-            ui.add_space(8.0);
-            ui.label("NWN user folder (haks, override, modules)");
-            ui.horizontal(|ui| {
-                ui.add(egui::TextEdit::singleline(&mut draft.user_dir).desired_width(360.0));
-                if ui.button("Browse…").clicked() {
-                    browse = Some(Browse::User);
-                }
-            });
-            if path(&draft.user_dir).is_none() {
-                match detected.as_ref().and_then(|d| d.user_dir.as_ref()) {
-                    Some(u) => ui.weak(format!("Empty: {}", u.display())),
-                    None => ui.weak("Empty: none"),
-                };
-            }
-            ui.add_space(8.0);
-            egui::CollapsingHeader::new("Script Editor").show(ui, |ui| {
-                script_style(ui, &mut draft.script_style);
-            });
-            ui.add_space(8.0);
+            ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("OK").clicked() {
                     close = true;
@@ -125,6 +207,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let (title, field) = match which {
             Browse::Game => ("Neverwinter Nights installation", &mut draft.game_root),
             Browse::User => ("NWN user folder", &mut draft.user_dir),
+            Browse::Templates => ("Code Templates Directory", &mut draft.script_templates),
         };
         if let Some(p) = app.dialogs.pick_folder(title, path(field).as_deref()) {
             *field = p.display().to_string();
@@ -184,6 +267,20 @@ mod tests {
         assert_eq!(d.apply(&s).script_style.colors[3], Some([255, 0, 0]));
         d.game_root = "/games/nwn".into();
         assert!(d.moves_game(&s));
+    }
+
+    #[test]
+    fn general_and_script_editor_options_apply() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        (d.build_on_save, d.minimize_on_test, d.auto_compile, d.debug_info) =
+            (true, true, true, true);
+        d.script_templates = " /tmp/templates ".into();
+        let t = d.apply(&s);
+        assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
+        assert_eq!(t.script_templates, Some(PathBuf::from("/tmp/templates")));
+        assert!(!d.moves_game(&s), "no reload for these");
+        assert_eq!(OptionsDraft::from_settings(&t).script_templates, "/tmp/templates");
     }
 
     #[test]

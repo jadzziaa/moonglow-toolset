@@ -172,6 +172,22 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
+/// Options › General › Build module on save: the build with Aurora's
+/// defaults before saving; the Build Module window opens with the results
+/// if it found problems.
+pub(crate) fn build_on_save(app: &mut Moonglow) {
+    let was_open = app.build.is_some();
+    let mut w = app.build.take().unwrap_or_default();
+    let results = run(app, &BuildWindow::default());
+    let clean =
+        results.len() == 1 && results[0].about.is_none() && results[0].text == "No errors found";
+    w.results = results;
+    w.selected = None;
+    if was_open || !clean {
+        app.build = Some(w);
+    }
+}
+
 /// A blueprint type (the Unused › Blueprints check).
 fn is_blueprint(t: ResType) -> bool {
     matches!(

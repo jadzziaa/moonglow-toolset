@@ -366,7 +366,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let filter = t.filter.to_ascii_lowercase();
             let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
             if t.side == SideTab::Templates {
-                let templates = tools::templates(app.install.as_ref());
+                let templates = tools::templates(
+                    app.install.as_ref(),
+                    app.settings.script_templates.as_deref(),
+                );
                 egui::ScrollArea::vertical().id_salt("templates").show(ui, |ui| {
                     for (name, path) in
                         templates.iter().filter(|(n, _)| n.to_ascii_lowercase().contains(&filter))
@@ -711,7 +714,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 vec![Edit::SetResource { key, data: Some(encode(&text)) }],
             )));
         }
-        if compile {
+        // Options > Script Editor: saving compiles too.
+        if compile || app.settings.auto_compile {
             compile_one(app, key, &text);
         }
     }
@@ -742,6 +746,16 @@ pub(crate) fn compile_source(
     key: ResKey,
     text: &str,
 ) -> Result<Vec<u8>, mg_script::compiler::CompileError> {
+    compile_with_debug(app, key, text, false).map(|(ncs, _)| ncs)
+}
+
+/// [`compile_source`], with the debug information (`.ndb`) if `debug`.
+fn compile_with_debug(
+    app: &Moonglow,
+    key: ResKey,
+    text: &str,
+    debug: bool,
+) -> Result<(Vec<u8>, Option<Vec<u8>>), mg_script::compiler::CompileError> {
     let source = encode(text);
     let module = app.ws.as_ref().map(|w| &w.module);
     let resman = app.game.as_ref().map(|g| &g.resman);
@@ -756,7 +770,8 @@ pub(crate) fn compile_source(
             .map(<[u8]>::to_vec)
             .or_else(|| resman?.get(&k).ok().map(|d| d.into_owned()))
     });
-    c.compile(&name).map(|out| out.ncs)
+    c.set_debug_output(debug);
+    c.compile(&name).map(|out| (out.ncs, out.ndb))
 }
 
 /// Compiles one script (its text as in the editor) and stores the bytecode.
@@ -764,16 +779,20 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) {
     if app.ws.is_none() {
         return;
     }
-    let result = compile_source(app, key, text);
+    let result = compile_with_debug(app, key, text, app.settings.debug_info);
     app.script_tools.messages.retain(|m| m.script != key);
     app.script_tools.info = InfoTab::Compiler;
     match result {
-        Ok(out) => {
+        Ok((out, ndb)) => {
             let ncs = ResKey::new(key.resref, ResType::NCS);
-            app.actions.push(Action::Apply(Command::new(
-                format!("Compile {key}"),
-                vec![Edit::SetResource { key: ncs, data: Some(out) }],
-            )));
+            let mut edits = vec![Edit::SetResource { key: ncs, data: Some(out) }];
+            if let Some(ndb) = ndb {
+                edits.push(Edit::SetResource {
+                    key: ResKey::new(key.resref, ResType::NDB),
+                    data: Some(ndb),
+                });
+            }
+            app.actions.push(Action::Apply(Command::new(format!("Compile {key}"), edits)));
             app.log.info(format!("{key}: compiled"));
             app.script_tools.messages.push(Message {
                 script: key,

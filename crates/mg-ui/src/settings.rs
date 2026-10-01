@@ -41,6 +41,18 @@ pub struct Settings {
     /// one.
     pub user_dir: Option<PathBuf>,
     pub script_style: ScriptStyle,
+    /// Options > General: Build module on save (Aurora's `Verify On Save`).
+    pub build_on_save: bool,
+    /// Options > General: Minimize Toolset on test module.
+    pub minimize_on_test: bool,
+    /// Options > Script Editor: Automatically Compile Scripts on Save.
+    pub auto_compile: bool,
+    /// Options > Script Editor: Generate Debug Information When Compiling
+    /// Scripts (`.ndb` next to the `.ncs`).
+    pub debug_info: bool,
+    /// Options > Script Editor: Code Templates Directory, listed with the
+    /// game's (`data/scr`) and the user's `scripttemplates`.
+    pub script_templates: Option<PathBuf>,
 }
 
 impl Settings {

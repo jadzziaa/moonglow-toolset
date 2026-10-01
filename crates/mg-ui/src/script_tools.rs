@@ -359,13 +359,22 @@ pub fn completions(symbols: &[Symbol], prefix: &str) -> Vec<Symbol> {
     out
 }
 
-/// Script templates: the `.txt` files of the install's `data/scr` and the
-/// user's `scripttemplates`, by name.
-pub fn templates(install: Option<&mg_resman::GameInstall>) -> Vec<(String, std::path::PathBuf)> {
-    let Some(i) = install else { return Vec::new() };
-    let mut dirs = vec![i.root.join("data").join("scr")];
-    if let Some(u) = &i.user_dir {
-        dirs.push(u.join("scripttemplates"));
+/// Script templates: the `.txt` files of the install's `data/scr`, the
+/// user's `scripttemplates` and the chosen templates folder (`extra`), by
+/// name.
+pub fn templates(
+    install: Option<&mg_resman::GameInstall>,
+    extra: Option<&std::path::Path>,
+) -> Vec<(String, std::path::PathBuf)> {
+    let mut dirs = Vec::new();
+    if let Some(i) = install {
+        dirs.push(i.root.join("data").join("scr"));
+        if let Some(u) = &i.user_dir {
+            dirs.push(u.join("scripttemplates"));
+        }
+    }
+    if let Some(e) = extra {
+        dirs.push(e.to_path_buf());
     }
     let mut out: Vec<(String, std::path::PathBuf)> = dirs
         .iter()

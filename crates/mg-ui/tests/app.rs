@@ -2988,3 +2988,65 @@ fn class_spell_lists_save_clear_and_load() {
     h.run();
     assert_eq!(known(&mut h), before, "each spell back at its level");
 }
+
+#[test]
+fn saving_a_script_compiles_it_with_debug_information_when_chosen() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-auto-compile");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "void main()\n{\n    PrintString(\"hi\");\n}\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    // Options › Script Editor.
+    app.settings.auto_compile = true;
+    app.settings.debug_info = true;
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // An edit, then Save: the script is compiled too, with its .ndb.
+    h.state_mut().script_tools.jump = Some((key, text.len()));
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    let module = &h.state().ws.as_ref().unwrap().module;
+    let compiled = |t| module.contains(&ResKey::new(key.resref, t));
+    assert!(compiled(ResType::NCS) && compiled(ResType::NDB), "{:?}", h.state().log.entries);
+}
+
+#[test]
+fn build_on_save_opens_the_results_when_something_is_wrong() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-build-on-save");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    m.set(ResKey::parse("mg_bad", ResType::NSS).unwrap(), b"void main() { nope }".to_vec());
+    m.save().unwrap();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.settings.build_on_save = true; // Options › General
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let build = h.state().build.clone().expect("the Build Module window, with the problem");
+    assert!(build.results.iter().any(|f| f.text.starts_with("Error:")), "{:?}", build.results);
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "Finished Building Module"));
+}
