@@ -393,6 +393,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         viewport(app, ui, &mut view, start);
     }
     set_window(app, ui, &mut view);
+    // Its sounds are heard from where the view looks (Options › Sounds).
+    if let Some(o) = &view.orbit {
+        app.heard = Some((area, o.target, view.night));
+    }
     app.area_views.insert(area, view);
 }
 
@@ -418,6 +422,20 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         ui.toggle_value(&mut view.night, "Night").on_hover_text("Show the area at night");
         ui.toggle_value(&mut view.fog, "Fog");
         ui.toggle_value(&mut view.grid, "Grid").on_hover_text("Display Grid");
+        // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
+        // Music (the Options › Sounds settings).
+        let mut placed = !app.settings.no_placed_sounds;
+        if ui
+            .toggle_value(&mut placed, "🔊 Sounds")
+            .on_hover_text("Play placed sound objects in area")
+            .changed()
+        {
+            app.settings.no_placed_sounds = !placed;
+        }
+        ui.toggle_value(&mut app.settings.ambient_sound, "Ambient")
+            .on_hover_text("Play ambient sound in area");
+        ui.toggle_value(&mut app.settings.ambient_music, "Music")
+            .on_hover_text("Play ambient music in area");
         ui.toggle_value(&mut view.walkmesh, "Walkmesh")
             .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
         if ui

@@ -94,6 +94,15 @@ pub struct Settings {
     /// `None`: Moonglow's red and blue.
     pub dialog_npc_color: Option<[u8; 3]>,
     pub dialog_pc_color: Option<[u8; 3]>,
+    /// Options > Sounds: Play placed sound objects in area, off (Aurora's
+    /// default: on).
+    pub no_placed_sounds: bool,
+    /// Options > Sounds: Play ambient sound in area (Aurora's default: off).
+    pub ambient_sound: bool,
+    /// Options > Sounds: Play ambient music in area (Aurora's default: off).
+    pub ambient_music: bool,
+    /// Options > Sounds: Ambient music volume, of 127 (`None`: Aurora's 92).
+    pub music_volume: Option<u8>,
     /// Options > Conversation Editor: Show popup when creating a new text
     /// entry, off (Aurora's default: on; Add asks for the new line's text).
     pub dialog_no_text_popup: bool,

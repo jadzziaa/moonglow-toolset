@@ -67,7 +67,7 @@ unless given otherwise.
 | Aurora | Moonglow | |
 |---|---|---|
 | Game and user folders | Tools > Options | ✅ [options_choose_the_game_folder] |
-| Options as pages (Aurora's tree): Area, General, Script Editor, Conversation Editor, Spell Checking, Sounds, Language | pages Folders, Area, General, Script Editor, Conversation Editor, Language | ◐ (no Spell Checking or Sounds) |
+| Options as pages (Aurora's tree): Area, General, Script Editor, Conversation Editor, Spell Checking, Sounds, Language | pages Folders, Area, General, Script Editor, Conversation Editor, Sounds, Language | ✅ (no Spell Checking: see below) |
 | General: Build module on save; Minimize Toolset on test module | the same | ✅ [build_on_save_opens_the_results_when_something_is_wrong]; minimizing is the window manager's (not tested) |
 | General: Create backups of modules (on by default: the module as it was kept as `<name>.BackupMod`, Aurora's name) | the same | ✅ [saving_keeps_the_module_as_it_was_as_a_backup] |
 | General: welcome dialog at startup; colour depth and character set warnings; always open module directories | Moonglow's Welcome tab is its start page, not a dialog; the warnings are about Windows display settings; Moonglow opens module folders and archives alike | — |
@@ -80,7 +80,9 @@ unless given otherwise.
 | Conversation Editor: Show speaker name before text, player and NPC text colours | the same | ✅ [conversation_lines_without_speaker_names_when_chosen] |
 | Conversation Editor: Show popup when creating a new text entry (on), Paste Link Options (Link Destination To Source), Drag Link Options (Link Source To Destination), automatic backup every 5 minutes | the same options and defaults (`notes_dialog_options.md`); backups go to the temporary folder's `moonglow-backups/<module>/<name>.bak` (Aurora: the module's working folder) | ✅ [conversation_options_popup_link_directions_drag_and_backup], [conversation_link_and_backup_options_apply] |
 | Language page | the language text fields show and edit (Use Default Language: English, or a chosen one); labels name it | ✅ |
-| Spell Checking, Sounds pages | not yet (no dictionary or audio) | ✗ |
+| Sounds page: play placed sound objects (on), ambient sound (off) and ambient music (off) in the area; ambient music volume (92) | the same, with Aurora's defaults | ✅ [sound_options_apply] |
+| Sounds page: 2D/3D bias, show listener position, 3D provider (hidden) | — (Moonglow's placed sounds fade with distance from the view's focus; no 3D panning) | — |
+| Spell Checking page | — (in EE Aurora's spell check finds nothing: no lexicon ships; see the Conversation Editor) | — |
 
 ## Faction Editor (`TdlgFactionEditor`, `TdlgFactionSelect`)
 
@@ -248,6 +250,7 @@ scripts (name, picker, Edit), Comments.
 | First view: straight down, north up, the whole area; numpad 5 returns to it | the same | ✅ |
 | Object Filters: Show Creatures … Waypoints, Start Location, Show All, Show None | toggles in the view's toolbar (per view, not per frame) | ✅ [area_viewer_selects_moves_and_deletes] |
 | Preview: Fog, Use Area Lighting; day or night | Fog (off at first, as Aurora's Scene › Fog), Night; the area's lighting always | ✅ the fog is the client's: it ends at the fog clip distance and starts the fog amount nearer than 30 m (`client_render.rs`, measured uniforms) |
+| Preview: Play Placed Sounds, Play Ambient Sound, Play Ambient Music (toolbar and View menu) | 🔊 Sounds, Ambient, Music on the area view's toolbar (the Options › Sounds settings): the area's ambient sound and music (day or night as shown) looped, placed sounds heard from the view's focus (full within Max Volume Distance, fading out at Cutoff Distance, a linear approximation), in order or random, looping, repeating after their interval or once, by their hours | ✅ (`area_audio.rs` tests) [the_area_view_plays_the_area_s_sounds] |
 | Display Grid | Grid (tile outlines at each tile's height) | ✅ |
 | Reorient Camera, Go to Start Location | the same | ✅ |
 | Camera (nwn.wiki's Area Editor page): Ctrl + drag moves, Ctrl + right or middle drag turns, the wheel zooms (Shift or Ctrl: slowly), numpad 4 6 8 2 / 7 9 1 3 / 5 | the same; also a middle drag turns, Shift + middle drag moves, the arrow keys move | ◐ no camera pad |

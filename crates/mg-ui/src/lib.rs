@@ -4,6 +4,7 @@
 //! the module directly: they queue [`Action`]s, which run after the frame and
 //! turn edits into undoable [`mg_edit::Command`]s.
 
+mod area_audio;
 mod area_props;
 pub mod area_reshape;
 pub mod area_tools;
@@ -142,6 +143,10 @@ pub struct Moonglow {
     /// Where sounds play: [`audio::Silence`] until the desktop app gives
     /// its speakers.
     pub speaker: Box<dyn audio::Speaker>,
+    /// The area's sounds (Options › Sounds), and the area view heard this
+    /// frame.
+    area_audio: area_audio::AreaAudio,
+    pub(crate) heard: Option<area_audio::Heard>,
     /// Open script editors' text, by script.
     pub(crate) scripts: HashMap<ResKey, script_view::ScriptBuffer>,
     /// Script editors' laid-out text, reused between frames.
@@ -259,6 +264,8 @@ impl Moonglow {
             actions: Vec::new(),
             dialogs,
             speaker: Box::new(audio::Silence::default()),
+            area_audio: Default::default(),
+            heard: None,
             scripts: HashMap::new(),
             laid_out: HashMap::new(),
             buffers: HashMap::new(),
@@ -367,6 +374,7 @@ impl Moonglow {
                 egui::ScrollArea::vertical().show(ui, |ui| tree::module_tree(self, ui));
             });
         }
+        self.heard = None;
         egui::CentralPanel::default().show(ui, |ui| {
             let mut dock = std::mem::replace(&mut self.dock, DockState::new(Vec::new()));
             {
@@ -376,6 +384,11 @@ impl Moonglow {
             self.dock = dock;
         });
         self.backup_timer(ui);
+        // The area view's sounds go on between frames.
+        let heard = self.heard.take();
+        if area_audio::update(self, heard, ui.input(|i| i.time)) {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+        }
         wizards::ui(self, ui);
         blueprint_wizard::ui(self, ui);
         options::ui(self, ui);

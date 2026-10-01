@@ -3842,3 +3842,74 @@ fn sound_blueprints_play_their_sounds() {
     ));
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("no_such not found")));
 }
+
+#[test]
+fn the_area_view_plays_the_area_s_sounds() {
+    use mg_ui::audio::{Channel, Silence};
+    let Some((mut h, area)) = area_harness("sounds") else { return };
+    let speaker = std::rc::Rc::new(std::cell::RefCell::new(Silence::default()));
+    h.state_mut().speaker = Box::new(speaker.clone());
+    // The first rows of ambientsound.2da and ambientmusic.2da with a sound.
+    let first = |table: &str| -> (i32, ResRef) {
+        let t = h.state().game.as_ref().unwrap().table(table).unwrap();
+        (0..t.len())
+            .find_map(|r| {
+                let name = ResRef::from_str(t.get(r, "Resource")?).ok()?;
+                (!name.is_empty()).then_some((r as i32, name))
+            })
+            .unwrap()
+    };
+    let (sound_row, sound) = first("ambientsound");
+    let (music_row, music) = first("ambientmusic");
+    // A bell 8 m east of where the view looks, full volume within 5 m,
+    // nothing past 18 m; the area's ambient sound and music by day.
+    let target = h.state().area_views[&area].orbit.as_ref().unwrap().target;
+    let key = ResKey::new(area, ResType::GIT);
+    let mut git = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+    let mut bell = mg_gff::Struct::new(6);
+    let mut entry = mg_gff::Struct::new(0);
+    entry.set("Sound", mg_gff::Value::resref(ResRef::from_str("as_cv_bell1").unwrap()));
+    bell.set("Sounds", mg_gff::Value::List(vec![entry]));
+    for (label, v) in [("XPosition", target.x + 8.0), ("YPosition", target.y), ("ZPosition", 0.0)] {
+        bell.set(label, mg_gff::Value::Float(v));
+    }
+    bell.set("MinDistance", mg_gff::Value::Float(5.0));
+    bell.set("MaxDistance", mg_gff::Value::Float(18.0));
+    for (label, v) in [("Active", 1), ("Positional", 1), ("Continuous", 1), ("Volume", 127)] {
+        bell.set(label, mg_gff::Value::Byte(v));
+    }
+    git.root.set("SoundList", mg_gff::Value::List(vec![bell]));
+    let props = git.root.child_mut("AreaProperties").unwrap();
+    props.set("AmbientSndDay", mg_gff::Value::Int(sound_row));
+    props.set("AmbientSndDayVol", mg_gff::Value::Byte(64));
+    props.set("MusicDay", mg_gff::Value::Int(music_row));
+    let edit = mg_edit::Edit::SetResource { key, data: git.to_bytes().ok() };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("sounds", vec![edit])));
+    h.state_mut().area_views.get_mut(&area).unwrap().night = false;
+    h.run_steps(3);
+    // Aurora's defaults: the placed sound only, at 1 − (8 − 5) / 13.
+    let playing = |c: Channel| speaker.borrow().channels.get(&c).cloned();
+    let (name, gain, looped) = playing(Channel::Placed(0)).expect("the bell");
+    assert_eq!(name.to_string(), "as_cv_bell1");
+    assert!((gain - 10.0 / 13.0).abs() < 1e-3, "{gain}");
+    assert!(!looped);
+    assert!(playing(Channel::Ambient).is_none() && playing(Channel::Music).is_none());
+    // Ambient sound and music on: looped, at the area's and Aurora's volumes.
+    h.state_mut().settings.ambient_sound = true;
+    h.state_mut().settings.ambient_music = true;
+    h.run_steps(2);
+    let (a, a_volume, a_looped) = playing(Channel::Ambient).expect("the ambient sound");
+    assert_eq!((a, a_looped), (sound, true));
+    assert!((a_volume - 64.0 / 127.0).abs() < 1e-4);
+    let (m, m_volume, _) = playing(Channel::Music).expect("the music");
+    assert_eq!(m, music);
+    assert!((m_volume - 92.0 / 127.0).abs() < 1e-4);
+    // Placed sounds off; then the view closes and everything stops.
+    h.state_mut().settings.no_placed_sounds = true;
+    h.run_steps(2);
+    assert!(playing(Channel::Placed(0)).is_none());
+    let tab = h.state().dock.find_tab(&Tab::Area(area)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.run_steps(2);
+    assert!(speaker.borrow().channels.is_empty(), "{:?}", speaker.borrow().channels);
+}

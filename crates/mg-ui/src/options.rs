@@ -21,6 +21,7 @@ pub enum OptionsPage {
     General,
     ScriptEditor,
     ConversationEditor,
+    Sounds,
     Language,
 }
 
@@ -56,6 +57,10 @@ pub struct OptionsDraft {
     pub dialog_drag_source_to_dest: bool,
     pub dialog_backup: bool,
     pub dialog_backup_minutes: u32,
+    pub placed_sounds: bool,
+    pub ambient_sound: bool,
+    pub ambient_music: bool,
+    pub music_volume: u8,
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -98,6 +103,10 @@ impl OptionsDraft {
             dialog_drag_source_to_dest: !s.dialog_drag_dest_to_source,
             dialog_backup: !s.dialog_no_backup,
             dialog_backup_minutes: s.dialog_backup_minutes.unwrap_or(5),
+            placed_sounds: !s.no_placed_sounds,
+            ambient_sound: s.ambient_sound,
+            ambient_music: s.ambient_music,
+            music_volume: s.music_volume.unwrap_or(crate::area_audio::MUSIC_VOLUME),
         }
     }
 
@@ -132,6 +141,11 @@ impl OptionsDraft {
             dialog_no_backup: !self.dialog_backup,
             dialog_backup_minutes: (self.dialog_backup_minutes != 5)
                 .then_some(self.dialog_backup_minutes.clamp(1, 180)),
+            no_placed_sounds: !self.placed_sounds,
+            ambient_sound: self.ambient_sound,
+            ambient_music: self.ambient_music,
+            music_volume: (self.music_volume != crate::area_audio::MUSIC_VOLUME)
+                .then_some(self.music_volume.min(127)),
             ..s.clone()
         }
     }
@@ -169,6 +183,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         (OptionsPage::General, "General"),
                         (OptionsPage::ScriptEditor, "Script Editor"),
                         (OptionsPage::ConversationEditor, "Conversation Editor"),
+                        (OptionsPage::Sounds, "Sounds"),
                         (OptionsPage::Language, "Language"),
                     ] {
                         ui.selectable_value(&mut draft.page, page, name);
@@ -366,6 +381,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             );
                             ui.label("minutes");
                         });
+                    }
+                    OptionsPage::Sounds => {
+                        ui.checkbox(&mut draft.placed_sounds, "Play placed sound objects in area");
+                        ui.checkbox(&mut draft.ambient_sound, "Play ambient sound in area");
+                        ui.checkbox(&mut draft.ambient_music, "Play ambient music in area");
+                        ui.horizontal(|ui| {
+                            ui.label("Ambient music volume");
+                            ui.add(egui::Slider::new(&mut draft.music_volume, 0..=127));
+                        });
+                        ui.weak(
+                            "Placed sounds are heard from where the area view looks, at full \
+                             volume within their Max Volume Distance and fading out at their \
+                             Cutoff Distance.",
+                        );
                     }
                     OptionsPage::ScriptEditor => {
                         ui.label("Code Templates Directory");
@@ -569,6 +598,19 @@ mod tests {
         let t = d.apply(&s);
         assert!(t.dialog_no_text_popup && t.dialog_paste_source_to_dest);
         assert_eq!(t.dialog_backup_minutes, Some(12));
+    }
+
+    #[test]
+    fn sound_options_apply() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        // Aurora's defaults.
+        assert!(d.placed_sounds && !d.ambient_sound && !d.ambient_music);
+        assert_eq!(d.music_volume, 92);
+        (d.placed_sounds, d.ambient_music, d.music_volume) = (false, true, 40);
+        let t = d.apply(&s);
+        assert!(t.no_placed_sounds && t.ambient_music && !t.ambient_sound);
+        assert_eq!(t.music_volume, Some(40));
     }
 
     #[test]
