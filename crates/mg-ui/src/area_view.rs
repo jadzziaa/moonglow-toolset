@@ -1472,6 +1472,13 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         create_waypoint(app, view, index, at);
         ui.close();
     }
+    if let Some((ObjectKind::Creature, index)) = single
+        && ui.button("Levelup Wizard…").clicked()
+    {
+        let path = mg_edit::GffPath::root().item(ObjectKind::Creature.list(), index);
+        crate::levelup_view::open(app, view.git(), path);
+        ui.close();
+    }
     if let Some((kind @ (ObjectKind::Creature | ObjectKind::Placeable), index)) = single
         && ui.button("Setup Store…").clicked()
     {

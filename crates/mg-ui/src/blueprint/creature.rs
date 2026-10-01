@@ -530,6 +530,13 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
             }],
         ));
     }
+    if ui
+        .button("Levelup Wizard")
+        .on_hover_text("Level the creature up by its classes' packages")
+        .clicked()
+    {
+        crate::levelup_view::open(f.app, key, base.clone());
+    }
     ui.separator();
     ui.horizontal(|ui| {
         ui.label("Default Package for Autolevelup");

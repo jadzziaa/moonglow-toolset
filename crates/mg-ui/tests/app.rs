@@ -3235,3 +3235,32 @@ fn the_external_script_editor_s_saves_come_back() {
     h.run_steps(3);
     assert_eq!(h.state().script_text(key).unwrap(), "void main() { int n; }\n");
 }
+
+#[test]
+fn the_levelup_wizard_levels_a_creature_up_as_aurora_does() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_lvl", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    h.get_by_label("Levelup Wizard").click();
+    h.run();
+    // Fighter 1 to 5, as captured in Aurora (aurora_levelup.rs).
+    h.state_mut().levelup.as_mut().expect("the wizard").slots[0].1 = 5;
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(h.state().levelup.is_none());
+    let s = field(&mut h, &key);
+    let level = s.list("ClassList").unwrap()[0].integer("ClassLevel");
+    assert_eq!(level, Some(5));
+    assert_eq!((s.integer("HitPoints"), s.integer("MaxHitPoints")), (Some(32), Some(42)));
+    let feats: Vec<i64> =
+        s.list("FeatList").unwrap().iter().filter_map(|f| f.integer("Feat")).collect();
+    assert!(feats.ends_with(&[28, 6, 391]), "{feats:?}");
+    // One undo step.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(field(&mut h, &key).list("ClassList").unwrap()[0].integer("ClassLevel"), Some(1));
+}

@@ -17,6 +17,7 @@ pub mod dialogs;
 pub mod faction_view;
 mod gff_view;
 pub mod journal_view;
+pub mod levelup_view;
 pub mod model_view;
 pub mod module_props;
 mod options;
@@ -184,6 +185,8 @@ pub struct Moonglow {
     pub store_wizard: Option<store_wizard::StoreWizard>,
     /// Add Popup Text (a placeable's context menu).
     pub popup_text: Option<store_wizard::PopupText>,
+    /// The Creature Levelup Wizard.
+    pub levelup: Option<levelup_view::LevelupWizard>,
     /// The area whose Area Statistics window is open.
     pub area_stats: Option<mg_core::ResRef>,
     /// The Resize Area window, while it is open.
@@ -277,6 +280,7 @@ impl Moonglow {
             build: None,
             store_wizard: None,
             popup_text: None,
+            levelup: None,
             resize_area: None,
             rotate_area: None,
             palette: Default::default(),
@@ -368,6 +372,7 @@ impl Moonglow {
         build_view::window(self, ui.ctx());
         store_wizard::window(self, ui.ctx());
         store_wizard::popup_window(self, ui.ctx());
+        levelup_view::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
