@@ -4911,3 +4911,43 @@ fn w_a_s_d_drive_the_camera_like_the_arrows() {
     hold(&mut h, egui::Key::W, egui::Modifiers::COMMAND);
     assert_eq!(target(&h), start);
 }
+
+#[test]
+fn a_right_drag_turns_the_camera_and_w_a_s_d_fly_while_held() {
+    let Some((mut h, area)) = area_harness("right-drag") else { return };
+    h.run_steps(3);
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    let selection = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].selection.clone();
+    let before = orbit(&h);
+    let at = screen(&h, area, glam::Vec3::new(20.0, 10.0, 0.0));
+    let button = egui::PointerButton::Secondary;
+    let modifiers = egui::Modifiers::NONE;
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: at, button, pressed: true, modifiers });
+    h.run_steps(1);
+    for dx in [20.0, 40.0, 60.0] {
+        h.event(egui::Event::PointerMoved(at + egui::vec2(dx, 0.0)));
+        h.run_steps(1);
+    }
+    let turned = orbit(&h);
+    assert!((turned.yaw - before.yaw).abs() > 0.3, "turned: {} → {}", before.yaw, turned.yaw);
+    // W, with the button still held: the camera moves.
+    let key = |pressed| egui::Event::Key {
+        key: egui::Key::W,
+        physical_key: None,
+        pressed,
+        repeat: false,
+        modifiers,
+    };
+    h.event(key(true));
+    h.run_steps(4);
+    h.event(key(false));
+    h.run_steps(1);
+    assert!((orbit(&h).target - turned.target).length() > 0.1, "moved while turning");
+    let end = at + egui::vec2(60.0, 0.0);
+    h.event(egui::Event::PointerButton { pos: end, button, pressed: false, modifiers });
+    h.run_steps(2);
+    assert!(selection(&h).is_empty(), "nothing selected or turned");
+    assert!(h.query_by_label("Properties").is_none(), "no context menu after a drag");
+}

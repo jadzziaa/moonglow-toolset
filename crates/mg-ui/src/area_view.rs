@@ -6,7 +6,7 @@
 //! Aurora's bindings: a click selects, a drag on the ground selects what is
 //! in the box, a drag moves the selection over the ground, Shift + right
 //! drag turns it and Alt + drag raises or lowers it; Ctrl + drag moves the
-//! camera, Ctrl + right or middle drag turns it, the wheel zooms (Shift or
+//! camera, a right (or Ctrl + right) or middle drag turns it, the wheel zooms (Shift or
 //! Ctrl: slowly), numpad 4, 6, 8, 2 (or W, A, S, D) move it, 7, 9, 1, 3 turn it and 5
 //! looks straight down. With a blueprint chosen in the palette, a click
 //! places it (Shift + click keeps it chosen; right click or Escape lets it
@@ -1173,8 +1173,10 @@ fn camera_input(
     let rect = view.rect;
     let Some(o) = &mut view.orbit else { return };
     let d = response.drag_delta();
+    // A right drag turns it too, as in most 3D views (Shift + right drag
+    // turns the selection, as in Aurora; a right click is still the menu).
     let turning = (response.dragged_by(egui::PointerButton::Middle) && !shift)
-        || (command && response.dragged_by(egui::PointerButton::Secondary));
+        || (!shift && response.dragged_by(egui::PointerButton::Secondary));
     if turning {
         o.yaw -= d.x * 0.01;
         o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, MAX_PITCH);
