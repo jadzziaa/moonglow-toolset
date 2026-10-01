@@ -1,8 +1,9 @@
-//! Setup Store (a creature's context menu in the area viewer; Aurora's
-//! Store Setup Wizard): the shopkeeper's conversation, the script that
-//! opens the store, the store to place where the shopkeeper stands, and a
-//! friendlier faction for a hostile shopkeeper, as one undoable command
-//! (`mg_module::store_setup`).
+//! Setup Store (a creature's or placeable's context menu in the area
+//! viewer; Aurora's Store Setup Wizard): the shopkeeper's conversation, the
+//! script that opens the store, the store to place where the shopkeeper
+//! stands, and a friendlier faction for a hostile shopkeeper, as one
+//! undoable command (`mg_module::store_setup`). And Add Popup Text (a
+//! placeable's): a one-line conversation the placeable takes as its own.
 
 use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
@@ -26,7 +27,9 @@ pub enum Page {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoreWizard {
     pub area: ResRef,
-    /// The shopkeeper: its index in the area's creatures.
+    /// The shopkeeper: its list in the area's GIT (creatures or
+    /// placeables) and index there.
+    pub list: &'static str,
     pub creature: usize,
     pub page: Page,
     pub greeting: String,
@@ -54,19 +57,25 @@ fn factions(app: &mut Moonglow) -> Option<Factions> {
     ws.doc(&key).ok().map(|g| Factions::read(&Gff { root: g.root.clone(), ..Gff::new(*b"FAC ") }))
 }
 
-/// Opens the wizard for creature `creature` of `area`, with Aurora's
-/// defaults.
-pub fn open(app: &mut Moonglow, area: ResRef, creature: usize) {
+/// The faction field of a shopkeeper in `list`.
+fn faction_field(list: &str) -> &'static str {
+    if list == "Creature List" { "FactionID" } else { "Faction" }
+}
+
+/// Opens the wizard for object `creature` of `list` (creatures or
+/// placeables) in `area`, with Aurora's defaults.
+pub fn open(app: &mut Moonglow, area: ResRef, list: &'static str, creature: usize) {
     let git = ResKey::new(area, ResType::GIT);
     let factions = factions(app);
     let Some(ws) = app.ws.as_mut() else { return };
     let Ok(doc) = ws.doc(&git) else { return };
-    let Some(c) = doc.root.list("Creature List").and_then(|l| l.get(creature)) else { return };
-    let faction = c.integer("FactionID").unwrap_or(0).max(0) as u32;
+    let Some(c) = doc.root.list(list).and_then(|l| l.get(creature)) else { return };
+    let faction = c.integer(faction_field(list)).unwrap_or(0).max(0) as u32;
     let hostile = store_setup::hostile(factions.as_ref(), faction);
     let module = &ws.module;
     app.store_wizard = Some(StoreWizard {
         area,
+        list,
         creature,
         page: Page::Conversation,
         greeting: GREETING.into(),
@@ -240,7 +249,7 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
         let doc = ws.doc(&git).map_err(|e| e.to_string())?;
         let creature: Struct = doc
             .root
-            .list("Creature List")
+            .list(w.list)
             .and_then(|l| l.get(w.creature))
             .cloned()
             .ok_or("the shopkeeper is gone")?;
@@ -283,7 +292,7 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
             .push(Edit::SetResource { key: ResKey::new(script, ResType::NCS), data: Some(ncs) }),
         Err(e) => app.log.warn(format!("Setup Store: {script}: {}", e.message)),
     }
-    let path = GffPath::root().item("Creature List", w.creature);
+    let path = GffPath::root().item(w.list, w.creature);
     let set = |label: &str, value: Value| Edit::SetField {
         key: git,
         path: path.clone(),
@@ -292,7 +301,7 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
     };
     edits.push(set("Conversation", Value::resref(dialog)));
     if w.hostile && w.use_faction {
-        edits.push(set("FactionID", Value::Dword(w.faction)));
+        edits.push(set(faction_field(w.list), Value::Dword(w.faction)));
     }
     let (list, _) = git_list(ResType::UTM).expect("stores have a list");
     edits.push(Edit::InsertItem {
@@ -303,4 +312,67 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
         item: placed,
     });
     Ok(edits)
+}
+
+/// The Add Popup Text window's fields.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PopupText {
+    pub area: ResRef,
+    /// The placeable's index in the area's placeables.
+    pub placeable: usize,
+    pub text: String,
+    /// The conversation's name.
+    pub name: String,
+}
+
+pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(mut p) = app.popup_text.take() else { return };
+    let (mut ok, mut close) = (false, false);
+    let name = ResRef::from_str(p.name.trim()).ok().filter(|r| *r != ResRef::EMPTY);
+    let exists = name.is_some_and(|r| {
+        app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(r, ResType::DLG)))
+    });
+    egui::Window::new("Add Popup Text").collapsible(false).resizable(false).show(ctx, |ui| {
+        ui.label("Popup Text");
+        ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(4));
+        ui.label("Conversation File");
+        ui.add(egui::TextEdit::singleline(&mut p.name).char_limit(16));
+        if exists {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                "A conversation of that name is replaced.",
+            );
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            let ready = name.is_some() && !p.text.trim().is_empty();
+            ok = ui
+                .add_enabled(ready, egui::Button::new("OK"))
+                .on_hover_text("Accept changes")
+                .clicked();
+            close = ui.button("Cancel").on_hover_text("Discard changes").clicked();
+        });
+    });
+    if ok && let Some(name) = name {
+        let git = ResKey::new(p.area, ResType::GIT);
+        match store_setup::popup(&p.text).to_bytes() {
+            Ok(data) => {
+                let edits = vec![
+                    Edit::SetResource { key: ResKey::new(name, ResType::DLG), data: Some(data) },
+                    Edit::SetField {
+                        key: git,
+                        path: GffPath::root().item("Placeable List", p.placeable),
+                        label: "Conversation".into(),
+                        value: Some(Value::resref(name)),
+                    },
+                ];
+                app.actions.push(Action::Apply(Command::new("Add Popup Text", edits)));
+            }
+            Err(e) => app.log.error(format!("Add Popup Text: {e}")),
+        }
+        close = true;
+    }
+    if !close {
+        app.popup_text = Some(p);
+    }
 }

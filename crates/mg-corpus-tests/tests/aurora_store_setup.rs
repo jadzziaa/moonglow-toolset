@@ -3,7 +3,9 @@
 //! `store-setup/defaults.mod` (the defaults, the custom store `mgp_store`,
 //! the hostile bandit given the Merchant faction) and `second.mod` (no
 //! appraise checks, the standard store `nw_storethief001`). Moonglow's
-//! conversation, script, store instance and names must be Aurora's.
+//! conversation, script, store instance and names must be Aurora's. And
+//! Add Popup Text on a barrel (`store-setup/popup-text.mod`): the one-line
+//! conversation, which the barrel takes as its own.
 
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
@@ -11,7 +13,7 @@ use mg_module::Module;
 use mg_module::factions::Factions;
 use mg_module::instances::{Placing, instance};
 use mg_module::store_setup::{
-    GREETING, NO, YES, conversation, hostile, merchant, next_name, script, store_placement,
+    GREETING, NO, YES, conversation, hostile, merchant, next_name, popup, script, store_placement,
 };
 use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
@@ -108,4 +110,14 @@ fn store_setup_matches_aurora() {
             );
         }
     }
+}
+
+#[test]
+fn popup_text_matches_aurora() {
+    let capture = Module::open(&aurora_capture!("store-setup/popup-text.mod")).unwrap();
+    let ours = popup("Just an old barrel.");
+    assert_eq!(text(&ours.root), text(&gff(&capture, "mg_popup", ResType::DLG).root));
+    let git = gff(&capture, "field", ResType::GIT);
+    let barrel = &git.root.list("Placeable List").unwrap()[0];
+    assert_eq!(barrel.resref("Conversation"), Some(ResRef::from_str("mg_popup").unwrap()));
 }

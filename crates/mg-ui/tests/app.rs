@@ -3114,7 +3114,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
 
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    mg_ui::store_wizard::open(&mut app, area, 0);
+    mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 800.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -3147,4 +3147,58 @@ fn setup_store_makes_the_conversation_script_and_store() {
     let store = &g.root.list("StoreList").unwrap()[0];
     assert_eq!(store.resref("ResRef"), Some(ResRef::from_str("nw_storethief001").unwrap()));
     assert_eq!((store.float("XPosition"), store.float("YPosition")), (Some(5.0), Some(5.0)));
+}
+
+#[test]
+fn add_popup_text_gives_a_placeable_a_one_line_conversation() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(6);
+    let mut m = new_module(&game, "Barrel", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bp = game.resman.get(&ResKey::parse("x3_plc_barrel1", ResType::UTP).unwrap()).unwrap();
+    let bp = Gff::read(&bp).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let barrel = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+    let git = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    g.root.set("Placeable List", mg_gff::Value::List(vec![barrel]));
+    m.set_gff(git, &g).unwrap();
+    let path = mg_testkit::scratch_dir("ui-popup-text").join("barrel.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.popup_text = Some(mg_ui::store_wizard::PopupText {
+        area,
+        placeable: 0,
+        text: "Just an old barrel.".into(),
+        name: "mg_popup".into(),
+    });
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(h.state().popup_text.is_none());
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let dlg = ws.doc(&ResKey::parse("mg_popup", ResType::DLG).unwrap()).unwrap().root.clone();
+    assert_eq!(dlg.list("EntryList").map(<[_]>::len), Some(1));
+    assert_eq!(dlg.list("ReplyList").map(<[_]>::len), Some(0));
+    let g = ws.doc(&git).unwrap();
+    let barrel = &g.root.list("Placeable List").unwrap()[0];
+    assert_eq!(barrel.resref("Conversation"), Some(ResRef::from_str("mg_popup").unwrap()));
 }

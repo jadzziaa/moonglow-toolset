@@ -4,6 +4,9 @@
 //! it, the store placed where the shopkeeper stands, and the shopkeeper's
 //! conversation and, if its faction is hostile, a friendlier faction.
 //! Captured from Aurora (`store-setup/defaults.mod`, `second.mod`).
+//!
+//! Also Add Popup Text (a placeable's context menu): a conversation of one
+//! line, which the placeable then speaks when used (`popup-text.mod`).
 
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
@@ -60,6 +63,15 @@ pub fn conversation(greeting: &str, yes: &str, no: &str, open: ResRef) -> Gff {
         replies[opens as usize].set("Script", Value::resref(open));
     }
     debug_assert_eq!(nodes(&g, Kind::Reply).len(), 2);
+    g
+}
+
+/// Add Popup Text's conversation: the one line, no replies.
+pub fn popup(text: &str) -> Gff {
+    let mut g = new_dialog();
+    g.root.set("EndConversation", Value::resref(ResRef::EMPTY));
+    g.root.set("EndConverAbort", Value::resref(ResRef::EMPTY));
+    add_node(&mut g, Parent::Root, text);
     g
 }
 

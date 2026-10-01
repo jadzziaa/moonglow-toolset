@@ -182,6 +182,8 @@ pub struct Moonglow {
     pub build: Option<build_view::BuildWindow>,
     /// Setup Store (a creature's context menu).
     pub store_wizard: Option<store_wizard::StoreWizard>,
+    /// Add Popup Text (a placeable's context menu).
+    pub popup_text: Option<store_wizard::PopupText>,
     /// The area whose Area Statistics window is open.
     pub area_stats: Option<mg_core::ResRef>,
     /// The Resize Area window, while it is open.
@@ -274,6 +276,7 @@ impl Moonglow {
             area_stats: None,
             build: None,
             store_wizard: None,
+            popup_text: None,
             resize_area: None,
             rotate_area: None,
             palette: Default::default(),
@@ -364,6 +367,7 @@ impl Moonglow {
         area_view::stats_window(self, ui.ctx());
         build_view::window(self, ui.ctx());
         store_wizard::window(self, ui.ctx());
+        store_wizard::popup_window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
