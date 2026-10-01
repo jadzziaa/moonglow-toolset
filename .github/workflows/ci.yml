@@ -1,8 +1,16 @@
 name: CI
 
+# Not for documentation alone, but for the manual (built into the app).
 on:
   push:
+    paths: ["**", "!docs/**", "!**.md", "docs/manual/**"]
   pull_request:
+    paths: ["**", "!docs/**", "!**.md", "docs/manual/**"]
+
+# A newer push to the same branch cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
