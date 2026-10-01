@@ -25,6 +25,7 @@ mg-preview.workspace = true
 mg-render.workspace = true
 mg-resman.workspace = true
 mg-rules.workspace = true
+mg-ssf.workspace = true
 mg-schema.workspace = true
 mg-script.workspace = true
 mg-set.workspace = true

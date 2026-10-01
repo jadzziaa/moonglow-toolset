@@ -3913,3 +3913,20 @@ fn the_area_view_plays_the_area_s_sounds() {
     h.run_steps(2);
     assert!(speaker.borrow().channels.is_empty(), "{:?}", speaker.borrow().channels);
 }
+
+#[test]
+fn a_creature_s_sound_set_plays_a_sample() {
+    use mg_ui::audio::{Channel, Silence};
+    let Some((mut h, _)) = blueprint_harness("nw_bandit001", "bandit_voice", ResType::UTC) else {
+        return;
+    };
+    let speaker = std::rc::Rc::new(std::cell::RefCell::new(Silence::default()));
+    h.state_mut().speaker = Box::new(speaker.clone());
+    h.run();
+    h.get_by_label("Advanced").click();
+    h.run();
+    h.get_by_label("▶").click();
+    h.run();
+    let played = speaker.borrow().channels.get(&Channel::Preview).cloned();
+    assert!(played.is_some(), "{:?}", h.state().log.entries);
+}

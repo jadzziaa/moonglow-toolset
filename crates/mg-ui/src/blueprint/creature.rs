@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use egui::Ui;
-use mg_core::ResType;
+use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
@@ -646,7 +646,16 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             f.choice(ui, "Perception range", "PerceptionRange", &ranges, FieldType::Byte);
             ui.end_row();
             ui.label("Sound Set");
-            f.choice(ui, "Sound set", "SoundSetFile", &sounds, FieldType::Word);
+            ui.horizontal(|ui| {
+                f.choice(ui, "Sound set", "SoundSetFile", &sounds, FieldType::Word);
+                // Aurora's sound set list plays a sample when clicked.
+                let set = f.root.integer("SoundSetFile").unwrap_or(-1);
+                if ui.small_button("▶").on_hover_text("Play a sample of the sound set").clicked()
+                    && let Some(name) = sound_set_sample(f.app, set)
+                {
+                    f.app.play_sound(crate::audio::Channel::Preview, name, 1.0, false);
+                }
+            });
             ui.end_row();
             ui.label("Subrace");
             f.text(ui, "Subrace", "Subrace", 32);
@@ -690,4 +699,19 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui.end_row();
         });
     });
+}
+
+/// A sound set's sample (soundset.2da `RESREF`'s soundset file): its
+/// Selected sound, else its first.
+fn sound_set_sample(app: &crate::Moonglow, set: i64) -> Option<ResRef> {
+    let game = app.game.as_ref()?;
+    let name = game.table("soundset").ok()?.get(usize::try_from(set).ok()?, "RESREF")?.to_string();
+    let data = game.resman.get_named(&name, mg_core::ResType::SSF).ok()?;
+    let ssf = mg_ssf::Ssf::read(&data).ok()?;
+    // SSF entry 21 is Selected.
+    let sound = |e: &mg_ssf::SsfEntry| {
+        let s = String::from_utf8_lossy(&e.sound).trim_end_matches('\0').to_string();
+        ResRef::from_str(&s).ok().filter(|r| !r.is_empty())
+    };
+    ssf.entries.get(21).and_then(sound).or_else(|| ssf.entries.iter().find_map(sound))
 }

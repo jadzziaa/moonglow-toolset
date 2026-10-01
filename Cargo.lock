@@ -1965,6 +1965,7 @@ dependencies = [
  "mg-schema",
  "mg-script",
  "mg-set",
+ "mg-ssf",
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",
