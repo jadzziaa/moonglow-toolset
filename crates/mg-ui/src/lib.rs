@@ -1018,8 +1018,9 @@ impl Moonglow {
     }
 
     /// Options › General's warnings for a resource a command adds to the
-    /// module (scripts, conversations, blueprints): a hak has it too (the
-    /// game uses the hak's), or it replaces one of the game's own.
+    /// module (scripts, conversations, blueprints): a blueprint in
+    /// BioWare's reserved names, a hak has it too (the game uses the
+    /// hak's), or it replaces one of the game's own.
     fn warn_shadowing(&mut self, cmd: &Command) {
         let (Some(ws), Some(game)) = (&self.ws, &self.game) else { return };
         let mut warnings = Vec::new();
@@ -1041,6 +1042,18 @@ impl Moonglow {
             );
             if !named || ws.module.contains(key) {
                 continue;
+            }
+            // BioWare's own blueprint names (nw_, x0_ to x3_).
+            let name = key.resref.to_lowercase().to_string();
+            let reserved = ["nw_", "x0_", "x1_", "x2_", "x3_"].iter().any(|p| name.starts_with(p));
+            if !self.settings.no_namespace_warning
+                && key.restype != ResType::NSS
+                && key.restype != ResType::DLG
+                && reserved
+            {
+                warnings.push(format!(
+                    "{key}: blueprint names starting nw_, x0_, x1_, x2_ or x3_ are BioWare's"
+                ));
             }
             let in_layers = |hak: bool| {
                 game.resman.layers().iter().any(|l| {

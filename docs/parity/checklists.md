@@ -71,8 +71,8 @@ unless given otherwise.
 | General: Build module on save; Minimize Toolset on test module | the same | ✅ [build_on_save_opens_the_results_when_something_is_wrong]; minimizing is the window manager's (not tested) |
 | General: Create backups of modules (on by default: the module as it was kept as `<name>.BackupMod`, Aurora's name) | the same | ✅ [saving_keeps_the_module_as_it_was_as_a_backup] |
 | General: welcome dialog at startup; colour depth and character set warnings; always open module directories | Moonglow's Welcome tab is its start page, not a dialog; the warnings are about Windows display settings; Moonglow opens module folders and archives alike | — |
-| General: resource in hak and standard resource overwrite warnings | in the log when a command adds a script, conversation or blueprint a hak also has (the hak's wins) or the game has; each can be turned off | ✅ [a_script_named_as_the_game_s_own_is_warned_about] |
-| General: reserved resref namespace, creature spells and inventory warnings; environment mapping | not yet | ✗ |
+| General: reserved resref namespace, resource in hak and standard resource overwrite warnings | in the log when a command adds a blueprint named nw_, x0_ to x3_, or a script, conversation or blueprint a hak also has (the hak's wins) or the game has; each can be turned off | ✅ [a_script_named_as_the_game_s_own_is_warned_about] |
+| General: creature spells and inventory warnings; environment mapping | not yet (Moonglow's spell and inventory pages only offer what fits) | ✗ |
 | Area: background colour, encounter spawn point markers, door orientation arrows, undo levels | not yet (undo is unlimited) | ✗ |
 | Conversation Editor: Show speaker name before text, player and NPC text colours | the same | ✅ [conversation_lines_without_speaker_names_when_chosen] |
 | Conversation Editor: popup for a new text entry, paste and drag link modes, automatic backup | not yet (Moonglow edits a new line's text in place, and saves undoably) | ✗ |
