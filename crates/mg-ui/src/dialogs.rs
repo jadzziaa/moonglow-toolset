@@ -13,6 +13,8 @@ pub enum FileKind {
     Any,
     /// A script set: `.ini`.
     ScriptSet,
+    /// A class spell list: `.ini`.
+    SpellList,
 }
 
 impl FileKind {
@@ -26,6 +28,8 @@ impl FileKind {
             (FileKind::Any, true) => "Save As",
             (FileKind::ScriptSet, false) => "Load Script Set",
             (FileKind::ScriptSet, true) => "Save Script Set",
+            (FileKind::SpellList, false) => "Load Class Spell List",
+            (FileKind::SpellList, true) => "Save Class Spell List",
         }
     }
 
@@ -37,6 +41,7 @@ impl FileKind {
             (FileKind::Erf, _) => Some(("Exported resources", &["erf"])),
             (FileKind::Any, _) => None,
             (FileKind::ScriptSet, _) => Some(("Script sets", &["ini"])),
+            (FileKind::SpellList, _) => Some(("Spell lists", &["ini"])),
         }
     }
 }

@@ -7,11 +7,13 @@ use mg_core::ResRef;
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_module::palette::BlueprintKind;
+use mg_module::script_set::ListedSpell;
 use mg_resman::ResKey;
 use mg_rules::{ChoiceColumns, GameData};
 
 use super::{Form, inventory};
 use crate::Action;
+use crate::dialogs::FileKind;
 use crate::widgets::commit_number;
 
 /// Struct ids of the creature's list entries (as the toolset writes them).
@@ -155,8 +157,15 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         }
     });
     ui.data_mut(|d| d.insert_temp(id, (which, level)));
+    let (mut clear, mut save, mut load) = (false, false, false);
+    ui.horizontal(|ui| {
+        clear = ui.button("Clear Class Spell List").clicked();
+        save = ui.button("Save Class Spell List").clicked();
+        load = ui.button("Load Class Spell List").clicked();
+    });
     let (index, class, _, prepares) = casters[which].clone();
     let spells = class_spells(game, class);
+    let innate = game.table("spells").ok();
     let prefix = if prepares { "MemorizedList" } else { "KnownList" };
     let entries = |l: usize| -> Vec<i64> {
         class_list[index]
@@ -213,6 +222,89 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
             },
         );
     });
+    // Clear, Save and Load Class Spell List: the class's lists as a whole.
+    let held: Vec<(usize, ListedSpell)> = (0..=9)
+        .flat_map(|l| {
+            class_list[index].list(&format!("{prefix}{l}")).unwrap_or(&[]).iter().map(move |s| {
+                let n = |label: &str| s.integer(label).unwrap_or(0).max(0);
+                (
+                    l,
+                    ListedSpell {
+                        spell: n("Spell").min(i64::from(u16::MAX)) as u16,
+                        flags: n("SpellFlags").min(255) as u8,
+                        metamagic: n("SpellMetaMagic").min(255) as u8,
+                    },
+                )
+            })
+        })
+        .collect();
+    let cleared = || -> Vec<Edit> {
+        (0..=9)
+            .flat_map(|l| {
+                let list = format!("{prefix}{l}");
+                let n = class_list[index].list(&list).map_or(0, <[_]>::len);
+                let path = path.clone();
+                (0..n).rev().map(move |i| remove(key, path.clone(), &list, i))
+            })
+            .collect()
+    };
+    if clear {
+        apply(f, "Clear class spell list", cleared());
+        return;
+    }
+    if save
+        && let Some(file) =
+            f.app.dialogs.save_file(FileKind::SpellList, Some(std::path::Path::new("spells.ini")))
+    {
+        let list: Vec<ListedSpell> = held.iter().map(|(_, s)| *s).collect();
+        let text = mg_module::script_set::write_spells(class as u32, &list);
+        if let Err(e) = std::fs::write(&file, text) {
+            f.app.log.error(format!("{}: {e}", file.display()));
+        }
+    }
+    if load {
+        let start = f.app.install.as_ref().map(|i| i.root.join("data").join("scr"));
+        let Some(file) = f.app.dialogs.open_file(FileKind::SpellList, start.as_deref()) else {
+            return;
+        };
+        let text = match std::fs::read(&file) {
+            Ok(b) => crate::text::decode(&b),
+            Err(e) => {
+                f.app.log.error(format!("{}: {e}", file.display()));
+                return;
+            }
+        };
+        let Some(listed) = mg_module::script_set::read_spells(&text, class as u32) else {
+            f.app.log.warn(format!("{}: no spell list for this class", file.display()));
+            return;
+        };
+        // Each spell at its level for the class (a prepared one raised by
+        // its metamagic), replacing the class's lists.
+        let mut edits = cleared();
+        let mut counts = [0usize; 10];
+        for s in listed {
+            let base = spells.iter().find(|(row, _, _)| *row == usize::from(s.spell)).map(|x| x.2);
+            let base = base.or_else(|| {
+                let t = innate.as_ref()?;
+                t.get_int(usize::from(s.spell), "Innate").map(|l| l.clamp(0, 9) as usize)
+            });
+            let Some(base) = base else {
+                f.app.log.warn(format!("{}: spell {} skipped", file.display(), s.spell));
+                continue;
+            };
+            let extra =
+                if prepares { mg_module::script_set::metamagic_levels(s.metamagic) } else { 0 };
+            let l = (base + extra as usize).min(9);
+            let mut item = Struct::new(SPELL_ID);
+            item.set("Spell", Value::Word(s.spell));
+            item.set("SpellFlags", Value::Byte(s.flags));
+            item.set("SpellMetaMagic", Value::Byte(s.metamagic));
+            edits.push(insert(key, path.clone(), &format!("{prefix}{l}"), counts[l], item));
+            counts[l] += 1;
+        }
+        apply(f, "Load class spell list", edits);
+        return;
+    }
     if let Some((spell, l, delta)) = change {
         let list = format!("{prefix}{l}");
         let current = &lists[l];

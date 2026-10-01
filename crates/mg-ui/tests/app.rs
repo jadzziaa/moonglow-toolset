@@ -2946,3 +2946,45 @@ fn script_sets_save_and_load() {
     h.run();
     assert_eq!(field(&mut h, &key).resref("ScriptSpawn"), Some(spawn));
 }
+
+#[test]
+fn class_spell_lists_save_clear_and_load() {
+    let Some((mut h, key)) = blueprint_harness("db_tanarukk_do", "sorc_lists", ResType::UTC) else {
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-spell-list");
+    let path = dir.join("sorcerer.ini");
+    let known = |h: &mut Harness<'_, Moonglow>| -> Vec<Vec<i64>> {
+        let classes = field(h, &key).list("ClassList").unwrap().to_vec();
+        let sorcerer = classes.iter().find(|c| c.integer("Class") == Some(9)).unwrap().clone();
+        (0..=9)
+            .map(|l| {
+                sorcerer
+                    .list(&format!("KnownList{l}"))
+                    .unwrap_or(&[])
+                    .iter()
+                    .filter_map(|s| s.integer("Spell"))
+                    .collect()
+            })
+            .collect()
+    };
+    h.run();
+    h.get_by_label("Spells").click();
+    h.run();
+    let before = known(&mut h);
+    assert!(before.iter().any(|l| !l.is_empty()), "the sorcerer knows spells");
+    h.state_mut().dialogs =
+        Box::new(mg_ui::NoDialogs { save: vec![path.clone()], ..Default::default() });
+    h.get_by_label("Save Class Spell List").click();
+    h.run();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.starts_with("[Spells9]\r\nSpell000="), "{text}");
+    h.get_by_label("Clear Class Spell List").click();
+    h.run();
+    assert!(known(&mut h).iter().all(Vec::is_empty));
+    h.state_mut().dialogs =
+        Box::new(mg_ui::NoDialogs { open: vec![path.clone()], ..Default::default() });
+    h.get_by_label("Load Class Spell List").click();
+    h.run();
+    assert_eq!(known(&mut h), before, "each spell back at its level");
+}
