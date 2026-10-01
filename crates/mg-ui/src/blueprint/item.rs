@@ -232,6 +232,31 @@ fn model_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
     v
 }
 
+/// The numbers `nnn` for which an inventory icon `i{prefix}{nnn:03}` exists
+/// (TGA, DDS or PLT), cached: what Aurora offers simple and layered items
+/// ("the icon determines availability", nwn.wiki's baseitems.2da).
+fn icon_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
+    let id = egui::Id::new(("icon-numbers", prefix));
+    if let Some(v) = ui.data(|d| d.get_temp::<Arc<Vec<u16>>>(id)) {
+        return v;
+    }
+    let icon = format!("i{prefix}");
+    let mut v: Vec<u16> = [ResType::TGA, ResType::DDS, ResType::PLT]
+        .into_iter()
+        .flat_map(|t| game.resman.list(t))
+        .filter_map(|r| {
+            let name = r.to_string();
+            let rest = name.strip_prefix(&icon)?;
+            (rest.len() == 3).then(|| rest.parse().ok()).flatten()
+        })
+        .collect();
+    v.sort_unstable();
+    v.dedup();
+    let v = Arc::new(v);
+    ui.data_mut(|d| d.insert_temp(id, v.clone()));
+    v
+}
+
 /// Sets a model or body part number: the BYTE field and its EE twin.
 fn set_part(f: &mut Form<'_>, what: &str, labels: &[&str], v: i64) {
     let mut fields = Vec::new();
@@ -307,10 +332,62 @@ fn colors(f: &mut Form<'_>, ui: &mut Ui) {
     });
 }
 
+/// The item with another model number (and its EE twin).
+fn with_model(item: &Struct, label: &str, n: u16) -> Struct {
+    let mut s = item.clone();
+    s.set(label, Value::Byte(n.min(255) as u8));
+    if s.get(&wide_label(label)).is_some() {
+        s.set(&wide_label(label), Value::Word(n));
+    }
+    s
+}
+
+/// An item's icon layers (the game lent to the page).
+fn icon(f: &mut Form<'_>, ui: &Ui, game: &GameData, item: &Struct) -> Vec<crate::images::Picture> {
+    let mut loader =
+        crate::images::Loader { pictures: &mut f.app.pictures, ws: f.app.ws.as_ref(), game };
+    loader.item_icon(ui.ctx(), item)
+}
+
+/// Aurora's icon grid: the icon of each model number, a click chooses it.
+fn icon_grid(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, numbers: &[u16]) {
+    let current = part_number(&f.root, "ModelPart1").unwrap_or(0);
+    let mut chosen = None;
+    egui::ScrollArea::vertical().max_height(220.0).id_salt(("uti-icons", f.key)).show(ui, |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for &n in numbers {
+                let item = with_model(&f.root, "ModelPart1", n);
+                let layers = icon(f, ui, game, &item);
+                let r = crate::images::stacked(ui, &layers, 1.0, &format!("Appearance {n}"))
+                    .on_hover_text(format!("Appearance {n}"));
+                if i64::from(n) == current {
+                    let stroke = ui.visuals().selection.stroke;
+                    ui.painter().rect_stroke(
+                        r.rect.expand(1.0),
+                        2.0,
+                        stroke,
+                        egui::StrokeKind::Outside,
+                    );
+                }
+                if r.clicked() {
+                    chosen = Some(n);
+                }
+            }
+        });
+    });
+    if let Some(n) = chosen.filter(|&n| i64::from(n) != current) {
+        set_part(f, "Appearance", &["ModelPart1"], i64::from(n));
+    }
+}
+
 fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let Ok(t) = game.table("baseitems") else { return };
     let row = base_row(f);
     let class = t.get(row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
+    // The item's inventory icon, as it is now.
+    let root = f.root.clone();
+    let layers = icon(f, ui, game, &root);
+    crate::images::stacked(ui, &layers, 1.5, "Icon");
     match t.get_int(row, "ModelType").unwrap_or(0) {
         // Composite: bottom, middle, top, each a shape and a colour (the
         // number's tens and units).
@@ -436,10 +513,23 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                         .unwrap_or_default();
                     part_choice(f, ui, "Appearance", &["ModelPart1"], &rows, |n| n.to_string());
                 } else {
-                    let numbers = model_numbers(ui, game, &prefix);
+                    let numbers = icon_numbers(ui, game, &prefix);
                     part_choice(f, ui, "Appearance", &["ModelPart1"], &numbers, |n| n.to_string());
                 }
             });
+            let numbers: Vec<u16> = if prefix.is_empty() {
+                game.table("cloakmodel")
+                    .map(|t| {
+                        (0..t.len())
+                            .filter(|&r| t.get(r, "LABEL").is_some())
+                            .map(|r| r as u16)
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            } else {
+                icon_numbers(ui, game, &prefix).to_vec()
+            };
+            icon_grid(f, ui, game, &numbers);
             if kind == 1 {
                 ui.separator();
                 colors(f, ui);

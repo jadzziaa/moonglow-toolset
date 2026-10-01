@@ -333,12 +333,22 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
                 ui.colored_label(ui.visuals().error_fg_color, format!("{key}: not found"));
                 return;
             };
-            egui::Grid::new("preview-fields").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                for (label, value) in summary(app, key.restype, &gff.root) {
-                    ui.label(label);
-                    ui.add(egui::Label::new(value).truncate());
-                    ui.end_row();
+            ui.horizontal_top(|ui| {
+                // Items also in 2D: the inventory icon.
+                if key.restype == ResType::UTI {
+                    let layers = app.item_icon(ui.ctx(), &gff.root);
+                    crate::images::stacked(ui, &layers, 1.0, "Item icon");
                 }
+                egui::Grid::new("preview-fields").num_columns(2).spacing([12.0, 4.0]).show(
+                    ui,
+                    |ui| {
+                        for (label, value) in summary(app, key.restype, &gff.root) {
+                            ui.label(label);
+                            ui.add(egui::Label::new(value).truncate());
+                            ui.end_row();
+                        }
+                    },
+                );
             });
             if crate::model_view::previewable(key.restype) {
                 ui.separator();

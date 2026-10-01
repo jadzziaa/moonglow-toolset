@@ -145,7 +145,7 @@ pub struct Moonglow {
     /// its speakers.
     pub speaker: Box<dyn audio::Speaker>,
     /// Game images decoded for the UI, by lowercase name.
-    pictures: HashMap<String, Option<images::Picture>>,
+    pictures: images::Pictures,
     /// The area's sounds (Options › Sounds), and the area view heard this
     /// frame.
     area_audio: area_audio::AreaAudio,

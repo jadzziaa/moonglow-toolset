@@ -2378,6 +2378,10 @@ fn preview_window_shows_the_chosen_blueprint() {
     h.run_steps(3);
     h.get_by_label("plc_chest1");
     assert!(h.state().model_views.contains_key(&chest), "the 3D view");
+    // An item: also its inventory icon.
+    h.state_mut().palette.selected = ResKey::parse("nw_wswls001", ResType::UTI);
+    h.run_steps(3);
+    h.get_by_label("Item icon");
 }
 
 #[test]
@@ -4014,5 +4018,44 @@ fn portraits_are_chosen_from_their_pictures() {
     h.run();
     if let Ok(img) = h.render() {
         let _ = img.save(mg_testkit::scratch_dir("ui-portraits").join("select.png"));
+    }
+}
+
+#[test]
+fn items_show_their_icons_and_choose_appearances_by_icon() {
+    let Some((mut h, key)) = blueprint_harness("nw_it_gem001", "gem_icons", ResType::UTI) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Appearance").click();
+    h.run();
+    h.get_by_label("Icon");
+    if let Ok(img) = h.render() {
+        let _ = img.save(mg_testkit::scratch_dir("ui-item-icons").join("gem.png"));
+    }
+    // The grid offers each model by its icon; a click takes it.
+    let before = field(&mut h, &key).integer("ModelPart1").unwrap();
+    let other = h
+        .get_all_by_label_contains("Appearance ")
+        .filter_map(|n| n.accesskit_node().label().map(|l| l.to_string()))
+        .find(|l| l != &format!("Appearance {before}"))
+        .expect("another appearance");
+    h.get_by_label(&other).click();
+    h.run();
+    let n: i64 = other.trim_start_matches("Appearance ").parse().unwrap();
+    assert_eq!(field(&mut h, &key).integer("ModelPart1"), Some(n));
+    // A look at a weapon's and an armor's icons.
+    let dir = mg_testkit::scratch_dir("ui-item-icons");
+    for (bp, name) in [("nw_wswls001", "sword"), ("nw_aarcl001", "armor"), ("nw_arhe001", "helm")] {
+        let Some((mut h, _)) = blueprint_harness(bp, &format!("icon_{name}"), ResType::UTI) else {
+            return;
+        };
+        h.run();
+        h.get_by_label("Appearance").click();
+        h.run();
+        h.get_by_label("Icon");
+        if let Ok(img) = h.render() {
+            let _ = img.save(dir.join(format!("{name}.png")));
+        }
     }
 }
