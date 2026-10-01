@@ -99,6 +99,10 @@ fn finish(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>) -> VertexOut {
     let p = frame.view * (draw.world * vec4<f32>(pos, 1.0));
     out.pos_view = p.xyz;
     out.clip = frame.proj * p;
+    // The sky: at the far plane, behind everything and never cut off by it.
+    if (draw.extra.y > 0.5) {
+        out.clip.z = out.clip.w * 0.99999;
+    }
     out.normal_view = (draw.normal_matrix * vec4<f32>(normal, 0.0)).xyz;
     out.uv = uv;
     return out;

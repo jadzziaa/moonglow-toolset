@@ -691,7 +691,14 @@ impl Renderer {
         let mut draws: Vec<Draw> = Vec::new();
         let mut bones: Vec<[[f32; 4]; 4]> = Vec::new();
         let mut dynamic: Vec<Vertex> = Vec::new();
-        for inst in &scene.instances {
+        // The sky first, around the camera.
+        let sky = scene.sky.as_ref().map(|s| crate::Instance {
+            transform: Mat4::from_translation(camera.eye) * s.transform,
+            ..s.clone()
+        });
+        for (inst, is_sky) in
+            sky.iter().map(|s| (s, true)).chain(scene.instances.iter().map(|i| (i, false)))
+        {
             let rest = &inst.model.rest;
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
             for (j, mesh) in inst.model.meshes.iter().enumerate() {
@@ -802,7 +809,8 @@ impl Renderer {
                             discard,
                             if env_mapped { 1.0 } else { 0.0 },
                             if tex.is_some() { 1.0 } else { 0.0 },
-                            if decal { 1.0 } else { 0.0 },
+                            // The sky is unlit too.
+                            if decal || is_sky { 1.0 } else { 0.0 },
                         ],
                         material: [
                             slots.specularity,
@@ -820,7 +828,7 @@ impl Renderer {
                         spec_color: slots
                             .specular_color
                             .map_or([0.0; 4], |c| c.extend(1.0).to_array()),
-                        extra: [flag(env_cube), 0.0, 0.0, 0.0],
+                        extra: [flag(env_cube), flag(is_sky), 0.0, 0.0],
                         light_count: [
                             chosen.len() as u32,
                             u32::from(mesh.skin.is_some()),

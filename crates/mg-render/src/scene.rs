@@ -163,6 +163,9 @@ pub struct Scene {
     /// The area's environment map (the tileset's `EnvMap`), for textures
     /// asking for `default`; `chrome1` when `None`.
     pub env_map: Option<String>,
+    /// The skybox: drawn around the camera (its transform taken from the
+    /// camera's position), behind everything, unlit and without fog.
+    pub sky: Option<Instance>,
 }
 
 /// A perspective camera.

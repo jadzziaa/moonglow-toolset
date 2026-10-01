@@ -91,7 +91,9 @@ pub struct AreaScene {
     tile_cache: HashMap<String, Option<Arc<Loaded>>>,
     object_cache: HashMap<String, Option<Arc<Shown>>>,
     flame: Option<Option<Loaded>>,
-    sky: Option<Arc<GpuModel>>,
+    /// The skybox's day and night models, and its skyboxes.2da row.
+    sky: [Option<Arc<GpuModel>>; 2],
+    sky_box: Option<u32>,
     /// lightcolor.2da colours by row.
     colors: Vec<Vec3>,
     /// Models named by tiles or previews that could not be loaded.
@@ -128,18 +130,33 @@ impl AreaScene {
         let mut scene = AreaScene { colors: light_colors(game), ..Default::default() };
         scene.update(gpu, game, area);
         let models = Models { game, cache: RefCell::new(HashMap::new()) };
-        scene.sky = area
-            .lighting
-            .sky_model(game, false)
-            .and_then(|m| models.load(&m))
-            .map(|m| Arc::new(GpuModel::new(gpu, m)));
+        scene.load_sky(gpu, &models, game, area);
         scene
     }
 
     /// Follows `area` after an edit: loads the models of tiles and objects
     /// not seen before.
+    /// Loads the skybox's day and night models (skyboxes.2da), unless it
+    /// is the one loaded.
+    fn load_sky(&mut self, gpu: &Gpu, models: &Models<'_>, game: &GameData, area: &AreaModel) {
+        if self.sky_box == Some(area.lighting.sky_box) {
+            return;
+        }
+        self.sky_box = Some(area.lighting.sky_box);
+        self.sky = [false, true].map(|night| {
+            area.lighting
+                .sky_model(game, night)
+                .and_then(|m| models.load(&m))
+                .map(|m| Arc::new(GpuModel::new(gpu, m)))
+        });
+    }
+
     pub fn update(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel) {
         let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        // A skybox chosen anew (Area Properties).
+        if self.sky_box.is_some() {
+            self.load_sky(gpu, &models, game, area);
+        }
         let load = |name: &str| models.load(name);
         let loaded = |name: &str| -> Option<Loaded> {
             let model = load(name)?;
@@ -234,6 +251,9 @@ impl AreaScene {
             background,
             particles: Vec::new(),
             env_map: l.env_map.clone(),
+            sky: self.sky[usize::from(view.night)]
+                .clone()
+                .map(|m| Instance::new(m, glam::Mat4::IDENTITY)),
         }
     }
 
@@ -305,7 +325,7 @@ impl AreaScene {
 
     /// Whether the area has a skybox model loaded.
     pub fn has_sky(&self) -> bool {
-        self.sky.is_some()
+        self.sky.iter().any(Option::is_some)
     }
 
     /// What the loaded models use (Area Statistics): distinct tile and

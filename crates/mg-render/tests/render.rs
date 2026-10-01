@@ -704,3 +704,37 @@ fn environment_maps_reflect() {
         }
     }
 }
+
+#[test]
+fn the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    // A white plane 500 m below the camera (five times its far plane),
+    // the sky; a quad at the origin in front of it; fog everything red past
+    // a metre.
+    let sky = Instance::new(
+        model.clone(),
+        Mat4::from_translation(Vec3::new(0.0, 0.0, -500.0)) * Mat4::from_scale(Vec3::splat(2000.0)),
+    );
+    let scene = Scene {
+        instances: vec![Instance::new(model, Mat4::IDENTITY)],
+        area: AreaLight { ambient: Vec3::splat(0.2), diffuse: Vec3::ZERO, direction: Vec3::Z },
+        fog: Some(mg_render::Fog { start: 0.0, end: 1.0, color: Vec3::new(1.0, 0.0, 0.0) }),
+        sky: Some(sky),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -2.0, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+    // Around the quad: the sky, white (unlit, not fogged).
+    assert_eq!(img.pixel(0, 0), [255, 255, 255, 255]);
+    // The quad, in front of it: fogged red.
+    let px = img.pixel(32, 32);
+    assert!(px[0] > 200 && px[1] < 60 && px[2] < 60, "{px:?}");
+}

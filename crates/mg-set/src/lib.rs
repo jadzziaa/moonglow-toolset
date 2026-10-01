@@ -39,9 +39,11 @@ pub struct General {
 }
 
 /// `[GRASS]`: grass drawn on tiles' grass faces.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Grass {
     pub enabled: bool,
+    /// `GrassTextureName` (the game's default: `grass`).
+    pub texture: Option<String>,
     pub density: f32,
     pub height: f32,
     pub ambient: [f32; 3],
@@ -179,6 +181,7 @@ impl Tileset {
             };
             Grass {
                 enabled: flag(s, "Grass"),
+                texture: s.get("GrassTextureName").map(str::to_string).filter(|t| !t.is_empty()),
                 density: s.float("Density").unwrap_or(0.0),
                 height: s.float("Height").unwrap_or(0.0),
                 ambient: rgb("Ambient"),
@@ -342,7 +345,7 @@ mod tests {
     use super::*;
 
     const SAMPLE: &str = "[GENERAL]\nName=TST01\nInterior=0\nHasHeightTransition=1\nTransition=5\nDisplayName=1606\nBorder=Grass\nDefault=Grass\nFloor=Grass\n\
-[GRASS]\nGrass=1\nDensity=5.0\nAmbientRed=0.5\n\
+[GRASS]\nGrass=1\nGrassTextureName=tst_grass\nDensity=5.0\nAmbientRed=0.5\n\
 [TERRAIN TYPES]\nCount=2\n[TERRAIN0]\nName=Grass\nStrRef=1\n[TERRAIN1]\nName=Water\n\
 [CROSSER TYPES]\nCount=1\n[CROSSER0]\nName=Road\n\
 [PRIMARY RULES]\nCount=1\n[PRIMARY RULE0]\nPlaced=Water\nPlacedHeight=0\nAdjacent=Grass\nAdjacentHeight=1\nChanged=Grass\nChangedHeight=0\n\
@@ -359,6 +362,7 @@ mod tests {
         assert_eq!(t.general.display_name, StrRef(1606));
         assert!(t.grass.enabled);
         assert_eq!(t.grass.ambient, [0.5, 0.0, 0.0]);
+        assert_eq!(t.grass.texture.as_deref(), Some("tst_grass"));
         assert_eq!(t.terrain("water"), Some(1));
         assert_eq!(t.terrains[1].strref, StrRef::NONE);
         assert_eq!(t.primary_rules[0].adjacent_height, 1);
