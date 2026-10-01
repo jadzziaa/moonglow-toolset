@@ -3,8 +3,10 @@
 # target/dist/, for Apple silicon and Intel Macs (one universal binary).
 # Run on macOS with both Rust targets installed:
 #   rustup target add aarch64-apple-darwin x86_64-apple-darwin
-# The app is signed ad hoc; to pass Gatekeeper without a right-click > Open,
-# sign it with a Developer ID (CODESIGN_IDENTITY) and notarize the dmg.
+# The app is signed ad hoc, so Gatekeeper refuses its first start until the
+# user allows it (System Settings > Privacy & Security > Open Anyway); to
+# pass Gatekeeper, sign it with a Developer ID (CODESIGN_IDENTITY) and
+# notarize the dmg.
 set -eu
 cd "$(dirname "$0")/../.."
 VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)

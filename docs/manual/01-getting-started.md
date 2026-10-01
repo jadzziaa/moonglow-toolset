@@ -25,8 +25,11 @@
   without administrator rights (or for all users, if you choose), adds a
   Start menu entry and, if you tick it, opens `.mod` files with Moonglow.
 - **macOS**: open the disk image and drag **Moonglow Toolset** into
-  Applications. The first time, right-click the app and choose **Open**
-  (the app is not notarized by Apple).
+  Applications. The app is not notarized by Apple, so macOS refuses to
+  open it the first time: then open **System Settings › Privacy &
+  Security** and choose **Open Anyway** beside the message about Moonglow
+  Toolset (on macOS 14 and older, right-click the app and choose
+  **Open**).
 
 ## The first start
 

@@ -95,8 +95,10 @@ packaging/macos/build-app.sh
 
 Writes `target/dist/Moonglow Toolset.app` (a universal binary for Apple
 silicon and Intel, macOS 11 or later) and
-`target/dist/Moonglow-<version>-macos.dmg`. The app is signed ad hoc: the
-first start needs right-click › Open. For a Gatekeeper-clean release, sign
+`target/dist/Moonglow-<version>-macos.dmg`. The app is signed ad hoc, so
+Gatekeeper refuses its first start: the user allows it in System Settings ›
+Privacy & Security › Open Anyway (right-click › Open no longer does it
+since macOS 15). For a Gatekeeper-clean release, sign
 with a Developer ID (`CODESIGN_IDENTITY="Developer ID Application: ..."`)
 and notarize the disk image (`xcrun notarytool submit --wait`, then
 `xcrun stapler staple`). Opening a module by double-clicking it in the
