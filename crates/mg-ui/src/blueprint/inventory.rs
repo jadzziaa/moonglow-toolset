@@ -167,25 +167,36 @@ pub(super) fn flag_box(
     flag: &'static str,
 ) -> Option<(&'static str, Edit)> {
     let mut on = item.integer(flag).unwrap_or(0) != 0;
-    if !ui.checkbox(&mut on, "").on_hover_text(flag).changed() {
+    if !ui.checkbox(&mut on, flag).changed() {
         return None;
     }
     let value = on.then_some(Value::Byte(1));
     Some((flag, Edit::SetField { key, path, label: flag.into(), value }))
 }
 
+/// How an item list shows its items.
+pub(super) struct ItemLook<'a> {
+    /// Each item's icon layers.
+    pub icons: &'a [Vec<Picture>],
+    pub name: &'a dyn Fn(&Struct) -> String,
+    /// A store's Infinite column.
+    pub infinite: bool,
+    /// The selected item (a creature's, for its options).
+    pub selected: Option<usize>,
+}
+
+/// The items with their Remove buttons: the edits, and the item clicked.
 pub(super) fn item_list(
     ui: &mut Ui,
     key: ResKey,
     path: &GffPath,
     items: &[Struct],
-    icons: &[Vec<Picture>],
-    name: &dyn Fn(&Struct) -> String,
-    infinite: bool,
-    flags: &[&'static str],
-) -> Vec<(&'static str, Edit)> {
+    look: ItemLook<'_>,
+) -> (Vec<(&'static str, Edit)>, Option<usize>) {
+    let ItemLook { icons, name, infinite, selected } = look;
+    let mut clicked = None;
     let mut edits = Vec::new();
-    let columns = if infinite { 4 } else { 3 } + flags.len();
+    let columns = if infinite { 4 } else { 3 };
     egui::ScrollArea::vertical().id_salt(("items", key, path.to_string())).max_height(400.0).show(
         ui,
         |ui| {
@@ -198,16 +209,19 @@ pub(super) fn item_list(
                     if infinite {
                         ui.strong("Infinite");
                     }
-                    for flag in flags {
-                        ui.strong(*flag);
-                    }
                     ui.label("");
                     ui.end_row();
                     for (i, it) in items.iter().enumerate() {
                         let resref = entry_resref(it);
                         let n = name(it);
                         crate::images::icon_row(ui, icons.get(i).map_or(&[][..], |v| v), &n);
-                        ui.label(&n).on_hover_text(resref.to_string());
+                        if ui
+                            .selectable_label(selected == Some(i), &n)
+                            .on_hover_text(resref.to_string())
+                            .clicked()
+                        {
+                            clicked = Some(i);
+                        }
                         if infinite {
                             let mut on = it.integer("Infinite").unwrap_or(0) != 0;
                             if ui.checkbox(&mut on, "").changed() {
@@ -220,11 +234,6 @@ pub(super) fn item_list(
                                         value: Some(Value::Byte(u8::from(on))),
                                     },
                                 ));
-                            }
-                        }
-                        for &flag in flags {
-                            if let Some(e) = flag_box(ui, key, path.item("ItemList", i), it, flag) {
-                                edits.push(e);
                             }
                         }
                         if ui.small_button("Remove").clicked() {
@@ -243,7 +252,7 @@ pub(super) fn item_list(
                 });
         },
     );
-    edits
+    (edits, clicked)
 }
 
 #[cfg(test)]

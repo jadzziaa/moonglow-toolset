@@ -4125,15 +4125,22 @@ fn creature_items_can_be_dropable_and_pickpocketable() {
         field(h, &key).list("Equip_ItemList").unwrap()[0].integer(label)
     };
     assert_eq!(flag(&mut h, "Dropable"), None, "unset, as the game's blueprints leave it");
-    // The first checkboxes are the armor's (the helmet slot is empty).
-    let tick = |h: &mut Harness<'_, Moonglow>, n: usize| {
-        h.get_all_by_role(egui::accesskit::Role::CheckBox).nth(n).unwrap().click();
-        h.run();
-    };
-    tick(&mut h, 0);
+    h.get_by_label_contains("Selected Item: none");
+    // Select the armor (its name, not its icon), as in Aurora's inventory.
+    let image = egui::accesskit::Role::Image;
+    h.get_all_by_label("Padded Armor")
+        .find(|n| n.accesskit_node().role() != image)
+        .unwrap()
+        .click();
+    h.run();
+    h.get_by_label("Selected Item: Padded Armor");
+    h.get_by_label("Dropable").click();
+    h.run();
     assert_eq!(flag(&mut h, "Dropable"), Some(1));
-    tick(&mut h, 0);
+    h.get_by_label("Dropable").click();
+    h.run();
     assert_eq!(flag(&mut h, "Dropable"), None, "cleared: left out again");
-    tick(&mut h, 1);
+    h.get_by_label("Pickpocketable").click();
+    h.run();
     assert_eq!(flag(&mut h, "Pickpocketable"), Some(1));
 }

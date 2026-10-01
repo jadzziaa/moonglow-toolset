@@ -204,7 +204,9 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         let items = items.to_vec();
         let icons: Vec<_> = items.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
         let name = |it: &Struct| f.entry_name(it, &names);
-        edits = inventory::item_list(ui, key, &path, &items, &icons, &name, true, &[]);
+        let look =
+            inventory::ItemLook { icons: &icons, name: &name, infinite: true, selected: None };
+        edits = inventory::item_list(ui, key, &path, &items, look).0;
     });
     if let Some(r) = add {
         shown = add_item(f, r);

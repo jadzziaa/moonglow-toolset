@@ -548,6 +548,9 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let name_of = |r: ResRef| names.get(&r).cloned().unwrap_or_else(|| r.to_string());
     let (mut add, mut chosen, mut equip) = (None, None, None);
     let mut edits: Vec<(&str, Edit)> = Vec::new();
+    let item_id = egui::Id::new(("utc-selected-item", key, base.clone()));
+    let chosen_item: Option<(&'static str, usize)> = ui.data(|d| d.get_temp(item_id));
+    let mut pick_item = None;
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(280.0);
@@ -555,70 +558,85 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             chosen = f.palette_chosen(ui, BlueprintKind::Item);
         });
         ui.separator();
-        ui.vertical(|ui| {
-            ui.strong("Equipment");
-            let icons: Vec<_> = equipped.iter().map(|e| f.entry_icon(ui.ctx(), e)).collect();
-            egui::Grid::new(("utc-equip", key)).num_columns(7).striped(true).show(ui, |ui| {
-                for head in ["", "", "", "Dropable", "Pickpocketable"] {
-                    ui.strong(head);
-                }
-                ui.end_row();
-                for (bit, slot) in SLOTS {
-                    ui.label(slot);
-                    let at = equipped.iter().position(|s| s.id == bit);
-                    let shown =
-                        at.map_or_else(|| "—".to_string(), |i| f.entry_name(&equipped[i], &names));
-                    let icon = at.map_or(&[][..], |i| &icons[i][..]);
-                    crate::images::icon_row(ui, icon, &shown);
-                    ui.label(shown);
-                    // Dropable, Pickpocketable (Aurora's Selected Item options).
-                    for flag in ITEM_FLAGS {
-                        match at {
-                            Some(i) => {
-                                let path = base.clone().item("Equip_ItemList", i);
-                                if let Some(e) =
-                                    inventory::flag_box(ui, key, path, &equipped[i], flag)
-                                {
-                                    edits.push(e);
+        egui::ScrollArea::vertical().id_salt(("utc-inventory", key)).show(ui, |ui| {
+            ui.vertical(|ui| {
+                // Aurora's Options: the selected item's Dropable and Pickpocketable.
+                ui.strong("Options");
+                let entry = chosen_item.and_then(|(list, i)| {
+                    let items = if list == "ItemList" { &backpack } else { &equipped };
+                    items.get(i).map(|e| (list, i, e))
+                });
+                match entry {
+                    Some((list, i, e)) => {
+                        ui.label(format!("Selected Item: {}", f.entry_name(e, &names)));
+                        ui.horizontal(|ui| {
+                            for flag in ITEM_FLAGS {
+                                let path = base.clone().item(list, i);
+                                if let Some(edit) = inventory::flag_box(ui, key, path, e, flag) {
+                                    edits.push(edit);
                                 }
                             }
-                            None => {
-                                ui.label("");
-                            }
+                        });
+                    }
+                    None => {
+                        ui.weak("Selected Item: none (click an item)");
+                    }
+                }
+                ui.separator();
+                ui.strong("Equipment");
+                let icons: Vec<_> = equipped.iter().map(|e| f.entry_icon(ui.ctx(), e)).collect();
+                egui::Grid::new(("utc-equip", key)).num_columns(5).striped(true).show(ui, |ui| {
+                    for (bit, slot) in SLOTS {
+                        ui.label(slot);
+                        let at = equipped.iter().position(|s| s.id == bit);
+                        let shown = at.map_or_else(
+                            || "—".to_string(),
+                            |i| f.entry_name(&equipped[i], &names),
+                        );
+                        let icon = at.map_or(&[][..], |i| &icons[i][..]);
+                        crate::images::icon_row(ui, icon, &shown);
+                        let on = at.is_some() && at.map(|i| ("Equip_ItemList", i)) == chosen_item;
+                        if ui.selectable_label(on, shown).clicked()
+                            && let Some(i) = at
+                        {
+                            pick_item = Some(("Equip_ItemList", i));
                         }
+                        if ui
+                            .add_enabled(chosen.is_some(), egui::Button::new("Equip").small())
+                            .on_hover_text("Equip the item chosen in the palette")
+                            .clicked()
+                        {
+                            equip = Some(bit);
+                        }
+                        if ui
+                            .add_enabled(at.is_some(), egui::Button::new("Remove").small())
+                            .clicked()
+                            && let Some(i) = at
+                        {
+                            edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
+                        }
+                        ui.end_row();
                     }
-                    if ui
-                        .add_enabled(chosen.is_some(), egui::Button::new("Equip").small())
-                        .on_hover_text("Equip the item chosen in the palette")
-                        .clicked()
-                    {
-                        equip = Some(bit);
-                    }
-                    if ui.add_enabled(at.is_some(), egui::Button::new("Remove").small()).clicked()
-                        && let Some(i) = at
-                    {
-                        edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
-                    }
-                    ui.end_row();
+                });
+                ui.separator();
+                ui.strong("Backpack");
+                let path = base.clone();
+                let icons: Vec<_> = backpack.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
+                let name = |it: &Struct| f.entry_name(it, &names);
+                let selected = chosen_item.filter(|c| c.0 == "ItemList").map(|c| c.1);
+                let look =
+                    inventory::ItemLook { icons: &icons, name: &name, infinite: false, selected };
+                let (more, clicked) = inventory::item_list(ui, key, &path, &backpack, look);
+                edits.extend(more);
+                if let Some(i) = clicked {
+                    pick_item = Some(("ItemList", i));
                 }
             });
-            ui.separator();
-            ui.strong("Backpack");
-            let path = base.clone();
-            let icons: Vec<_> = backpack.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
-            let name = |it: &Struct| f.entry_name(it, &names);
-            edits.extend(inventory::item_list(
-                ui,
-                key,
-                &path,
-                &backpack,
-                &icons,
-                &name,
-                false,
-                &ITEM_FLAGS,
-            ));
         });
     });
+    if let Some(p) = pick_item {
+        ui.data_mut(|d| d.insert_temp(item_id, p));
+    }
     // An item that needs a feat the creature lacks: Aurora asks whether to
     // add the first (and does not equip it otherwise).
     let ask = egui::Id::new(("utc-equip-feat", key, base.clone()));

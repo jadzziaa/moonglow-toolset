@@ -139,7 +139,9 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         let ctx = cols[1].ctx().clone();
         let icons: Vec<_> = items.iter().map(|it| f.entry_icon(&ctx, it)).collect();
         let name = |it: &Struct| f.entry_name(it, &names);
-        edits = inventory::item_list(&mut cols[1], key, &base, &items, &icons, &name, false, &[]);
+        let look =
+            inventory::ItemLook { icons: &icons, name: &name, infinite: false, selected: None };
+        edits = inventory::item_list(&mut cols[1], key, &base, &items, look).0;
     });
     if let Some(r) = add {
         let item = f.inventory_item(&items, r);
