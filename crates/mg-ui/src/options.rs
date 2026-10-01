@@ -49,6 +49,8 @@ pub struct OptionsDraft {
     pub edit_language: Option<u32>,
     pub area_background: Option<[u8; 3]>,
     pub spawn_markers: bool,
+    /// Height and Width, tenths of a metre.
+    pub spawn_marker_size: (u8, u8),
     pub door_arrows: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
     pub dialog_pc_color: Option<[u8; 3]>,
@@ -95,6 +97,7 @@ impl OptionsDraft {
             edit_language: s.edit_language,
             area_background: s.area_background,
             spawn_markers: !s.no_spawn_markers,
+            spawn_marker_size: s.spawn_marker_size.unwrap_or(crate::area_view::SPAWN_MARKER),
             door_arrows: !s.no_door_arrows,
             dialog_npc_color: s.dialog_npc_color,
             dialog_pc_color: s.dialog_pc_color,
@@ -132,6 +135,8 @@ impl OptionsDraft {
             edit_language: self.edit_language,
             area_background: self.area_background,
             no_spawn_markers: !self.spawn_markers,
+            spawn_marker_size: (self.spawn_marker_size != crate::area_view::SPAWN_MARKER)
+                .then_some(self.spawn_marker_size),
             no_door_arrows: !self.door_arrows,
             dialog_npc_color: self.dialog_npc_color,
             dialog_pc_color: self.dialog_pc_color,
@@ -293,6 +298,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             }
                         });
                         ui.checkbox(&mut draft.spawn_markers, "Show Encounter Spawnpoint Markers");
+                        ui.add_enabled_ui(draft.spawn_markers, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Height");
+                                ui.add(
+                                    egui::DragValue::new(&mut draft.spawn_marker_size.0)
+                                        .range(0..=100),
+                                );
+                                ui.label("Width");
+                                ui.add(
+                                    egui::DragValue::new(&mut draft.spawn_marker_size.1)
+                                        .range(0..=100),
+                                );
+                                ui.weak("(tenths of a metre)");
+                            });
+                        });
                         ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
                     }
                     OptionsPage::Language => {
@@ -545,6 +565,10 @@ mod tests {
         (d.spawn_markers, d.area_background) = (false, Some([192, 192, 192]));
         let t = d.apply(&s);
         assert!(t.no_spawn_markers && !t.no_door_arrows);
+        assert_eq!(d.spawn_marker_size, (12, 4), "Aurora's Height and Width");
+        let mut d = OptionsDraft::from_settings(&t);
+        d.spawn_marker_size = (20, 6);
+        assert_eq!(d.apply(&t).spawn_marker_size, Some((20, 6)));
         assert_eq!(t.area_background, Some([192, 192, 192]));
     }
 

@@ -602,8 +602,10 @@ fn viewport(
     );
     view.rect = response.rect;
     let door_brush = brush(app).is_some_and(|k| k.restype == ResType::UTD);
+    let (height, width) = app.settings.spawn_marker_size.unwrap_or(SPAWN_MARKER);
     let marks = Marks {
-        spawn_points: !app.settings.no_spawn_markers,
+        spawn_points: (!app.settings.no_spawn_markers)
+            .then_some((f32::from(height) / 10.0, f32::from(width) / 10.0)),
         door_arrows: !app.settings.no_door_arrows,
     };
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
@@ -653,12 +655,14 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
 }
 
+/// Aurora's spawn point markers: Height 12 and Width 4 (tenths of a metre).
+pub(crate) const SPAWN_MARKER: (u8, u8) = (12, 4);
+
 /// What Options › Area adds over the view.
 #[derive(Clone, Copy)]
 struct Marks {
-    /// A post over each encounter spawn point (Aurora's: 1.2 m high, 0.4 m
-    /// wide; its Height 12 and Width 4).
-    spawn_points: bool,
+    /// A post over each encounter spawn point: its height and width (m).
+    spawn_points: Option<(f32, f32)>,
     /// An arrow along each door's facing.
     door_arrows: bool,
 }
@@ -714,12 +718,12 @@ fn overlays(
             for k in 0..n {
                 line(o.outline[k], o.outline[(k + 1) % n], stroke);
             }
-            if marks.spawn_points {
+            if let Some((height, width)) = marks.spawn_points {
                 for &p in &o.spawn_points {
-                    let top = p + Vec3::Z * 1.2;
+                    let (top, half) = (p + Vec3::Z * height, width / 2.0);
                     line(p, top, stroke);
-                    line(top - Vec3::X * 0.2, top + Vec3::X * 0.2, stroke);
-                    line(top - Vec3::Y * 0.2, top + Vec3::Y * 0.2, stroke);
+                    line(top - Vec3::X * half, top + Vec3::X * half, stroke);
+                    line(top - Vec3::Y * half, top + Vec3::Y * half, stroke);
                 }
             }
             continue;

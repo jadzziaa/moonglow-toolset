@@ -80,6 +80,9 @@ pub struct Settings {
     pub area_background: Option<[u8; 3]>,
     /// Options > Area: Show Encounter Spawnpoint Markers off (Aurora's
     /// default: on, height 12 and width 4).
+    /// Options > Area: the spawn point markers' Height and Width, in
+    /// tenths of a metre (`None`: Aurora's 12 and 4).
+    pub spawn_marker_size: Option<(u8, u8)>,
     pub no_spawn_markers: bool,
     /// Options > Area: Show Door Orientation Arrows off (Aurora's default:
     /// on).
