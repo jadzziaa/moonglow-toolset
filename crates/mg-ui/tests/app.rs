@@ -4558,3 +4558,94 @@ fn the_log_shrinks_to_one_line() {
     let room = status.top() - entry(&h).top();
     assert!(room < 2.0 * line + 12.0, "the log keeps {room} points (a line is {line})");
 }
+
+#[test]
+fn a_preview_follows_its_blueprint_s_editor() {
+    let root = mg_testkit::corpus!();
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let dir = mg_testkit::scratch_dir("ui-preview-live");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    // A human of parts, in the module, its preview open beside its editor.
+    let game = app.game.as_ref().unwrap();
+    let data = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap().into_owned();
+    let key = ResKey::parse("live_look", ResType::UTC).unwrap();
+    let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: label.into(),
+        value: Some(value),
+    };
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "copy",
+        vec![
+            mg_edit::Edit::SetResource { key, data: Some(data) },
+            set("Appearance_Type", mg_gff::Value::Word(6)),
+            set("Appearance_Head", mg_gff::Value::Byte(1)),
+        ],
+    )));
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    let head = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let p = h.state().model_views[&key].preview().expect("a preview");
+        p.parts.iter().map(|p| p.model.clone()).filter(|m| m.contains("_head")).collect()
+    };
+    assert_eq!(head(&h), ["pmh0_head001"]);
+    // The editor changes the head: the open preview shows the new one.
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Head",
+        vec![set("Appearance_Head", mg_gff::Value::Byte(3))],
+    )));
+    h.run_steps(4);
+    assert_eq!(head(&h), ["pmh0_head003"]);
+}
+
+#[test]
+fn blueprints_drag_from_the_palette_into_the_area() {
+    let Some((mut h, area)) = area_harness("drag-place") else { return };
+    // The standard Tavern waypoint, in the palette beside the area.
+    let tavern = h.state().game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    h.state_mut().palette.filter = "nw_wp_tavern".into();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    let count = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("WaypointList").map_or(0, <[mg_gff::Struct]>::len)
+    };
+    assert_eq!(count(&mut h), 2);
+    // Pressed on the palette entry, dragged over the area, let go there.
+    let from = h.get_by_label(&tavern).rect().center();
+    let to = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.0));
+    let modifiers = egui::Modifiers::NONE;
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    press(&h, from, true, modifiers);
+    h.run_steps(1);
+    for t in [0.1, 0.4, 0.7, 1.0] {
+        h.event(egui::Event::PointerMoved(from + (to - from) * t));
+        h.run_steps(1);
+    }
+    press(&h, to, false, modifiers);
+    h.run_steps(3);
+    assert_eq!(count(&mut h), 3, "{:?}", h.state().log.entries);
+    let (x, y, _) = waypoint(&mut h, area, 2).unwrap();
+    assert!((x - 25.0).abs() < 0.5 && (y - 25.0).abs() < 0.5, "dropped at {x}, {y}");
+}

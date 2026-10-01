@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
 use mg_core::ResType;
+use mg_edit::Workspace;
 use mg_gff::Gff;
 use mg_mdl::Model;
 use mg_preview::Preview;
@@ -69,6 +70,10 @@ pub struct ModelView {
     /// The base model with its attached parts (a blueprint's body parts,
     /// equipment, wings and tails).
     composed: Option<Composed>,
+    /// What the blueprint looked like when built, and the workspace revision
+    /// it was read at: an edit in its editor rebuilds the view.
+    preview: Option<Preview>,
+    revision: Option<u64>,
 }
 
 /// What a resource looks like: a model, or a blueprint's preview.
@@ -103,26 +108,58 @@ pub(crate) fn previewable(t: ResType) -> bool {
     matches!(t, ResType::MDL | ResType::UTC | ResType::UTI | ResType::UTP | ResType::UTD)
 }
 
+/// A preview's models on the GPU, from the module first, then the game.
+fn compose(app: &Moonglow, key: ResKey, preview: &Preview) -> Result<Composed, String> {
+    let vp = app.viewport.as_ref().ok_or("No GPU: the model viewer needs one.")?;
+    let game = app.game.as_ref().ok_or("No game data.")?;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        let k = ResKey::parse(name, ResType::MDL)?;
+        let data = app
+            .ws
+            .as_ref()
+            .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
+            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+        Model::read(&data).ok().map(Arc::new)
+    };
+    Composed::new(&vp.gpu, preview, &load)
+        .ok_or_else(|| format!("{key}: model {} not found or not readable", preview.base.model))
+}
+
 impl ModelView {
+    /// Builds it again if the blueprint now looks different (its editor
+    /// changed it), keeping the camera, and the animation where the new
+    /// model has it.
+    fn refresh(&mut self, app: &mut Moonglow, key: ResKey) {
+        let revision = app.ws.as_ref().map(Workspace::revision);
+        if key.restype == ResType::MDL || revision == self.revision {
+            return;
+        }
+        self.revision = revision;
+        // The editors' working copies, which the preview reads.
+        if let Some(ws) = app.ws.as_mut() {
+            let _ = ws.flush();
+        }
+        let Ok(preview) = preview_of(app, key) else { return };
+        if self.preview.as_ref() == Some(&preview) {
+            return;
+        }
+        let composed = compose(app, key, &preview);
+        self.model = composed.as_ref().map(|c| c.base().clone()).map_err(Clone::clone);
+        let composed = composed.ok();
+        let animations = composed.as_ref().map(Composed::animations).unwrap_or_default();
+        if self.animation.as_ref().is_some_and(|a| !animations.contains(a)) {
+            self.animation = composed.as_ref().and_then(|c| c.idle.clone());
+        }
+        self.composed = composed;
+        self.preview = Some(preview);
+        self.supermodels = RefCell::new(HashMap::new());
+        (self.particles, self.dangly) = (None, None);
+        self.chunk_models.clear();
+    }
+
     fn open(app: &Moonglow, key: ResKey) -> ModelView {
-        let composed = (|| {
-            let vp = app.viewport.as_ref().ok_or("No GPU: the model viewer needs one.")?;
-            let game = app.game.as_ref().ok_or("No game data.")?;
-            let preview = preview_of(app, key)?;
-            // Models from the module first, then the game.
-            let load = |name: &str| -> Option<Arc<Model>> {
-                let k = ResKey::parse(name, ResType::MDL)?;
-                let data = app
-                    .ws
-                    .as_ref()
-                    .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
-                    .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-                Model::read(&data).ok().map(Arc::new)
-            };
-            Composed::new(&vp.gpu, &preview, &load).ok_or_else(|| {
-                format!("{key}: model {} not found or not readable", preview.base.model)
-            })
-        })();
+        let preview = preview_of(app, key);
+        let composed = preview.clone().and_then(|p| compose(app, key, &p));
         let model = composed.as_ref().map(|c| c.base().clone()).map_err(Clone::clone);
         let animation = composed
             .as_ref()
@@ -147,9 +184,16 @@ impl ModelView {
             dangly: None,
             chunk_models: HashMap::new(),
             composed,
+            preview: preview.ok(),
+            revision: app.ws.as_ref().map(Workspace::revision),
         };
         view.frame();
         view
+    }
+
+    /// What it shows of a blueprint (none for a model).
+    pub fn preview(&self) -> Option<&Preview> {
+        self.preview.as_ref()
     }
 
     /// Fits the camera to the model's rest pose.
@@ -210,10 +254,15 @@ fn load_super(
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
     if !app.model_views.contains_key(&key) {
+        // The editors' working copies, which the preview reads.
+        if let Some(ws) = app.ws.as_mut() {
+            let _ = ws.flush();
+        }
         let view = ModelView::open(app, key);
         app.model_views.insert(key, view);
     }
     let mut view = app.model_views.remove(&key).expect("just inserted");
+    view.refresh(app, key);
     let model = match &view.model {
         Ok(m) => m.clone(),
         Err(e) => {

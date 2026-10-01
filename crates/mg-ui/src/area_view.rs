@@ -888,6 +888,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
     camera_input(ui, view, response, shift, command);
+    if let Some(dragged) = response.dnd_release_payload::<crate::palette_view::Dragged>() {
+        drop_blueprint(app, view, response, dragged.0);
+        return;
+    }
     if crate::terrain_mode::input(app, ui, view, response) {
         return;
     }
@@ -1226,6 +1230,28 @@ fn boxed(view: &AreaView, rect: Rect) -> Vec<(ObjectKind, usize)> {
         .collect()
 }
 
+/// A blueprint dragged from the palette and dropped on the view: placed
+/// where it was dropped (a door on the nearest door hook); a trigger or
+/// encounter begins its outline there, to be drawn on with clicks.
+fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Response, key: ResKey) {
+    let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
+    // (A widget being dragged leaves the view unhovered: the pointer's place.)
+    let pointer = response.ctx.input(|i| i.pointer.latest_pos());
+    let Some(at) = pointer.and_then(|pos| view.ground_at(pos, 0.0)) else { return };
+    if kind.has_outline() {
+        app.palette.selected = Some(key);
+        view.outline = vec![at];
+        app.log.info("Click the outline's corners; double-click to close it");
+    } else if kind == ObjectKind::Door {
+        match view.model.as_ref().and_then(|m| m.hook_near(at, DOOR_REACH)).copied() {
+            Some(h) => place(app, view, key, h.position, h.bearing, &[]),
+            None => app.log.warn("Doors go on door hooks: drop it near one"),
+        }
+    } else {
+        place(app, view, key, at, 0.0, &[]);
+    }
+}
+
 /// The palette's chosen blueprint, if it is one to place.
 fn brush(app: &Moonglow) -> Option<ResKey> {
     app.palette.selected.filter(|k| ObjectKind::from_restype(k.restype).is_some())
@@ -1244,6 +1270,8 @@ fn place(
     use mg_module::instances::{OUTLINE_LIFT, Placement, Placing, instance};
     let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return };
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
+    // A custom blueprint (or item) as its editor has it, not as last saved.
+    let _ = ws.flush();
     let read = |k: ResKey| -> Option<mg_gff::Struct> {
         let data = ws
             .module

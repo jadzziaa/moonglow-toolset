@@ -17,6 +17,11 @@ use mg_resman::ResKey;
 
 use crate::{Action, Moonglow, Tab};
 
+/// A blueprint dragged from the palette (dropped in an area view, it is
+/// placed there).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Dragged(pub(crate) ResKey);
+
 /// The palette pane's state.
 #[derive(Debug)]
 pub struct PaletteView {
@@ -302,11 +307,18 @@ fn show_node(
                     Some(cr) => format!("{name}  (CR {cr})"),
                     None => name,
                 };
+                // Dragged into an area view, it is placed where it is dropped.
                 let r = ui
-                    .selectable_label(*selected == Some(key), label)
+                    .add(
+                        egui::Button::selectable(*selected == Some(key), label)
+                            .sense(egui::Sense::click_and_drag()),
+                    )
                     .on_hover_text(b.resref.to_string());
                 if r.clicked() {
                     *selected = Some(key);
+                }
+                if r.drag_started() {
+                    r.dnd_set_drag_payload(Dragged(key));
                 }
                 if r.double_clicked() {
                     picks.push(if custom { Pick::Edit(key) } else { Pick::Preview(key) });
