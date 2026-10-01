@@ -174,7 +174,7 @@ unless given otherwise.
 | Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
 | Update Instances (Advanced page of every blueprint dialog but the waypoint's) | the same: every placed instance in every area made again from the blueprint where it stands (a trigger's or encounter's outline and spawn points kept) | ◐ [update_instances_remakes_placed_sounds]; what Aurora keeps of an instance not yet checked |
 | Selecting a blueprint arms placement in the area | the same | ✅ [area_viewer_places_draws_boxes_and_turns] |
-| In-place rename of custom blueprints | not yet (names are edited in the blueprint editors) | ✗ |
+| In-place rename of custom blueprints | names are edited in the blueprint editors: in Aurora 89.8193.37 a second click on a custom palette entry opens an edit box, but nothing handles it (the trees have no OnEdited) and the name stays | — |
 
 ## Blueprint editors (object Properties dialogs)
 
