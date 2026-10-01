@@ -322,7 +322,7 @@ impl Renderer {
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
+                    format: DEPTH_FORMAT,
                     depth_write_enabled: Some(!sky && pass != Pass::Additive),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
@@ -390,7 +390,7 @@ impl Renderer {
                 },
                 primitive: wgpu::PrimitiveState::default(),
                 depth_stencil: Some(wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth32Float,
+                    format: DEPTH_FORMAT,
                     depth_write_enabled: Some(depth_write),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
@@ -627,7 +627,10 @@ impl Renderer {
     }
 
     /// Draws a scene into `target` (with a depth buffer of the same size
-    /// and sample count).
+    /// and sample count, [`DEPTH_FORMAT`]). The depth buffer keeps the
+    /// scene's depths (as `camera`'s view and projection put them), so a
+    /// caller can draw over the scene tested against it (overlays: a
+    /// walkmesh, a selection) in a pass that loads both.
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -1041,7 +1044,7 @@ impl Renderer {
                     view: depth,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Discard,
+                        store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
                 }),
@@ -1107,6 +1110,9 @@ impl Renderer {
     }
 }
 
+/// The depth buffer's format.
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+
 /// Offscreen colour (and, with MSAA, multisampled) and depth targets.
 #[derive(Debug)]
 pub struct Targets {
@@ -1151,13 +1157,8 @@ impl Targets {
             make("msaa", format, samples, wgpu::TextureUsages::RENDER_ATTACHMENT)
                 .create_view(&Default::default())
         });
-        let depth = make(
-            "depth",
-            wgpu::TextureFormat::Depth32Float,
-            samples,
-            wgpu::TextureUsages::RENDER_ATTACHMENT,
-        )
-        .create_view(&Default::default());
+        let depth = make("depth", DEPTH_FORMAT, samples, wgpu::TextureUsages::RENDER_ATTACHMENT)
+            .create_view(&Default::default());
         let color_view = color.create_view(&Default::default());
         Targets { color, color_view, msaa_view, depth, size: (width, height) }
     }

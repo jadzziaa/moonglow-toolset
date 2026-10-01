@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
 use mg_mdl::{Face, Mesh, Model, Node, NodeKind};
-use mg_render::{AreaLight, Camera, Gpu, GpuModel, Instance, NoAssets, Renderer, Scene};
+use mg_render::{
+    AreaLight, Camera, DEPTH_FORMAT, Gpu, GpuModel, Instance, NoAssets, Renderer, Scene, Targets,
+};
 
 fn gpu() -> Option<Gpu> {
     mg_testkit::gpu::hold();
@@ -738,4 +740,102 @@ fn the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged() {
     // The quad, in front of it: fogged red.
     let px = img.pixel(32, 32);
     assert!(px[0] > 200 && px[1] < 60 && px[2] < 60, "{px:?}");
+}
+
+/// The scene's depths stay in the depth buffer: what a caller draws after
+/// it, tested against them, is hidden where the scene is nearer.
+#[test]
+fn depth_is_kept_for_drawing_after_the_scene() {
+    let Some(gpu) = gpu() else { return };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let (size, samples) = (64, 4);
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let scene =
+        Scene { instances: vec![Instance::new(model, Mat4::IDENTITY)], ..Default::default() };
+    // From above: the quad fills the middle, at a depth of about 0.99.
+    let camera = Camera::orbit(Vec3::ZERO, 4.0, 0.0, 1.5);
+    let mut renderer = Renderer::new(&gpu, format, samples);
+    let targets = Targets::new(&gpu, format, samples, size, size);
+    renderer.render(
+        &gpu,
+        &NoAssets,
+        &scene,
+        &camera,
+        targets.render_view(),
+        targets.resolve_view(),
+        &targets.depth,
+        (size, size),
+    );
+    // Red over everything at depth 0.9999: behind the quad, before the
+    // cleared background.
+    let shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("after"),
+        source: wgpu::ShaderSource::Wgsl(
+            "@vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
+                let p = array(vec2(-1.0, -1.0), vec2(3.0, -1.0), vec2(-1.0, 3.0));
+                return vec4(p[i], 0.9999, 1.0);
+            }
+            @fragment fn fs() -> @location(0) vec4<f32> { return vec4(1.0, 0.0, 0.0, 1.0); }"
+                .into(),
+        ),
+    });
+    let pipeline = gpu.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("after"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: Default::default(),
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::LessEqual),
+            stencil: Default::default(),
+            bias: Default::default(),
+        }),
+        multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs"),
+            compilation_options: Default::default(),
+            targets: &[Some(format.into())],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("after"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: targets.render_view(),
+                resolve_target: targets.resolve_view(),
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &targets.depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            ..Default::default()
+        });
+        pass.set_pipeline(&pipeline);
+        pass.draw(0..3, 0..1);
+    }
+    gpu.queue.submit([encoder.finish()]);
+    let img = gpu.read_rgba(&targets.color);
+    let px = |x: u32, y: u32| {
+        let i = ((y * size + x) * 4) as usize;
+        [img.data[i], img.data[i + 1], img.data[i + 2]]
+    };
+    let red = [255, 0, 0];
+    assert_ne!(px(size / 2, size / 2), red, "the quad hides what is behind it");
+    assert_eq!(px(1, 1), red, "the background does not");
 }
