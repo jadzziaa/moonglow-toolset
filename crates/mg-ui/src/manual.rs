@@ -98,7 +98,7 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.add_space(6.0);
             ui.label(
                 "It includes Beamdog's NWScript compiler and is built with egui, wgpu, \
-                 symphonia, rodio and other open-source libraries; their licences are in \
+                 symphonia, rodio and other open-source libraries; their licenses are in \
                  THIRD-PARTY-LICENSES.txt, beside the program.",
             );
             ui.add_space(6.0);

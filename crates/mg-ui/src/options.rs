@@ -332,7 +332,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     egui::DragValue::new(&mut draft.spawn_marker_size.1)
                                         .range(0..=100),
                                 );
-                                ui.weak("(tenths of a metre)");
+                                ui.weak("(tenths of a meter)");
                             });
                         });
                         ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
@@ -583,7 +583,7 @@ mod tests {
         let s = Settings::default();
         let mut d = OptionsDraft::from_settings(&s);
         assert!(d.spawn_markers && d.door_arrows, "on by default, as in Aurora");
-        assert_eq!(d.area_background, None, "the fog colour by default");
+        assert_eq!(d.area_background, None, "the fog color by default");
         (d.spawn_markers, d.area_background) = (false, Some([192, 192, 192]));
         let t = d.apply(&s);
         assert!(t.no_spawn_markers && !t.no_door_arrows);

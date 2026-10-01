@@ -52,8 +52,8 @@ Shared parts:
 ### Creatures
 
 Basic (name, race, gender, portrait, appearance, faction, conversation),
-**Statistics** (abilities, saves, armour class, hit points, speed),
-**Appearance** (body parts, colours, wings, tail, the phenotype), **Classes**
+**Statistics** (abilities, saves, armor class, hit points, speed),
+**Appearance** (body parts, colors, wings, tail, the phenotype), **Classes**
 (classes and levels; **Levelup Wizard…** levels the creature up by the
 classes' packages), **Skills**, **Feats**, **Spells** (known or prepared by
 class and level), **Special Abilities**, **Inventory**, Scripts,
@@ -67,7 +67,7 @@ every change, as Aurora does on OK.
   for the spell level, or more spells than the class allows.
 - In the **Inventory**, equip items into the equipment slots and put
   others in the backpack, from the item palette. Equipping an item the
-  creature lacks the feat for (a weapon proficiency, an armour weight)
+  creature lacks the feat for (a weapon proficiency, an armor weight)
   asks whether to give it the feat. Items can be marked droppable,
   pickpocketable and infinite (merchants).
 - The **Creature Wizard** makes a creature from a race, classes and levels,
@@ -80,7 +80,7 @@ every change, as Aurora does on OK.
 
 **General** (name, base item, cost, charges, stack size, plot, stolen,
 cursed, identified; the base item's statistics), **Appearance** (by the
-base item: a model, three weapon parts, or the armour's parts and colours,
+base item: a model, three weapon parts, or the armor's parts and colors,
 with the inventory icon as the game shows it), **Properties** (the item
 properties its base item allows, with their parameters), Description,
 Comments. Moonglow recomputes the item's cost with every change, as the

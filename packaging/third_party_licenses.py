@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Writes the licences of the crates built into Moonglow's programs.
+"""Writes the licenses of the crates built into Moonglow's programs.
 
 Moonglow is GPL-3.0-only; the crates it is built from carry their own
-licences (MIT, Apache-2.0, MPL-2.0, ...), whose notices travel with the
+licenses (MIT, Apache-2.0, MPL-2.0, ...), whose notices travel with the
 binaries. This lists every crate the programs link (normal dependencies
-for one target, not build or dev ones) with its licence, followed by the
-licence files each ships, the same text printed once for all the crates
+for one target, not build or dev ones) with its license, followed by the
+license files each ships, the same text printed once for all the crates
 that share it.
 
     packaging/third_party_licenses.py [--target TRIPLE] > THIRD-PARTY-LICENSES.txt
@@ -19,12 +19,12 @@ import sys
 
 PROGRAMS = ["moonglow", "mg"]
 LICENSE_FILES = ("license", "licence", "copying", "notice", "unlicense", "copyright")
-# Folders with the licences of what a crate bundles (fonts, ...).
+# Folders with the licenses of what a crate bundles (fonts, ...).
 BUNDLED = ("fonts", "licenses", "licences")
 
 
 def licence_files(root):
-    """A crate's licence files, and those of what it bundles."""
+    """A crate's license files, and those of what it bundles."""
     found = []
     for d in [root] + [root / b for b in BUNDLED if (root / b).is_dir()]:
         for f in sorted(d.iterdir()):
@@ -61,11 +61,10 @@ def main():
 
     out = sys.stdout
     out.write("Moonglow Toolset is licensed under the GNU General Public License,\n"
-              "version 3 (LICENSE). It includes Beamdog's NWScript compiler\n"
-              "(GPL-3.0) with neverwinter.nim's C API over it (MIT, copyright\n"
-              "the neverwinter.nim authors, https://github.com/niv/neverwinter.nim).\n"
-              "It is built from these\n"
-              f"crates, under their own licences (target {target}):\n\n")
+              "version 3 (LICENSE). It includes Beamdog's NWScript compiler (GPL-3.0)\n"
+              "with neverwinter.nim's C API over it (MIT, copyright the neverwinter.nim\n"
+              "authors, https://github.com/niv/neverwinter.nim). It is built from these\n"
+              f"crates, under their own licenses (target {target}):\n\n")
     for p in crates:
         out.write(f"  {p['name']} {p['version']}: {p['license'] or p.get('license_file') or '?'}\n")
     texts = {}
@@ -75,13 +74,13 @@ def main():
         if p.get("license_file"):
             files.append(root / p["license_file"])
         if not files:
-            # Some crates are published without their licence file: name
-            # the licence and its holders; the licence's text is among the
+            # Some crates are published without their license file: name
+            # the license and its holders; the license's text is among the
             # others.
             authors = ", ".join(p.get("authors") or []) or "its authors"
-            text = (f"{p['name']} {p['version']} is published without its licence "
+            text = (f"{p['name']} {p['version']} is published without its license "
                     f"file. It is licensed under {p['license']}, copyright {authors}"
-                    f" ({p.get('repository') or 'crates.io'}); the licence texts are "
+                    f" ({p.get('repository') or 'crates.io'}); the license texts are "
                     "given in this file for other crates.")
             texts.setdefault(text, []).append(f"{p['name']} {p['version']}")
         for f in dict.fromkeys(files):

@@ -2,7 +2,7 @@
 
 Moonglow ships as an AppImage and a Flatpak on Linux, an installer on
 Windows and a disk image on macOS. Each package holds the GUI (`moonglow`),
-the command-line tools (`mg`), the licence, the third-party licence notices
+the command-line tools (`mg`), the license, the third-party license notices
 and the user manual (`docs/manual`). They are built with the `dist` Cargo
 profile (release with thin LTO; function names kept for crash reports).
 
@@ -17,7 +17,7 @@ artifacts.
 | `flatpak/` | The Flatpak manifest, `cargo_sources.py` and `build-flatpak.sh`. |
 | `windows/` | The Inno Setup script and `build-installer.ps1`. The executable's icon and version information come from `apps/moonglow/build.rs`. |
 | `macos/` | `Info.plist` and `build-app.sh`. |
-| `third_party_licenses.py` | Writes `THIRD-PARTY-LICENSES.txt`: every crate the programs are built from, its licence, and the licence texts. |
+| `third_party_licenses.py` | Writes `THIRD-PARTY-LICENSES.txt`: every crate the programs are built from, its license, and the license texts. |
 
 The application ID is `io.github.moonglow_toolset.Moonglow`
 (`io.github.moonglow-toolset.Moonglow` on macOS, where bundle IDs take no

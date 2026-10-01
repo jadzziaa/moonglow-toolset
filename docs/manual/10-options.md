@@ -41,14 +41,14 @@
 - **Generate Debug Information When Compiling Scripts** (`.ndb` files).
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
-- The editor's **font size** and syntax **colours**.
+- The editor's **font size** and syntax **colors**.
 
 ## Conversation Editor
 
 - **Show popup when creating a new text entry**: a new line asks for its
   text first.
 - **Show speaker name before text**, and the **NPC** and **Player** text
-  colours.
+  colors.
 - **Paste Link Options** and **Drag Link Options**: whether Paste As
   Link and Ctrl + drag link the source to the destination or the reverse.
 - **Automatically backup the conversation files** every … minutes.

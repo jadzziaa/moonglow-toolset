@@ -110,7 +110,7 @@ With **Select Tiles** on, a click selects a tile, Ctrl + click adds one,
 and a drag selects a box of them. **Delete** takes the selected tiles'
 crossers away. **Shift + right click** steps the tile under the pointer
 through the tiles that fit; a right click opens the tile menu with **Tile
-Properties**: the tiles' main and source light colours and their
+Properties**: the tiles' main and source light colors and their
 animation loops, as the tile's model has them (**Defaults** puts back the
 lighting scheme's). Ctrl+C and Ctrl+V copy and paste tiles.
 
@@ -126,8 +126,8 @@ Properties** on the viewer's toolbar:
 
 - **Basic**: name, tag, the tileset (fixed once made), the lighting
   scheme, the load screen, Variables.
-- **Visual**: day and night (or always one), the sun and moon colours,
-  fog colours and amounts, shadows, the skybox, lightning, rain and snow
+- **Visual**: day and night (or always one), the sun and moon colors,
+  fog colors and amounts, shadows, the skybox, lightning, rain and snow
   chances, as Aurora's Customize Environment sets them.
 - **Audio**: day and night ambient sounds and their volumes, music, battle
   music, the environment's sound effects.

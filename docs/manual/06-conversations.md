@@ -8,7 +8,7 @@ as Aurora's.
 
 The conversation is a tree under **Root**: the lines the NPC says (red,
 headed `[OWNER]` or the speaker's tag) and the player's replies (blue).
-A line shown in grey is a **link**: it stands for a line elsewhere in the
+A line shown in gray is a **link**: it stands for a line elsewhere in the
 tree, so branches can join and loop without copying text. Select a line
 to edit it below the tree: its **Speaker** (NPC lines: the conversation's
 owner, or a creature in the module by tag) and its **Text** (the **…**
