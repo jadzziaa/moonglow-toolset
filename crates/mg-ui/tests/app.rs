@@ -3697,6 +3697,12 @@ fn equipping_without_the_feat_asks_to_add_it() {
     h.run();
     assert_eq!(primary(&mut h).as_deref(), Some("nw_waxbt001"));
     assert_eq!(feats(&mut h), [45]);
+    // The slot shows the axe's icon.
+    let image = egui::accesskit::Role::Image;
+    assert!(h.get_all_by_label("Battleaxe").any(|n| n.accesskit_node().role() == image));
+    if let Ok(img) = h.render() {
+        let _ = img.save(mg_testkit::scratch_dir("ui-inventory-icons").join("inventory.png"));
+    }
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert!(feats(&mut h).is_empty());
@@ -4105,4 +4111,29 @@ fn sound_play_styles_set_aurora_s_fields_and_priority() {
     h.get_by_label("Plays everywhere in area").click();
     h.run();
     assert_eq!(int(&mut h, "Priority"), Some(19), "an area-wide single shot");
+}
+
+#[test]
+fn creature_items_can_be_dropable_and_pickpocketable() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_flags", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Inventory").click();
+    h.run();
+    let flag = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        field(h, &key).list("Equip_ItemList").unwrap()[0].integer(label)
+    };
+    assert_eq!(flag(&mut h, "Dropable"), None, "unset, as the game's blueprints leave it");
+    // The first checkboxes are the armor's (the helmet slot is empty).
+    let tick = |h: &mut Harness<'_, Moonglow>, n: usize| {
+        h.get_all_by_role(egui::accesskit::Role::CheckBox).nth(n).unwrap().click();
+        h.run();
+    };
+    tick(&mut h, 0);
+    assert_eq!(flag(&mut h, "Dropable"), Some(1));
+    tick(&mut h, 0);
+    assert_eq!(flag(&mut h, "Dropable"), None, "cleared: left out again");
+    tick(&mut h, 1);
+    assert_eq!(flag(&mut h, "Pickpocketable"), Some(1));
 }

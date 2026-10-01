@@ -136,8 +136,10 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let mut edits = Vec::new();
     ui.columns(2, |cols| {
         add = f.palette_picker(&mut cols[0], BlueprintKind::Item, "Add Item");
+        let ctx = cols[1].ctx().clone();
+        let icons: Vec<_> = items.iter().map(|it| f.entry_icon(&ctx, it)).collect();
         let name = |it: &Struct| f.entry_name(it, &names);
-        edits = inventory::item_list(&mut cols[1], key, &base, &items, &name, false);
+        edits = inventory::item_list(&mut cols[1], key, &base, &items, &icons, &name, false, &[]);
     });
     if let Some(r) = add {
         let item = f.inventory_item(&items, r);

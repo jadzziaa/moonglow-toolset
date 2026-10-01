@@ -201,8 +201,10 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         };
         let path = base.clone().item("StoreList", index);
         let items = pages[index].list("ItemList").unwrap_or(&[]);
+        let items = items.to_vec();
+        let icons: Vec<_> = items.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
         let name = |it: &Struct| f.entry_name(it, &names);
-        edits = inventory::item_list(ui, key, &path, items, &name, true);
+        edits = inventory::item_list(ui, key, &path, &items, &icons, &name, true, &[]);
     });
     if let Some(r) = add {
         shown = add_item(f, r);

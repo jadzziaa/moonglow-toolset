@@ -280,3 +280,15 @@ pub(crate) fn swatch(ui: &Ui, rect: egui::Rect, tones: &[egui::Color32; 4]) {
         ui.painter().rect_filled(r, 0.0, *c);
     }
 }
+
+/// An icon in a list row: its layers scaled to the row's height (32 points
+/// for one cell), else an empty space.
+pub(crate) fn icon_row(ui: &mut egui::Ui, layers: &[Picture], alt: &str) -> egui::Response {
+    match layers.first() {
+        Some(p) => {
+            let scale = (32.0 / p.size.y.max(1.0)).min(1.0);
+            stacked(ui, layers, scale, alt)
+        }
+        None => ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover()).1,
+    }
+}

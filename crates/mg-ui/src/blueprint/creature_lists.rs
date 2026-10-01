@@ -468,6 +468,9 @@ const SLOTS: [(u32, &str); 18] = [
     (0x2_0000, "Creature Hide"),
 ];
 
+/// A creature's items' flags (Aurora's Selected Item options).
+const ITEM_FLAGS: [&str; 2] = ["Dropable", "Pickpocketable"];
+
 /// The slots an item can go in (its base item's `EquipableSlots`).
 fn item_slots(f: &mut Form<'_>, resref: ResRef) -> u32 {
     let base = f.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
@@ -554,13 +557,36 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         ui.separator();
         ui.vertical(|ui| {
             ui.strong("Equipment");
-            egui::Grid::new(("utc-equip", key)).num_columns(4).striped(true).show(ui, |ui| {
+            let icons: Vec<_> = equipped.iter().map(|e| f.entry_icon(ui.ctx(), e)).collect();
+            egui::Grid::new(("utc-equip", key)).num_columns(7).striped(true).show(ui, |ui| {
+                for head in ["", "", "", "Dropable", "Pickpocketable"] {
+                    ui.strong(head);
+                }
+                ui.end_row();
                 for (bit, slot) in SLOTS {
                     ui.label(slot);
                     let at = equipped.iter().position(|s| s.id == bit);
                     let shown =
                         at.map_or_else(|| "—".to_string(), |i| f.entry_name(&equipped[i], &names));
+                    let icon = at.map_or(&[][..], |i| &icons[i][..]);
+                    crate::images::icon_row(ui, icon, &shown);
                     ui.label(shown);
+                    // Dropable, Pickpocketable (Aurora's Selected Item options).
+                    for flag in ITEM_FLAGS {
+                        match at {
+                            Some(i) => {
+                                let path = base.clone().item("Equip_ItemList", i);
+                                if let Some(e) =
+                                    inventory::flag_box(ui, key, path, &equipped[i], flag)
+                                {
+                                    edits.push(e);
+                                }
+                            }
+                            None => {
+                                ui.label("");
+                            }
+                        }
+                    }
                     if ui
                         .add_enabled(chosen.is_some(), egui::Button::new("Equip").small())
                         .on_hover_text("Equip the item chosen in the palette")
@@ -579,8 +605,18 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             ui.separator();
             ui.strong("Backpack");
             let path = base.clone();
+            let icons: Vec<_> = backpack.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
             let name = |it: &Struct| f.entry_name(it, &names);
-            edits.extend(inventory::item_list(ui, key, &path, &backpack, &name, false));
+            edits.extend(inventory::item_list(
+                ui,
+                key,
+                &path,
+                &backpack,
+                &icons,
+                &name,
+                false,
+                &ITEM_FLAGS,
+            ));
         });
     });
     // An item that needs a feat the creature lacks: Aurora asks whether to
