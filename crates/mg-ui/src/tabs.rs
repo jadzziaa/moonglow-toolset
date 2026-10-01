@@ -65,7 +65,7 @@ impl Tab {
         let (w, h) = match self {
             Tab::Script(_) | Tab::Manual | Tab::Resources | Tab::Resource(_) => (920.0, 700.0),
             Tab::Dialog(_) => (920.0, 660.0),
-            Tab::Model(_) | Tab::InstanceModel { .. } => (540.0, 640.0),
+            Tab::Model(_) | Tab::InstanceModel { .. } => (780.0, 680.0),
             Tab::Factions | Tab::Journal | Tab::Gff(_) => (780.0, 600.0),
             Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 580.0),
             _ => (820.0, 640.0),

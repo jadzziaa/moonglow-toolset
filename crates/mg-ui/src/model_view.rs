@@ -313,7 +313,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
 
     // Animations: the model's own, then its supermodels'.
     let anims = anim::animations(&model.model, &|n| load_super(app, &view.supermodels, n));
-    ui.horizontal(|ui| {
+    // Wrapping in a narrow window, so none of it is cut off.
+    ui.horizontal_wrapped(|ui| {
         ui.label(format!(
             "{}: {} nodes, {} meshes",
             model.model.name,
