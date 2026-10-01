@@ -164,8 +164,13 @@ pub struct Scene {
     /// asking for `default`; `chrome1` when `None`.
     pub env_map: Option<String>,
     /// The skybox: drawn around the camera (its transform taken from the
-    /// camera's position), behind everything, unlit and without fog.
+    /// camera's position, at ground level), behind everything, unlit and
+    /// without fog.
     pub sky: Option<Instance>,
+    /// The game's `skyfade1` over the sky's lower part, with the colour it
+    /// lays over it (gamma: the area's fog colour) as much as its texture
+    /// is white.
+    pub sky_fade: Option<(Instance, Vec3)>,
 }
 
 /// A perspective camera.

@@ -233,11 +233,22 @@ fn mean(img: &Rgba, r: [f32; 4]) -> [f32; 3] {
 
 /// The module: one area, lit as asked, the entry script.
 fn build_module(game: &GameData, dir: &Path, light: Lighting) -> (mg_module::Module, Gff) {
+    build_module_on(game, dir, light, "tic01", 0)
+}
+
+/// [`build_module`] on another tileset, with a skybox (skyboxes.2da row).
+fn build_module_on(
+    game: &GameData,
+    dir: &Path,
+    light: Lighting,
+    tileset: &str,
+    sky_box: u8,
+) -> (mg_module::Module, Gff) {
     let mut rng = fastrand::Rng::with_seed(11);
     let mut m = new_module(game, "MgScene", &mut rng).unwrap();
     let spec = AreaSpec {
         name: "Scene".into(),
-        tileset: ResRef::from_str("tic01").unwrap(),
+        tileset: ResRef::from_str(tileset).unwrap(),
         width: 4,
         height: 4,
     };
@@ -259,7 +270,7 @@ fn build_module(game: &GameData, dir: &Path, light: Lighting) -> (mg_module::Mod
         ("MoonShadows", 0),
         ("IsNight", 0),
         ("DayNightCycle", 0),
-        ("SkyBox", 0),
+        ("SkyBox", sky_box),
     ] {
         are.root.set(label, Value::Byte(v));
     }
@@ -701,4 +712,47 @@ fn fog_uniforms_match_the_client() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A rural field (ttr01) with its grass and the Grass_Clear skybox, as the
+/// client and Moonglow draw it, side by side for a look (written to the
+/// scratch directory: `client.png`, `moonglow.png`); no comparison.
+#[test]
+#[ignore]
+fn grass_and_sky_look() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let light = Lighting { ambient: 0x404040, diffuse: 0xB0B0B0, main_light: 0, only_tile: None };
+    let dir = scratch_dir("client_render_grass");
+    let (mut m, are) = build_module_on(&game, &dir, light, "ttr01", 1);
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let settings = SETTINGS
+        .replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2")
+        .replace(
+            "[graphics.skyboxes]\n\t\tenabled = false",
+            "[graphics.skyboxes]\n\t\tenabled = true",
+        );
+    assert!(settings.contains("mode = 2") && settings.contains("enabled = true"));
+    std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let git = m.gff(&git_key).unwrap().unwrap();
+    let tileset = mg_area::tileset(&game, ResRef::from_str("ttr01").unwrap()).ok();
+    let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let scene =
+        area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
+    let camera =
+        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+    save_png(&ours, &dir.join("moonglow.png"));
+    eprintln!("{}: client {}", dir.display(), client.is_some());
 }

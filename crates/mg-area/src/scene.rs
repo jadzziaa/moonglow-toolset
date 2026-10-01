@@ -94,6 +94,8 @@ pub struct AreaScene {
     /// The skybox's day and night models, and its skyboxes.2da row.
     sky: [Option<Arc<GpuModel>>; 2],
     sky_box: Option<u32>,
+    /// The game's `skyfade1`, with a sky.
+    sky_fade: Option<Arc<GpuModel>>,
     /// lightcolor.2da colours by row.
     colors: Vec<Vec3>,
     /// Models named by tiles or previews that could not be loaded.
@@ -149,6 +151,9 @@ impl AreaScene {
                 .and_then(|m| models.load(&m))
                 .map(|m| Arc::new(GpuModel::new(gpu, m)))
         });
+        if self.sky_fade.is_none() && self.sky.iter().any(Option::is_some) {
+            self.sky_fade = models.load("skyfade1").map(|m| Arc::new(GpuModel::new(gpu, m)));
+        }
     }
 
     pub fn update(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel) {
@@ -254,6 +259,12 @@ impl AreaScene {
             sky: self.sky[usize::from(view.night)]
                 .clone()
                 .map(|m| Instance::new(m, glam::Mat4::IDENTITY)),
+            // Over a sky, the fade in the fog's colour (whether or not the
+            // fog is shown).
+            sky_fade: self.sky[usize::from(view.night)]
+                .as_ref()
+                .and(self.sky_fade.clone())
+                .map(|m| (Instance::new(m, glam::Mat4::IDENTITY), self::fog(l, view.night).color)),
         }
     }
 

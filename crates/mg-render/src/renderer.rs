@@ -78,6 +78,10 @@ struct DrawUniform {
 /// How a draw blends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Pass {
+    /// The skybox and its horizon fade: first, both sides of each face, at
+    /// the far plane.
+    Sky,
+    SkyFade,
     Opaque,
     Blend,
     Additive,
@@ -282,13 +286,14 @@ impl Renderer {
             immediate_size: 0,
         });
         let mut pipelines = HashMap::new();
-        for (pass, skinned) in [Pass::Opaque, Pass::Blend, Pass::Additive]
+        for (pass, skinned) in [Pass::Sky, Pass::SkyFade, Pass::Opaque, Pass::Blend, Pass::Additive]
             .into_iter()
             .flat_map(|p| [(p, false), (p, true)])
         {
+            let sky = matches!(pass, Pass::Sky | Pass::SkyFade);
             let blend = match pass {
-                Pass::Opaque => None,
-                Pass::Blend => Some(wgpu::BlendState::ALPHA_BLENDING),
+                Pass::Sky | Pass::Opaque => None,
+                Pass::SkyFade | Pass::Blend => Some(wgpu::BlendState::ALPHA_BLENDING),
                 Pass::Additive => Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::One,
@@ -313,12 +318,12 @@ impl Renderer {
                 },
                 primitive: wgpu::PrimitiveState {
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: Some(wgpu::Face::Back),
+                    cull_mode: if sky { None } else { Some(wgpu::Face::Back) },
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth32Float,
-                    depth_write_enabled: Some(pass != Pass::Additive),
+                    depth_write_enabled: Some(!sky && pass != Pass::Additive),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
                     bias: Default::default(),
@@ -692,13 +697,21 @@ impl Renderer {
         let mut bones: Vec<[[f32; 4]; 4]> = Vec::new();
         let mut dynamic: Vec<Vertex> = Vec::new();
         // The sky first, around the camera.
-        let sky = scene.sky.as_ref().map(|s| crate::Instance {
-            transform: Mat4::from_translation(camera.eye) * s.transform,
+        // Around the camera, at ground level (the game's horizon fade then
+        // covers what the camera sees of the horizon).
+        let around = |s: &crate::Instance| crate::Instance {
+            transform: Mat4::from_translation(camera.eye.with_z(0.0)) * s.transform,
             ..s.clone()
-        });
-        for (inst, is_sky) in
-            sky.iter().map(|s| (s, true)).chain(scene.instances.iter().map(|i| (i, false)))
-        {
+        };
+        let sky = scene.sky.as_ref().map(around);
+        let fade = scene.sky_fade.as_ref().map(|(s, c)| (around(s), *c));
+        // (instance, sky, sky fade colour)
+        let all = sky
+            .iter()
+            .map(|s| (s, true, None))
+            .chain(fade.iter().map(|(s, c)| (s, true, Some(*c))))
+            .chain(scene.instances.iter().map(|i| (i, false, None)));
+        for (inst, is_sky, fade_color) in all {
             let rest = &inst.model.rest;
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
             for (j, mesh) in inst.model.meshes.iter().enumerate() {
@@ -768,7 +781,11 @@ impl Renderer {
                     .as_deref()
                     .and_then(|e| self.texture(gpu, assets, &e.to_ascii_lowercase()))
                     .is_some_and(|t| t.cube);
-                let pass = if blending == Blending::Additive {
+                let pass = if fade_color.is_some() {
+                    Pass::SkyFade
+                } else if is_sky {
+                    Pass::Sky
+                } else if blending == Blending::Additive {
                     Pass::Additive
                 } else if alpha < 1.0 || (has_alpha && !env_mapped) || mat.transparency_hint > 0 {
                     Pass::Blend
@@ -802,7 +819,11 @@ impl Renderer {
                         normal_matrix: cols(normal),
                         // MDL colours are gamma space; the game linearises
                         // them (read back from its uniforms).
-                        diffuse: lin(mat.diffuse).extend(alpha).to_array(),
+                        diffuse: match fade_color {
+                            // The fade: its colour, gamma space.
+                            Some(c) => c.extend(1.0).to_array(),
+                            None => lin(mat.diffuse).extend(alpha).to_array(),
+                        },
                         ambient: lin(mat.ambient).extend(1.0).to_array(),
                         emissive: lin(emissive).extend(1.0).to_array(),
                         params: [
@@ -828,7 +849,7 @@ impl Renderer {
                         spec_color: slots
                             .specular_color
                             .map_or([0.0; 4], |c| c.extend(1.0).to_array()),
-                        extra: [flag(env_cube), flag(is_sky), 0.0, 0.0],
+                        extra: [flag(env_cube), flag(is_sky), flag(fade_color.is_some()), 0.0],
                         light_count: [
                             chosen.len() as u32,
                             u32::from(mesh.skin.is_some()),
@@ -854,12 +875,14 @@ impl Renderer {
         // then additive.
         draws.sort_by(|a, b| {
             let rank = |p: Pass| match p {
-                Pass::Opaque => 0,
-                Pass::Blend => 1,
-                Pass::Additive => 2,
+                Pass::Sky => 0,
+                Pass::SkyFade => 1,
+                Pass::Opaque => 2,
+                Pass::Blend => 3,
+                Pass::Additive => 4,
             };
             rank(a.pass).cmp(&rank(b.pass)).then_with(|| {
-                if a.pass == Pass::Opaque {
+                if matches!(a.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
                     std::cmp::Ordering::Equal
                 } else {
                     a.hint.cmp(&b.hint).then(b.depth.total_cmp(&a.depth))

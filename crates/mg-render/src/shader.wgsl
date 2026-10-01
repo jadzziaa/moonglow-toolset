@@ -280,6 +280,12 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         discard;
     }
 
+    // The sky fade: its colour over the sky as much as its texture is white.
+    if (draw.extra.z > 0.5) {
+        let t = textureSampleGrad(tex0, samp0, uv, duv1, duv2);
+        return vec4<f32>(draw.diffuse.rgb, t.r);
+    }
+
     // Base texture.
     var tex = vec4<f32>(1.0);
     var env_level = 0.0;
