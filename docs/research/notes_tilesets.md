@@ -192,6 +192,15 @@ Verified by `tools/aurora/capture_terrain.py`: 54 scripted steps in ttr01, ttz01
 - **Eraser**: acts on the tile under the pointer, not a corner, and doesn't paint the Default terrain (contrary to the ITP documentation). It clears the crossers on that tile's edges and re-picks it and the tiles across the cleared edges. A tile that then fits nothing loses its other kinds of crosser (erasing a road beside a road/stream crossing removes the stream), or else all of them, outward. With no crossers it just re-picks the tile.
 - Aurora's area view tracks the pointer only through motion events: after selecting a brush in the palette, a crosser drag starts from wherever the cursor last moved inside the view. The capture script glides onto every target.
 
+### B.4b Groups, resizing and rotation (captured, 89.8193.37) [V]
+- **Groups**: the ghost's first tile (Tile0, south-west) sits under the pointer. Each right click turns it a quarter counter-clockwise about that tile. A click places it and clears the brush. The tiles go in at the height of the ground under the first tile (min of its corners: on a plateau Tile_Height 1, over a single raised corner 0, which flattens that corner). Their corners and edges replace the terrain (a water corner on the group's edge becomes grass), and the tiles around whose corners changed are re-picked.
+- **Doors**: a placed tile whose door hook has a type ≠ 0 gets a door. Aurora builds it from doortypes.2da `TemplateResRef` as it places a door from the palette, sets `Appearance` = the type, and places it at the hook (barn: `nw_door_ttr_04`, tag `Barn1Door`). Generic hooks (type 0) get none.
+- **Resize Area** (rows, columns, Tiny/Small/Medium/Large; anchored at the south-west):
+  - Growing continues the terrain at the old edge (new corners copy the nearest old corner, new edges the nearest old edge across) and picks the new tiles at random among the fits. Edge tiles are not copied as tiles.
+  - Shrinking drops the north and east rows and columns and replaces what remains of groups the new edge cuts with terrain tiles (their doors go too). Then it warns "Some objects were deleted as a result of this operation. You may recover these objects by undoing the previous action."
+- **Rotate Area** (CCW or CW 90/180/270): tile (x, y) of an area H high goes to (H − 1 − y, x), orientation + 1. Points (x, y) go to (H·10 − y, x). Door bearings turn +90° into [−π, π), so a door turned to face west reads −π.
+- Not yet checked: Tile Properties' Defaults with a non-black scheme. Aurora's tile selection didn't respond to the capture script in an interior area.
+
 ### B.5 Area border
 - "Border" terrain is the terrain of boundary vertices [I from name; D Tilesets "default terrain type used around the border of your map"]. It is unclear whether the toolset forces boundary vertices to Border or only initialises them [?].
 - Beyond the area the **game** (not the ARE) draws edge tiles 5 tiles deep (50 m), using `<tileset>_edge.2da` [D Tutorial, Render Distance page]. Columns: `Corner1, Edge, Corner2, Height, Model` [V].

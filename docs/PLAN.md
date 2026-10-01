@@ -31,7 +31,8 @@ Decisions taken (2026-09-30):
 | 7 Renderer and model viewer | Done: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR; models (all 32,832 in the game read, binary and ASCII; the two readers agree through nwnmdlcomp on a sample of 176); the wgpu renderer with the game's lighting (its uniforms read back from the client and matched; reference scenes within 1/255 of the client per region), material maps, environment and cube maps, animations with supermodels, GPU skinning, animated and dangly meshes, emitters (fountain, explosion, point-to-point, lightning, chunks); blueprint previews (`mg-preview`); the model viewer (Resources: open any model or preview a blueprint) |
 | 8 Blueprints and palettes | In progress: standard and custom palettes (custom ones rebuilt like Aurora's), the palette pane (edit, edit copy, delete, preview), and editors for every blueprint type (waypoint, sound, trigger, encounter, store, door, placeable, item with item properties, creature with statistics, classes, skills, feats, spells, special abilities and inventory); item costs as the engine computes them (every base-game item agrees with `nwserver`); every blueprint type, edited and written by Moonglow, spawned or placed in the engine; blueprint wizards matching Aurora's. Still to do: the creature CR calculation (needs more Aurora probes), the Creature and Levelup Wizards and creature templates, colour pickers and icons |
 | 9 Area editor, objects | Exit met: every shipped area (1,462) opens and renders (tiles with lights and animation loops, objects, fog measured in the client); the area viewer with Aurora's camera and selection bindings, filters, grid, placing from the palette (doors on door hooks), moving, turning, raising, deleting, copy and paste, polygons, Adjust Location with visual transforms, Find Instance, Area Properties, Properties of placed objects (alone or several together, with their inventories), the context menu's commands (Add to Palette, Create Waypoint and Set, initial states, spawn points, …), the Preview window. What placing writes, Add to Palette, Create Waypoint and Adjust Location are identical to Aurora's (three captures); edits round-trip and load in the engine. Still to do: skybox and grass rendering, Add Popup Text, Setup Store, the Levelup Wizard |
-| 10+ | Not started |
+| 10 Area editor, terrain | Exit met: painting as Aurora paints, worked out from scripted Aurora sessions (no source) and replayed: 62 recorded steps in four tilesets (terrain brushes with the primary rules on all eight neighbours in relative heights, raise and lower with neighbours settling within a step, crossers on the quarter-cells a drag passes, the eraser clearing crossers outward, refused strokes, tile groups turned and placed, the doors their hooks bring) give Aurora's corners, heights and crossers at every step; Resize Area and Rotate Area give Aurora's tiles and doors; painted areas load in the engine with the ground where the strokes put it. The area viewer's terrain mode (the tileset palette, brushes with a cursor that turns red where a stroke would be refused, groups with right-click turning), tile selection with Delete and next variant, Tile Properties (lights, animation loops), the walkmesh overlay and Area Statistics. Still to do: copying and pasting tiles, Shift + click cycling while painting |
+| 11+ | Not started |
 
 What the tests establish so far (all run in a few seconds, in release mode):
 
@@ -431,11 +432,15 @@ preview window, multi-edit, copy/paste, find instance.
 **Exit:** every official area opens and renders; object edits round-trip and
 load in the engine.
 
-### Phase 10: Area editor, terrain
+### Phase 10: Area editor, terrain ✅
 Tile painting with SET rules (terrain, crossers, groups, heights, rotation), tile
 properties (lights, animation loops), resize/rotate, door hooks, walkmesh
 overlays, area statistics.
 **Exit:** recorded Aurora painting scenarios produce the same tile grids.
+**Exit met:** `aurora_terrain.rs` replays 62 recorded steps (54 scripted by
+`tools/aurora/capture_terrain.py`, 8 group placements by hand) and four
+resizes and rotations; every step gives Aurora's lattice; `engine_terrain.rs`
+loads a painted area in the engine.
 
 ### Phase 11: Build, verify, test
 Build module (compile, palette regeneration, bookkeeping), verify module, test
