@@ -117,7 +117,7 @@ unless given otherwise.
 | New (Ctrl+N), Save As (Ctrl+Alt+S), Save All, Close | Tools > New Script…, Save As…, module Save stores all edited scripts, tab close | ✅ |
 | Open (all resources / module / hak) | resource browser and the module tree | ✅ |
 | Options › Script Editor: font, colours of text, comment, directive, identifier, keyword, number, string, error, with a preview | font size and a colour per element (else the light or dark theme's), preview, reset; applied without reloading the game | ✅ (`options.rs` tests) |
-| Options › Script Editor: templates folder, auto-compile, debug info (.ndb), external editor | the templates folder (listed with `data/scr` and `scripttemplates`), compile on save, `.ndb` with each compiled script; font size and colours | ✅ [saving_a_script_compiles_it_with_debug_information_when_chosen] / external editor ✗ |
+| Options › Script Editor: templates folder, auto-compile, debug info (.ndb), external editor | the templates folder (listed with `data/scr` and `scripttemplates`), compile on save, `.ndb` with each compiled script; font size and colours | ✅ [saving_a_script_compiles_it_with_debug_information_when_chosen]; the external editor: External Editor opens the script's file in the chosen program, and its saves come back into the editor [the_external_script_editor_s_saves_come_back] |
 | Indent with Tab | Tab indents the lines a selection touches, Shift+Tab outdents them (or the cursor's line) | ✅ [tab_indents_selected_lines_in_the_script_editor] |
 | Print | not yet | ✗ |
 | Large scripts | nwscript.nss (13,869 lines): 0.4 ms per idle frame, ~10 ms per keystroke | ✅ (`editor_perf.rs`) |

@@ -29,6 +29,9 @@ pub(crate) struct ScriptBuffer {
     /// Numbered bookmarks 1 to 9 (index 0 unused): Ctrl+Shift+N sets one,
     /// Ctrl+N goes there.
     pub(crate) numbered: [Option<usize>; 10],
+    /// The file the external script editor has open, and when it was last
+    /// written: the text is read back whenever it changes.
+    pub(crate) external: Option<(std::path::PathBuf, Option<std::time::SystemTime>)>,
 }
 
 /// The laid-out text of a script editor, reused while the text, width and
@@ -176,6 +179,12 @@ fn insert(
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    // The external editor's saves, if it has the script (looked for twice a
+    // second).
+    reload_external(app, key);
+    if app.scripts.get(&key).is_some_and(|b| b.external.is_some()) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+    }
     let Some(ws) = &app.ws else { return };
     let Some(bytes) = ws.module.get(&key) else {
         ui.label(format!("{key} is no longer in the module."));
@@ -190,6 +199,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             source,
             bookmarks: Default::default(),
             numbered: [None; 10],
+            external: None,
         }
     });
     {
@@ -282,6 +292,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             .on_hover_text("Save and compile (F7 compiles all scripts)")
             .clicked();
         save_as = ui.button("Save As…").clicked();
+        let editor = app.settings.external_editor.clone();
+        if ui
+            .add_enabled(editor.is_some(), egui::Button::new("External Editor"))
+            .on_hover_text("Edit in the external script editor (Options › Script Editor)")
+            .on_disabled_hover_text("Choose an external script editor in Options › Script Editor")
+            .clicked()
+            && let Some(editor) = editor
+        {
+            open_external(app, key, &editor);
+        }
         ui.separator();
         open_find |= ui.button("Find…").on_hover_text("Ctrl+F; F3 finds again").clicked();
         open_replace |= ui.button("Replace…").on_hover_text("Ctrl+R").clicked();
@@ -734,6 +754,45 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // Options > Script Editor: saving compiles too.
         if compile || app.settings.auto_compile {
             compile_one(app, key, &text);
+        }
+    }
+}
+
+/// Writes the script to a scratch file and opens it in the external
+/// editor; the editor's saves come back into the buffer
+/// ([`reload_external`]).
+fn open_external(app: &mut Moonglow, key: ResKey, editor: &std::path::Path) {
+    let Some(buf) = app.scripts.get_mut(&key) else { return };
+    let dir = std::env::temp_dir().join(format!("moonglow-{}", std::process::id()));
+    let path = dir.join(format!("{}.nss", key.resref.to_lowercase()));
+    let written =
+        std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, encode(&buf.text)));
+    if let Err(e) = written {
+        app.log.error(format!("{}: {e}", path.display()));
+        return;
+    }
+    let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    buf.external = Some((path.clone(), modified));
+    match std::process::Command::new(editor).arg(&path).spawn() {
+        Ok(_) => app.log.info(format!("{key}: editing in {}", editor.display())),
+        Err(e) => app.log.error(format!("{}: {e}", editor.display())),
+    }
+}
+
+/// Reads back a script the external editor has saved since.
+pub(crate) fn reload_external(app: &mut Moonglow, key: ResKey) {
+    let Some(buf) = app.scripts.get_mut(&key) else { return };
+    let Some((path, seen)) = &mut buf.external else { return };
+    let modified = std::fs::metadata(&*path).and_then(|m| m.modified()).ok();
+    if modified.is_none() || modified == *seen {
+        return;
+    }
+    *seen = modified;
+    if let Ok(bytes) = std::fs::read(&*path) {
+        let text = decode(&bytes);
+        if text != buf.text {
+            buf.text = text;
+            app.log.info(format!("{key}: changed in the external editor"));
         }
     }
 }

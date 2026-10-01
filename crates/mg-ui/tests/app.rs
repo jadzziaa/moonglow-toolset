@@ -3202,3 +3202,36 @@ fn add_popup_text_gives_a_placeable_a_one_line_conversation() {
     let barrel = &g.root.list("Placeable List").unwrap()[0];
     assert_eq!(barrel.resref("Conversation"), Some(ResRef::from_str("mg_popup").unwrap()));
 }
+
+#[test]
+fn the_external_script_editor_s_saves_come_back() {
+    let Some(editor) =
+        ["/usr/bin/true", "/bin/true"].into_iter().find(|p| std::path::Path::new(p).exists())
+    else {
+        eprintln!("skipped: no `true` program to stand in for an editor");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-external-editor");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, b"void main() {}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.external_editor = Some(editor.into());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("External Editor").click();
+    h.run_steps(3);
+    // The editor's file: the script; an edit saved there comes back.
+    let file =
+        std::env::temp_dir().join(format!("moonglow-{}", std::process::id())).join("hello.nss");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "void main() {}\n");
+    std::fs::write(&file, "void main() { int n; }\n").unwrap();
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+    std::fs::File::options().write(true).open(&file).unwrap().set_modified(later).unwrap();
+    h.run_steps(3);
+    assert_eq!(h.state().script_text(key).unwrap(), "void main() { int n; }\n");
+}

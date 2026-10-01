@@ -53,6 +53,9 @@ pub struct Settings {
     /// Options > Script Editor: Code Templates Directory, listed with the
     /// game's (`data/scr`) and the user's `scripttemplates`.
     pub script_templates: Option<PathBuf>,
+    /// Options > Script Editor: External Script Editor, a program given the
+    /// script's file.
+    pub external_editor: Option<PathBuf>,
 }
 
 impl Settings {

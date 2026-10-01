@@ -34,6 +34,7 @@ pub struct OptionsDraft {
     pub auto_compile: bool,
     pub debug_info: bool,
     pub script_templates: String,
+    pub external_editor: String,
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -57,6 +58,7 @@ impl OptionsDraft {
             auto_compile: s.auto_compile,
             debug_info: s.debug_info,
             script_templates: text(&s.script_templates),
+            external_editor: text(&s.external_editor),
         }
     }
 
@@ -71,6 +73,7 @@ impl OptionsDraft {
             auto_compile: self.auto_compile,
             debug_info: self.debug_info,
             script_templates: path(&self.script_templates),
+            external_editor: path(&self.external_editor),
             ..s.clone()
         }
     }
@@ -85,6 +88,7 @@ enum Browse {
     Game,
     User,
     Templates,
+    Editor,
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
@@ -182,6 +186,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             "Generate Debug Information When Compiling Scripts",
                         )
                         .on_hover_text("Store a .ndb with each compiled script, for debuggers");
+                        ui.label("External Script Editor");
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::TextEdit::singleline(&mut draft.external_editor)
+                                    .desired_width(300.0),
+                            );
+                            if ui.button("Browse…").clicked() {
+                                browse = Some(Browse::Editor);
+                            }
+                        });
                         ui.add_space(6.0);
                         script_style(ui, &mut draft.script_style);
                     }
@@ -203,11 +217,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 }
             });
         });
-    if let Some(which) = browse {
+    if let Some(Browse::Editor) = browse {
+        if let Some(p) = app.dialogs.open_file(crate::dialogs::FileKind::Any, None) {
+            draft.external_editor = p.display().to_string();
+        }
+    } else if let Some(which) = browse {
         let (title, field) = match which {
             Browse::Game => ("Neverwinter Nights installation", &mut draft.game_root),
             Browse::User => ("NWN user folder", &mut draft.user_dir),
             Browse::Templates => ("Code Templates Directory", &mut draft.script_templates),
+            Browse::Editor => unreachable!("handled above"),
         };
         if let Some(p) = app.dialogs.pick_folder(title, path(field).as_deref()) {
             *field = p.display().to_string();
