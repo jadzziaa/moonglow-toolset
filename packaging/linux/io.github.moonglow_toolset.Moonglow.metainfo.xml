@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.0" date="2026-10-01">
+      <description>
+        <p>Editors open in windows over the area view; blueprints drag from the
+        palette into areas; previews follow their editors and show placed objects;
+        the camera turns with a right drag and moves with W, A, S and D; layout
+        and usability fixes throughout.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-01">
       <description>
         <p>First release: functional parity with the Aurora Toolset.</p>
