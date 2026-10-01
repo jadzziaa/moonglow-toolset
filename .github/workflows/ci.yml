@@ -1,8 +1,10 @@
 name: CI
 
-# Not for documentation alone, but for the manual (built into the app).
+# Not for documentation alone, but for the manual (built into the app); not
+# for tags (their commit was tested on its branch).
 on:
   push:
+    branches: ["**"]
     paths: ["**", "!docs/**", "!**.md", "docs/manual/**"]
   pull_request:
     paths: ["**", "!docs/**", "!**.md", "docs/manual/**"]
