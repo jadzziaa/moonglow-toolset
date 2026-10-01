@@ -2147,6 +2147,15 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     h.get_by_label("Opened").click();
     h.run_steps(3);
     assert_eq!(first(&mut h, "Placeable List").integer("AnimationState"), Some(1));
+    // Inventory opens its Properties at the inventory page.
+    right_click(&mut h, Vec3::new(12.0, 30.0, 0.3));
+    h.get_by_label("Inventory").click();
+    h.run_steps(3);
+    let path = mg_edit::GffPath::root().item("Placeable List", 0);
+    assert!(h.state().dock.find_tab(&Tab::Instance { area, path: path.clone() }).is_some());
+    assert_eq!(h.state().blueprint_pages.get(&(git_key, path)), Some(&"Inventory"));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    h.run_steps(3);
     // The sound: Mute.
     right_click(&mut h, Vec3::new(28.0, 30.0, 1.9));
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Sound, 0)]);
@@ -2163,6 +2172,8 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     assert_eq!(spawns[0].id, 2);
     assert!((spawns[0].float("X").unwrap() - 21.0).abs() < 0.1);
     assert!((spawns[0].float("Y").unwrap() - 31.0).abs() < 0.1);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-menu").join("area_view.png")).unwrap();
 }
 
 #[test]

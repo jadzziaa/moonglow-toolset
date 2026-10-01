@@ -557,8 +557,12 @@ fn overlays(
         let selected = view.selected(i);
         let highlight = Stroke::new(2.0, Color32::YELLOW);
         if o.kind.has_outline() {
-            let color = match o.kind {
-                ObjectKind::Encounter => Color32::from_rgb(230, 120, 40),
+            // Encounters orange; triggers green, area transitions blue,
+            // traps red.
+            let color = match (o.kind, o.trigger_type) {
+                (ObjectKind::Encounter, _) => Color32::from_rgb(230, 120, 40),
+                (_, 1) => Color32::from_rgb(80, 150, 255),
+                (_, 2) => Color32::from_rgb(230, 60, 60),
                 _ => Color32::from_rgb(80, 200, 120),
             };
             let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
@@ -569,6 +573,21 @@ fn overlays(
             continue;
         }
         let transform = o.model_transform();
+        // Waypoints and merchants: a yellow arrow along their facing, as
+        // Aurora draws them.
+        if matches!(o.kind, ObjectKind::Waypoint | ObjectKind::Store) && !selected {
+            let ahead = Vec3::new(o.facing().cos(), o.facing().sin(), 0.0);
+            let side = Vec3::new(-ahead.y, ahead.x, 0.0) * 0.6;
+            let (tip, base) = (o.position + ahead * 1.0, o.position - ahead * 0.6);
+            if let (Some(t), Some(l), Some(r)) = (at(tip), at(base + side), at(base - side)) {
+                painter.add(egui::Shape::convex_polygon(
+                    vec![t, l, r],
+                    Color32::from_rgb(240, 210, 40),
+                    Stroke::new(1.0, Color32::from_rgb(120, 100, 0)),
+                ));
+            }
+            continue;
+        }
         let marker = o.preview.is_none() || scene.is_none();
         if marker || selected {
             let (min, max) = match scene {
@@ -1293,6 +1312,29 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
             add_spawn_point(app, view, index, at);
             ui.close();
         }
+    }
+    let picked = single.and_then(|(k, i)| view.model.as_ref()?.object(k, i).cloned());
+    if let Some(o) = &picked
+        && let Some(dialog) = o.conversation
+        && ui.button("Conversation").clicked()
+    {
+        let key = ResKey::new(dialog, ResType::DLG);
+        let local = app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
+        app.actions.push(Action::OpenTab(if local {
+            crate::Tab::Dialog(key)
+        } else {
+            crate::Tab::Resource(key)
+        }));
+        ui.close();
+    }
+    if let Some((kind, index)) = single.filter(|(k, _)| {
+        matches!(k, ObjectKind::Creature | ObjectKind::Placeable | ObjectKind::Store)
+    }) && ui.button("Inventory").clicked()
+    {
+        let path = mg_edit::GffPath::root().item(kind.list(), index);
+        app.blueprint_pages.insert((view.git(), path.clone()), "Inventory");
+        app.actions.push(Action::OpenTab(crate::Tab::Instance { area: view.area, path }));
+        ui.close();
     }
     if let Some((kind, index)) = single
         && ui.button("Add to Palette").clicked()

@@ -198,6 +198,8 @@ mod tests {
             problem: None,
             outline: Vec::new(),
             visual: None,
+            trigger_type: 0,
+            conversation: None,
         }
     }
 

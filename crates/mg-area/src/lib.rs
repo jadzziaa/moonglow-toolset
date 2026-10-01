@@ -271,6 +271,10 @@ pub struct AreaObject {
     pub outline: Vec<Vec3>,
     /// Its model's visual transform.
     pub visual: Option<VisualTransform>,
+    /// A trigger's `Type` (0 generic, 1 area transition, 2 trap).
+    pub trigger_type: i64,
+    /// Its conversation (`Conversation`), if it has one.
+    pub conversation: Option<ResRef>,
 }
 
 impl AreaObject {
@@ -326,6 +330,12 @@ impl AreaObject {
             problem,
             outline,
             visual: VisualTransform::read(s),
+            trigger_type: if kind == ObjectKind::Trigger {
+                s.integer("Type").unwrap_or(0)
+            } else {
+                0
+            },
+            conversation: s.resref("Conversation").filter(|r| !r.is_empty()),
         }
     }
 
