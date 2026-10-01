@@ -210,7 +210,8 @@ scripts (name, picker, Edit), Comments.
 | Creature Spells: class radio, level filter, prepared counts or known spells, metamagic, summary, clear/save/load class spell list | the spellcasting classes (classes.2da `SpellCaster`), their spells (`SpellTableColumn`), prepared counts (`MemorizesSpells`) or known checkboxes, a level filter and summary | ◐ [creature_editor_lists] (metamagic and spell list files not yet) |
 | Creature Special Abilities (spell, caster level) | add from the spell list, caster level, remove | ✅ [creature_editor_lists] |
 | Creature inventory (`TdlgInventory`: equipment and natural equipment slots, backpack, Dropable, Pickpocketable, drag and drop) | an Inventory page: the item palette, the 18 slots (an item goes only where its base item's `EquipableSlots` allows), the backpack at the first free place | ◐ [creature_editor_lists] (Dropable and Pickpocketable not shown yet) |
-| Creature Template tab; the CR calculation; Levelup Wizard; Load/Save Script Set | not yet | ✗ |
+| The CR calculation (Basic and Advanced: Challenge Rating, CR Adjustment) | Aurora's calculation (`mg_rules::challenge`, `docs/research/notes_creature_cr.md`), recalculated with every change (as Aurora does on OK); the calculation shown on hover | ✅ [challenge_ratings_match_aurora: 4204 creatures] |
+| Creature Template tab; Levelup Wizard; Load/Save Script Set | not yet | ✗ |
 
 ## Blueprint wizards (`TdlgBlueprintWizard` and each type's)
 
@@ -220,7 +221,7 @@ scripts (name, picker, Edit), Comments.
 | What they make: every field, its type, order and value; the resref (letters and digits, a trailing number kept within 16 characters, `blueprint` and a number for names with other characters) and the tag | `mg_module::blueprints` | ✅ (`aurora_blueprints.rs`: 15 blueprints made by Aurora's wizards, identical) |
 | Trigger categories: Area Transition makes a transition, the trap strengths a trap of that strength (traps.2da DCs) | the same | ✅ |
 | Sound Wizard's sound list filtered by category (`al_`/`as_` and a category name filter) | the picker opens filtered to `al_` or `as_` | ◐ |
-| Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | not yet: it needs the Levelup Wizard's package logic and the CR calculation | ✗ |
+| Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | not yet: it needs the Levelup Wizard's package logic | ✗ |
 | Item Wizard's Magical, Item Level and Quality (disabled in Aurora) | not offered | — |
 
 ## Area viewer (`TfrmViewerArea`, the main frame's Object Filters and Preview toolbars)
@@ -268,6 +269,6 @@ scripts (name, picker, Edit), Comments.
 
 | Aurora | Moonglow | |
 |---|---|---|
-| Build Module: Advanced Controls (Compile: Scripts, Creature CR, Encounters, Palettes; Missing Resources by type; Unused: Scripts, Conversations, Blueprints; Spell Check by type), Build, results (double click opens), export | Build › Build Module…: the same options and defaults; the compile passes as one undoable command | ◐ [build_module_compiles_and_reports]; Creature CR not calculated (the CR formula is not known yet); no Spell Check |
+| Build Module: Unused, Missing Resources, Compile, Spell Check; Advanced Controls (Compile: Scripts, Creature CR, Encounters, Palettes; Missing Resources by type; Unused: Scripts, Conversations, Blueprints; Spell Check by type), Build, results ("No errors found"; double click opens), export | Build › Build Module…: the same options, layout and defaults; the compile passes as one undoable command; the results and what each pass did in the log | ◐ [build_module_compiles_and_reports]; Creature CR as Aurora's [challenge_ratings_match_aurora]; no Spell Check |
 | Encounters pass: each encounter's creature entries (blueprints and placed encounters) given the creature blueprints' CR and appearance | `mg_module::build::compile_encounters` | ◐ not checked against Aurora |
 | Test Module (F9): saves, then `nwmain -userdirectory <dir> +TestNewModule <module>` | the same; the module must be in the user directory's `modules` folder | ◐ (the command is tested, not run: the game only runs here in the sandbox); no Minimize Toolset on test module |

@@ -2,8 +2,8 @@
 //! Classes, Skills, Feats, Spells, Special Abilities, the inventory, Scripts,
 //! Advanced, Comments.
 //!
-//! Every change also stores the creature's recomputed `MaxHitPoints` (in
-//! the same undoable command), as Aurora does on OK.
+//! Every change also stores the creature's recomputed `MaxHitPoints` and
+//! `ChallengeRating` (in the same undoable command), as Aurora does on OK.
 
 use std::sync::Arc;
 
@@ -15,7 +15,7 @@ use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 use mg_rules::creatures::{ABILITIES, modifier};
 use mg_rules::items::{part_number, wide_label};
-use mg_rules::{Choice, ChoiceColumns, CreatureSheet, GameData};
+use mg_rules::{Challenge, Choice, ChoiceColumns, CreatureSheet, GameData};
 
 use super::{Form, creature_lists, situated};
 use crate::widgets::commit_number;
@@ -71,23 +71,33 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     }
 }
 
-/// After a command: the `MaxHitPoints` of each creature it changed,
-/// recomputed, as part of the same command.
+/// After a command: the `MaxHitPoints` and `ChallengeRating` of each
+/// creature it changed, recomputed, as part of the same command.
 pub(crate) fn refresh_hit_points(app: &mut Moonglow, cmd: &Command) {
-    let objects = super::changed_objects(cmd, ResType::UTC, "MaxHitPoints");
+    let objects = super::changed_objects(cmd, ResType::UTC, &["MaxHitPoints", "ChallengeRating"]);
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
     let mut edits = Vec::new();
     for (key, path) in objects {
         let Ok(g) = ws.doc(&key) else { continue };
-        let Some(creature) = path.get(&g.root) else { continue };
+        let Some(creature) = path.get(&g.root).cloned() else { continue };
+        let creature = &creature;
         let max = game.creature_stats(&CreatureSheet::from_gff(creature)).max_hit_points;
         if creature.integer("MaxHitPoints") != Some(i64::from(max)) {
             let old = creature.get("MaxHitPoints");
             edits.push(Edit::SetField {
                 key,
-                path,
+                path: path.clone(),
                 label: "MaxHitPoints".into(),
                 value: Some(super::integer(old, max.into(), FieldType::Short)),
+            });
+        }
+        let rating = challenge(game, &ws.module, creature).rating;
+        if creature.float("ChallengeRating") != Some(rating) {
+            edits.push(Edit::SetField {
+                key,
+                path,
+                label: "ChallengeRating".into(),
+                value: Some(Value::Float(rating)),
             });
         }
     }
@@ -106,12 +116,43 @@ fn choices(f: &Form<'_>, table: &str, name: &str, label: &str) -> Vec<Choice> {
         .unwrap_or_default()
 }
 
+/// A creature's challenge rating, its gear read from the module's item
+/// blueprints, else the game's.
+fn challenge(game: &GameData, module: &mg_module::Module, creature: &Struct) -> Challenge {
+    let item = |r: mg_core::ResRef| -> Option<Struct> {
+        let k = ResKey::new(r, ResType::UTI);
+        let data = module
+            .get(&k)
+            .map(<[u8]>::to_vec)
+            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+        mg_gff::Gff::read(&data).ok().map(|g| g.root)
+    };
+    let mut sheet = CreatureSheet::from_gff(creature);
+    sheet.gear_value = game.gear_value(creature, &item);
+    game.challenge(&sheet)
+}
+
+/// The stored rating as Aurora shows it (fractions below 1), and the
+/// calculation behind it.
+fn rating_text(f: &Form<'_>) -> (String, Option<String>) {
+    let stored = f.root.float("ChallengeRating").unwrap_or(0.0);
+    let text = Challenge { calculated: stored, rating: stored }.text();
+    let detail = match (f.app.game.as_ref(), f.app.ws.as_ref()) {
+        (Some(game), Some(ws)) => {
+            let c = challenge(game, &ws.module, &f.root);
+            Some(format!("Calculated {:.2}, rated {}", c.calculated, c.text()))
+        }
+        _ => None,
+    };
+    (text, detail)
+}
+
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let races = choices(f, "racialtypes", "Name", "Label");
     let appearances = choices(f, "appearance", "STRING_REF", "LABEL");
     let phenotypes = choices(f, "phenotype", "Name", "Label");
     let genders = choices(f, "gender", "NAME", "GENDER");
-    let cr = f.root.float("ChallengeRating").unwrap_or(0.0);
+    let (cr, cr_detail) = rating_text(f);
     egui::Grid::new(("utc-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         ui.label("First Name");
         f.locstring(ui, "First name", "FirstName");
@@ -135,7 +176,10 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         f.choice(ui, "Gender", "Gender", &genders, FieldType::Byte);
         ui.end_row();
         ui.label("Challenge Rating");
-        ui.label(format!("{cr}"));
+        let r = ui.label(&cr);
+        if let Some(d) = &cr_detail {
+            r.on_hover_text(d);
+        }
         ui.end_row();
         ui.label("Category");
         f.category(ui, BlueprintKind::Creature);
@@ -549,7 +593,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let bags = choices(f, "bodybag", "Name", "LABEL");
     let sounds = choices(f, "soundset", "STRREF", "LABEL");
     let ranges = choices(f, "ranges", "Name", "Label");
-    let cr = f.root.float("ChallengeRating").unwrap_or(0.0);
+    let (cr, cr_detail) = rating_text(f);
     ui.columns(2, |cols| {
         let ui = &mut cols[0];
         egui::Grid::new(("utc-adv", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
@@ -603,20 +647,18 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         ui.strong("Challenge Rating");
         egui::Grid::new(("utc-cr", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
             ui.label("Adjustment");
-            // The rating is the calculated one plus the adjustment: a new
-            // adjustment moves it by the difference.
+            // The rating is recalculated with it (`refresh_hit_points`).
             let adjust = f.int("CRAdjust");
             if let Some(v) = commit_number(ui, adjust, -100..=100) {
-                let rating = (cr + (v - adjust) as f32).max(0.0);
                 let adjust_value = super::integer(f.root.get("CRAdjust"), v, FieldType::Int);
-                f.set_fields(
-                    "CR adjustment",
-                    vec![("CRAdjust", adjust_value), ("ChallengeRating", Value::Float(rating))],
-                );
+                f.set_fields("CR adjustment", vec![("CRAdjust", adjust_value)]);
             }
             ui.end_row();
             ui.label("Challenge Rating");
-            ui.label(format!("{cr}"));
+            let r = ui.label(&cr);
+            if let Some(d) = &cr_detail {
+                r.on_hover_text(d);
+            }
             ui.end_row();
         });
     });

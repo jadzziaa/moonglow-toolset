@@ -1443,6 +1443,17 @@ fn creature_editor_levels_and_aligns() {
     let (stored, computed) = max_hp(&mut h);
     assert_eq!(stored, Some(computed));
     assert_ne!(stored, before);
+    // So is the challenge rating, recalculated as Aurora does on OK.
+    let s = field(&mut h, &key);
+    let game = h.state().game.as_ref().unwrap();
+    let item = |r: ResRef| {
+        let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
+        Gff::read(&data).ok().map(|g| g.root)
+    };
+    let mut sheet = mg_rules::CreatureSheet::from_gff(&s);
+    sheet.gear_value = game.gear_value(&s, &item);
+    assert!(sheet.gear_value > 0, "the bandit's gear");
+    assert_eq!(s.float("ChallengeRating"), Some(game.challenge(&sheet).rating));
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(field(&mut h, &key).list("ClassList").unwrap().len(), 1);
@@ -2887,9 +2898,12 @@ fn build_module_compiles_and_reports() {
         h.state().build.as_ref().unwrap().results.iter().map(|f| f.text.clone()).collect();
     let has = |s: &str| results.iter().any(|r| r.contains(s));
     assert!(has("Error:"), "the bad script: {results:?}");
-    assert!(has("Encounters: 1 creature entries"), "{results:?}");
     assert!(has("mg_nosuchscript"), "{results:?}");
-    assert!(has("Build complete"), "{results:?}");
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(_, m)| m.contains("1 encounter creature entries")),
+        "what the passes did is logged: {log:?}"
+    );
     // The encounter's entry now has the bandit's CR.
     let ws = h.state_mut().ws.as_mut().unwrap();
     let enc = ws.doc(&ResKey::parse("mg_enc", ResType::UTE).unwrap()).unwrap();

@@ -631,13 +631,15 @@ impl Form<'_> {
 pub(crate) fn changed_objects(
     cmd: &Command,
     restype: ResType,
-    derived: &str,
+    derived: &[&str],
 ) -> Vec<(ResKey, GffPath)> {
     let list = mg_module::instances::git_list(restype).map(|(l, _)| l);
     let mut out: Vec<(ResKey, GffPath)> = Vec::new();
     for e in &cmd.edits {
         let (key, path) = match e {
-            Edit::SetField { key, path, label, .. } if label != derived => (key, path),
+            Edit::SetField { key, path, label, .. } if !derived.contains(&label.as_str()) => {
+                (key, path)
+            }
             Edit::InsertItem { key, path, .. } | Edit::RemoveItem { key, path, .. } => (key, path),
             _ => continue,
         };

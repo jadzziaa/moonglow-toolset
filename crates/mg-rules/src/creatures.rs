@@ -37,6 +37,15 @@ pub struct CreatureSheet {
     pub save_bonus: [i32; 3],
     /// `HitPoints`: the base hit points (the rolled hit dice).
     pub hit_points: i32,
+    /// `SpecAbilityList` spells.
+    pub special_abilities: Vec<u16>,
+    /// Each class's spells.
+    pub spells: Vec<ClassSpells>,
+    /// `CRAdjust`.
+    pub cr_adjust: i32,
+    /// What the creature's gear is worth, in gold (the challenge rating's
+    /// wealth term; the caller resolves the items).
+    pub gear_value: u32,
 }
 
 /// The editor's Statistics page.
@@ -92,8 +101,41 @@ impl CreatureSheet {
             natural_ac: int("NaturalAC") as i32,
             save_bonus: ["fortbonus", "refbonus", "willbonus"].map(|l| int(l) as i32),
             hit_points: int("HitPoints") as i32,
+            special_abilities: spell_ids(s.list("SpecAbilityList")),
+            spells: s
+                .list("ClassList")
+                .unwrap_or(&[])
+                .iter()
+                .map(|c| {
+                    let all = |list: &str| -> Vec<u16> {
+                        (0..10).flat_map(|l| spell_ids(c.list(&format!("{list}{l}")))).collect()
+                    };
+                    ClassSpells {
+                        class: c.integer("Class").unwrap_or(0).max(0) as u32,
+                        known: all("KnownList"),
+                        memorized: all("MemorizedList"),
+                    }
+                })
+                .collect(),
+            cr_adjust: int("CRAdjust") as i32,
+            gear_value: 0,
         }
     }
+}
+
+/// A class's spells (`ClassList` entry).
+#[derive(Debug, Clone, Default)]
+pub struct ClassSpells {
+    pub class: u32,
+    /// `KnownList0`-`9`.
+    pub known: Vec<u16>,
+    /// `MemorizedList0`-`9`.
+    pub memorized: Vec<u16>,
+}
+
+/// The `Spell` of each entry of a spell list.
+fn spell_ids(list: Option<&[mg_gff::Struct]>) -> Vec<u16> {
+    list.unwrap_or(&[]).iter().filter_map(|e| e.integer("Spell")).map(|s| s as u16).collect()
 }
 
 impl GameData {

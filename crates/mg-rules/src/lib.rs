@@ -16,9 +16,11 @@ use mg_resman::{GameInstall, ResError, ResKey, ResMan};
 use mg_tlk::Tlk;
 use thiserror::Error;
 
+pub mod challenge;
 pub mod creatures;
 pub mod items;
-pub use creatures::{CreatureSheet, CreatureStats};
+pub use challenge::Challenge;
+pub use creatures::{ClassSpells, CreatureSheet, CreatureStats};
 pub use items::{ItemProperty, ItemValue};
 
 #[derive(Debug, Error)]

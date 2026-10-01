@@ -1,7 +1,6 @@
 //! Build › Build Module (Aurora's `TdlgVerifyModule`): compile passes
-//! (scripts, encounters, palettes; creature challenge ratings are not yet
-//! calculated), then checks for missing resources and, if asked, unused
-//! ones, listed as results; a double click opens what a result is about,
+//! (scripts, creature challenge ratings, encounters, palettes), then checks
+//! for missing resources and, if asked, unused ones, listed as results; a double click opens what a result is about,
 //! and the list can be exported as text. Aurora's defaults: Compile and
 //! Missing Resources on, Unused and Spell Check off.
 
@@ -85,50 +84,50 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     egui::Window::new("Build Module").open(&mut open).collapsible(false).default_width(560.0).show(
         ctx,
         |ui| {
+            // The four checks, always; Advanced Controls shows what each
+            // covers.
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut w.unused, "Unused").on_hover_text("Check for use");
+                ui.checkbox(&mut w.missing, "Missing Resources")
+                    .on_hover_text("Check that resources are available");
+                ui.checkbox(&mut w.compile, "Compile");
+                ui.add_enabled(false, egui::Checkbox::new(&mut false, "Spell Check"))
+                    .on_disabled_hover_text("Not yet: Moonglow has no dictionary");
+            });
             ui.checkbox(&mut w.advanced, "Advanced Controls");
             if w.advanced {
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
-                        ui.checkbox(&mut w.compile, "Compile");
-                        ui.add_enabled_ui(w.compile, |ui| {
-                            ui.indent("compile", |ui| {
-                                ui.checkbox(&mut w.compile_scripts, "Scripts");
-                                ui.checkbox(&mut w.compile_cr, "Creature CR").on_hover_text(
-                                    "Moonglow does not calculate challenge ratings yet",
-                                );
-                                ui.checkbox(&mut w.compile_encounters, "Encounters");
-                                ui.checkbox(&mut w.compile_palettes, "Palettes");
-                            });
-                        });
-                        ui.checkbox(&mut w.unused, "Unused").on_hover_text("Check for use");
                         ui.add_enabled_ui(w.unused, |ui| {
-                            ui.indent("unused", |ui| {
-                                ui.checkbox(&mut w.unused_scripts, "Scripts");
-                                ui.checkbox(&mut w.unused_conversations, "Conversations");
-                                ui.checkbox(&mut w.unused_blueprints, "Blueprints");
-                            });
+                            ui.label("Unused");
+                            ui.checkbox(&mut w.unused_scripts, "Scripts");
+                            ui.checkbox(&mut w.unused_conversations, "Conversations");
+                            ui.checkbox(&mut w.unused_blueprints, "Blueprints");
                         });
                     });
                     ui.separator();
                     ui.vertical(|ui| {
-                        ui.checkbox(&mut w.missing, "Missing Resources")
-                            .on_hover_text("Check that resources are available");
                         ui.add_enabled_ui(w.missing, |ui| {
-                            ui.indent("missing", |ui| {
-                                for (c, on) in &mut w.missing_of {
-                                    ui.checkbox(on, format!("{c:?}"));
-                                }
-                            });
+                            ui.label("Missing Resources");
+                            for (c, on) in &mut w.missing_of {
+                                ui.checkbox(on, format!("{c:?}"));
+                            }
                         });
                     });
                     ui.separator();
                     ui.vertical(|ui| {
-                        ui.add_enabled(false, egui::Checkbox::new(&mut false, "Spell Check"))
-                            .on_disabled_hover_text("Not yet: Moonglow has no dictionary");
+                        ui.add_enabled_ui(w.compile, |ui| {
+                            ui.label("Compile");
+                            ui.checkbox(&mut w.compile_scripts, "Scripts");
+                            ui.checkbox(&mut w.compile_cr, "Creature CR")
+                                .on_hover_text("Recalculate creature challenge ratings");
+                            ui.checkbox(&mut w.compile_encounters, "Encounters");
+                            ui.checkbox(&mut w.compile_palettes, "Palettes");
+                        });
                     });
                 });
-                ui.separator();
             }
+            ui.separator();
             ui.label("Results");
             egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]).show(
                 ui,
@@ -190,16 +189,40 @@ fn is_blueprint(t: ResType) -> bool {
 }
 
 /// Runs the build: the compile passes, as one undoable command, then the
-/// checks.
+/// checks. The results are the problems found ("No errors found" if none,
+/// as in Aurora); what each pass did goes to the log.
 fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
     app.refresh_module_layer();
-    let mut out = Vec::new();
     let line = |text: String, about: Option<ResKey>| Finding { text, about };
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else {
         return vec![line("No module open".into(), None)];
     };
+    let (mut out, notes) = build(ws, game, w);
+    // Aurora's log: what it is doing, the results, done.
+    app.log.info("Building Module...");
+    for n in notes {
+        app.log.info(n);
+    }
+    if out.is_empty() {
+        out.push(line("No errors found".into(), None));
+    }
+    for f in &out {
+        app.log.info(f.text.clone());
+    }
+    app.log.info("Finished Building Module");
+    out
+}
+
+/// The build's problems, and what each pass did.
+fn build(
+    ws: &mut mg_edit::Workspace,
+    game: &mg_rules::GameData,
+    w: &BuildWindow,
+) -> (Vec<Finding>, Vec<String>) {
+    let (mut out, mut notes) = (Vec::new(), Vec::new());
+    let line = |text: String, about: Option<ResKey>| Finding { text, about };
     if let Err(e) = ws.flush() {
-        return vec![line(e.to_string(), None)];
+        return (vec![line(e.to_string(), None)], notes);
     }
     let mut staged = ws.module.clone();
     if w.compile {
@@ -218,31 +241,23 @@ fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
                     ));
                 }
             }
-            out.push(line(
-                format!("Compiled {} scripts, {failed} with errors", results.len()),
-                None,
-            ));
-        }
-        if w.compile_encounters {
-            let read = |r: ResRef| -> Option<mg_gff::Struct> {
-                let k = ResKey::new(r, ResType::UTC);
-                let data = staged_get(&ws.module, &k)
-                    .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-                mg_gff::Gff::read(&data).ok().map(|g| g.root)
-            };
-            let n = mg_module::build::compile_encounters(&mut staged, &read);
-            out.push(line(format!("Encounters: {n} creature entries brought up to date"), None));
+            notes.push(format!("Build: compiled {} scripts, {failed} with errors", results.len()));
         }
         if w.compile_cr {
-            out.push(line(
-                "Creature CR: not calculated (Moonglow does not yet compute challenge ratings)"
-                    .into(),
-                None,
-            ));
+            let item = |r: ResRef| read_gff(&ws.module, game, ResKey::new(r, ResType::UTI));
+            let n = mg_module::build::compile_creature_cr(&mut staged, game, &item);
+            notes.push(format!("Build: {n} creature challenge ratings brought up to date"));
+        }
+        if w.compile_encounters {
+            // The creatures as they are now, ratings included.
+            let snapshot = staged.clone();
+            let read = |r: ResRef| read_gff(&snapshot, game, ResKey::new(r, ResType::UTC));
+            let n = mg_module::build::compile_encounters(&mut staged, &read);
+            notes.push(format!("Build: {n} encounter creature entries brought up to date"));
         }
         if w.compile_palettes {
             match mg_module::palette::rebuild_custom_palettes(&mut staged, game) {
-                Ok(n) => out.push(line(format!("Palettes: {n} custom palettes rebuilt"), None)),
+                Ok(n) => notes.push(format!("Build: {n} custom palettes rebuilt")),
                 Err(e) => out.push(line(format!("Error: palettes: {e}"), None)),
             }
         }
@@ -282,7 +297,7 @@ fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
                 Some(m.reference.from),
             ));
         }
-        out.push(line(format!("Missing resources: {n}"), None));
+        notes.push(format!("Build: {n} missing resources"));
     }
     if w.unused {
         let unused: Vec<ResKey> = mg_module::verify::unused(&ws.module)
@@ -296,12 +311,20 @@ fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
         for k in &unused {
             out.push(line(format!("Unused: {k}"), Some(*k)));
         }
-        out.push(line(format!("Unused resources: {}", unused.len()), None));
+        notes.push(format!("Build: {} unused resources", unused.len()));
     }
-    out.push(line("Build complete".into(), None));
-    out
+    (out, notes)
 }
 
-fn staged_get(module: &mg_module::Module, k: &ResKey) -> Option<Vec<u8>> {
-    module.get(k).map(<[u8]>::to_vec)
+/// A GFF resource from the module, else the game.
+fn read_gff(
+    module: &mg_module::Module,
+    game: &mg_rules::GameData,
+    k: ResKey,
+) -> Option<mg_gff::Struct> {
+    let data = module
+        .get(&k)
+        .map(<[u8]>::to_vec)
+        .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+    mg_gff::Gff::read(&data).ok().map(|g| g.root)
 }

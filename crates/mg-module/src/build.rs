@@ -161,6 +161,36 @@ pub fn compile_encounters(
     changed
 }
 
+/// Build › Compile › Creature CR: every creature blueprint's
+/// `ChallengeRating` recalculated as Aurora does
+/// ([`GameData::challenge`](mg_rules::GameData::challenge)), its gear read
+/// with `item` (the module's item blueprints, else the game's). Returns how
+/// many changed.
+pub fn compile_creature_cr(
+    module: &mut Module,
+    game: &mg_rules::GameData,
+    item: &dyn Fn(mg_core::ResRef) -> Option<mg_gff::Struct>,
+) -> usize {
+    use mg_gff::{Gff, Value};
+    let keys: Vec<ResKey> = module.keys_of(ResType::UTC).copied().collect();
+    let mut changed = 0;
+    for key in keys {
+        let Some(mut gff) = module.get(&key).and_then(|d| Gff::read(d).ok()) else { continue };
+        let mut sheet = mg_rules::CreatureSheet::from_gff(&gff.root);
+        sheet.gear_value = game.gear_value(&gff.root, item);
+        let rating = game.challenge(&sheet).rating;
+        if gff.root.float("ChallengeRating") == Some(rating) {
+            continue;
+        }
+        gff.root.set("ChallengeRating", Value::Float(rating));
+        if let Ok(data) = gff.to_bytes() {
+            module.set(key, data);
+            changed += 1;
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use mg_core::ResRef;
