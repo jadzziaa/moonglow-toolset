@@ -2839,3 +2839,60 @@ fn update_instances_remakes_placed_sounds() {
         );
     }
 }
+
+#[test]
+fn build_module_compiles_and_reports() {
+    use mg_edit::{Command, Edit, GffPath};
+    let Some((mut h, area)) = area_harness("build") else { return };
+    // A script that does not compile, an encounter blueprint whose creature
+    // entry has a stale CR, and a waypoint naming a missing script.
+    let mut ute = Gff::new(*b"UTE ");
+    ute.root.set("TemplateResRef", mg_gff::Value::resref(ResRef::from_str("mg_enc").unwrap()));
+    let mut entry = mg_gff::Struct::new(0);
+    entry.set("ResRef", mg_gff::Value::resref(ResRef::from_str("nw_bandit001").unwrap()));
+    entry.set("CR", mg_gff::Value::Float(99.0));
+    entry.set("Appearance", mg_gff::Value::Int(0));
+    ute.root.set("CreatureList", mg_gff::Value::List(vec![entry]));
+    let git = ResKey::new(area, ResType::GIT);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.apply(Command::new(
+        "setup",
+        vec![
+            Edit::SetResource {
+                key: ResKey::parse("mg_bad", ResType::NSS).unwrap(),
+                data: Some(b"void main() { this is not nwscript }".to_vec()),
+            },
+            Edit::SetResource {
+                key: ResKey::parse("mg_enc", ResType::UTE).unwrap(),
+                data: Some(ute.to_bytes().unwrap()),
+            },
+            Edit::SetField {
+                key: git,
+                path: GffPath::root().item("WaypointList", 0),
+                label: "OnUserDefined".into(),
+                value: Some(mg_gff::Value::resref(ResRef::from_str("mg_nosuchscript").unwrap())),
+            },
+        ],
+    ))
+    .unwrap();
+    h.get_by_label("Build").click();
+    h.run_steps(2);
+    h.get_by_label("Build Module…").click();
+    h.run_steps(2);
+    let w = h.state().build.clone().expect("the window is open");
+    assert!(w.compile && w.missing && !w.unused, "Aurora's defaults");
+    h.get_all_by_label("Build").last().unwrap().click();
+    h.run_steps(3);
+    let results: Vec<String> =
+        h.state().build.as_ref().unwrap().results.iter().map(|f| f.text.clone()).collect();
+    let has = |s: &str| results.iter().any(|r| r.contains(s));
+    assert!(has("Error:"), "the bad script: {results:?}");
+    assert!(has("Encounters: 1 creature entries"), "{results:?}");
+    assert!(has("mg_nosuchscript"), "{results:?}");
+    assert!(has("Build complete"), "{results:?}");
+    // The encounter's entry now has the bandit's CR.
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let enc = ws.doc(&ResKey::parse("mg_enc", ResType::UTE).unwrap()).unwrap();
+    let cr = enc.root.list("CreatureList").unwrap()[0].float("CR").unwrap();
+    assert!(cr < 99.0, "CR {cr}");
+}

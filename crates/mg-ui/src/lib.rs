@@ -11,6 +11,7 @@ pub mod area_view;
 pub mod blueprint;
 pub mod blueprint_wizard;
 mod browser;
+pub mod build_view;
 pub mod dialog_view;
 pub mod dialogs;
 pub mod faction_view;
@@ -26,6 +27,7 @@ pub mod script_wizard;
 pub mod settings;
 mod tabs;
 pub mod terrain_mode;
+pub mod test_module;
 mod text;
 pub mod tile_select;
 mod transfer;
@@ -91,6 +93,8 @@ pub enum Action {
     },
     CompileScripts,
     Verify,
+    /// Saves, then starts the game on the module (F9).
+    TestModule,
     Quit,
 }
 
@@ -173,6 +177,8 @@ pub struct Moonglow {
     pub preview_window: bool,
     /// The Tile Properties window, while it is open.
     pub tile_props: Option<tile_select::TileProps>,
+    /// The Build Module window, while it is open.
+    pub build: Option<build_view::BuildWindow>,
     /// The area whose Area Statistics window is open.
     pub area_stats: Option<mg_core::ResRef>,
     /// The Resize Area window, while it is open.
@@ -261,6 +267,7 @@ impl Moonglow {
             preview_window: false,
             tile_props: None,
             area_stats: None,
+            build: None,
             resize_area: None,
             rotate_area: None,
             palette: Default::default(),
@@ -345,6 +352,7 @@ impl Moonglow {
         tile_select::window(self, ui.ctx());
         area_reshape::windows(self, ui.ctx());
         area_view::stats_window(self, ui.ctx());
+        build_view::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -397,6 +405,9 @@ impl Moonglow {
         }
         if pressed(ui, Modifiers::NONE, Key::F7) {
             self.actions.push(Action::CompileScripts);
+        }
+        if pressed(ui, Modifiers::NONE, Key::F9) && self.ws.is_some() {
+            self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
         }
     }
 
@@ -522,8 +533,14 @@ impl Moonglow {
                 if ui.add_enabled(open, egui::Button::new("Compile All Scripts")).clicked() {
                     self.actions.push(Action::CompileScripts);
                 }
+                if ui.add_enabled(open, egui::Button::new("Build Module…")).clicked() {
+                    self.build.get_or_insert_with(Default::default);
+                }
                 if ui.add_enabled(open, egui::Button::new("Verify Module")).clicked() {
                     self.actions.push(Action::Verify);
+                }
+                if ui.add_enabled(open, egui::Button::new("Test Module (F9)")).clicked() {
+                    self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
                 }
                 ui.separator();
                 let area = self.palette.area.filter(|a| self.area_views.contains_key(a));
@@ -966,6 +983,7 @@ impl Moonglow {
             Action::RenameBlueprint { from, to } => blueprint::rename(self, from, to),
             Action::CompileScripts => self.compile_scripts(),
             Action::Verify => self.verify(),
+            Action::TestModule => self.test_module(),
             Action::Quit => self.quit_requested = true,
         }
     }
@@ -1070,6 +1088,36 @@ impl Moonglow {
             results.len(),
             failed.len()
         ));
+    }
+
+    /// Starts the game on the saved module (Test Module).
+    fn test_module(&mut self) {
+        let Some(install) = self.install.clone() else {
+            self.log.error("Test Module needs the game");
+            return;
+        };
+        let Some(client) = test_module::client_binary(install.root.as_path()) else {
+            self.log.error(format!(
+                "Test Module: no game client in {}",
+                install.root.as_path().display()
+            ));
+            return;
+        };
+        let (Some(path), Some(user)) = (self.module_path(), install.user_dir.as_deref()) else {
+            self.log.error("Test Module: save the module in the game's modules folder first");
+            return;
+        };
+        let Some(name) = test_module::module_name(user, &path) else {
+            self.log.error(format!(
+                "Test Module: the game loads modules from {}; save the module there",
+                user.join("modules").display()
+            ));
+            return;
+        };
+        match test_module::command(&client, user, &name).spawn() {
+            Ok(_) => self.log.info(format!("Testing {name}")),
+            Err(e) => self.log.error(format!("Test Module: {}: {e}", client.display())),
+        }
     }
 
     fn verify(&mut self) {

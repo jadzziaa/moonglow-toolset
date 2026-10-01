@@ -1,0 +1,307 @@
+//! Build › Build Module (Aurora's `TdlgVerifyModule`): compile passes
+//! (scripts, encounters, palettes; creature challenge ratings are not yet
+//! calculated), then checks for missing resources and, if asked, unused
+//! ones, listed as results; a double click opens what a result is about,
+//! and the list can be exported as text. Aurora's defaults: Compile and
+//! Missing Resources on, Unused and Spell Check off.
+
+use std::collections::BTreeMap;
+
+use mg_core::{ResRef, ResType};
+use mg_edit::Command;
+use mg_module::verify::Category;
+use mg_resman::ResKey;
+
+use crate::dialogs::FileKind;
+use crate::{Action, Moonglow, Tab};
+
+/// The categories Missing Resources checks, in Aurora's order.
+pub const MISSING: [Category; 11] = [
+    Category::Creatures,
+    Category::Doors,
+    Category::Placeables,
+    Category::Items,
+    Category::Sounds,
+    Category::Triggers,
+    Category::Waypoints,
+    Category::Stores,
+    Category::Conversations,
+    Category::Encounters,
+    Category::Areas,
+];
+
+/// One line of the results, and the resource it is about.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Finding {
+    pub text: String,
+    pub about: Option<ResKey>,
+}
+
+/// The Build Module window.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BuildWindow {
+    /// Advanced Controls: the options are shown.
+    pub advanced: bool,
+    pub compile: bool,
+    pub compile_scripts: bool,
+    pub compile_cr: bool,
+    pub compile_encounters: bool,
+    pub compile_palettes: bool,
+    pub missing: bool,
+    pub missing_of: BTreeMap<Category, bool>,
+    pub unused: bool,
+    pub unused_scripts: bool,
+    pub unused_conversations: bool,
+    pub unused_blueprints: bool,
+    pub results: Vec<Finding>,
+    pub selected: Option<usize>,
+}
+
+impl Default for BuildWindow {
+    fn default() -> BuildWindow {
+        BuildWindow {
+            advanced: false,
+            compile: true,
+            compile_scripts: true,
+            compile_cr: true,
+            compile_encounters: true,
+            compile_palettes: true,
+            missing: true,
+            missing_of: MISSING.iter().map(|c| (*c, true)).collect(),
+            unused: false,
+            unused_scripts: true,
+            unused_conversations: true,
+            unused_blueprints: true,
+            results: Vec::new(),
+            selected: None,
+        }
+    }
+}
+
+pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(mut w) = app.build.take() else { return };
+    let mut open = true;
+    let (mut build, mut done, mut export, mut go) = (false, false, false, None);
+    egui::Window::new("Build Module").open(&mut open).collapsible(false).default_width(560.0).show(
+        ctx,
+        |ui| {
+            ui.checkbox(&mut w.advanced, "Advanced Controls");
+            if w.advanced {
+                ui.horizontal_top(|ui| {
+                    ui.vertical(|ui| {
+                        ui.checkbox(&mut w.compile, "Compile");
+                        ui.add_enabled_ui(w.compile, |ui| {
+                            ui.indent("compile", |ui| {
+                                ui.checkbox(&mut w.compile_scripts, "Scripts");
+                                ui.checkbox(&mut w.compile_cr, "Creature CR").on_hover_text(
+                                    "Moonglow does not calculate challenge ratings yet",
+                                );
+                                ui.checkbox(&mut w.compile_encounters, "Encounters");
+                                ui.checkbox(&mut w.compile_palettes, "Palettes");
+                            });
+                        });
+                        ui.checkbox(&mut w.unused, "Unused").on_hover_text("Check for use");
+                        ui.add_enabled_ui(w.unused, |ui| {
+                            ui.indent("unused", |ui| {
+                                ui.checkbox(&mut w.unused_scripts, "Scripts");
+                                ui.checkbox(&mut w.unused_conversations, "Conversations");
+                                ui.checkbox(&mut w.unused_blueprints, "Blueprints");
+                            });
+                        });
+                    });
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        ui.checkbox(&mut w.missing, "Missing Resources")
+                            .on_hover_text("Check that resources are available");
+                        ui.add_enabled_ui(w.missing, |ui| {
+                            ui.indent("missing", |ui| {
+                                for (c, on) in &mut w.missing_of {
+                                    ui.checkbox(on, format!("{c:?}"));
+                                }
+                            });
+                        });
+                    });
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        ui.add_enabled(false, egui::Checkbox::new(&mut false, "Spell Check"))
+                            .on_disabled_hover_text("Not yet: Moonglow has no dictionary");
+                    });
+                });
+                ui.separator();
+            }
+            ui.label("Results");
+            egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]).show(
+                ui,
+                |ui| {
+                    for (i, f) in w.results.iter().enumerate() {
+                        let r = ui.selectable_label(w.selected == Some(i), &f.text);
+                        if r.clicked() {
+                            w.selected = Some(i);
+                        }
+                        if r.double_clicked() {
+                            go = f.about;
+                        }
+                    }
+                },
+            );
+            ui.horizontal(|ui| {
+                build = ui.button("Build").clicked();
+                export =
+                    ui.add_enabled(!w.results.is_empty(), egui::Button::new("Export…")).clicked();
+                done = ui.button("Done").clicked();
+            });
+        },
+    );
+    if build {
+        w.results = run(app, &w);
+        w.selected = None;
+    }
+    if export
+        && let Some(path) =
+            app.dialogs.save_file(FileKind::Any, Some(std::path::Path::new("build.txt")))
+    {
+        let text: String = w.results.iter().map(|f| format!("{}\n", f.text)).collect();
+        if let Err(e) = std::fs::write(&path, text) {
+            app.log.error(format!("{}: {e}", path.display()));
+        }
+    }
+    if let Some(t) = go.and_then(Tab::for_resource) {
+        app.actions.push(Action::OpenTab(t));
+    }
+    if open && !done {
+        app.build = Some(w);
+    }
+}
+
+/// A blueprint type (the Unused › Blueprints check).
+fn is_blueprint(t: ResType) -> bool {
+    matches!(
+        t,
+        ResType::UTC
+            | ResType::UTD
+            | ResType::UTE
+            | ResType::UTI
+            | ResType::UTP
+            | ResType::UTS
+            | ResType::UTM
+            | ResType::UTT
+            | ResType::UTW
+    )
+}
+
+/// Runs the build: the compile passes, as one undoable command, then the
+/// checks.
+fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
+    app.refresh_module_layer();
+    let mut out = Vec::new();
+    let line = |text: String, about: Option<ResKey>| Finding { text, about };
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else {
+        return vec![line("No module open".into(), None)];
+    };
+    if let Err(e) = ws.flush() {
+        return vec![line(e.to_string(), None)];
+    }
+    let mut staged = ws.module.clone();
+    if w.compile {
+        if w.compile_scripts {
+            let results = mg_module::build::compile_scripts(
+                &mut staged,
+                &game.resman,
+                mg_module::build::ScriptSelection::All,
+            );
+            let failed = results.iter().filter(|r| r.result.is_err()).count();
+            for r in &results {
+                if let Err(e) = &r.result {
+                    out.push(line(
+                        format!("Error: {}", e.message),
+                        Some(ResKey::new(r.script.resref, ResType::NSS)),
+                    ));
+                }
+            }
+            out.push(line(
+                format!("Compiled {} scripts, {failed} with errors", results.len()),
+                None,
+            ));
+        }
+        if w.compile_encounters {
+            let read = |r: ResRef| -> Option<mg_gff::Struct> {
+                let k = ResKey::new(r, ResType::UTC);
+                let data = staged_get(&ws.module, &k)
+                    .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+                mg_gff::Gff::read(&data).ok().map(|g| g.root)
+            };
+            let n = mg_module::build::compile_encounters(&mut staged, &read);
+            out.push(line(format!("Encounters: {n} creature entries brought up to date"), None));
+        }
+        if w.compile_cr {
+            out.push(line(
+                "Creature CR: not calculated (Moonglow does not yet compute challenge ratings)"
+                    .into(),
+                None,
+            ));
+        }
+        if w.compile_palettes {
+            match mg_module::palette::rebuild_custom_palettes(&mut staged, game) {
+                Ok(n) => out.push(line(format!("Palettes: {n} custom palettes rebuilt"), None)),
+                Err(e) => out.push(line(format!("Error: palettes: {e}"), None)),
+            }
+        }
+        let edits: Vec<mg_edit::Edit> = staged
+            .keys()
+            .chain(ws.module.keys())
+            .copied()
+            .collect::<std::collections::BTreeSet<ResKey>>()
+            .into_iter()
+            .filter(|k| staged.get(k) != ws.module.get(k))
+            .map(|k| mg_edit::Edit::SetResource {
+                key: k,
+                data: staged.get(&k).map(<[u8]>::to_vec),
+            })
+            .collect();
+        if !edits.is_empty()
+            && let Err(e) = ws.apply(Command::new("Build Module", edits))
+        {
+            out.push(line(format!("Error: {e}"), None));
+        }
+    }
+    if w.missing {
+        let missing = mg_module::verify::missing(&ws.module, &game.resman);
+        let mut n = 0;
+        for m in missing.iter().filter(|m| w.missing_of.get(&m.category).copied().unwrap_or(true)) {
+            n += 1;
+            let what = if m.uncompiled { "is not compiled" } else { "is missing" };
+            out.push(line(
+                format!(
+                    "{:?}: {:?} {} ({} {}) {what}",
+                    m.category,
+                    m.reference.kind,
+                    m.reference.target,
+                    m.reference.from,
+                    m.reference.path
+                ),
+                Some(m.reference.from),
+            ));
+        }
+        out.push(line(format!("Missing resources: {n}"), None));
+    }
+    if w.unused {
+        let unused: Vec<ResKey> = mg_module::verify::unused(&ws.module)
+            .into_iter()
+            .filter(|k| match k.restype {
+                ResType::NSS | ResType::NCS => w.unused_scripts,
+                ResType::DLG => w.unused_conversations,
+                t => is_blueprint(t) && w.unused_blueprints,
+            })
+            .collect();
+        for k in &unused {
+            out.push(line(format!("Unused: {k}"), Some(*k)));
+        }
+        out.push(line(format!("Unused resources: {}", unused.len()), None));
+    }
+    out.push(line("Build complete".into(), None));
+    out
+}
+
+fn staged_get(module: &mg_module::Module, k: &ResKey) -> Option<Vec<u8>> {
+    module.get(k).map(<[u8]>::to_vec)
+}

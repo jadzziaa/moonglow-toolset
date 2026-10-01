@@ -263,3 +263,11 @@ scripts (name, picker, Edit), Comments.
 | Select Terrain: tiles by click and box; Delete; Shift + right click: next variant; Tile Properties (main and source lights from lightcolor.2da, animation loops, Defaults) | Select Tiles: the same | ◐ [area_viewer_selects_tiles_and_sets_their_properties]; Defaults' lights not checked against Aurora indoors; Ctrl + C, X, V copy, cut and paste tiles with their lights (pasted as a group goes in) [tiles_copy_and_paste] |
 | Edit › Resize Area (rows and columns, Tiny/Small/Medium/Large), Rotate Area (90/180/270 either way) | the same | ✅ (`aurora_terrain.rs`: grown, shrunk through groups, rotated as Aurora does; objects outside deleted with Aurora's warning) [resize_and_rotate_area_from_the_edit_menu] |
 | Render AABB Nodes (walkmesh); Build › Area Statistics (Resources Used) | Walkmesh (walkable faces green); Build › Area Statistics (tiles, objects, models, triangles, memory, textures) | ✅ [walkmesh_overlay_and_area_statistics] |
+
+## Build menu (`TdlgVerifyModule`, Test Module)
+
+| Aurora | Moonglow | |
+|---|---|---|
+| Build Module: Advanced Controls (Compile: Scripts, Creature CR, Encounters, Palettes; Missing Resources by type; Unused: Scripts, Conversations, Blueprints; Spell Check by type), Build, results (double click opens), export | Build › Build Module…: the same options and defaults; the compile passes as one undoable command | ◐ [build_module_compiles_and_reports]; Creature CR not calculated (the CR formula is not known yet); no Spell Check |
+| Encounters pass: each encounter's creature entries (blueprints and placed encounters) given the creature blueprints' CR and appearance | `mg_module::build::compile_encounters` | ◐ not checked against Aurora |
+| Test Module (F9): saves, then `nwmain -userdirectory <dir> +TestNewModule <module>` | the same; the module must be in the user directory's `modules` folder | ◐ (the command is tested, not run: the game only runs here in the sandbox); no Minimize Toolset on test module |

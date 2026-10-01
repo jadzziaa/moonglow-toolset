@@ -101,6 +101,66 @@ pub fn compile_scripts(
         .collect()
 }
 
+/// Build › Compile › Encounters: every encounter's creature list (the
+/// module's encounter blueprints and the encounters placed in its areas)
+/// given the challenge rating and appearance of the creature blueprints it
+/// names (`creature` reads one: the module's, else the game's). Returns
+/// how many creature entries changed.
+pub fn compile_encounters(
+    module: &mut Module,
+    creature: &dyn Fn(mg_core::ResRef) -> Option<mg_gff::Struct>,
+) -> usize {
+    use mg_gff::{Gff, Struct, Value};
+    let refresh = |list: &mut [Struct]| -> usize {
+        let mut changed = 0;
+        for entry in list {
+            let Some(bp) = entry.resref("ResRef").and_then(creature) else { continue };
+            let mut touched = false;
+            if let Some(cr) = bp.float("ChallengeRating")
+                && entry.float("CR") != Some(cr)
+            {
+                entry.set("CR", Value::Float(cr));
+                touched = true;
+            }
+            if let Some(Value::Word(a)) = bp.get("Appearance_Type").cloned()
+                && entry.integer("Appearance") != Some(i64::from(a))
+            {
+                entry.set("Appearance", Value::Int(i32::from(a)));
+                touched = true;
+            }
+            changed += usize::from(touched);
+        }
+        changed
+    };
+    let mut changed = 0;
+    let keys: Vec<mg_resman::ResKey> = module
+        .keys()
+        .filter(|k| matches!(k.restype, ResType::UTE | ResType::GIT))
+        .copied()
+        .collect();
+    for key in keys {
+        let Some(mut gff) = module.get(&key).and_then(|d| Gff::read(d).ok()) else { continue };
+        let before = changed;
+        if key.restype == ResType::UTE {
+            if let Some(list) = gff.root.list_mut("CreatureList") {
+                changed += refresh(list);
+            }
+        } else if let Some(encounters) = gff.root.list_mut("Encounter List") {
+            for e in encounters {
+                if let Some(list) = e.list_mut("CreatureList") {
+                    changed += refresh(list);
+                }
+            }
+        }
+        if changed != before
+            && let Ok(data) = gff.to_bytes()
+        {
+            module.set(key, data);
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use mg_core::ResRef;
