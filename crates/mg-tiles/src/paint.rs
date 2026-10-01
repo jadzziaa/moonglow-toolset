@@ -213,6 +213,41 @@ impl Grid {
         self.stroke(index, self.lattice.clone(), BTreeSet::new(), cells.to_vec())
     }
 
+    /// Delete on selected tiles: each loses its crossers as the Eraser takes
+    /// them, and a group's tile is replaced by a tile that fits its place
+    /// (the rest of the group stays). `None` when one has nothing to fit.
+    pub fn delete(&self, index: &TileIndex, cells: &[(u32, u32)]) -> Option<Stroke> {
+        let mut grid = self.clone();
+        let mut chosen: Vec<(u32, u32)> = Vec::new();
+        let mut unlocked = Vec::new();
+        for &(x, y) in cells {
+            let stroke = if index.is_grouped(grid.tile(x, y).tile) {
+                unlocked.push((x, y));
+                let mut lattice = grid.lattice.clone();
+                let mut also = vec![(x, y)];
+                for edge in 0..4 {
+                    if lattice.cell(x, y).edges[edge].is_some() {
+                        lattice.set_edge(x, y, edge, None);
+                        also.extend(beside(&lattice, x, y, edge));
+                    }
+                }
+                grid.stroke_unlocking(index, lattice, BTreeSet::new(), also, &unlocked)?
+            } else {
+                grid.erase(index, x, y)?
+            };
+            // Stand-in tiles, so that the next tile sees what this one leaves.
+            for &(cx, cy) in &stroke.cells {
+                let fit = *index.fits(&stroke.lattice.cell(cx, cy)).first()?;
+                grid.tiles[(cy * grid.lattice.width() + cx) as usize] = fit;
+                if !chosen.contains(&(cx, cy)) {
+                    chosen.push((cx, cy));
+                }
+            }
+            grid.lattice = stroke.lattice;
+        }
+        Some(Stroke { lattice: grid.lattice, cells: chosen, fixed: Vec::new() })
+    }
+
     /// Placing tile group `group` of the tileset with its first tile (the
     /// south-west one) in cell (x, y), turned `turns` quarter turns
     /// counter-clockwise about that cell, as Aurora does: the group's tiles
@@ -295,6 +330,18 @@ impl Grid {
         changed: BTreeSet<(u32, u32)>,
         also: Vec<(u32, u32)>,
     ) -> Option<Stroke> {
+        self.stroke_unlocking(index, lattice, changed, also, &[])
+    }
+
+    /// [`Grid::stroke`], choosing again the group tiles of `unlocked` too.
+    fn stroke_unlocking(
+        &self,
+        index: &TileIndex,
+        lattice: Lattice,
+        changed: BTreeSet<(u32, u32)>,
+        also: Vec<(u32, u32)>,
+        unlocked: &[(u32, u32)],
+    ) -> Option<Stroke> {
         let mut cells: Vec<(u32, u32)> = also;
         for &(x, y) in &changed {
             if self.lattice.corner(x, y) == lattice.corner(x, y) && !cells.is_empty() {
@@ -310,7 +357,7 @@ impl Grid {
         for &(x, y) in &cells {
             let cell = lattice.cell(x, y);
             let tile = self.tile(x, y);
-            if index.is_grouped(tile.tile) {
+            if index.is_grouped(tile.tile) && !unlocked.contains(&(x, y)) {
                 if index.cell(tile) != Some(cell) {
                     return None;
                 }
@@ -319,7 +366,9 @@ impl Grid {
             }
         }
         // Group tiles that still fit stay.
-        cells.retain(|&(x, y)| !index.is_grouped(self.tile(x, y).tile));
+        cells.retain(|&(x, y)| {
+            !index.is_grouped(self.tile(x, y).tile) || unlocked.contains(&(x, y))
+        });
         Some(Stroke { lattice, cells, fixed: Vec::new() })
     }
 
@@ -682,6 +731,9 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         assert_eq!(g.lattice.cell(2, 2).edges, [Some(s), Some(r), Some(s), Some(r)]);
         // A road turning a corner: no tile, refused.
         assert!(g.draw_crosser(&index, &road(&[(3, 2), (3, 3)]), &[], r).is_none());
+        // Delete on a tile without a group is the Eraser.
+        let deleted = g.delete(&index, &[(1, 2)]).unwrap();
+        assert_eq!(deleted.lattice, g.erase(&index, 1, 2).unwrap().lattice);
         // Erasing the road's west end: the crossing loses its road on that
         // side, has nothing to fit, and drops the stream (another kind)
         // rather than the road, whose east end is left.

@@ -116,6 +116,14 @@ pub struct AreaView {
     pub(crate) crossing: Vec<((u32, u32), usize)>,
     /// Where the crosser drag's pointer was last (on the ground).
     pub(crate) crossing_at: Option<Vec3>,
+    /// Tiles are selected rather than objects (Aurora's Select Terrain).
+    pub tile_mode: bool,
+    /// The selected tiles (column, row).
+    pub tile_selection: Vec<(u32, u32)>,
+    /// The box being dragged to select tiles (screen points).
+    pub(crate) tile_box: Option<(Pos2, Pos2)>,
+    /// Where the tile menu was opened.
+    pub(crate) tile_menu_at: Option<Pos2>,
     /// How far a tile group being placed is turned (quarter turns).
     pub(crate) group_turns: u8,
     /// Why the last stroke did nothing.
@@ -162,6 +170,10 @@ impl AreaView {
             spot: None,
             crossing: Vec::new(),
             crossing_at: None,
+            tile_mode: false,
+            tile_selection: Vec::new(),
+            tile_box: None,
+            tile_menu_at: None,
             group_turns: 0,
             notice: None,
             ground: None,
@@ -397,6 +409,14 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         ui.toggle_value(&mut view.night, "Night").on_hover_text("Show the area at night");
         ui.toggle_value(&mut view.fog, "Fog");
         ui.toggle_value(&mut view.grid, "Grid").on_hover_text("Display Grid");
+        if ui
+            .toggle_value(&mut view.tile_mode, "Select Tiles")
+            .on_hover_text("Select tiles rather than objects (Aurora's Select Terrain)")
+            .changed()
+        {
+            view.selection.clear();
+            view.tile_selection.clear();
+        }
         if ui.button("Area Properties").clicked() {
             app.actions.push(Action::OpenTab(crate::Tab::AreaProperties(view.area)));
         }
@@ -551,6 +571,7 @@ fn viewport(
     let door_brush = brush(app).is_some_and(|k| k.restype == ResType::UTD);
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush);
     crate::terrain_mode::overlay(app, ui, view);
+    crate::tile_select::overlay(ui, view);
     // Tiles animate: keep drawing while the view is on screen.
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     input(app, ui, view, &response);
@@ -758,6 +779,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
     camera_input(ui, view, response, shift, command);
     if crate::terrain_mode::input(app, ui, view, response) {
+        return;
+    }
+    if crate::tile_select::input(app, ui, view, response) {
+        if response.secondary_clicked() {
+            view.tile_menu_at = response.interact_pointer_pos();
+        }
+        if !shift {
+            let at = view.tile_menu_at;
+            response.context_menu(|ui| crate::tile_select::context_menu(app, view, ui, at));
+        }
         return;
     }
     let hovered = response.hovered();

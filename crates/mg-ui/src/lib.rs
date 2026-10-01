@@ -26,6 +26,7 @@ pub mod settings;
 mod tabs;
 pub mod terrain_mode;
 mod text;
+pub mod tile_select;
 mod transfer;
 mod tree;
 pub mod widgets;
@@ -169,6 +170,8 @@ pub struct Moonglow {
     pub find_instance: Option<area_tools::FindInstance>,
     /// The Preview window is shown.
     pub preview_window: bool,
+    /// The Tile Properties window, while it is open.
+    pub tile_props: Option<tile_select::TileProps>,
     /// Objects copied in an area viewer.
     pub object_clip: Option<area_view::ObjectClip>,
     /// An object to show and select when its area's view is next drawn.
@@ -242,6 +245,7 @@ impl Moonglow {
             area_focus: None,
             object_clip: None,
             preview_window: false,
+            tile_props: None,
             palette: Default::default(),
             hak_report: None,
             custom_tlk: None,
@@ -321,6 +325,7 @@ impl Moonglow {
         script_wizard::window(self, ui);
         area_tools::windows(self, ui);
         area_tools::preview_window(self, ui);
+        tile_select::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")

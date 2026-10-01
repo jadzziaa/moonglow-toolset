@@ -2576,3 +2576,57 @@ fn terrain_screen() {
     std::fs::create_dir_all(&out).unwrap();
     image.save(out.join("terrain.png")).unwrap();
 }
+
+#[test]
+fn area_viewer_selects_tiles_and_sets_their_properties() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness_on("tiles", "tic01", None) else { return };
+    let tile = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        are.root.list("Tile_List").unwrap()[i].clone()
+    };
+    h.get_by_label("Select Tiles").click();
+    h.run_steps(2);
+    // The room in the middle: tile (1, 1), index 5.
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].tile_selection, [(1, 1)]);
+    let original = tile(&mut h, 5);
+    // Right click: the tile menu, Tile Properties.
+    let button = egui::PointerButton::Secondary;
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(2);
+    h.get_by_label("Tile Properties…").click();
+    h.run_steps(2);
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert_eq!(props.tiles, [5]);
+    // Main light 1 to colour 9, through the colour picker.
+    h.state_mut().tile_props.as_mut().unwrap().main[0] = 9;
+    h.state_mut().tile_props.as_mut().unwrap().loops = [false, false, false];
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    let t = tile(&mut h, 5);
+    if props.has_main[0] {
+        assert_eq!(t.integer("Tile_MainLight1"), Some(9));
+    }
+    if props.has_loops[0] {
+        assert_eq!(t.integer("Tile_AnimLoop1"), Some(0));
+    }
+    assert!(h.state().tile_props.is_none());
+    // Undone in one step.
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(1);
+    assert_eq!(tile(&mut h, 5), original);
+}

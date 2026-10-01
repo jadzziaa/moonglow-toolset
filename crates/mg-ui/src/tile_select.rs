@@ -1,0 +1,472 @@
+//! Selecting tiles in the area viewer (Aurora's Select Terrain mode), and
+//! the Tile Properties window.
+//!
+//! - In tile mode a click selects the tile under the pointer (Ctrl + click
+//!   adds or removes it) and a drag selects a box of tiles.
+//! - Delete takes the selected tiles' crossers away (and a group's tile out
+//!   of its group); Shift + right click steps the tile under the pointer
+//!   through the tiles that fit; a right click opens the tile menu.
+//! - Tile Properties sets the selected tiles' main and source light colours
+//!   and animation loops (ARE `Tile_*`), each control only where the tile's
+//!   model has that light or loop (its SET entry), as Aurora shows them.
+//!   Defaults puts back the lighting scheme's first colours and the loops.
+
+use egui::{Color32, Pos2, Rect};
+use glam::Vec3;
+use mg_core::{ResRef, ResType};
+use mg_edit::{Command, Edit, GffPath};
+use mg_gff::Value;
+use mg_resman::ResKey;
+use mg_tiles::paint::next_fit;
+
+use crate::area_view::AreaView;
+use crate::{Action, Moonglow};
+
+/// The Tile Properties window's values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TileProps {
+    pub area: ResRef,
+    /// The tiles it sets, by index in `Tile_List`.
+    pub tiles: Vec<usize>,
+    pub main: [u8; 2],
+    pub source: [u8; 2],
+    pub loops: [bool; 3],
+    /// Which controls the tiles' models have: main lights, source lights,
+    /// loops.
+    pub has_main: [bool; 2],
+    pub has_source: [bool; 2],
+    pub has_loops: [bool; 3],
+    /// The light whose colour is being chosen: 0, 1 main, 2, 3 source.
+    pub picking: Option<usize>,
+}
+
+/// The tile under a screen point.
+fn tile_at(view: &AreaView, pos: Pos2) -> Option<(u32, u32)> {
+    let model = view.model.as_ref()?;
+    let p = view.ground_at(pos, 0.0)?;
+    let (x, y) = (p.x / mg_area::TILE_SIZE, p.y / mg_area::TILE_SIZE);
+    (x >= 0.0 && y >= 0.0 && (x as u32) < model.width && (y as u32) < model.height)
+        .then_some((x as u32, y as u32))
+}
+
+/// Tile mode's input; `false` when the view is not in tile mode.
+pub(crate) fn input(
+    app: &mut Moonglow,
+    ui: &egui::Ui,
+    view: &mut AreaView,
+    response: &egui::Response,
+) -> bool {
+    if !view.tile_mode {
+        return false;
+    }
+    let (command, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
+    if response.drag_started_by(egui::PointerButton::Primary) && !command {
+        let from = ui.input(|i| i.pointer.press_origin()).unwrap_or_default();
+        view.tile_box = Some((from, from));
+    }
+    if let Some((from, _)) = view.tile_box {
+        if let Some(now) = response.interact_pointer_pos() {
+            view.tile_box = Some((from, now));
+        }
+        if response.drag_stopped() {
+            view.tile_box = None;
+            let (a, b) = (
+                tile_at(view, from),
+                response.interact_pointer_pos().and_then(|p| tile_at(view, p)),
+            );
+            if let (Some(a), Some(b)) = (a, b) {
+                view.tile_selection.clear();
+                for y in a.1.min(b.1)..=a.1.max(b.1) {
+                    for x in a.0.min(b.0)..=a.0.max(b.0) {
+                        view.tile_selection.push((x, y));
+                    }
+                }
+            }
+        }
+    }
+    if response.clicked()
+        && let Some(t) = response.interact_pointer_pos().and_then(|p| tile_at(view, p))
+    {
+        if command {
+            match view.tile_selection.iter().position(|s| *s == t) {
+                Some(i) => {
+                    view.tile_selection.remove(i);
+                }
+                None => view.tile_selection.push(t),
+            }
+        } else {
+            view.tile_selection = vec![t];
+        }
+    }
+    if response.secondary_clicked()
+        && shift
+        && let Some(t) = response.interact_pointer_pos().and_then(|p| tile_at(view, p))
+    {
+        next_variant(app, view, t);
+    }
+    let typing = ui.ctx().memory(|m| m.focused().is_some());
+    if response.hovered()
+        && !typing
+        && ui.input(|i| i.key_pressed(egui::Key::Delete))
+        && !view.tile_selection.is_empty()
+    {
+        delete(app, view);
+    }
+    true
+}
+
+/// The tile menu (right click in tile mode).
+pub(crate) fn context_menu(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    ui: &mut egui::Ui,
+    at: Option<Pos2>,
+) {
+    let Some(t) = at.and_then(|p| tile_at(view, p)) else {
+        ui.label("No tile here");
+        return;
+    };
+    if !view.tile_selection.contains(&t) {
+        view.tile_selection = vec![t];
+    }
+    if ui.button("Tile Properties…").clicked() {
+        open_properties(app, view);
+        ui.close();
+    }
+    if ui.button("Next Variant").on_hover_text("Shift + right click").clicked() {
+        next_variant(app, view, t);
+        ui.close();
+    }
+    if ui.button("Delete").on_hover_text("Delete: crossers and group tiles go").clicked() {
+        delete(app, view);
+        ui.close();
+    }
+}
+
+/// Puts the tiles `changes` into the area as one command.
+fn commit(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    changes: &[((u32, u32), mg_tiles::Placement)],
+    label: &str,
+) {
+    let (Some(ws), Some(game), Some(tools)) =
+        (app.ws.as_mut(), app.game.as_ref(), view.terrain.as_ref())
+    else {
+        return;
+    };
+    let key = ResKey::new(view.area, ResType::ARE);
+    let Ok(are) = ws.doc(&key) else { return };
+    let root = are.root.clone();
+    let scheme = root
+        .integer("LightingScheme")
+        .and_then(|row| mg_module::new::Scheme::read(game, row.max(0) as usize).ok());
+    let mut rng = fastrand::Rng::new();
+    let mut lights = || scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut rng));
+    let edits = mg_area::terrain::tile_edits(key, &root, &tools.set, changes, &mut lights);
+    if !edits.is_empty() {
+        app.actions.push(Action::Apply(Command::new(label, edits)));
+    }
+}
+
+fn grid(app: &mut Moonglow, view: &AreaView) -> Option<mg_tiles::paint::Grid> {
+    let tools = view.terrain.as_ref()?;
+    let are = app.ws.as_mut()?.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
+    mg_area::terrain::grid(&are.root, &tools.index)
+}
+
+/// The tile's next variant among those that fit, in Aurora's order.
+fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32)) {
+    let Some(g) = grid(app, view) else { return };
+    let Some(tools) = view.terrain.as_ref() else { return };
+    let Some(next) = next_fit(&tools.index, &g.lattice.cell(x, y), g.tile(x, y)) else {
+        view.notice = Some("No other tile fits there".into());
+        return;
+    };
+    commit(app, view, &[((x, y), next)], "Next tile");
+}
+
+/// Delete on the selected tiles.
+fn delete(app: &mut Moonglow, view: &mut AreaView) {
+    let Some(mut g) = grid(app, view) else { return };
+    let Some(tools) = view.terrain.as_ref() else { return };
+    let cells = view.tile_selection.clone();
+    match g.delete(&tools.index, &cells) {
+        Some(stroke) => {
+            let changes = g.apply(&tools.index, stroke, &mut fastrand::Rng::new());
+            commit(app, view, &changes, "Delete tiles");
+        }
+        None => view.notice = Some("Delete: no tile fits there".into()),
+    }
+}
+
+/// Opens Tile Properties for the selected tiles, with the first one's
+/// values.
+fn open_properties(app: &mut Moonglow, view: &AreaView) {
+    let (Some(model), Some(tools)) = (view.model.as_ref(), view.terrain.as_ref()) else { return };
+    let tiles: Vec<usize> =
+        view.tile_selection.iter().map(|&(x, y)| (y * model.width + x) as usize).collect();
+    let Some(first) = tiles.first().and_then(|&i| model.tiles.get(i)) else { return };
+    let mut has_main = [false; 2];
+    let mut has_source = [false; 2];
+    let mut has_loops = [false; 3];
+    for t in tiles.iter().filter_map(|&i| model.tiles.get(i)) {
+        if let Some(s) = usize::try_from(t.id).ok().and_then(|id| tools.set.tiles.get(id)) {
+            for k in 0..2 {
+                has_main[k] |= s.main_lights[k];
+                has_source[k] |= s.source_lights[k];
+            }
+            for (has, on) in has_loops.iter_mut().zip(s.anim_loops) {
+                *has |= on;
+            }
+        }
+    }
+    app.tile_props = Some(TileProps {
+        area: view.area,
+        tiles,
+        main: first.main_lights,
+        source: first.source_lights,
+        loops: first.anim_loops,
+        has_main,
+        has_source,
+        has_loops,
+        picking: None,
+    });
+}
+
+/// lightcolor.2da's toolset colours (TOOLSETRED, GREEN, BLUE, 0 to 1).
+fn light_colors(app: &Moonglow) -> Vec<Color32> {
+    let Some(t) = app.game.as_ref().and_then(|g| g.table("lightcolor").ok()) else {
+        return Vec::new();
+    };
+    (0..t.len())
+        .map(|r| {
+            let c = |col: &str| (t.get_float(r, col).unwrap_or(0.0).clamp(0.0, 1.0) * 255.0) as u8;
+            Color32::from_rgb(c("TOOLSETRED"), c("TOOLSETGREEN"), c("TOOLSETBLUE"))
+        })
+        .collect()
+}
+
+/// A colour swatch button.
+fn swatch(ui: &mut egui::Ui, color: Color32, enabled: bool, selected: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(
+        egui::vec2(28.0, 22.0),
+        if enabled { egui::Sense::click() } else { egui::Sense::hover() },
+    );
+    let fill = if enabled { color } else { ui.visuals().widgets.noninteractive.bg_fill };
+    ui.painter().rect_filled(rect, 2.0, fill);
+    let stroke = if selected {
+        egui::Stroke::new(2.0, ui.visuals().selection.stroke.color)
+    } else {
+        ui.visuals().widgets.noninteractive.bg_stroke
+    };
+    ui.painter().rect_stroke(rect, 2.0, stroke, egui::StrokeKind::Inside);
+    response
+}
+
+/// The Tile Properties window and its colour picker.
+pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(mut props) = app.tile_props.take() else { return };
+    let colors = light_colors(app);
+    let color = |i: usize| colors.get(i).copied().unwrap_or(Color32::BLACK);
+    let mut open = true;
+    let mut cancel = false;
+    let mut done = None;
+    egui::Window::new("Tile Properties").collapsible(false).resizable(false).open(&mut open).show(
+        ctx,
+        |ui| {
+            egui::Grid::new("tile_props").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
+                for k in 0..2 {
+                    ui.add_enabled(
+                        props.has_main[k],
+                        egui::Label::new(format!("Main Light {}", k + 1)),
+                    );
+                    if swatch(ui, color(usize::from(props.main[k])), props.has_main[k], false)
+                        .on_hover_text("Click here to select a color")
+                        .clicked()
+                    {
+                        props.picking = Some(k);
+                    }
+                    ui.add_enabled(
+                        props.has_loops[k],
+                        egui::Checkbox::new(
+                            &mut props.loops[k],
+                            format!("Animation Loop {}", k + 1),
+                        ),
+                    )
+                    .on_hover_text("Check to play this tile animation");
+                    ui.end_row();
+                }
+                for k in 0..2 {
+                    ui.add_enabled(
+                        props.has_source[k],
+                        egui::Label::new(format!("Source Light {}", k + 1)),
+                    );
+                    // A source light's value v shows as lightcolor row 2v.
+                    if swatch(
+                        ui,
+                        color(2 * usize::from(props.source[k])),
+                        props.has_source[k],
+                        false,
+                    )
+                    .on_hover_text("Click here to select a color")
+                    .clicked()
+                    {
+                        props.picking = Some(2 + k);
+                    }
+                    if k == 0 {
+                        ui.add_enabled(
+                            props.has_loops[2],
+                            egui::Checkbox::new(&mut props.loops[2], "Animation Loop 3"),
+                        )
+                        .on_hover_text("Check to play this tile animation");
+                    }
+                    ui.end_row();
+                }
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Defaults").clicked() {
+                    done = Some(false);
+                }
+                if ui.button("OK").on_hover_text("Accept changes").clicked() {
+                    done = Some(true);
+                }
+                if ui.button("Cancel").on_hover_text("Discard changes").clicked() {
+                    cancel = true;
+                }
+            });
+        },
+    );
+    // The colour picker: lightcolor's 32 colours (16 for source lights).
+    if let Some(which) = props.picking {
+        let source = which >= 2;
+        let current = if source {
+            2 * usize::from(props.source[which - 2])
+        } else {
+            usize::from(props.main[which])
+        };
+        let mut keep = true;
+        egui::Window::new("Select A Color")
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut keep)
+            .show(ctx, |ui| {
+                egui::Grid::new("light_colors").spacing([4.0, 4.0]).show(ui, |ui| {
+                    for row in 0..colors.len().min(32) {
+                        if source && row % 2 == 1 {
+                            continue;
+                        }
+                        if swatch(ui, color(row), true, row == current).clicked() {
+                            if source {
+                                props.source[which - 2] = (row / 2) as u8;
+                            } else {
+                                props.main[which] = row as u8;
+                            }
+                            props.picking = None;
+                        }
+                        let per_row = if source { 4 } else { 8 };
+                        let n = if source { row / 2 } else { row };
+                        if n % per_row == per_row - 1 {
+                            ui.end_row();
+                        }
+                    }
+                });
+            });
+        if !keep {
+            props.picking = None;
+        }
+    }
+    match done {
+        Some(true) => {
+            apply(app, &props);
+            return;
+        }
+        Some(false) => defaults(app, &mut props),
+        None => {}
+    }
+    if open && !cancel {
+        app.tile_props = Some(props);
+    }
+}
+
+/// Defaults: the lighting scheme's first colours and every loop on (where
+/// the tile has them).
+fn defaults(app: &mut Moonglow, props: &mut TileProps) {
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
+    let Ok(are) = ws.doc(&ResKey::new(props.area, ResType::ARE)) else { return };
+    let row = are.root.integer("LightingScheme").unwrap_or(0).max(0) as usize;
+    if let Ok(t) = game.table("environment") {
+        let first = |col: &str| t.get_int(row, col).unwrap_or(0).clamp(0, 255) as u8;
+        props.main = [first("MAIN1_COLOR1"), first("MAIN2_COLOR1")];
+        let source = first("SECONDARY_COLOR1");
+        props.source = [source, source];
+    }
+    props.loops = props.has_loops;
+}
+
+/// Writes the window's values into the selected tiles, as one command.
+fn apply(app: &mut Moonglow, props: &TileProps) {
+    let key = ResKey::new(props.area, ResType::ARE);
+    let Some(ws) = app.ws.as_mut() else { return };
+    let Ok(are) = ws.doc(&key) else { return };
+    let list = are.root.list("Tile_List").unwrap_or(&[]);
+    let mut edits = Vec::new();
+    for &i in &props.tiles {
+        let Some(current) = list.get(i) else { continue };
+        let path = GffPath::root().item("Tile_List", i);
+        let mut set = |label: &str, value: Value, on: bool| {
+            if on && current.get(label) != Some(&value) {
+                edits.push(Edit::SetField {
+                    key,
+                    path: path.clone(),
+                    label: label.into(),
+                    value: Some(value),
+                });
+            }
+        };
+        set("Tile_MainLight1", Value::Byte(props.main[0]), props.has_main[0]);
+        set("Tile_MainLight2", Value::Byte(props.main[1]), props.has_main[1]);
+        set("Tile_SrcLight1", Value::Byte(props.source[0]), props.has_source[0]);
+        set("Tile_SrcLight2", Value::Byte(props.source[1]), props.has_source[1]);
+        for k in 0..3 {
+            set(
+                &format!("Tile_AnimLoop{}", k + 1),
+                Value::Byte(u8::from(props.loops[k])),
+                props.has_loops[k],
+            );
+        }
+    }
+    if !edits.is_empty() {
+        app.actions.push(Action::Apply(Command::new("Tile Properties", edits)));
+    }
+}
+
+/// The selected tiles and the box being dragged, over the view.
+pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView) {
+    if !view.tile_mode {
+        return;
+    }
+    let Some(model) = view.model.as_ref() else { return };
+    let painter = ui.painter_at(view.rect);
+    let blue = Color32::from_rgb(70, 130, 255);
+    for &(x, y) in &view.tile_selection {
+        let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
+        let z = t.position.z + 0.05;
+        let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(dx, dy)| {
+            Vec3::new((x as f32 + dx) * mg_area::TILE_SIZE, (y as f32 + dy) * mg_area::TILE_SIZE, z)
+        });
+        let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
+        if screen.len() == 4 {
+            painter.add(egui::Shape::closed_line(screen, egui::Stroke::new(2.0, blue)));
+        }
+    }
+    if let Some((a, b)) = view.tile_box {
+        painter.rect_stroke(
+            Rect::from_two_pos(a, b),
+            0.0,
+            egui::Stroke::new(1.0, blue),
+            egui::StrokeKind::Inside,
+        );
+    }
+}
