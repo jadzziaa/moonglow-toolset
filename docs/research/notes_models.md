@@ -383,7 +383,7 @@ Key entry, 12 bytes (`NwnMdlNodes.h:239-256`):
 | 0x4 | i16 | rows (number of keys) |
 | 0x6 | i16 | time-key offset: index (in floats) into the node's controller-data array |
 | 0x8 | i16 | data offset: float index of the first value |
-| 0xA | i8 | columns = values per row. 0x10 bit = bezier (nwnmdlcomp only; never seen). −1 = no values (detonate) |
+| 0xA | i8 | columns = values per row. 0x10 bit = Bézier keys (never in game data; see below). −1 = no values (detonate) |
 | 0xB | i8 | pad (garbage) |
 
 Data layout: `data[timeOff .. timeOff+rows)` are the key times, then
@@ -397,7 +397,7 @@ Decoder: `NwnMdlDecomp.cpp:1521-1622`; encoder: `_NmcLib/NmcController.cpp:410-4
   Neverblender builds `Quaternion(axis, angle)` (`nvb_utils.py:583-592`).
 - Scale is 1 column (uniform).
 - Columns = −1 with rows=N: N times, no values (`detonatekey`, `vwp_flash_blured`). Model-level `detonate` has cols 0 or 1.
-- Bezier (`*bezierkey`, 0x10): only the nwnmdlcomp source knows it (`NmcController.cpp:413-416`; decode masks `&0x0F`, `NwnMdlDecomp.cpp:1561-1564`).
+- Bezier (`*bezierkey`, 0x10) [V: `nwmain compilemodel`, 2026-10-01]: the game's compiler writes the value's own column count with 0x10 (`positionbezierkey`: 0x13) and per key the value then two handles (`t x y z h1x h1y h1z h2x h2y h2z` → 9 values), as written. nwnmdlcomp differs: it counts every value of the row (0x19, `NmcController.cpp:413-416`; decode masks `&0x0F`, `NwnMdlDecomp.cpp:1561-1564`). `orientationbezierkey` (12 values a row) is cut to 9 by the game's compiler and not converted to quaternions: unusable. The engine's curve through the handles is unknown.
   **0 occurrences in the corpus**, and none in ASCII game models either. [U] layout (value + in/out tangents?).
 
 Controller IDs (`NwnMdlNodes.h:117-180`, names from `NmcController.cpp:56-125`). ✓ = seen in corpus (count, cols):
@@ -419,7 +419,7 @@ Controller IDs (`NwnMdlNodes.h:117-180`, names from `NmcController.cpp:56-125`).
 | emitter | 96 colorEnd, 108 colorStart | | 3 | ✓ |
 | emitter | 120 combinetime, 124 drag, 128 fps, 132 frameEnd, 136 frameStart, 140 grav, 144 lifeExp, 148 mass, 152 p2p_bezier2, 156 p2p_bezier3, 160 particleRot, 164 randvel, 168 sizeStart, 172 sizeEnd, 176 sizeStart_y, 180 sizeEnd_y, 184 spread, 188 threshold, 192 velocity, 196 xsize, 200 ysize, 204 blurlength, 208 lightningDelay, 212 lightningRadius, 216 lightningScale | | 1 | ✓ (every emitter carries ~33 single-row controllers) |
 | emitter | 228 | detonate | 0 / −1 | ✓ 26 |
-| emitter | 464 alphaMid, 468 colorMid(3), 480 percentStart, 481 percentMid, 482 percentEnd, 484 sizeMid, 488 sizeMid_y | | | not in corpus [S] |
+| emitter | 448 alphaMid, 452 colorMid(3), 464 percentStart, 465 percentMid, 466 percentEnd, 468 sizeMid, 472 sizeMid_y | | | not in corpus; IDs from `nwmain compilemodel` [V]. nwnmdlcomp uses 464 alphaMid, 468 colorMid, 480–482 percent*, 484 sizeMid, 488 sizeMid_y (`NwnMdlNodes.h:168-174`), which the game reads as percentStart and sizeMid |
 
 IDs overlap across node types (100 = selfillumcolor for meshes and verticaldisplacement for lights; 88, 96, 128, 140, 144 likewise), so resolve the name by (flags, ID), as `NmcGetControllerName` does (`NmcController.cpp:461-490`).
 ASCII game animations also key emitter parameters that have **no known ID** (lightningsubdivkey, opacitykey, spawntypekey, xgridkey, …) [U].
@@ -443,7 +443,7 @@ ASCII game animations also key emitter parameters that have **no known ID** (lig
 | 0x0D8 | 216 | u32 | beaming | 0/1 |
 | 0x0DC | 220 | u32 | render | 0/1 (aabb: 0) |
 | 0x0E0 | 224 | u32 | transparencyhint | 0–5 |
-| 0x0E4 | 228 | u32 | unknown5 | **0 in every file**: renderhint is not stored here [U] |
+| 0x0E4 | 228 | u32 | renderhint | 0 none given (every game file), 1 `None`, 2 `NormalAndSpecMapped`, 3 `NormalTangents` (any case; others 0) [V: `nwmain compilemodel`] |
 | 0x0E8 | 232 | char[64]×4 | texture0 (bitmap), texture1, texture2, texture3 | slots 1–2 unused in corpus; slot 3 see §20 |
 | 0x1E8 | 488 | u32 | tilefade | 0, 1, 2, 4 |
 | 0x1EC | 492 | Array | vertex indices (strips) | count always 0 |
@@ -461,8 +461,8 @@ ASCII game animations also key emitter parameters that have **no known ID** (lig
 | 0x234 | 564 | RPtr[4] | tverts0..3 V2[vcount] | only set 0 is used in the corpus |
 | 0x244 | 580 | RPtr | normals V3[vcount] | always present in bio/EE |
 | 0x248 | 584 | RPtr | colors u32[vcount], R = low byte, then G, B, A | bio usually present, all 0xFFFFFFFF (only 34 sampled meshes differ) |
-| 0x24C | 588 | RPtr[5] | "bumpmap anim" 1–5 V3[vcount] | only water meshes (419 bio, e.g. `tcn01_a15_01:Plane452`; 163 nmc) |
-| 0x260 | 608 | RPtr | "bumpmap anim" 6 f32[vcount] | same |
+| 0x24C | 588 | RPtr[5] | "bumpmap anim" 1–5 V3[vcount] | only water meshes (419 bio, e.g. `tcn01_a15_01:Plane452`; 163 nmc). With a renderhint, the game's compiler puts the **tangents** in slot 4 (+0x258) [V] |
+| 0x260 | 608 | RPtr | "bumpmap anim" 6 f32[vcount] | same; with a renderhint, the bitangents' signs (handedness) [V]. Given `tangents` are kept, else generated |
 | 0x264 | 612 | u8 | lightmapped | 0 in bio/nmc; **garbage in EE** (0xCC in debug build) |
 | 0x265 | 613 | u8 | rotatetexture | 0/1 (valid in EE too) |
 | 0x266 | 614 | u16 | pad | |
@@ -640,9 +640,10 @@ Node header only, 0x70 bytes. Absent from the corpus.
    Patch 8193.36 note: "validation of compiled models upon first load to fix invalid normals and tangents". Tangents are computed at load [U whether newer compiles store them].
 3. EE skin 0x3B0 variant (§11).
 4. Light controller 144 (§8).
-5. **materialname / renderhint in binary: [U].** No base-game binary uses them (the base game ships only 7 `.mtr`, referenced via `bitmap`).
-   One hint: the debug-built EE GUI model `ctl_cg_btn_col:Plane105` has `gui_cg_color` (an MTR name) in the **texture3 slot** (+0x1A8), so EE may store `materialname` in texture slot 3.
-   `unknown5` (+0xE4) is 0 everywhere. nwnmdlcomp drops both keywords (neverblender `docs/compiling.md:106-113`).
+5. **materialname / renderhint in binary [V: `nwmain compilemodel` on authored probes, 2026-10-01].** No base-game binary uses them (the base game ships only 7 `.mtr`, referenced via `bitmap`).
+   The game's compiler writes `materialname` into the **texture3 slot** (+0x1A8) and drops `texture3` (given alone, the slot stays empty); `renderhint` is the number at +0xE4 (table above) and makes it store tangents and handedness (+0x258, +0x260). Integers wrap as in C (`spawntype -1` → 0xFFFFFFFF, `renderorder -2` → 0xFFFE). `colors` are stored only when given.
+   It agrees with the one hint from before: the debug-built EE GUI model `ctl_cg_btn_col:Plane105` has `gui_cg_color` (an MTR name) in the **texture3 slot** (+0x1A8), so EE may store `materialname` in texture slot 3.
+   +0xE4 is 0 in every game file. nwnmdlcomp drops both keywords (neverblender `docs/compiling.md:106-113`).
 6. ASCII EE models in the base game (e.g. `c_karandas`) use `renderhint NormalAndSpecMapped|none`, `normals N`, `tangents N` (x y z handedness), `texture1/2`.
 
 ### B.21 Reader recipe (Moonglow)

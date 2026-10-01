@@ -6,10 +6,15 @@
 //!
 //! Meshes are de-indexed: a render vertex per distinct (vertex, texture
 //! vertex, normal), with normals from the file (EE) or from smoothing
-//! groups; per-vertex lists (weights, constraints, colours, animated
-//! vertices) follow each render vertex's source vertex.
+//! groups; per-vertex lists (weights, constraints, colours, tangents,
+//! animated vertices) follow each render vertex's source vertex.
+//!
+//! Integers are read as C reads them: a number's whole part, wrapped to 32
+//! bits (`spawntype -1` is 0xFFFFFFFF, as the game's compiler stores it).
+//! [`read_mapped`] also tells where each node and animation is in the text
+//! and what the reader left out or guessed ([`SourceMap`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::ctrl::{self, flags};
 use crate::{
@@ -18,17 +23,67 @@ use crate::{
     Reference, Skin, Vec2, Vec3, axis_angle, face_normal, normalize,
 };
 
-/// A line's words, without comments.
+/// Where things are in an ASCII model's text: line numbers from 1 (0: not
+/// in the text, such as a walkmesh's root).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SourceMap {
+    /// Per node of [`Model::nodes`] (same order): its `node` … `endnode`
+    /// lines.
+    pub nodes: Vec<Span>,
+    /// Per animation of [`Model::animations`]: its lines and its nodes'.
+    pub animations: Vec<AnimationSpan>,
+    /// What the reader left out or guessed, in line order.
+    pub notes: Vec<Note>,
+}
+
+impl SourceMap {
+    /// The node of [`Model::nodes`] whose block holds a line.
+    pub fn node_at(&self, line: usize) -> Option<usize> {
+        self.nodes.iter().position(|s| s.contains(line))
+    }
+}
+
+/// First and last line of a block (inclusive).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub fn contains(&self, line: usize) -> bool {
+        self.start > 0 && (self.start..=self.end).contains(&line)
+    }
+}
+
+/// An animation's lines (`newanim` … `doneanim`) and, per node of
+/// [`Animation::nodes`], its block's.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AnimationSpan {
+    pub span: Span,
+    pub nodes: Vec<Span>,
+}
+
+/// Something the reader left out or guessed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Note {
+    pub line: usize,
+    pub message: String,
+}
+
+/// A line's words, without comments, and its number in the text.
 struct Line<'a> {
+    number: usize,
     words: Vec<&'a str>,
 }
 
 fn lines(text: &str) -> Vec<Line<'_>> {
     text.lines()
-        .filter_map(|l| {
+        .enumerate()
+        .filter_map(|(i, l)| {
             let l = l.split('#').next().unwrap_or_default();
             let words: Vec<&str> = l.split_whitespace().collect();
-            (!words.is_empty()).then_some(Line { words })
+            (!words.is_empty()).then_some(Line { number: i + 1, words })
         })
         .collect()
 }
@@ -40,6 +95,15 @@ fn is_number(w: &str) -> bool {
 
 fn num(w: Option<&&str>) -> f32 {
     w.and_then(|w| w.parse::<f32>().ok()).unwrap_or(0.0)
+}
+
+/// An integer as C reads one: the number's whole part, wrapped to 32 bits.
+fn int(w: Option<&&str>) -> u32 {
+    let Some(w) = w else { return 0 };
+    match w.parse::<i64>() {
+        Ok(i) => i as u32,
+        Err(_) => w.parse::<f64>().ok().filter(|f| f.is_finite()).map_or(0, |f| f as i64 as u32),
+    }
 }
 
 fn flag(w: Option<&&str>) -> bool {
@@ -87,17 +151,34 @@ const LISTS: &[&str] = &[
 /// Lists whose lines start with a name, not a number (counts are trusted).
 const NAMED_LISTS: &[&str] = &["weights", "texturenames", "multimaterial"];
 
+/// A list as written: its keyword's line, the count it gives and its rows.
+#[derive(Default)]
+struct List<'a> {
+    line: usize,
+    rows: Vec<Vec<&'a str>>,
+}
+
+/// A key list: its controller, whether its keys are Bézier keys, and its
+/// rows (time first).
+struct RawKeys {
+    name: String,
+    line: usize,
+    bezier: bool,
+    rows: Vec<Vec<f32>>,
+}
+
 /// A node block as written: its type, name, single-line properties, lists
-/// and key lists.
+/// and key lists, and its lines.
 #[derive(Default)]
 struct RawNode<'a> {
     ty: String,
     name: String,
     parent: Option<String>,
     props: Vec<(String, Vec<&'a str>)>,
-    lists: HashMap<String, Vec<Vec<&'a str>>>,
-    keys: Vec<(String, Vec<Vec<f32>>)>,
+    lists: HashMap<String, List<'a>>,
+    keys: Vec<RawKeys>,
     aabb: Vec<Vec<f32>>,
+    span: Span,
 }
 
 impl<'a> RawNode<'a> {
@@ -106,27 +187,46 @@ impl<'a> RawNode<'a> {
     }
 
     fn list(&self, key: &str) -> &[Vec<&'a str>] {
-        self.lists.get(key).map_or(&[], Vec::as_slice)
+        self.lists.get(key).map_or(&[], |l| l.rows.as_slice())
     }
+
+    fn list_line(&self, key: &str) -> usize {
+        self.lists.get(key).map_or(self.span.start, |l| l.line)
+    }
+}
+
+fn note(notes: &mut Vec<Note>, line: usize, message: String) {
+    notes.push(Note { line, message });
 }
 
 /// Parses a node block starting after its `node` line; returns the node and
 /// the index of the line after `endnode`.
-fn node_block<'a>(ls: &'a [Line<'a>], mut i: usize, header: &Line<'a>) -> (RawNode<'a>, usize) {
+fn node_block<'a>(
+    ls: &'a [Line<'a>],
+    mut i: usize,
+    header: &Line<'a>,
+    notes: &mut Vec<Note>,
+) -> (RawNode<'a>, usize) {
     let mut n = RawNode {
         ty: header.words.get(1).map(|w| w.to_ascii_lowercase()).unwrap_or_default(),
         name: header.words.get(2).map(|w| w.to_string()).unwrap_or_default(),
+        span: Span { start: header.number, end: header.number },
         ..Default::default()
     };
+    let mut closed = false;
     while i < ls.len() {
         let l = &ls[i];
         let key = l.words[0].to_ascii_lowercase();
         i += 1;
+        n.span.end = l.number;
         match key.as_str() {
-            "endnode" => break,
+            "endnode" => {
+                closed = true;
+                break;
+            }
             "node" | "newanim" | "doneanim" | "donemodel" | "endmodelgeom" => {
-                // A missing endnode.
                 i -= 1;
+                n.span.end = ls[i - 1].number;
                 break;
             }
             "parent" => n.parent = l.words.get(1).map(|w| w.to_string()),
@@ -138,6 +238,7 @@ fn node_block<'a>(ls: &'a [Line<'a>], mut i: usize, header: &Line<'a>) -> (RawNo
                 }
                 while i < ls.len() && is_number(ls[i].words[0]) {
                     n.aabb.push(ls[i].words.iter().filter_map(|w| w.parse().ok()).collect());
+                    n.span.end = ls[i].number;
                     i += 1;
                 }
             }
@@ -160,14 +261,20 @@ fn node_block<'a>(ls: &'a [Line<'a>], mut i: usize, header: &Line<'a>) -> (RawNo
                         break;
                     }
                     rows.push(ls[i].words.clone());
+                    n.span.end = ls[i].number;
                     i += 1;
+                }
+                if rows.len() < count {
+                    note(notes, l.number, format!("{k}: {} of {count} rows", rows.len()));
                 }
                 if i < ls.len() && ls[i].words[0].eq_ignore_ascii_case("endlist") {
+                    n.span.end = ls[i].number;
                     i += 1;
                 }
-                n.lists.insert(k.to_string(), rows);
+                n.lists.insert(k.to_string(), List { line: l.number, rows });
             }
             k if k.ends_with("key") && k.len() > 3 => {
+                let bezier = k.ends_with("bezierkey");
                 let name = k.trim_end_matches("key").trim_end_matches("bezier").to_string();
                 let count = l.words.get(1).and_then(|w| w.parse::<usize>().ok());
                 let mut rows = Vec::new();
@@ -176,17 +283,23 @@ fn node_block<'a>(ls: &'a [Line<'a>], mut i: usize, header: &Line<'a>) -> (RawNo
                         break;
                     }
                     rows.push(ls[i].words.iter().filter_map(|w| w.parse().ok()).collect());
+                    n.span.end = ls[i].number;
                     i += 1;
+                }
+                if let Some(c) = count.filter(|&c| rows.len() < c) {
+                    note(notes, l.number, format!("{k}: {} of {c} keys", rows.len()));
                 }
                 if i < ls.len() && ls[i].words[0].eq_ignore_ascii_case("endlist") {
+                    n.span.end = ls[i].number;
                     i += 1;
                 }
-                if !k.ends_with("bezierkey") {
-                    n.keys.push((name, rows));
-                }
+                n.keys.push(RawKeys { name, line: l.number, bezier, rows });
             }
             _ => n.props.push((key, l.words[1..].to_vec())),
         }
+    }
+    if !closed {
+        note(notes, header.number, format!("node {} has no endnode", n.name));
     }
     (n, i)
 }
@@ -221,10 +334,13 @@ fn vec2s(rows: &[Vec<&str>]) -> Vec<Vec2> {
 }
 
 /// A controller from a key list; orientation rows (axis-angle) become
-/// quaternions.
-fn key_controller(name: &str, rows: &[Vec<f32>]) -> Controller {
+/// quaternions. Bézier rows hold a value and its two handles, each as wide
+/// as the value; rows that cannot be split so are read as linear keys.
+fn key_controller(name: &str, rows: &[Vec<f32>], bezier: bool) -> Controller {
     let orientation = name == "orientation";
-    let columns = rows.iter().map(|r| r.len().saturating_sub(1)).max().unwrap_or(0);
+    let width = rows.iter().map(|r| r.len().saturating_sub(1)).max().unwrap_or(0);
+    let bezier = bezier && width >= 3 && width % 3 == 0;
+    let columns = if bezier { width / 3 } else { width };
     let mut c = Controller {
         name: if name == "setfillumcolor" { "selfillumcolor".into() } else { name.into() },
         columns: if orientation { 4 } else { columns },
@@ -232,21 +348,33 @@ fn key_controller(name: &str, rows: &[Vec<f32>]) -> Controller {
     };
     for r in rows {
         c.times.push(r.first().copied().unwrap_or(0.0));
-        if orientation {
-            let v = |i: usize| r.get(i).copied().unwrap_or(0.0);
-            c.values.extend(axis_angle([v(1), v(2), v(3)], v(4)));
-        } else {
-            for j in 0..columns {
-                c.values.push(r.get(j + 1).copied().unwrap_or(0.0));
+        let v = |i: usize| r.get(i + 1).copied().unwrap_or(0.0);
+        let part = |start: usize, out: &mut Vec<f32>| {
+            if orientation {
+                out.extend(axis_angle([v(start), v(start + 1), v(start + 2)], v(start + 3)));
+            } else {
+                out.extend((start..start + columns).map(v));
             }
+        };
+        part(0, &mut c.values);
+        if bezier {
+            part(columns, &mut c.handles);
+            part(2 * columns, &mut c.handles);
         }
     }
     c
 }
 
 /// De-indexes a mesh's faces; returns the mesh streams.
-fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh) {
+fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh, notes: &mut Vec<Note>) {
     let verts = vec3s(raw.list("verts"));
+    let tangents: Vec<[f32; 4]> = raw
+        .list("tangents")
+        .iter()
+        .map(|r| {
+            [num(r.first()), num(r.get(1)), num(r.get(2)), r.get(3).map_or(1.0, |w| num(Some(w)))]
+        })
+        .collect();
     let tvert_list = |k: &str| vec2s(raw.list(k));
     let mut tverts =
         [tvert_list("tverts"), tvert_list("tverts1"), tvert_list("tverts2"), tvert_list("tverts3")];
@@ -270,6 +398,7 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh) {
         smooth: u32,
         material: u32,
     }
+    let mut dropped = 0;
     let faces: Vec<F> = raw
         .list("faces")
         .iter()
@@ -277,6 +406,7 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh) {
             let n = |i: usize| r.get(i).and_then(|w| w.parse::<f32>().ok()).map(|v| v as i64);
             let v = [n(0)?, n(1)?, n(2)?];
             if v.iter().any(|&x| x < 0 || x as usize >= verts.len()) {
+                dropped += 1;
                 return None;
             }
             let t = [n(4).unwrap_or(0), n(5).unwrap_or(0), n(6).unwrap_or(0)];
@@ -288,6 +418,16 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh) {
             })
         })
         .collect();
+    if dropped > 0 {
+        note(
+            notes,
+            raw.list_line("faces"),
+            format!(
+                "{dropped} faces refer to vertices past the {} given and are left out",
+                verts.len()
+            ),
+        );
+    }
     // Normals per corner: from the file, else from smoothing groups
     // (area-weighted face normals of the faces sharing a group).
     let face_normals: Vec<Vec3> =
@@ -337,6 +477,9 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh) {
                 if !colors.is_empty() {
                     m.colors.push(colors.get(v).copied().unwrap_or([255; 4]));
                 }
+                if tangents.len() >= verts.len() {
+                    m.tangents.push(tangents[v]);
+                }
                 m.source.push(v as u32);
                 m.source_uv.push(t as u32);
                 i
@@ -347,7 +490,7 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh) {
 }
 
 /// A geometry node.
-fn geometry_node(raw: &RawNode<'_>) -> Node {
+fn geometry_node(raw: &RawNode<'_>, notes: &mut Vec<Note>) -> Node {
     let node_flags = type_flags(&raw.ty);
     let p = |k: &str| raw.prop(k);
     let kind = match raw.ty.as_str() {
@@ -365,12 +508,12 @@ fn geometry_node(raw: &RawNode<'_>) -> Node {
                     .iter()
                     .filter_map(|r| r.first().map(|w| w.to_ascii_lowercase()))
                     .collect(),
-                priority: num(p("lightpriority").and_then(|v| v.first())) as u32,
+                priority: int(p("lightpriority").and_then(|v| v.first())),
                 ambient_only: flag(p("ambientonly").or(p("ambient_only")).and_then(|v| v.first())),
-                dynamic_type: num(p("ndynamictype")
+                dynamic_type: int(p("ndynamictype")
                     .or(p("n_dynamic_type"))
                     .or(p("isdynamic"))
-                    .and_then(|v| v.first())) as u32,
+                    .and_then(|v| v.first())),
                 affect_dynamic: p("affectdynamic")
                     .or(p("affect_dynamic"))
                     .is_none_or(|v| flag(v.first())),
@@ -386,9 +529,9 @@ fn geometry_node(raw: &RawNode<'_>) -> Node {
                 deadspace: num(p("deadspace").and_then(|v| v.first())),
                 blast_radius: num(p("blastradius").and_then(|v| v.first())),
                 blast_length: num(p("blastlength").and_then(|v| v.first())),
-                xgrid: num(p("xgrid").and_then(|v| v.first())) as u32,
-                ygrid: num(p("ygrid").and_then(|v| v.first())) as u32,
-                spawntype: num(p("spawntype").and_then(|v| v.first())) as u32,
+                xgrid: int(p("xgrid").and_then(|v| v.first())),
+                ygrid: int(p("ygrid").and_then(|v| v.first())),
+                spawntype: int(p("spawntype").and_then(|v| v.first())),
                 update: s("update"),
                 render: s("render"),
                 blend: s("blend"),
@@ -396,7 +539,8 @@ fn geometry_node(raw: &RawNode<'_>) -> Node {
                 chunk: resname(p("chunkname").and_then(|v| v.first())),
                 two_sided: flag(p("twosidedtex").and_then(|v| v.first())),
                 looping: flag(p("loop").and_then(|v| v.first())),
-                render_order: num(p("renderorder").and_then(|v| v.first())) as u32,
+                // Compiled models keep 16 bits.
+                render_order: int(p("renderorder").and_then(|v| v.first())) & 0xFFFF,
                 flags: 0,
             };
             for (name, bit) in EMITTER_FLAGS {
@@ -425,8 +569,8 @@ fn geometry_node(raw: &RawNode<'_>) -> Node {
                 shadow: bool_or("shadow", !walkmesh),
                 beaming: bool_or("beaming", false),
                 rotate_texture: bool_or("rotatetexture", false),
-                tilefade: num(p("tilefade").and_then(|v| v.first())) as u32,
-                transparency_hint: num(p("transparencyhint").and_then(|v| v.first())) as u32,
+                tilefade: int(p("tilefade").and_then(|v| v.first())),
+                transparency_hint: int(p("transparencyhint").and_then(|v| v.first())),
                 material: resname(p("materialname").and_then(|v| v.first())),
                 renderhint: p("renderhint").and_then(|v| v.first()).map(|w| w.to_ascii_lowercase()),
                 ..Default::default()
@@ -435,7 +579,7 @@ fn geometry_node(raw: &RawNode<'_>) -> Node {
             for i in 1..4 {
                 m.textures[i] = resname(p(&format!("texture{i}")).and_then(|v| v.first()));
             }
-            build_mesh(raw, &mut m);
+            build_mesh(raw, &mut m, notes);
             m.extra = match raw.ty.as_str() {
                 "danglymesh" => {
                     let c: Vec<f32> =
@@ -542,25 +686,34 @@ fn preorder(parents: &[Option<usize>]) -> (Vec<usize>, Vec<usize>) {
 }
 
 /// Resolves `parent` names to indices of earlier nodes (case-insensitive;
-/// unknown and `NULL` parents make roots).
-fn parents(raws: &[RawNode<'_>]) -> Vec<Option<usize>> {
+/// unknown and `NULL` parents make roots, and later roots hang under the
+/// first).
+fn parents(raws: &[RawNode<'_>], notes: Option<&mut Vec<Note>>) -> Vec<Option<usize>> {
     let mut by_name: HashMap<String, usize> = HashMap::new();
     let mut out = Vec::with_capacity(raws.len());
+    let mut unknown = Vec::new();
     for (i, r) in raws.iter().enumerate() {
-        let p = r
-            .parent
-            .as_ref()
-            .filter(|p| !p.eq_ignore_ascii_case("null"))
-            .and_then(|p| by_name.get(&p.to_ascii_lowercase()).copied());
+        let named = r.parent.as_ref().filter(|p| !p.eq_ignore_ascii_case("null"));
+        let p = named.and_then(|p| by_name.get(&p.to_ascii_lowercase()).copied());
+        if let (Some(name), None) = (named, p)
+            && i > 0
+        {
+            unknown
+                .push((r.span.start, format!("{}: parent {name} is not a node before it", r.name)));
+        }
         out.push(p);
         by_name.entry(r.name.to_ascii_lowercase()).or_insert(i);
     }
-    // Later roots hang under the first (the model's root node).
     if let Some(first) = out.iter().position(Option::is_none) {
         for (i, p) in out.iter_mut().enumerate() {
             if p.is_none() && i != first {
                 *p = Some(first);
             }
+        }
+    }
+    if let Some(notes) = notes {
+        for (line, message) in unknown {
+            note(notes, line, format!("{message}; it hangs from the root"));
         }
     }
     out
@@ -569,8 +722,8 @@ fn parents(raws: &[RawNode<'_>]) -> Vec<Option<usize>> {
 fn anim_node(raw: &RawNode<'_>, source_counts: &HashMap<String, (usize, usize)>) -> AnimNode {
     let node_flags = type_flags(&raw.ty);
     let mut n = AnimNode { name: raw.name.clone(), ..Default::default() };
-    for (k, rows) in &raw.keys {
-        n.controllers.push(key_controller(k, rows));
+    for k in &raw.keys {
+        n.controllers.push(key_controller(&k.name, &k.rows, k.bezier));
     }
     // Single values hold for the whole animation.
     for (k, v) in &raw.props {
@@ -581,7 +734,7 @@ fn anim_node(raw: &RawNode<'_>, source_counts: &HashMap<String, (usize, usize)>)
         }
         let mut row: Vec<f32> = vec![0.0];
         row.extend(v.iter().filter_map(|w| w.parse::<f32>().ok()));
-        n.controllers.push(key_controller(k, &[row]));
+        n.controllers.push(key_controller(k, &[row], false));
     }
     let verts = vec3s(raw.list("animverts"));
     let tverts = vec2s(raw.list("animtverts"));
@@ -609,11 +762,25 @@ fn anim_node(raw: &RawNode<'_>, source_counts: &HashMap<String, (usize, usize)>)
 
 /// Reads an ASCII model.
 pub fn read(data: &[u8]) -> Result<Model, MdlError> {
+    read_mapped(data).map(|(m, _)| m)
+}
+
+/// Reads an ASCII model, and where its nodes and animations are in the
+/// text.
+pub fn read_mapped(data: &[u8]) -> Result<(Model, SourceMap), MdlError> {
+    read_with(data, false)
+}
+
+/// Reads an ASCII model; with `implicit_root`, nodes whose parent is not in
+/// the file (a walkmesh's, which hang from the object's root) hang from a
+/// dummy of that name at the origin.
+pub(crate) fn read_with(data: &[u8], implicit_root: bool) -> Result<(Model, SourceMap), MdlError> {
     let text = String::from_utf8_lossy(data);
     let ls = lines(&text);
+    let mut notes = Vec::new();
     let mut model = Model { animation_scale: 1.0, ..Default::default() };
     let mut geometry: Vec<RawNode<'_>> = Vec::new();
-    let mut anims: Vec<(Animation, Vec<RawNode<'_>>)> = Vec::new();
+    let mut anims: Vec<(Animation, Span, Vec<RawNode<'_>>)> = Vec::new();
     let mut in_anim = false;
     let mut i = 0;
     while i < ls.len() {
@@ -631,9 +798,15 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
             "newanim" => {
                 in_anim = true;
                 let name = l.words.get(1).map(|w| w.to_string()).unwrap_or_default();
-                anims.push((Animation { name, ..Default::default() }, Vec::new()));
+                let span = Span { start: l.number, end: l.number };
+                anims.push((Animation { name, ..Default::default() }, span, Vec::new()));
             }
-            "doneanim" => in_anim = false,
+            "doneanim" => {
+                if let Some((_, span, _)) = anims.last_mut().filter(|_| in_anim) {
+                    span.end = l.number;
+                }
+                in_anim = false;
+            }
             "length" if in_anim => {
                 anims.last_mut().expect("in anim").0.length = num(l.words.get(1))
             }
@@ -649,10 +822,12 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
                 anims.last_mut().expect("in anim").0.events.push((num(l.words.get(1)), name));
             }
             "node" => {
-                let (raw, next) = node_block(&ls, i, l);
+                let (raw, next) = node_block(&ls, i, l, &mut notes);
                 i = next;
                 if in_anim {
-                    anims.last_mut().expect("in anim").1.push(raw);
+                    let (_, span, nodes) = anims.last_mut().expect("in anim");
+                    span.end = raw.span.end;
+                    nodes.push(raw);
                 } else {
                     geometry.push(raw);
                 }
@@ -663,14 +838,23 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
     if geometry.is_empty() {
         return Err(MdlError::Empty);
     }
+    if implicit_root
+        && let Some(parent) = geometry[0].parent.clone()
+        && !parent.eq_ignore_ascii_case("null")
+        && !geometry.iter().any(|r| r.name.eq_ignore_ascii_case(&parent))
+    {
+        let root = RawNode { ty: "dummy".into(), name: parent, ..Default::default() };
+        geometry.insert(0, root);
+    }
     if model.name.is_empty() {
         model.name = geometry[0].name.clone();
     }
 
     // Geometry in pre-order.
-    let parent_of = parents(&geometry);
+    let parent_of = parents(&geometry, Some(&mut notes));
     let (order, new_index) = preorder(&parent_of);
-    let mut nodes: Vec<Node> = order.iter().map(|&old| geometry_node(&geometry[old])).collect();
+    let mut nodes: Vec<Node> =
+        order.iter().map(|&old| geometry_node(&geometry[old], &mut notes)).collect();
     for (new, &old) in order.iter().enumerate() {
         nodes[new].parent = parent_of[old].map(|p| new_index[p]);
     }
@@ -687,6 +871,7 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
         let NodeKind::Mesh(m) = &mut nodes[new].kind else { continue };
         let MeshExtra::Skin(skin) = &mut m.extra else { continue };
         let mut bone_of: HashMap<usize, u16> = HashMap::new();
+        let mut unknown: HashSet<String> = HashSet::new();
         let per_source: Vec<[(u16, f32); 4]> = raw
             .list("weights")
             .iter()
@@ -694,7 +879,10 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
                 let mut out = [(0u16, 0.0f32); 4];
                 for (j, pair) in r.chunks(2).take(4).enumerate() {
                     let (Some(name), Some(w)) = (pair.first(), pair.get(1)) else { continue };
-                    let Some(&node) = by_name.get(&name.to_ascii_lowercase()) else { continue };
+                    let Some(&node) = by_name.get(&name.to_ascii_lowercase()) else {
+                        unknown.insert(name.to_ascii_lowercase());
+                        continue;
+                    };
                     let next = skin.bones.len() as u16;
                     let bone = *bone_of.entry(node).or_insert_with(|| {
                         skin.bones.push(node);
@@ -705,6 +893,11 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
                 out
             })
             .collect();
+        let mut unknown: Vec<String> = unknown.into_iter().collect();
+        unknown.sort();
+        for name in unknown {
+            note(&mut notes, raw.list_line("weights"), format!("weights: no node {name}"));
+        }
         skin.weights = m
             .source
             .iter()
@@ -712,6 +905,10 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
             .collect();
     }
     model.nodes = nodes;
+    let mut map = SourceMap {
+        nodes: order.iter().map(|&old| geometry[old].span).collect(),
+        ..Default::default()
+    };
 
     // Animations: nodes in pre-order, animated vertices and UVs over the
     // mesh's source vertices and texture vertices.
@@ -723,8 +920,8 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
             (r.name.to_ascii_lowercase(), (r.list("verts").len(), uvs.len()))
         })
         .collect();
-    for (mut anim, raws) in anims {
-        let parent_of = parents(&raws);
+    for (mut anim, span, raws) in anims {
+        let parent_of = parents(&raws, None);
         let (order, new_index) = preorder(&parent_of);
         anim.nodes = order
             .iter()
@@ -734,9 +931,25 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
                 n
             })
             .collect();
+        for r in &raws {
+            for k in r.keys.iter().filter(|k| k.bezier) {
+                let width = k.rows.iter().map(|r| r.len().saturating_sub(1)).max().unwrap_or(0);
+                if width < 3 || width % 3 != 0 {
+                    note(
+                        &mut notes,
+                        k.line,
+                        format!("{}bezierkey: rows need a value and two handles", k.name),
+                    );
+                }
+            }
+        }
+        map.animations
+            .push(AnimationSpan { span, nodes: order.iter().map(|&old| raws[old].span).collect() });
         model.animations.push(anim);
     }
-    Ok(model)
+    notes.sort_by_key(|n| n.line);
+    map.notes = notes;
+    Ok((model, map))
 }
 
 #[cfg(test)]
@@ -883,6 +1096,99 @@ donemodel test
         };
         assert_eq!(count(1), 4);
         assert_eq!(count(2), 6);
+    }
+
+    #[test]
+    fn integers_wrap_as_in_c() {
+        let mdl = "newmodel t\nbeginmodelgeom t\nnode dummy t\nendnode\nnode emitter e\nparent t\n\
+                   spawntype -1\nxgrid 2.7\nrenderorder -2\nendnode\nendmodelgeom t\n";
+        let m = read(mdl.as_bytes()).unwrap();
+        let NodeKind::Emitter(e) = &m.nodes[1].kind else { panic!("emitter") };
+        assert_eq!(e.spawntype, 0xFFFF_FFFF, "as the game's compiler stores it");
+        assert_eq!(e.xgrid, 2);
+        assert_eq!(e.render_order, 0xFFFE, "16 bits, as compiled");
+    }
+
+    #[test]
+    fn bezier_keys_keep_their_handles() {
+        let mdl = "newmodel t\nbeginmodelgeom t\nnode dummy t\nendnode\nendmodelgeom t\n\
+                   newanim a t\nlength 2\nnode dummy t\nparent NULL\n\
+                   positionbezierkey 2\n0 0 0 0 0.1 0.2 0.3 0.4 0.5 0.6\n2 1 1 1 0.7 0.8 0.9 1.1 1.2 1.3\n\
+                   endlist\nscalebezierkey 1\n0 1 2\nendnode\ndoneanim a t\n";
+        let (m, map) = read_mapped(mdl.as_bytes()).unwrap();
+        let c = &m.animations[0].nodes[0].controllers;
+        assert_eq!(c[0].name, "position");
+        assert_eq!((c[0].columns, c[0].row(1)), (3, &[1.0, 1.0, 1.0][..]));
+        assert!(c[0].is_bezier());
+        assert_eq!(c[0].handles[..6], [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+        // Two values a key cannot be a value and two handles: linear.
+        assert!(!c[1].is_bezier() && c[1].columns == 2);
+        assert_eq!(map.notes.len(), 1, "{:?}", map.notes);
+        assert!(map.notes[0].message.starts_with("scalebezierkey"));
+    }
+
+    #[test]
+    fn tangents_follow_their_vertex() {
+        let mdl = "newmodel t\nbeginmodelgeom t\nnode dummy t\nendnode\nnode trimesh m\nparent t\n\
+                   renderhint NormalAndSpecMapped\nverts 3\n0 0 0\n1 0 0\n0 1 0\n\
+                   tangents 3\n1 0 0 1\n0 1 0 -1\n0 0 1 1\nfaces 1\n2 1 0 1 0 0 0 0\n\
+                   endnode\nendmodelgeom t\n";
+        let m = read(mdl.as_bytes()).unwrap();
+        let mesh = m.nodes[1].mesh().unwrap();
+        assert_eq!(mesh.renderhint.as_deref(), Some("normalandspecmapped"));
+        let at = |v: u32| mesh.tangents[mesh.source.iter().position(|&s| s == v).unwrap()];
+        assert_eq!(at(1), [0.0, 1.0, 0.0, -1.0]);
+        assert_eq!(at(2), [0.0, 0.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn source_map_and_notes() {
+        let text = "\
+newmodel t
+
+beginmodelgeom t
+node dummy t
+  parent NULL
+endnode
+node trimesh b
+  parent a
+  verts 3
+    0 0 0
+    1 0 0
+  faces 2
+    0 1 2 1 0 0 0 0
+    0 1 1 1 0 0 0 0
+endnode
+node dummy a
+  parent t
+endmodelgeom t
+newanim go t
+  node dummy t
+    parent NULL
+  endnode
+doneanim go t
+";
+        let (m, map) = read_mapped(text.as_bytes()).unwrap();
+        let names: Vec<&str> = m.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, ["t", "b", "a"]);
+        assert_eq!(map.nodes[0], Span { start: 4, end: 6 });
+        assert_eq!(map.nodes[1], Span { start: 7, end: 15 });
+        assert_eq!(map.nodes[2], Span { start: 16, end: 17 }, "no endnode: to its last line");
+        assert_eq!(map.node_at(10), Some(1));
+        assert_eq!(map.node_at(2), None);
+        assert_eq!(map.animations[0].span, Span { start: 19, end: 23 });
+        assert_eq!(map.animations[0].nodes, [Span { start: 20, end: 22 }]);
+        let notes: Vec<(usize, &str)> =
+            map.notes.iter().map(|n| (n.line, n.message.as_str())).collect();
+        assert_eq!(
+            notes,
+            [
+                (7, "b: parent a is not a node before it; it hangs from the root"),
+                (9, "verts: 2 of 3 rows"),
+                (12, "1 faces refer to vertices past the 2 given and are left out"),
+                (16, "node a has no endnode"),
+            ]
+        );
     }
 
     #[test]

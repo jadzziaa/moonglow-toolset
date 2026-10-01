@@ -14,10 +14,12 @@
 //!   (x, y, z, w), as binary files store them (ASCII's axis-angle is
 //!   converted). A model's own controllers are its rest pose; animations
 //!   carry keyed ones.
+//! - Walkmesh files (`.wok`, `.pwk`, `.dwk`) are read by [`walkmesh`].
 
 pub mod ascii;
 pub mod binary;
 pub mod ctrl;
+pub mod walkmesh;
 
 use thiserror::Error;
 
@@ -110,12 +112,19 @@ pub fn is_binary(data: &[u8]) -> bool {
 /// A controller: key times and, per key, `columns` values.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Controller {
-    /// Lower case, without `key` (e.g. `position`, `colorstart`).
+    /// Lower case, without `key` or `bezierkey` (e.g. `position`,
+    /// `colorstart`).
     pub name: String,
     pub times: Vec<f32>,
     /// Row-major, `times.len() * columns` values.
     pub values: Vec<f32>,
     pub columns: usize,
+    /// Bézier keys (`positionbezierkey`, …): per key, the two handles that
+    /// follow its value (`2 * columns` values, as written), row-major;
+    /// empty for linear keys. No game model has Bézier keys and the
+    /// engine's curve through the handles is unknown, so the samplers use
+    /// the keys' values as for linear keys.
+    pub handles: Vec<f32>,
 }
 
 impl Controller {
@@ -126,7 +135,13 @@ impl Controller {
             times: vec![0.0],
             values: values.to_vec(),
             columns: values.len(),
+            handles: Vec::new(),
         }
+    }
+
+    /// Whether the keys are Bézier keys.
+    pub fn is_bezier(&self) -> bool {
+        !self.handles.is_empty()
     }
 
     /// The values of key `i`.
@@ -302,12 +317,18 @@ pub struct Mesh {
     pub transparency_hint: u32,
     /// bitmap/texture0 … texture3 (lower case; `NULL`: none).
     pub textures: [Option<String>; 4],
-    /// EE: an MTR.
+    /// EE: an MTR (`materialname`; compiled models keep it in the
+    /// `texture3` slot, where the game's compiler puts it).
     pub material: Option<String>,
-    /// EE: `renderhint` (lower case).
+    /// EE: `renderhint` (lower case: `none`, `normalandspecmapped`,
+    /// `normaltangents`).
     pub renderhint: Option<String>,
     pub vertices: Vec<Vec3>,
     pub normals: Vec<Vec3>,
+    /// EE: per vertex, a tangent and the bitangent's sign (`tangents`),
+    /// when the model has them: ASCII models that list them, and models
+    /// the game compiled with a `renderhint` (it generates them).
+    pub tangents: Vec<[f32; 4]>,
     /// UV sets 0–3 (empty when absent).
     pub uvs: [Vec<Vec2>; 4],
     /// Vertex colours (RGBA), when the model has them.

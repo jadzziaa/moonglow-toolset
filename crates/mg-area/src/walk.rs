@@ -64,13 +64,19 @@ impl Walkmesh {
         Some(Walkmesh { faces, min, max })
     }
 
-    /// A tile's walkmesh: `<model>.wok`, else its model's own.
+    /// A tile's walkmesh: `<model>.wok` (its nodes under the tile's root),
+    /// else its model's own.
     pub fn of_tile(game: &GameData, model: &str) -> Option<Walkmesh> {
-        let read = |t: ResType| -> Option<Walkmesh> {
-            let data = game.resman.get_named(model, t).ok()?;
+        let wok = || -> Option<Walkmesh> {
+            let data = game.resman.get_named(model, ResType::WOK).ok()?;
+            let w = mg_mdl::walkmesh::Walkmesh::read(&data, mg_mdl::walkmesh::WalkmeshKind::Tile);
+            Walkmesh::from_model(&w.ok()?.model)
+        };
+        let own = || -> Option<Walkmesh> {
+            let data = game.resman.get_named(model, ResType::MDL).ok()?;
             Walkmesh::from_model(&Model::read(&data).ok()?)
         };
-        read(ResType::WOK).or_else(|| read(ResType::MDL))
+        wok().or_else(own)
     }
 
     /// The heights of the faces above or below `p` (the model's space).

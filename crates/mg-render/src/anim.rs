@@ -313,6 +313,7 @@ mod tests {
             times: vec![0.0, 1.0],
             values: vec![0.0, 0.0, 0.0, 2.0, 4.0, 6.0],
             columns: 3,
+            ..Default::default()
         };
         assert_eq!(sample(&c, 0.5), [1.0, 2.0, 3.0]);
         assert_eq!(sample(&c, -1.0), [0.0, 0.0, 0.0]);
@@ -322,6 +323,7 @@ mod tests {
             times: vec![0.0, 1.0],
             values: [Quat::IDENTITY.to_array(), Quat::from_rotation_z(1.0).to_array()].concat(),
             columns: 4,
+            ..Default::default()
         };
         let half = Quat::from_slice(&sample(&q, 0.5));
         assert!(half.angle_between(Quat::from_rotation_z(0.5)) < 1e-4);
@@ -334,6 +336,7 @@ mod tests {
             columns: values.len(),
             times: vec![0.0],
             values,
+            ..Default::default()
         };
         let node = |name: &str, controllers| AnimNode {
             name: name.into(),

@@ -1,7 +1,11 @@
 //! Controller names and binary IDs. IDs depend on the node type: 100 is
 //! self-illumination on meshes and vertical displacement on lights, for
 //! instance (nwnmdlcomp's `NmcController.cpp`, checked on every compiled
-//! model in the game).
+//! model in the game). The emitters' three-stop values (`alphaMid`,
+//! `colorMid`, `percentStart`/`Mid`/`End`, `sizeMid`, `sizeMid_y`), which
+//! no game model uses, have the IDs the game's own compiler gives them;
+//! nwnmdlcomp's differ (464 alphaMid, 468 colorMid, 480–482, 484, 488), and
+//! the game reads its 464 and 468 as `percentStart` and `sizeMid`.
 
 /// Node flag bits (binary node header +0x6C).
 pub mod flags {
@@ -65,13 +69,13 @@ pub const EMITTER: [(u32, &str, usize); 39] = [
     (212, "lightningradius", 1),
     (216, "lightningscale", 1),
     (228, "detonate", 0),
-    (464, "alphamid", 1),
-    (468, "colormid", 3),
-    (480, "percentstart", 1),
-    (481, "percentmid", 1),
-    (482, "percentend", 1),
-    (484, "sizemid", 1),
-    (488, "sizemid_y", 1),
+    (448, "alphamid", 1),
+    (452, "colormid", 3),
+    (464, "percentstart", 1),
+    (465, "percentmid", 1),
+    (466, "percentend", 1),
+    (468, "sizemid", 1),
+    (472, "sizemid_y", 1),
 ];
 
 fn tables(node_flags: u32) -> impl Iterator<Item = &'static (u32, &'static str, usize)> {
@@ -109,5 +113,25 @@ mod tests {
         assert_eq!(name(0x1, 999), "ctrl999");
         assert_eq!(columns(0x21, "setfillumcolor"), Some(3));
         assert_eq!(columns(0x1, "alpha"), None);
+    }
+
+    /// What `nwmain compilemodel` writes for an emitter's three-stop values.
+    #[test]
+    fn mid_values_have_the_games_ids() {
+        let names: Vec<String> =
+            [448, 452, 464, 465, 466, 468, 472].iter().map(|&id| name(0x5, id)).collect();
+        assert_eq!(
+            names,
+            [
+                "alphamid",
+                "colormid",
+                "percentstart",
+                "percentmid",
+                "percentend",
+                "sizemid",
+                "sizemid_y"
+            ]
+        );
+        assert_eq!(columns(0x5, "colormid"), Some(3));
     }
 }

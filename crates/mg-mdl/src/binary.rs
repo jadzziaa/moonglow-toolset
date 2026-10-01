@@ -124,26 +124,39 @@ impl<'a> Bin<'a> {
             let time_at = self.u16(k + 6)? as usize;
             let value_at = self.u16(k + 8)? as usize;
             let cols = self.u8(k + 10)? as i8;
-            // 0x10 marks Bézier keys (never seen); −1 means no values.
+            // −1 means no values; 0x10 marks Bézier keys, whose keys hold
+            // their value and two handles (as the game's compiler writes
+            // them; no game model has any).
+            let bezier = cols >= 0 && cols & 0x10 != 0;
             let columns = if cols < 0 { 0 } else { (cols & 0x0F) as usize };
             let name = ctrl::name(node_flags, id);
             let times = data.get(time_at..time_at + rows).map(<[f32]>::to_vec).unwrap_or_default();
+            let stride = if bezier { columns * 3 } else { columns };
             // A declared column count past the data (one light's colour
             // claims 4): fall back to the controller's own.
-            let columns = match ctrl::columns(node_flags, &name) {
-                Some(c) if value_at + rows * columns > data.len() => c,
-                _ => columns,
+            let (columns, stride) = match ctrl::columns(node_flags, &name) {
+                Some(c) if !bezier && value_at + rows * columns > data.len() => (c, c),
+                _ => (columns, stride),
             };
-            let values = data.get(value_at..value_at + times.len() * columns);
-            let (times, values) = match values {
-                Some(v) => (times, v.to_vec()),
-                None => (Vec::new(), Vec::new()),
+            let keyed = data.get(value_at..value_at + times.len() * stride);
+            let (times, values, handles) = match keyed {
+                Some(v) if bezier && columns > 0 => {
+                    let mut values = Vec::with_capacity(times.len() * columns);
+                    let mut handles = Vec::with_capacity(times.len() * columns * 2);
+                    for key in v.chunks_exact(stride) {
+                        values.extend_from_slice(&key[..columns]);
+                        handles.extend_from_slice(&key[columns..]);
+                    }
+                    (times, values, handles)
+                }
+                Some(v) => (times, v.to_vec(), Vec::new()),
+                None => (Vec::new(), Vec::new(), Vec::new()),
             };
             // A repeated controller (fx_flame01's light has two shadow
             // radii) replaces the earlier one, as a repeated ASCII keyword
             // does.
             out.retain(|c: &Controller| c.name != name);
-            out.push(Controller { name, times, values, columns });
+            out.push(Controller { name, times, values, columns, handles });
         }
         Ok(out)
     }
@@ -183,11 +196,22 @@ impl<'a> Bin<'a> {
             transparency_hint: self.u32(n + 0xE0)?,
             tilefade: self.u32(n + 0x1E8)?,
             rotate_texture: self.u8(n + 0x265)? != 0,
+            // The game's compiler: 1 `None`, 2 `NormalAndSpecMapped`, 3
+            // `NormalTangents` (other values: none given).
+            renderhint: match self.u32(n + 0xE4)? {
+                1 => Some("none".into()),
+                2 => Some("normalandspecmapped".into()),
+                3 => Some("normaltangents".into()),
+                _ => None,
+            },
             ..Default::default()
         };
-        for (i, t) in m.textures.iter_mut().enumerate() {
+        // The fourth slot holds the `materialname`: the game's compiler
+        // writes it there (and drops `texture3`).
+        for (i, t) in m.textures.iter_mut().take(3).enumerate() {
             *t = self.resname(n + 0xE8 + 64 * i, 64)?;
         }
+        m.material = self.resname(n + 0xE8 + 64 * 3, 64)?;
         let count = self.u16(n + 0x230)? as usize;
         if let Some(at) = self.raw(n + 0x22C)?.filter(|_| count > 0) {
             m.vertices = self.vec3s_at(at, count)?;
@@ -205,6 +229,17 @@ impl<'a> Bin<'a> {
             if let Some(at) = self.raw(n + 0x248)? {
                 let b = self.bytes(at, count * 4)?;
                 m.colors = b.as_chunks::<4>().0.to_vec();
+            }
+            // With a render hint, the game's compiler stores tangents and
+            // the bitangents' signs in what 1.69 files use for water's
+            // "bump map animation" streams 4 and 6.
+            if m.renderhint.as_deref().is_some_and(|h| h != "none")
+                && let (Some(t), Some(h)) = (self.raw(n + 0x258)?, self.raw(n + 0x260)?)
+            {
+                let tangents = self.vec3s_at(t, count)?;
+                let signs = self.f32s(h, count)?;
+                m.tangents =
+                    tangents.iter().zip(&signs).map(|(t, &s)| [t[0], t[1], t[2], s]).collect();
             }
         }
         let (faces, nfaces) = self.array(n + 0x78, 32)?;
@@ -500,4 +535,132 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
         model.animations.push(b.animation(at, &vertex_counts)?);
     }
     Ok(model)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A model section laid out by offset (little-endian).
+    #[derive(Default)]
+    struct Out(Vec<u8>);
+
+    impl Out {
+        fn put(&mut self, at: usize, bytes: &[u8]) {
+            if self.0.len() < at + bytes.len() {
+                self.0.resize(at + bytes.len(), 0);
+            }
+            self.0[at..at + bytes.len()].copy_from_slice(bytes);
+        }
+        fn u32(&mut self, at: usize, v: u32) {
+            self.put(at, &v.to_le_bytes());
+        }
+        fn u16(&mut self, at: usize, v: u16) {
+            self.put(at, &v.to_le_bytes());
+        }
+        fn f32(&mut self, at: usize, v: f32) {
+            self.u32(at, v.to_bits());
+        }
+        fn floats(&mut self, at: usize, v: &[f32]) {
+            for (i, x) in v.iter().enumerate() {
+                self.f32(at + 4 * i, *x);
+            }
+        }
+        fn name(&mut self, at: usize, s: &str) {
+            self.put(at, s.as_bytes());
+        }
+    }
+
+    /// What `nwmain compilemodel` writes for a mesh with `bitmap tex0`,
+    /// `materialname mymaterial` and `renderhint NormalTangents` (the
+    /// tangents it generates), and a `positionbezierkey`.
+    fn compiled_by_the_game() -> Vec<u8> {
+        let mut m = Out::default();
+        m.name(0x08, "probe");
+        m.u32(0x48, 0x100);
+        m.u32(0x78, 0x500);
+        m.u32(0x7C, 1);
+        m.f32(0xA4, 1.0);
+        // The root, with the mesh as its child.
+        m.name(0x120, "probe");
+        m.u32(0x16C, flags::HEADER);
+        m.u32(0x148, 0x1F0);
+        m.u32(0x14C, 1);
+        m.u32(0x1F0, 0x200);
+        let n = 0x200;
+        m.name(n + 0x20, "quad");
+        m.u32(n + 0x6C, flags::HEADER | flags::MESH);
+        m.u32(n + 0x78, 0x480);
+        m.u32(n + 0x7C, 1);
+        m.u16(0x480 + 0x1C, 1);
+        m.u16(0x480 + 0x1E, 2);
+        m.u32(n + 0xE4, 3);
+        m.name(n + 0xE8, "tex0");
+        m.name(n + 0xE8 + 3 * 64, "mymaterial");
+        m.u32(n + 0x22C, 0);
+        m.u16(n + 0x230, 3);
+        for i in 0..4 {
+            m.u32(n + 0x234 + 4 * i, u32::MAX);
+        }
+        m.u32(n + 0x244, 36);
+        m.u32(n + 0x248, u32::MAX);
+        for i in 0..6 {
+            m.u32(n + 0x24C + 4 * i, u32::MAX);
+        }
+        m.u32(n + 0x258, 72);
+        m.u32(n + 0x260, 108);
+        m.u32(n + 0x26C, 0);
+        // The animation: a Bézier position key (flag 0x10, three columns,
+        // the value and two handles).
+        m.u32(0x500, 0x510);
+        m.name(0x518, "go");
+        m.u32(0x558, 0x600);
+        m.f32(0x580, 2.0);
+        m.name(0x600 + 0x20, "probe");
+        m.u32(0x66C, flags::HEADER);
+        m.u32(0x654, 0x700);
+        m.u32(0x658, 1);
+        m.u32(0x700, 8);
+        m.u16(0x704, 1);
+        m.u16(0x708, 1);
+        m.put(0x70A, &[0x13]);
+        m.u32(0x660, 0x720);
+        m.u32(0x664, 10);
+        m.floats(0x720, &[0.0, 1.0, 2.0, 3.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+        m.put(0x7FF, &[0]);
+        let mut raw = Out::default();
+        raw.floats(0, &[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+        raw.floats(36, &[0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0]);
+        raw.floats(72, &[0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0]);
+        raw.floats(108, &[-1.0, -1.0, -1.0]);
+        let mut file = vec![0; 4];
+        file.extend((m.0.len() as u32).to_le_bytes());
+        file.extend((raw.0.len() as u32).to_le_bytes());
+        file.extend(m.0);
+        file.extend(raw.0);
+        file
+    }
+
+    #[test]
+    fn what_the_games_compiler_adds() {
+        let model = read(&compiled_by_the_game()).unwrap();
+        let mesh = model.nodes[1].mesh().unwrap();
+        assert_eq!(mesh.textures[0].as_deref(), Some("tex0"));
+        assert_eq!(mesh.textures[3], None);
+        assert_eq!(mesh.material.as_deref(), Some("mymaterial"));
+        assert_eq!(mesh.renderhint.as_deref(), Some("normaltangents"));
+        assert_eq!(mesh.tangents, [[0.0, 1.0, 0.0, -1.0]; 3]);
+        let key = &model.animations[0].nodes[0].controllers[0];
+        assert_eq!((key.name.as_str(), key.columns), ("position", 3));
+        assert_eq!(key.values, [1.0, 2.0, 3.0]);
+        assert_eq!(key.handles, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+    }
+
+    #[test]
+    fn truncated_files_are_errors() {
+        let file = compiled_by_the_game();
+        for len in (0..file.len()).step_by(7) {
+            let _ = read(&file[..len]);
+        }
+    }
 }
