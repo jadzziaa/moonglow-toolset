@@ -64,9 +64,11 @@ impl GameInstall {
         self.user("hak").into_iter().chain([self.root.join("data").join("hk")]).collect()
     }
 
-    /// Where custom talk tables are: the user's `tlk/`.
+    /// Where custom talk tables are: the user's `tlk/`, then the install's
+    /// `data/tlk/` (the premium campaigns' tables, beside their haks in
+    /// `data/hk/`).
     pub fn tlk_dirs(&self) -> Vec<PathBuf> {
-        self.user("tlk").into_iter().collect()
+        self.user("tlk").into_iter().chain([self.root.join("data").join("tlk")]).collect()
     }
 
     /// Where movies are: the user's `movies/`, then the install's.

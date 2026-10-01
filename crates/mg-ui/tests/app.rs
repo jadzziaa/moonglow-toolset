@@ -4207,3 +4207,23 @@ fn closing_without_saving_leaves_no_copy() {
     app.close();
     assert!(mg_ui::recovery::find(&recovery).is_empty());
 }
+
+#[test]
+fn premium_campaigns_find_their_talk_tables_in_the_install() {
+    // Tyrants of the Moonsea names `tyrants`, which the game ships in
+    // `data/tlk/` beside the campaign's haks in `data/hk/`.
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let path = root.join("data/nwm/Neverwinter Nights - Tyrants of the Moonsea.nwm");
+    if !path.is_file() {
+        eprintln!("skipped: Tyrants of the Moonsea is not installed");
+        return;
+    }
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    let loaded = app.log.entries.iter().any(|(_, e)| e == "Custom talk table tyrants loaded");
+    assert!(loaded, "{:?}", app.log.entries);
+    assert!(app.game.as_ref().unwrap().custom_tlk().is_some());
+}
