@@ -114,6 +114,16 @@ fn class_spells(game: &GameData, class: usize) -> Vec<(usize, String, usize)> {
         .collect()
 }
 
+/// A warning without Aurora's closing question ("Do you wish to
+/// proceed?"): Moonglow's pages state it instead.
+fn statement(text: &str) -> &str {
+    let t = text.trim_end();
+    match t.strip_suffix('?').and_then(|q| q.rfind(['.', '!'])) {
+        Some(i) => &t[..=i],
+        None => t,
+    }
+}
+
 pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
@@ -139,6 +149,24 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     if casters.is_empty() {
         ui.weak("None of the creature's classes casts spells.");
         return;
+    }
+    // Aurora's warnings on closing the creature's properties (Options ›
+    // General), here while the spells are edited.
+    if !f.app.settings.no_spell_warning {
+        let warnings = game.spell_warnings(&f.root);
+        if !warnings.is_empty() {
+            let color = ui.visuals().warn_fg_color;
+            for w in &warnings {
+                ui.colored_label(color, statement(&game.spell_warning_text(w)));
+            }
+            if ui
+                .small_button("Never warn again")
+                .on_hover_text("Options › General: Show invalid creature spell assignment warning")
+                .clicked()
+            {
+                f.app.settings.no_spell_warning = true;
+            }
+        }
     }
     let id = egui::Id::new(("utc-spells", key));
     let (mut which, mut level): (usize, Option<usize>) =
@@ -450,9 +478,67 @@ fn item_slots(f: &mut Form<'_>, resref: ResRef) -> u32 {
     }
 }
 
+/// Aurora's notice on opening a creature's inventory (dialog.tlk 67646).
+const INVENTORY_NOTICE: (u32, &str) = (
+    67646,
+    "WARNING: The game may unequip items from this creature if they do not possess the \
+     appropriate feats or are not of sufficient level. This only applies to the Standard \
+     Equipment.",
+);
+
+/// Aurora's question when an item needs a feat the creature lacks
+/// (dialog.tlk 9069; `%s`: the feats, a line each).
+const MISSING_FEATS: (u32, &str) = (
+    9069,
+    "This creature cannot equip the selected item because the creature is missing one or more \
+     of the following feats:\n%s\n\nDo you wish to add the first feat listed above to the \
+     creature so that it can equip the item?",
+);
+
+/// A talk table string, else its English text.
+fn tlk(game: Option<&GameData>, (strref, english): (u32, &str)) -> String {
+    game.and_then(|g| g.string(mg_core::StrRef(strref))).unwrap_or_else(|| english.to_string())
+}
+
+/// The edits that equip `r` in slot `bit`, replacing what is there.
+fn equip_edits(f: &mut Form<'_>, equipped: &[Struct], bit: u32, r: ResRef) -> Vec<Edit> {
+    let (key, base) = (f.key, f.path.clone());
+    // A placed creature holds the whole item; a blueprint its resref.
+    let s = if f.is_instance()
+        && let Some(whole) = f.held_item(r, bit)
+    {
+        whole
+    } else {
+        let mut s = Struct::new(bit);
+        s.set("EquippedRes", Value::resref(r));
+        s
+    };
+    let mut e = Vec::new();
+    // One item per slot; the list is kept in slot order.
+    if let Some(i) = equipped.iter().position(|s| s.id == bit) {
+        e.push(remove(key, base.clone(), "Equip_ItemList", i));
+    }
+    let at = equipped.iter().filter(|s| s.id < bit).count();
+    e.push(insert(key, base, "Equip_ItemList", at, s));
+    e
+}
+
 pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
+    if !f.app.settings.no_inventory_warning {
+        let notice = tlk(f.app.game.as_ref(), INVENTORY_NOTICE);
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(ui.visuals().warn_fg_color, notice);
+            if ui
+                .small_button("Never warn again")
+                .on_hover_text("Options › General: Show creature inventory warning")
+                .clicked()
+            {
+                f.app.settings.no_inventory_warning = true;
+            }
+        });
+    }
     let equipped: Vec<Struct> = f.root.list("Equip_ItemList").unwrap_or(&[]).to_vec();
     let backpack: Vec<Struct> = f.root.list("ItemList").unwrap_or(&[]).to_vec();
     let names = f.blueprint_names(BlueprintKind::Item);
@@ -497,28 +583,66 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             edits.extend(inventory::item_list(ui, key, &path, &backpack, &name, false));
         });
     });
+    // An item that needs a feat the creature lacks: Aurora asks whether to
+    // add the first (and does not equip it otherwise).
+    let ask = egui::Id::new(("utc-equip-feat", key, base.clone()));
     if let (Some(bit), Some(r)) = (equip, chosen) {
         if item_slots(f, r) & bit == 0 {
             f.app.log.error(format!("{} does not go in that slot", name_of(r)));
         } else {
-            // A placed creature holds the whole item; a blueprint its resref.
-            let s = if f.is_instance()
-                && let Some(whole) = f.held_item(r, bit)
-            {
-                whole
-            } else {
-                let mut s = Struct::new(bit);
-                s.set("EquippedRes", Value::resref(r));
-                s
+            let feats: Vec<u16> = f
+                .root
+                .list("FeatList")
+                .unwrap_or(&[])
+                .iter()
+                .filter_map(|s| s.integer("Feat"))
+                .map(|v| v as u16)
+                .collect();
+            let item = f.blueprint(BlueprintKind::Item, r);
+            let missing = match (f.app.game.as_ref(), item) {
+                (Some(g), Some(item)) => g.missing_feats(&item, &feats),
+                _ => Vec::new(),
             };
-            let mut e = Vec::new();
-            // One item per slot; the list is kept in slot order.
-            if let Some(i) = equipped.iter().position(|s| s.id == bit) {
-                e.push(remove(key, base.clone(), "Equip_ItemList", i));
+            if missing.is_empty() {
+                let e = equip_edits(f, &equipped, bit, r);
+                apply(f, "Equip", e);
+            } else {
+                ui.data_mut(|d| d.insert_temp(ask, (bit, r, missing)));
             }
-            let at = equipped.iter().filter(|s| s.id < bit).count();
-            e.push(insert(key, base.clone(), "Equip_ItemList", at, s));
+        }
+    }
+    if let Some((bit, r, missing)) = ui.data(|d| d.get_temp::<(u32, ResRef, Vec<u16>)>(ask)) {
+        let game = f.app.game.as_ref();
+        let names: Vec<String> = missing
+            .iter()
+            .map(|&feat| {
+                game.and_then(|g| {
+                    let strref = g.table("feat").ok()?.get_int(usize::from(feat), "FEAT")?;
+                    g.string(mg_core::StrRef(strref as u32))
+                })
+                .unwrap_or_else(|| format!("({feat})"))
+            })
+            .collect();
+        let text = tlk(game, MISSING_FEATS).replacen("%s", &names.join("\n"), 1);
+        let (mut yes, mut no) = (false, false);
+        let modal = egui::Modal::new(ask.with("modal")).show(ui.ctx(), |ui| {
+            ui.set_max_width(360.0);
+            ui.label(text);
+            ui.horizontal(|ui| {
+                yes = ui.button("Yes").clicked();
+                no = ui.button("No").clicked();
+            });
+        });
+        if yes {
+            let count = f.root.list("FeatList").map_or(0, <[_]>::len);
+            let mut feat = Struct::new(FEAT_ID);
+            feat.set("Feat", Value::Word(missing[0]));
+            let mut e = vec![insert(key, base.clone(), "FeatList", count, feat)];
+            e.extend(equip_edits(f, &equipped, bit, r));
             apply(f, "Equip", e);
+        }
+        if yes || no || modal.should_close() {
+            ui.data_mut(|d| d.remove::<(u32, ResRef, Vec<u16>)>(ask));
         }
     }
     if let Some(r) = add {

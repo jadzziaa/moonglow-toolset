@@ -109,6 +109,39 @@ impl GameData {
             == Some(3)
     }
 
+    /// The feats an item needs to be equipped, any one of them: its base
+    /// item's `ReqFeat0`–`5`, or for armor the proficiency its armor class
+    /// takes (hardcoded: 1–3 Light, 4–5 Medium, 6 and up Heavy Armor
+    /// Proficiency, feats 3, 4 and 2). Aurora checks them as an item is
+    /// equipped (`docs/research/notes_creature_spells.md`).
+    pub fn required_feats(&self, item: &mg_gff::Struct) -> Vec<u16> {
+        let base = item.integer("BaseItem").unwrap_or(-1);
+        let Ok(row) = usize::try_from(base) else { return Vec::new() };
+        let table = self.table("baseitems").ok();
+        let listed: Vec<u16> = (0..6)
+            .filter_map(|i| table.as_ref()?.get_int(row, &format!("ReqFeat{i}")))
+            .filter_map(|f| u16::try_from(f).ok())
+            .collect();
+        if !listed.is_empty() || !self.is_armor(row as u32) {
+            return listed;
+        }
+        let torso = item.integer("ArmorPart_Torso").unwrap_or(0).max(0) as u32;
+        match self.armor_class(torso).unwrap_or(0) {
+            0 => Vec::new(),
+            1..=3 => vec![3],
+            4..=5 => vec![4],
+            _ => vec![2],
+        }
+    }
+
+    /// The feats to offer a creature (its `feats`) equipping an item: the
+    /// item's [`required_feats`](Self::required_feats) when it has none of
+    /// them, else nothing.
+    pub fn missing_feats(&self, item: &mg_gff::Struct, feats: &[u16]) -> Vec<u16> {
+        let need = self.required_feats(item);
+        if need.iter().any(|f| feats.contains(f)) { Vec::new() } else { need }
+    }
+
     /// A property's cost multiplier: its type's `Cost` (else its subtype's)
     /// times its cost table value's `Cost`.
     pub fn property_cost(&self, p: &ItemProperty) -> f32 {
@@ -407,8 +440,9 @@ mod tests {
         let tables: [(&str, &str); 8] = [
             (
                 "baseitems",
-                "label BaseCost ItemMultiplier ModelType\n\
-                 0 sword 10 2 2\n1 misc 0 1 0\n2 arrow 1 0.01 0\n3 armor **** 1 3\n",
+                "label BaseCost ItemMultiplier ModelType ReqFeat0 ReqFeat1\n\
+                 0 sword 10 2 2 45 256\n1 misc 0 1 0 **** ****\n\
+                 2 arrow 1 0.01 0 **** ****\n3 armor **** 1 3 **** ****\n",
             ),
             (
                 "itempropdef",
@@ -430,7 +464,7 @@ mod tests {
         }
         mem.insert(
             ResKey::parse("parts_chest", ResType::TWODA).unwrap(),
-            &b"2DA V2.0\n\nACBONUS\n0 0.00\n1 2.40\n"[..],
+            &b"2DA V2.0\n\nACBONUS\n0 0.00\n1 2.40\n2 6.00\n3 4.00\n"[..],
         );
         mem.insert(
             ResKey::parse("armor", ResType::TWODA).unwrap(),
@@ -439,6 +473,26 @@ mod tests {
         let mut rm = ResMan::new();
         rm.add(priority::KEY, "mem", LayerClass::Key, mem);
         GameData::new(rm, Tlk::new(Language::ENGLISH))
+    }
+
+    #[test]
+    fn equipping_needs_a_listed_feat_or_armor_proficiency() {
+        let gd = data();
+        let item = |base: i32, torso: u8| {
+            let mut s = mg_gff::Struct::new(0);
+            s.set("BaseItem", mg_gff::Value::Int(base));
+            s.set("ArmorPart_Torso", mg_gff::Value::Byte(torso));
+            s
+        };
+        // Any one of the base item's feats will do.
+        assert_eq!(gd.missing_feats(&item(0, 0), &[]), [45, 256]);
+        assert_eq!(gd.missing_feats(&item(0, 0), &[256]), [0u16; 0]);
+        assert_eq!(gd.required_feats(&item(1, 0)), [0u16; 0]);
+        // Armor by its armor class: clothing, light, heavy, medium.
+        let armor: Vec<Vec<u16>> = (0..4).map(|t| gd.required_feats(&item(3, t))).collect();
+        assert_eq!(armor, [vec![], vec![3], vec![2], vec![4]]);
+        assert_eq!(gd.missing_feats(&item(3, 2), &[3, 4]), [2]);
+        assert!(gd.required_feats(&mg_gff::Struct::new(0)).is_empty());
     }
 
     fn prop(property: u16, subtype: u16, cost_value: u16) -> ItemProperty {

@@ -3607,3 +3607,90 @@ fn text_is_edited_in_the_chosen_language() {
     assert!(name.text(Language::GERMAN, Gender::Male).is_some(), "{name:?}");
     assert_eq!(english(&mut h), before);
 }
+
+#[test]
+fn the_spells_page_warns_about_invalid_assignments() {
+    use mg_gff::{Struct, Value};
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_wizard", ResType::UTC)
+    else {
+        return;
+    };
+    // Wizard 1 with Bull's Strength (level 2) prepared.
+    let mut spell = Struct::new(3);
+    spell.set("Spell", Value::Word(9));
+    spell.set("SpellMetaMagic", Value::Byte(0));
+    spell.set("SpellFlags", Value::Byte(1));
+    let mut wizard = Struct::new(2);
+    wizard.set("Class", Value::Int(10));
+    wizard.set("ClassLevel", Value::Short(1));
+    wizard.set("MemorizedList2", Value::List(vec![spell]));
+    let set = |label: &str, value: Value| mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: label.into(),
+        value: Some(value),
+    };
+    let edits = vec![set("ClassList", Value::List(vec![wizard])), set("Int", Value::Byte(18))];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("wizard", edits)));
+    h.run();
+    h.get_by_label("Spells").click();
+    h.run();
+    let warning = "This creature has spells assigned to it that are too high for its current \
+                   Wizard level.";
+    assert!(h.query_by_label(warning).is_some(), "Aurora's warning, without its question");
+    h.get_by_label("Never warn again").click();
+    h.run();
+    assert!(h.state().settings.no_spell_warning);
+    assert!(h.query_by_label(warning).is_none());
+}
+
+#[test]
+fn equipping_without_the_feat_asks_to_add_it() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_unskilled", ResType::UTC)
+    else {
+        return;
+    };
+    let edit = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "FeatList".into(),
+        value: Some(mg_gff::Value::List(Vec::new())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("no feats", vec![edit])));
+    h.run();
+    h.get_by_label("Inventory").click();
+    h.run();
+    assert!(h.query_by_label_contains("The game may unequip items").is_some(), "the notice");
+    type_into_hint(&mut h, "Find", "nw_waxbt001");
+    h.get_by_label("Battleaxe").click();
+    h.run();
+    let primary = |h: &mut Harness<'_, Moonglow>| {
+        let s = field(h, &key);
+        let list = s.list("Equip_ItemList").unwrap_or(&[]).to_vec();
+        list.iter().find(|s| s.id == 0x10).map(|s| s.resref("EquippedRes").unwrap().to_string())
+    };
+    let feats = |h: &mut Harness<'_, Moonglow>| -> Vec<i64> {
+        let s = field(h, &key);
+        s.list("FeatList").unwrap_or(&[]).iter().filter_map(|f| f.integer("Feat")).collect()
+    };
+    let before = primary(&mut h);
+    // The Primary Weapon slot's Equip (the fifth): No leaves it as it was.
+    h.get_all_by_label("Equip").nth(4).unwrap().click();
+    h.run();
+    assert!(h.query_by_label_contains("Weapon Proficiency (martial)").is_some());
+    h.get_by_label("No").click();
+    h.run();
+    assert_eq!(primary(&mut h), before);
+    assert!(feats(&mut h).is_empty());
+    // Yes adds the first feat and equips it, one undoable step.
+    h.get_all_by_label("Equip").nth(4).unwrap().click();
+    h.run();
+    h.get_by_label("Yes").click();
+    h.run();
+    assert_eq!(primary(&mut h).as_deref(), Some("nw_waxbt001"));
+    assert_eq!(feats(&mut h), [45]);
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert!(feats(&mut h).is_empty());
+    assert_eq!(primary(&mut h), before);
+}

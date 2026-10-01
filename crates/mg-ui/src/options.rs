@@ -37,6 +37,8 @@ pub struct OptionsDraft {
     pub backups: bool,
     pub hak_warning: bool,
     pub namespace_warning: bool,
+    pub spell_warning: bool,
+    pub inventory_warning: bool,
     pub standard_warning: bool,
     pub auto_compile: bool,
     pub debug_info: bool,
@@ -72,6 +74,8 @@ impl OptionsDraft {
             backups: !s.no_backups,
             hak_warning: !s.no_hak_warning,
             namespace_warning: !s.no_namespace_warning,
+            spell_warning: !s.no_spell_warning,
+            inventory_warning: !s.no_inventory_warning,
             standard_warning: !s.no_standard_warning,
             auto_compile: s.auto_compile,
             debug_info: s.debug_info,
@@ -98,6 +102,8 @@ impl OptionsDraft {
             no_backups: !self.backups,
             no_hak_warning: !self.hak_warning,
             no_namespace_warning: !self.namespace_warning,
+            no_spell_warning: !self.spell_warning,
+            no_inventory_warning: !self.inventory_warning,
             no_standard_warning: !self.standard_warning,
             auto_compile: self.auto_compile,
             debug_info: self.debug_info,
@@ -202,10 +208,42 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     OptionsPage::General => {
                         ui.checkbox(&mut draft.build_on_save, "Build module on save")
                             .on_hover_text("Run Build Module (with its defaults) before saving");
-                        ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
+                        ui.checkbox(
+                            &mut draft.namespace_warning,
+                            "Show reserved Blueprint ResRef namespace warning",
+                        )
+                        .on_hover_text(
+                            "Warn about a blueprint named like the game's (nw_, x0_ to x3_)",
+                        );
+                        ui.checkbox(
+                            &mut draft.spell_warning,
+                            "Show invalid creature spell assignment warning",
+                        )
+                        .on_hover_text(
+                            "On a creature's Spells page: spells too high for its level or \
+                             ability, or more than it may have",
+                        );
+                        ui.checkbox(
+                            &mut draft.inventory_warning,
+                            "Show creature inventory warning",
+                        )
+                        .on_hover_text(
+                            "On a creature's Inventory page: the game may unequip what its \
+                                 feats or level do not allow",
+                        );
+                        ui.checkbox(&mut draft.hak_warning, "Show resource in Hak Pak warning")
+                            .on_hover_text(
+                                "Warn when a hak has a resource the module adds (the hak's wins)",
+                            );
+                        ui.checkbox(
+                            &mut draft.standard_warning,
+                            "Show standard resource overwrite warning",
+                        )
+                        .on_hover_text("Warn when the module adds a resource the game has");
                         ui.checkbox(&mut draft.backups, "Create backups of modules").on_hover_text(
                             "Keep the module as it was as <name>.BackupMod at each save",
                         );
+                        ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
                     }
                     OptionsPage::Area => {
                         ui.horizontal(|ui| {
@@ -429,6 +467,18 @@ mod tests {
         let t = d.apply(&s);
         assert!(t.dialog_hide_names);
         assert_eq!((t.dialog_pc_color, t.dialog_npc_color), (Some([1, 2, 3]), None));
+    }
+
+    #[test]
+    fn warnings_are_on_by_default_and_apply() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        assert!(d.namespace_warning && d.spell_warning && d.hak_warning && d.standard_warning);
+        assert!(d.inventory_warning);
+        (d.spell_warning, d.hak_warning) = (false, false);
+        let t = d.apply(&s);
+        assert!(t.no_spell_warning && t.no_hak_warning);
+        assert!(!t.no_namespace_warning && !t.no_standard_warning);
     }
 
     #[test]

@@ -51,6 +51,14 @@ pub struct Settings {
     /// Options > General: Show reserved Blueprint ResRef namespace warning,
     /// off.
     pub no_namespace_warning: bool,
+    /// Options > General: Show invalid creature spell assignment warning,
+    /// off (Aurora's on closing a creature's properties; Moonglow's on its
+    /// Spells page).
+    pub no_spell_warning: bool,
+    /// Options > General: Show creature inventory warning, off (Aurora's
+    /// notice on opening a creature's inventory; Moonglow's on its
+    /// Inventory page).
+    pub no_inventory_warning: bool,
     /// Options > General: Show resource in Hak Pak warning, off.
     pub no_hak_warning: bool,
     /// Options > General: Show standard resource overwrite warning, off.

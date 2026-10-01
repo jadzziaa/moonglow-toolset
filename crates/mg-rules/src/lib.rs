@@ -21,9 +21,11 @@ pub mod creatures;
 pub mod items;
 pub mod levelup;
 pub mod names;
+pub mod spell_warnings;
 pub use challenge::Challenge;
 pub use creatures::{ClassSpells, CreatureSheet, CreatureStats};
 pub use items::{ItemProperty, ItemValue};
+pub use spell_warnings::SpellWarning;
 
 #[derive(Debug, Error)]
 pub enum RulesError {
