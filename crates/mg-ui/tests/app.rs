@@ -3917,7 +3917,7 @@ fn the_area_view_plays_the_area_s_sounds() {
 #[test]
 fn a_creature_s_sound_set_plays_a_sample() {
     use mg_ui::audio::{Channel, Silence};
-    let Some((mut h, _)) = blueprint_harness("nw_bandit001", "bandit_voice", ResType::UTC) else {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_voice", ResType::UTC) else {
         return;
     };
     let speaker = std::rc::Rc::new(std::cell::RefCell::new(Silence::default()));
@@ -3929,4 +3929,29 @@ fn a_creature_s_sound_set_plays_a_sample() {
     h.run();
     let played = speaker.borrow().channels.get(&Channel::Preview).cloned();
     assert!(played.is_some(), "{:?}", h.state().log.entries);
+    // Female sound sets only: a male one is no longer offered.
+    let name = |h: &Harness<'_, Moonglow>, row: usize| -> Option<String> {
+        let game = h.state().game.as_ref().unwrap();
+        let strref = game.table("soundset").unwrap().get_int(row, "STRREF")?;
+        game.string(mg_core::StrRef(strref as u32))
+    };
+    let rows = |h: &Harness<'_, Moonglow>, gender: i32| -> Vec<String> {
+        let t = h.state().game.as_ref().unwrap().table("soundset").unwrap();
+        (0..t.len())
+            .filter(|&r| t.get_int(r, "GENDER") == Some(gender))
+            .filter_map(|r| name(h, r))
+            .collect()
+    };
+    let (male, female) = (rows(&h, 0), rows(&h, 1));
+    let male_only = male.iter().find(|m| !female.contains(m)).unwrap().clone();
+    let set = field(&mut h, &key).integer("SoundSetFile").unwrap() as usize;
+    let current = name(&h, set).unwrap();
+    h.get_by_value("Both").click();
+    h.run();
+    h.get_by_label("Female").click();
+    h.run();
+    h.get_by_value(&current).click();
+    h.run();
+    assert!(h.query_by_label(&male_only).is_none(), "{male_only} offered");
+    assert!(female.iter().any(|f| h.query_all_by_label(f).next().is_some()));
 }

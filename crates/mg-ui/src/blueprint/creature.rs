@@ -647,7 +647,53 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui.end_row();
             ui.label("Sound Set");
             ui.horizontal(|ui| {
-                f.choice(ui, "Sound set", "SoundSetFile", &sounds, FieldType::Word);
+                // Aurora's filters: gender and soundsettype.2da type.
+                let id = egui::Id::new(("utc-soundset-filter", f.key));
+                let (mut gender, mut kind): (Option<i64>, Option<i64>) =
+                    ui.data(|d| d.get_temp(id)).unwrap_or_default();
+                let types = choices(f, "soundsettype", "STRREF", "LABEL");
+                let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
+                    v.map_or(all.to_string(), names)
+                };
+                egui::ComboBox::from_id_salt(id.with("gender"))
+                    .selected_text(name(gender, "Both", &|g| ["Male", "Female"][g as usize].into()))
+                    .width(70.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut gender, None, "Both");
+                        ui.selectable_value(&mut gender, Some(0), "Male");
+                        ui.selectable_value(&mut gender, Some(1), "Female");
+                    });
+                let type_name = |t: i64| {
+                    types
+                        .iter()
+                        .find(|c| c.row as i64 == t)
+                        .map_or(t.to_string(), |c| c.text.clone())
+                };
+                egui::ComboBox::from_id_salt(id.with("type"))
+                    .selected_text(name(kind, "All", &type_name))
+                    .width(90.0)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut kind, None, "All");
+                        for c in &types {
+                            ui.selectable_value(&mut kind, Some(c.row as i64), &c.text);
+                        }
+                    });
+                ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
+                let current = f.root.integer("SoundSetFile").unwrap_or(-1);
+                let table = f.app.game.as_ref().and_then(|g| g.table("soundset").ok());
+                let shown: Vec<_> = sounds
+                    .iter()
+                    .filter(|c| {
+                        let col = |l: &str| {
+                            table.as_ref().and_then(|t| t.get_int(c.row, l)).map(i64::from)
+                        };
+                        c.row as i64 == current
+                            || (gender.is_none_or(|g| col("GENDER") == Some(g))
+                                && kind.is_none_or(|k| col("TYPE") == Some(k)))
+                    })
+                    .cloned()
+                    .collect();
+                f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
                 // Aurora's sound set list plays a sample when clicked.
                 let set = f.root.integer("SoundSetFile").unwrap_or(-1);
                 if ui.small_button("▶").on_hover_text("Play a sample of the sound set").clicked()
