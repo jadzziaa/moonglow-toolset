@@ -14,7 +14,7 @@ artifacts.
 | --- | --- |
 | `icons/` | The icon (`moonglow.svg`, authored for Moonglow) and what `render.sh` makes of it: PNGs from 16 to 512 pixels, `moonglow.ico`, `moonglow.icns`. The 256-pixel PNG is also the window's icon, built into the program. |
 | `linux/` | The desktop entry, AppStream metadata, the `.mod` MIME type and `build-appimage.sh`. |
-| `flatpak/` | The Flatpak manifest. |
+| `flatpak/` | The Flatpak manifest, `cargo_sources.py` and `build-flatpak.sh`. |
 | `windows/` | The Inno Setup script and `build-installer.ps1`. The executable's icon and version information come from `apps/moonglow/build.rs`. |
 | `macos/` | `Info.plist` and `build-app.sh`. |
 | `third_party_licenses.py` | Writes `THIRD-PARTY-LICENSES.txt`: every crate the programs are built from, its licence, and the licence texts. |
@@ -46,17 +46,20 @@ workflow uses Ubuntu 22.04). File dialogs go through the desktop portal
 ## Linux: Flatpak
 
 ```sh
-python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
-flatpak-builder --user --install --force-clean target/flatpak \
-    packaging/flatpak/io.github.moonglow_toolset.Moonglow.yml
+packaging/flatpak/build-flatpak.sh
+flatpak install --user target/dist/Moonglow-*.flatpak
 flatpak run io.github.moonglow_toolset.Moonglow
 ```
 
-`flatpak-cargo-generator.py` is in
-[flatpak-builder-tools](https://github.com/flatpak/flatpak-builder-tools)
-(`cargo/`); it lists the crates in `Cargo.lock` so that the build runs
-offline. The build needs the Freedesktop 25.08 SDK and its
-`rust-stable` extension.
+The script lists the crates in `Cargo.lock` as the build's sources
+(`flatpak/cargo_sources.py` writes `cargo-sources.json`, not committed),
+so the build itself runs offline; the crates come from Cargo's download
+cache where they are, else from crates.io. It builds with the Freedesktop
+25.08 SDK and its `rust-stable` extension (installed from Flathub for the
+user when missing; about 1.6 GB with the runtime) into
+`target/flatpak-repo`, and bundles that as
+`target/dist/Moonglow-<version>-<arch>.flatpak`, which fetches the runtime
+from Flathub when installed.
 
 The sandbox sees the game where Steam installs it (natively or as a
 Flatpak) and the game's user folder, `~/.local/share/Neverwinter Nights`.

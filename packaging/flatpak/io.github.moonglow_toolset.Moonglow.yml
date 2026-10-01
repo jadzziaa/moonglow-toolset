@@ -1,11 +1,9 @@
 # Flatpak build of Moonglow Toolset.
 #
-# Builds offline from vendored crates: generate cargo-sources.json from
-# Cargo.lock with flatpak-builder-tools' cargo generator
-# (https://github.com/flatpak/flatpak-builder-tools, cargo/), then
+# Builds offline from vendored crates, listed in cargo-sources.json (made
+# from Cargo.lock by cargo_sources.py beside this file):
 #
-#   flatpak-builder --user --install --force-clean target/flatpak \
-#       packaging/flatpak/io.github.moonglow_toolset.Moonglow.yml
+#   packaging/flatpak/build-flatpak.sh
 #
 # (packaging/README.md has the details.)
 id: io.github.moonglow_toolset.Moonglow
@@ -54,5 +52,6 @@ modules:
       - type: dir
         path: ../..
         skip:
+          - .git
           - target
       - cargo-sources.json
