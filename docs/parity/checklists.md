@@ -137,7 +137,7 @@ unless given otherwise.
 | Input Text popup for a new line | the new line is selected and its Text field edited in place | — |
 | Copy, Cut, Paste, Paste As Link, Delete | same; Delete removes the branch and every link to it, then renumbers | ✅ (`dialog.rs` tests) |
 | Expand All, Collapse All; highlight filters (comments, actions, quests, animations, sounds) | same | ✅ |
-| Speaker Tag (combo of module creature tags, Add) | text field | ◐ (creature tag list: with blueprints, Phase 8) |
+| Speaker Tag (combo of module creature tags, Add) | a text field and the list of the tags of the creatures placed in the module's areas | ✅ [speaker_tags_come_from_the_module_s_creatures] |
 | Text + `…` all languages; Insert Token (stringtokens.2da, highlight tokens) | same | ✅ |
 | Text Appears When…: script, `…`, Edit, EE parameters (+/−), script preview | same | ✅ (engine: conditions in order with parameters, `engine_dialog.rs`) |
 | Actions Taken: script, parameters, preview | same | ✅ (engine: the action runs with its parameter) |

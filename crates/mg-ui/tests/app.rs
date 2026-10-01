@@ -3526,3 +3526,59 @@ fn creature_names_can_be_random() {
     assert_ne!(Some(after.clone()), before);
     assert!((4..=13).contains(&after.len()), "{after}");
 }
+
+#[test]
+fn speaker_tags_come_from_the_module_s_creatures() {
+    use egui_kittest::kittest::Queryable;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(8);
+    let mut m = new_module(&game, "Speakers", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bp = game.resman.get(&ResKey::parse("nw_bandit001", ResType::UTC).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let mut bandit =
+        instance(&placing, ResType::UTC, &Gff::read(&bp).unwrap().root, at, &[]).unwrap();
+    bandit.set("Tag", mg_gff::Value::String(b"MG_SPEAKER".to_vec()));
+    let git = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![bandit]));
+    m.set_gff(git, &g).unwrap();
+    let key = ResKey::parse("mg_talk", ResType::DLG).unwrap();
+    let mut d = mg_module::dialog::new_dialog();
+    mg_module::dialog::add_node(&mut d, mg_module::dialog::Parent::Root, "Hello there");
+    m.set(key, d.to_bytes().unwrap());
+    let path = mg_testkit::scratch_dir("ui-speaker-tags").join("speakers.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("[OWNER] - Hello there").click();
+    h.run();
+    h.get_by_role(egui::accesskit::Role::ComboBox).click();
+    h.run();
+    h.get_by_label("MG_SPEAKER").click();
+    h.run();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let dlg = ws.doc(&key).unwrap().root.clone();
+    assert_eq!(dlg.list("EntryList").unwrap()[0].string("Speaker"), Some(&b"MG_SPEAKER"[..]));
+}

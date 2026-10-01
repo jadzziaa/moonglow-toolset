@@ -518,6 +518,23 @@ fn tree(
     }
 }
 
+/// The tags of the creatures placed in the module's areas, sorted, each
+/// once (the Speaker Tag list).
+fn creature_tags(app: &mut Moonglow) -> Vec<String> {
+    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    let areas = ws.module.areas().unwrap_or_default();
+    let mut tags = std::collections::BTreeSet::new();
+    for a in areas {
+        let Ok(g) = ws.doc(&ResKey::new(a, mg_core::ResType::GIT)) else { continue };
+        for c in g.root.list("Creature List").unwrap_or(&[]) {
+            if let Some(t) = c.string("Tag").filter(|t| !t.is_empty()) {
+                tags.insert(decode(t));
+            }
+        }
+    }
+    tags.into_iter().collect()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn text_panel(
     app: &mut Moonglow,
@@ -531,11 +548,26 @@ fn text_panel(
 ) {
     let path = node_path(kind, index);
     if kind == Kind::Entry {
+        let tags = creature_tags(app);
         ui.horizontal(|ui| {
             ui.label("Speaker Tag");
             let speaker = decode(n.string("Speaker").unwrap_or_default());
             let id = egui::Id::new(("dlg-speaker", key, index));
-            if let Some(v) = commit_text(app, ui, id, &speaker, false, 160.0) {
+            let mut chosen = commit_text(app, ui, id, &speaker, false, 160.0);
+            // The tags of the creatures placed in the module's areas.
+            egui::ComboBox::from_id_salt(("dlg-speaker-tags", key, index))
+                .selected_text("")
+                .width(24.0)
+                .show_ui(ui, |ui| {
+                    for t in &tags {
+                        if ui.selectable_label(*t == speaker, t).clicked() {
+                            chosen = Some(t.clone());
+                        }
+                    }
+                })
+                .response
+                .on_hover_text("The tag of a creature placed in the module");
+            if let Some(v) = chosen {
                 actions.push(set(
                     key,
                     "Speaker",
