@@ -739,6 +739,13 @@ fn grass_and_sky_look() {
         );
     assert!(settings.contains("mode = 2") && settings.contains("enabled = true"));
     std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
+    // MG_CLOSE=1: the camera low and close, to see the client's grass.
+    if std::env::var_os("MG_CLOSE").is_some() {
+        let enter =
+            ENTER.replace("SetCameraFacing(90.0, 12.0, 45.0", "SetCameraFacing(90.0, 3.0, 80.0");
+        let ncs = compile(&dir, "mg_enter", &enter);
+        m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
+    }
     m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
     let client = client_screenshot(&dir, "MgScene");
     let git_key = *m.keys_of(ResType::GIT).next().unwrap();
