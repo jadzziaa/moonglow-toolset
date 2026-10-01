@@ -179,6 +179,9 @@ pub struct Moonglow {
     pub resize_area: Option<area_reshape::ResizeDraft>,
     /// The Rotate Area window, while it is open.
     pub rotate_area: Option<area_reshape::RotateDraft>,
+    /// What to open after the Area Wizard's area is made: the viewer, its
+    /// properties.
+    pub after_new_area: (bool, bool),
     /// Tiles copied in an area viewer.
     pub tile_clip: Option<tile_select::TileClip>,
     /// Objects copied in an area viewer.
@@ -254,6 +257,7 @@ impl Moonglow {
             area_focus: None,
             object_clip: None,
             tile_clip: None,
+            after_new_area: (false, false),
             preview_window: false,
             tile_props: None,
             area_stats: None,
@@ -754,10 +758,21 @@ impl Moonglow {
             })
             .collect();
         match ws.apply(Command::new(format!("New area {area}"), edits)) {
-            Ok(()) => self.log.info(format!(
-                "Created area {area} ({}, {}×{})",
-                spec.tileset, spec.width, spec.height
-            )),
+            Ok(()) => {
+                self.log.info(format!(
+                    "Created area {area} ({}, {}×{})",
+                    spec.tileset, spec.width, spec.height
+                ));
+                // The wizard's last two choices.
+                let (viewer, properties) =
+                    std::mem::replace(&mut self.after_new_area, (false, false));
+                if viewer {
+                    self.actions.push(Action::OpenTab(Tab::Area(area)));
+                }
+                if properties {
+                    self.actions.push(Action::OpenTab(Tab::AreaProperties(area)));
+                }
+            }
             Err(e) => self.log.error(e.to_string()),
         }
         self.refresh_module_layer();

@@ -245,6 +245,12 @@ fn new_module_and_area_through_the_wizards() {
     let key = ResKey::parse("area001", ResType::ARE).unwrap();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "{:?}", h.state().log.entries);
     h.get_by_label_contains("Areas (1)");
+    // Open Area in the Area Viewer is on by default, as in Aurora.
+    assert!(
+        h.state().dock.find_tab(&Tab::Area(key.resref)).is_some(),
+        "the area opens in a viewer"
+    );
+    assert!(h.state().dock.find_tab(&Tab::AreaProperties(key.resref)).is_none());
     let area = mg_gff::Gff::read(h.state().ws.as_ref().unwrap().module.get(&key).unwrap()).unwrap();
     assert_eq!(area.root.read(&mg_schema::are::TILESET), ResRef::from_str("tic01").unwrap());
     assert_eq!(

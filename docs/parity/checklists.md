@@ -52,7 +52,7 @@ unless given otherwise.
 |---|---|---|
 | Module name, then areas, then finish | New Module (name), then the Area Wizard | ✅ [new_module_and_area_through_the_wizards] |
 | Area name, tileset list sorted by name, size presets Tiny/Small/Medium/Large and 2–32 per side | same | ✅ |
-| Launch Area Properties / Open in Area Viewer | not yet (area properties and viewer: Phases 7 and 9) | ✗ |
+| Launch Area Properties Dialog / Open Area in the Area Viewer (on by default) | the same | ✅ [new_module_and_area_through_the_wizards] |
 | Files written (module.ifo, repute.fac, palettes, ARE/GIT/GIC) | identical apart from Aurora's random choices | ✅ (`mg-corpus-tests/tests/aurora_new.rs`, engine: `engine_new_module.rs`) |
 
 ## Import / Export (`TdlgImportExport`)
@@ -168,7 +168,7 @@ unless given otherwise.
 | Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview, New… (the type's wizard) | ◐ (the copy's resref rule is not yet checked against Aurora; creatures have no wizard yet) |
 | Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
 | Update Instances | not yet (with the area editor, Phase 9) | ✗ |
-| Selecting a blueprint arms placement in the area | with the area editor (Phase 9) | ✗ |
+| Selecting a blueprint arms placement in the area | the same | ✅ [area_viewer_places_draws_boxes_and_turns] |
 | In-place rename of custom blueprints | not yet (names are edited in the blueprint editors) | ✗ |
 
 ## Blueprint editors (object Properties dialogs)

@@ -21,6 +21,10 @@ pub struct AreaWizard {
     pub selected: Option<usize>,
     pub width: u32,
     pub height: u32,
+    /// Launch Area Properties Dialog (Aurora's default: off).
+    pub launch_properties: bool,
+    /// Open Area in the Area Viewer (Aurora's default: on).
+    pub open_viewer: bool,
 }
 
 impl AreaWizard {
@@ -33,6 +37,8 @@ impl AreaWizard {
             selected: None,
             width: 8,
             height: 8,
+            launch_properties: false,
+            open_viewer: true,
         }
     }
 
@@ -107,12 +113,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.weak("tiles, 10 m each");
                 });
                 ui.add_space(6.0);
+                ui.checkbox(&mut w.launch_properties, "Launch Area Properties Dialog");
+                ui.checkbox(&mut w.open_viewer, "Open Area in the Area Viewer");
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let spec = w.spec().filter(|s| !s.name.is_empty());
                     if ui.add_enabled(spec.is_some(), egui::Button::new("Create")).clicked()
                         && let Some(spec) = spec
                     {
                         app.actions.push(Action::NewArea(spec));
+                        app.after_new_area = (w.open_viewer, w.launch_properties);
                         close = true;
                     }
                     if ui.button("Cancel").clicked() {
