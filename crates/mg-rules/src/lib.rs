@@ -19,6 +19,7 @@ use thiserror::Error;
 pub mod challenge;
 pub mod creatures;
 pub mod items;
+pub mod levelup;
 pub use challenge::Challenge;
 pub use creatures::{ClassSpells, CreatureSheet, CreatureStats};
 pub use items::{ItemProperty, ItemValue};
