@@ -687,8 +687,11 @@ fn overlays(
     };
     if view.grid {
         let stroke = Stroke::new(1.0, Color32::from_white_alpha(40));
-        for t in &shown.tiles {
-            let c = t.position;
+        for (i, t) in shown.tiles.iter().enumerate() {
+            // At the tile's ground, which some tilesets build above the
+            // tile's height.
+            let level = view.ground.as_ref().and_then(|g| g.tile_level(i));
+            let c = t.position.truncate().extend(level.unwrap_or(t.position.z));
             let h = TILE_SIZE / 2.0;
             let corners =
                 [(-h, -h), (h, -h), (h, h), (-h, h)].map(|(x, y)| c + Vec3::new(x, y, 0.0));
@@ -1242,6 +1245,7 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
         app.palette.selected = Some(key);
         view.outline = vec![at];
         app.log.info("Click the outline's corners; double-click to close it");
+        return;
     } else if kind == ObjectKind::Door {
         match view.model.as_ref().and_then(|m| m.hook_near(at, DOOR_REACH)).copied() {
             Some(h) => place(app, view, key, h.position, h.bearing, &[]),
@@ -1249,6 +1253,12 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
         }
     } else {
         place(app, view, key, at, 0.0, &[]);
+    }
+    // Placed, as a click places it: the palette's choice is let go (with
+    // Shift it stays), so what was dropped can be picked up and moved
+    // rather than a click placing another.
+    if !response.ctx.input(|i| i.modifiers.shift) {
+        app.palette.selected = None;
     }
 }
 

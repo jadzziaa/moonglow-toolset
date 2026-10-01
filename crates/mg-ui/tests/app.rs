@@ -4642,7 +4642,10 @@ fn blueprints_drag_from_the_palette_into_the_area() {
         git.root.list("WaypointList").map_or(0, <[mg_gff::Struct]>::len)
     };
     assert_eq!(count(&mut h), 2);
-    // Pressed on the palette entry, dragged over the area, let go there.
+    // Chosen in the palette (a click), then pressed on, dragged over the
+    // area, let go there.
+    h.get_by_label(&tavern).click();
+    h.run_steps(1);
     let from = h.get_by_label(&tavern).rect().center();
     let to = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.0));
     let modifiers = egui::Modifiers::NONE;
@@ -4659,6 +4662,23 @@ fn blueprints_drag_from_the_palette_into_the_area() {
     assert_eq!(count(&mut h), 3, "{:?}", h.state().log.entries);
     let (x, y, _) = waypoint(&mut h, area, 2).unwrap();
     assert!((x - 25.0).abs() < 0.5 && (y - 25.0).abs() < 0.5, "dropped at {x}, {y}");
+    // What was dropped moves at once, like anything else: dragged, not
+    // placed again.
+    let at = screen(&h, area, glam::Vec3::new(x, y, 0.0));
+    let to = screen(&h, area, glam::Vec3::new(30.0, 25.0, 0.0));
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    press(&h, at, true, modifiers);
+    h.run_steps(1);
+    for t in [0.2, 0.6, 1.0] {
+        h.event(egui::Event::PointerMoved(at + (to - at) * t));
+        h.run_steps(1);
+    }
+    press(&h, to, false, modifiers);
+    h.run_steps(3);
+    assert_eq!(count(&mut h), 3, "moved, not placed again");
+    let (x, _, _) = waypoint(&mut h, area, 2).unwrap();
+    assert!((x - 30.0).abs() < 0.5, "moved to {x}");
 }
 
 #[test]
