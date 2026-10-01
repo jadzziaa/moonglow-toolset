@@ -176,7 +176,7 @@ impl GameData {
 
         // Hit points and the ability score.
         let die = f64::from(num("HitDie").unwrap_or(0).max(0));
-        if level % 4 == 0
+        if level.is_multiple_of(4)
             && let Some(a) = pkg("Attribute")
             && let Some(i) = ABILITIES.iter().position(|x| x.eq_ignore_ascii_case(&a))
         {
@@ -258,7 +258,7 @@ impl GameData {
             }
         }
         let every = self.race_value(s, "NormalFeatEveryNthLevel").unwrap_or(3).max(1) as u32;
-        let normal = if level == 1 || level % every == 0 {
+        let normal = if level == 1 || level.is_multiple_of(every) {
             self.race_value(s, "NumberNormalFeatsEveryNthLevel").unwrap_or(1).max(0) as u32
         } else {
             0
@@ -401,12 +401,9 @@ impl GameData {
             .filter_map(|&(c, l)| {
                 let name = t.get(c as usize, "SpellGainTable")?.to_lowercase();
                 let g = self.table(&name).ok()?;
-                (0..10)
-                    .rev()
-                    .find(|n| {
-                        g.get_int(l as usize - 1, &format!("SpellLevel{n}")).is_some_and(|v| v > 0)
-                    })
-                    .map(|n| n as i32)
+                (0..10).rev().find(|n| {
+                    g.get_int(l as usize - 1, &format!("SpellLevel{n}")).is_some_and(|v| v > 0)
+                })
             })
             .max()
             .unwrap_or(-1)

@@ -30,7 +30,7 @@ fn summary(game: &GameData, c: &Struct) -> Vec<String> {
                 .collect::<Vec<_>>()
         ),
         format!("hit points {} {}", ints("HitPoints"), ints("CurrentHitPoints")),
-        format!("abilities {:?}", ["Str", "Dex", "Con", "Int", "Wis", "Cha"].map(|a| ints(a))),
+        format!("abilities {:?}", ["Str", "Dex", "Con", "Int", "Wis", "Cha"].map(ints)),
         format!(
             "feats {:?}",
             c.list("FeatList")
@@ -59,7 +59,9 @@ fn summary(game: &GameData, c: &Struct) -> Vec<String> {
 fn levelling_up_matches_aurora() {
     let root = corpus!();
     let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
-    let cases: [(&str, &str, Vec<Vec<(u32, u32)>>); 2] = [
+    // (capture before, after, each creature's class levels).
+    type Case<'a> = (&'a str, &'a str, Vec<Vec<(u32, u32)>>);
+    let cases: [Case; 2] = [
         ("levelup/bandit-before.mod", "levelup/bandit-fighter5.mod", vec![vec![(4, 5)]]),
         (
             "levelup/six-before.mod",
