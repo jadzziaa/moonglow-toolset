@@ -78,6 +78,8 @@ pub struct Grid {
 pub struct Stroke {
     pub lattice: Lattice,
     pub cells: Vec<(u32, u32)>,
+    /// Cells whose tile is given (a group's).
+    pub fixed: Vec<((u32, u32), Placement)>,
 }
 
 impl Grid {
@@ -211,6 +213,78 @@ impl Grid {
         self.stroke(index, self.lattice.clone(), BTreeSet::new(), cells.to_vec())
     }
 
+    /// Placing tile group `group` of the tileset with its first tile (the
+    /// south-west one) in cell (x, y), turned `turns` quarter turns
+    /// counter-clockwise about that cell, as Aurora does: the group's tiles
+    /// go in at the height of the ground under its first tile, their corners
+    /// and edges replace the terrain there (neighbouring corners follow
+    /// within a step), and the tiles around choose again; a cell the group
+    /// leaves empty (`-1`) is matched like terrain. `None` when the group
+    /// does not fit inside the area or a tile around it has nothing to fit.
+    pub fn place_group(
+        &self,
+        index: &TileIndex,
+        group: &mg_set::Group,
+        x: u32,
+        y: u32,
+        turns: u8,
+    ) -> Option<Stroke> {
+        let (w, h) = (self.lattice.width() as i64, self.lattice.height() as i64);
+        let base = self.lattice.cell(x, y).corners.iter().map(|c| c.height).min().unwrap_or(0);
+        let mut lattice = self.lattice.clone();
+        let mut fixed = Vec::new();
+        let mut empty = Vec::new();
+        let columns = group.columns.max(1);
+        for (k, tile) in group.tiles.iter().enumerate() {
+            let (mut c, mut r) = ((k as u32 % columns) as i64, (k as u32 / columns) as i64);
+            for _ in 0..turns % 4 {
+                (c, r) = (-r, c);
+            }
+            let (cx, cy) = (x as i64 + c, y as i64 + r);
+            if cx < 0 || cy < 0 || cx >= w || cy >= h {
+                return None;
+            }
+            let cell = (cx as u32, cy as u32);
+            match tile {
+                Some(t) => {
+                    let p = Placement { tile: *t, orientation: turns % 4, height: base };
+                    lattice.set_cell(cell.0, cell.1, &index.cell(p)?);
+                    fixed.push((cell, p));
+                }
+                None => empty.push(cell),
+            }
+        }
+        let placed: Vec<(u32, u32)> = fixed.iter().map(|(c, _)| *c).collect();
+        let in_group = |(u, v): (u32, u32)| {
+            placed.iter().any(|&(cx, cy)| (u == cx || u == cx + 1) && (v == cy || v == cy + 1))
+        };
+        let mut changed = BTreeSet::new();
+        for v in 0..=self.lattice.height() {
+            for u in 0..=self.lattice.width() {
+                if self.lattice.corner(u, v) != lattice.corner(u, v) {
+                    changed.insert((u, v));
+                }
+            }
+        }
+        settle_around(&mut lattice, changed.iter().copied().collect(), &mut changed, &in_group);
+        // The cells around the group whose corners or edges changed.
+        let mut cells = empty;
+        for cy in 0..self.lattice.height() {
+            for cx in 0..self.lattice.width() {
+                let c = (cx, cy);
+                if !placed.contains(&c)
+                    && !cells.contains(&c)
+                    && self.lattice.cell(cx, cy) != lattice.cell(cx, cy)
+                {
+                    cells.push(c);
+                }
+            }
+        }
+        let mut stroke = self.stroke(index, lattice, BTreeSet::new(), cells)?;
+        stroke.fixed = fixed;
+        Some(stroke)
+    }
+
     /// The stroke that takes the grid to `lattice`: the cells touching a
     /// changed corner, plus `also`. Refused when one of them has no tile
     /// that fits, or holds a group's tile the change would not keep.
@@ -246,7 +320,7 @@ impl Grid {
         }
         // Group tiles that still fit stay.
         cells.retain(|&(x, y)| !index.is_grouped(self.tile(x, y).tile));
-        Some(Stroke { lattice, cells })
+        Some(Stroke { lattice, cells, fixed: Vec::new() })
     }
 
     /// Applies a stroke, choosing each of its cells' tiles at random among
@@ -258,6 +332,10 @@ impl Grid {
         rng: &mut fastrand::Rng,
     ) -> Vec<((u32, u32), Placement)> {
         let mut out = Vec::new();
+        for &((x, y), p) in &stroke.fixed {
+            self.tiles[(y * stroke.lattice.width() + x) as usize] = p;
+            out.push(((x, y), p));
+        }
         for &(x, y) in &stroke.cells {
             let fits = index.fits(&stroke.lattice.cell(x, y));
             if fits.is_empty() {
@@ -358,10 +436,23 @@ fn apply_rules(
 /// starting from the corners `from` that moved: a neighbour follows a
 /// moved corner to within a step of it.
 fn settle(lattice: &mut Lattice, from: Vec<(u32, u32)>, changed: &mut BTreeSet<(u32, u32)>) {
+    settle_around(lattice, from, changed, &|_| false);
+}
+
+/// [`settle`], leaving the corners `locked` says where they are.
+fn settle_around(
+    lattice: &mut Lattice,
+    from: Vec<(u32, u32)>,
+    changed: &mut BTreeSet<(u32, u32)>,
+    locked: &dyn Fn((u32, u32)) -> bool,
+) {
     let mut queue: VecDeque<(u32, u32)> = from.into();
     while let Some((x, y)) = queue.pop_front() {
         let h = lattice.corner(x, y).height;
         for (u, v) in neighbours(lattice, x, y) {
+            if locked((u, v)) {
+                continue;
+            }
             let mut c = lattice.corner(u, v);
             let to = c.height.clamp(h - 1, h + 1);
             if to != c.height {

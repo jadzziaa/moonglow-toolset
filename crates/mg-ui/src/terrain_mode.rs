@@ -114,6 +114,7 @@ fn stroke(
     spot: Spot,
     lower: bool,
     cycle: bool,
+    turns: u8,
 ) -> (Option<Stroke>, String) {
     let (x, y) = spot.corner;
     let label = format!("Paint {}", brush.label);
@@ -127,12 +128,20 @@ fn stroke(
             let (cx, cy) = spot.cell;
             let cell = grid.lattice.cell(cx, cy);
             let next = next_fit(&tools.index, &cell, grid.tile(cx, cy));
-            let s = next.map(|_| Stroke { lattice: grid.lattice.clone(), cells: vec![spot.cell] });
+            let s = next.map(|_| Stroke {
+                lattice: grid.lattice.clone(),
+                cells: vec![spot.cell],
+                fixed: Vec::new(),
+            });
             (s, "Next tile".into())
         }
         Brush::Eraser => (grid.erase(&tools.index, spot.cell.0, spot.cell.1), "Erase tile".into()),
         Brush::Crosser(c) => (grid.draw_crosser(&tools.index, &[], &[spot.cell], c), label),
-        Brush::Group(_) => (None, label),
+        Brush::Group(g) => {
+            let group = &tools.set.groups[g];
+            let (cx, cy) = spot.cell;
+            (grid.place_group(&tools.index, group, cx, cy, turns), format!("Place {}", brush.label))
+        }
     }
 }
 
@@ -241,8 +250,26 @@ pub(crate) fn input(
                 && let Some(g) = current_grid(app, view)
             {
                 let tools = view.terrain.as_ref().expect("checked");
-                let (st, label) = stroke(tools, &g, &brush, s, false, false);
+                let (st, label) = stroke(tools, &g, &brush, s, false, false, 0);
                 commit(app, view, g, st, &label, None);
+            }
+        }
+        Brush::Group(_) => {
+            // Right click turns the group a quarter, as in Aurora.
+            if response.secondary_clicked() {
+                view.group_turns = (view.group_turns + 1) % 4;
+            } else if response.clicked()
+                && let Some(s) = view.spot
+                && let Some(g) = current_grid(app, view)
+            {
+                let tools = view.terrain.as_ref().expect("checked");
+                let (st, label) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
+                let placed = st.is_some();
+                commit(app, view, g, st, &label, None);
+                // One group a click (Shift + click: place more).
+                if placed && !shift {
+                    app.palette.tile_brush = None;
+                }
             }
         }
         _ => {
@@ -253,7 +280,7 @@ pub(crate) fn input(
             {
                 let tools = view.terrain.as_ref().expect("checked");
                 let cycle = shift && brush.brush == Brush::Eraser;
-                let (st, label) = stroke(tools, &g, &brush, s, lower, cycle);
+                let (st, label) = stroke(tools, &g, &brush, s, lower, cycle, 0);
                 let pick = if cycle {
                     let (cx, cy) = s.cell;
                     next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
@@ -330,6 +357,35 @@ pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView) {
     let Some(s) = view.spot else { return };
     match brush.brush {
         Brush::Crosser(_) => quarter(s.cell, s.edge, ok),
+        Brush::Group(gi) => {
+            let (st, _) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
+            let color = if st.is_some() { ok } else { refused };
+            let group = &tools.set.groups[gi];
+            let columns = group.columns.max(1) as i64;
+            for k in 0..group.tiles.len() as i64 {
+                let (mut c, mut r) = (k % columns, k / columns);
+                for _ in 0..view.group_turns {
+                    (c, r) = (-r, c);
+                }
+                let (x, y) = ((s.cell.0 as i64 + c) as f32, (s.cell.1 as i64 + r) as f32);
+                let h = if x >= 0.0
+                    && y >= 0.0
+                    && (x as u32) < model.width
+                    && (y as u32) < model.height
+                {
+                    z(x as u32, y as u32) + 0.05
+                } else {
+                    0.05
+                };
+                let square = [
+                    point(x, y, h),
+                    point(x + 1.0, y, h),
+                    point(x + 1.0, y + 1.0, h),
+                    point(x, y + 1.0, h),
+                ];
+                polygon(&square, color);
+            }
+        }
         Brush::Eraser => {
             let (x, y) = (s.cell.0 as f32, s.cell.1 as f32);
             let h = z(s.cell.0, s.cell.1) + 0.05;
@@ -342,7 +398,7 @@ pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView) {
             polygon(&square, ok);
         }
         _ => {
-            let (st, _) = stroke(tools, &g, &brush, s, false, false);
+            let (st, _) = stroke(tools, &g, &brush, s, false, false, 0);
             let (x, y) = (s.corner.0 as f32, s.corner.1 as f32);
             let h = z(s.corner.0, s.corner.1) + 0.05;
             let square = [

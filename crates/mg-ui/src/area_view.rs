@@ -116,6 +116,8 @@ pub struct AreaView {
     pub(crate) crossing: Vec<((u32, u32), usize)>,
     /// Where the crosser drag's pointer was last (on the ground).
     pub(crate) crossing_at: Option<Vec3>,
+    /// How far a tile group being placed is turned (quarter turns).
+    pub(crate) group_turns: u8,
     /// Why the last stroke did nothing.
     pub(crate) notice: Option<String>,
     /// The tiles' walkmeshes.
@@ -160,6 +162,7 @@ impl AreaView {
             spot: None,
             crossing: Vec::new(),
             crossing_at: None,
+            group_turns: 0,
             notice: None,
             ground: None,
             error: None,
@@ -432,6 +435,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
             mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
             mg_area::terrain::Brush::Eraser => "click a tile (Shift + click: its next variant)",
+            mg_area::terrain::Brush::Group(_) => {
+                "click to place (Shift + click: place more), right click to turn"
+            }
             _ => "click a corner",
         };
         let at = crate::terrain_mode::status(view).unwrap_or_default();

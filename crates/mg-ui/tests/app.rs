@@ -2506,6 +2506,24 @@ fn area_viewer_paints_terrain() {
     click(&mut h, Vec3::new(15.0, 5.0, 0.0));
     let l = lattice(&mut h);
     assert!((0..4).all(|x| l.cell(x, 0).edges == [None; 4]), "{:?}", l.cell(0, 0));
+
+    // A group (Barn 1: tiles 145, 147 / 144, 146 from the south-west),
+    // turned a quarter by a right click, its first tile where clicked.
+    h.get_by_label("Groups").click();
+    h.run_steps(2);
+    h.get_by_label("Barn 1 2x2").click();
+    h.run_steps(2);
+    button(&mut h, Vec3::new(25.0, 15.0, 0.0), egui::PointerButton::Secondary);
+    click(&mut h, Vec3::new(25.0, 15.0, 0.0));
+    let tiles = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let g = tiles(&mut h);
+    let at = |x: u32, y: u32| (g.tile(x, y).tile, g.tile(x, y).orientation);
+    assert_eq!([at(2, 1), at(2, 2), at(1, 1), at(1, 2)], [(145, 1), (147, 1), (144, 1), (146, 1)]);
+    assert!(h.state().palette.tile_brush.is_none(), "one group a click");
 }
 
 /// A screenshot of terrain mode (`target/test-output/screens/terrain.png`),

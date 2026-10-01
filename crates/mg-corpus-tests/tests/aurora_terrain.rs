@@ -83,6 +83,45 @@ fn terrain_labels(palette: &TilesetPalette) -> Vec<String> {
     terrain.map_or_else(Vec::new, |items| items.iter().map(|i| i.label().to_string()).collect())
 }
 
+/// What one action of a step does to `grid`.
+fn act(
+    index: &TileIndex,
+    rules: &Rules,
+    set: &mg_set::Tileset,
+    palette: &TilesetPalette,
+    grid: &Grid,
+    step: &Value,
+    area: &str,
+) -> Option<Stroke> {
+    let at = |v: &Value| (v[0].as_u64().unwrap() as u32, v[1].as_u64().unwrap() as u32);
+    let label = step["brush"].as_str().or_else(|| step["group"].as_str()).unwrap();
+    let brush = palette.brush(label).unwrap_or_else(|| panic!("{area}: no brush {label}"));
+    match brush {
+        Brush::Group(g) => {
+            let (x, y) = at(&step["cell"]);
+            let turns = step["turns"].as_u64().unwrap_or(0) as u8;
+            grid.place_group(index, &set.groups[g], x, y, turns)
+        }
+        Brush::Crosser(c) => {
+            let path: Vec<(u32, u32)> = step["path"].as_array().unwrap().iter().map(at).collect();
+            let edges = path_edges(&path).expect("a path of neighbouring cells");
+            grid.draw_crosser(index, &edges, &path[..1], c)
+        }
+        Brush::Eraser => {
+            let (x, y) = at(&step["cell"]);
+            grid.erase(index, x, y)
+        }
+        Brush::Terrain(t) => {
+            let (x, y) = at(&step["at"]);
+            grid.paint(index, rules, x, y, t)
+        }
+        Brush::RaiseLower => {
+            let (x, y) = at(&step["at"]);
+            grid.raise(index, rules, x, y, !step["lower"].as_bool().unwrap_or(false))
+        }
+    }
+}
+
 #[test]
 fn painting_matches_aurora() {
     let root = corpus!();
@@ -92,10 +131,11 @@ fn painting_matches_aurora() {
     let mut steps = 0;
     for scenario in spec["scenarios"].as_array().unwrap() {
         let area = scenario["area"].as_str().unwrap();
-        let capture = |i: usize| mg_testkit::aurora_capture(&format!("terrain/{area}/{i:02}.mod"));
+        let name = scenario["captures"].as_str().unwrap_or(area);
+        let capture = |i: usize| mg_testkit::aurora_capture(&format!("terrain/{name}/{i:02}.mod"));
         let Some(first) = capture(0) else {
-            assert!(!mg_testkit::corpus_required(), "Aurora capture terrain/{area} not found");
-            eprintln!("skipped {area}: no Aurora capture (tools/aurora/capture_terrain.py)");
+            assert!(!mg_testkit::corpus_required(), "Aurora capture terrain/{name} not found");
+            eprintln!("skipped {name}: no Aurora capture (tools/aurora/capture_terrain.py)");
             continue;
         };
         let resref = ResRef::from_str(area).unwrap();
@@ -128,35 +168,27 @@ fn painting_matches_aurora() {
             if !bad.is_empty() {
                 failures.push(format!("{area} step {}: Aurora's tiles disagree at {bad:?}", i + 1));
             }
-            let label = step["brush"].as_str().unwrap();
-            let brush = palette.brush(label).unwrap_or_else(|| panic!("{area}: no brush {label}"));
-            let at = |v: &Value| (v[0].as_u64().unwrap() as u32, v[1].as_u64().unwrap() as u32);
-            let stroke: Option<Stroke> = match brush {
-                Brush::Crosser(c) => {
-                    let path: Vec<(u32, u32)> =
-                        step["path"].as_array().unwrap().iter().map(at).collect();
-                    let edges = path_edges(&path).expect("a path of neighbouring cells");
-                    before.draw_crosser(&index, &edges, &path[..1], c)
-                }
-                Brush::Eraser => {
-                    let (x, y) = at(&step["cell"]);
-                    before.erase(&index, x, y)
-                }
-                _ => {
-                    let (x, y) = at(&step["at"]);
-                    match brush {
-                        Brush::Terrain(t) => before.paint(&index, &rules, x, y, t),
-                        Brush::RaiseLower => {
-                            let up = !step["lower"].as_bool().unwrap_or(false);
-                            before.raise(&index, &rules, x, y, up)
-                        }
-                        _ => unreachable!(),
-                    }
-                }
+            // The step's actions (several when they were saved as one),
+            // each applied to the grid in turn; `None` when the last was
+            // refused.
+            let actions: Vec<&Value> = match step["steps"].as_array() {
+                Some(list) => list.iter().collect(),
+                None => vec![step],
             };
+            let mut grid = before.clone();
+            let mut stroke = None;
+            let mut cells = Vec::new();
+            for action in actions {
+                stroke = act(&index, &rules, &set, &palette, &grid, action, area);
+                if let Some(s) = &stroke {
+                    cells.extend(s.cells.iter().copied());
+                    cells.extend(s.fixed.iter().map(|(c, _)| *c));
+                    grid.apply(&index, s.clone(), &mut fastrand::Rng::with_seed(1));
+                }
+            }
             steps += 1;
-            let ours = stroke.as_ref().map_or(&before.lattice, |s| &s.lattice);
-            let what = format!("{area} step {} ({step})", i + 1);
+            let ours = &grid.lattice;
+            let what = format!("{name} step {} ({step})", i + 1);
             if *ours != after.lattice {
                 failures.push(format!(
                     "{what}{}:\nMoonglow:\n{}Aurora:\n{}",
@@ -167,7 +199,6 @@ fn painting_matches_aurora() {
             } else {
                 // Every tile Aurora chose again is one the stroke chooses.
                 let w = after.lattice.width();
-                let cells: &[(u32, u32)] = stroke.as_ref().map_or(&[], |s| &s.cells);
                 let changed: Vec<(u32, u32)> = (0..after.tiles.len() as u32)
                     .filter(|&i| after.tiles[i as usize] != before.tiles[i as usize])
                     .map(|i| (i % w, i / w))
