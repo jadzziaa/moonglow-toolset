@@ -27,6 +27,7 @@ use mg_set::Tileset;
 pub mod edit;
 pub mod pick;
 mod scene;
+pub mod terrain;
 pub mod walk;
 
 pub use scene::{AreaScene, View, fog, overview};

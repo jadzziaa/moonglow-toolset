@@ -19,6 +19,7 @@ mg-render.workspace = true
 mg-resman.workspace = true
 mg-rules.workspace = true
 mg-set.workspace = true
+mg-tiles.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -14,6 +14,8 @@ use std::collections::HashMap;
 use mg_set::Tileset;
 use thiserror::Error;
 
+pub mod paint;
+
 /// A terrain of a tileset (see [`TileIndex::terrain`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Terrain(pub u16);
@@ -161,6 +163,16 @@ impl TileIndex {
         self.crossers.iter().position(|n| n.eq_ignore_ascii_case(name)).map(|i| Crosser(i as u16))
     }
 
+    /// The terrains, declared ones first, then those only tiles name.
+    pub fn terrains(&self) -> impl Iterator<Item = Terrain> + '_ {
+        (0..self.terrains.len()).map(|i| Terrain(i as u16))
+    }
+
+    /// The crossers, declared ones first, then those only tiles name.
+    pub fn crossers(&self) -> impl Iterator<Item = Crosser> + '_ {
+        (0..self.crossers.len()).map(|i| Crosser(i as u16))
+    }
+
     pub fn terrain_name(&self, t: Terrain) -> &str {
         &self.terrains[usize::from(t.0)]
     }
@@ -280,6 +292,17 @@ impl Lattice {
             .edge_slots(x, y)
             .map(|(along_x, i)| if along_x { self.x_edges[i] } else { self.y_edges[i] });
         Cell { corners, edges }
+    }
+
+    /// Sets edge `edge` (from [`SOUTH`], counter-clockwise) of cell (x, y),
+    /// which it shares with the neighbour on that side.
+    pub fn set_edge(&mut self, x: u32, y: u32, edge: usize, crosser: Option<Crosser>) {
+        let (along_x, slot) = self.edge_slots(x, y)[edge % 4];
+        if along_x {
+            self.x_edges[slot] = crosser;
+        } else {
+            self.y_edges[slot] = crosser;
+        }
     }
 
     /// Writes a cell's corners and edges (shared with its neighbours).

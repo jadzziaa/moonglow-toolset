@@ -1579,6 +1579,7 @@ dependencies = [
  "mg-resman",
  "mg-rules",
  "mg-set",
+ "mg-tiles",
  "mg-tlk",
  "thiserror 2.0.21",
 ]
