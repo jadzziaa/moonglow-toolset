@@ -27,9 +27,19 @@
 //!   `fps` (from a random frame with the `random` flag).
 //! - `inherit`/`inherit_local` particles move with the emitter; others stay
 //!   where they were born.
+//! - `bounce` particles bounce off the ground ([`Particles::ground`]),
+//!   keeping 0.8 of their speed along it and 0.8 × `bounce_co` of their
+//!   speed off it, until they come to rest.
+//! - `m_isTinted` particles take the light at their emitter
+//!   ([`ParticleBatch::tint`]).
 //!
-//! The gravity scale, the drag and Bezier details and the lightning shape
-//! are guesses from the wiki's descriptions, not measured.
+//! Measured in the client (`client_render.rs`, `particles_look`): the
+//! gravity, bouncing, tinting, and that the three-stop values (`colorMid`,
+//! `alphaMid`, `sizeMid`, `percentStart`/`Mid`/`End`) change nothing the
+//! client draws, so they are not used; nor does `twosidedtex` (both sides
+//! of aligned particles show). The drag and Bezier details and the
+//! lightning shape are guesses from the wiki's descriptions; wind
+//! (`affectedByWind`), `splat` and `deadspace` are not simulated.
 
 use glam::{Mat4, Quat, Vec2, Vec3};
 use mg_mdl::{Animation, Model, NodeKind};
@@ -72,6 +82,10 @@ pub struct ParticleBatch {
     pub blend: ParticleBlend,
     pub render_order: u32,
     pub vertices: Vec<ParticleVertex>,
+    /// For tinted emitters (`m_isTinted`), where the emitter is (world
+    /// space): the renderer multiplies the colours by the scene's light
+    /// there, the same for every particle.
+    pub tint: Option<Vec3>,
 }
 
 #[derive(Debug, Clone)]
@@ -133,11 +147,18 @@ impl Rng {
     }
 }
 
+/// What a bounce keeps of a particle's speed (along the ground; off it,
+/// times `bounce_co` too), measured in the client.
+const BOUNCE_KEEP: f32 = 0.8;
+
 /// The particles of one model instance.
 #[derive(Debug, Clone)]
 pub struct Particles {
     emitters: Vec<EmitterSim>,
     rng: Rng,
+    /// The height `bounce` particles bounce at (world space): the ground
+    /// under the object; 0 unless set.
+    pub ground: f32,
 }
 
 /// An emitter's parameter now: keyed by the animation, else its rest value.
@@ -199,7 +220,7 @@ impl Particles {
                 bolt_age: 0.0,
             })
             .collect();
-        Particles { emitters, rng: Rng(0x9E37_79B9_7F4A_7C15) }
+        Particles { emitters, rng: Rng(0x9E37_79B9_7F4A_7C15), ground: 0.0 }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -226,12 +247,14 @@ impl Particles {
         let dt = dt.clamp(0.0, 0.25);
         let t = anim.map_or(time, |a| crate::anim::time_in(a, time));
         let at = anim.map(|a| (a, t));
+        let ground = self.ground;
         for e in &mut self.emitters {
             let node = &model.nodes[e.node];
             let NodeKind::Emitter(em) = &node.kind else { continue };
             let p = |name, default| param(model, e.node, at, name, default);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
             let inherit = em.flags & (0x40 | 0x100) != 0;
+            let bounce = (em.flags & 0x10 != 0 && !inherit).then(|| p("bounce_co", 0.0));
             let life = p("lifeexp", 1.0);
             let gravity = Vec3::new(0.0, 0.0, -9.8 * p("mass", 0.0));
             let update = em.update.to_ascii_lowercase();
@@ -319,6 +342,13 @@ impl Particles {
                     _ => {
                         q.vel += gravity * dt;
                         q.pos += q.vel * dt;
+                        if let Some(co) = bounce
+                            && q.pos.z < ground
+                            && q.vel.z < 0.0
+                        {
+                            q.pos.z = ground;
+                            q.vel = Vec3::new(q.vel.x, q.vel.y, -q.vel.z * co) * BOUNCE_KEEP;
+                        }
                     }
                 }
                 q.life < 0.0 || q.age < q.life
@@ -423,6 +453,7 @@ impl Particles {
                     blend: blend_of(em),
                     render_order: em.render_order,
                     vertices: strip(&points, eye),
+                    tint: None,
                 });
                 continue;
             }
@@ -431,6 +462,7 @@ impl Particles {
             }
             let p = |name, default| param(model, e.node, at, name, default);
             let world = transform * pose.get(e.node).copied().unwrap_or(Mat4::IDENTITY);
+            let tint = (em.flags & 0x8 != 0).then(|| world.w_axis.truncate());
             let inherit = em.flags & (0x40 | 0x100) != 0;
             let (c0, c1) = (
                 color3(param_v(model, e.node, at, "colorstart"), Vec3::ONE),
@@ -462,6 +494,7 @@ impl Particles {
                     blend: blend_of(em),
                     render_order: em.render_order,
                     vertices: strip(&points, eye),
+                    tint,
                 });
                 continue;
             }
@@ -529,6 +562,7 @@ impl Particles {
                 blend,
                 render_order: em.render_order,
                 vertices: quads.into_iter().flat_map(|(_, q)| q).collect(),
+                tint,
             });
         }
         out
@@ -657,6 +691,64 @@ mod tests {
             p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
         }
         assert!(p.emitters[0].particles.iter().all(|q| q.age <= 1.0));
+    }
+
+    /// Thrown down from 1.5 m (the emitter turned upside down), as the
+    /// client was measured: a bounce keeps 0.8 of the speed along the ground
+    /// and 0.8 × `bounce_co` off it.
+    #[test]
+    fn bouncing_particles() {
+        let bouncy =
+            Emitter { update: "Single".into(), flags: 0x10, looping: true, ..Default::default() };
+        let mut m = emitter(bouncy, &[("mass", 1.0), ("bounce_co", 0.5)]);
+        m.nodes[1].position = [0.0, 0.0, 1.5];
+        let pose = crate::rest_pose(&m);
+        let mut p = Particles::new(&m);
+        p.update(&m, None, 0.0, 0.0, &pose, Mat4::IDENTITY);
+        p.emitters[0].particles[0].vel = Vec3::new(1.0, 0.0, 0.0);
+        // Falling 1.5 m takes 0.553 s; the first bounce comes at 5.42 m/s.
+        let mut top_after = 0.0f32;
+        let mut bounced = false;
+        for _ in 0..2000 {
+            p.update(&m, None, 0.0, 0.001, &pose, Mat4::IDENTITY);
+            let q = &p.emitters[0].particles[0];
+            assert!(q.pos.z >= 0.0, "never under the ground");
+            bounced |= q.vel.z > 0.0;
+            if bounced {
+                top_after = top_after.max(q.pos.z);
+            }
+        }
+        // Up at 0.4 × 5.42 m/s: (0.4)² × 1.5 = 0.24 m.
+        assert!((top_after - 0.24).abs() < 0.02, "{top_after}");
+        let q = &p.emitters[0].particles[0];
+        assert!(q.pos.x > 0.8 && q.pos.x < 1.1, "came to rest about 1 m out: {}", q.pos.x);
+        // Without the flag, it falls through.
+        let mut m2 = m.clone();
+        if let NodeKind::Emitter(e) = &mut m2.nodes[1].kind {
+            e.flags = 0;
+        }
+        let mut p = Particles::new(&m2);
+        for _ in 0..100 {
+            p.update(&m2, None, 0.0, 0.01, &pose, Mat4::IDENTITY);
+        }
+        assert!(p.emitters[0].particles[0].pos.z < 0.0);
+    }
+
+    #[test]
+    fn tinted_emitters_say_where_they_are() {
+        let mut m = fountain();
+        m.nodes[1].position = [1.0, 2.0, 3.0];
+        let pose = crate::rest_pose(&m);
+        let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, 1.0), Vec3::ZERO, Vec3::Z);
+        let mut p = Particles::new(&m);
+        p.update(&m, None, 0.0, 0.5, &pose, Mat4::IDENTITY);
+        assert_eq!(p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, view)[0].tint, None);
+        if let NodeKind::Emitter(e) = &mut m.nodes[1].kind {
+            e.flags |= 0x8;
+        }
+        let at = Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0));
+        let b = p.batches(&m, None, 0.0, &pose, at, view);
+        assert_eq!(b[0].tint, Some(Vec3::new(11.0, 2.0, 3.0)));
     }
 
     /// An emitter (root dummy, emitter, reference child 2 m below).

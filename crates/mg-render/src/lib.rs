@@ -15,5 +15,7 @@ pub mod texture;
 pub use assets::{Assets, LoadedTexture, NoAssets, colored_name, split_colors};
 pub use gpu::Gpu;
 pub use model::{GpuModel, rest_pose};
-pub use renderer::{DEPTH_FORMAT, DebugView, MAX_LIGHTS, Renderer, Targets, attenuation_params};
+pub use renderer::{
+    DEPTH_FORMAT, DebugView, MAX_LIGHTS, Renderer, Targets, attenuation_params, tint_light,
+};
 pub use scene::{AreaLight, Camera, Fog, Instance, MeshOverride, MeshState, PointLight, Scene};

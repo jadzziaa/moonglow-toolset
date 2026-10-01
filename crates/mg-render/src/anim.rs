@@ -435,7 +435,10 @@ mod tests {
         turned[0].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
         turned[1].scale = 3.0;
         let half = blend(&rest, &turned, 0.5);
-        assert!(half[0].rotation.angle_between(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4)) < 1e-5);
+        assert!(
+            half[0].rotation.angle_between(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4))
+                < 1e-5
+        );
         assert_eq!(half[1].scale, 2.0);
         // The arm swings with the root, around it (not across).
         let pose = compose(&model, &half);

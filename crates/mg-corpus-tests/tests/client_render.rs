@@ -765,3 +765,244 @@ fn grass_and_sky_look() {
     save_png(&ours, &dir.join("moonglow.png"));
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
+
+/// An emitter for [`particles_look`]: at (x, y, z) of the probe model, its
+/// particles 12 cm white squares rising 1 m/s for 3 s unless `extra` says
+/// otherwise (later keywords win).
+fn probe_emitter(name: &str, at: [f32; 3], extra: &str) -> String {
+    format!(
+        "node emitter {name}\n  parent plc_a01\n  position {} {} {}\n  orientation 0 0 0 0\n\
+         update Fountain\n  render Normal\n  blend Normal\n  texture mgwhite\n  loop 1\n\
+         xgrid 1\n  ygrid 1\n  spawntype 0\n  birthrate 40\n  lifeExp 3\n  velocity 1\n\
+         randvel 0\n  spread 0\n  mass 0\n  particleRot 0\n  sizeStart 0.12\n  sizeEnd 0.12\n\
+         xsize 0\n  ysize 0\n  alphaStart 1\n  alphaEnd 1\n  colorStart 1 1 1\n  colorEnd 1 1 1\n\
+         {extra}\nendnode\n",
+        at[0], at[1], at[2]
+    )
+}
+
+/// A white 8×8 texture.
+fn white_tga() -> Vec<u8> {
+    let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 8, 0, 32, 8];
+    t.extend([255u8; 8 * 8 * 4]);
+    t
+}
+
+/// Exploration: particles in the client. The armoire's model (`plc_a01`,
+/// overridden in the scratch user directory) holds probe emitters, under a
+/// red sun and green ambient light; the client's view is written to
+/// `target/test-output/client_particles_<set>/client.png`. `MG_PARTICLES`
+/// picks the set: `stops` (default: colour, alpha and size stops, tinting)
+/// or `motion` (bounce, wind).
+#[test]
+#[ignore]
+fn particles_look() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let set = std::env::var("MG_PARTICLES").unwrap_or_else(|_| "stops".into());
+    let light = match set.as_str() {
+        "stops2" => {
+            Lighting { ambient: 0x404040, diffuse: 0x808080, main_light: 0, only_tile: None }
+        }
+        "tilelights" => Lighting { ambient: 0, diffuse: 0, main_light: 2, only_tile: None },
+        _ => Lighting { ambient: 0x004000, diffuse: 0x0000C0, main_light: 0, only_tile: None },
+    };
+    let dir = scratch_dir(&format!("client_particles_{set}"));
+    let (mut m, _) = build_module(&game, &dir, light);
+    let column = |i: usize| -2.4 + 0.6 * i as f32;
+    let emitters: Vec<String> = match set.as_str() {
+        "motion" => vec![
+            // Thrown sideways from 1.5 m: a trajectory per emitter.
+            probe_emitter(
+                "bounce",
+                [-2.0, 0.0, 1.5],
+                "orientation 0 1 0 1.5707964\n  mass 1\n  lifeExp 4\n  bounce 1\n  bounce_co 0.5",
+            ),
+            probe_emitter(
+                "nobounce",
+                [-2.0, 1.0, 1.5],
+                "orientation 0 1 0 1.5707964\n  mass 1\n  lifeExp 4\n  bounce_co 0.5",
+            ),
+            probe_emitter("wind", [1.5, 0.0, 0.0], "affectedByWind 1"),
+            probe_emitter("calm", [2.1, 0.0, 0.0], ""),
+        ],
+        "physics" | "bounce" => {
+            // Green dots marking the plane of the throws (model x, z).
+            let mut v: Vec<String> = [
+                (0.0, 0.0),
+                (-1.0, 0.0),
+                (-2.0, 0.0),
+                (-3.0, 0.0),
+                (0.0, 1.5),
+                (-1.0, 1.5),
+                (-2.0, 1.5),
+                (-3.0, 3.0),
+                (0.0, 3.0),
+            ]
+            .iter()
+            .enumerate()
+            .map(|(i, (x, z))| {
+                probe_emitter(
+                    &format!("dot{i}"),
+                    [*x, 0.0, *z],
+                    "velocity 0\n  birthrate 4\n  lifeExp 2\n  sizeStart 0.08\n  sizeEnd 0.08\n  \
+                         colorStart 0 1 0\n  colorEnd 0 1 0",
+                )
+            })
+            .collect();
+            let throw =
+                "orientation 0 1 0 -1.5707964\n  lifeExp 4\n  sizeStart 0.06\n  sizeEnd 0.06";
+            if set == "physics" {
+                v.push(probe_emitter(
+                    "mass1",
+                    [0.0, 0.0, 1.5],
+                    &format!("{throw}\n  mass 1\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
+                ));
+                v.push(probe_emitter(
+                    "mass05",
+                    [0.0, 0.0, 3.0],
+                    &format!("{throw}\n  mass 0.5\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
+                ));
+            } else {
+                v.push(probe_emitter("co05", [0.0, 0.0, 1.5], &format!("{throw}\n  mass 1\n  bounce 1\n  bounce_co 0.5\n  colorStart 1 0 0\n  colorEnd 1 0 0")));
+                v.push(probe_emitter("co1", [0.0, 0.0, 3.0], &format!("{throw}\n  mass 1\n  bounce 1\n  bounce_co 1\n  colorStart 0 0 1\n  colorEnd 0 0 1")));
+            }
+            v
+        }
+        "sides" => {
+            // Flat quads facing up, seen from above (low) and below (high).
+            let flat = "render Aligned_to_World_Z\n  sizeStart 0.3\n  sizeEnd 0.3\n  birthrate 4\n  \
+                        velocity 0.5\n  lifeExp 2";
+            vec![
+                probe_emitter(
+                    "low_one",
+                    [column(1), 0.0, 0.0],
+                    &format!("{flat}\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
+                ),
+                probe_emitter(
+                    "low_two",
+                    [column(3), 0.0, 0.0],
+                    &format!("{flat}\n  twosidedtex 1\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
+                ),
+                probe_emitter(
+                    "high_one",
+                    [column(5), 0.0, 4.0],
+                    &format!("{flat}\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
+                ),
+                probe_emitter(
+                    "high_two",
+                    [column(7), 0.0, 4.0],
+                    &format!("{flat}\n  twosidedtex 1\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
+                ),
+            ]
+        }
+        "tilelights" => vec![
+            probe_emitter("tinted0", [column(0), 0.0, 0.0], "m_isTinted 1"),
+            probe_emitter("tinted3", [column(3), 0.0, 0.0], "m_isTinted 1"),
+            probe_emitter("tinted6", [column(6), 0.0, 0.0], "m_isTinted 1"),
+            probe_emitter("plain", [column(7), 0.0, 0.0], ""),
+        ],
+        "stops2" => {
+            let mid = "colorStart 1 0 0\n  colorMid 0 1 0\n  colorEnd 0 0 1\n  ";
+            vec![
+                probe_emitter(
+                    "p100",
+                    [column(0), 0.0, 0.0],
+                    &format!("{mid}percentStart 0\n  percentMid 50\n  percentEnd 100"),
+                ),
+                probe_emitter(
+                    "p1",
+                    [column(1), 0.0, 0.0],
+                    &format!("{mid}percentStart 0\n  percentMid 0.5\n  percentEnd 1"),
+                ),
+                probe_emitter(
+                    "p255",
+                    [column(2), 0.0, 0.0],
+                    &format!("{mid}percentStart 0\n  percentMid 128\n  percentEnd 255"),
+                ),
+                probe_emitter(
+                    "keyed",
+                    [column(3), 0.0, 0.0],
+                    &format!("{mid}percentStart 10\n  percentMid 50\n  percentEnd 90"),
+                ),
+                probe_emitter(
+                    "grey_tinted",
+                    [column(5), 0.0, 0.0],
+                    "m_isTinted 1\n  colorStart 0.5 0.5 0.5\n  colorEnd 0.5 0.5 0.5",
+                ),
+                probe_emitter("white_tinted", [column(6), 0.0, 0.0], "m_isTinted 1"),
+                probe_emitter(
+                    "grey",
+                    [column(7), 0.0, 0.0],
+                    "colorStart 0.5 0.5 0.5\n  colorEnd 0.5 0.5 0.5",
+                ),
+            ]
+        }
+        _ => vec![
+            probe_emitter("base", [column(0), 0.0, 0.0], "colorStart 1 0 0\n  colorEnd 0 0 1"),
+            probe_emitter(
+                "mid",
+                [column(1), 0.0, 0.0],
+                "colorStart 1 0 0\n  colorMid 0 1 0\n  colorEnd 0 0 1\n  percentMid 0.5",
+            ),
+            probe_emitter(
+                "mid50",
+                [column(2), 0.0, 0.0],
+                "colorStart 1 0 0\n  colorMid 0 1 0\n  colorEnd 0 0 1\n  percentMid 50",
+            ),
+            probe_emitter(
+                "stops",
+                [column(3), 0.0, 0.0],
+                "colorStart 1 0 0\n  colorMid 0 1 0\n  colorEnd 0 0 1\n  percentStart 0.2\n  \
+                 percentMid 0.5\n  percentEnd 0.8",
+            ),
+            probe_emitter(
+                "alpha",
+                [column(4), 0.0, 0.0],
+                "alphaStart 1\n  alphaMid 0\n  alphaEnd 1\n  percentMid 0.5",
+            ),
+            probe_emitter(
+                "size",
+                [column(5), 0.0, 0.0],
+                "sizeStart 0.04\n  sizeMid 0.3\n  sizeEnd 0.04\n  percentMid 0.5",
+            ),
+            probe_emitter("tinted", [column(6), 0.0, 0.0], "m_isTinted 1"),
+            probe_emitter("plain", [column(7), 0.0, 0.0], ""),
+        ],
+    };
+    let model = format!(
+        "newmodel plc_a01\nsetsupermodel plc_a01 NULL\nclassification Character\n\
+         setanimationscale 1\nbeginmodelgeom plc_a01\nnode dummy plc_a01\n  parent NULL\n\
+         endnode\n{}endmodelgeom plc_a01\ndonemodel plc_a01\n",
+        emitters.concat()
+    );
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    std::fs::write(user.join("override/plc_a01.mdl"), &model).unwrap();
+    std::fs::write(user.join("override/mgwhite.tga"), white_tga()).unwrap();
+    std::fs::write(user.join("settings.tml"), SETTINGS).unwrap();
+    // From the side, closer and lower than the reference scenes.
+    let enter =
+        ENTER.replace("SetCameraFacing(90.0, 12.0, 45.0", "SetCameraFacing(90.0, 9.0, 80.0");
+    let ncs = compile(&dir, "mg_enter", &enter);
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
+    m.save_as(&ModuleLocation::Archive(user.join("modules/MgScene.mod"))).unwrap();
+    if std::env::var_os("MG_PREDICT").is_some() {
+        mg_testkit::gpu::hold();
+        let gpu = Gpu::headless().unwrap();
+        let (_, are) = build_module(&game, &dir, light);
+        let (scene, _) = moonglow_scene(&gpu, &game, &are, light);
+        for i in [0, 3, 6] {
+            let at = Vec3::new(20.0 - column(i), 23.0, 0.0);
+            eprintln!("tint at column {i}: {:?}", mg_render::tint_light(&scene, at) * 255.0);
+        }
+        return;
+    }
+    let client = client_screenshot(&dir, "MgScene");
+    if let Some(c) = &client {
+        save_png(c, &dir.join("client.png"));
+    }
+    eprintln!("{}: client {}", dir.display(), client.is_some());
+    assert!(client.is_some());
+}

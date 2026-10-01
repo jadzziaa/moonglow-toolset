@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 use mg_image::Rgba;
 use mg_image::txi::Blending;
 
@@ -993,7 +993,19 @@ impl Renderer {
             let key: MaterialKey = (names, "chrome1".into(), (false, false));
             self.material_group(gpu, assets, &key);
             let start = particle_vertices.len() as u32;
-            particle_vertices.extend_from_slice(&b.vertices);
+            match b.tint {
+                Some(at) => {
+                    let light = tint_light(scene, at);
+                    particle_vertices.extend(b.vertices.iter().map(|v| {
+                        let mut v = *v;
+                        for (c, l) in v.color.iter_mut().zip(light.to_array()) {
+                            *c *= l;
+                        }
+                        v
+                    }));
+                }
+                None => particle_vertices.extend_from_slice(&b.vertices),
+            }
             particle_draws.push((b.blend, key, start..particle_vertices.len() as u32));
         }
         let particle_bytes = std::mem::size_of_val(particle_vertices.as_slice());
@@ -1110,6 +1122,24 @@ impl Renderer {
     }
 }
 
+/// The light tinted particles (`m_isTinted`) take at `at`, gamma space: the
+/// area's ambient and diffuse colours added as they are (in the client, a
+/// 0x40 ambient and 0x80 diffuse give 0xC0, whatever the particle's
+/// facing), and the point lights there, at most 1 a channel.
+pub fn tint_light(scene: &Scene, at: Vec3) -> Vec3 {
+    let gamma = |c: Vec3| c.max(Vec3::ZERO).powf(1.0 / 2.2);
+    let (max_inv, falloff) = attenuation_params();
+    let mut points = Vec3::ZERO;
+    for l in &scene.lights {
+        let (d2, r2) = (l.position.distance_squared(at), l.cutoff * l.cutoff);
+        if d2 < r2 {
+            let f = d2 / r2;
+            points += l.color * (1.0 - f) / (max_inv + falloff * f);
+        }
+    }
+    (gamma(scene.area.ambient) + gamma(scene.area.diffuse) + gamma(points)).min(Vec3::ONE)
+}
+
 /// The depth buffer's format.
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -1178,6 +1208,24 @@ impl Targets {
 mod tests {
     /// The client's `lightMaxIntensityInv` and `lightFalloffFactor` with the
     /// default settings.
+    /// What the client draws for tinted white particles (`client_render.rs`
+    /// `particles_look`): ambient 0x40 grey and diffuse 0x80 grey give 0xC0;
+    /// a red diffuse 0xC0 and green ambient 0x40 give (0xC0, 0x40, 0).
+    #[test]
+    fn tinted_particles_take_the_area_light_as_the_client() {
+        use crate::{AreaLight, Scene};
+        use glam::Vec3;
+        let scene = |ambient, diffuse| Scene {
+            area: AreaLight::from_are(ambient, diffuse, Vec3::Z),
+            ..Default::default()
+        };
+        let tint = super::tint_light(&scene(0x404040, 0x808080), Vec3::ZERO) * 255.0;
+        assert!((tint - Vec3::splat(192.0)).abs().max_element() < 0.5, "{tint}");
+        let tint = super::tint_light(&scene(0x004000, 0x0000C0), Vec3::ZERO) * 255.0;
+        assert!((tint - Vec3::new(192.0, 64.0, 0.0)).abs().max_element() < 0.5, "{tint}");
+        assert_eq!(super::tint_light(&scene(0xFFFFFF, 0xFFFFFF), Vec3::ZERO), Vec3::ONE);
+    }
+
     #[test]
     fn attenuation_matches_the_game() {
         let (max_inv, falloff) = super::attenuation_params();

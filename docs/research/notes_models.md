@@ -646,6 +646,16 @@ Node header only, 0x70 bytes. Absent from the corpus.
    +0xE4 is 0 in every game file. nwnmdlcomp drops both keywords (neverblender `docs/compiling.md:106-113`).
 6. ASCII EE models in the base game (e.g. `c_karandas`) use `renderhint NormalAndSpecMapped|none`, `normals N`, `tangents N` (x y z handedness), `texture1/2`.
 
+### B.20a Particles in the client [V: `client_render.rs` `particles_look`, 2026-10-01]
+
+Probe emitters (an overridden `plc_a01` in a scratch user directory) in the sandboxed client, measured from its screenshots:
+- Gravity is `mass` × 9.8 m/s² (side-on throws: 9.80 for mass 1, 4.83 for mass 0.5); `velocity` is m/s.
+- `bounce`: at the ground a particle keeps 0.8 of its speed along it and 0.8 × `bounce_co` off it (`bounce_co` 1 from 3 m: hops of 1.87, 1.2, 0.75 m; 0.5 from 1.5 m: one hop of 0.22 m, then it slides to rest about 1 m out).
+- `m_isTinted`: the colour times the light at the emitter, the same for all its particles: the area's ambient and diffuse colours added as they are (0x40 + 0x80 grey → 0xC0, whatever the facing); under tile lights alone 156–162 at three emitters, where the renderer's light attenuation gives 141–144.
+- The three-stop values (`colorMid`, `alphaMid`, `sizeMid`, `percentStart/Mid/End` as fractions 0–1, percents 0–100 or bytes 0–255) change nothing: the client draws start to end. The game's compiler keeps them (B.8) all the same.
+- `twosidedtex` changes nothing visible: one-sided `Aligned_to_World_Z` particles show from below too.
+- Not measured: wind (`affectedByWind`, needs area wind), `splat`, `deadspace`.
+
 ### B.21 Reader recipe (Moonglow)
 
 1. If the first 4 bytes ≠ 0, parse as ASCII. Otherwise `M=12`, `R=12+u32@4`.
