@@ -239,7 +239,7 @@ scripts (name, picker, Edit), Comments.
 | Delete (key and context menu) | the same | ✅ |
 | Place from the palette: click (Shift + click places more; right click or Escape stops); triggers and encounters drawn point by point, a double click closing them | the same (the palette's chosen blueprint) | ✅ |
 | What placing writes: the blueprint read into Aurora's object (defaults for missing fields, EE forms of old fields, parts for part-based creatures, twins), equipment and inventories in full, skill list, sound priority, store pages, encounter creatures by CR, Aurora's field order; no spawn point for encounters | `mg_module::instances` | ✅ (`aurora_instances.rs`: 15 instances placed by Aurora identical; `engine_blueprints.rs`: the engine loads them with what they hold) |
-| Doors: placed on tile door hooks | not yet (not captured) | ✗ |
+| Doors: placed on tile door hooks, turned as the hook (of the tile under the pointer); nowhere else | the same; the hooks show while a door is chosen | ✅ [doors_go_on_door_hooks]; `areas.rs`: 97.1% of shipped doors stand on a computed hook; `aurora_instances.rs`: Aurora's doors on hooks |
 | Waypoints, sounds, merchants: shown as models | markers (boxes) | ◐ |
 | Triggers and encounters: coloured outlines | outlines (encounters orange, the others green) | ◐ trigger colours by type not yet |
 | Moving an encounter moves its spawn points | they move with it | ? not checked against Aurora |

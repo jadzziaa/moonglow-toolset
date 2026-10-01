@@ -1630,6 +1630,16 @@ fn item_wizard_makes_a_weapon_with_its_cost() {
 /// A module with a 4 by 4 rural area holding two waypoints, at (20, 20)
 /// and (30, 20), with the game's data and a GPU (`None` without either).
 fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
+    area_harness_on(name, "ttr01", None)
+}
+
+/// [`area_harness`] on another tileset, with tile 5 (at column 1, row 1)
+/// replaced by tile `tile` of that tileset when given.
+fn area_harness_on(
+    name: &str,
+    tileset: &str,
+    tile: Option<i32>,
+) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = mg_testkit::nwn_root()?;
@@ -1643,11 +1653,20 @@ fn area_harness(name: &str) -> Option<(Harness<'static, Moonglow>, ResRef)> {
     let mut m = new_module(&game, "Area View", &mut rng).unwrap();
     let spec = AreaSpec {
         name: "Field".into(),
-        tileset: ResRef::from_str("ttr01").unwrap(),
+        tileset: ResRef::from_str(tileset).unwrap(),
         width: 4,
         height: 4,
     };
     let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    if let Some(id) = tile {
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        let t = &mut are.root.list_mut("Tile_List").unwrap()[5];
+        t.set("Tile_ID", mg_gff::Value::Int(id));
+        t.set("Tile_Orientation", mg_gff::Value::Int(0));
+        t.set("Tile_Height", mg_gff::Value::Int(0));
+        m.set_gff(key, &are).unwrap();
+    }
     let bp = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
     let bp = Gff::read(&bp).unwrap();
     let git_key = ResKey::new(area, ResType::GIT);
@@ -2144,4 +2163,38 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     assert_eq!(spawns[0].id, 2);
     assert!((spawns[0].float("X").unwrap() - 21.0).abs() < 0.1);
     assert!((spawns[0].float("Y").unwrap() - 31.0).abs() < 0.1);
+}
+
+#[test]
+fn doors_go_on_door_hooks() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    // A castle tile with three door hooks (east one at 20, 15, facing 270°).
+    let Some((mut h, area)) = area_harness_on("doors", "tic01", Some(7)) else { return };
+    let doors = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("Door List").unwrap_or(&[]).to_vec()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    // Far from any hook: nothing, and a word why.
+    h.state_mut().palette.selected = ResKey::parse("nw_door_normal", ResType::UTD);
+    h.run_steps(1);
+    click(&mut h, Vec3::new(35.0, 35.0, 0.0));
+    assert!(doors(&mut h).is_empty());
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("door hooks")));
+    // Near the east hook, inside the tile: on the hook, turned as it is.
+    click(&mut h, Vec3::new(18.5, 15.5, 0.0));
+    let placed = doors(&mut h);
+    assert_eq!(placed.len(), 1);
+    let d = &placed[0];
+    assert_eq!((d.float("X"), d.float("Y"), d.float("Z")), (Some(20.0), Some(15.0), Some(0.0)));
+    assert!((d.float("Bearing").unwrap() + std::f32::consts::FRAC_PI_2).abs() < 1e-5);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Door, 0)]);
 }

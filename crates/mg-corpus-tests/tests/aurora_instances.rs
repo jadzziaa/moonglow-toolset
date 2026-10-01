@@ -3,7 +3,11 @@
 //! longsword, a chest and a store holding items, a sound and a waypoint,
 //! each placed from a copy of a base-game blueprint) and
 //! `placement-defaults.mod` (minimal blueprints, whose instances show
-//! Aurora's defaults, and a trigger and encounters drawn as polygons).
+//! Aurora's defaults, and a trigger and encounters drawn as polygons) and
+//! `placement-doors.mod` (a generic door and a minimal one on a castle
+//! tile's door hooks, a minimal placeable; the chest there was added to
+//! the palette and given a visual transform, and the waypoint made by
+//! Create Waypoint: those are compared elsewhere).
 //! Moonglow's instance of each blueprint, at the place Aurora put it, must
 //! have the same fields, types, order and values.
 
@@ -63,7 +67,7 @@ fn placed_objects_match_aurora() {
     let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let mut failures = Vec::new();
     let mut compared = 0;
-    for capture in ["placement-probe.mod", "placement-defaults.mod"] {
+    for capture in ["placement-probe.mod", "placement-defaults.mod", "placement-doors.mod"] {
         let m = Module::open(&aurora_capture!(capture)).unwrap();
         let gff = |r: ResRef, t: ResType| -> Option<Gff> {
             match m.gff(&ResKey::new(r, t)) {
@@ -84,11 +88,20 @@ fn placed_objects_match_aurora() {
             ResType::UTW,
             ResType::UTT,
             ResType::UTE,
+            ResType::UTD,
         ] {
             let (list, _) = git_list(t).unwrap();
             for placed in git.root.list(list).unwrap_or(&[]) {
                 let field = if t == ResType::UTM { "ResRef" } else { "TemplateResRef" };
                 let r = placed.resref(field).unwrap();
+                // Edited after placing (Add to Palette, Adjust Location,
+                // Create Waypoint): compared elsewhere.
+                if capture == "placement-doors.mod"
+                    && !r.to_string().starts_with("mgq_")
+                    && t != ResType::UTD
+                {
+                    continue;
+                }
                 let bp = gff(r, t).unwrap_or_else(|| panic!("{r}: no blueprint"));
                 let (at, outline) = placement(t, placed);
                 let ours = instance(&placing, t, &bp.root, at, &outline).unwrap();

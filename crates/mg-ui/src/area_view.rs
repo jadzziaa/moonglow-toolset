@@ -35,6 +35,9 @@ use crate::{Action, Moonglow};
 /// Multisampling for the area view.
 const SAMPLES: u32 = 4;
 
+/// How far from a door hook a click places a door on it, metres.
+const DOOR_REACH: f32 = 4.0;
+
 /// The steepest the camera looks down (just short of straight down, where
 /// "up" on screen would be undefined).
 const MAX_PITCH: f32 = 1.5695;
@@ -506,7 +509,8 @@ fn viewport(
             .sense(egui::Sense::click_and_drag()),
     );
     view.rect = response.rect;
-    overlays(ui, view, &shown, start, app.object_clip.as_ref());
+    let door_brush = brush(app).is_some_and(|k| k.restype == ResType::UTD);
+    overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush);
     // Tiles animate: keep drawing while the view is on screen.
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     input(app, ui, view, &response);
@@ -520,6 +524,7 @@ fn overlays(
     shown: &AreaModel,
     start: Option<(Vec3, f32)>,
     clip: Option<&ObjectClip>,
+    door_brush: bool,
 ) {
     let painter = ui.painter_at(view.rect);
     let at = |p: Vec3| view.screen_pos(p);
@@ -640,6 +645,23 @@ fn overlays(
             ] {
                 line(c(a), c(b), stroke);
             }
+        }
+    }
+    if door_brush {
+        // The door hooks: a short line across the doorway, the nearest to
+        // the pointer bright.
+        let pointer = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0));
+        let near = pointer.and_then(|p| shown.hook_near(p, DOOR_REACH)).copied();
+        for h in &shown.hooks {
+            let lit = near.is_some_and(|n| n.position == h.position && n.bearing == h.bearing);
+            let color =
+                if lit { Color32::from_rgb(120, 255, 140) } else { Color32::from_rgb(60, 140, 80) };
+            let across = Vec3::new(h.bearing.cos(), h.bearing.sin(), 0.0);
+            line(
+                h.position - across,
+                h.position + across,
+                Stroke::new(if lit { 3.0 } else { 1.5 }, color),
+            );
         }
     }
     if let Some(Drag::Box { from, to }) = view.drag {
@@ -763,13 +785,24 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 let closing = response.double_clicked() || response.triple_clicked();
                 if closing && view.outline.len() >= 3 {
                     let outline = std::mem::take(&mut view.outline);
-                    place(app, view, key, outline[0], &outline);
+                    place(app, view, key, outline[0], 0.0, &outline);
                     if !shift {
                         app.palette.selected = None;
                     }
                 }
+            } else if kind == ObjectKind::Door {
+                // Doors stand on door hooks (Aurora places none elsewhere).
+                match view.model.as_ref().and_then(|m| m.hook_near(at, DOOR_REACH)).copied() {
+                    Some(h) => {
+                        place(app, view, key, h.position, h.bearing, &[]);
+                        if !shift {
+                            app.palette.selected = None;
+                        }
+                    }
+                    None => app.log.warn("Doors go on door hooks: click near one"),
+                }
             } else {
-                place(app, view, key, at, &[]);
+                place(app, view, key, at, 0.0, &[]);
                 if !shift {
                     app.palette.selected = None;
                 }
@@ -994,7 +1027,14 @@ fn brush(app: &Moonglow) -> Option<ResKey> {
 
 /// Places blueprint `key` at `at` (a trigger or encounter along `outline`,
 /// standing at its first point), as Aurora does, and selects it.
-fn place(app: &mut Moonglow, view: &mut AreaView, key: ResKey, at: Vec3, outline: &[Vec3]) {
+fn place(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    key: ResKey,
+    at: Vec3,
+    rotation: f32,
+    outline: &[Vec3],
+) {
     use mg_module::instances::{OUTLINE_LIFT, Placement, Placing, instance};
     let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return };
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
@@ -1019,7 +1059,7 @@ fn place(app: &mut Moonglow, view: &mut AreaView, key: ResKey, at: Vec3, outline
         .iter()
         .map(|p| [p.x - at.x, p.y - at.y, ground(*p).unwrap_or(p.z) + OUTLINE_LIFT])
         .collect();
-    let placement = Placement { position: position.to_array(), rotation: 0.0 };
+    let placement = Placement { position: position.to_array(), rotation };
     let Some(item) = instance(&placing, key.restype, &blueprint, placement, &relative) else {
         return;
     };

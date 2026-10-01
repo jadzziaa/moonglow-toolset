@@ -21,7 +21,6 @@
 //!
 //! Aurora's two quirks with blueprints lacking `Comment` (a creature then
 //! gets an empty `Comment`, and its first skill another) are not copied.
-//! Doors keep the blueprint's order (not captured yet).
 
 use std::f32::consts::FRAC_PI_2;
 
@@ -538,13 +537,130 @@ const STORE_PAGES: [u32; 5] = [0, 4, 2, 3, 1];
 const ITEM_COLORS: [&str; 6] =
     ["Leather1Color", "Leather2Color", "Cloth1Color", "Cloth2Color", "Metal1Color", "Metal2Color"];
 
-/// Only what the captures show for placeables (their other fields come
-/// from the blueprint).
-const PLACEABLE: &[(&str, D)] = &[
-    ("BodyBag", D::Byte(0)),
-    ("OnClick", D::ResRef),
+/// A placeable's and a door's common defaults (situated objects).
+const SITUATED: &[(&str, D)] = &[
+    ("Tag", D::String),
+    ("LocName", D::LocString),
+    ("Description", D::LocString),
+    ("TemplateResRef", D::ResRef),
+    ("AutoRemoveKey", D::Byte(0)),
+    ("CloseLockDC", D::Byte(0)),
+    ("Conversation", D::ResRef),
+    ("Interruptable", D::Byte(1)),
+    ("Faction", D::Dword(1)),
+    ("Plot", D::Byte(0)),
+    ("KeyRequired", D::Byte(0)),
+    ("Lockable", D::Byte(1)),
+    ("Locked", D::Byte(0)),
+    ("OpenLockDC", D::Byte(0)),
     ("PortraitId", D::Word(0)),
-    ("Static", D::Byte(0)),
+    ("TrapDetectable", D::Byte(1)),
+    ("TrapDetectDC", D::Byte(0)),
+    ("TrapDisarmable", D::Byte(1)),
+    ("DisarmDC", D::Byte(0)),
+    ("TrapFlag", D::Byte(0)),
+    ("TrapOneShot", D::Byte(1)),
+    ("TrapType", D::Byte(0)),
+    ("KeyName", D::String),
+    ("AnimationState", D::Byte(0)),
+    ("Appearance", D::Dword(0)),
+    ("HP", D::Short(10)),
+    ("CurrentHP", D::Short(10)),
+    ("Hardness", D::Byte(5)),
+    ("Fort", D::Byte(5)),
+    ("Ref", D::Byte(0)),
+    ("Will", D::Byte(0)),
+    ("OnClosed", D::ResRef),
+    ("OnDamaged", D::ResRef),
+    ("OnDeath", D::ResRef),
+    ("OnDisarm", D::ResRef),
+    ("OnHeartbeat", D::ResRef),
+    ("OnLock", D::ResRef),
+    ("OnMeleeAttacked", D::ResRef),
+    ("OnOpen", D::ResRef),
+    ("OnSpellCastAt", D::ResRef),
+    ("OnTrapTriggered", D::ResRef),
+    ("OnUnlock", D::ResRef),
+    ("OnUserDefined", D::ResRef),
+    ("OnClick", D::ResRef),
+];
+
+/// A placeable's own defaults (`Static` follows `Useable`: see
+/// [`instance`]).
+const PLACEABLE: &[(&str, D)] = &[
+    ("HasInventory", D::Byte(0)),
+    ("BodyBag", D::Byte(0)),
+    ("Type", D::Byte(0)),
+    ("Useable", D::Byte(0)),
+    ("OnInvDisturbed", D::ResRef),
+    ("OnUsed", D::ResRef),
+];
+
+/// A door's own defaults.
+const DOOR: &[(&str, D)] = &[
+    ("LinkedTo", D::String),
+    ("LinkedToFlags", D::Byte(0)),
+    ("LoadScreenID", D::Word(0)),
+    ("GenericType_New", D::Dword(0)),
+    ("OnFailToOpen", D::ResRef),
+];
+
+/// The order Aurora writes a door in (a placeable: the situated fields,
+/// then its own).
+const DOOR_ORDER: &[&str] = &[
+    "Tag",
+    "LocName",
+    "Description",
+    "TemplateResRef",
+    "AutoRemoveKey",
+    "CloseLockDC",
+    "Conversation",
+    "Interruptable",
+    "Faction",
+    "Plot",
+    "KeyRequired",
+    "Lockable",
+    "Locked",
+    "OpenLockDC",
+    "PortraitId",
+    "TrapDetectable",
+    "TrapDetectDC",
+    "TrapDisarmable",
+    "DisarmDC",
+    "TrapFlag",
+    "TrapOneShot",
+    "TrapType",
+    "KeyName",
+    "AnimationState",
+    "Appearance",
+    "HP",
+    "CurrentHP",
+    "Hardness",
+    "Fort",
+    "Ref",
+    "Will",
+    "OnClosed",
+    "OnDamaged",
+    "OnDeath",
+    "OnDisarm",
+    "OnHeartbeat",
+    "OnLock",
+    "OnMeleeAttacked",
+    "OnOpen",
+    "OnSpellCastAt",
+    "OnTrapTriggered",
+    "OnUnlock",
+    "OnUserDefined",
+    "OnClick",
+    "LinkedTo",
+    "LinkedToFlags",
+    "LoadScreenID",
+    "GenericType_New",
+    "OnFailToOpen",
+    "X",
+    "Y",
+    "Z",
+    "Bearing",
 ];
 
 const STORE: &[(&str, D)] = &[
@@ -921,7 +1037,13 @@ pub fn instance(
         }
         ResType::UTP => {
             s.remove("Portrait");
+            fill(&mut s, SITUATED);
             fill(&mut s, PLACEABLE);
+            // A placeable without `Static` is static unless it is usable.
+            if !s.contains("Static") {
+                let usable = s.integer("Useable").unwrap_or(0) != 0;
+                s.set("Static", Value::Byte(u8::from(!usable)));
+            }
             held_list(p, &mut s, "ItemList", 0);
             for (label, v) in [("X", x), ("Y", y), ("Z", z), ("Bearing", at.rotation)] {
                 s.set(label, f(v));
@@ -929,6 +1051,9 @@ pub fn instance(
         }
         ResType::UTD => {
             renew(&mut s, "GenericType", "GenericType_New");
+            s.remove("Portrait");
+            fill(&mut s, SITUATED);
+            fill(&mut s, DOOR);
             for (label, v) in [("X", x), ("Y", y), ("Z", z), ("Bearing", at.rotation)] {
                 s.set(label, f(v));
             }
@@ -1002,7 +1127,8 @@ pub fn instance(
         ResType::UTW => WAYPOINT_ORDER.to_vec(),
         ResType::UTT => TRIGGER_ORDER.to_vec(),
         ResType::UTE => ENCOUNTER_ORDER.to_vec(),
-        // Items are in order already; doors keep the blueprint's.
+        ResType::UTD => DOOR_ORDER.to_vec(),
+        // Items are in order already.
         _ => return Some(s),
     };
     arrange(&mut s, &order, &CREATURE_PARTS);
@@ -1064,7 +1190,9 @@ mod tests {
         assert_eq!((d.float("X"), d.float("Bearing")), (Some(1.0), Some(1.5)));
         assert_eq!(d.get("GenericType_New"), Some(&Value::Dword(4)));
         assert!(!d.contains("PaletteID") && !d.contains("GenericType"));
-        assert_eq!(labels(&d), ["Tag", "GenericType_New", "X", "Y", "Z", "Bearing"]);
+        let l = labels(&d);
+        assert_eq!(l[0], "Tag");
+        assert_eq!(l[l.len() - 4..], ["X", "Y", "Z", "Bearing"]);
         // A waypoint turned by nothing faces north.
         let w = instance(&p, ResType::UTW, &bp, Placement::default(), &[]).unwrap();
         assert!(w.float("XOrientation").unwrap().abs() < 1e-6);

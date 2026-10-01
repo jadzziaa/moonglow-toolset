@@ -35,6 +35,7 @@ fn every_shipped_area_opens_and_renders() {
     let (mut areas, mut tiles, mut objects, mut rendered, mut invisible) = (0, 0, 0, 0, 0);
     let start = Instant::now();
     let mut standing: std::collections::BTreeMap<ObjectKind, (usize, usize)> = Default::default();
+    let mut hooked = (0usize, 0usize);
     for path in bundled_modules(&root) {
         let module_name = path.file_stem().unwrap().to_string_lossy().into_owned();
         let m = Module::open(&path).unwrap();
@@ -86,6 +87,19 @@ fn every_shipped_area_opens_and_renders() {
                     e.0 += 1;
                 }
             }
+            // Doors stand on the tiles' door hooks, turned as the hook is
+            // (or the other way: a doorway has a hook on each side, and
+            // Reverse Door turns a door round).
+            for o in model.objects.iter().filter(|o| o.kind == ObjectKind::Door) {
+                hooked.1 += 1;
+                let turn = |a: f32, b: f32| {
+                    let d = (a - b).rem_euclid(std::f32::consts::PI);
+                    d.min(std::f32::consts::PI - d)
+                };
+                if model.hooks_at(o.position).any(|h| turn(h.bearing, o.rotation) < 0.01) {
+                    hooked.0 += 1;
+                }
+            }
             let placeables = git.root.list(ObjectKind::Placeable.list()).unwrap_or(&[]);
             for o in &model.objects {
                 let Some(p) = &o.problem else { continue };
@@ -127,6 +141,9 @@ fn every_shipped_area_opens_and_renders() {
         };
         assert!(share >= least, "{kind:?}: only {:.1}% on the ground", share * 100.0);
     }
+    let share = hooked.0 as f64 / hooked.1 as f64;
+    eprintln!("doors on hooks: {} of {} ({:.1}%)", hooked.0, hooked.1, share * 100.0);
+    assert!(share > 0.9, "only {:.1}% of the doors stand on hooks", share * 100.0);
     assert!(areas > 1000, "only {areas} areas");
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }

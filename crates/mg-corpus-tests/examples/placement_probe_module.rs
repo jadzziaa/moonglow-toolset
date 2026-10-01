@@ -5,7 +5,10 @@
 //! and minimal blueprints (`mgq_*`: a name, a tag, the palette category and
 //! what a model needs), whose instances show Aurora's default for every
 //! other field:
-//! `cargo run -p mg-corpus-tests --example placement_probe_module OUT.mod`.
+//! `cargo run -p mg-corpus-tests --example placement_probe_module OUT.mod [doors]`.
+//! With `doors`, the area is a castle interior whose tile (1, 1) has three
+//! door hooks (tic01 tile 7: at 20, 15; 10, 15; 15, 20), and the door
+//! blueprints are a generic door (nw_door_normal) and a minimal one.
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::ModuleLocation;
@@ -28,12 +31,23 @@ fn held(item: &str, x: u16, y: u16) -> Struct {
 
 fn main() {
     let out = std::env::args().nth(1).expect("output module");
+    let doors = std::env::args().nth(2).is_some_and(|a| a == "doors");
     let root = mg_testkit::nwn_root().expect("game");
     let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let mut rng = fastrand::Rng::with_seed(11);
     let mut m = new_module(&game, "Placement Probe", &mut rng).unwrap();
-    let spec = AreaSpec { name: "Field".into(), tileset: r("ttr01"), width: 4, height: 4 };
-    add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let tileset = r(if doors { "tic01" } else { "ttr01" });
+    let spec = AreaSpec { name: "Field".into(), tileset, width: 4, height: 4 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    if doors {
+        let key = ResKey::new(area, ResType::ARE);
+        let mut are = m.gff(&key).unwrap().unwrap();
+        let tile = &mut are.root.list_mut("Tile_List").unwrap()[5];
+        tile.set("Tile_ID", Value::Int(7));
+        tile.set("Tile_Orientation", Value::Int(0));
+        tile.set("Tile_Height", Value::Int(0));
+        m.set_gff(key, &are).unwrap();
+    }
     let copy = |from: &str, t: ResType, name: &str| -> Gff {
         let data = game.resman.get(&ResKey::new(r(from), t)).unwrap();
         let mut g = Gff::read(&data).unwrap();
@@ -64,7 +78,11 @@ fn main() {
         ("mgp_utp", ResType::UTP, utp),
         ("mgp_utm", ResType::UTM, utm),
         ("mgp_uti", ResType::UTI, copy("nw_wswls001", ResType::UTI, "mgp_uti")),
-        ("mgp_utd", ResType::UTD, copy("nw_door_ttr_01", ResType::UTD, "mgp_utd")),
+        (
+            "mgp_utd",
+            ResType::UTD,
+            copy(if doors { "nw_door_normal" } else { "nw_door_ttr_01" }, ResType::UTD, "mgp_utd"),
+        ),
         ("mgp_utt", ResType::UTT, copy("newgeneric", ResType::UTT, "mgp_utt")),
         ("mgp_ute", ResType::UTE, copy("nw_verminbeet", ResType::UTE, "mgp_ute")),
         ("mgp_uts", ResType::UTS, copy("animalcriesday", ResType::UTS, "mgp_uts")),
@@ -82,6 +100,7 @@ fn main() {
         ("nw_waypoint001", ResType::UTW, "LocalizedName", None),
         ("newgeneric", ResType::UTT, "LocalizedName", None),
         ("nw_verminbeet", ResType::UTE, "LocalizedName", None),
+        ("nw_door_normal", ResType::UTD, "LocName", Some(("GenericType_New", Value::Dword(0)))),
     ] {
         let data = game.resman.get(&ResKey::new(r(from), t)).unwrap();
         let base = Gff::read(&data).unwrap();

@@ -93,6 +93,19 @@ impl AreaTile {
     }
 }
 
+/// A place a door can stand: a tile's door hook (the tileset's
+/// `[TILEnDOORm]`), where Aurora puts a door placed near it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DoorHook {
+    pub tile: usize,
+    /// doortypes.2da row (0: generic doors).
+    pub door_type: i32,
+    pub position: Vec3,
+    /// The door's `Bearing` there, radians in (−π, π] (the hook's
+    /// orientation turned with the tile).
+    pub bearing: f32,
+}
+
 /// What an object in an area is: the GIT list it is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ObjectKind {
@@ -280,6 +293,30 @@ fn outline(s: &Struct, labels: [&str; 3], at: Vec3) -> Vec<Vec3> {
         .collect()
 }
 
+/// The door hooks of `tiles` (with the tileset they are from).
+fn tiles_hooks(tiles: &[AreaTile], tileset: Option<&Tileset>) -> Vec<DoorHook> {
+    let Some(set) = tileset else { return Vec::new() };
+    let mut out = Vec::new();
+    for t in tiles {
+        let Some(tile) = usize::try_from(t.id).ok().and_then(|i| set.tiles.get(i)) else {
+            continue;
+        };
+        let to = t.transform();
+        for d in &tile.doors {
+            let turn = f32::from(t.orientation) * 90.0;
+            let degrees = (d.orientation + turn).rem_euclid(360.0);
+            let degrees = if degrees > 180.0 { degrees - 360.0 } else { degrees };
+            out.push(DoorHook {
+                tile: t.index,
+                door_type: d.door_type,
+                position: to.transform_point3(Vec3::from_array(d.position)),
+                bearing: degrees.to_radians(),
+            });
+        }
+    }
+    out
+}
+
 /// Sun or moon settings of an area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Sky {
@@ -374,6 +411,8 @@ pub struct AreaModel {
     pub height_step: f32,
     pub tiles: Vec<AreaTile>,
     pub objects: Vec<AreaObject>,
+    /// The tiles' door hooks.
+    pub hooks: Vec<DoorHook>,
     pub lighting: Lighting,
     /// What could not be read: a missing tileset, unknown tiles.
     pub problems: Vec<String>,
@@ -393,7 +432,7 @@ impl AreaModel {
                 .push(format!("Tile_List has {} tiles for a {width} by {height} area", list.len()));
         }
         let mut unknown = 0;
-        let tiles = list
+        let tiles: Vec<AreaTile> = list
             .iter()
             .enumerate()
             .take((width * height) as usize)
@@ -439,6 +478,7 @@ impl AreaModel {
                 None => "no tileset".into(),
             });
         }
+        let hooks = tiles_hooks(&tiles, tileset);
         let mut objects = Vec::new();
         for kind in ObjectKind::ALL {
             for (i, s) in git.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
@@ -452,9 +492,33 @@ impl AreaModel {
             height_step: step,
             tiles,
             objects,
+            hooks,
             lighting: Lighting::read(are, tileset),
             problems,
         }
+    }
+
+    /// The door hook nearest to `p` (in the ground plane) within `reach`
+    /// metres; of the tile `p` is on first (a doorway between two tiles
+    /// has a hook in each, facing opposite ways: Aurora takes the one of
+    /// the tile under the pointer).
+    pub fn hook_near(&self, p: Vec3, reach: f32) -> Option<&DoorHook> {
+        let tile = (p.x >= 0.0 && p.y >= 0.0).then(|| {
+            let (x, y) = ((p.x / TILE_SIZE) as u32, (p.y / TILE_SIZE) as u32);
+            (x < self.width).then_some((y * self.width + x) as usize)
+        });
+        let on_tile = |h: &DoorHook| tile.flatten() == Some(h.tile);
+        self.hooks
+            .iter()
+            .map(|h| (h, (h.position - p).truncate().length()))
+            .filter(|(_, d)| *d <= reach)
+            .min_by(|a, b| on_tile(b.0).cmp(&on_tile(a.0)).then(a.1.total_cmp(&b.1)))
+            .map(|(h, _)| h)
+    }
+
+    /// The door hooks at `p` (within 5 cm).
+    pub fn hooks_at(&self, p: Vec3) -> impl Iterator<Item = &DoorHook> {
+        self.hooks.iter().filter(move |h| (h.position - p).length() < 0.05)
     }
 
     /// The object `index` of the GIT list of `kind`.
