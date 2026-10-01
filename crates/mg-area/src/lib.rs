@@ -190,6 +190,64 @@ impl ObjectKind {
     }
 }
 
+/// An EE visual transform (scale, rotation in degrees and translation of
+/// the model, not of the object): `VisTransformList`'s entry for scope 0,
+/// or the older `VisualTransform` struct.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VisualTransform {
+    pub scale: Vec3,
+    /// Degrees about X, Y and Z.
+    pub rotate: Vec3,
+    pub translate: Vec3,
+}
+
+impl Default for VisualTransform {
+    fn default() -> VisualTransform {
+        VisualTransform { scale: Vec3::ONE, rotate: Vec3::ZERO, translate: Vec3::ZERO }
+    }
+}
+
+impl VisualTransform {
+    /// A placed object's (`None` without one).
+    pub fn read(s: &Struct) -> Option<VisualTransform> {
+        let axes = |get: &dyn Fn(&str) -> Option<f32>, default: f32, prefix: &str| {
+            Vec3::new(
+                get(&format!("{prefix}X")).unwrap_or(default),
+                get(&format!("{prefix}Y")).unwrap_or(default),
+                get(&format!("{prefix}Z")).unwrap_or(default),
+            )
+        };
+        let from = |get: &dyn Fn(&str) -> Option<f32>| VisualTransform {
+            scale: axes(get, 1.0, "Scale"),
+            rotate: axes(get, 0.0, "Rotate"),
+            translate: axes(get, 0.0, "Translate"),
+        };
+        if let Some(list) = s.list("VisTransformList") {
+            let entry = list
+                .iter()
+                .find(|e| e.integer("Scope").unwrap_or(0) == 0)
+                .or_else(|| list.first())?;
+            let get = |label: &str| entry.child(label).and_then(|c| c.float("ValueTo"));
+            return Some(from(&get));
+        }
+        let legacy = s.child("VisualTransform")?;
+        Some(from(&|label: &str| legacy.float(label)))
+    }
+
+    pub fn is_identity(&self) -> bool {
+        *self == VisualTransform::default()
+    }
+
+    /// The model's placement within the object: translated, turned (about
+    /// Z, then Y, then X) and scaled.
+    pub fn matrix(&self) -> Mat4 {
+        let r = self.rotate * (std::f32::consts::PI / 180.0);
+        Mat4::from_translation(self.translate)
+            * Mat4::from_euler(glam::EulerRot::ZYX, r.z, r.y, r.x)
+            * Mat4::from_scale(self.scale)
+    }
+}
+
 /// An object placed in the area.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AreaObject {
@@ -211,6 +269,8 @@ pub struct AreaObject {
     pub problem: Option<String>,
     /// A trigger's or encounter's outline, world space.
     pub outline: Vec<Vec3>,
+    /// Its model's visual transform.
+    pub visual: Option<VisualTransform>,
 }
 
 impl AreaObject {
@@ -265,12 +325,22 @@ impl AreaObject {
             preview,
             problem,
             outline,
+            visual: VisualTransform::read(s),
         }
     }
 
     /// Where its model stands and how it turns.
     pub fn transform(&self) -> Mat4 {
         Mat4::from_rotation_translation(Quat::from_rotation_z(self.rotation), self.position)
+    }
+
+    /// Where its model is drawn: where it stands, with its visual
+    /// transform.
+    pub fn model_transform(&self) -> Mat4 {
+        match &self.visual {
+            Some(v) => self.transform() * v.matrix(),
+            None => self.transform(),
+        }
     }
 
     /// Its facing (what `GetFacing` reports), radians counter-clockwise

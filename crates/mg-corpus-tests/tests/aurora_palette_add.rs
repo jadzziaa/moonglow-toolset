@@ -133,3 +133,47 @@ fn create_waypoint_and_set_match_aurora() {
     let tags = vec!["Patrol_01".to_string(), "PATROL_02".to_string()];
     assert_eq!(mg_module::instances::set_tag("Patrol", &tags), "Patrol_03");
 }
+
+/// Adjust Location on the chest in Aurora (bearing 45, scale 2, Z rotation
+/// 30, Z translation 0.5): the same bearing and visual transform. (Aurora
+/// rewrites the whole object, so its `VisTransformList` comes before
+/// `ItemList`; an edit adds it at the end. The engine does not mind.)
+#[test]
+fn adjust_location_matches_aurora() {
+    use glam::Vec3;
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let m = Module::open(&aurora_capture!("placement-doors.mod")).unwrap();
+    let git_key = ResKey::new(m.areas().unwrap()[0], ResType::GIT);
+    let git = m.gff(&git_key).unwrap().unwrap();
+    let list = git.root.list("Placeable List").unwrap();
+    let index = list
+        .iter()
+        .position(|p| p.resref("TemplateResRef").unwrap().to_string() == "mgp_utp001")
+        .unwrap();
+    let aurora = list[index].clone();
+    let mut before = aurora.clone();
+    before.set("Bearing", Value::Float(0.0));
+    before.remove("VisTransformList");
+    let o = mg_area::AreaObject::read(&game, mg_area::ObjectKind::Placeable, index, &before);
+    let visual = mg_area::VisualTransform {
+        scale: Vec3::splat(2.0),
+        rotate: Vec3::new(0.0, 0.0, 30.0),
+        translate: Vec3::new(0.0, 0.0, 0.5),
+    };
+    let mut edits = mg_area::edit::move_edits(git_key, &o, &before, o.position, 45f32.to_radians());
+    edits.extend(mg_area::edit::visual_transform_edits(git_key, &o, &before, visual));
+    let mut after = before.clone();
+    for e in edits {
+        let mg_edit::Edit::SetField { label, value, .. } = e else { panic!("{e:?}") };
+        match value {
+            Some(v) => after.set(&label, v),
+            None => {
+                after.remove(&label);
+            }
+        }
+    }
+    assert!((after.float("Bearing").unwrap() - aurora.float("Bearing").unwrap()).abs() < 1e-6);
+    assert_eq!(after.get("VisTransformList"), aurora.get("VisTransformList"));
+    assert_eq!(mg_area::VisualTransform::read(&after), Some(visual));
+}

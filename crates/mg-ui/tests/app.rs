@@ -1997,9 +1997,9 @@ fn adjust_location_and_find_instance() {
     let adjust = h.state_mut().adjust.as_mut().expect("the window");
     assert_eq!(adjust.objects, [(ObjectKind::Waypoint, 0)]);
     assert!((adjust.position.x - 20.0).abs() < 1e-3);
-    // X to 12.5 and facing west: only those change.
+    // X to 12.5 and turned to face west (bearing 90): only those change.
     adjust.position.x = 12.5;
-    adjust.facing = 180.0;
+    adjust.bearing = 90.0;
     adjust.changed = [true, false, false, true];
     let before = waypoint(&mut h, 0);
     h.get_by_label("OK").click();

@@ -568,7 +568,7 @@ fn overlays(
             }
             continue;
         }
-        let transform = o.transform();
+        let transform = o.model_transform();
         let marker = o.preview.is_none() || scene.is_none();
         if marker || selected {
             let (min, max) = match scene {

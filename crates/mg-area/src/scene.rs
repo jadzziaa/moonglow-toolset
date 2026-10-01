@@ -207,7 +207,7 @@ impl AreaScene {
         for (o, shown) in area.objects.iter().zip(&self.objects) {
             let Some(shown) = shown.as_ref().filter(|_| view.shows(o.kind)) else { continue };
             let c = &shown.composed;
-            let transform = o.transform();
+            let transform = o.model_transform();
             instances.extend(c.instances(c.idle.as_deref(), view.time, transform));
             lights.extend(c.point_lights(transform));
         }

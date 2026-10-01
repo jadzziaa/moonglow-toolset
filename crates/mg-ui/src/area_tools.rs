@@ -1,5 +1,5 @@
 //! The area viewer's dialogs: Adjust Location (`TdlgLocation`: an exact
-//! position and facing for the selected objects) and Find Instance
+//! position, bearing and visual transform for the selected objects) and Find Instance
 //! (`TdlgFindInstance`: placed objects across the module by type, area,
 //! blueprint and tag; a double click goes to one).
 
@@ -18,11 +18,15 @@ pub struct AdjustLocation {
     pub area: ResRef,
     pub objects: Vec<(ObjectKind, usize)>,
     pub position: Vec3,
-    /// Degrees, counter-clockwise from east (what `GetFacing` reports).
-    pub facing: f32,
-    /// Which of X, Y, Z and the facing were changed (only those are set on
-    /// every object).
+    /// Aurora's Bearing: degrees counter-clockwise, 0 facing north (the
+    /// model's turn).
+    pub bearing: f32,
+    /// Which of X, Y, Z and the bearing were changed (only those are set
+    /// on every object).
     pub changed: [bool; 4],
+    /// The visual transform (EE), and whether it was changed.
+    pub visual: mg_area::VisualTransform,
+    pub visual_changed: bool,
 }
 
 /// Adjust Location for the selection of an area's view (showing the first
@@ -34,8 +38,10 @@ pub(crate) fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation
         area: view.area,
         objects: view.selection.clone(),
         position: first.position,
-        facing: first.facing().to_degrees().rem_euclid(360.0),
+        bearing: first.rotation.to_degrees().rem_euclid(360.0),
         changed: [false; 4],
+        visual: first.visual.unwrap_or_default(),
+        visual_changed: false,
     })
 }
 
@@ -64,15 +70,48 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                     a.changed[i] |= r.changed();
                     ui.end_row();
                 }
-                ui.label("Facing (°)").on_hover_text("0 east, 90 north (as GetFacing reports)");
+                ui.label("Bearing (°)")
+                    .on_hover_text("0 faces north, 90 west (as Aurora shows it)");
                 let r = ui.add(
-                    egui::DragValue::new(&mut a.facing)
+                    egui::DragValue::new(&mut a.bearing)
                         .speed(1.0)
                         .range(0.0..=360.0)
                         .max_decimals(2),
                 );
                 a.changed[3] |= r.changed();
                 ui.end_row();
+            });
+            ui.separator();
+            ui.strong("Visual Transforms");
+            egui::Grid::new("adjust-visual").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
+                ui.label("Scale");
+                let mut scale = a.visual.scale.x;
+                let r = ui.add(
+                    egui::DragValue::new(&mut scale)
+                        .speed(0.01)
+                        .range(0.01..=100.0)
+                        .max_decimals(2),
+                );
+                if r.changed() {
+                    a.visual.scale = Vec3::splat(scale);
+                    a.visual_changed = true;
+                }
+                ui.end_row();
+                for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
+                    ui.label(format!("{axis} Rotation"));
+                    let r = ui.add(
+                        egui::DragValue::new(&mut a.visual.rotate[i]).speed(1.0).max_decimals(1),
+                    );
+                    a.visual_changed |= r.changed();
+                    ui.label(format!("{axis} Translation"));
+                    let r = ui.add(
+                        egui::DragValue::new(&mut a.visual.translate[i])
+                            .speed(0.01)
+                            .max_decimals(2),
+                    );
+                    a.visual_changed |= r.changed();
+                    ui.end_row();
+                }
             });
             ui.horizontal(|ui| {
                 if ui.button("OK").clicked() {
@@ -93,6 +132,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
     if let Some(close) = done {
         apply_location(app, &a);
         a.changed = [false; 4];
+        a.visual_changed = false;
         if close {
             return;
         }
@@ -121,12 +161,15 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
                 p[i] = a.position[i];
             }
         }
-        let rotation = if a.changed[3] {
-            a.facing.to_radians() - std::f32::consts::FRAC_PI_2
-        } else {
-            o.rotation
-        };
+        let rotation = if a.changed[3] { a.bearing.to_radians() } else { o.rotation };
         edits.extend(mg_area::edit::move_edits(git, o, s, p, rotation));
+        let shaped = matches!(
+            kind,
+            ObjectKind::Creature | ObjectKind::Placeable | ObjectKind::Door | ObjectKind::Item
+        );
+        if a.visual_changed && shaped {
+            edits.extend(mg_area::edit::visual_transform_edits(git, o, s, a.visual));
+        }
     }
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Adjust location", edits)));

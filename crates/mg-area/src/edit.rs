@@ -101,6 +101,59 @@ pub fn moved(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Struc
     copy
 }
 
+/// One axis of a visual transform entry, as Aurora writes it.
+fn axis(value: f32) -> Value {
+    let mut s = Struct::new(0);
+    s.set("TimerType", Value::Int(0));
+    s.set("ValueTo", Value::Float(value));
+    s.set("LerpType", Value::Int(0));
+    Value::Struct(s)
+}
+
+/// The edits that give object `o` (its GIT struct `s`) the visual
+/// transform `v`, as Aurora's Adjust Location writes it: `VisTransformList`
+/// with one entry for scope 0 (an older `VisualTransform` goes). Nothing
+/// when it already has it, or has none and `v` changes nothing.
+pub fn visual_transform_edits(
+    git: ResKey,
+    o: &AreaObject,
+    s: &Struct,
+    v: crate::VisualTransform,
+) -> Vec<Edit> {
+    let current = crate::VisualTransform::read(s);
+    if current.unwrap_or_default() == v && (current.is_some() || v.is_identity()) {
+        return Vec::new();
+    }
+    let mut entry = Struct::new(6);
+    entry.set("Scope", Value::Int(0));
+    entry.set("AnimationSpeed", axis(1.0));
+    for (prefix, value) in [("Scale", v.scale), ("Rotate", v.rotate), ("Translate", v.translate)] {
+        for (i, a) in ["X", "Y", "Z"].iter().enumerate() {
+            entry.set(&format!("{prefix}{a}"), axis(value[i]));
+        }
+    }
+    // Other scopes' entries stay.
+    let mut list: Vec<Struct> = s
+        .list("VisTransformList")
+        .unwrap_or(&[])
+        .iter()
+        .filter(|e| e.integer("Scope").unwrap_or(0) != 0)
+        .cloned()
+        .collect();
+    list.insert(0, entry);
+    let path = GffPath::root().item(o.kind.list(), o.index);
+    let mut edits = vec![Edit::SetField {
+        key: git,
+        path: path.clone(),
+        label: "VisTransformList".into(),
+        value: Some(Value::List(list)),
+    }];
+    if s.contains("VisualTransform") {
+        edits.push(Edit::SetField { key: git, path, label: "VisualTransform".into(), value: None });
+    }
+    edits
+}
+
 /// The edits that delete `objects` (kind and index in its list) from the
 /// GIT `git`: from the end of each list, so that the indices stay valid.
 pub fn delete_edits(git: ResKey, objects: &[(ObjectKind, usize)]) -> Vec<Edit> {
@@ -144,6 +197,7 @@ mod tests {
             preview: None,
             problem: None,
             outline: Vec::new(),
+            visual: None,
         }
     }
 

@@ -57,8 +57,8 @@ impl Ray {
             near = near.max(a.min(b));
             far = far.min(a.max(b));
         }
-        // The transform may scale: distances are the same along the ray
-        // only when it does not, which placements never do.
+        // An affine map keeps the ray's parameter: `near` is a world
+        // distance even when the transform scales.
         (near <= far && far >= 0.0).then_some(near.max(0.0))
     }
 
@@ -127,7 +127,7 @@ pub fn pick(
             ray.hits_outline(&o.outline)
         } else {
             let (min, max) = bounds(i);
-            ray.hits_box(min, max, o.transform())
+            ray.hits_box(min, max, o.model_transform())
         };
         if let Some(t) = t {
             // Outlines lie on the ground: whatever stands on them is nearer.
