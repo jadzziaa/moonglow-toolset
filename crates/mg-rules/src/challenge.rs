@@ -208,7 +208,7 @@ impl GameData {
 
 impl GameData {
     /// What a creature's equipped items are worth, in gold (the challenge
-    /// rating's gear term). A blueprint names its items (`EquippedRes`,
+    /// rating's gear term), creature weapons and hides aside. A blueprint names its items (`EquippedRes`,
     /// read with `item`); a placed creature carries them.
     pub fn gear_value(
         &self,
@@ -217,6 +217,11 @@ impl GameData {
     ) -> u32 {
         let mut total: u32 = 0;
         for entry in creature.list("Equip_ItemList").unwrap_or(&[]) {
+            // Creature weapons and hides are worth nothing (a dragon's
+            // hide does not raise its rating: Creature Wizard captures).
+            if entry.id >= 0x4000 {
+                continue;
+            }
             let value = if entry.get("BaseItem").is_some() {
                 Some(self.item_cost(&crate::ItemValue::from_gff(entry)))
             } else {

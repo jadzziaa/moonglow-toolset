@@ -354,11 +354,36 @@ fn page(ui: &mut Ui, game: &GameData, w: &mut CreatureWizard, summary: &str) {
             }
         }
         5 => {
+            // A random name to begin with, as Aurora gives (from the race's
+            // letter tables; none for races without).
+            let race = w.race.unwrap_or(6);
+            let mut rng = fastrand::Rng::new();
+            if w.first_name.is_empty() && w.last_name.is_empty() {
+                w.first_name =
+                    game.random_name(race, w.gender, false, &mut rng).unwrap_or_default();
+                w.last_name = game.random_name(race, w.gender, true, &mut rng).unwrap_or_default();
+            }
             ui.label("Please enter a name for this new Creature.");
-            ui.label("Name");
-            ui.text_edit_singleline(&mut w.first_name);
-            ui.label("Last Name:");
-            ui.text_edit_singleline(&mut w.last_name);
+            egui::Grid::new("cw-name").num_columns(2).show(ui, |ui| {
+                ui.label("Name");
+                ui.end_row();
+                ui.text_edit_singleline(&mut w.first_name);
+                if ui.button("Random").clicked()
+                    && let Some(n) = game.random_name(race, w.gender, false, &mut rng)
+                {
+                    w.first_name = n;
+                }
+                ui.end_row();
+                ui.label("Last Name:");
+                ui.end_row();
+                ui.text_edit_singleline(&mut w.last_name);
+                if ui.button("Random").clicked()
+                    && let Some(n) = game.random_name(race, w.gender, true, &mut rng)
+                {
+                    w.last_name = n;
+                }
+                ui.end_row();
+            });
         }
         6 => {
             ui.label("Please select the category in the palette that you wish this blueprint to appear under.");

@@ -1757,6 +1757,7 @@ dependencies = [
 name = "mg-rules"
 version = "0.1.0"
 dependencies = [
+ "fastrand",
  "mg-2da",
  "mg-core",
  "mg-gff",

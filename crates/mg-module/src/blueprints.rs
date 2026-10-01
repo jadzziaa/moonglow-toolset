@@ -577,12 +577,26 @@ const CREATURE_PARTS: [(&str, u8); 18] = [
 /// other types are neutral.
 pub fn race_alignment(race: u32) -> (u8, u8) {
     match race {
-        0 => (100, 100),   // dwarf: lawful good
-        1 | 4 => (100, 0), // elf, half-elf: chaotic good
-        2 => (100, 50),    // gnome: neutral good
-        5 => (50, 0),      // half-orc: chaotic neutral
-        12 => (0, 50),     // goblinoid: neutral evil
-        _ => (50, 50),     // halfling, human, animal: true neutral
+        0 => (100, 100),       // dwarf: lawful good
+        1 | 4 => (100, 0),     // elf, half-elf: chaotic good
+        2 => (100, 50),        // gnome: neutral good
+        5 | 17 => (50, 0),     // half-orc, fey: chaotic neutral
+        12 => (0, 50),         // goblinoid: neutral evil
+        7 | 13 | 14 => (0, 0), // aberration, monstrous, orc: chaotic evil
+        _ => (50, 50),         // the others captured: true neutral
+    }
+}
+
+/// The creature hide (creature armour slot) Aurora's Creature Wizard gives
+/// a racial type: the generic "Dragon Properties" and "Elemental
+/// Properties" (captured), "Construct Properties" (by analogy, not
+/// captured).
+pub fn race_hide(race: u32) -> Option<&'static str> {
+    match race {
+        10 => Some("nw_it_creitemcon"),
+        11 => Some("nw_it_creitemdra"),
+        16 => Some("nw_it_creitemele"),
+        _ => None,
     }
 }
 
@@ -592,7 +606,8 @@ const WIZARD_SOUND_SET: u16 = 24448;
 
 /// A creature as Aurora's Creature Wizard makes it: the fields in its
 /// order, the first class's recommended abilities (classes.2da `Str` to
-/// `Cha`) and package, the race's alignment ([`race_alignment`]), levelled
+/// `Cha`) and package, the race's alignment ([`race_alignment`]) and hide
+/// ([`race_hide`]), levelled
 /// up from nothing by the classes' packages (hit points, skills, feats,
 /// spells; [`GameData::level_up`]), each class's package equipment, and its
 /// hit points and challenge rating. `item` reads item blueprints. Aurora
@@ -724,9 +739,14 @@ pub fn creature(
         g.root.set(label, v);
     }
 
-    // Levelled up from nothing, each class's gear, then the derived
-    // numbers.
+    // Levelled up from nothing, the race's hide, each class's gear, then
+    // the derived numbers.
     let mut c = game.level_up(&g.root, &spec.classes);
+    if let Some(hide) = race_hide(spec.race).and_then(|h| ResRef::from_str(h).ok()) {
+        let mut e = Struct::new(0x20000);
+        e.set("EquippedRes", Value::resref(hide));
+        c.set("Equip_ItemList", Value::List(vec![e]));
+    }
     for &(class, _) in &spec.classes {
         for (res, at) in game.new_class_gear(&c, class, item) {
             match at {

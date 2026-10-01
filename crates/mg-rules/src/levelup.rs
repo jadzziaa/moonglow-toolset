@@ -573,8 +573,9 @@ impl GameData {
     /// `Equip2DA`), as Aurora places it: an item goes to the first slot of
     /// its base item's `EquipableSlots` if that is free and it is a weapon,
     /// shield, armour, helmet or ammunition (baseitems.2da `Category` 1 to
-    /// 8: a torch is carried), else into the backpack at the first place it
-    /// fits, rows first. `item` reads an item blueprint.
+    /// 8: a torch is carried) or a creature item (a dragon's hide), else
+    /// into the backpack at the first place it fits, rows first. `item`
+    /// reads an item blueprint.
     pub fn new_class_gear(
         &self,
         creature: &Struct,
@@ -633,7 +634,10 @@ impl GameData {
                 })
                 .unwrap_or(0);
             let first = slots.isolate_lowest_one();
-            let wearable = base_items.get_int(b, "Category").is_some_and(|c| (1..=8).contains(&c));
+            // Weapons, shields, armour, helmets, ammunition, and creature
+            // items (claws, bites, hides) for their slots.
+            let wearable = base_items.get_int(b, "Category").is_some_and(|c| (1..=8).contains(&c))
+                || first >= 0x4000;
             if first != 0 && wearable && used & first == 0 {
                 used |= first;
                 out.push((res, GearPlace::Equip(first)));
