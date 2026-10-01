@@ -203,6 +203,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         f.variables(ui);
         ui.end_row();
     });
+    f.update_instances(ui);
     ui.separator();
 
     ui.label("When to play");

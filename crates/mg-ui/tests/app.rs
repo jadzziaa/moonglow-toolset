@@ -2779,3 +2779,63 @@ fn tiles_copy_and_paste() {
     let (_, bad) = mg_tiles::Lattice::from_tiles(&index, 4, 4, &g.tiles).unwrap();
     assert!(bad.is_empty(), "tiles disagree at {bad:?}");
 }
+
+#[test]
+fn update_instances_remakes_placed_sounds() {
+    use mg_edit::{Command, Edit, GffPath};
+    let Some((mut h, area)) = area_harness("update-instances") else { return };
+    // A custom sound blueprint (a copy of hawkcry) placed twice, then its
+    // volume changed.
+    let game = h.state().game.as_ref().unwrap();
+    let data = game.resman.get(&ResKey::parse("hawkcry", ResType::UTS).unwrap()).unwrap();
+    let mut bp = Gff::read(&data).unwrap();
+    let key = ResKey::parse("mg_hawk", ResType::UTS).unwrap();
+    bp.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+    let none = |_: ResRef| None;
+    let placing = mg_module::instances::Placing { game, item: &none };
+    let placed: Vec<mg_gff::Struct> = [[10.0, 10.0], [30.0, 20.0]]
+        .map(|p| {
+            let at = mg_module::instances::Placement { position: [p[0], p[1], 1.5], rotation: 0.0 };
+            mg_module::instances::instance(&placing, ResType::UTS, &bp.root, at, &[]).unwrap()
+        })
+        .to_vec();
+    let bytes = bp.to_bytes().unwrap();
+    let git = ResKey::new(area, ResType::GIT);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.apply(Command::new(
+        "setup",
+        vec![
+            Edit::SetResource { key, data: Some(bytes) },
+            Edit::SetField {
+                key: git,
+                path: GffPath::root(),
+                label: "SoundList".into(),
+                value: Some(mg_gff::Value::List(placed)),
+            },
+            Edit::SetField {
+                key,
+                path: GffPath::root(),
+                label: "Volume".into(),
+                value: Some(mg_gff::Value::Byte(17)),
+            },
+        ],
+    ))
+    .unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::for_resource(key).unwrap()));
+    h.run_steps(3);
+    h.get_by_label("Advanced").click();
+    h.run_steps(2);
+    h.get_by_label("Update Instances").click();
+    h.run_steps(3);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let sounds = ws.doc(&git).unwrap().root.list("SoundList").unwrap().to_vec();
+    assert_eq!(sounds.len(), 2);
+    for (s, p) in sounds.iter().zip([[10.0, 10.0], [30.0, 20.0]]) {
+        assert_eq!(s.integer("Volume"), Some(17), "made again from the blueprint");
+        assert_eq!(
+            (s.float("XPosition"), s.float("YPosition")),
+            (Some(p[0]), Some(p[1])),
+            "where it stood"
+        );
+    }
+}
