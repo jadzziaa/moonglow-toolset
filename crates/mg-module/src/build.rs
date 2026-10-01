@@ -104,16 +104,19 @@ pub fn compile_scripts(
 /// Build › Compile › Encounters: every encounter's creature list (the
 /// module's encounter blueprints and the encounters placed in its areas)
 /// given the challenge rating and appearance of the creature blueprints it
-/// names (`creature` reads one: the module's, else the game's). Returns
-/// how many creature entries changed.
+/// names (`creature` reads one: the module's, else the game's); an entry
+/// whose creature does not exist is removed, as Aurora does. Returns how
+/// many creature entries changed.
 pub fn compile_encounters(
     module: &mut Module,
     creature: &dyn Fn(mg_core::ResRef) -> Option<mg_gff::Struct>,
 ) -> usize {
     use mg_gff::{Gff, Struct, Value};
-    let refresh = |list: &mut [Struct]| -> usize {
-        let mut changed = 0;
-        for entry in list {
+    let refresh = |list: &mut Vec<Struct>| -> usize {
+        let before = list.len();
+        list.retain(|e| e.resref("ResRef").and_then(creature).is_some());
+        let mut changed = before - list.len();
+        for entry in list.iter_mut() {
             let Some(bp) = entry.resref("ResRef").and_then(creature) else { continue };
             let mut touched = false;
             if let Some(cr) = bp.float("ChallengeRating")
