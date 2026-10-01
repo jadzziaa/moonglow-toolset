@@ -164,6 +164,33 @@ impl ResMan {
         Some(self.layers.remove(i))
     }
 
+    /// The layer with this label, to change in place.
+    pub fn layer_mut(&mut self, label: &str) -> Option<&mut Layer> {
+        self.layers.iter_mut().find(|l| l.label == label)
+    }
+
+    /// Puts another container in a layer, keeping the layer's place among
+    /// those of its priority (removing and adding it again would put it
+    /// last); returns the one it held.
+    pub fn replace(
+        &mut self,
+        label: &str,
+        c: impl Container + 'static,
+    ) -> Option<Box<dyn Container>> {
+        let layer = self.layer_mut(label)?;
+        Some(std::mem::replace(&mut layer.container, Box::new(c)))
+    }
+
+    /// Reads a layer's container again from disk ([`Container::rescan`]):
+    /// a folder's new and removed files, an archive written again.
+    /// `Ok(false)`: no layer has this label.
+    pub fn rescan(&mut self, label: &str) -> Result<bool, ResError> {
+        match self.layer_mut(label) {
+            Some(l) => l.container.rescan().map(|()| true),
+            None => Ok(false),
+        }
+    }
+
     /// The index of the layer that provides a resource.
     pub fn find(&self, key: &ResKey) -> Option<usize> {
         self.layers.iter().position(|l| l.container.contains(key))
@@ -314,6 +341,60 @@ mod tests {
         // priorities.
         let other = ResRef::from_str("other").unwrap();
         assert_eq!(rm.texture(other).unwrap().0, ResType::TGA);
+    }
+
+    #[test]
+    fn layers_change_in_place() {
+        let one = |data: &'static [u8]| {
+            let mut c = MemContainer::new();
+            c.insert(key("x", ResType::NSS), data);
+            c
+        };
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK, "first", LayerClass::Erf, one(b"1"));
+        rm.add(priority::HAK, "second", LayerClass::Erf, one(b"2"));
+        assert!(rm.replace("first", one(b"one")).is_some());
+        let labels: Vec<&str> = rm.layers().iter().map(|l| l.label.as_str()).collect();
+        assert_eq!(labels, ["first", "second"], "the same place among equals");
+        assert_eq!(rm.get(&key("x", ResType::NSS)).unwrap().as_ref(), b"one");
+        assert!(rm.replace("third", one(b"3")).is_none());
+
+        let dir = std::env::temp_dir().join(format!("mg-resman-rescan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        rm.add(priority::OVERRIDE, "folder", LayerClass::Directory, DirContainer::open(&dir));
+        assert!(!rm.contains(&key("new", ResType::NSS)));
+        std::fs::write(dir.join("new.nss"), b"void main() {}").unwrap();
+        assert!(rm.rescan("folder").unwrap());
+        assert!(rm.contains(&key("new", ResType::NSS)), "a file added since it was opened");
+        std::fs::remove_file(dir.join("new.nss")).unwrap();
+        rm.rescan("folder").unwrap();
+        assert!(!rm.contains(&key("new", ResType::NSS)));
+        assert!(!rm.rescan("nothing").unwrap());
+
+        // An archive written again (Windows refuses to write a mapped file).
+        if cfg!(windows) {
+            std::fs::remove_dir_all(&dir).unwrap();
+            return;
+        }
+        let hak = dir.join("test.hak");
+        let write = |names: &[&str]| {
+            let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+            for n in names {
+                w.add(ResRef::from_str(n).unwrap(), ResType::NSS, &b"x"[..]).unwrap();
+            }
+            std::fs::write(&hak, w.to_bytes().unwrap()).unwrap();
+        };
+        write(&["a"]);
+        rm.add(priority::HAK, "hak", LayerClass::Erf, ErfContainer::open(&hak).unwrap());
+        write(&["a", "b"]);
+        assert!(!rm.contains(&key("b", ResType::NSS)));
+        rm.rescan("hak").unwrap();
+        assert!(rm.contains(&key("b", ResType::NSS)));
+        std::fs::write(&hak, b"not an archive").unwrap();
+        assert!(rm.rescan("hak").is_err());
+        assert!(rm.contains(&key("b", ResType::NSS)), "kept what it had");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

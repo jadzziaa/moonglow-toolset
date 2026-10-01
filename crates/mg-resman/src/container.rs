@@ -26,6 +26,12 @@ pub trait Container: Send + Sync + fmt::Debug {
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// Reads again what the container holds on disk: a folder lists its
+    /// files again, an archive is opened again (on an error it keeps what
+    /// it had). Others have nothing to read.
+    fn rescan(&mut self) -> Result<(), ResError> {
+        Ok(())
+    }
 }
 
 #[allow(unsafe_code)]
@@ -137,6 +143,11 @@ impl Container for ErfContainer {
     fn len(&self) -> usize {
         self.entries.len()
     }
+
+    fn rescan(&mut self) -> Result<(), ResError> {
+        *self = ErfContainer::open(&self.path)?;
+        Ok(())
+    }
 }
 
 /// A directory of loose files named `resref.ext` (override, development,
@@ -193,6 +204,11 @@ impl Container for DirContainer {
 
     fn len(&self) -> usize {
         self.files.len()
+    }
+
+    fn rescan(&mut self) -> Result<(), ResError> {
+        DirContainer::rescan(self);
+        Ok(())
     }
 }
 
