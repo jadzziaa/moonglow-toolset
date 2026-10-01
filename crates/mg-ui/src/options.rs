@@ -17,6 +17,7 @@ use crate::{Action, Moonglow, Settings};
 pub enum OptionsPage {
     #[default]
     Folders,
+    Area,
     General,
     ScriptEditor,
     ConversationEditor,
@@ -41,6 +42,9 @@ pub struct OptionsDraft {
     pub script_templates: String,
     pub external_editor: String,
     pub dialog_names: bool,
+    pub area_background: Option<[u8; 3]>,
+    pub spawn_markers: bool,
+    pub door_arrows: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
     pub dialog_pc_color: Option<[u8; 3]>,
 }
@@ -72,6 +76,9 @@ impl OptionsDraft {
             script_templates: text(&s.script_templates),
             external_editor: text(&s.external_editor),
             dialog_names: !s.dialog_hide_names,
+            area_background: s.area_background,
+            spawn_markers: !s.no_spawn_markers,
+            door_arrows: !s.no_door_arrows,
             dialog_npc_color: s.dialog_npc_color,
             dialog_pc_color: s.dialog_pc_color,
         }
@@ -94,6 +101,9 @@ impl OptionsDraft {
             script_templates: path(&self.script_templates),
             external_editor: path(&self.external_editor),
             dialog_hide_names: !self.dialog_names,
+            area_background: self.area_background,
+            no_spawn_markers: !self.spawn_markers,
+            no_door_arrows: !self.door_arrows,
             dialog_npc_color: self.dialog_npc_color,
             dialog_pc_color: self.dialog_pc_color,
             ..s.clone()
@@ -129,6 +139,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     ui.set_width(110.0);
                     for (page, name) in [
                         (OptionsPage::Folders, "Folders"),
+                        (OptionsPage::Area, "Area"),
                         (OptionsPage::General, "General"),
                         (OptionsPage::ScriptEditor, "Script Editor"),
                         (OptionsPage::ConversationEditor, "Conversation Editor"),
@@ -190,6 +201,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.checkbox(&mut draft.backups, "Create backups of modules").on_hover_text(
                             "Keep the module as it was as <name>.BackupMod at each save",
                         );
+                    }
+                    OptionsPage::Area => {
+                        ui.horizontal(|ui| {
+                            ui.label("Background Color");
+                            let mut custom = draft.area_background.is_some();
+                            if ui.checkbox(&mut custom, "Custom").changed() {
+                                draft.area_background = custom.then_some([192, 192, 192]);
+                            }
+                            if let Some(rgb) = &mut draft.area_background {
+                                ui.color_edit_button_srgb(rgb);
+                            } else {
+                                ui.weak("the area's fog");
+                            }
+                        });
+                        ui.checkbox(&mut draft.spawn_markers, "Show Encounter Spawnpoint Markers");
+                        ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
                     }
                     OptionsPage::ConversationEditor => {
                         ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
@@ -344,6 +371,18 @@ mod tests {
         assert_eq!(t.script_templates, Some(PathBuf::from("/tmp/templates")));
         assert!(!d.moves_game(&s), "no reload for these");
         assert_eq!(OptionsDraft::from_settings(&t).script_templates, "/tmp/templates");
+    }
+
+    #[test]
+    fn area_options_apply() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        assert!(d.spawn_markers && d.door_arrows, "on by default, as in Aurora");
+        assert_eq!(d.area_background, None, "the fog colour by default");
+        (d.spawn_markers, d.area_background) = (false, Some([192, 192, 192]));
+        let t = d.apply(&s);
+        assert!(t.no_spawn_markers && !t.no_door_arrows);
+        assert_eq!(t.area_background, Some([192, 192, 192]));
     }
 
     #[test]

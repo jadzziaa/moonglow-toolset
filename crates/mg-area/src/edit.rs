@@ -200,6 +200,7 @@ mod tests {
             visual: None,
             trigger_type: 0,
             conversation: None,
+            spawn_points: Vec::new(),
         }
     }
 

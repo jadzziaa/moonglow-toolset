@@ -66,6 +66,16 @@ pub struct Settings {
     /// Options > Script Editor: External Script Editor, a program given the
     /// script's file.
     pub external_editor: Option<PathBuf>,
+    /// Options > Area: the area view's background colour (sRGB); `None`:
+    /// the area's fog colour, as the game shows it (Aurora: silver grey,
+    /// 0xC0C0C0).
+    pub area_background: Option<[u8; 3]>,
+    /// Options > Area: Show Encounter Spawnpoint Markers off (Aurora's
+    /// default: on, height 12 and width 4).
+    pub no_spawn_markers: bool,
+    /// Options > Area: Show Door Orientation Arrows off (Aurora's default:
+    /// on).
+    pub no_door_arrows: bool,
     /// Options > Conversation Editor: Show speaker name before text
     /// (Aurora's default: shown).
     pub dialog_hide_names: bool,

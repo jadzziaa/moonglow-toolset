@@ -277,6 +277,8 @@ pub struct AreaObject {
     pub trigger_type: i64,
     /// Its conversation (`Conversation`), if it has one.
     pub conversation: Option<ResRef>,
+    /// An encounter's spawn points (`SpawnPointList`), world space.
+    pub spawn_points: Vec<Vec3>,
 }
 
 impl AreaObject {
@@ -338,6 +340,18 @@ impl AreaObject {
                 0
             },
             conversation: s.resref("Conversation").filter(|r| !r.is_empty()),
+            spawn_points: if kind == ObjectKind::Encounter {
+                s.list("SpawnPointList")
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|p| {
+                        let f = |l: &str| p.float(l).unwrap_or(0.0);
+                        Vec3::new(f("X"), f("Y"), f("Z"))
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
         }
     }
 

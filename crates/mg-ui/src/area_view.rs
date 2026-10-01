@@ -540,7 +540,11 @@ fn viewport(
         o.rotation = r;
     }
     let settings = View { time: view.time, night: view.night, fog: view.fog, show: view.show };
-    let frame = scene.scene(&shown, &settings);
+    let mut frame = scene.scene(&shown, &settings);
+    // Options › Area: the background colour, if chosen (gamma space).
+    if let Some([r, g, b]) = app.settings.area_background {
+        frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
+    }
     if view.targets.as_ref().is_none_or(|(t, _)| t.size != (w, h)) {
         let targets = Targets::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, w, h);
         let mut egui_renderer = vp.render_state.renderer.write();
@@ -580,7 +584,11 @@ fn viewport(
     );
     view.rect = response.rect;
     let door_brush = brush(app).is_some_and(|k| k.restype == ResType::UTD);
-    overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush);
+    let marks = Marks {
+        spawn_points: !app.settings.no_spawn_markers,
+        door_arrows: !app.settings.no_door_arrows,
+    };
+    overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
     walkmesh_overlay(app, ui, view);
     crate::terrain_mode::overlay(app, ui, view);
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
@@ -627,6 +635,16 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
 }
 
+/// What Options › Area adds over the view.
+#[derive(Clone, Copy)]
+struct Marks {
+    /// A post over each encounter spawn point (Aurora's: 1.2 m high, 0.4 m
+    /// wide; its Height 12 and Width 4).
+    spawn_points: bool,
+    /// An arrow along each door's facing.
+    door_arrows: bool,
+}
+
 /// Markers for objects without models, outlines, the grid, the start
 /// location and the selection, drawn over the view.
 fn overlays(
@@ -636,6 +654,7 @@ fn overlays(
     start: Option<(Vec3, f32)>,
     clip: Option<&ObjectClip>,
     door_brush: bool,
+    marks: Marks,
 ) {
     let painter = ui.painter_at(view.rect);
     let at = |p: Vec3| view.screen_pos(p);
@@ -677,9 +696,28 @@ fn overlays(
             for k in 0..n {
                 line(o.outline[k], o.outline[(k + 1) % n], stroke);
             }
+            if marks.spawn_points {
+                for &p in &o.spawn_points {
+                    let top = p + Vec3::Z * 1.2;
+                    line(p, top, stroke);
+                    line(top - Vec3::X * 0.2, top + Vec3::X * 0.2, stroke);
+                    line(top - Vec3::Y * 0.2, top + Vec3::Y * 0.2, stroke);
+                }
+            }
             continue;
         }
         let transform = o.model_transform();
+        // Doors: a cyan arrow along their facing (Options › Area).
+        if marks.door_arrows && o.kind == ObjectKind::Door {
+            let ahead = Vec3::new(o.facing().cos(), o.facing().sin(), 0.0);
+            let side = Vec3::new(-ahead.y, ahead.x, 0.0) * 0.4;
+            let base = o.position + Vec3::Z * 0.1;
+            let tip = base + ahead * 1.5;
+            let stroke = Stroke::new(1.5, Color32::from_rgb(80, 220, 230));
+            line(base, tip, stroke);
+            line(tip, tip - ahead * 0.5 + side, stroke);
+            line(tip, tip - ahead * 0.5 - side, stroke);
+        }
         // Waypoints and merchants: a yellow arrow along their facing, as
         // Aurora draws them.
         if matches!(o.kind, ObjectKind::Waypoint | ObjectKind::Store) && !selected {
