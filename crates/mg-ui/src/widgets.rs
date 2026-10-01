@@ -18,23 +18,27 @@ pub struct FieldTarget {
     pub key: ResKey,
     pub path: GffPath,
     pub label: String,
+    /// More structs that take the same value (several objects edited at
+    /// once).
+    pub also: Vec<GffPath>,
 }
 
 impl FieldTarget {
     pub fn new(key: ResKey, path: GffPath, label: &str) -> FieldTarget {
-        FieldTarget { key, path, label: label.to_string() }
+        FieldTarget { key, path, label: label.to_string(), also: Vec::new() }
     }
 
     fn command(&self, what: &str, value: Value) -> Action {
-        Action::Apply(Command::new(
-            what,
-            vec![Edit::SetField {
+        let edits = std::iter::once(&self.path)
+            .chain(&self.also)
+            .map(|path| Edit::SetField {
                 key: self.key,
-                path: self.path.clone(),
+                path: path.clone(),
                 label: self.label.clone(),
-                value: Some(value),
-            }],
-        ))
+                value: Some(value.clone()),
+            })
+            .collect();
+        Action::Apply(Command::new(what, edits))
     }
 }
 

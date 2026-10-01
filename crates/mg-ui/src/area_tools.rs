@@ -311,3 +311,121 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
         app.find_instance = Some(f);
     }
 }
+
+/// Aurora's Preview window (`TfrmPreview`): the blueprint chosen in the
+/// palette, in 3D for creatures, items, placeables and doors, with its
+/// name, tag, resref and comments and a few fields of its type.
+pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
+    if !app.preview_window {
+        return;
+    }
+    let mut open = true;
+    let key = app.palette.selected;
+    egui::Window::new("Preview").open(&mut open).default_size([360.0, 460.0]).show(
+        ui.ctx(),
+        |ui| {
+            let Some(key) = key else {
+                ui.weak("Choose a blueprint in the palette.");
+                return;
+            };
+            let gff = blueprint(app, key);
+            let Some(gff) = gff else {
+                ui.colored_label(ui.visuals().error_fg_color, format!("{key}: not found"));
+                return;
+            };
+            egui::Grid::new("preview-fields").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                for (label, value) in summary(app, key.restype, &gff.root) {
+                    ui.label(label);
+                    ui.add(egui::Label::new(value).truncate());
+                    ui.end_row();
+                }
+            });
+            if crate::model_view::previewable(key.restype) {
+                ui.separator();
+                ui.allocate_ui(egui::vec2(ui.available_width(), 300.0), |ui| {
+                    crate::model_view::ui(app, ui, key);
+                });
+            }
+        },
+    );
+    app.preview_window = open;
+}
+
+/// A blueprint from the module, else the game.
+fn blueprint(app: &Moonglow, key: ResKey) -> Option<mg_gff::Gff> {
+    let data = app
+        .ws
+        .as_ref()
+        .and_then(|w| w.module.get(&key).map(<[u8]>::to_vec))
+        .or_else(|| app.game.as_ref()?.resman.get(&key).ok().map(|d| d.into_owned()))?;
+    mg_gff::Gff::read(&data).ok()
+}
+
+/// The Preview window's fields for a blueprint (as Aurora's).
+fn summary(app: &Moonglow, t: ResType, s: &mg_gff::Struct) -> Vec<(&'static str, String)> {
+    let game = app.game.as_ref();
+    let text = |label: &str| s.string(label).map(|v| String::from_utf8_lossy(v).into_owned());
+    let name = |label: &str| {
+        let ls = s.locstring(label)?;
+        game.and_then(|g| g.locstring(ls))
+    };
+    let int = |label: &str| s.integer(label).map(|v| v.to_string()).unwrap_or_default();
+    let yes =
+        |label: &str| if s.integer(label).unwrap_or(0) != 0 { "yes" } else { "no" }.to_string();
+    let resref_field = if t == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+    let mut out = vec![
+        (
+            "Name",
+            name(match t {
+                ResType::UTC => "FirstName",
+                ResType::UTI | ResType::UTW | ResType::UTT | ResType::UTE => "LocalizedName",
+                _ => "LocName",
+            })
+            .unwrap_or_default(),
+        ),
+        ("Tag", text("Tag").unwrap_or_default()),
+        ("Blueprint ResRef", s.resref(resref_field).map(|r| r.to_string()).unwrap_or_default()),
+    ];
+    match t {
+        ResType::UTC => {
+            out.push((
+                "Challenge Rating",
+                s.float("ChallengeRating").map(|v| v.to_string()).unwrap_or_default(),
+            ));
+            out.push(("Faction", int("FactionID")));
+        }
+        ResType::UTD => {
+            out.push(("Trap Type", int("TrapType")));
+            out.push(("Faction", int("Faction")));
+            out.push(("Destination Tag", text("LinkedTo").unwrap_or_default()));
+            out.push(("Locked", yes("Locked")));
+        }
+        ResType::UTE => {
+            out.push(("Difficulty", int("DifficultyIndex")));
+            out.push(("Spawn Option", int("SpawnOption")));
+            out.push(("Faction", int("Faction")));
+        }
+        ResType::UTI => {
+            let cost = game.map(|g| g.item_cost(&mg_rules::ItemValue::from_gff(s)));
+            out.push(("Total Cost", cost.map(|c| c.to_string()).unwrap_or_default()));
+        }
+        ResType::UTP => {
+            out.push(("Faction", int("Faction")));
+            out.push(("Trap Type", int("TrapType")));
+            out.push(("Locked", yes("Locked")));
+        }
+        ResType::UTS => {
+            out.push(("Volume", int("Volume")));
+            out.push(("Active", yes("Active")));
+        }
+        ResType::UTT => {
+            out.push(("Trigger Type", int("Type")));
+            out.push(("Destination Tag", text("LinkedTo").unwrap_or_default()));
+            out.push(("Faction", int("Faction")));
+            out.push(("Trap Type", int("TrapType")));
+        }
+        _ => {}
+    }
+    out.push(("Comments", text("Comment").unwrap_or_default()));
+    out
+}

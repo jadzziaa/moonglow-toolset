@@ -54,7 +54,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef) {
             audio(app, ui, area);
             return;
         }
-        let mut f = Form { app, key: are, path: GffPath::root(), root };
+        let mut f = Form { app, key: are, path: GffPath::root(), also: Vec::new(), root };
         match page {
             "Basic" => basic(&mut f, ui),
             "Visual" => visual(&mut f, ui),
@@ -249,7 +249,7 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef) {
     let sounds = choices(app, "ambientsound", "Description", "Resource");
     let music = choices(app, "ambientmusic", "Description", "Resource");
     let eax = choices(app, "soundeax", "Description", "Label");
-    let mut f = Form { app, key: git, path, root };
+    let mut f = Form { app, key: git, path, also: Vec::new(), root };
     egui::Grid::new(("are-audio", git)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (text, label, list) in [
             ("Ambient Sound, Day", "AmbientSndDay", &sounds),

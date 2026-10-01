@@ -77,6 +77,9 @@ pub(crate) struct Form<'a> {
     /// Where the object is in it: the root for a blueprint, its entry in a
     /// GIT list for a placed object.
     pub path: GffPath,
+    /// Other objects of the same type edited with it (Aurora's
+    /// multi-editor): each field set is set on them too.
+    pub also: Vec<GffPath>,
     /// The object as it is now.
     pub root: Struct,
 }
@@ -116,7 +119,14 @@ impl Form<'_> {
     }
 
     fn target(&self, label: &str) -> FieldTarget {
-        FieldTarget::new(self.key, self.path.clone(), label)
+        let mut t = FieldTarget::new(self.key, self.path.clone(), label);
+        t.also = self.also.clone();
+        t
+    }
+
+    /// The paths a field set goes to: the object's and the others'.
+    fn paths(&self) -> impl Iterator<Item = &GffPath> {
+        std::iter::once(&self.path).chain(&self.also)
     }
 
     /// Whether this is an object placed in an area (not a blueprint).
@@ -132,15 +142,16 @@ impl Form<'_> {
 
     /// Sets a field (one undoable command named `what`).
     pub(crate) fn set(&mut self, what: &str, label: &str, value: Value) {
-        self.app.actions.push(Action::Apply(Command::new(
-            what,
-            vec![Edit::SetField {
+        let edits = self
+            .paths()
+            .map(|path| Edit::SetField {
                 key: self.key,
-                path: self.path.clone(),
+                path: path.clone(),
                 label: label.to_string(),
-                value: Some(value),
-            }],
-        )));
+                value: Some(value.clone()),
+            })
+            .collect();
+        self.app.actions.push(Action::Apply(Command::new(what, edits)));
     }
 
     /// Sets an integer field, keeping its stored type (for a field the
@@ -213,13 +224,15 @@ impl Form<'_> {
 
     /// Sets several fields in one command.
     pub(crate) fn set_fields(&mut self, what: &str, fields: Vec<(&str, Value)>) {
-        let edits = fields
-            .into_iter()
-            .map(|(label, value)| Edit::SetField {
-                key: self.key,
-                path: self.path.clone(),
-                label: label.to_string(),
-                value: Some(value),
+        let edits = self
+            .paths()
+            .flat_map(|path| {
+                fields.iter().map(|(label, value)| Edit::SetField {
+                    key: self.key,
+                    path: path.clone(),
+                    label: label.to_string(),
+                    value: Some(value.clone()),
+                })
             })
             .collect();
         self.app.actions.push(Action::Apply(Command::new(what, edits)));
@@ -227,17 +240,19 @@ impl Form<'_> {
 
     /// Sets several integer fields in one command.
     pub(crate) fn set_many(&mut self, what: &str, fields: &[(&str, i64, FieldType)]) {
-        let edits = fields
-            .iter()
-            .map(|(label, v, t)| Edit::SetField {
-                key: self.key,
-                path: self.path.clone(),
-                label: label.to_string(),
-                value: Some(integer(
-                    self.root.get(label),
-                    *v,
-                    mg_schema::root_field_type(self.restype(), label).unwrap_or(*t),
-                )),
+        let edits = self
+            .paths()
+            .flat_map(|path| {
+                fields.iter().map(|(label, v, t)| Edit::SetField {
+                    key: self.key,
+                    path: path.clone(),
+                    label: label.to_string(),
+                    value: Some(integer(
+                        self.root.get(label),
+                        *v,
+                        mg_schema::root_field_type(self.restype(), label).unwrap_or(*t),
+                    )),
+                })
             })
             .collect();
         self.app.actions.push(Action::Apply(Command::new(what, edits)));
@@ -644,6 +659,18 @@ pub(crate) fn instance_pages(t: ResType) -> Vec<&'static str> {
 /// The Properties of the object at `path` in the document `key` (a
 /// blueprint at the root, or an object placed in an area's GIT).
 pub(crate) fn edit(app: &mut Moonglow, ui: &mut Ui, key: ResKey, path: GffPath) {
+    edit_many(app, ui, key, path, Vec::new());
+}
+
+/// The Properties of several objects of one type at once (Aurora's
+/// multi-editor): shown as the first, each field changed set on all.
+pub(crate) fn edit_many(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    key: ResKey,
+    path: GffPath,
+    also: Vec<GffPath>,
+) {
     let Some(ws) = &mut app.ws else {
         ui.label("No module is open.");
         return;
@@ -676,7 +703,13 @@ pub(crate) fn edit(app: &mut Moonglow, ui: &mut Ui, key: ResKey, path: GffPath) 
     });
     app.blueprint_pages.insert(page_key, page);
     ui.separator();
-    let mut form = Form { app, key, path, root };
+    if !also.is_empty() {
+        ui.weak(format!(
+            "{} objects: shown as the first; what you change is set on each",
+            also.len() + 1
+        ));
+    }
+    let mut form = Form { app, key, path, also, root };
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match restype {
         ResType::UTW => waypoint::page(&mut form, ui, page),
         ResType::UTS => sound::page(&mut form, ui, page),

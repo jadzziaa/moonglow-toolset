@@ -2290,3 +2290,60 @@ fn add_to_palette_create_waypoint_and_set() {
     assert_eq!(waypoints[0].string("Tag"), Some(&b"Patrol_01"[..]));
     assert_eq!(waypoints[1].string("Tag"), Some(&b"Patrol_02"[..]));
 }
+
+#[test]
+fn several_objects_edited_together() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("multi") else { return };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    let at = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Properties").click();
+    h.run_steps(3);
+    let paths = vec![
+        mg_edit::GffPath::root().item("WaypointList", 0),
+        mg_edit::GffPath::root().item("WaypointList", 1),
+    ];
+    assert!(h.state().dock.find_tab(&Tab::Instances { area, paths }).is_some());
+    h.get_by_label_contains("what you change is set on each");
+    h.get_by_label("Advanced").click();
+    h.run_steps(2);
+    h.get_by_label("Waypoint Contains a Map Note").click();
+    h.run_steps(3);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap().root.clone();
+    let notes: Vec<_> =
+        git.list("WaypointList").unwrap().iter().map(|w| w.integer("HasMapNote")).collect();
+    assert_eq!(notes, [Some(1), Some(1)], "both");
+    assert_eq!(ws.can_undo(), Some("Waypoint Contains a Map Note"));
+}
+
+#[test]
+fn preview_window_shows_the_chosen_blueprint() {
+    let Some((mut h, _area)) = area_harness("preview") else { return };
+    h.get_by_label("👁 Preview").click();
+    h.run_steps(2);
+    h.get_by_label("Choose a blueprint in the palette.");
+    // A waypoint: its fields.
+    h.state_mut().palette.selected = ResKey::parse("nw_waypoint001", ResType::UTW);
+    h.run_steps(2);
+    h.get_by_label("Blueprint ResRef");
+    h.get_by_label("nw_waypoint001");
+    // A chest: also in 3D.
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    h.state_mut().palette.selected = Some(chest);
+    h.run_steps(3);
+    h.get_by_label("plc_chest1");
+    assert!(h.state().model_views.contains_key(&chest), "the 3D view");
+}

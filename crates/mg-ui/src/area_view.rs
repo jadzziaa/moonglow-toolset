@@ -1117,7 +1117,9 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
     // Objects after the deleted ones move up their lists: their Properties
     // would show others.
     let area = view.area;
-    app.dock.retain_tabs(|t| !matches!(t, crate::Tab::Instance { area: a, .. } if *a == area));
+    app.dock.retain_tabs(|t| {
+        !matches!(t, crate::Tab::Instance { area: a, .. } | crate::Tab::Instances { area: a, .. } if *a == area)
+    });
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Delete", edits)));
     }
@@ -1202,10 +1204,20 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         [one] => Some(*one),
         _ => None,
     };
-    if ui.add_enabled(single.is_some(), egui::Button::new("Properties")).clicked()
-        && let Some((kind, index)) = single
-    {
-        open_properties(app, view, kind, index);
+    let same_kind =
+        view.selection.len() > 1 && view.selection.iter().all(|(k, _)| *k == view.selection[0].0);
+    if ui.add_enabled(single.is_some() || same_kind, egui::Button::new("Properties")).clicked() {
+        match single {
+            Some((kind, index)) => open_properties(app, view, kind, index),
+            None => {
+                let paths = view
+                    .selection
+                    .iter()
+                    .map(|(k, i)| mg_edit::GffPath::root().item(k.list(), *i))
+                    .collect();
+                app.actions.push(Action::OpenTab(crate::Tab::Instances { area: view.area, paths }));
+            }
+        }
         ui.close();
     }
     let any = !view.selection.is_empty();

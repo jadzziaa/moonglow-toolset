@@ -41,6 +41,8 @@ pub enum Tab {
     Area(mg_core::ResRef),
     /// An area's Properties.
     AreaProperties(mg_core::ResRef),
+    /// Several objects of one type placed in an area, edited together.
+    Instances { area: mg_core::ResRef, paths: Vec<mg_edit::GffPath> },
     /// An object placed in an area (its entry in the area's GIT), in its
     /// Properties editor.
     Instance { area: mg_core::ResRef, path: mg_edit::GffPath },
@@ -95,6 +97,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Area(r) => r.to_string().into(),
             Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),
             Tab::AreaProperties(area) => format!("{area} (Area Properties)").into(),
+            Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()).into(),
         }
     }
 
@@ -114,6 +117,11 @@ impl TabViewer for Viewer<'_> {
             Tab::Model(k) => model_view::ui(self.app, ui, *k),
             Tab::Area(r) => area_view::ui(self.app, ui, *r),
             Tab::AreaProperties(area) => crate::area_props::ui(self.app, ui, *area),
+            Tab::Instances { area, paths } => {
+                let git = ResKey::new(*area, ResType::GIT);
+                let (first, rest) = paths.split_first().expect("at least one");
+                crate::blueprint::edit_many(self.app, ui, git, first.clone(), rest.to_vec());
+            }
             Tab::Instance { area, path } => {
                 let git = ResKey::new(*area, ResType::GIT);
                 crate::blueprint::edit(self.app, ui, git, path.clone());

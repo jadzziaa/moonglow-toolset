@@ -166,6 +166,8 @@ pub struct Moonglow {
     pub adjust: Option<area_tools::AdjustLocation>,
     /// The Find Instance window.
     pub find_instance: Option<area_tools::FindInstance>,
+    /// The Preview window is shown.
+    pub preview_window: bool,
     /// Objects copied in an area viewer.
     pub object_clip: Option<area_view::ObjectClip>,
     /// An object to show and select when its area's view is next drawn.
@@ -238,6 +240,7 @@ impl Moonglow {
             find_instance: None,
             area_focus: None,
             object_clip: None,
+            preview_window: false,
             palette: Default::default(),
             hak_report: None,
             custom_tlk: None,
@@ -316,6 +319,7 @@ impl Moonglow {
         dialog_view::test_window(self, ui);
         script_wizard::window(self, ui);
         area_tools::windows(self, ui);
+        area_tools::preview_window(self, ui);
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -522,6 +526,8 @@ impl Moonglow {
             button(ui, open, "🗺 New Area", "Area Wizard (Ctrl+Alt+A)", Action::AreaWizard);
             button(ui, true, "🔍 Resources", "Resource browser", Action::OpenTab(Tab::Resources));
             button(ui, true, "📦 Palettes", "Blueprint palettes", Action::OpenTab(Tab::Palette));
+            ui.toggle_value(&mut self.preview_window, "👁 Preview")
+                .on_hover_text("Show Preview Window: the blueprint chosen in the palette");
             ui.separator();
             button(ui, open, "⚙ Compile", "Compile all scripts (F7)", Action::CompileScripts);
             button(ui, open, "✔ Verify", "Verify the module", Action::Verify);
