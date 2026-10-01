@@ -3507,3 +3507,22 @@ fn area_marks_screen() {
     let dir = mg_testkit::scratch_dir("ui-area-marks");
     h.render().expect("render").save(dir.join("marks.png")).unwrap();
 }
+
+#[test]
+fn creature_names_can_be_random() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_named", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    let name = |h: &mut Harness<'_, Moonglow>| {
+        let s = field(h, &key);
+        let l = s.locstring("FirstName").cloned().unwrap_or_default();
+        l.strings.first().map(|(_, b)| String::from_utf8_lossy(b).into_owned())
+    };
+    let before = name(&mut h);
+    h.get_all_by_label("🎲").next().unwrap().click();
+    h.run();
+    let after = name(&mut h).expect("a name");
+    assert_ne!(Some(after.clone()), before);
+    assert!((4..=13).contains(&after.len()), "{after}");
+}

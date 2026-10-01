@@ -154,12 +154,33 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let genders = choices(f, "gender", "NAME", "GENDER");
     let (cr, cr_detail) = rating_text(f);
     egui::Grid::new(("utc-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("First Name");
-        f.locstring(ui, "First name", "FirstName");
-        ui.end_row();
-        ui.label("Last Name");
-        f.locstring(ui, "Last name", "LastName");
-        ui.end_row();
+        for (text, what, label, last) in [
+            ("First Name", "First name", "FirstName", false),
+            ("Last Name", "Last name", "LastName", true),
+        ] {
+            ui.label(text);
+            ui.horizontal(|ui| {
+                f.locstring(ui, what, label);
+                // A random name from the race's letter tables.
+                if ui.small_button("🎲").on_hover_text("Random name").clicked() {
+                    let race = f.root.integer("Race").unwrap_or(6).max(0) as u32;
+                    let gender = f.root.integer("Gender").unwrap_or(0).clamp(0, 255) as u8;
+                    let name =
+                        f.app.game.as_ref().and_then(|g| {
+                            g.random_name(race, gender, last, &mut fastrand::Rng::new())
+                        });
+                    if let Some(n) = name {
+                        let current = f.root.locstring(label).cloned().unwrap_or_default();
+                        f.set(
+                            what,
+                            label,
+                            Value::LocString(crate::text::with_english(current, &n)),
+                        );
+                    }
+                }
+            });
+            ui.end_row();
+        }
         ui.label("Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
