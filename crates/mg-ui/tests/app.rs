@@ -2462,6 +2462,29 @@ fn area_viewer_paints_terrain() {
     h.run_steps(2);
     assert_ne!(lattice(&mut h).corner(2, 2).terrain, water);
 
+    // Shift + click with Grass on a grass corner: the four tiles around it
+    // step to their next variants; the terrain stays.
+    h.get_by_label("Grass").click();
+    h.run_steps(2);
+    let tiles = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let before = tiles(&mut h);
+    let at = screen(&h, area, Vec3::new(30.0, 30.0, 0.0));
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::SHIFT);
+    press(&h, at, false, egui::Modifiers::SHIFT);
+    h.run_steps(2);
+    let after = tiles(&mut h);
+    assert_eq!(after.lattice, before.lattice);
+    let moved = [(2, 2), (3, 2), (2, 3), (3, 3)]
+        .iter()
+        .filter(|&&(x, y)| after.tile(x, y) != before.tile(x, y))
+        .count();
+    assert!(moved > 0, "the tiles step to their next variants");
+
     // Raise and lower a corner.
     h.get_by_label("Raise/Lower").click();
     h.run_steps(2);

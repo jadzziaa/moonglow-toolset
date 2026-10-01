@@ -119,6 +119,29 @@ fn stroke(
     let (x, y) = spot.corner;
     let label = format!("Paint {}", brush.label);
     match brush.brush {
+        // Shift + click on a corner of the brush's terrain: the tiles
+        // around it each step to their next variant, in Aurora's order.
+        Brush::Terrain(t) if cycle && grid.lattice.corner(x, y).terrain == t => {
+            let mut fixed = Vec::new();
+            let (w, h) = (grid.lattice.width(), grid.lattice.height());
+            for (dx, dy) in [(-1i64, -1i64), (0, -1), (-1, 0), (0, 0)] {
+                let (cx, cy) = (i64::from(x) + dx, i64::from(y) + dy);
+                if cx < 0 || cy < 0 || cx >= i64::from(w) || cy >= i64::from(h) {
+                    continue;
+                }
+                let (cx, cy) = (cx as u32, cy as u32);
+                if tools.index.is_grouped(grid.tile(cx, cy).tile) {
+                    continue;
+                }
+                if let Some(p) =
+                    next_fit(&tools.index, &grid.lattice.cell(cx, cy), grid.tile(cx, cy))
+                {
+                    fixed.push(((cx, cy), p));
+                }
+            }
+            let s = Stroke { lattice: grid.lattice.clone(), cells: Vec::new(), fixed };
+            (Some(s), "Next tiles".into())
+        }
         Brush::Terrain(t) => (grid.paint(&tools.index, &tools.rules, x, y, t), label),
         Brush::RaiseLower => {
             let what = if lower { "Lower terrain" } else { "Raise terrain" };
@@ -349,9 +372,9 @@ pub(crate) fn input(
                 && let Some(g) = current_grid(app, view)
             {
                 let tools = view.terrain.as_ref().expect("checked");
-                let cycle = shift && brush.brush == Brush::Eraser;
+                let cycle = shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
                 let (st, label) = stroke(tools, &g, &brush, s, lower, cycle, 0);
-                let pick = if cycle {
+                let pick = if cycle && brush.brush == Brush::Eraser {
                     let (cx, cy) = s.cell;
                     next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
                 } else {
