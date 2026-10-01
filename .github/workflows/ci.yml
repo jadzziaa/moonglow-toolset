@@ -21,6 +21,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        # ALSA for sound playback (rodio).
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Format
         run: cargo fmt --all --check
       - name: Clippy

@@ -1,5 +1,8 @@
 //! Moonglow Toolset, the desktop application.
 
+// No console window beside the app on Windows (release builds).
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 use std::path::{Path, PathBuf};
 
 use mg_ui::{Action, Dialogs, FileKind, Moonglow, Settings};
@@ -45,6 +48,12 @@ impl Dialogs for NativeDialogs {
         d.pick_folder()
     }
 }
+
+const APP_NAME: &str = "Moonglow Toolset";
+
+/// The desktop entry's name (Linux: Wayland's app ID and X11's class, which
+/// match the window to `packaging/linux/<APP_ID>.desktop` and its icon).
+const APP_ID: &str = "io.github.moonglow_toolset.Moonglow";
 
 /// Where eframe keeps the settings.
 const SETTINGS_KEY: &str = "moonglow-settings";
@@ -100,12 +109,20 @@ fn crash_reports() {
     }));
 }
 
+/// The window's icon (`packaging/icons`).
+fn window_icon() -> egui::IconData {
+    eframe::icon_data::from_png_bytes(include_bytes!("../../../packaging/icons/moonglow-256.png"))
+        .unwrap_or_default()
+}
+
 fn main() -> eframe::Result<()> {
     crash_reports();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
-            .with_title("Moonglow Toolset"),
+            .with_title("Moonglow Toolset")
+            .with_app_id(APP_ID)
+            .with_icon(window_icon()),
         wgpu_options: egui_wgpu::WgpuConfiguration {
             wgpu_setup: egui_wgpu::WgpuSetup::CreateNew(egui_wgpu::WgpuSetupCreateNew {
                 // Game textures are mostly BC-compressed: upload them as
@@ -120,10 +137,13 @@ fn main() -> eframe::Result<()> {
             }),
             ..Default::default()
         },
+        // The settings stay where they were before the window had an app
+        // ID (eframe would otherwise name their folder after it).
+        persistence_path: eframe::storage_dir(APP_NAME).map(|d| d.join("app.ron")),
         ..Default::default()
     };
     eframe::run_native(
-        "Moonglow Toolset",
+        APP_NAME,
         options,
         Box::new(|cc| {
             let settings: Settings =
@@ -147,4 +167,13 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(App { moonglow, title: String::new() }))
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn the_window_icon_decodes() {
+        let icon = super::window_icon();
+        assert_eq!((icon.width, icon.height, icon.rgba.len()), (256, 256, 256 * 256 * 4));
+    }
 }

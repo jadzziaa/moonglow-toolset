@@ -61,6 +61,7 @@ fn largest_area(app: &mut Moonglow) -> Option<mg_core::ResRef> {
 #[test]
 #[ignore]
 fn largest_campaigns_stay_within_budget() {
+    mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let nwm = root.join("data/nwm");
     let mut over = Vec::new();

@@ -22,6 +22,7 @@ fn shoot(h: &mut Harness<'_, Moonglow>, dir: &std::path::Path, name: &str) {
 #[test]
 #[ignore]
 fn script_wizard_pages() {
+    mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
@@ -63,6 +64,7 @@ fn script_wizard_pages() {
 #[test]
 #[ignore]
 fn options_window() {
+    mg_testkit::gpu::hold();
     use egui_kittest::kittest::Queryable;
     let dir = mg_testkit::scratch_dir("screens-options");
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
@@ -83,6 +85,7 @@ fn options_window() {
 #[test]
 #[ignore]
 fn model_viewer() {
+    mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
@@ -108,6 +111,7 @@ fn model_viewer() {
 #[test]
 #[ignore]
 fn blueprint_preview() {
+    mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("screens-model");
     let rs = egui_kittest::wgpu::create_render_state(
@@ -131,6 +135,7 @@ fn blueprint_preview() {
 #[test]
 #[ignore]
 fn palettes() {
+    mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("screens");
     let mut app =
@@ -146,6 +151,7 @@ fn palettes() {
 #[test]
 #[ignore]
 fn blueprint_editors() {
+    mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("screens");
     for (name, t, pages) in [
@@ -192,4 +198,26 @@ fn blueprint_editors() {
             shoot(&mut h, &dir, &format!("{name}-{page_name}"));
         }
     }
+}
+
+#[test]
+#[ignore]
+fn user_manual() {
+    mg_testkit::gpu::hold();
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let dir = mg_testkit::scratch_dir("screens-manual");
+    let app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Manual));
+    shoot(&mut h, &dir, "manual-contents");
+    let listed =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
+    h.get_all_by_label("Areas").find(|n| listed(n)).unwrap().click();
+    shoot(&mut h, &dir, "manual-areas");
+    h.state_mut().about = true;
+    shoot(&mut h, &dir, "about");
 }

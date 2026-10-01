@@ -1,0 +1,5 @@
+# Windows builds carry the C runtime inside the executables (the Rust code
+# and the C++ script compiler alike), so they run without the Visual C++
+# Redistributable installed.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

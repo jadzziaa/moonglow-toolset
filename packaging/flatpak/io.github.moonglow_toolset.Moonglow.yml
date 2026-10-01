@@ -1,0 +1,58 @@
+# Flatpak build of Moonglow Toolset.
+#
+# Builds offline from vendored crates: generate cargo-sources.json from
+# Cargo.lock with flatpak-builder-tools' cargo generator
+# (https://github.com/flatpak/flatpak-builder-tools, cargo/), then
+#
+#   flatpak-builder --user --install --force-clean target/flatpak \
+#       packaging/flatpak/io.github.moonglow_toolset.Moonglow.yml
+#
+# (packaging/README.md has the details.)
+id: io.github.moonglow_toolset.Moonglow
+runtime: org.freedesktop.Platform
+runtime-version: "25.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: moonglow
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Sound previews, area ambience and music.
+  - --socket=pulseaudio
+  # The game's user folder (modules, haks, talk tables, override), and the
+  # game where Steam installs it, natively or as a Flatpak. Installs in
+  # other Steam libraries need their folder added (flatpak override
+  # --filesystem=PATH:ro).
+  - --filesystem=~/.local/share/Neverwinter Nights:create
+  - --filesystem=~/.local/share/Steam/steamapps/common/Neverwinter Nights:ro
+  - --filesystem=~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Neverwinter Nights:ro
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/moonglow/cargo
+    CARGO_NET_OFFLINE: "true"
+modules:
+  - name: moonglow
+    buildsystem: simple
+    build-commands:
+      - cargo --offline fetch --manifest-path Cargo.toml --verbose
+      - cargo --offline build --profile dist --locked -p moonglow -p mg
+      - install -Dm755 target/dist/moonglow -t /app/bin/
+      - install -Dm755 target/dist/mg -t /app/bin/
+      - install -Dm644 packaging/linux/io.github.moonglow_toolset.Moonglow.desktop -t /app/share/applications/
+      - install -Dm644 packaging/linux/io.github.moonglow_toolset.Moonglow.metainfo.xml -t /app/share/metainfo/
+      - install -Dm644 packaging/linux/moonglow-mime.xml /app/share/mime/packages/io.github.moonglow_toolset.Moonglow.xml
+      - install -Dm644 packaging/icons/moonglow.svg /app/share/icons/hicolor/scalable/apps/io.github.moonglow_toolset.Moonglow.svg
+      - for s in 16 24 32 48 64 128 256 512; do install -Dm644 packaging/icons/moonglow-$s.png /app/share/icons/hicolor/${s}x$s/apps/io.github.moonglow_toolset.Moonglow.png; done
+      - install -Dm644 LICENSE -t /app/share/doc/moonglow/
+      - python3 packaging/third_party_licenses.py > /app/share/doc/moonglow/THIRD-PARTY-LICENSES.txt
+      - cp -r docs/manual /app/share/doc/moonglow/manual
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - target
+      - cargo-sources.json

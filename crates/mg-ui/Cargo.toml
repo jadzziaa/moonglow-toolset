@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 egui.workspace = true
 egui-wgpu.workspace = true
+egui_commonmark.workspace = true
 egui_dock.workspace = true
 fastrand.workspace = true
 mg-2da.workspace = true

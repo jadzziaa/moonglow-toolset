@@ -894,6 +894,7 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
 #[test]
 fn model_viewer_plays_animations() {
     let root = mg_testkit::corpus!();
+    mg_testkit::gpu::hold();
     if mg_render::Gpu::headless().is_none() {
         eprintln!("skipped: no GPU adapter");
         return;
@@ -928,6 +929,7 @@ fn model_viewer_plays_animations() {
 #[test]
 fn blueprint_previews_open() {
     let root = mg_testkit::corpus!();
+    mg_testkit::gpu::hold();
     if mg_render::Gpu::headless().is_none() {
         eprintln!("skipped: no GPU adapter");
         return;
@@ -1664,6 +1666,7 @@ fn area_harness_on(
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
     let root = mg_testkit::nwn_root()?;
+    mg_testkit::gpu::hold();
     if mg_render::Gpu::headless().is_none() {
         eprintln!("skipped: no GPU adapter");
         return None;
@@ -4226,4 +4229,35 @@ fn premium_campaigns_find_their_talk_tables_in_the_install() {
     let loaded = app.log.entries.iter().any(|(_, e)| e == "Custom talk table tyrants loaded");
     assert!(loaded, "{:?}", app.log.entries);
     assert!(app.game.as_ref().unwrap().custom_tlk().is_some());
+}
+
+#[test]
+fn the_user_manual_opens_from_help_and_follows_its_links() {
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run();
+    h.get_by_label("Help").click();
+    h.run();
+    h.get_by_label("User Manual (F1)").click();
+    h.run();
+    // The contents, with the chapters beside them.
+    h.get_by_label("Moonglow Toolset: User Manual");
+    // Chapters in the list are buttons; links in the text are not.
+    let listed =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
+    assert!(h.get_all_by_label("Troubleshooting").any(|n| listed(&n)));
+    // A link in the text opens its chapter in place.
+    h.get_all_by_label("Getting started").find(|n| !listed(n)).unwrap().click();
+    h.run();
+    h.get_by_label("What you need");
+    // The chapter list picks another.
+    h.get_all_by_label("Areas").find(|n| listed(n)).unwrap().click();
+    h.run();
+    h.get_by_label("Placing objects");
+    h.get_by_label("Help").click();
+    h.run();
+    h.get_by_label("About Moonglow Toolset").click();
+    h.run();
+    h.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
 }

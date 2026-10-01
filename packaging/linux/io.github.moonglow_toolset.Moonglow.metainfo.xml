@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.moonglow_toolset.Moonglow</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>Moonglow Toolset</name>
+  <developer id="io.github.moonglow_toolset">
+    <name>The Moonglow Toolset contributors</name>
+  </developer>
+  <summary>Build modules for Neverwinter Nights: Enhanced Edition</summary>
+  <description>
+    <p>
+      Moonglow is a module toolset for Neverwinter Nights: Enhanced Edition, a
+      reimplementation of BioWare's Aurora Toolset that runs on Linux, Windows
+      and macOS. It edits what Aurora edits: areas with their tiles and
+      objects, blueprints and palettes, conversations, journals, factions,
+      scripts and module properties, and builds, verifies and tests the module
+      in the game.
+    </p>
+    <p>
+      Moonglow reads the game's data from your installation; it needs a copy
+      of Neverwinter Nights: Enhanced Edition.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.moonglow_toolset.Moonglow.desktop</launchable>
+  <provides>
+    <binary>moonglow</binary>
+    <mediatype>application/x-nwn-module</mediatype>
+  </provides>
+  <categories>
+    <category>Development</category>
+    <category>IDE</category>
+  </categories>
+  <keywords>
+    <keyword>Neverwinter Nights</keyword>
+    <keyword>Aurora</keyword>
+    <keyword>module</keyword>
+  </keywords>
+  <requires>
+    <display_length compare="ge">1024</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-10-01">
+      <description>
+        <p>First release: functional parity with the Aurora Toolset.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -22,6 +22,7 @@ mod gff_view;
 mod images;
 pub mod journal_view;
 pub mod levelup_view;
+mod manual;
 pub mod model_view;
 pub mod module_props;
 mod options;
@@ -253,6 +254,10 @@ pub struct Moonglow {
     /// When conversations were last backed up, and what was written.
     dialog_backup_at: Option<std::time::Instant>,
     dialog_backed_up: HashMap<ResKey, Vec<u8>>,
+    /// Help › User Manual's chapter and rendering cache.
+    manual: manual::Manual,
+    /// Help › About is open.
+    pub about: bool,
 }
 
 impl std::fmt::Debug for Moonglow {
@@ -340,6 +345,8 @@ impl Moonglow {
             print_dir: std::env::temp_dir().join("moonglow-print"),
             dialog_backup_at: None,
             dialog_backed_up: HashMap::new(),
+            manual: Default::default(),
+            about: false,
         }
     }
 
@@ -406,6 +413,7 @@ impl Moonglow {
         self.backup_timer(ui);
         self.autosave_timer(ui);
         recovery::window(self, ui);
+        manual::about_window(self, ui.ctx());
         // The area view's sounds go on between frames.
         let heard = self.heard.take();
         if area_audio::update(self, heard, ui.input(|i| i.time)) {
@@ -485,6 +493,9 @@ impl Moonglow {
         }
         if pressed(ui, Modifiers::NONE, Key::F9) && self.ws.is_some() {
             self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
+        }
+        if pressed(ui, Modifiers::NONE, Key::F1) {
+            self.actions.push(Action::OpenTab(Tab::Manual));
         }
     }
 
@@ -626,6 +637,14 @@ impl Moonglow {
                 let area = self.palette.area.filter(|a| self.area_views.contains_key(a));
                 if ui.add_enabled(area.is_some(), egui::Button::new("Area Statistics")).clicked() {
                     self.area_stats = area;
+                }
+            });
+            ui.menu_button("Help", |ui| {
+                if ui.button("User Manual (F1)").clicked() {
+                    self.actions.push(Action::OpenTab(Tab::Manual));
+                }
+                if ui.button("About Moonglow Toolset").clicked() {
+                    self.about = true;
                 }
             });
         });

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Moonglow Toolset
+GenericName=Module Editor
+Comment=Build modules for Neverwinter Nights: Enhanced Edition
+Exec=moonglow %f
+Icon=io.github.moonglow_toolset.Moonglow
+Terminal=false
+Categories=Development;IDE;
+Keywords=Neverwinter Nights;NWN;Aurora;toolset;module;
+MimeType=application/x-nwn-module;
+StartupWMClass=io.github.moonglow_toolset.Moonglow

@@ -1,0 +1,47 @@
+# Command-line tools
+
+`mg` does from a terminal what scripts and build pipelines need: archives,
+GFF files, the game's resources, and building modules. It comes with
+Moonglow (beside `moonglow` in the AppImage, the Flatpak, the Windows
+install folder and the macOS app's `Contents/MacOS`).
+
+```text
+mg [--root GAME] [--user-dir DIR | --no-user-dir] COMMAND ...
+```
+
+`--root` is the game's folder (default: `$NWN_ROOT`, else Steam's);
+`--user-dir` the user folder (default: `$NWN_HOME`, else the platform's);
+`--no-user-dir` reads the game alone. `mg COMMAND --help` describes each
+command.
+
+## Archives and files
+
+| Command | Does |
+| --- | --- |
+| `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav` |
+| `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
+| `mg pack DIR ARCHIVE` | pack a folder into an archive (its type from the extension) |
+| `mg gff INPUT [-o OUTPUT]` | a GFF file to JSON (the format of neverwinter.nim and nasher), or JSON back to GFF |
+
+## The game's resources
+
+| Command | Does |
+| --- | --- |
+| `mg which NAME.EXT` | where a resource comes from in the game's load order |
+| `mg cat NAME.EXT` | print a resource to standard output |
+| `mg layers` | the load order's layers and their sizes |
+| `mg tlk STRREF…` | talk-table strings by number |
+
+## Modules
+
+| Command | Does |
+| --- | --- |
+| `mg verify MODULE [--unused]` | missing resources (and, with `--unused`, unused ones) |
+| `mg haks MODULE` | what the module's haks provide, where they conflict and which game resources they override |
+| `mg compile MODULE [--uncompiled]` | compile the module's scripts (or only those without a compiled version) and save it |
+| `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`) |
+| `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |
+
+A module is a `.mod` archive or a module folder. `mg compile` and `mg
+import` write the module in place; an archive's previous version is kept
+beside it (`mymodule.mod.bak`).

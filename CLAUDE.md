@@ -33,7 +33,10 @@ LocString, binary helpers), `mg-gff`, `mg-erf`, `mg-key`, `mg-2da`, `mg-tlk`,
 render it with `tests/screens.rs`: `cargo test -p mg-ui --test screens --
 --ignored` writes PNGs to `target/test-output/screens/`), `mg-testkit` (corpus locator, oracle
 tools, engine runner) and `mg-corpus-tests` (tests only). Binaries:
-`apps/mg` (CLI) and `apps/moonglow` (the GUI). `tools/aurora/` holds the Aurora oracle
+`apps/mg` (CLI) and `apps/moonglow` (the GUI). `packaging/` builds the release packages
+(AppImage, Flatpak, Windows installer, macOS app; `packaging/README.md`) and
+`docs/manual/` is the user manual, also built into the app (Help › User
+Manual). `tools/aurora/` holds the Aurora oracle
 harness and the form (DFM) decoder; `docs/research/` the research briefs
 (EE formats, rendering, tilesets, models, shaders, prior art).
 
@@ -72,6 +75,9 @@ game's own shader include in the scratch user directory's `override` (as
 - **Lossless editing.** Readers keep everything (unknown GFF fields, duplicate
   labels, odd entries) and typed layers edit the raw tree in place, so an
   untouched file round-trips.
+- **Tests that open a GPU device call `mg_testkit::gpu::hold()` first**, so a
+  test binary has one device open at a time: a test suite with many at once
+  coincided with a kernel panic on the development machine.
 - **Parsers never panic on bad input**: bounds-checked reads
   (`mg_core::bin::Reader`), errors with context, and a truncation test per
   format.

@@ -43,6 +43,7 @@ clap = { version = "4", features = ["derive"] }
 eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "links", "wayland", "x11", "persistence"] }
 egui = "0.36"
 egui-wgpu = "0.36"
+egui_commonmark = { version = "0.25", default-features = false, features = ["pulldown_cmark"] }
 egui_dock = "0.21"
 egui_kittest = "0.36"
 encoding_rs = "0.8"
@@ -78,3 +79,11 @@ opt-level = 2
 
 [profile.test]
 opt-level = 1
+
+# The packages' build (packaging/): smaller and a little faster than
+# release. Function names stay, for crash reports' backtraces.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
