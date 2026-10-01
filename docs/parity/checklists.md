@@ -170,7 +170,7 @@ unless given otherwise.
 |---|---|---|
 | Standard and Custom trees for creatures, doors, encounters, items, placeables, sounds, stores, triggers, waypoints (the game's `*palstd.itp`, the module's `*palcus.itp`) | Tools › Palettes (its own pane on the right): type, Standard or Custom, categories with their blueprints; creatures show their CR | ✅ [palette_edit_copy_and_delete] |
 | Custom palettes regenerated from the module's blueprints (category by `PaletteID`, stores `ID`; 255 hidden; creatures with CR and faction) | rebuilt from the blueprints on every save, and live in the pane | ✅ (`palettes.rs`: Chapter 1's nine custom palettes rebuild entry for entry, in order) |
-| Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview, New… (the type's wizard) | ◐ (the copy's resref rule is not yet checked against Aurora; creatures have no wizard yet) |
+| Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview, New… (the type's wizard) | ◐ (the copy's resref rule is not yet checked against Aurora) |
 | Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
 | Update Instances (Advanced page of every blueprint dialog but the waypoint's) | the same: every placed instance in every area made again from the blueprint where it stands (a trigger's or encounter's outline and spawn points kept) | ◐ [update_instances_remakes_placed_sounds]; what Aurora keeps of an instance not yet checked |
 | Selecting a blueprint arms placement in the area | the same | ✅ [area_viewer_places_draws_boxes_and_turns] |
@@ -227,7 +227,7 @@ scripts (name, picker, Edit), Comments.
 | What they make: every field, its type, order and value; the resref (letters and digits, a trailing number kept within 16 characters, `blueprint` and a number for names with other characters) and the tag | `mg_module::blueprints` | ✅ (`aurora_blueprints.rs`: 15 blueprints made by Aurora's wizards, identical) |
 | Trigger categories: Area Transition makes a transition, the trap strengths a trap of that strength (traps.2da DCs) | the same | ✅ |
 | Sound Wizard's sound list filtered by category (`al_`/`as_` and a category name filter) | the picker opens filtered to `al_` or `as_` | ◐ |
-| Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | not yet: it needs the Levelup Wizard's package logic | ✗ |
+| Creature Wizard (race, class and level, appearance, portrait, faction, name, category; abilities, feats, skills and equipment from the class package; the CR) | Wizards › Creature Wizard… and the creature palette's New…: the same pages; the creature from `mg_module::blueprints::creature` (levelled up from nothing by the packages) | ✅ [creature_wizard_matches_aurora: every field and their order but the four Aurora leaves uninitialized; the_creature_wizard_makes_aurora_s_creature]; no random names (Aurora's name generator) or 3D preview yet |
 | Item Wizard's Magical, Item Level and Quality (disabled in Aurora) | not offered | — |
 
 ## Area viewer (`TfrmViewerArea`, the main frame's Object Filters and Preview toolbars)

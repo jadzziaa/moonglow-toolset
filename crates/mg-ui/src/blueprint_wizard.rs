@@ -2,8 +2,7 @@
 //! palette's New): each type's own steps, the palette category, the name,
 //! and Launch Properties. What they make is `mg_module::blueprints`'.
 //!
-//! The Creature Wizard (which also levels the creature up by its class
-//! package) is not here yet.
+//! The Creature Wizard has its own window (`creature_wizard`).
 
 use egui::Ui;
 use mg_core::{ResRef, ResType};
@@ -158,7 +157,7 @@ impl BlueprintWizard {
             BlueprintKind::Item => {
                 blueprints::item(game, resref, name, self.base_item.unwrap_or(0), category)
             }
-            BlueprintKind::Creature => unreachable!("no creature wizard yet"),
+            BlueprintKind::Creature => unreachable!("the Creature Wizard's own window"),
         };
         (resref, g)
     }
@@ -166,7 +165,7 @@ impl BlueprintWizard {
 
 /// The type's palette categories, as Aurora's wizards list them: by name,
 /// without the empty "assign" branch.
-fn categories(game: &GameData, kind: BlueprintKind) -> Vec<PaletteNode> {
+pub(crate) fn categories(game: &GameData, kind: BlueprintKind) -> Vec<PaletteNode> {
     let skeleton = game
         .resman
         .get_named(&format!("{}pal", kind.name()), ResType::ITP)
@@ -196,7 +195,12 @@ fn category_name(nodes: &[PaletteNode], id: u8, game: &GameData) -> Option<Strin
     })
 }
 
-fn category_tree(ui: &mut Ui, nodes: &[PaletteNode], game: &GameData, chosen: &mut Option<u8>) {
+pub(crate) fn category_tree(
+    ui: &mut Ui,
+    nodes: &[PaletteNode],
+    game: &GameData,
+    chosen: &mut Option<u8>,
+) {
     for n in nodes {
         let name = n.name.text(game);
         match n.id {

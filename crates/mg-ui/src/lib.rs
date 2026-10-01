@@ -12,6 +12,7 @@ pub mod blueprint;
 pub mod blueprint_wizard;
 mod browser;
 pub mod build_view;
+pub mod creature_wizard;
 pub mod dialog_view;
 pub mod dialogs;
 pub mod faction_view;
@@ -187,6 +188,8 @@ pub struct Moonglow {
     pub popup_text: Option<store_wizard::PopupText>,
     /// The Creature Levelup Wizard.
     pub levelup: Option<levelup_view::LevelupWizard>,
+    /// Wizards › Creature Wizard.
+    pub creature_wizard: Option<creature_wizard::CreatureWizard>,
     /// The area whose Area Statistics window is open.
     pub area_stats: Option<mg_core::ResRef>,
     /// The Resize Area window, while it is open.
@@ -281,6 +284,7 @@ impl Moonglow {
             store_wizard: None,
             popup_text: None,
             levelup: None,
+            creature_wizard: None,
             resize_area: None,
             rotate_area: None,
             palette: Default::default(),
@@ -373,6 +377,7 @@ impl Moonglow {
         store_wizard::window(self, ui.ctx());
         store_wizard::popup_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
+        creature_wizard::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -518,6 +523,9 @@ impl Moonglow {
                     self.actions.push(Action::AreaWizard);
                 }
                 ui.separator();
+                if ui.add_enabled(open, egui::Button::new("Creature Wizard…")).clicked() {
+                    self.creature_wizard = Some(Default::default());
+                }
                 for kind in blueprint_wizard::KINDS {
                     let text = format!("{} Wizard…", kind.label().trim_end_matches('s'));
                     if ui.add_enabled(open, egui::Button::new(text)).clicked() {

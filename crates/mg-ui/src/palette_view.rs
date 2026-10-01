@@ -172,13 +172,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         });
         ui.separator();
         ui.add(egui::TextEdit::singleline(&mut view.filter).hint_text("Find").desired_width(140.0));
-        let wizard = crate::blueprint_wizard::KINDS.contains(&view.kind);
+        let creature = view.kind == BlueprintKind::Creature;
+        let wizard = creature || crate::blueprint_wizard::KINDS.contains(&view.kind);
         if ui
             .add_enabled(app.ws.is_some() && wizard, egui::Button::new("New…"))
             .on_hover_text("A new blueprint (the type's wizard)")
             .clicked()
         {
-            app.blueprint_wizard = Some(crate::blueprint_wizard::BlueprintWizard::new(view.kind));
+            if creature {
+                app.creature_wizard = Some(Default::default());
+            } else {
+                app.blueprint_wizard =
+                    Some(crate::blueprint_wizard::BlueprintWizard::new(view.kind));
+            }
         }
     });
     ui.separator();

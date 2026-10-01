@@ -3302,3 +3302,58 @@ fn the_levelup_wizard_adds_a_class_with_its_spells_and_gear() {
     assert_eq!(carried.len(), 11, "{carried:?}");
     assert_eq!(carried[0], ("nw_wswdg001".to_string(), 0, 0));
 }
+
+#[test]
+fn the_creature_wizard_makes_aurora_s_creature() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-creature-wizard");
+    let path = sample_module(&dir);
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Wizards").click();
+    h.run();
+    h.get_by_label("Creature Wizard…").click();
+    h.run();
+    let next = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Next >").click();
+        h.run();
+    };
+    next(&mut h);
+    h.get_by_label("Human").click();
+    h.run();
+    next(&mut h);
+    // Fighter 1, the Human's default class.
+    assert_eq!(h.state().creature_wizard.as_ref().unwrap().classes, [(4, 1)]);
+    next(&mut h);
+    h.get_by_label("hu_m_01_").click();
+    h.run();
+    next(&mut h);
+    next(&mut h); // Hostile
+    let w = h.state_mut().creature_wizard.as_mut().unwrap();
+    (w.first_name, w.last_name) = ("Hent".into(), "Fynolds".into());
+    h.run();
+    next(&mut h);
+    h.get_by_label("Tutorial").click();
+    h.run();
+    next(&mut h); // the review
+    next(&mut h);
+    h.get_all_by_label("Finish").last().unwrap().click();
+    h.run();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let c = ws.doc(&ResKey::parse("hent", ResType::UTC).unwrap()).unwrap().root.clone();
+    assert_eq!((c.integer("HitPoints"), c.integer("MaxHitPoints")), (Some(10), Some(13)));
+    let feats: Vec<i64> =
+        c.list("FeatList").unwrap().iter().filter_map(|f| f.integer("Feat")).collect();
+    assert_eq!(feats, [258, 46, 3, 4, 2, 32, 45, 1089, 28, 106, 10]);
+    assert_eq!(c.integer("PortraitId"), Some(93));
+}
