@@ -138,6 +138,43 @@ pub(crate) fn highlight(text: &str, palette: &Palette) -> LayoutJob {
     job
 }
 
+/// Text for HTML.
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+/// A script as an HTML page that prints itself (Print: the browser's print
+/// dialog), highlighted in the editor's colours on white paper.
+pub(crate) fn print_html(name: &str, text: &str, style: &crate::settings::ScriptStyle) -> String {
+    use std::fmt::Write;
+    let job = highlight(text, &Palette::new(style, false, Color32::BLACK));
+    let mut body = String::new();
+    for s in &job.sections {
+        let c = s.format.color;
+        let t = escape(&job.text[s.byte_range.start.0..s.byte_range.end.0]);
+        let _ = write!(
+            body,
+            "<span style=\"color:#{:02x}{:02x}{:02x}\">{t}</span>",
+            c.r(),
+            c.g(),
+            c.b()
+        );
+    }
+    let n = escape(name);
+    format!(
+        "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><title>{n}</title>\
+         <style>body{{font-family:monospace;font-size:10pt}}pre{{white-space:pre-wrap}}</style>\
+         </head><body onload=\"window.print()\"><h3>{n}</h3><pre>{body}</pre></body></html>\n"
+    )
+}
+
+/// A file's `file://` URL.
+pub(crate) fn file_url(path: &std::path::Path) -> String {
+    let p = path.to_string_lossy().replace('\\', "/");
+    let p = p.replace('%', "%25").replace(' ', "%20").replace('#', "%23");
+    if p.starts_with('/') { format!("file://{p}") } else { format!("file:///{p}") }
+}
+
 fn editor_id(key: ResKey) -> egui::Id {
     egui::Id::new(("script", key))
 }
@@ -292,6 +329,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             .on_hover_text("Save and compile (F7 compiles all scripts)")
             .clicked();
         save_as = ui.button("Save As…").clicked();
+        if ui.button("Print…").on_hover_text("Print the script (through the web browser)").clicked()
+        {
+            let text = app.scripts[&key].text.clone();
+            let html =
+                print_html(&format!("{}.nss", key.resref), &text, &app.settings.script_style);
+            let path = app.print_dir.join(format!("{}.html", key.resref));
+            match std::fs::create_dir_all(&app.print_dir).and_then(|()| std::fs::write(&path, html))
+            {
+                Ok(()) => ui.ctx().open_url(egui::OpenUrl::new_tab(file_url(&path))),
+                Err(e) => app.log.error(format!("Print: {e}")),
+            }
+        }
         let editor = app.settings.external_editor.clone();
         if ui
             .add_enabled(editor.is_some(), egui::Button::new("External Editor"))
@@ -893,6 +942,18 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn print_pages_are_highlighted_and_escaped() {
+        let style = crate::settings::ScriptStyle::default();
+        let html = print_html("x<y>.nss", "// a < b\nvoid main() {}", &style);
+        assert!(html.contains("<title>x&lt;y&gt;.nss</title>"));
+        assert!(html.contains("// a &lt; b"));
+        assert!(html.contains("onload=\"window.print()\""));
+        assert!(html.matches("<span style=\"color:#").count() > 3, "{html}");
+        assert_eq!(file_url(std::path::Path::new("/tmp/a b/c.html")), "file:///tmp/a%20b/c.html");
+        assert_eq!(file_url(std::path::Path::new("C:\\x\\y.html")), "file:///C:/x/y.html");
+    }
 
     #[test]
     fn highlighting_keeps_the_text() {

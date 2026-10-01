@@ -3955,3 +3955,24 @@ fn a_creature_s_sound_set_plays_a_sample() {
     assert!(h.query_by_label(&male_only).is_none(), "{male_only} offered");
     assert!(female.iter().any(|f| h.query_all_by_label(f).next().is_some()));
 }
+
+#[test]
+fn print_opens_a_highlighted_page_of_the_script() {
+    let dir = mg_testkit::scratch_dir("ui-script-print");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, b"void main() { int a = 1 < 2; }\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.print_dir = dir.join("print");
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Print…").click();
+    h.run();
+    let page = std::fs::read_to_string(dir.join("print").join("hello.html")).unwrap();
+    assert!(page.contains(" &lt; ") && page.contains("window.print()"), "{page}");
+    assert!(page.contains(">int</span>"), "keywords are coloured spans");
+}

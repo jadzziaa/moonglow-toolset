@@ -236,6 +236,8 @@ pub struct Moonglow {
     /// Where conversation backups go (Options › Conversation Editor), a
     /// folder per module: the temporary folder's `moonglow-backups`.
     pub conversation_backups: std::path::PathBuf,
+    /// Where Print writes the pages it opens in the browser.
+    pub print_dir: std::path::PathBuf,
     /// When conversations were last backed up, and what was written.
     dialog_backup_at: Option<std::time::Instant>,
     dialog_backed_up: HashMap<ResKey, Vec<u8>>,
@@ -318,6 +320,7 @@ impl Moonglow {
             quit_requested: false,
             minimize_requested: false,
             conversation_backups: std::env::temp_dir().join("moonglow-backups"),
+            print_dir: std::env::temp_dir().join("moonglow-print"),
             dialog_backup_at: None,
             dialog_backed_up: HashMap::new(),
         }
