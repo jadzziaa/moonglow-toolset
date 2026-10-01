@@ -310,8 +310,14 @@ impl Module {
             std::fs::create_dir_all(parent).map_err(io(parent))?;
         }
         let tmp = sibling(path, ".moonglow-tmp");
-        std::fs::write(&tmp, &bytes).map_err(io(&tmp))?;
-        std::fs::File::open(&tmp).and_then(|f| f.sync_all()).map_err(io(&tmp))?;
+        // Written and flushed through one handle: flushing needs write
+        // access on Windows.
+        std::fs::File::create(&tmp)
+            .and_then(|mut f| {
+                std::io::Write::write_all(&mut f, &bytes)?;
+                f.sync_all()
+            })
+            .map_err(io(&tmp))?;
         if path.exists() {
             let backup = sibling(path, ".bak");
             std::fs::copy(path, &backup).map_err(io(&backup))?;
