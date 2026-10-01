@@ -364,6 +364,15 @@ fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
     Some((p, r.read(&ifo::MOD_ENTRY_DIR_Y).atan2(r.read(&ifo::MOD_ENTRY_DIR_X))))
 }
 
+/// The start location as the view shows it: on the ground above or below
+/// the stored point (a new module's start is at height 0, under the ground
+/// of tilesets that build it higher; the game puts players on the walkmesh).
+fn start_on_ground(app: &mut Moonglow, view: &AreaView) -> Option<(Vec3, f32)> {
+    let (p, facing) = start_location(app, view.area)?;
+    let z = view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z)).unwrap_or(p.z);
+    Some((p.with_z(z), facing))
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     let mut view = app.area_views.remove(&area).unwrap_or_else(|| AreaView::new(area));
     refresh(app, &mut view);
@@ -382,7 +391,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         app.area_focus = None;
     }
     toolbar(app, ui, &mut view);
-    let start = start_location(app, area);
+    let start = start_on_ground(app, &view);
     if let Some(e) = &view.error {
         ui.colored_label(ui.visuals().error_fg_color, e);
     } else if app.game.is_none() {
@@ -455,7 +464,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             o.yaw = -FRAC_PI_2;
         }
         if ui.button("Go to Start Location").clicked()
-            && let (Some((p, _)), Some(o)) = (start_location(app, view.area), &mut view.orbit)
+            && let (Some((p, _)), Some(o)) = (start_on_ground(app, view), &mut view.orbit)
         {
             o.target = p;
             o.distance = o.distance.min(30.0);

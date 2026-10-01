@@ -4794,3 +4794,23 @@ fn dialogs_open_with_their_main_field_ready_to_type_in() {
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
     assert!(h.get_all_by_value("Glade").any(|n| is_input(&n)), "the area's name typed in");
 }
+
+#[test]
+fn the_start_location_shows_on_raised_ground() {
+    // Medieval Rural 2 builds its ground 5 m up; a new module's start
+    // location is stored at height 0.
+    let Some((mut h, area)) = area_harness_on("start-raised", "trm02", None) else { return };
+    h.run_steps(3);
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let stored = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let r = ws.doc(&ifo).unwrap().root.clone();
+        (r.read(&ifo::MOD_ENTRY_AREA), r.read(&ifo::MOD_ENTRY_Z))
+    };
+    assert_eq!(stored(&mut h), (area, 0.0));
+    h.get_by_label("Go to Start Location").click();
+    h.run_steps(2);
+    let target = h.state().area_views[&area].orbit.unwrap().target;
+    assert!((target.z - 5.0).abs() < 0.5, "looks at the ground, not under it: {target}");
+    assert_eq!(stored(&mut h), (area, 0.0), "the module's start is as it was");
+}

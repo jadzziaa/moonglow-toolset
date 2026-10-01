@@ -81,7 +81,13 @@ impl Walkmesh {
 
     /// The heights of the faces above or below `p` (the model's space).
     pub fn heights(&self, p: Vec2) -> impl Iterator<Item = f32> + '_ {
-        let outside = p.x < self.min.x || p.y < self.min.y || p.x > self.max.x || p.y > self.max.y;
+        // (A point on the tile's edge, as a start location at a tile corner
+        // is, may land a rounding error outside.)
+        let e = 1e-3;
+        let outside = p.x < self.min.x - e
+            || p.y < self.min.y - e
+            || p.x > self.max.x + e
+            || p.y > self.max.y + e;
         self.faces.iter().filter(move |_| !outside).filter_map(move |f| height_on(f, p))
     }
 
