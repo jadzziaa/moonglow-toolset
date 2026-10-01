@@ -3,7 +3,7 @@
 //! command.
 
 use egui::Ui;
-use mg_core::{Gender, Language, LocString, ResRef, ResType};
+use mg_core::{LocString, ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_resman::{GameInstall, ResKey};
@@ -155,8 +155,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     });
 }
 
+/// The text in the editing language (Options › Language).
 fn english(ls: &LocString) -> String {
-    ls.text(Language::ENGLISH, Gender::Male).map(|t| t.into_owned()).unwrap_or_default()
+    crate::text::edited_text(ls)
 }
 
 fn basic(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
@@ -292,7 +293,8 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
 fn description(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     let desc: LocString = root.read(&ifo::MOD_DESCRIPTION);
     ui.horizontal(|ui| {
-        ui.label("Description (English)");
+        let language = crate::text::edit_language().name().unwrap_or("?");
+        ui.label(format!("Description ({language})"));
         if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
             let t = target(ifo::MOD_DESCRIPTION.label);
             app.loc_edit = Some(LocStringEdit::new(t, "Module description", &desc));

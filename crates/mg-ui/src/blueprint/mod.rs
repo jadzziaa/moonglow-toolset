@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 
 use egui::Ui;
-use mg_core::{Gender, Language, LocString, ResRef, ResType};
+use mg_core::{LocString, ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::{BlueprintKind, Palette};
@@ -85,8 +85,9 @@ pub(crate) struct Form<'a> {
     pub root: Struct,
 }
 
+/// The text in the editing language (Options › Language).
 fn english(ls: &LocString) -> String {
-    ls.text(Language::ENGLISH, Gender::Male).map(|t| t.into_owned()).unwrap_or_default()
+    crate::text::edited_text(ls)
 }
 
 /// A value of an integer field, of the type the field has (else `default`).
@@ -211,7 +212,8 @@ impl Form<'_> {
     pub(crate) fn locstring_memo(&mut self, ui: &mut Ui, what: &str, label: &str) {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         ui.horizontal(|ui| {
-            ui.label(format!("{what} (English)"));
+            let language = crate::text::edit_language().name().unwrap_or("?");
+            ui.label(format!("{what} ({language})"));
             if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }

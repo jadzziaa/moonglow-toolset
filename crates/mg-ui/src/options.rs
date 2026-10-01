@@ -21,6 +21,7 @@ pub enum OptionsPage {
     General,
     ScriptEditor,
     ConversationEditor,
+    Language,
 }
 
 /// The Options window's fields: folders as typed (empty to detect), and
@@ -42,6 +43,7 @@ pub struct OptionsDraft {
     pub script_templates: String,
     pub external_editor: String,
     pub dialog_names: bool,
+    pub edit_language: Option<u32>,
     pub area_background: Option<[u8; 3]>,
     pub spawn_markers: bool,
     pub door_arrows: bool,
@@ -76,6 +78,7 @@ impl OptionsDraft {
             script_templates: text(&s.script_templates),
             external_editor: text(&s.external_editor),
             dialog_names: !s.dialog_hide_names,
+            edit_language: s.edit_language,
             area_background: s.area_background,
             spawn_markers: !s.no_spawn_markers,
             door_arrows: !s.no_door_arrows,
@@ -101,6 +104,7 @@ impl OptionsDraft {
             script_templates: path(&self.script_templates),
             external_editor: path(&self.external_editor),
             dialog_hide_names: !self.dialog_names,
+            edit_language: self.edit_language,
             area_background: self.area_background,
             no_spawn_markers: !self.spawn_markers,
             no_door_arrows: !self.door_arrows,
@@ -143,6 +147,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         (OptionsPage::General, "General"),
                         (OptionsPage::ScriptEditor, "Script Editor"),
                         (OptionsPage::ConversationEditor, "Conversation Editor"),
+                        (OptionsPage::Language, "Language"),
                     ] {
                         ui.selectable_value(&mut draft.page, page, name);
                     }
@@ -218,6 +223,32 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.checkbox(&mut draft.spawn_markers, "Show Encounter Spawnpoint Markers");
                         ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
                     }
+                    OptionsPage::Language => {
+                        ui.label("The language text is shown and edited in:");
+                        let mut default = draft.edit_language.is_none();
+                        if ui
+                            .radio_value(&mut default, true, "Use Default Language: English")
+                            .clicked()
+                        {
+                            draft.edit_language = None;
+                        }
+                        if ui.radio_value(&mut default, false, "Specified Language:").clicked()
+                            && draft.edit_language.is_none()
+                        {
+                            draft.edit_language = Some(0);
+                        }
+                        ui.add_enabled_ui(!default, |ui| {
+                            for l in mg_core::Language::EE {
+                                let name = l.name().unwrap_or("?");
+                                if ui
+                                    .selectable_label(draft.edit_language == Some(l.0), name)
+                                    .clicked()
+                                {
+                                    draft.edit_language = Some(l.0);
+                                }
+                            }
+                        });
+                    }
                     OptionsPage::ConversationEditor => {
                         ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
                         for (label, color, default) in [
@@ -281,6 +312,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     } else {
                         // Only looks: no reload.
                         app.settings = draft.apply(&app.settings);
+                        crate::text::set_edit_language(mg_core::Language(
+                            app.settings.edit_language.unwrap_or(0),
+                        ));
                     }
                 }
                 if ui.button("Cancel").clicked() {
@@ -395,6 +429,18 @@ mod tests {
         let t = d.apply(&s);
         assert!(t.dialog_hide_names);
         assert_eq!((t.dialog_pc_color, t.dialog_npc_color), (Some([1, 2, 3]), None));
+    }
+
+    #[test]
+    fn the_editing_language_applies() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        assert_eq!(d.edit_language, None, "English by default");
+        d.edit_language = Some(mg_core::Language::FRENCH.0);
+        let t = d.apply(&s);
+        assert_eq!(t.edit_language, Some(1));
+        assert!(!d.moves_game(&s));
+        assert_eq!(OptionsDraft::from_settings(&t).edit_language, Some(1));
     }
 
     #[test]

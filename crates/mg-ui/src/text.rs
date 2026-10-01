@@ -1,6 +1,29 @@
 //! Game text in the UI: bytes in the game codepage to and from UTF-8.
 
+use std::cell::Cell;
+
 use mg_core::{Codepage, Gender, Language, LocString};
+
+thread_local! {
+    /// The language editors show and change (Options › Language): English
+    /// unless another is chosen. The UI thread's.
+    static EDIT_LANGUAGE: Cell<u32> = const { Cell::new(0) };
+}
+
+/// The editing language.
+pub(crate) fn edit_language() -> Language {
+    Language(EDIT_LANGUAGE.with(Cell::get))
+}
+
+/// Chooses the editing language (for the calling thread: the UI's).
+pub fn set_edit_language(language: Language) {
+    EDIT_LANGUAGE.with(|l| l.set(language.0));
+}
+
+/// A localized string's text in the editing language (empty if none).
+pub(crate) fn edited_text(ls: &LocString) -> String {
+    ls.text(edit_language(), Gender::Male).map(|t| t.into_owned()).unwrap_or_default()
+}
 
 /// Game bytes as text (Windows-1252 maps every byte, so nothing is lost).
 pub(crate) fn decode(bytes: &[u8]) -> String {
@@ -29,12 +52,14 @@ pub(crate) fn from_editor(text: &str, crlf: bool) -> String {
     if crlf { text.replace("\r\n", "\n").replace('\n', "\r\n") } else { text.to_string() }
 }
 
-/// A localized string with its English text replaced (or set).
+/// A localized string with its text in the editing language replaced (or
+/// set; English unless Options › Language chooses another).
 pub(crate) fn with_english(mut s: LocString, text: &str) -> LocString {
+    let language = edit_language();
     if text.is_empty() {
-        s.remove(Language::ENGLISH, Gender::Male);
+        s.remove(language, Gender::Male);
     } else {
-        s.set(Language::ENGLISH, Gender::Male, encode(text));
+        s.set(language, Gender::Male, encode(text));
     }
     s
 }

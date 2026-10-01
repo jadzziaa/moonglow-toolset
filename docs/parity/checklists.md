@@ -77,7 +77,8 @@ unless given otherwise.
 | Area: undo levels | — (undo is unlimited) | — |
 | Conversation Editor: Show speaker name before text, player and NPC text colours | the same | ✅ [conversation_lines_without_speaker_names_when_chosen] |
 | Conversation Editor: popup for a new text entry, paste and drag link modes, automatic backup | not yet (Moonglow edits a new line's text in place, and saves undoably) | ✗ |
-| Spell Checking, Sounds, Language pages | not yet (no dictionary or audio) | ✗ |
+| Language page | the language text fields show and edit (Use Default Language: English, or a chosen one); labels name it | ✅ |
+| Spell Checking, Sounds pages | not yet (no dictionary or audio) | ✗ |
 
 ## Faction Editor (`TdlgFactionEditor`, `TdlgFactionSelect`)
 

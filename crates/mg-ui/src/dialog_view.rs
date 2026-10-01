@@ -595,7 +595,7 @@ fn text_panel(
         }
     });
     let english = ls
-        .text(mg_core::Language::ENGLISH, mg_core::Gender::Male)
+        .text(crate::text::edit_language(), mg_core::Gender::Male)
         .map(|t| t.into_owned())
         .unwrap_or_default();
     let id = egui::Id::new(("dlg-text", key, kind, index));
@@ -880,7 +880,7 @@ fn other_tab(
                             let id = e.read(&jrl::categories::entry_list::ID);
                             let t = e.read(&jrl::categories::entry_list::TEXT);
                             let t = t
-                                .text(mg_core::Language::ENGLISH, mg_core::Gender::Male)
+                                .text(crate::text::edit_language(), mg_core::Gender::Male)
                                 .unwrap_or_default();
                             if ui.selectable_label(id == entry, format!("{id}: {t}")).clicked()
                                 && id != entry

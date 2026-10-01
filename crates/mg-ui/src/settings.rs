@@ -76,6 +76,9 @@ pub struct Settings {
     /// Options > Area: Show Door Orientation Arrows off (Aurora's default:
     /// on).
     pub no_door_arrows: bool,
+    /// Options > Language: the language text is shown and edited in
+    /// (language.2da row); `None`: the default, English.
+    pub edit_language: Option<u32>,
     /// Options > Conversation Editor: Show speaker name before text
     /// (Aurora's default: shown).
     pub dialog_hide_names: bool,

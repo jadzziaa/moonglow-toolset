@@ -54,6 +54,7 @@ pub use dialogs::{Dialogs, FileKind, NoDialogs};
 pub use options::OptionsDraft;
 pub use settings::Settings;
 pub use tabs::Tab;
+pub use text::set_edit_language;
 pub use transfer::{ExportDraft, ImportDraft};
 pub use wizards::{AreaWizard, Wizard};
 
@@ -327,6 +328,7 @@ impl Moonglow {
 
     pub fn with_settings(settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
         let mut app = Moonglow::new(settings.install(), dialogs);
+        set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
         app.settings = settings;
         app
     }
@@ -1255,6 +1257,7 @@ impl Moonglow {
     fn apply_options(&mut self, draft: OptionsDraft) {
         let settings = draft.apply(&self.settings);
         self.close();
+        set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
         self.settings = settings;
         self.install = self.settings.install();
         self.game = load_game(self.install.as_ref(), &mut self.log);

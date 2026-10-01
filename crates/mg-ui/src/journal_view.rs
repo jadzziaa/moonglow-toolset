@@ -3,7 +3,7 @@
 //! node's fields. Each change is one undoable command.
 
 use egui::Ui;
-use mg_core::{Gender, Language, LocString, ResRef, ResType};
+use mg_core::{LocString, ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_module::journal::{PRIORITIES, entries, list_value, new_category, new_entry, new_journal};
@@ -37,8 +37,9 @@ fn key() -> ResKey {
     ResKey::new(ResRef::from_str("module").expect("valid"), ResType::JRL)
 }
 
+/// The text in the editing language (Options › Language).
 fn english(ls: &LocString) -> String {
-    ls.text(Language::ENGLISH, Gender::Male).map(|t| t.into_owned()).unwrap_or_default()
+    crate::text::edited_text(ls)
 }
 
 /// A command replacing the category list (creating the journal if the

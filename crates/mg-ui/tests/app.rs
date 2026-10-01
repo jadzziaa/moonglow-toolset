@@ -3582,3 +3582,28 @@ fn speaker_tags_come_from_the_module_s_creatures() {
     let dlg = ws.doc(&key).unwrap().root.clone();
     assert_eq!(dlg.list("EntryList").unwrap()[0].string("Speaker"), Some(&b"MG_SPEAKER"[..]));
 }
+
+#[test]
+fn text_is_edited_in_the_chosen_language() {
+    use mg_core::{Gender, Language};
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_german", ResType::UTC)
+    else {
+        return;
+    };
+    // Options › Language: German (the UI thread's; this test's own).
+    mg_ui::set_edit_language(Language::GERMAN);
+    h.run();
+    let english = |h: &mut Harness<'_, Moonglow>| {
+        field(h, &key)
+            .locstring("FirstName")
+            .and_then(|l| l.text(Language::ENGLISH, Gender::Male).map(std::borrow::Cow::into_owned))
+    };
+    let before = english(&mut h);
+    assert!(h.query_by_label_contains("(German)").is_some());
+    h.get_all_by_label("🎲").next().unwrap().click();
+    h.run();
+    mg_ui::set_edit_language(Language::ENGLISH);
+    let name = field(&mut h, &key).locstring("FirstName").cloned().unwrap();
+    assert!(name.text(Language::GERMAN, Gender::Male).is_some(), "{name:?}");
+    assert_eq!(english(&mut h), before);
+}
