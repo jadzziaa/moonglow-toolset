@@ -3,7 +3,9 @@
 Moonglow ships as an AppImage and a Flatpak on Linux, an installer on
 Windows and a disk image on macOS. Each package holds the GUI (`moonglow`),
 the command-line tools (`mg`), the license, the third-party license notices
-and the user manual (`docs/manual`). They are built with the `dist` Cargo
+and the user manual (`docs/manual`); the manual's
+[command-line chapter](../docs/manual/11-command-line.md) says how to run
+`mg` from each. They are built with the `dist` Cargo
 profile (release with thin LTO; function names kept for crash reports).
 
 `.github/workflows/release.yml` builds all three on a `v*` tag and drafts a
@@ -13,7 +15,7 @@ artifacts.
 | Folder | What |
 | --- | --- |
 | `icons/` | The icon (`moonglow.svg`, authored for Moonglow) and what `render.sh` makes of it: PNGs from 16 to 512 pixels, `moonglow.ico`, `moonglow.icns`. The 256-pixel PNG is also the window's icon, built into the program. |
-| `linux/` | The desktop entry, AppStream metadata, the `.mod` MIME type and `build-appimage.sh`. |
+| `linux/` | The desktop entry, AppStream metadata, the `.mod` MIME type (weaker than tracker music's, so a file's header decides between them) and `build-appimage.sh`. |
 | `flatpak/` | The Flatpak manifest, `cargo_sources.py` and `build-flatpak.sh`. |
 | `windows/` | The Inno Setup script and `build-installer.ps1`. The executable's icon and version information come from `apps/moonglow/build.rs`. |
 | `macos/` | `Info.plist` and `build-app.sh`. |
@@ -37,7 +39,8 @@ Needs [appimagetool](https://github.com/AppImage/appimagetool/releases) on
 `PATH` or named by `$APPIMAGETOOL` (it fetches the AppImage runtime from
 GitHub as it builds); without it the script stops after
 assembling `target/dist/AppDir`, which runs as it is
-(`target/dist/AppDir/AppRun`). The image links the system's glibc,
+(`target/dist/AppDir/AppRun`). A link to the image named `mg` runs the
+command-line tools instead of the GUI. The image links the system's glibc,
 libstdc++ and ALSA (`libasound.so.2`), and loads Vulkan, Wayland and X11 at
 run time; build it on the oldest distribution it should run on (the
 workflow uses Ubuntu 22.04). File dialogs go through the desktop portal

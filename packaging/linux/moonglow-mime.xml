@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Neverwinter Nights modules share *.mod with tracker music modules
+     (audio/x-mod). The glob is weaker than the tracker type's (40 < 50), so
+     the file's header decides between the two, and a file with neither
+     header (an old 15-sample tracker module) stays tracker music: GIO and
+     Qt both read the header only when a name matches more than one type. -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-nwn-module">
     <comment>Neverwinter Nights module</comment>
@@ -6,6 +11,6 @@
       <match type="string" offset="0" value="MOD V1.0"/>
       <match type="string" offset="0" value="MOD E1.0"/>
     </magic>
-    <glob pattern="*.mod"/>
+    <glob pattern="*.mod" weight="40"/>
   </mime-type>
 </mime-info>

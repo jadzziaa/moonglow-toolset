@@ -1,6 +1,9 @@
 #!/bin/sh
 # Builds Moonglow-<version>-<arch>.AppImage in target/dist/.
 #
+# A link to the image named mg runs the command-line tools instead of the
+# GUI: `ln -s Moonglow-<version>-<arch>.AppImage ~/.local/bin/mg`.
+#
 # Needs appimagetool (https://github.com/AppImage/appimagetool/releases):
 # on PATH, or named by $APPIMAGETOOL. Build on the oldest distribution the
 # image should run on (CI uses Ubuntu 22.04): the image runs where the
@@ -39,7 +42,12 @@ ln -s usr/share/icons/hicolor/256x256/apps/$ID.png "$APPDIR/$ID.png"
 ln -s $ID.png "$APPDIR/.DirIcon"
 cat > "$APPDIR/AppRun" <<'RUN'
 #!/bin/sh
+# Started through a link named mg, the command-line tools; else the GUI.
+# (The AppImage's runtime gives the name it was started by as $ARGV0.)
 HERE=$(dirname "$(readlink -f "$0")")
+case "$(basename "${ARGV0:-$0}")" in
+    mg) exec "$HERE/usr/bin/mg" "$@" ;;
+esac
 exec "$HERE/usr/bin/moonglow" "$@"
 RUN
 chmod 755 "$APPDIR/AppRun"

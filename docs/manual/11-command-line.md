@@ -1,9 +1,15 @@
 # Command-line tools
 
 `mg` does from a terminal what scripts and build pipelines need: archives,
-GFF files, the game's resources, and building modules. It comes with
-Moonglow (beside `moonglow` in the AppImage, the Flatpak, the Windows
-install folder and the macOS app's `Contents/MacOS`).
+GFF files, the game's resources, and building modules. It comes with every
+Moonglow package:
+
+| Package | Running `mg` |
+| --- | --- |
+| AppImage | Make a link to the AppImage named `mg`; started through it, the AppImage runs `mg` instead of the GUI: `ln -s ~/Applications/Moonglow-*.AppImage ~/.local/bin/mg` |
+| Flatpak | `flatpak run --command=mg io.github.moonglow_toolset.Moonglow …` |
+| Windows | `mg.exe` in the install folder (for an install for your user, `%LOCALAPPDATA%\Programs\Moonglow Toolset`) |
+| macOS | `/Applications/Moonglow Toolset.app/Contents/MacOS/mg` |
 
 ```text
 mg [--root GAME] [--user-dir DIR | --no-user-dir] COMMAND ...
