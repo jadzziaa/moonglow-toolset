@@ -108,6 +108,16 @@ pub struct AreaView {
     /// The workspace revision `model` was read at.
     revision: Option<u64>,
     tileset: Option<(ResRef, Option<Tileset>)>,
+    /// The tileset's tile index and rules, for painting.
+    pub(crate) terrain: Option<crate::terrain_mode::Tools>,
+    /// Where the pointer is, for the tileset brushes.
+    pub(crate) spot: Option<crate::terrain_mode::Spot>,
+    /// The quarters of tiles a crosser drag has passed (tile and edge).
+    pub(crate) crossing: Vec<((u32, u32), usize)>,
+    /// Where the crosser drag's pointer was last (on the ground).
+    pub(crate) crossing_at: Option<Vec3>,
+    /// Why the last stroke did nothing.
+    pub(crate) notice: Option<String>,
     /// The tiles' walkmeshes.
     ground: Option<Ground>,
     pub error: Option<String>,
@@ -146,6 +156,11 @@ impl AreaView {
             scene: None,
             revision: None,
             tileset: None,
+            terrain: None,
+            spot: None,
+            crossing: Vec::new(),
+            crossing_at: None,
+            notice: None,
             ground: None,
             error: None,
             orbit: None,
@@ -215,7 +230,7 @@ impl AreaView {
 
     /// The ground point under the pointer: on the walkmesh, else on the
     /// plane at height `z`.
-    fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
+    pub(crate) fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
         let ray = self.ray(pos)?;
         self.ground.as_ref().and_then(|g| g.hit(&ray)).or_else(|| ray.at_height(z))
     }
@@ -284,7 +299,11 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     let git = ws.doc(&view.git()).cloned().unwrap_or_else(|_| Gff::new(*b"GIT "));
     let tileset_ref = are.root.resref("Tileset").unwrap_or(ResRef::EMPTY);
     if view.tileset.as_ref().is_none_or(|(r, _)| *r != tileset_ref) {
-        view.tileset = Some((tileset_ref, mg_area::tileset(game, tileset_ref).ok()));
+        let set = mg_area::tileset(game, tileset_ref).ok();
+        view.terrain = set
+            .as_ref()
+            .map(|t| crate::terrain_mode::Tools::new(tileset_ref, std::sync::Arc::new(t.clone())));
+        view.tileset = Some((tileset_ref, set));
     }
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref());
     let model = AreaModel::read(game, &are.root, &git.root, tileset);
@@ -324,6 +343,7 @@ fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     let mut view = app.area_views.remove(&area).unwrap_or_else(|| AreaView::new(area));
     refresh(app, &mut view);
+    app.palette.area = Some(area);
     // An object to go to (from Find Instance).
     if let Some((a, kind, index)) = app.area_focus
         && a == area
@@ -407,7 +427,16 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     });
     // One line, never wrapped, so that the view does not move when the
     // selection changes.
-    let status = if view.redraw.is_some() {
+    let status = if let Some(b) = crate::terrain_mode::active(app, view) {
+        let how = match b.brush {
+            mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
+            mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
+            mg_area::terrain::Brush::Eraser => "click a tile (Shift + click: its next variant)",
+            _ => "click a corner",
+        };
+        let at = crate::terrain_mode::status(view).unwrap_or_default();
+        format!("{}: {how}; Escape: stop. {at}", b.label)
+    } else if view.redraw.is_some() {
         "Redraw Polygon: click its corners, double click to close; right click or Escape: stop"
             .to_string()
     } else if view.pasting {
@@ -515,6 +544,7 @@ fn viewport(
     view.rect = response.rect;
     let door_brush = brush(app).is_some_and(|k| k.restype == ResType::UTD);
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush);
+    crate::terrain_mode::overlay(app, ui, view);
     // Tiles animate: keep drawing while the view is on screen.
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     input(app, ui, view, &response);
@@ -721,6 +751,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
     camera_input(ui, view, response, shift, command);
+    if crate::terrain_mode::input(app, ui, view, response) {
+        return;
+    }
     let hovered = response.hovered();
 
     // Copy, cut and paste (egui's events, or the keys where it sends none).

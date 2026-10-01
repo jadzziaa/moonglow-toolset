@@ -24,6 +24,7 @@ mod script_view;
 pub mod script_wizard;
 pub mod settings;
 mod tabs;
+pub mod terrain_mode;
 mod text;
 mod transfer;
 mod tree;

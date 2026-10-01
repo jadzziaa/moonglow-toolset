@@ -27,6 +27,7 @@ mg-rules.workspace = true
 mg-schema.workspace = true
 mg-script.workspace = true
 mg-set.workspace = true
+mg-tiles.workspace = true
 mg-tlk.workspace = true
 serde.workspace = true
 wgpu.workspace = true

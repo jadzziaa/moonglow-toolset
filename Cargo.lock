@@ -1845,6 +1845,7 @@ dependencies = [
  "mg-script",
  "mg-set",
  "mg-testkit",
+ "mg-tiles",
  "mg-tlk",
  "serde",
  "serde_json",

@@ -29,6 +29,13 @@ pub struct PaletteView {
     /// Custom palettes, each built for a workspace revision.
     custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
     pub selected: Option<ResKey>,
+    /// The tileset palette is shown, rather than blueprints.
+    pub tiles: bool,
+    /// The tileset brush chosen.
+    pub tile_brush: Option<crate::terrain_mode::TileBrush>,
+    /// The area shown last: its tileset's palette is the one shown.
+    pub area: Option<ResRef>,
+    pub(crate) tile_palettes: HashMap<ResRef, Arc<mg_area::terrain::TilesetPalette>>,
 }
 
 impl Default for PaletteView {
@@ -40,6 +47,10 @@ impl Default for PaletteView {
             standard: HashMap::new(),
             custom_cache: HashMap::new(),
             selected: None,
+            tiles: false,
+            tile_brush: None,
+            area: None,
+            tile_palettes: HashMap::new(),
         }
     }
 }
@@ -138,10 +149,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     let mut view = std::mem::take(&mut app.palette);
     ui.horizontal_wrapped(|ui| {
+        if ui.selectable_label(view.tiles, "Tiles").on_hover_text("The area's tileset").clicked() {
+            view.tiles = true;
+        }
         for kind in BlueprintKind::ALL {
-            ui.selectable_value(&mut view.kind, kind, kind.label());
+            if ui.selectable_label(!view.tiles && view.kind == kind, kind.label()).clicked() {
+                view.kind = kind;
+                view.tiles = false;
+            }
         }
     });
+    if view.tiles {
+        ui.separator();
+        app.palette = view;
+        crate::terrain_mode::palette_ui(app, ui);
+        return;
+    }
     ui.horizontal(|ui| {
         ui.selectable_value(&mut view.custom, false, "Standard");
         ui.add_enabled_ui(app.ws.is_some(), |ui| {
@@ -181,6 +204,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             show_node(ui, game, node, &filter, kind, custom, &mut selected, &mut picks, &[i]);
         }
     });
+    if selected.is_some() && selected != view.selected {
+        view.tile_brush = None;
+    }
     view.selected = selected;
     app.palette = view;
 

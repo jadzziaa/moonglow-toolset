@@ -2417,3 +2417,144 @@ fn placed_chest_holds_whole_items() {
     assert_eq!(at, [whole(0, 0), whole(1, 1)], "whole items, as Aurora holds them");
     assert!(h.query_all_by_label("Torch").count() >= 2, "named by the items themselves");
 }
+
+#[test]
+fn area_viewer_paints_terrain() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("terrain") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let lattice = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap().lattice
+    };
+    let button = |h: &mut Harness<'_, Moonglow>, p: Vec3, b: egui::PointerButton| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        for pressed in [true, false] {
+            let m = egui::Modifiers::NONE;
+            h.event(egui::Event::PointerButton { pos: at, button: b, pressed, modifiers: m });
+        }
+        h.run_steps(2);
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| button(h, p, egui::PointerButton::Primary);
+    let water = index.terrain("Water").unwrap();
+
+    // The Tiles palette: the area's tileset, its Terrain branch open.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    h.get_by_label_contains("Water: click a corner");
+
+    // Water at corner (2, 2): the four tiles around it are a pond.
+    click(&mut h, Vec3::new(20.5, 19.5, 0.0));
+    h.run_steps(2);
+    assert_eq!(lattice(&mut h).corner(2, 2).terrain, water);
+    // One command: undone, the grass is back.
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(2);
+    assert_ne!(lattice(&mut h).corner(2, 2).terrain, water);
+
+    // Raise and lower a corner.
+    h.get_by_label("Raise/Lower").click();
+    h.run_steps(2);
+    click(&mut h, Vec3::new(10.0, 30.0, 0.0));
+    assert_eq!(lattice(&mut h).corner(1, 3).height, 1);
+    button(&mut h, Vec3::new(10.0, 30.0, 5.0), egui::PointerButton::Secondary);
+    assert_eq!(lattice(&mut h).corner(1, 3).height, 0);
+
+    // A road dragged from tile (0, 0) to (2, 0), starting in the east
+    // quarter of the first: on the two edges crossed.
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    let from = screen(&h, area, Vec3::new(7.0, 5.0, 0.0));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for x in [9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 25.0] {
+        h.hover_at(screen(&h, area, Vec3::new(x, 5.0, 0.0)));
+        h.run_steps(1);
+    }
+    let to = screen(&h, area, Vec3::new(25.0, 5.0, 0.0));
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let road = index.crosser("Road").unwrap();
+    let l = lattice(&mut h);
+    let edges: Vec<_> = (0..4).map(|x| l.cell(x, 0).edges).collect();
+    assert_eq!(edges[0], [None, Some(road), None, None]);
+    assert_eq!(edges[1], [None, Some(road), None, Some(road)]);
+    assert_eq!(edges[2], [None, None, None, Some(road)]);
+
+    // Trees beside the straight road: no tile has that, nothing changes.
+    h.get_by_label("Trees").click();
+    h.run_steps(2);
+    let before = lattice(&mut h);
+    click(&mut h, Vec3::new(20.0, 10.0, 0.0));
+    assert_eq!(lattice(&mut h), before);
+    h.get_by_label_contains("no tile fits there");
+
+    // The Eraser on the road's middle tile takes the road away.
+    h.get_by_label("Eraser").click();
+    h.run_steps(2);
+    click(&mut h, Vec3::new(15.0, 5.0, 0.0));
+    let l = lattice(&mut h);
+    assert!((0..4).all(|x| l.cell(x, 0).edges == [None; 4]), "{:?}", l.cell(0, 0));
+}
+
+/// A screenshot of terrain mode (`target/test-output/screens/terrain.png`),
+/// for looking at: `cargo test -p mg-ui --test app terrain_screen -- --ignored`.
+#[test]
+#[ignore]
+fn terrain_screen() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("terrain-screen") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("Tiles").click();
+    h.run_steps(2);
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    };
+    for (brush, at) in [
+        ("Water", [10.0, 20.0]),
+        ("Water", [10.0, 30.0]),
+        ("Trees", [30.0, 30.0]),
+        ("Raise/Lower", [40.0, 30.0]),
+    ] {
+        h.get_by_label(brush).click();
+        h.run_steps(2);
+        click(&mut h, Vec3::new(at[0], at[1], 0.0));
+    }
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    let from = screen(&h, area, Vec3::new(7.0, 5.0, 0.0));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for x in [10.0, 15.0, 20.0, 22.0] {
+        h.hover_at(screen(&h, area, Vec3::new(x, 5.0, 0.0)));
+        h.run_steps(1);
+    }
+    let to = screen(&h, area, Vec3::new(22.0, 5.0, 0.0));
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    h.hover_at(screen(&h, area, Vec3::new(20.0, 20.0, 0.0)));
+    h.run_steps(4);
+    let dir = mg_testkit::scratch_dir("screens-terrain");
+    let image = h.render().expect("render");
+    let out = dir.parent().unwrap().join("screens");
+    std::fs::create_dir_all(&out).unwrap();
+    image.save(out.join("terrain.png")).unwrap();
+}
