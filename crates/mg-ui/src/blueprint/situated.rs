@@ -109,9 +109,48 @@ pub(super) fn faction(f: &mut Form<'_>, ui: &mut Ui, what: &str, label: &str) {
     f.choice(ui, what, label, &choices, FieldType::Dword);
 }
 
+/// The Select Portrait window's state (Aurora's `TdlgPortrait`).
+#[derive(Debug, Clone, Default)]
+struct PortraitPick {
+    open: bool,
+    /// 0 Characters and Creatures, 1 Placeable Objects and Doors, 2 Plot
+    /// Characters.
+    mode: u8,
+    race: Option<i32>,
+    gender: Option<i32>,
+    category: Option<i32>,
+    chosen: Option<usize>,
+}
+
+/// A portrait's image: `po_<base><size>` (h, l, m, s, t), the part a
+/// portrait uses (the upper 100/128 of its canvas), at `width` points.
+fn portrait_image(
+    f: &mut Form<'_>,
+    ui: &mut Ui,
+    base: &str,
+    size: char,
+    width: f32,
+    sense: egui::Sense,
+) -> egui::Response {
+    let pic = f.app.picture(ui.ctx(), &format!("po_{base}{size}"));
+    let used = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 100.0 / 128.0));
+    let at = egui::vec2(width, width * 100.0 / 64.0);
+    match pic {
+        Some(p) => ui.add(
+            egui::Image::new(&p.texture)
+                .uv(used)
+                .fit_to_exact_size(at)
+                .alt_text(format!("po_{base}"))
+                .sense(sense),
+        ),
+        None => ui.add_sized(at, egui::Label::new(format!("({base})")).sense(sense)),
+    }
+}
+
 /// The portrait: a portraits.2da row (`PortraitId`), else, in older
 /// blueprints, a resref (`Portrait`, `po_` and the row's base resref). A
-/// choice sets the row, and the resref where the blueprint has one.
+/// choice sets the row, and the resref where the blueprint has one. Its
+/// image shows; … opens Select Portrait (thumbnails, filters).
 pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     let Some(table) = f.app.game.as_ref().and_then(|g| g.table("portraits").ok()) else {
         return;
@@ -133,22 +172,183 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         (None, None) => "(none)".to_string(),
     };
     let filter_id = egui::Id::new(("portrait-filter", f.key));
+    let pick_id = egui::Id::new(("portrait-pick", f.key));
     let mut pick = None;
-    egui::ComboBox::from_id_salt(("portrait", f.key)).selected_text(shown).width(220.0).show_ui(
-        ui,
-        |ui| {
-            let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-            ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
-            ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-            let filter = filter.to_lowercase();
-            for (row, b) in choices.iter().filter(|(_, b)| b.to_lowercase().contains(&filter)) {
-                if ui.selectable_label(current == Some(*row), *b).clicked() {
-                    pick = Some((*row, b.to_string()));
+    ui.horizontal(|ui| {
+        if let Some(b) = current.and_then(base) {
+            portrait_image(f, ui, &b.to_lowercase(), 'm', 32.0, egui::Sense::hover());
+        }
+        egui::ComboBox::from_id_salt(("portrait", f.key))
+            .selected_text(shown)
+            .width(200.0)
+            .show_ui(ui, |ui| {
+                let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+                ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
+                ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
+                let filter = filter.to_lowercase();
+                for (row, b) in choices.iter().filter(|(_, b)| b.to_lowercase().contains(&filter)) {
+                    if ui.selectable_label(current == Some(*row), *b).clicked() {
+                        pick = Some(*row);
+                    }
                 }
-            }
-        },
-    );
-    if let Some((row, b)) = pick.filter(|(row, _)| current != Some(*row)) {
+            });
+        if ui.button("Portraits…").on_hover_text("Select Portrait").clicked() {
+            // Placeables and doors start on their own portraits.
+            let inanimate = f.root.get("Appearance_Type").is_none();
+            let mode = if inanimate { 1 } else { 0 };
+            let state = PortraitPick { open: true, mode, chosen: current, ..Default::default() };
+            ui.data_mut(|d| d.insert_temp(pick_id, state));
+        }
+    });
+    let mut state: PortraitPick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
+    if state.open {
+        let game = f.app.game.as_ref();
+        let names = |t: &str, name: &str, label: &str| {
+            game.and_then(|g| {
+                g.choices(t, ChoiceColumns { name: Some(name), label: Some(label) }).ok()
+            })
+            .unwrap_or_default()
+        };
+        let (races, genders, kinds) = (
+            names("racialtypes", "Name", "Label"),
+            names("gender", "NAME", "CONSTANT"),
+            names("placeabletypes", "StrRef", "Label"),
+        );
+        let int = |r: usize, c: &str| table.get_int(r, c);
+        let rows: Vec<usize> = choices
+            .iter()
+            .map(|c| c.0)
+            .filter(|&r| {
+                let (plot, inanimate) = (int(r, "Plot") == Some(1), int(r, "InanimateType"));
+                let kind = match state.mode {
+                    0 => inanimate.is_none() && !plot,
+                    1 => inanimate.is_some(),
+                    _ => plot,
+                };
+                kind && if state.mode == 1 {
+                    state.category.is_none_or(|c| inanimate == Some(c))
+                } else {
+                    state.race.is_none_or(|x| int(r, "Race") == Some(x))
+                        && state.gender.is_none_or(|g| int(r, "Sex") == Some(g))
+                }
+            })
+            .collect();
+        let (mut ok, mut cancel) = (false, false);
+        let modal = egui::Modal::new(pick_id.with("modal")).show(ui.ctx(), |ui| {
+            ui.set_max_width(600.0);
+            ui.heading("Select Portrait");
+            ui.horizontal(|ui| {
+                for (m, text) in [
+                    (0, "Characters and Creatures"),
+                    (1, "Placeable Objects and Doors"),
+                    (2, "Plot Characters"),
+                ] {
+                    ui.radio_value(&mut state.mode, m, text);
+                }
+            });
+            ui.horizontal(|ui| {
+                let combo = |ui: &mut Ui, id: &str, value: &mut Option<i32>, list: &[Choice]| {
+                    let text = value
+                        .and_then(|v| list.iter().find(|c| c.row as i32 == v))
+                        .map_or("Any".to_string(), |c| c.text.clone());
+                    egui::ComboBox::from_id_salt((id, pick_id))
+                        .selected_text(text)
+                        .width(140.0)
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(value, None, "Any");
+                            for c in list {
+                                ui.selectable_value(value, Some(c.row as i32), &c.text);
+                            }
+                        });
+                };
+                if state.mode == 1 {
+                    ui.label("Category:");
+                    combo(ui, "category", &mut state.category, &kinds);
+                } else {
+                    ui.label("Race:");
+                    combo(ui, "race", &mut state.race, &races);
+                    ui.label("Gender:");
+                    combo(ui, "gender", &mut state.gender, &genders);
+                }
+            });
+            ui.separator();
+            ui.horizontal_top(|ui| {
+                let per_row = 8;
+                let grid = egui::vec2(per_row as f32 * 50.0 + 16.0, 320.0);
+                let layout = egui::Layout::top_down(egui::Align::Min);
+                ui.allocate_ui_with_layout(grid, layout, |ui| {
+                    ui.set_max_width(grid.x);
+                    egui::ScrollArea::vertical()
+                        .max_height(320.0)
+                        .id_salt(pick_id.with("grid"))
+                        .show_rows(ui, 68.0, rows.len().div_ceil(per_row), |ui, range| {
+                            ui.set_width(per_row as f32 * 50.0);
+                            for line in range {
+                                ui.horizontal(|ui| {
+                                    for &r in rows.iter().skip(line * per_row).take(per_row) {
+                                        let b = base(r).unwrap_or_default().to_lowercase();
+                                        let resp = portrait_image(
+                                            f,
+                                            ui,
+                                            &b,
+                                            'm',
+                                            40.0,
+                                            egui::Sense::click(),
+                                        )
+                                        .on_hover_text(b.as_str());
+                                        if state.chosen == Some(r) {
+                                            ui.painter().rect_stroke(
+                                                resp.rect.expand(1.0),
+                                                2.0,
+                                                ui.visuals().selection.stroke,
+                                                egui::StrokeKind::Outside,
+                                            );
+                                        }
+                                        if resp.clicked() {
+                                            state.chosen = Some(r);
+                                        }
+                                        if resp.double_clicked() {
+                                            state.chosen = Some(r);
+                                            ok = true;
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                });
+                ui.vertical(|ui| {
+                    ui.set_width(140.0);
+                    if let Some(b) = state.chosen.and_then(base) {
+                        let b = b.to_lowercase();
+                        if f.app.picture(ui.ctx(), &format!("po_{b}l")).is_some() {
+                            portrait_image(f, ui, &b, 'l', 128.0, egui::Sense::hover());
+                        } else {
+                            portrait_image(f, ui, &b, 'm', 128.0, egui::Sense::hover());
+                        }
+                        ui.label(b);
+                    }
+                });
+            });
+            ui.label(format!("{} portraits", rows.len()));
+            ui.horizontal(|ui| {
+                ok |= ui
+                    .add_enabled(state.chosen.is_some(), egui::Button::new("OK"))
+                    .on_hover_text("Accept changes")
+                    .clicked();
+                cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
+            });
+        });
+        if ok {
+            pick = state.chosen;
+        }
+        if ok || cancel || modal.should_close() {
+            state.open = false;
+        }
+        ui.data_mut(|d| d.insert_temp(pick_id, state));
+    }
+    if let Some(row) = pick.filter(|row| current != Some(*row))
+        && let Some(b) = base(row)
+    {
         let id = super::integer(f.root.get("PortraitId"), row as i64, FieldType::Word);
         let mut fields = vec![("PortraitId", id)];
         if f.root.get("Portrait").is_some()

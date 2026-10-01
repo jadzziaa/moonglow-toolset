@@ -19,6 +19,7 @@ pub mod dialog_view;
 pub mod dialogs;
 pub mod faction_view;
 mod gff_view;
+mod images;
 pub mod journal_view;
 pub mod levelup_view;
 pub mod model_view;
@@ -143,6 +144,8 @@ pub struct Moonglow {
     /// Where sounds play: [`audio::Silence`] until the desktop app gives
     /// its speakers.
     pub speaker: Box<dyn audio::Speaker>,
+    /// Game images decoded for the UI, by lowercase name.
+    pictures: HashMap<String, Option<images::Picture>>,
     /// The area's sounds (Options › Sounds), and the area view heard this
     /// frame.
     area_audio: area_audio::AreaAudio,
@@ -266,6 +269,7 @@ impl Moonglow {
             actions: Vec::new(),
             dialogs,
             speaker: Box::new(audio::Silence::default()),
+            pictures: HashMap::new(),
             area_audio: Default::default(),
             heard: None,
             scripts: HashMap::new(),

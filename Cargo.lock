@@ -2087,6 +2087,7 @@ dependencies = [
  "mg-edit",
  "mg-erf",
  "mg-gff",
+ "mg-image",
  "mg-mdl",
  "mg-module",
  "mg-preview",

@@ -3976,3 +3976,43 @@ fn print_opens_a_highlighted_page_of_the_script() {
     assert!(page.contains(" &lt; ") && page.contains("window.print()"), "{page}");
     assert!(page.contains(">int</span>"), "keywords are coloured spans");
 }
+
+#[test]
+fn portraits_are_chosen_from_their_pictures() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_face", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Portraits…").click();
+    h.run();
+    assert!(h.query_by_label("Select Portrait").is_some());
+    let count = |h: &Harness<'_, Moonglow>| -> usize {
+        let n = h.get_by_label_contains(" portraits");
+        let a = n.accesskit_node();
+        let text = a.label().or_else(|| a.value()).map(|t| t.to_string()).unwrap();
+        text.split(' ').next().unwrap().parse().unwrap()
+    };
+    let creatures = count(&h);
+    // The first creature portrait is portraits.2da row 1, a dwarf woman:
+    // its picture is loaded (its name is the picture's).
+    h.get_by_label("po_dw_f_01_").click();
+    h.run();
+    // Placeables and doors have their own.
+    h.get_by_label("Placeable Objects and Doors").click();
+    h.run();
+    let things = count(&h);
+    assert!(creatures > 100 && things > 100 && creatures != things, "{creatures} {things}");
+    assert!(h.query_by_label("po_dw_f_02_").is_none());
+    h.get_by_label("Characters and Creatures").click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("PortraitId"), Some(1));
+    assert!(h.query_by_label("Select Portrait").is_none());
+    // A look at the window (ignored test `screens`-style output).
+    h.get_by_label("Portraits…").click();
+    h.run();
+    if let Ok(img) = h.render() {
+        let _ = img.save(mg_testkit::scratch_dir("ui-portraits").join("select.png"));
+    }
+}
