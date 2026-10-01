@@ -202,8 +202,11 @@ pub fn compose(model: &Model, locals: &[Local]) -> Vec<Mat4> {
 /// another, relative to its parent (as when an animation starts from
 /// another over its `transtime`; the engine's exact blend is not measured).
 pub fn blend(from: &[Local], to: &[Local], f: f32) -> Vec<Local> {
-    let f = f.clamp(0.0, 1.0);
-    from.iter().zip(to).map(|(a, b)| a.lerp(b, f)).collect()
+    match f {
+        f if f >= 1.0 => to.to_vec(),
+        f if f <= 0.0 => from.to_vec(),
+        f => from.iter().zip(to).map(|(a, b)| a.lerp(b, f)).collect(),
+    }
 }
 
 /// The lights of a model instance: its light nodes at their posed
@@ -444,7 +447,13 @@ mod tests {
         let pose = compose(&model, &half);
         let arm = pose[1].w_axis.truncate();
         assert!((arm - Vec3::new(1.0, 1.0, 0.0).normalize()).length() < 1e-5, "{arm}");
-        assert_eq!(compose(&model, &blend(&rest, &turned, 7.0))[1], compose(&model, &turned)[1]);
+        assert_eq!(blend(&rest, &turned, 7.0), turned, "past the end: the new pose");
+        assert_eq!(blend(&rest, &turned, -1.0), rest);
+        let quarter = compose(&model, &blend(&rest, &turned, 0.25))[1];
+        assert!(quarter.abs_diff_eq(
+            compose(&model, &[rest[0].lerp(&turned[0], 0.25), rest[1].lerp(&turned[1], 0.25)])[1],
+            1e-5
+        ));
     }
 
     #[test]
