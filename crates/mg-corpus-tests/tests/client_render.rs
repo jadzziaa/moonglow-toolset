@@ -427,6 +427,7 @@ fn fit_camera(r: &mut Renderer, gpu: &Gpu, game: &GameData, scene: &Scene, clien
 fn reference_scenes_match_the_client() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;
@@ -722,6 +723,7 @@ fn fog_uniforms_match_the_client() {
 fn grass_and_sky_look() {
     let root = corpus!();
     let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;

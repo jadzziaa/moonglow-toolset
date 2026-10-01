@@ -86,6 +86,7 @@ fn previews_render() {
         eprintln!("skipped: no game install");
         return;
     };
+    mg_testkit::gpu::hold();
     let Some(gpu) = Gpu::headless() else {
         eprintln!("skipped: no GPU");
         return;

@@ -7,6 +7,7 @@
 //! missing corpus into a failure instead.
 
 pub mod engine;
+pub mod gpu;
 
 use std::env;
 use std::path::{Path, PathBuf};

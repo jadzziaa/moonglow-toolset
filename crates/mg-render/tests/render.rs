@@ -9,6 +9,7 @@ use mg_mdl::{Face, Mesh, Model, Node, NodeKind};
 use mg_render::{AreaLight, Camera, Gpu, GpuModel, Instance, NoAssets, Renderer, Scene};
 
 fn gpu() -> Option<Gpu> {
+    mg_testkit::gpu::hold();
     let g = Gpu::headless();
     if g.is_none() {
         eprintln!("skipped: no GPU adapter");

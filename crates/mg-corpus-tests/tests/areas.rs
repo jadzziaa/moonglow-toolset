@@ -26,6 +26,7 @@ use mg_testkit::{bundled_modules, corpus};
 fn every_shipped_area_opens_and_renders() {
     let root = corpus!();
     let install = GameInstall::new(&root, None, "en");
+    mg_testkit::gpu::hold();
     let gpu = Gpu::headless();
     if gpu.is_none() {
         eprintln!("no GPU: models and rendering not checked");
