@@ -179,6 +179,7 @@ in this list. ✅ = exists.
 | `mg-tlk` ✅ | TLK V3.0, custom TLK StrRefs |
 | `mg-set` ✅ | tilesets (SET/INI) with data warnings |
 | `mg-ssf` ✅ | soundsets |
+| `mg-audio` ✅ | sounds and music decoded (MP3 behind `BMU V1.0`, IMA ADPCM and PCM WAVE) for playback |
 | `mg-resman` ✅ | layered resolution in the engine's order, DDS/TGA rule, install detection |
 | `mg-image` ✅ | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
 | `mg-mdl` (partial) | MDL binary and ASCII (done), WOK/PWK/DWK walkmeshes |

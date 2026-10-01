@@ -13,6 +13,7 @@ publish = false
 # Moonglow crates
 mg-2da = { path = "crates/mg-2da" }
 mg-area = { path = "crates/mg-area" }
+mg-audio = { path = "crates/mg-audio" }
 mg-core = { path = "crates/mg-core" }
 mg-gff = { path = "crates/mg-gff" }
 mg-image = { path = "crates/mg-image" }
@@ -57,6 +58,7 @@ rfd = "0.17"
 ruzstd = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"
 wgpu = "30"
 

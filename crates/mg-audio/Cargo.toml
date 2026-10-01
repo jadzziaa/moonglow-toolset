@@ -1,0 +1,15 @@
+[package]
+name = "mg-audio"
+description = "The game's sounds and music decoded: PCM and IMA ADPCM WAV, MP3 (BMU)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+symphonia.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

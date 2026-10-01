@@ -12,6 +12,7 @@ fastrand.workspace = true
 glam.workspace = true
 mg-2da.workspace = true
 mg-area.workspace = true
+mg-audio.workspace = true
 mg-core.workspace = true
 mg-edit.workspace = true
 mg-erf.workspace = true
