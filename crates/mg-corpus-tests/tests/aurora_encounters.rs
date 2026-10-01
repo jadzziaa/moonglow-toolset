@@ -14,8 +14,10 @@ use mg_resman::{GameInstall, ResKey};
 use mg_rules::GameData;
 use mg_testkit::{aurora_capture, corpus};
 
-/// The entries of an encounter's creature list: (resref, CR, appearance).
-fn entries(list: &[Struct]) -> Vec<(String, String, i64)> {
+/// An encounter's creature entries: (resref, CR, appearance).
+type Entries = Vec<(String, String, i64)>;
+
+fn entries(list: &[Struct]) -> Entries {
     list.iter()
         .map(|e| {
             (
@@ -27,7 +29,8 @@ fn entries(list: &[Struct]) -> Vec<(String, String, i64)> {
         .collect()
 }
 
-fn lists(m: &Module) -> (Vec<(String, String, i64)>, Vec<(String, String, i64)>) {
+/// The blueprint's and the placed encounter's entries.
+fn lists(m: &Module) -> (Entries, Entries) {
     let ute = m.gff(&ResKey::parse("mgp_enc", ResType::UTE).unwrap()).unwrap().unwrap();
     let git = m.gff(&ResKey::parse("field", ResType::GIT).unwrap()).unwrap().unwrap();
     let placed = &git.root.list("Encounter List").unwrap()[0];
