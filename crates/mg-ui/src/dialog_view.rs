@@ -385,8 +385,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         },
     );
 
-    // The tree.
+    // The tree, in the Options' colours.
     let hl = view.highlight;
+    let look = Look::new(&app.settings);
     egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]).show(
         ui,
         |ui| {
@@ -397,7 +398,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 view.selected = None;
             }
             let mut path = HashSet::new();
-            tree(ui, &g, Parent::Root, 1, &mut view, &mut path, hl);
+            tree(ui, &g, Parent::Root, 1, &mut view, &mut path, hl, &look);
         },
     );
 
@@ -419,7 +420,27 @@ fn highlighted(n: &Struct, hl: [bool; 5]) -> bool {
         || (hl[4] && has("Sound"))
 }
 
+/// How lines look (Options › Conversation Editor).
+struct Look {
+    names: bool,
+    npc: Color32,
+    pc: Color32,
+}
+
+impl Look {
+    fn new(s: &crate::Settings) -> Look {
+        let rgb =
+            |c: Option<[u8; 3]>, d: Color32| c.map_or(d, |[r, g, b]| Color32::from_rgb(r, g, b));
+        Look {
+            names: !s.dialog_hide_names,
+            npc: rgb(s.dialog_npc_color, Color32::from_rgb(210, 70, 70)),
+            pc: rgb(s.dialog_pc_color, Color32::from_rgb(90, 140, 230)),
+        }
+    }
+}
+
 /// Draws the rows under a parent; `path` stops cycles through owning links.
+#[allow(clippy::too_many_arguments)]
 fn tree(
     ui: &mut Ui,
     g: &Gff,
@@ -428,6 +449,7 @@ fn tree(
     view: &mut DialogView,
     path: &mut HashSet<(Kind, u32)>,
     hl: [bool; 5],
+    look: &Look,
 ) {
     let kind = parent.child_kind();
     for (pos, l) in links(g, parent).iter().enumerate() {
@@ -440,6 +462,7 @@ fn tree(
         let speaker = decode(n.string("Speaker").unwrap_or_default());
         let first = text(n).lines().next().unwrap_or_default().to_string();
         let mut label = match kind {
+            Kind::Entry if !look.names => first,
             Kind::Entry if speaker.is_empty() => format!("[OWNER] - {first}"),
             Kind::Entry => format!("[{speaker}] - {first}"),
             Kind::Reply if first.is_empty() && !linked => "[CONTINUE]".to_string(),
@@ -452,9 +475,9 @@ fn tree(
         let color = if linked {
             Color32::GRAY
         } else if kind == Kind::Entry {
-            Color32::from_rgb(210, 70, 70)
+            look.npc
         } else {
-            Color32::from_rgb(90, 140, 230)
+            look.pc
         };
         let mut rich = RichText::new(label).color(color);
         if linked {
@@ -489,7 +512,7 @@ fn tree(
             }
         });
         if children && open && path.insert((kind, index)) {
-            tree(ui, g, Parent::Node(kind, index), depth + 1, view, path, hl);
+            tree(ui, g, Parent::Node(kind, index), depth + 1, view, path, hl, look);
             path.remove(&(kind, index));
         }
     }

@@ -3357,3 +3357,50 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     assert_eq!(feats, [258, 46, 3, 4, 2, 32, 45, 1089, 28, 106, 10]);
     assert_eq!(c.integer("PortraitId"), Some(93));
 }
+
+#[test]
+fn conversation_lines_without_speaker_names_when_chosen() {
+    let dir = mg_testkit::scratch_dir("ui-dialog-names");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("mg_talk", ResType::DLG).unwrap();
+    let mut g = mg_module::dialog::new_dialog();
+    mg_module::dialog::add_node(&mut g, mg_module::dialog::Parent::Root, "Hello there");
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, g.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.dialog_hide_names = true; // Options › Conversation Editor
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Hello there");
+    assert!(h.query_by_label("[OWNER] - Hello there").is_none());
+}
+
+#[test]
+fn saving_keeps_the_module_as_it_was_as_a_backup() {
+    let dir = mg_testkit::scratch_dir("ui-backup");
+    let path = sample_module(&dir);
+    let before = std::fs::read(&path).unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let key = ResKey::parse("mg_new", ResType::NSS).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "add",
+        vec![mg_edit::Edit::SetResource { key, data: Some(b"void main() {}".to_vec()) }],
+    )));
+    app.actions.push(mg_ui::Action::Save);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Aurora's name: <module>.BackupMod, the module before the save.
+    let backup = path.with_extension("BackupMod");
+    assert_eq!(std::fs::read(&backup).unwrap(), before);
+    assert_ne!(std::fs::read(&path).unwrap(), before);
+    // Off in Options › General: none.
+    std::fs::remove_file(&backup).unwrap();
+    h.state_mut().settings.no_backups = true;
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(!backup.exists());
+}

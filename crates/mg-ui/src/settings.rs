@@ -45,6 +45,9 @@ pub struct Settings {
     pub build_on_save: bool,
     /// Options > General: Minimize Toolset on test module.
     pub minimize_on_test: bool,
+    /// Options > General: Create backups of modules off (Aurora's default:
+    /// on; the module as it was kept as `<name>.BackupMod` at each save).
+    pub no_backups: bool,
     /// Options > Script Editor: Automatically Compile Scripts on Save.
     pub auto_compile: bool,
     /// Options > Script Editor: Generate Debug Information When Compiling
@@ -56,6 +59,13 @@ pub struct Settings {
     /// Options > Script Editor: External Script Editor, a program given the
     /// script's file.
     pub external_editor: Option<PathBuf>,
+    /// Options > Conversation Editor: Show speaker name before text
+    /// (Aurora's default: shown).
+    pub dialog_hide_names: bool,
+    /// Options > Conversation Editor: NPC and player text colours (sRGB);
+    /// `None`: Moonglow's red and blue.
+    pub dialog_npc_color: Option<[u8; 3]>,
+    pub dialog_pc_color: Option<[u8; 3]>,
 }
 
 impl Settings {

@@ -67,11 +67,15 @@ unless given otherwise.
 | Aurora | Moonglow | |
 |---|---|---|
 | Game and user folders | Tools > Options | ✅ [options_choose_the_game_folder] |
-| Options as pages (Aurora's tree): Area, General, Script Editor, Conversation Editor, Spell Checking, Sounds, Language | pages Folders, General, Script Editor | ◐ |
+| Options as pages (Aurora's tree): Area, General, Script Editor, Conversation Editor, Spell Checking, Sounds, Language | pages Folders, General, Script Editor, Conversation Editor | ◐ |
 | General: Build module on save; Minimize Toolset on test module | the same | ✅ [build_on_save_opens_the_results_when_something_is_wrong]; minimizing is the window manager's (not tested) |
-| General: welcome dialog at startup, the warnings (reserved resref names, creature spells, inventory, colour depth, character set, resource in hak, standard resource overwrite), environment mapping, module backups, always open module folders | not yet | ✗ |
+| General: Create backups of modules (on by default: the module as it was kept as `<name>.BackupMod`, Aurora's name) | the same | ✅ [saving_keeps_the_module_as_it_was_as_a_backup] |
+| General: welcome dialog at startup; colour depth and character set warnings; always open module directories | Moonglow's Welcome tab is its start page, not a dialog; the warnings are about Windows display settings; Moonglow opens module folders and archives alike | — |
+| General: reserved resref namespace, creature spells, inventory, resource in hak and standard resource overwrite warnings; environment mapping | not yet | ✗ |
 | Area: background colour, encounter spawn point markers, door orientation arrows, undo levels | not yet (undo is unlimited) | ✗ |
-| Conversation Editor, Spell Checking, Sounds, Language pages | not yet (no dictionary or audio) | ✗ |
+| Conversation Editor: Show speaker name before text, player and NPC text colours | the same | ✅ [conversation_lines_without_speaker_names_when_chosen] |
+| Conversation Editor: popup for a new text entry, paste and drag link modes, automatic backup | not yet (Moonglow edits a new line's text in place, and saves undoably) | ✗ |
+| Spell Checking, Sounds, Language pages | not yet (no dictionary or audio) | ✗ |
 
 ## Faction Editor (`TdlgFactionEditor`, `TdlgFactionSelect`)
 

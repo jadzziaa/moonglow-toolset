@@ -1049,6 +1049,24 @@ impl Moonglow {
                 self.log.error(format!("Custom palettes: {e}"));
             }
         }
+        // Options › General: the module as it was, kept as
+        // `<name>.BackupMod` (Aurora's name) before it is overwritten.
+        let target = match &to {
+            Some(p) if p.extension().is_some() => Some(p.clone()),
+            Some(_) => None,
+            None => match &ws.module.location {
+                Some(ModuleLocation::Archive(p)) => Some(p.clone()),
+                _ => None,
+            },
+        };
+        if !self.settings.no_backups
+            && let Some(p) = target.filter(|p| p.is_file())
+        {
+            let backup = p.with_extension("BackupMod");
+            if let Err(e) = std::fs::copy(&p, &backup) {
+                self.log.warn(format!("{}: {e}", backup.display()));
+            }
+        }
         let result = match to {
             Some(p) => {
                 let loc = if p.extension().is_some() {

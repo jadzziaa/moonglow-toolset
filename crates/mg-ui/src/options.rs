@@ -19,6 +19,7 @@ pub enum OptionsPage {
     Folders,
     General,
     ScriptEditor,
+    ConversationEditor,
 }
 
 /// The Options window's fields: folders as typed (empty to detect), and
@@ -31,10 +32,14 @@ pub struct OptionsDraft {
     pub script_style: ScriptStyle,
     pub build_on_save: bool,
     pub minimize_on_test: bool,
+    pub backups: bool,
     pub auto_compile: bool,
     pub debug_info: bool,
     pub script_templates: String,
     pub external_editor: String,
+    pub dialog_names: bool,
+    pub dialog_npc_color: Option<[u8; 3]>,
+    pub dialog_pc_color: Option<[u8; 3]>,
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -55,10 +60,14 @@ impl OptionsDraft {
             script_style: s.script_style.clone(),
             build_on_save: s.build_on_save,
             minimize_on_test: s.minimize_on_test,
+            backups: !s.no_backups,
             auto_compile: s.auto_compile,
             debug_info: s.debug_info,
             script_templates: text(&s.script_templates),
             external_editor: text(&s.external_editor),
+            dialog_names: !s.dialog_hide_names,
+            dialog_npc_color: s.dialog_npc_color,
+            dialog_pc_color: s.dialog_pc_color,
         }
     }
 
@@ -70,10 +79,14 @@ impl OptionsDraft {
             script_style: self.script_style.clone(),
             build_on_save: self.build_on_save,
             minimize_on_test: self.minimize_on_test,
+            no_backups: !self.backups,
             auto_compile: self.auto_compile,
             debug_info: self.debug_info,
             script_templates: path(&self.script_templates),
             external_editor: path(&self.external_editor),
+            dialog_hide_names: !self.dialog_names,
+            dialog_npc_color: self.dialog_npc_color,
+            dialog_pc_color: self.dialog_pc_color,
             ..s.clone()
         }
     }
@@ -109,6 +122,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         (OptionsPage::Folders, "Folders"),
                         (OptionsPage::General, "General"),
                         (OptionsPage::ScriptEditor, "Script Editor"),
+                        (OptionsPage::ConversationEditor, "Conversation Editor"),
                     ] {
                         ui.selectable_value(&mut draft.page, page, name);
                     }
@@ -164,6 +178,27 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.checkbox(&mut draft.build_on_save, "Build module on save")
                             .on_hover_text("Run Build Module (with its defaults) before saving");
                         ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
+                        ui.checkbox(&mut draft.backups, "Create backups of modules").on_hover_text(
+                            "Keep the module as it was as <name>.BackupMod at each save",
+                        );
+                    }
+                    OptionsPage::ConversationEditor => {
+                        ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
+                        for (label, color, default) in [
+                            ("NPC Text Color", &mut draft.dialog_npc_color, [210, 70, 70]),
+                            ("Player Text Color", &mut draft.dialog_pc_color, [90, 140, 230]),
+                        ] {
+                            ui.horizontal(|ui| {
+                                ui.label(label);
+                                let mut rgb = color.unwrap_or(default);
+                                if ui.color_edit_button_srgb(&mut rgb).changed() {
+                                    *color = Some(rgb);
+                                }
+                                if color.is_some() && ui.small_button("Default").clicked() {
+                                    *color = None;
+                                }
+                            });
+                        }
                     }
                     OptionsPage::ScriptEditor => {
                         ui.label("Code Templates Directory");
@@ -300,6 +335,18 @@ mod tests {
         assert_eq!(t.script_templates, Some(PathBuf::from("/tmp/templates")));
         assert!(!d.moves_game(&s), "no reload for these");
         assert_eq!(OptionsDraft::from_settings(&t).script_templates, "/tmp/templates");
+    }
+
+    #[test]
+    fn conversation_editor_options_apply() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        assert!(d.dialog_names, "names are shown by default, as in Aurora");
+        d.dialog_names = false;
+        d.dialog_pc_color = Some([1, 2, 3]);
+        let t = d.apply(&s);
+        assert!(t.dialog_hide_names);
+        assert_eq!((t.dialog_pc_color, t.dialog_npc_color), (Some([1, 2, 3]), None));
     }
 
     #[test]
