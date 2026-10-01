@@ -2703,3 +2703,50 @@ fn walkmesh_overlay_and_area_statistics() {
         image.save(out.join("walkmesh.png")).unwrap();
     }
 }
+
+#[test]
+fn tiles_copy_and_paste() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness_on("tile-paste", "tic01", None) else { return };
+    let tile = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        are.root.list("Tile_List").unwrap()[i].clone()
+    };
+    h.get_by_label("Select Tiles").click();
+    h.run_steps(2);
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        press(h, at, true, egui::Modifiers::NONE);
+        press(h, at, false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    };
+    // Tile (1, 1): the room's south-west quarter, a Stone corner at its
+    // north-east. Copied, pasted with its south-west tile at (0, 0).
+    click(&mut h, Vec3::new(15.0, 15.0, 0.0));
+    let copied = tile(&mut h, 5);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::C);
+    h.run_steps(1);
+    assert!(h.state().tile_clip.is_some());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
+    h.run_steps(1);
+    assert!(h.state().area_views[&area].tile_pasting);
+    click(&mut h, Vec3::new(5.0, 5.0, 0.0));
+    h.run_steps(2);
+    assert!(!h.state().area_views[&area].tile_pasting);
+    let pasted = tile(&mut h, 0);
+    for label in ["Tile_ID", "Tile_Orientation", "Tile_Height", "Tile_MainLight1", "Tile_SrcLight1"]
+    {
+        assert_eq!(pasted.get(label), copied.get(label), "{label}");
+    }
+    // The tiles around fit it: the area's tiles make one lattice.
+    let game = h.state().game.as_ref().unwrap();
+    let set = mg_area::tileset(game, ResRef::from_str("tic01").unwrap()).unwrap();
+    let index = mg_tiles::TileIndex::new(&set);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+    let g = mg_area::terrain::grid(&are.root, &index).unwrap();
+    let (_, bad) = mg_tiles::Lattice::from_tiles(&index, 4, 4, &g.tiles).unwrap();
+    assert!(bad.is_empty(), "tiles disagree at {bad:?}");
+}

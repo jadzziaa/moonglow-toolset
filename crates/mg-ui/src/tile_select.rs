@@ -40,6 +40,14 @@ pub struct TileProps {
     pub picking: Option<usize>,
 }
 
+/// Copied tiles: each at its offset from the block's south-west corner,
+/// its height above the block's lowest, and its ARE struct (lights, loops).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TileClip {
+    pub tileset: ResRef,
+    pub tiles: Vec<((i64, i64), mg_tiles::Placement, mg_gff::Struct)>,
+}
+
 /// The tile under a screen point.
 fn tile_at(view: &AreaView, pos: Pos2) -> Option<(u32, u32)> {
     let model = view.model.as_ref()?;
@@ -111,6 +119,111 @@ pub(crate) fn input(
         && !view.tile_selection.is_empty()
     {
         delete(app, view);
+    }
+    // Copy, cut and paste (egui's events, or the keys where it sends none).
+    let (copy, cut, paste) = ui.input(|i| {
+        let key = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
+        let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
+        (
+            event(|e| matches!(e, egui::Event::Copy)) || key(egui::Key::C),
+            event(|e| matches!(e, egui::Event::Cut)) || key(egui::Key::X),
+            event(|e| matches!(e, egui::Event::Paste(_))) || key(egui::Key::V),
+        )
+    });
+    if response.hovered() && !typing {
+        if (copy || cut) && !view.tile_selection.is_empty() {
+            app.tile_clip = copy_tiles(app, view);
+            if cut {
+                delete(app, view);
+            }
+        }
+        if paste && app.tile_clip.is_some() {
+            view.tile_pasting = true;
+        }
+    }
+    true
+}
+
+/// Copies the selected tiles (Aurora: within a tileset).
+fn copy_tiles(app: &mut Moonglow, view: &AreaView) -> Option<TileClip> {
+    let g = grid(app, view)?;
+    let tools = view.terrain.as_ref()?;
+    let are = app.ws.as_mut()?.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
+    let list = are.root.list("Tile_List")?;
+    let w = g.lattice.width();
+    let x0 = view.tile_selection.iter().map(|c| c.0).min()?;
+    let y0 = view.tile_selection.iter().map(|c| c.1).min()?;
+    let low = view.tile_selection.iter().map(|&(x, y)| g.tile(x, y).height).min()?;
+    let tiles = view
+        .tile_selection
+        .iter()
+        .filter_map(|&(x, y)| {
+            let p = g.tile(x, y);
+            let s = list.get((y * w + x) as usize)?.clone();
+            let offset = (i64::from(x) - i64::from(x0), i64::from(y) - i64::from(y0));
+            Some((offset, mg_tiles::Placement { height: p.height - low, ..p }, s))
+        })
+        .collect();
+    Some(TileClip { tileset: tools.tileset, tiles })
+}
+
+/// Pasting: the copied tiles follow the pointer (the block's south-west
+/// tile under it); a click puts them in as a group goes in, a right click
+/// or Escape stops. `false` when not pasting.
+pub(crate) fn paste_input(
+    app: &mut Moonglow,
+    ui: &egui::Ui,
+    view: &mut AreaView,
+    response: &egui::Response,
+) -> bool {
+    if !view.tile_pasting {
+        return false;
+    }
+    let same = app
+        .tile_clip
+        .as_ref()
+        .zip(view.terrain.as_ref())
+        .is_some_and(|(c, t)| c.tileset == t.tileset);
+    if !same {
+        view.tile_pasting = false;
+        view.notice = Some("Tiles paste only into an area of their tileset".into());
+        return true;
+    }
+    let cancel = response.secondary_clicked()
+        || (response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)));
+    if cancel {
+        view.tile_pasting = false;
+        return true;
+    }
+    if response.clicked()
+        && let Some(at) = response.interact_pointer_pos().and_then(|p| tile_at(view, p))
+        && let Some(mut g) = grid(app, view)
+        && let (Some(clip), Some(tools)) = (app.tile_clip.clone(), view.terrain.as_ref())
+    {
+        let tiles: Vec<_> = clip.tiles.iter().map(|(o, p, _)| (*o, Some(*p))).collect();
+        let before = g.clone();
+        match g.place_tiles(&tools.index, &tiles, at.0, at.1) {
+            Some(stroke) => {
+                let changes = g.apply(&tools.index, stroke, &mut fastrand::Rng::new());
+                let kept: Vec<_> = clip
+                    .tiles
+                    .iter()
+                    .map(|((dx, dy), _, s)| {
+                        (((at.0 as i64 + dx) as u32, (at.1 as i64 + dy) as u32), s.clone())
+                    })
+                    .collect();
+                crate::terrain_mode::tile_command_keeping(
+                    app,
+                    view,
+                    &before,
+                    &changes,
+                    "Paste tiles",
+                    &kept,
+                );
+                view.tile_pasting = false;
+            }
+            None => view.notice = Some("Paste: the tiles do not fit there".into()),
+        }
     }
     true
 }
@@ -418,7 +531,7 @@ fn apply(app: &mut Moonglow, props: &TileProps) {
 }
 
 /// The selected tiles and the box being dragged, over the view.
-pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView) {
+pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
     if !view.tile_mode {
         return;
     }
@@ -434,6 +547,23 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView) {
         let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
         if screen.len() == 4 {
             painter.add(egui::Shape::closed_line(screen, egui::Stroke::new(2.0, blue)));
+        }
+    }
+    // The pasted block, under the pointer.
+    if view.tile_pasting
+        && let (Some(clip), Some(at)) =
+            (clip, ui.input(|i| i.pointer.hover_pos()).and_then(|p| tile_at(view, p)))
+    {
+        let gold = Color32::from_rgb(240, 200, 60);
+        for ((dx, dy), _, _) in &clip.tiles {
+            let (x, y) = (at.0 as f32 + *dx as f32, at.1 as f32 + *dy as f32);
+            let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(ex, ey)| {
+                Vec3::new((x + ex) * mg_area::TILE_SIZE, (y + ey) * mg_area::TILE_SIZE, 0.05)
+            });
+            let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
+            if screen.len() == 4 {
+                painter.add(egui::Shape::closed_line(screen, egui::Stroke::new(2.0, gold)));
+            }
         }
     }
     if let Some((a, b)) = view.tile_box {

@@ -126,6 +126,8 @@ pub struct AreaView {
     pub tile_selection: Vec<(u32, u32)>,
     /// The box being dragged to select tiles (screen points).
     pub(crate) tile_box: Option<(Pos2, Pos2)>,
+    /// Copied tiles follow the pointer, to be placed with a click.
+    pub tile_pasting: bool,
     /// Where the tile menu was opened.
     pub(crate) tile_menu_at: Option<Pos2>,
     /// How far a tile group being placed is turned (quarter turns).
@@ -179,6 +181,7 @@ impl AreaView {
             tile_mode: false,
             tile_selection: Vec::new(),
             tile_box: None,
+            tile_pasting: false,
             tile_menu_at: None,
             group_turns: 0,
             notice: None,
@@ -580,7 +583,7 @@ fn viewport(
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush);
     walkmesh_overlay(app, ui, view);
     crate::terrain_mode::overlay(app, ui, view);
-    crate::tile_select::overlay(ui, view);
+    crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
     // Tiles animate: keep drawing while the view is on screen.
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     input(app, ui, view, &response);
@@ -826,6 +829,9 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
     camera_input(ui, view, response, shift, command);
     if crate::terrain_mode::input(app, ui, view, response) {
+        return;
+    }
+    if crate::tile_select::paste_input(app, ui, view, response) {
         return;
     }
     if crate::tile_select::input(app, ui, view, response) {

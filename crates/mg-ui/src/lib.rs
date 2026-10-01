@@ -179,6 +179,8 @@ pub struct Moonglow {
     pub resize_area: Option<area_reshape::ResizeDraft>,
     /// The Rotate Area window, while it is open.
     pub rotate_area: Option<area_reshape::RotateDraft>,
+    /// Tiles copied in an area viewer.
+    pub tile_clip: Option<tile_select::TileClip>,
     /// Objects copied in an area viewer.
     pub object_clip: Option<area_view::ObjectClip>,
     /// An object to show and select when its area's view is next drawn.
@@ -251,6 +253,7 @@ impl Moonglow {
             find_instance: None,
             area_focus: None,
             object_clip: None,
+            tile_clip: None,
             preview_window: false,
             tile_props: None,
             area_stats: None,

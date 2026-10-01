@@ -264,17 +264,39 @@ impl Grid {
         y: u32,
         turns: u8,
     ) -> Option<Stroke> {
+        let columns = group.columns.max(1);
+        let tiles: Vec<((i64, i64), Option<Placement>)> = group
+            .tiles
+            .iter()
+            .enumerate()
+            .map(|(k, tile)| {
+                let (mut c, mut r) = ((k as u32 % columns) as i64, (k as u32 / columns) as i64);
+                for _ in 0..turns % 4 {
+                    (c, r) = (-r, c);
+                }
+                let p = tile.map(|t| Placement { tile: t, orientation: turns % 4, height: 0 });
+                ((c, r), p)
+            })
+            .collect();
+        self.place_tiles(index, &tiles, x, y)
+    }
+
+    /// Placing a block of tiles as a group goes in (pasted tiles too):
+    /// each at its offset from cell (x, y), raised by the height of the
+    /// ground under that cell; `None` offsets are matched like terrain.
+    pub fn place_tiles(
+        &self,
+        index: &TileIndex,
+        tiles: &[((i64, i64), Option<Placement>)],
+        x: u32,
+        y: u32,
+    ) -> Option<Stroke> {
         let (w, h) = (self.lattice.width() as i64, self.lattice.height() as i64);
         let base = self.lattice.cell(x, y).corners.iter().map(|c| c.height).min().unwrap_or(0);
         let mut lattice = self.lattice.clone();
         let mut fixed = Vec::new();
         let mut empty = Vec::new();
-        let columns = group.columns.max(1);
-        for (k, tile) in group.tiles.iter().enumerate() {
-            let (mut c, mut r) = ((k as u32 % columns) as i64, (k as u32 / columns) as i64);
-            for _ in 0..turns % 4 {
-                (c, r) = (-r, c);
-            }
+        for &((c, r), tile) in tiles {
             let (cx, cy) = (x as i64 + c, y as i64 + r);
             if cx < 0 || cy < 0 || cx >= w || cy >= h {
                 return None;
@@ -282,7 +304,7 @@ impl Grid {
             let cell = (cx as u32, cy as u32);
             match tile {
                 Some(t) => {
-                    let p = Placement { tile: *t, orientation: turns % 4, height: base };
+                    let p = Placement { height: t.height + base, ..t };
                     lattice.set_cell(cell.0, cell.1, &index.cell(p)?);
                     fixed.push((cell, p));
                 }

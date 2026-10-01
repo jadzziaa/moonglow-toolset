@@ -184,6 +184,19 @@ pub(crate) fn tile_command(
     changes: &[((u32, u32), Placement)],
     label: &str,
 ) {
+    tile_command_keeping(app, view, before, changes, label, &[]);
+}
+
+/// [`tile_command`], the cells of `kept` keeping those tile structs'
+/// lights and animation loops (pasted tiles).
+pub(crate) fn tile_command_keeping(
+    app: &mut Moonglow,
+    view: &AreaView,
+    before: &Grid,
+    changes: &[((u32, u32), Placement)],
+    label: &str,
+    kept: &[((u32, u32), mg_gff::Struct)],
+) {
     let (Some(ws), Some(game), Some(tools)) =
         (app.ws.as_mut(), app.game.as_ref(), view.terrain.as_ref())
     else {
@@ -198,6 +211,28 @@ pub(crate) fn tile_command(
     let mut lights_rng = fastrand::Rng::new();
     let mut lights = || scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut lights_rng));
     let mut edits = tile_edits(key, &root, &tools.set, changes, &mut lights);
+    let width = root.integer("Width").unwrap_or(0).max(0) as u32;
+    for ((x, y), copied) in kept {
+        let path = mg_edit::GffPath::root().item("Tile_List", (y * width + x) as usize);
+        for label in [
+            "Tile_MainLight1",
+            "Tile_MainLight2",
+            "Tile_SrcLight1",
+            "Tile_SrcLight2",
+            "Tile_AnimLoop1",
+            "Tile_AnimLoop2",
+            "Tile_AnimLoop3",
+        ] {
+            if let Some(v) = copied.get(label) {
+                edits.push(mg_edit::Edit::SetField {
+                    key,
+                    path: path.clone(),
+                    label: label.into(),
+                    value: Some(v.clone()),
+                });
+            }
+        }
+    }
     let git_key = ResKey::new(view.area, ResType::GIT);
     if let Ok(git) = ws.doc(&git_key) {
         let git = git.root.clone();
