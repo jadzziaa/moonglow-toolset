@@ -693,4 +693,5 @@ fn description(f: &mut Form<'_>, ui: &mut Ui) {
     }
     ui.separator();
     f.variables(ui);
+    f.update_instances(ui);
 }

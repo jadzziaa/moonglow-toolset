@@ -338,6 +338,9 @@ pub(super) fn advanced(
             ui.label("Variables");
             f.variables(ui);
             ui.end_row();
+            ui.label("");
+            f.update_instances(ui);
+            ui.end_row();
         },
     );
 }

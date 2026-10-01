@@ -510,9 +510,11 @@ impl Form<'_> {
         }
     }
 
-    /// Update Instances (Aurora shows it for sounds and merchants): every
-    /// object placed from this blueprint, in every area, made again from
-    /// it where it stands, facing as it faces. One command.
+    /// Update Instances (Aurora's Advanced pages, for blueprints of every
+    /// type but waypoints): every object placed from this blueprint, in
+    /// every area, made again from it where it stands, facing as it faces
+    /// (a trigger or encounter keeping its outline and spawn points). One
+    /// command.
     pub(crate) fn update_instances(&mut self, ui: &mut Ui) {
         if self.is_instance() {
             return;

@@ -167,7 +167,7 @@ unless given otherwise.
 | Custom palettes regenerated from the module's blueprints (category by `PaletteID`, stores `ID`; 255 hidden; creatures with CR and faction) | rebuilt from the blueprints on every save, and live in the pane | ✅ (`palettes.rs`: Chapter 1's nine custom palettes rebuild entry for entry, in order) |
 | Edit, Edit Copy, Delete (Del key), New | Edit (custom: opens the blueprint), Edit Copy (a copy as `<resref stem>NNN`, undoable), Delete (undoable), Preview, New… (the type's wizard) | ◐ (the copy's resref rule is not yet checked against Aurora; creatures have no wizard yet) |
 | Find Text (Ctrl+F), Find Next (F3) | Find: shows the blueprints whose name or resref matches, categories opened | ✅ |
-| Update Instances (shown by Aurora only for sounds and merchants) | the same button on the Sound and Merchant blueprints' Advanced page: every placed instance in every area made again from the blueprint where it stands | ◐ [update_instances_remakes_placed_sounds]; what Aurora keeps of an instance not yet checked |
+| Update Instances (Advanced page of every blueprint dialog but the waypoint's) | the same: every placed instance in every area made again from the blueprint where it stands (a trigger's or encounter's outline and spawn points kept) | ◐ [update_instances_remakes_placed_sounds]; what Aurora keeps of an instance not yet checked |
 | Selecting a blueprint arms placement in the area | the same | ✅ [area_viewer_places_draws_boxes_and_turns] |
 | In-place rename of custom blueprints | not yet (names are edited in the blueprint editors) | ✗ |
 

@@ -585,6 +585,9 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui.label("Variables");
             f.variables(ui);
             ui.end_row();
+            ui.label("");
+            f.update_instances(ui);
+            ui.end_row();
         });
         let ui = &mut cols[1];
         for (text, label) in [

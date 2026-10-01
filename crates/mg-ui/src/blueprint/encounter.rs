@@ -254,5 +254,8 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         ui.label("Variables");
         f.variables(ui);
         ui.end_row();
+        ui.label("");
+        f.update_instances(ui);
+        ui.end_row();
     });
 }
