@@ -2,13 +2,15 @@
 //! Aurora (`levelup/bandit-fighter5.mod`: to Fighter 5; `six-after.mod`:
 //! Fighter 2, 3 and 10, and Wizard 1, Rogue 3 and Cleric 5 added; made from
 //! `examples/popup_probe_module.rs` and `levelup_probe_module.rs`). Hit
-//! points, abilities, feats (in order), skills and maximum hit points must
-//! be Aurora's.
+//! points, abilities, feats (in order), skills, a new class's memorized
+//! spells and package equipment (equipped or where in the backpack), and
+//! maximum hit points must be Aurora's.
 
-use mg_core::ResType;
+use mg_core::{ResRef, ResType};
 use mg_gff::Struct;
 use mg_module::Module;
 use mg_resman::{GameInstall, ResKey};
+use mg_rules::levelup::GearPlace;
 use mg_rules::{CreatureSheet, GameData};
 use mg_testkit::{aurora_capture, corpus};
 
@@ -26,7 +28,16 @@ fn summary(game: &GameData, c: &Struct) -> Vec<String> {
             c.list("ClassList")
                 .unwrap()
                 .iter()
-                .map(|e| (e.integer("Class").unwrap(), e.integer("ClassLevel").unwrap()))
+                .map(|e| {
+                    let spells: Vec<(String, Vec<i64>)> = (0..10)
+                        .filter_map(|n| {
+                            let l = format!("MemorizedList{n}");
+                            let list = e.list(&l)?;
+                            Some((l, list.iter().filter_map(|s| s.integer("Spell")).collect()))
+                        })
+                        .collect();
+                    (e.integer("Class").unwrap(), e.integer("ClassLevel").unwrap(), spells)
+                })
                 .collect::<Vec<_>>()
         ),
         format!("hit points {} {}", ints("HitPoints"), ints("CurrentHitPoints")),
@@ -76,6 +87,10 @@ fn levelling_up_matches_aurora() {
             ],
         ),
     ];
+    let item = |r: ResRef| {
+        let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
+        mg_gff::Gff::read(&data).ok().map(|g| g.root)
+    };
     let mut failures = Vec::new();
     for (before, after, targets) in cases {
         let (before, after) = (
@@ -89,6 +104,37 @@ fn levelling_up_matches_aurora() {
                 if x != y {
                     failures.push(format!("{t:?}:\n  Moonglow {x}\n  Aurora   {y}"));
                 }
+            }
+            // A new class's equipment: what Aurora added, in order.
+            let had: Vec<i64> =
+                c.list("ClassList").unwrap().iter().filter_map(|e| e.integer("Class")).collect();
+            let mut ours = Vec::new();
+            for &(class, _) in t.iter().filter(|(k, _)| !had.contains(&i64::from(*k))) {
+                ours.extend(game.new_class_gear(c, class, &item).into_iter().map(
+                    |(r, p)| match p {
+                        GearPlace::Equip(slot) => format!("{r} equipped {slot}"),
+                        GearPlace::Carry(x, y) => format!("{r} carried at {x}, {y}"),
+                    },
+                ));
+            }
+            let before_slots: Vec<u32> =
+                c.list("Equip_ItemList").unwrap_or(&[]).iter().map(|e| e.id).collect();
+            let resref = |e: &Struct| e.resref("TemplateResRef").unwrap_or(ResRef::EMPTY);
+            let mut theirs: Vec<String> = aurora
+                .list("Equip_ItemList")
+                .unwrap_or(&[])
+                .iter()
+                .filter(|e| !before_slots.contains(&e.id))
+                .map(|e| format!("{} equipped {}", resref(e), e.id))
+                .collect();
+            theirs.extend(aurora.list("ItemList").unwrap_or(&[]).iter().map(|e| {
+                let at = |l: &str| e.integer(l).unwrap_or(0);
+                format!("{} carried at {}, {}", resref(e), at("Repos_PosX"), at("Repos_Posy"))
+            }));
+            // Equipped first, then carried: Aurora's lists keep them apart.
+            ours.sort_by_key(|l| !l.contains("equipped"));
+            if ours != theirs {
+                failures.push(format!("{t:?} gear:\n  Moonglow {ours:?}\n  Aurora   {theirs:?}"));
             }
         }
     }

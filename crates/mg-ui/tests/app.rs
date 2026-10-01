@@ -3264,3 +3264,41 @@ fn the_levelup_wizard_levels_a_creature_up_as_aurora_does() {
     h.run();
     assert_eq!(field(&mut h, &key).list("ClassList").unwrap()[0].integer("ClassLevel"), Some(1));
 }
+
+#[test]
+fn the_levelup_wizard_adds_a_class_with_its_spells_and_gear() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_wiz", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    h.get_by_label("Levelup Wizard").click();
+    h.run();
+    // Wizard 1, as captured in Aurora on a placed bandit.
+    h.state_mut().levelup.as_mut().expect("the wizard").slots.push((10, 1, 0));
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    let s = field(&mut h, &key);
+    let wizard = &s.list("ClassList").unwrap()[1];
+    let cantrips: Vec<i64> =
+        wizard.list("MemorizedList0").unwrap().iter().filter_map(|e| e.integer("Spell")).collect();
+    assert_eq!(cantrips, [37, 100, 144]);
+    let bolts = s.list("Equip_ItemList").unwrap().iter().find(|e| e.id == 0x2000).cloned();
+    assert_eq!(
+        bolts.and_then(|e| e.resref("EquippedRes")),
+        Some(ResRef::from_str("nw_wambo001").unwrap())
+    );
+    let carried: Vec<(String, i64, i64)> = s
+        .list("ItemList")
+        .unwrap()
+        .iter()
+        .map(|e| {
+            let res = e.resref("InventoryRes").unwrap().to_string();
+            (res, e.integer("Repos_PosX").unwrap(), e.integer("Repos_Posy").unwrap())
+        })
+        .collect();
+    assert_eq!(carried.len(), 11, "{carried:?}");
+    assert_eq!(carried[0], ("nw_wswdg001".to_string(), 0, 0));
+}

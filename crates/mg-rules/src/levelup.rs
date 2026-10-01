@@ -21,7 +21,15 @@
 //!   prerequisites the creature meets, feats taken the same level not
 //!   counting as prerequisites.
 //!
-//! Spells and the package's equipment for a new class are not given yet.
+//! A class the creature did not have gets its spells: for a class that
+//! prepares them, each spell level's slots (the `SpellGainTable`, and
+//! bonus slots for the casting ability) filled with a domain spell (the
+//! package's first domain's for that level, else the second's) and then
+//! the package's spells of that level (`SpellPref2DA`) in order, the first
+//! repeated in what is left; for one that knows them, the package's first
+//! spells of each level up to the `SpellKnownTable` (not yet checked
+//! against Aurora). Its package's equipment is [`GameData::new_class_gear`]'s
+//! (the caller makes the items).
 
 use std::collections::BTreeSet;
 
@@ -33,6 +41,7 @@ use crate::creatures::{ABILITIES, modifier};
 /// Struct ids of a creature's lists, as Aurora writes them.
 const FEAT_ID: u32 = 1;
 const CLASS_ID: u32 = 2;
+const SPELL_ID: u32 = 3;
 
 /// What a feat may be taken as.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -125,6 +134,20 @@ impl GameData {
             if i >= list.len() {
                 let mut e = Struct::new(CLASS_ID);
                 e.set("Class", Value::Int(class as i32));
+                e.set("ClassLevel", Value::Short(level as i16));
+                for (label, spells) in self.new_class_spells(&state, class, level) {
+                    let entries = spells
+                        .into_iter()
+                        .map(|spell| {
+                            let mut s = Struct::new(SPELL_ID);
+                            s.set("Spell", Value::Word(spell));
+                            s.set("SpellFlags", Value::Byte(1));
+                            s.set("SpellMetaMagic", Value::Byte(0));
+                            s
+                        })
+                        .collect();
+                    e.set(&label, Value::List(entries));
+                }
                 list.push(e);
             }
             list[i].set("ClassLevel", Value::Short(level as i16));
@@ -290,6 +313,97 @@ impl GameData {
         (die + 1.0) / 2.0
     }
 
+    /// The spell lists of a class new to the creature at `level`: (label,
+    /// spells) for each spell level with any.
+    fn new_class_spells(&self, s: &State, class: u32, level: u32) -> Vec<(String, Vec<u16>)> {
+        let Ok(classes) = self.table("classes") else { return Vec::new() };
+        let row = class as usize;
+        if classes.get_int(row, "SpellCaster") != Some(1) || level == 0 {
+            return Vec::new();
+        }
+        let prepares = classes.get_int(row, "MemorizesSpells") == Some(1);
+        let Some(column) = classes.get(row, "SpellTableColumn").map(str::to_owned) else {
+            return Vec::new();
+        };
+        let table = |c: &str| classes.get(row, c).and_then(|n| self.table(&n.to_lowercase()).ok());
+        let spells_2da = self.table("spells").ok();
+        let spell_level = |spell: u16| -> Option<usize> {
+            spells_2da.as_ref()?.get_int(usize::from(spell), &column).map(|l| l.max(0) as usize)
+        };
+        let packages = self.table("packages").ok();
+        let package = classes.get_int(row, "Package").and_then(|p| usize::try_from(p).ok());
+        let pkg = |c: &str| package.and_then(|p| packages.as_ref()?.get(p, c).map(str::to_owned));
+        let prefs: Vec<u16> = pkg("SpellPref2DA")
+            .and_then(|n| self.table(&n.to_lowercase()).ok())
+            .map(|t| {
+                (0..t.len())
+                    .filter_map(|r| t.get_int(r, "SpellIndex").and_then(|v| u16::try_from(v).ok()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let ability = classes
+            .get(row, "SpellcastingAbil")
+            .and_then(|a| ABILITIES.iter().position(|x| x.eq_ignore_ascii_case(a)))
+            .map_or(0, |i| modifier(s.total(i)));
+        let domains = self.table("domains").ok();
+        let domain_spell = |n: usize| -> Option<u16> {
+            ["Domain1", "Domain2"].iter().find_map(|d| {
+                let d = pkg(d)?.parse::<usize>().ok()?;
+                let v = domains.as_ref()?.get_int(d, &format!("Level_{n}"))?;
+                u16::try_from(v).ok()
+            })
+        };
+        let mut out = Vec::new();
+        for n in 0..10usize {
+            let of_level: Vec<u16> =
+                prefs.iter().copied().filter(|&sp| spell_level(sp) == Some(n)).collect();
+            if prepares {
+                let base = table("SpellGainTable")
+                    .and_then(|t| t.get_int(level as usize - 1, &format!("SpellLevel{n}")))
+                    .unwrap_or(0)
+                    .max(0);
+                // Bonus slots: one for each four points of modifier from
+                // the spell level up.
+                let bonus = if n > 0 && base > 0 && ability >= n as i32 {
+                    (ability - n as i32) / 4 + 1
+                } else {
+                    0
+                };
+                let slots = (base + bonus) as usize;
+                let mut list: Vec<u16> = Vec::new();
+                if n > 0
+                    && let Some(d) = domain_spell(n)
+                    && slots > 0
+                {
+                    list.push(d);
+                }
+                for &sp in &of_level {
+                    if list.len() < slots && !list.contains(&sp) {
+                        list.push(sp);
+                    }
+                }
+                if let Some(&first) = of_level.first().or(list.first()) {
+                    while list.len() < slots {
+                        list.push(first);
+                    }
+                }
+                if !list.is_empty() {
+                    out.push((format!("MemorizedList{n}"), list));
+                }
+            } else {
+                let known = table("SpellKnownTable")
+                    .and_then(|t| t.get_int(level as usize - 1, &format!("SpellLevel{n}")))
+                    .unwrap_or(0)
+                    .max(0) as usize;
+                let list: Vec<u16> = of_level.into_iter().take(known).collect();
+                if !list.is_empty() {
+                    out.push((format!("KnownList{n}"), list));
+                }
+            }
+        }
+        out
+    }
+
     /// A racialtypes.2da value of the creature's race.
     fn race_value(&self, s: &State, column: &str) -> Option<i32> {
         self.table("racialtypes").ok()?.get_int(s.race, column)
@@ -407,5 +521,100 @@ impl GameData {
             })
             .max()
             .unwrap_or(-1)
+    }
+}
+
+/// Where a new class's package item goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GearPlace {
+    /// Equipped in a slot (an `Equip_ItemList` struct id: its bit).
+    Equip(u32),
+    /// In the backpack at a place of its 10-wide grid.
+    Carry(u16, u16),
+}
+
+impl GameData {
+    /// The equipment a class new to the creature brings (its package's
+    /// `Equip2DA`), as Aurora places it: an item goes to the first slot of
+    /// its base item's `EquipableSlots` if that is free and it is a weapon,
+    /// shield, armour, helmet or ammunition (baseitems.2da `Category` 1 to
+    /// 8: a torch is carried), else into the backpack at the first place it
+    /// fits, rows first. `item` reads an item blueprint.
+    pub fn new_class_gear(
+        &self,
+        creature: &Struct,
+        class: u32,
+        item: &dyn Fn(mg_core::ResRef) -> Option<Struct>,
+    ) -> Vec<(mg_core::ResRef, GearPlace)> {
+        let Ok(base_items) = self.table("baseitems") else { return Vec::new() };
+        let base_of = |s: &Struct| s.integer("BaseItem").and_then(|b| usize::try_from(b).ok());
+        let size = |b: usize| {
+            let n = |c: &str| base_items.get_int(b, c).unwrap_or(1).max(1) as u16;
+            (n("InvSlotWidth"), n("InvSlotHeight"))
+        };
+        let mut used: u32 =
+            creature.list("Equip_ItemList").unwrap_or(&[]).iter().fold(0, |m, e| m | e.id);
+        // The backpack's cells taken.
+        let mut taken: BTreeSet<(u16, u16)> = BTreeSet::new();
+        let occupy = |taken: &mut BTreeSet<(u16, u16)>, x: u16, y: u16, (w, h): (u16, u16)| {
+            for i in 0..w {
+                for j in 0..h {
+                    taken.insert((x + i, y + j));
+                }
+            }
+        };
+        for e in creature.list("ItemList").unwrap_or(&[]) {
+            let b = base_of(e)
+                .or_else(|| e.resref("InventoryRes").and_then(item).and_then(|i| base_of(&i)));
+            let at = |l: &str| e.integer(l).unwrap_or(0).clamp(0, 255) as u16;
+            if let Some(b) = b {
+                occupy(&mut taken, at("Repos_PosX"), at("Repos_Posy"), size(b));
+            }
+        }
+        let classes = self.table("classes").ok();
+        let package = classes
+            .as_ref()
+            .and_then(|t| t.get_int(class as usize, "Package"))
+            .and_then(|p| usize::try_from(p).ok());
+        let table = package
+            .and_then(|p| self.table("packages").ok()?.get(p, "Equip2DA").map(str::to_lowercase))
+            .and_then(|n| self.table(&n).ok());
+        let Some(table) = table else { return Vec::new() };
+        let mut out = Vec::new();
+        for r in 0..table.len() {
+            let Some(res) = table
+                .get(r, "Label")
+                .and_then(|l| mg_core::ResRef::from_str(&l.to_lowercase()).ok())
+            else {
+                continue;
+            };
+            let Some(bp) = item(res) else { continue };
+            let Some(b) = base_of(&bp) else { continue };
+            let slots = base_items
+                .get(b, "EquipableSlots")
+                .and_then(|v| {
+                    u32::from_str_radix(v.trim_start_matches("0x").trim_start_matches("0X"), 16)
+                        .ok()
+                })
+                .unwrap_or(0);
+            let first = slots.isolate_lowest_one();
+            let wearable = base_items.get_int(b, "Category").is_some_and(|c| (1..=8).contains(&c));
+            if first != 0 && wearable && used & first == 0 {
+                used |= first;
+                out.push((res, GearPlace::Equip(first)));
+                continue;
+            }
+            let (w, h) = size(b);
+            let fits =
+                |x: u16, y: u16| (0..w).all(|i| (0..h).all(|j| !taken.contains(&(x + i, y + j))));
+            let place = (0..200u16)
+                .flat_map(|y| (0..=10u16.saturating_sub(w)).map(move |x| (x, y)))
+                .find(|&(x, y)| fits(x, y));
+            if let Some((x, y)) = place {
+                occupy(&mut taken, x, y, (w, h));
+                out.push((res, GearPlace::Carry(x, y)));
+            }
+        }
+        out
     }
 }
