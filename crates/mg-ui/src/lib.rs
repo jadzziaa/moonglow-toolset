@@ -8,6 +8,7 @@ mod area_props;
 pub mod area_reshape;
 pub mod area_tools;
 pub mod area_view;
+pub mod audio;
 pub mod blueprint;
 pub mod blueprint_wizard;
 mod browser;
@@ -138,6 +139,9 @@ pub struct Moonglow {
     pub log: Log,
     pub actions: Vec<Action>,
     pub dialogs: Box<dyn Dialogs>,
+    /// Where sounds play: [`audio::Silence`] until the desktop app gives
+    /// its speakers.
+    pub speaker: Box<dyn audio::Speaker>,
     /// Open script editors' text, by script.
     pub(crate) scripts: HashMap<ResKey, script_view::ScriptBuffer>,
     /// Script editors' laid-out text, reused between frames.
@@ -254,6 +258,7 @@ impl Moonglow {
             log,
             actions: Vec::new(),
             dialogs,
+            speaker: Box::new(audio::Silence::default()),
             scripts: HashMap::new(),
             laid_out: HashMap::new(),
             buffers: HashMap::new(),

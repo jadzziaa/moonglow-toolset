@@ -58,6 +58,7 @@ rfd = "0.17"
 ruzstd = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
+rodio = { version = "0.22", default-features = false, features = ["playback"] }
 symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"
 wgpu = "30"

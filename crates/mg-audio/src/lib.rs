@@ -5,12 +5,13 @@
 //! with IMA ADPCM or PCM, and a few bare MP3s. Decoding is Symphonia's.
 
 use std::io::Cursor;
+use std::sync::Arc;
 
 use symphonia::core::codecs::CodecParameters;
-use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
-use symphonia::core::formats::{FormatOptions, TrackType};
+use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
 
@@ -75,63 +76,144 @@ pub fn container(data: &[u8]) -> Option<(Container, usize)> {
     (data.starts_with(b"ID3") || sync).then_some((Container::Mp3, 0))
 }
 
-/// Decodes a game sound (`.wav` or `.bmu`). Frames a decoder rejects are
-/// skipped, as players do; a file with none is an error.
-pub fn decode(data: &[u8]) -> Result<Pcm, AudioError> {
-    let (kind, start) = container(data).ok_or(AudioError::Unknown)?;
-    let source = Cursor::new(data[start..].to_vec());
-    let stream = MediaSourceStream::new(Box::new(source), MediaSourceStreamOptions::default());
-    let mut hint = Hint::new();
-    hint.with_extension(match kind {
-        Container::Mp3 => "mp3",
-        Container::Wave => "wav",
-    });
-    let mut reader = symphonia::default::get_probe().probe(
-        &hint,
-        stream,
-        FormatOptions::default(),
-        MetadataOptions::default(),
-    )?;
-    let track = reader.first_track_known_codec(TrackType::Audio).ok_or(AudioError::NoTrack)?;
-    let id = track.id;
-    let Some(CodecParameters::Audio(params)) = track.codec_params.clone() else {
-        return Err(AudioError::NoTrack);
-    };
-    let mut decoder = symphonia::default::get_codecs()
-        .make_audio_decoder(&params, &AudioDecoderOptions::default())?;
-    let (mut rate, mut channels) =
-        (params.sample_rate.unwrap_or(0), params.channels.as_ref().map_or(0, |c| c.count()));
-    let mut samples: Vec<f32> = Vec::new();
-    let mut chunk: Vec<f32> = Vec::new();
-    let mut decoded = false;
-    loop {
-        let packet = match reader.next_packet() {
-            Ok(Some(p)) => p,
-            Ok(None) => break,
-            // A truncated file ends where its data does.
-            Err(SymphoniaError::IoError(_)) => break,
-            Err(e) => return Err(e.into()),
+/// A sound's bytes from where its audio starts.
+#[derive(Clone)]
+struct Bytes {
+    data: Arc<[u8]>,
+    start: usize,
+}
+
+impl AsRef<[u8]> for Bytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.data[self.start..]
+    }
+}
+
+/// A sound decoded as it plays: interleaved samples in [-1, 1].
+pub struct Stream {
+    reader: Box<dyn FormatReader>,
+    decoder: Box<dyn AudioDecoder>,
+    track: u32,
+    rate: u32,
+    channels: u16,
+    chunk: Vec<f32>,
+    pos: usize,
+    done: bool,
+}
+
+impl std::fmt::Debug for Stream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Stream")
+            .field("rate", &self.rate)
+            .field("channels", &self.channels)
+            .finish()
+    }
+}
+
+impl Stream {
+    /// Opens a game sound (`.wav` or `.bmu`) and decodes its first frames.
+    pub fn open(data: Arc<[u8]>) -> Result<Stream, AudioError> {
+        let (kind, start) = container(&data).ok_or(AudioError::Unknown)?;
+        let source = Cursor::new(Bytes { data, start });
+        let stream = MediaSourceStream::new(Box::new(source), MediaSourceStreamOptions::default());
+        let mut hint = Hint::new();
+        hint.with_extension(match kind {
+            Container::Mp3 => "mp3",
+            Container::Wave => "wav",
+        });
+        let reader = symphonia::default::get_probe().probe(
+            &hint,
+            stream,
+            FormatOptions::default(),
+            MetadataOptions::default(),
+        )?;
+        let track = reader.first_track_known_codec(TrackType::Audio).ok_or(AudioError::NoTrack)?;
+        let id = track.id;
+        let Some(CodecParameters::Audio(params)) = track.codec_params.clone() else {
+            return Err(AudioError::NoTrack);
         };
-        if packet.track_id != id {
-            continue;
+        let decoder = symphonia::default::get_codecs()
+            .make_audio_decoder(&params, &AudioDecoderOptions::default())?;
+        let mut s = Stream {
+            reader,
+            decoder,
+            track: id,
+            rate: 0,
+            channels: 0,
+            chunk: Vec::new(),
+            pos: 0,
+            done: false,
+        };
+        if !s.refill()? || s.rate == 0 || s.channels == 0 {
+            return Err(AudioError::Decode("no audio frames".into()));
         }
-        match decoder.decode(&packet) {
-            Ok(buf) => {
-                rate = buf.spec().rate();
-                channels = buf.spec().channels().count();
-                buf.copy_to_vec_interleaved(&mut chunk);
-                samples.extend_from_slice(&chunk);
-                decoded = true;
+        Ok(s)
+    }
+
+    /// Samples per second (per channel).
+    pub fn rate(&self) -> u32 {
+        self.rate
+    }
+
+    pub fn channels(&self) -> u16 {
+        self.channels
+    }
+
+    /// Decodes the next frames into the chunk; `false` at the end. Frames a
+    /// decoder rejects are skipped, as players do; a truncated file ends
+    /// where its data does.
+    fn refill(&mut self) -> Result<bool, AudioError> {
+        while !self.done {
+            let packet = match self.reader.next_packet() {
+                Ok(Some(p)) => p,
+                Ok(None) | Err(SymphoniaError::IoError(_)) => {
+                    self.done = true;
+                    break;
+                }
+                Err(e) => return Err(e.into()),
+            };
+            if packet.track_id != self.track {
+                continue;
             }
-            Err(SymphoniaError::DecodeError(_)) => continue,
-            Err(SymphoniaError::IoError(_)) => break,
-            Err(e) => return Err(e.into()),
+            match self.decoder.decode(&packet) {
+                Ok(buf) => {
+                    let channels = u16::try_from(buf.spec().channels().count()).unwrap_or(0);
+                    if buf.frames() == 0 || channels == 0 {
+                        continue;
+                    }
+                    (self.rate, self.channels) = (buf.spec().rate(), channels);
+                    buf.copy_to_vec_interleaved(&mut self.chunk);
+                    self.pos = 0;
+                    return Ok(true);
+                }
+                Err(SymphoniaError::DecodeError(_)) => continue,
+                Err(SymphoniaError::IoError(_)) => self.done = true,
+                Err(e) => return Err(e.into()),
+            }
         }
+        Ok(false)
     }
-    if !decoded || rate == 0 || channels == 0 {
-        return Err(AudioError::Decode("no audio frames".into()));
+}
+
+impl Iterator for Stream {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<f32> {
+        while self.pos >= self.chunk.len() {
+            if !self.refill().unwrap_or(false) {
+                return None;
+            }
+        }
+        self.pos += 1;
+        Some(self.chunk[self.pos - 1])
     }
-    let channels = u16::try_from(channels).map_err(|_| AudioError::Decode("channels".into()))?;
+}
+
+/// Decodes a whole game sound (`.wav` or `.bmu`).
+pub fn decode(data: &[u8]) -> Result<Pcm, AudioError> {
+    let mut stream = Stream::open(Arc::from(data))?;
+    let (rate, channels) = (stream.rate, stream.channels);
+    let samples: Vec<f32> = stream.by_ref().collect();
     Ok(Pcm { rate, channels, samples })
 }
 
@@ -165,6 +247,14 @@ mod tests {
         assert_eq!((pcm.rate, pcm.channels, pcm.frames()), (8000, 1, 800));
         assert!((pcm.samples[0] - 8000.0 / 32768.0).abs() < 1e-4);
         assert!((pcm.seconds() - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn streams_what_decode_gives() {
+        let w = wave(800);
+        let s = Stream::open(Arc::from(&w[..])).unwrap();
+        assert_eq!((s.rate(), s.channels()), (8000, 1));
+        assert_eq!(s.collect::<Vec<f32>>(), decode(&w).unwrap().samples);
     }
 
     #[test]

@@ -9,6 +9,7 @@ use mg_module::palette::BlueprintKind;
 
 use super::Form;
 use crate::Action;
+use crate::audio::Channel;
 
 pub(super) const PAGES: [&str; 4] = ["Basic", "Positioning", "Advanced", "Comments"];
 
@@ -112,6 +113,21 @@ fn sound_list(f: &mut Form<'_>, ui: &mut Ui) {
         {
             f.app.actions.push(edit("Move sound up", vec![remove(i), insert(i - 1, sounds[i])]));
             selected = Some(i - 1);
+        }
+        // Play the selected sound (else the first) at the blueprint's
+        // volume; Stop.
+        let volume = f.root.integer("Volume").unwrap_or(127).clamp(0, 127) as f32 / 127.0;
+        let play = selected.or((!sounds.is_empty()).then_some(0));
+        if ui
+            .add_enabled(play.is_some(), egui::Button::new("Play"))
+            .on_hover_text("Play the selected sound")
+            .clicked()
+            && let Some(i) = play
+        {
+            f.app.play_sound(Channel::Preview, sounds[i], volume, false);
+        }
+        if ui.button("Stop").clicked() {
+            f.app.stop_sound(Channel::Preview);
         }
         let down = selected.is_some_and(|i| i + 1 < sounds.len());
         if ui.add_enabled(down, egui::Button::new("Move Down")).clicked()

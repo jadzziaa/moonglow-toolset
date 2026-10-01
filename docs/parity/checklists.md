@@ -145,7 +145,7 @@ unless given otherwise.
 | Text + `…` all languages; Insert Token (stringtokens.2da, highlight tokens) | same | ✅ |
 | Text Appears When…: script, `…`, Edit, EE parameters (+/−), script preview | same | ✅ (engine: conditions in order with parameters, `engine_dialog.rs`) |
 | Actions Taken: script, parameters, preview | same | ✅ (engine: the action runs with its parameter) |
-| Other Actions: animation (Aurora's list), sound (`…`, Play), journal category and entry, Edit | animation list with Aurora's values, sound picker, journal and entry from the module's journal | ◐ (sound preview needs audio) |
+| Other Actions: animation (Aurora's list), sound (`…`, Play), journal category and entry, Edit | animation list with Aurora's values, sound picker and Play, journal and entry from the module's journal | ✅ |
 | Comments (node comment; link comment on links) | same | ✅ |
 | Current File: end scripts normal/aborted, Stop Camera Zoom In | same | ✅ |
 | Status bar: line letters/words, file words | line letters and words, file words | ✅ |
@@ -200,7 +200,7 @@ scripts (name, picker, Edit), Comments.
 | Aurora | Moonglow | |
 |---|---|---|
 | Waypoint (`TdlgWaypointEdit`): Basic (appearance), Advanced (map note), Description, Comments | the same pages | ✅ [waypoint_editor_edits_and_renames] |
-| Sound (`TdlgSoundEdit`): Basic (sound list add/remove/move, volume), Positioning, Advanced (hours, play style and order, intervals, variations), Comments | the same pages; no playback (Moonglow has no audio yet) | ◐ [sound_editor_lists_positions_and_times] (Play, and Priority from prioritygroups.2da, not yet) |
+| Sound (`TdlgSoundEdit`): Basic (sound list add/remove/move, volume, Play, Stop), Positioning, Advanced (hours, play style and order, intervals, variations), Comments | the same pages; Play plays the selected sound (else the first) at the blueprint's volume, Stop stops it (`mg-audio`: every game sound decodes, `audio.rs`) | ◐ [sound_editor_lists_positions_and_times], [sound_blueprints_play_their_sounds] (Priority from prioritygroups.2da not yet) |
 | Trigger (`TdlgTriggerEdit`): Basic (type), Area Transition (destination tag and type, Setup Area Transition, loading screen), Trap (`TfrmTrap`), Scripts, Advanced (faction, key, cursor, portrait, highlight height), Comments | the same pages; Setup Area Transition lists the tagged doors and waypoints in the module's areas | ✅ [trigger_editor_sets_the_type_and_trap] |
 | Encounter (`TdlgEncounterEdit`): Basic (difficulty, spawn option, min/max creatures), Creature List (palette, CR, Unique), Scripts, Advanced (active, player only, faction, respawns), Comments | the same pages; the difficulty sets `DifficultyIndex` and its encdifficulty.2da `VALUE` | ✅ [encounter_editor_lists_creatures_and_respawns] |
 | Store (`TdlgStoreEdit`): Basic (mark up/down, identify price, stolen goods, max buy price, gold), Advanced (scripts), Restrictions (will not / will only buy base items), Comments | the same pages | ✅ [store_editor_stocks_prices_and_restricts] (the amount a checked Will Identify / Max Buy Price / Limited Gold starts at is not yet checked against Aurora) |

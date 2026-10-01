@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use mg_ui::{Action, Dialogs, FileKind, Moonglow, Settings};
 
+mod speakers;
+
 /// Native file dialogs.
 struct NativeDialogs;
 
@@ -105,6 +107,10 @@ fn main() -> eframe::Result<()> {
             let mut moonglow = Moonglow::with_settings(settings, Box::new(NativeDialogs));
             if let Some(rs) = &cc.wgpu_render_state {
                 moonglow.set_render_state(rs.clone());
+            }
+            // Sounds play when there is an output device.
+            if let Some(s) = speakers::Speakers::open() {
+                moonglow.speaker = Box::new(s);
             }
             // `moonglow path/to/module.mod` opens a module at start.
             if let Some(path) = std::env::args_os().nth(1) {

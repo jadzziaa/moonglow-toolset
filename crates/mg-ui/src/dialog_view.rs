@@ -953,9 +953,15 @@ fn other_tab(
             ui.label("Play Sound");
             let sound = n.resref("Sound").unwrap_or(ResRef::EMPTY);
             let id = egui::Id::new(("dlg-sound", key, kind, index));
-            if let Some(v) = resref_field(app, ui, id, sound, "Select a sound", &[ResType::WAV]) {
-                actions.push(set(key, "Sound", path.clone(), "Sound", Value::resref(v)));
-            }
+            ui.horizontal(|ui| {
+                if let Some(v) = resref_field(app, ui, id, sound, "Select a sound", &[ResType::WAV])
+                {
+                    actions.push(set(key, "Sound", path.clone(), "Sound", Value::resref(v)));
+                }
+                if ui.add_enabled(!sound.is_empty(), egui::Button::new("Play")).clicked() {
+                    app.play_sound(crate::audio::Channel::Preview, sound, 1.0, false);
+                }
+            });
             ui.end_row();
 
             // Journal categories and entries of the module.

@@ -3813,3 +3813,32 @@ fn conversation_options_popup_link_directions_drag_and_backup() {
     assert_eq!(mg_module::dialog::outline(&g).len(), 3);
     assert!(h.state_mut().backup_conversations().is_empty(), "unchanged since");
 }
+
+#[test]
+fn sound_blueprints_play_their_sounds() {
+    use mg_ui::audio::{Channel, Silence};
+    let Some((mut h, key)) = blueprint_harness("animalcriesday", "sound_play", ResType::UTS) else {
+        return;
+    };
+    let speaker = std::rc::Rc::new(std::cell::RefCell::new(Silence::default()));
+    h.state_mut().speaker = Box::new(speaker.clone());
+    h.run();
+    let s = field(&mut h, &key);
+    let first = s.list("Sounds").unwrap()[0].resref("Sound").unwrap();
+    let volume = s.integer("Volume").unwrap() as f32 / 127.0;
+    // Play: the first sound (none selected), at the blueprint's volume.
+    h.get_by_label("Play").click();
+    h.run();
+    assert_eq!(speaker.borrow().channels.get(&Channel::Preview), Some(&(first, volume, false)));
+    h.get_by_label("Stop").click();
+    h.run();
+    assert!(speaker.borrow().channels.is_empty());
+    // A sound that is not there goes to the log.
+    assert!(!h.state_mut().play_sound(
+        Channel::Preview,
+        ResRef::from_str("no_such").unwrap(),
+        1.0,
+        false
+    ));
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("no_such not found")));
+}
