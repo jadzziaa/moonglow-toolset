@@ -764,8 +764,7 @@ impl Moonglow {
                     spec.tileset, spec.width, spec.height
                 ));
                 // The wizard's last two choices.
-                let (viewer, properties) =
-                    std::mem::replace(&mut self.after_new_area, (false, false));
+                let (viewer, properties) = std::mem::take(&mut self.after_new_area);
                 if viewer {
                     self.actions.push(Action::OpenTab(Tab::Area(area)));
                 }
