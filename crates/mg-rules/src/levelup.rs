@@ -2,8 +2,8 @@
 //! Wizard does (captured: `levelup/bandit-fighter5.mod`, `six-after.mod`).
 //! Each level, in class slot order:
 //!
-//! - hit points: the whole hit die at the first level, after that the
-//!   class's average, (HitDie + 1) / 2, the total rounded down at the end
+//! - hit points: a player class's whole hit die at the first level, else
+//!   the class's average, (HitDie + 1) / 2, the total rounded down at the end
 //!   (Fighter 1 to 10: + 49);
 //! - every fourth character level, one point to the package's ability
 //!   (packages.2da `Attribute`);
@@ -144,8 +144,8 @@ impl GameData {
                         .map(|spell| {
                             let mut s = Struct::new(SPELL_ID);
                             s.set("Spell", Value::Word(spell));
-                            s.set("SpellFlags", Value::Byte(1));
                             s.set("SpellMetaMagic", Value::Byte(0));
+                            s.set("SpellFlags", Value::Byte(1));
                             s
                         })
                         .collect();
@@ -342,8 +342,10 @@ impl GameData {
                 }
             }
         }
-        // The first level's hit die is whole, the others average.
-        if level == 1 { die } else { (die + 1.0) / 2.0 }
+        // A player class's first level has its whole hit die; other levels,
+        // and a monster class's first (a goblin's Humanoid 1: 4 of 8), the
+        // average.
+        if level == 1 && num("PlayerClass") == Some(1) { die } else { (die + 1.0) / 2.0 }
     }
 
     /// The spell lists of a class new to the creature at `level`: (label,

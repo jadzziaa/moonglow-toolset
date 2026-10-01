@@ -572,15 +572,32 @@ const CREATURE_PARTS: [(&str, u8); 18] = [
     ("BodyPart_LHand", 1),
 ];
 
+/// The alignment (good–evil, lawful–chaotic) Aurora's Creature Wizard
+/// gives a racial type (a table of its own: racialtypes.2da has none);
+/// other types are neutral.
+pub fn race_alignment(race: u32) -> (u8, u8) {
+    match race {
+        0 => (100, 100),   // dwarf: lawful good
+        1 | 4 => (100, 0), // elf, half-elf: chaotic good
+        2 => (100, 50),    // gnome: neutral good
+        5 => (50, 0),      // half-orc: chaotic neutral
+        12 => (0, 50),     // goblinoid: neutral evil
+        _ => (50, 50),     // halfling, human, animal: true neutral
+    }
+}
+
+/// The sound set Aurora's Creature Wizard writes: no row of soundset.2da
+/// (the creature is silent until one is chosen).
+const WIZARD_SOUND_SET: u16 = 24448;
+
 /// A creature as Aurora's Creature Wizard makes it: the fields in its
 /// order, the first class's recommended abilities (classes.2da `Str` to
-/// `Cha`) and package, levelled up from nothing by the classes' packages
-/// (hit points, skills, feats, spells; [`GameData::level_up`]), each
-/// class's package equipment, and its hit points and challenge rating.
-/// `item` reads item blueprints. Aurora leaves `Interruptable`,
-/// `NoPermDeath`, `Disarmable` and `SoundSetFile` uninitialized (stray
-/// values; the three flags then read as set): Moonglow writes 1, 1, 1 and
-/// 0.
+/// `Cha`) and package, the race's alignment ([`race_alignment`]), levelled
+/// up from nothing by the classes' packages (hit points, skills, feats,
+/// spells; [`GameData::level_up`]), each class's package equipment, and its
+/// hit points and challenge rating. `item` reads item blueprints. Aurora
+/// writes `Interruptable`, `NoPermDeath` and `Disarmable` as 144, 95 and
+/// 16 (read as set): Moonglow writes 1.
 pub fn creature(
     game: &GameData,
     spec: &CreatureSpec,
@@ -617,7 +634,7 @@ pub fn creature(
         ("Deity", text("")),
         ("Wings_New", Value::Dword(0)),
         ("Tail_New", Value::Dword(0)),
-        ("SoundSetFile", Value::Word(0)),
+        ("SoundSetFile", Value::Word(WIZARD_SOUND_SET)),
         ("Plot", Value::Byte(0)),
         ("IsImmortal", Value::Byte(0)),
         ("Interruptable", Value::Byte(1)),
@@ -627,6 +644,15 @@ pub fn creature(
         ("StartingPackage", Value::Byte(package.clamp(0, 255) as u8)),
         ("DecayTime", Value::Dword(5000)),
     ];
+    // A body of parts (appearance.2da MODELTYPE P) has its parts and
+    // colours; others have none.
+    let parts = game
+        .table("appearance")
+        .ok()
+        .and_then(|t| {
+            t.get(usize::from(spec.appearance), "MODELTYPE").map(|m| m.eq_ignore_ascii_case("P"))
+        })
+        .unwrap_or(false);
     let twins: Vec<(String, String, u8)> = CREATURE_PARTS
         .iter()
         .map(|(l, v)| (l.to_string(), format!("x{l}"), *v))
@@ -636,7 +662,7 @@ pub fn creature(
     for (label, v) in fields.drain(..) {
         g.root.set(label, v);
     }
-    for (l, x, v) in &twins {
+    for (l, x, v) in twins.iter().filter(|_| parts) {
         g.root.set(l, Value::Byte(*v));
         g.root.set(x, Value::Word(u16::from(*v)));
     }
@@ -647,14 +673,25 @@ pub fn creature(
         ("Color_Tattoo1", Value::Byte(1)),
         ("Color_Tattoo2", Value::Byte(1)),
     ];
-    for (label, v) in rest {
+    for (label, v) in rest.into_iter().filter(|_| parts) {
         g.root.set(label, v);
     }
     for a in abilities {
         g.root.set(a, Value::Byte(cell(a).clamp(0, 255) as u8));
     }
+    // The walk rate: creaturespeed.2da's row for the appearance's
+    // MOVERATE (a human NORM 4, a leopard FAST 5).
+    let walk = game
+        .table("appearance")
+        .ok()
+        .and_then(|t| t.get(usize::from(spec.appearance), "MOVERATE").map(str::to_owned))
+        .and_then(|m| {
+            let speed = game.table("creaturespeed").ok()?;
+            (0..speed.len()).find(|&r| speed.get(r, "2DAName") == Some(m.as_str()))
+        })
+        .unwrap_or(4);
     for (label, v) in [
-        ("WalkRate", Value::Int(4)),
+        ("WalkRate", Value::Int(walk as i32)),
         ("NaturalAC", Value::Byte(0)),
         ("HitPoints", Value::Short(0)),
         ("CurrentHitPoints", Value::Short(0)),
@@ -662,8 +699,8 @@ pub fn creature(
         ("refbonus", Value::Short(0)),
         ("willbonus", Value::Short(0)),
         ("fortbonus", Value::Short(0)),
-        ("GoodEvil", Value::Byte(50)),
-        ("LawfulChaotic", Value::Byte(50)),
+        ("GoodEvil", Value::Byte(race_alignment(spec.race).0)),
+        ("LawfulChaotic", Value::Byte(race_alignment(spec.race).1)),
         ("ChallengeRating", Value::Float(0.0)),
         ("CRAdjust", Value::Int(0)),
         ("PerceptionRange", Value::Byte(11)),
@@ -712,6 +749,10 @@ pub fn creature(
                 }
             }
         }
+    }
+    // An empty backpack is left out.
+    if c.list("ItemList").is_some_and(<[Struct]>::is_empty) {
+        c.remove("ItemList");
     }
     let mut sheet = mg_rules::CreatureSheet::from_gff(&c);
     let max = game.creature_stats(&sheet).max_hit_points;
