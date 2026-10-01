@@ -3445,3 +3445,65 @@ fn a_script_named_as_the_game_s_own_is_warned_about() {
     );
     assert!(!warned.iter().any(|m| m.contains("mg_mine")), "{warned:?}");
 }
+
+/// A look at Options › Area's marks: a door's orientation arrow and an
+/// encounter's spawn point posts. Writes
+/// `target/test-output/ui-area-marks/marks.png`; run by hand.
+#[test]
+#[ignore]
+fn area_marks_screen() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("marks") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let game = h.state().game.as_ref().unwrap();
+    let read = |r: &str, t: ResType| {
+        Gff::read(&game.resman.get(&ResKey::parse(r, t).unwrap()).unwrap()).unwrap()
+    };
+    let none = |_: ResRef| None;
+    let placing = Placing { game, item: &none };
+    let door = instance(
+        &placing,
+        ResType::UTD,
+        &read("nw_door_normal", ResType::UTD).root,
+        Placement { position: [15.0, 15.0, 0.0], rotation: 0.6 },
+        &[],
+    )
+    .unwrap();
+    let outline = [[-3.0, -3.0, 0.0], [3.0, -3.0, 0.0], [3.0, 3.0, 0.0], [-3.0, 3.0, 0.0]];
+    let mut enc = instance(
+        &placing,
+        ResType::UTE,
+        &read("nw_giantevil", ResType::UTE).root,
+        Placement { position: [25.0, 25.0, 0.0], rotation: 0.0 },
+        &outline,
+    )
+    .unwrap();
+    let spawn = |x: f32, y: f32| {
+        let mut s = mg_gff::Struct::new(2);
+        for (l, v) in [("X", x), ("Y", y), ("Z", 0.0), ("Orientation", 0.0)] {
+            s.set(l, mg_gff::Value::Float(v));
+        }
+        s
+    };
+    enc.set("SpawnPointList", mg_gff::Value::List(vec![spawn(24.0, 24.0), spawn(26.0, 26.0)]));
+    let edits = vec![
+        mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "Door List".into(),
+            index: 0,
+            item: door,
+        },
+        mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "Encounter List".into(),
+            index: 0,
+            item: enc,
+        },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("place", edits)));
+    h.run_steps(5);
+    let dir = mg_testkit::scratch_dir("ui-area-marks");
+    h.render().expect("render").save(dir.join("marks.png")).unwrap();
+}
