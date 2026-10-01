@@ -7,7 +7,7 @@
 //! in the box, a drag moves the selection over the ground, Shift + right
 //! drag turns it and Alt + drag raises or lowers it; Ctrl + drag moves the
 //! camera, Ctrl + right or middle drag turns it, the wheel zooms (Shift or
-//! Ctrl: slowly), numpad 4, 6, 8, 2 move it, 7, 9, 1, 3 turn it and 5
+//! Ctrl: slowly), numpad 4, 6, 8, 2 (or W, A, S, D) move it, 7, 9, 1, 3 turn it and 5
 //! looks straight down. With a blueprint chosen in the palette, a click
 //! places it (Shift + click keeps it chosen; right click or Escape lets it
 //! go); triggers and encounters are drawn point by point, a double click
@@ -1201,9 +1201,21 @@ fn camera_input(
             - f32::from(u8::from(minus.iter().any(|&k| down(k))))
     };
     let dt = ui.input(|i| i.stable_dt).min(0.1);
+    // W, A, S and D as the arrows, unless typing (in a window over the view)
+    // or with Ctrl, Alt or Cmd (Ctrl+S and the like).
+    let letters = ui.memory(|m| m.focused().is_none())
+        && ui.input(|i| !(i.modifiers.command || i.modifiers.ctrl || i.modifiers.alt));
+    let wasd = |k: Key| if letters { Some(k) } else { None };
+    let keys = |ks: &[Option<Key>]| ks.iter().flatten().copied().collect::<Vec<Key>>();
     let travel = Vec2::new(
-        axis(&[Key::ArrowRight, Key::Num6], &[Key::ArrowLeft, Key::Num4]),
-        axis(&[Key::ArrowUp, Key::Num8], &[Key::ArrowDown, Key::Num2]),
+        axis(
+            &keys(&[Some(Key::ArrowRight), Some(Key::Num6), wasd(Key::D)]),
+            &keys(&[Some(Key::ArrowLeft), Some(Key::Num4), wasd(Key::A)]),
+        ),
+        axis(
+            &keys(&[Some(Key::ArrowUp), Some(Key::Num8), wasd(Key::W)]),
+            &keys(&[Some(Key::ArrowDown), Some(Key::Num2), wasd(Key::S)]),
+        ),
     );
     let turn = Vec2::new(axis(&[Key::Num9], &[Key::Num7]), axis(&[Key::Num1], &[Key::Num3]));
     if travel != Vec2::ZERO {

@@ -4871,3 +4871,43 @@ fn editors_open_in_windows_over_the_area() {
     let img = h.render().expect("render");
     let _ = img.save(mg_testkit::scratch_dir("ui-editor-windows").join("windows.png"));
 }
+
+#[test]
+fn w_a_s_d_drive_the_camera_like_the_arrows() {
+    let Some((mut h, area)) = area_harness("wasd") else { return };
+    h.run_steps(3);
+    let target = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().target;
+    let centre = screen(&h, area, glam::Vec3::new(20.0, 20.0, 0.0));
+    h.hover_at(centre);
+    h.run_steps(1);
+    // Held for a few frames, with modifiers.
+    let hold = |h: &mut Harness<'_, Moonglow>, key: egui::Key, modifiers: egui::Modifiers| {
+        let event = |pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers,
+        };
+        // The modifiers held down all the while, as a hand holds them.
+        h.event(egui::Event::ModifiersChanged(modifiers));
+        h.event(event(true));
+        h.run_steps(4);
+        h.event(event(false));
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(1);
+    };
+    let none = egui::Modifiers::NONE;
+    let start = target(&h);
+    hold(&mut h, egui::Key::ArrowUp, none);
+    let by_arrow = target(&h) - start;
+    assert!(by_arrow.length() > 0.1, "the arrow moves the view");
+    let start = target(&h);
+    hold(&mut h, egui::Key::W, none);
+    let by_w = target(&h) - start;
+    assert!((by_w - by_arrow).length() < 0.05 * by_arrow.length(), "{by_w} like {by_arrow}");
+    // Ctrl+W is not a move.
+    let start = target(&h);
+    hold(&mut h, egui::Key::W, egui::Modifiers::COMMAND);
+    assert_eq!(target(&h), start);
+}

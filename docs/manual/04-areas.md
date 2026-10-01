@@ -29,7 +29,7 @@ Aurora's bindings, plus a few of Moonglow's:
 | Ctrl + right drag, or middle drag | turn the camera |
 | Shift + middle drag | move the camera |
 | Wheel | zoom (with Shift or Ctrl: slowly) |
-| Arrow keys, or numpad 4, 6, 8, 2 | move the camera |
+| Arrow keys, W A S D, or numpad 4, 6, 8, 2 | move the camera |
 | Numpad 7, 9 | turn |
 | Numpad 1, 3 | tilt |
 | Numpad 5 | look straight down at the whole area |
