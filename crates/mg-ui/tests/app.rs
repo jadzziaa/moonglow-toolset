@@ -3404,3 +3404,44 @@ fn saving_keeps_the_module_as_it_was_as_a_backup() {
     h.run();
     assert!(!backup.exists());
 }
+
+#[test]
+fn a_script_named_as_the_game_s_own_is_warned_about() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-standard-warning");
+    let path = sample_module(&dir);
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    let add = |name: &str| {
+        mg_ui::Action::Apply(mg_edit::Command::new(
+            "add",
+            vec![mg_edit::Edit::SetResource {
+                key: ResKey::parse(name, ResType::NSS).unwrap(),
+                data: Some(b"void main() {}".to_vec()),
+            }],
+        ))
+    };
+    app.actions.push(add("nw_c2_default9"));
+    app.actions.push(add("mg_mine"));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let warned: Vec<&String> = h
+        .state()
+        .log
+        .entries
+        .iter()
+        .filter(|(l, _)| *l == mg_ui::Level::Warning)
+        .map(|(_, m)| m)
+        .collect();
+    assert!(
+        warned.iter().any(|m| m.contains("nw_c2_default9.nss replaces the game's own")),
+        "{warned:?}"
+    );
+    assert!(!warned.iter().any(|m| m.contains("mg_mine")), "{warned:?}");
+}

@@ -967,6 +967,7 @@ impl Moonglow {
                 }
             }
             Action::Apply(cmd) => {
+                self.warn_shadowing(&cmd);
                 let Some(ws) = &mut self.ws else { return };
                 let custom_tlk = cmd.edits.iter().any(|e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"));
                 let edits = cmd.clone();
@@ -1013,6 +1014,50 @@ impl Moonglow {
             Action::Verify => self.verify(),
             Action::TestModule => self.test_module(),
             Action::Quit => self.quit_requested = true,
+        }
+    }
+
+    /// Options › General's warnings for a resource a command adds to the
+    /// module (scripts, conversations, blueprints): a hak has it too (the
+    /// game uses the hak's), or it replaces one of the game's own.
+    fn warn_shadowing(&mut self, cmd: &Command) {
+        let (Some(ws), Some(game)) = (&self.ws, &self.game) else { return };
+        let mut warnings = Vec::new();
+        for e in &cmd.edits {
+            let mg_edit::Edit::SetResource { key, data: Some(_) } = e else { continue };
+            let named = matches!(
+                key.restype,
+                ResType::NSS
+                    | ResType::DLG
+                    | ResType::UTC
+                    | ResType::UTD
+                    | ResType::UTE
+                    | ResType::UTI
+                    | ResType::UTM
+                    | ResType::UTP
+                    | ResType::UTS
+                    | ResType::UTT
+                    | ResType::UTW
+            );
+            if !named || ws.module.contains(key) {
+                continue;
+            }
+            let in_layers = |hak: bool| {
+                game.resman.layers().iter().any(|l| {
+                    let is_hak = l.priority == mg_resman::priority::HAK
+                        || l.priority == mg_resman::priority::HAK_USER;
+                    let below = l.priority < mg_resman::priority::MODULE;
+                    (if hak { is_hak } else { below }) && l.container.contains(key)
+                })
+            };
+            if !self.settings.no_hak_warning && in_layers(true) {
+                warnings.push(format!("{key}: a hak has it too, and the game uses the hak's"));
+            } else if !self.settings.no_standard_warning && in_layers(false) {
+                warnings.push(format!("{key} replaces the game's own"));
+            }
+        }
+        for w in warnings {
+            self.log.warn(w);
         }
     }
 

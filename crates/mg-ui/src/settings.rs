@@ -48,6 +48,10 @@ pub struct Settings {
     /// Options > General: Create backups of modules off (Aurora's default:
     /// on; the module as it was kept as `<name>.BackupMod` at each save).
     pub no_backups: bool,
+    /// Options > General: Show resource in Hak Pak warning, off.
+    pub no_hak_warning: bool,
+    /// Options > General: Show standard resource overwrite warning, off.
+    pub no_standard_warning: bool,
     /// Options > Script Editor: Automatically Compile Scripts on Save.
     pub auto_compile: bool,
     /// Options > Script Editor: Generate Debug Information When Compiling
