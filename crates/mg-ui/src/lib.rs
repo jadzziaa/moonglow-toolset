@@ -146,6 +146,7 @@ pub struct Moonglow {
     pub speaker: Box<dyn audio::Speaker>,
     /// Game images decoded for the UI, by lowercase name.
     pictures: images::Pictures,
+    palettes: images::Palettes,
     /// The area's sounds (Options › Sounds), and the area view heard this
     /// frame.
     area_audio: area_audio::AreaAudio,
@@ -270,6 +271,7 @@ impl Moonglow {
             dialogs,
             speaker: Box::new(audio::Silence::default()),
             pictures: HashMap::new(),
+            palettes: HashMap::new(),
             area_audio: Default::default(),
             heard: None,
             scripts: HashMap::new(),

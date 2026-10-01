@@ -373,6 +373,82 @@ impl Form<'_> {
         }
     }
 
+    /// A PLT colour (0–175) picked from a palette's swatches (Aurora's
+    /// colour chooser; `palette` as `pal_cloth01`); the game is given where
+    /// the page has lent it out.
+    pub(crate) fn palette_color(
+        &mut self,
+        ui: &mut Ui,
+        game: Option<&mg_rules::GameData>,
+        what: &str,
+        label: &str,
+        palette: &str,
+    ) {
+        let current = self.int(label).clamp(0, 175) as u8;
+        let pal = {
+            let app = &mut *self.app;
+            let game = game.or(app.game.as_ref());
+            game.and_then(|game| {
+                let mut l = crate::images::Loader {
+                    pictures: &mut app.pictures,
+                    palettes: &mut app.palettes,
+                    ws: app.ws.as_ref(),
+                    game,
+                };
+                l.palette(palette)
+            })
+        };
+        let mut pick = None;
+        ui.horizontal(|ui| {
+            if let Some(p) = &pal {
+                let (rect, _) =
+                    ui.allocate_exact_size(egui::vec2(28.0, 16.0), egui::Sense::hover());
+                crate::images::swatch(ui, rect, &crate::images::tones(p, current));
+            }
+            egui::ComboBox::from_id_salt(("palette-color", self.key, label))
+                .selected_text(current.to_string())
+                .width(56.0)
+                .height(11.0 * 16.0 + 24.0)
+                .show_ui(ui, |ui| {
+                    let Some(p) = &pal else {
+                        ui.weak("No palette");
+                        return;
+                    };
+                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                    // 176 colours, 16 to a row.
+                    for row in 0..11u8 {
+                        ui.horizontal(|ui| {
+                            for i in row * 16..row * 16 + 16 {
+                                let size = egui::vec2(16.0, 14.0);
+                                let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
+                                crate::images::swatch(ui, rect, &crate::images::tones(p, i));
+                                if i == current {
+                                    let stroke = ui.visuals().selection.stroke;
+                                    ui.painter().rect_stroke(
+                                        rect,
+                                        0.0,
+                                        stroke,
+                                        egui::StrokeKind::Outside,
+                                    );
+                                }
+                                let name = format!("{what} {i}");
+                                r.widget_info(|| {
+                                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
+                                });
+                                if r.on_hover_text(&name).clicked() {
+                                    pick = Some(i);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    }
+                });
+        });
+        if let Some(v) = pick.filter(|&v| v != current) {
+            self.set_int(what, label, i64::from(v), FieldType::Byte);
+        }
+    }
+
     /// A choice among 2DA rows (the field holds the row; `default` is its
     /// type when the blueprint lacks it). Long lists get a filter.
     pub(crate) fn choice(

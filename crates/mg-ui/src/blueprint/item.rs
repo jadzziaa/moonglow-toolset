@@ -310,21 +310,21 @@ const LOWER_PARTS: [(&str, &[&str], &str); 3] = [
     ("Robe", &["ArmorPart_Robe"], "parts_robe"),
 ];
 
-/// The colours of layered items and armor.
-const COLORS: [(&str, &str); 6] = [
-    ("Cloth 1", "Cloth1Color"),
-    ("Cloth 2", "Cloth2Color"),
-    ("Leather 1", "Leather1Color"),
-    ("Leather 2", "Leather2Color"),
-    ("Metal 1", "Metal1Color"),
-    ("Metal 2", "Metal2Color"),
+/// The colours of layered items and armor, and their palettes.
+const COLORS: [(&str, &str, &str); 6] = [
+    ("Cloth 1", "Cloth1Color", "pal_cloth01"),
+    ("Cloth 2", "Cloth2Color", "pal_cloth01"),
+    ("Leather 1", "Leather1Color", "pal_leath01"),
+    ("Leather 2", "Leather2Color", "pal_leath01"),
+    ("Metal 1", "Metal1Color", "pal_armor01"),
+    ("Metal 2", "Metal2Color", "pal_armor02"),
 ];
 
-fn colors(f: &mut Form<'_>, ui: &mut Ui) {
+fn colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     egui::Grid::new(("uti-colors", f.key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
-        for (i, (text, label)) in COLORS.iter().enumerate() {
+        for (i, (text, label, palette)) in COLORS.iter().enumerate() {
             ui.label(*text);
-            f.number(ui, text, label, 0..=175);
+            f.palette_color(ui, Some(game), text, label, palette);
             if i % 2 == 1 {
                 ui.end_row();
             }
@@ -344,8 +344,12 @@ fn with_model(item: &Struct, label: &str, n: u16) -> Struct {
 
 /// An item's icon layers (the game lent to the page).
 fn icon(f: &mut Form<'_>, ui: &Ui, game: &GameData, item: &Struct) -> Vec<crate::images::Picture> {
-    let mut loader =
-        crate::images::Loader { pictures: &mut f.app.pictures, ws: f.app.ws.as_ref(), game };
+    let mut loader = crate::images::Loader {
+        pictures: &mut f.app.pictures,
+        palettes: &mut f.app.palettes,
+        ws: f.app.ws.as_ref(),
+        game,
+    };
     loader.item_icon(ui.ctx(), item)
 }
 
@@ -492,7 +496,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                             }
                         });
                 }
-                colors(f, &mut cols[1]);
+                colors(f, &mut cols[1], game);
             });
         }
         // Simple and layered: one model (layered ones take colours).
@@ -532,7 +536,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
             icon_grid(f, ui, game, &numbers);
             if kind == 1 {
                 ui.separator();
-                colors(f, ui);
+                colors(f, ui, game);
             }
         }
     }

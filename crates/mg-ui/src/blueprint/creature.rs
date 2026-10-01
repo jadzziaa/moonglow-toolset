@@ -438,14 +438,14 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui) {
             ui.label("Tail");
             f.choice(ui, "Tail", "Tail_New", &tails, FieldType::Dword);
             ui.end_row();
-            for (text, label) in [
-                ("Skin Color", "Color_Skin"),
-                ("Hair Color", "Color_Hair"),
-                ("Tattoo 1 Color", "Color_Tattoo1"),
-                ("Tattoo 2 Color", "Color_Tattoo2"),
+            for (text, label, palette) in [
+                ("Skin Color", "Color_Skin", "pal_skin01"),
+                ("Hair Color", "Color_Hair", "pal_hair01"),
+                ("Tattoo 1 Color", "Color_Tattoo1", "pal_tattoo01"),
+                ("Tattoo 2 Color", "Color_Tattoo2", "pal_tattoo01"),
             ] {
                 ui.label(text);
-                f.number(ui, text, label, 0..=175);
+                f.palette_color(ui, Some(&game), text, label, palette);
                 ui.end_row();
             }
             ui.label("");

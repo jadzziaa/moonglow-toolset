@@ -4059,3 +4059,27 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
         }
     }
 }
+
+#[test]
+fn colours_are_chosen_from_palette_swatches() {
+    let Some((mut h, key)) = blueprint_harness("nw_arhe001", "helm_colours", ResType::UTI) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Appearance").click();
+    h.run();
+    let cloth = field(&mut h, &key).integer("Cloth1Color").unwrap();
+    let combo = egui::accesskit::Role::ComboBox;
+    h.get_all_by_value(&cloth.to_string())
+        .find(|n| n.accesskit_node().role() == combo)
+        .expect("the Cloth 1 colour")
+        .click();
+    h.run();
+    if let Ok(img) = h.render() {
+        let _ = img.save(mg_testkit::scratch_dir("ui-colours").join("swatches.png"));
+    }
+    let pick = if cloth == 5 { 6 } else { 5 };
+    h.get_by_label(&format!("Cloth 1 {pick}")).click();
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("Cloth1Color"), Some(pick));
+}

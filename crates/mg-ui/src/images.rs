@@ -12,6 +12,7 @@ use mg_resman::ResKey;
 use mg_rules::GameData;
 
 use crate::Moonglow;
+use egui::Ui;
 
 /// A decoded image: its texture and size in pixels.
 #[derive(Clone)]
@@ -29,9 +30,13 @@ impl std::fmt::Debug for Picture {
 /// Decoded images, by lowercase name (and colouring, for PLTs).
 pub(crate) type Pictures = HashMap<String, Option<Picture>>;
 
+/// Decoded palettes (`pal_*`), by name.
+pub(crate) type Palettes = HashMap<String, Option<Arc<mg_image::Rgba>>>;
+
 /// Loads images from the module and the game into the cache.
 pub(crate) struct Loader<'a> {
     pub pictures: &'a mut Pictures,
+    pub palettes: &'a mut Palettes,
     pub ws: Option<&'a Workspace>,
     pub game: &'a GameData,
 }
@@ -136,6 +141,19 @@ impl Loader<'_> {
         picture
     }
 
+    /// A palette image (`pal_cloth01`, ...) as pixels, loaded once.
+    pub(crate) fn palette(&mut self, name: &str) -> Option<Arc<mg_image::Rgba>> {
+        if let Some(p) = self.palettes.get(name) {
+            return p.clone();
+        }
+        let rgba = ResRef::from_str(name).ok().and_then(|r| {
+            let (t, data) = self.texture(r)?;
+            Some(Arc::new(mg_image::read(t, &data).ok()?.to_rgba()))
+        });
+        self.palettes.insert(name.to_string(), rgba.clone());
+        rgba
+    }
+
     /// The image named `name` (a texture resref), loaded once.
     pub(crate) fn picture(&mut self, ctx: &egui::Context, name: &str) -> Option<Picture> {
         let key = name.to_ascii_lowercase();
@@ -202,7 +220,12 @@ impl Moonglow {
     /// The image loader, while there is game data.
     pub(crate) fn loader(&mut self) -> Option<Loader<'_>> {
         let game = self.game.as_ref()?;
-        Some(Loader { pictures: &mut self.pictures, ws: self.ws.as_ref(), game })
+        Some(Loader {
+            pictures: &mut self.pictures,
+            palettes: &mut self.palettes,
+            ws: self.ws.as_ref(),
+            game,
+        })
     }
 
     /// The image named `name` (a texture resref), loaded once; `None` if
@@ -233,4 +256,27 @@ pub(crate) fn stacked(
     }
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
     response
+}
+
+/// A palette colour's tones (its row, `index` counted from the top, at four
+/// grey levels), as the colour chooser shows them.
+pub(crate) fn tones(palette: &mg_image::Rgba, index: u8) -> [egui::Color32; 4] {
+    let rows = palette.height.max(1);
+    let y = rows - 1 - u32::from(index).min(rows - 1);
+    [64u32, 128, 192, 250].map(|x| {
+        let [r, g, b, _] = palette.pixel(x.min(palette.width.saturating_sub(1)), y);
+        egui::Color32::from_rgb(r, g, b)
+    })
+}
+
+/// Paints a swatch: the tones side by side.
+pub(crate) fn swatch(ui: &Ui, rect: egui::Rect, tones: &[egui::Color32; 4]) {
+    let w = rect.width() / tones.len() as f32;
+    for (i, c) in tones.iter().enumerate() {
+        let r = egui::Rect::from_min_size(
+            rect.min + egui::vec2(w * i as f32, 0.0),
+            egui::vec2(w, rect.height()),
+        );
+        ui.painter().rect_filled(r, 0.0, *c);
+    }
 }
