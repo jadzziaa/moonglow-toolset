@@ -247,7 +247,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button("Import").clicked() {
+                if ui.button("Import").clicked() || crate::widgets::enter(ui) {
                     app.actions.push(Action::Import(draft.clone()));
                     close = true;
                 }

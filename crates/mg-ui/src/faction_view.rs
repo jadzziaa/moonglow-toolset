@@ -241,7 +241,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
             ui.horizontal(|ui| {
                 let ok = !add.name.trim().is_empty();
-                if ui.add_enabled(ok, egui::Button::new("OK")).clicked() {
+                if ui.add_enabled(ok, egui::Button::new("OK")).clicked()
+                    || (ok && crate::widgets::enter(ui))
+                {
                     let id = f.add(add.name.trim(), add.global, add.parent);
                     view.selected = id;
                     changed = Some(format!("Add faction {}", add.name.trim()));
@@ -261,7 +263,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             |ui| {
                 ui.text_edit_singleline(&mut name);
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked() {
+                    if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()
+                        || (!name.trim().is_empty() && crate::widgets::enter(ui))
+                    {
                         f.factions[id as usize].name = name.trim().to_string();
                         changed = Some("Rename faction".into());
                         close = true;

@@ -8,8 +8,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
+use mg_area::ObjectKind;
+use mg_core::ResRef;
 use mg_core::ResType;
-use mg_edit::Workspace;
+use mg_edit::{GffPath, Step, Workspace};
 use mg_gff::Gff;
 use mg_mdl::Model;
 use mg_preview::Preview;
@@ -76,8 +78,26 @@ pub struct ModelView {
     revision: Option<u64>,
 }
 
-/// What a resource looks like: a model, or a blueprint's preview.
-fn preview_of(app: &Moonglow, key: ResKey) -> Result<Preview, String> {
+/// What the viewer shows: a model or blueprint (from the module or the
+/// game), or an object placed in an area (its entry in the area's GIT).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Source {
+    Resource(ResKey),
+    Instance { area: ResRef, path: GffPath },
+}
+
+impl std::fmt::Display for Source {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Source::Resource(k) => write!(f, "{k}"),
+            Source::Instance { area, .. } => write!(f, "an object placed in {area}"),
+        }
+    }
+}
+
+/// What a source looks like: a model, a blueprint's preview, or a placed
+/// object's (its GIT entry has the blueprint's fields, as edited there).
+fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
     let game = app.game.as_ref().ok_or("No game data.")?;
     let data = |k: &ResKey| {
         app.ws
@@ -85,22 +105,39 @@ fn preview_of(app: &Moonglow, key: ResKey) -> Result<Preview, String> {
             .and_then(|w| w.module.get(k).map(<[u8]>::to_vec))
             .or_else(|| game.resman.get(k).ok().map(|d| d.into_owned()))
     };
-    if key.restype == ResType::MDL {
-        return Ok(Preview::model(&key.resref.to_string()));
-    }
-    let gff = data(&key)
-        .and_then(|d| Gff::read(&d).ok())
-        .ok_or_else(|| format!("{key}: not found or not readable"))?;
-    let items =
-        |r: mg_core::ResRef| data(&ResKey::new(r, ResType::UTI)).and_then(|d| Gff::read(&d).ok());
-    let preview = match key.restype {
-        ResType::UTC => mg_preview::creature(game, &gff.root, &items),
-        ResType::UTI => mg_preview::item(game, &gff.root),
-        ResType::UTP => mg_preview::placeable(game, &gff.root),
-        ResType::UTD => mg_preview::door(game, &gff.root),
-        t => return Err(format!("{key}: no preview for {t:?}")),
+    let read = |k: &ResKey| data(k).and_then(|d| Gff::read(&d).ok());
+    let (restype, object) = match source {
+        Source::Resource(key) if key.restype == ResType::MDL => {
+            return Ok(Preview::model(&key.resref.to_string()));
+        }
+        Source::Resource(key) => {
+            let gff = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
+            (key.restype, gff.root)
+        }
+        Source::Instance { area, path } => {
+            let git = read(&ResKey::new(*area, ResType::GIT))
+                .ok_or_else(|| format!("{area}.git: not found or not readable"))?;
+            let list = match path.0.first() {
+                Some(Step::Item(list, _)) => list.clone(),
+                _ => return Err(format!("{source}: not an object's entry")),
+            };
+            let kind = ObjectKind::ALL
+                .into_iter()
+                .find(|k| k.list() == list)
+                .ok_or_else(|| format!("{source}: no preview for {list}"))?;
+            let object = path.get(&git.root).cloned().ok_or_else(|| format!("{source}: gone"))?;
+            (kind.restype(), object)
+        }
     };
-    preview.map_err(|e| format!("{key}: {e}"))
+    let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
+    let preview = match restype {
+        ResType::UTC => mg_preview::creature(game, &object, &items),
+        ResType::UTI => mg_preview::item(game, &object),
+        ResType::UTP => mg_preview::placeable(game, &object),
+        ResType::UTD => mg_preview::door(game, &object),
+        t => return Err(format!("{source}: no preview for {t:?}")),
+    };
+    preview.map_err(|e| format!("{source}: {e}"))
 }
 
 /// Whether the viewer can show a resource type.
@@ -109,7 +146,7 @@ pub(crate) fn previewable(t: ResType) -> bool {
 }
 
 /// A preview's models on the GPU, from the module first, then the game.
-fn compose(app: &Moonglow, key: ResKey, preview: &Preview) -> Result<Composed, String> {
+fn compose(app: &Moonglow, source: &Source, preview: &Preview) -> Result<Composed, String> {
     let vp = app.viewport.as_ref().ok_or("No GPU: the model viewer needs one.")?;
     let game = app.game.as_ref().ok_or("No game data.")?;
     let load = |name: &str| -> Option<Arc<Model>> {
@@ -122,16 +159,17 @@ fn compose(app: &Moonglow, key: ResKey, preview: &Preview) -> Result<Composed, S
         Model::read(&data).ok().map(Arc::new)
     };
     Composed::new(&vp.gpu, preview, &load)
-        .ok_or_else(|| format!("{key}: model {} not found or not readable", preview.base.model))
+        .ok_or_else(|| format!("{source}: model {} not found or not readable", preview.base.model))
 }
 
 impl ModelView {
     /// Builds it again if the blueprint now looks different (its editor
     /// changed it), keeping the camera, and the animation where the new
     /// model has it.
-    fn refresh(&mut self, app: &mut Moonglow, key: ResKey) {
+    fn refresh(&mut self, app: &mut Moonglow, source: &Source) {
         let revision = app.ws.as_ref().map(Workspace::revision);
-        if key.restype == ResType::MDL || revision == self.revision {
+        let model = matches!(source, Source::Resource(k) if k.restype == ResType::MDL);
+        if model || revision == self.revision {
             return;
         }
         self.revision = revision;
@@ -139,11 +177,11 @@ impl ModelView {
         if let Some(ws) = app.ws.as_mut() {
             let _ = ws.flush();
         }
-        let Ok(preview) = preview_of(app, key) else { return };
+        let Ok(preview) = preview_of(app, source) else { return };
         if self.preview.as_ref() == Some(&preview) {
             return;
         }
-        let composed = compose(app, key, &preview);
+        let composed = compose(app, source, &preview);
         self.model = composed.as_ref().map(|c| c.base().clone()).map_err(Clone::clone);
         let composed = composed.ok();
         let animations = composed.as_ref().map(Composed::animations).unwrap_or_default();
@@ -157,9 +195,9 @@ impl ModelView {
         self.chunk_models.clear();
     }
 
-    fn open(app: &Moonglow, key: ResKey) -> ModelView {
-        let preview = preview_of(app, key);
-        let composed = preview.clone().and_then(|p| compose(app, key, &p));
+    fn open(app: &Moonglow, source: &Source) -> ModelView {
+        let preview = preview_of(app, source);
+        let composed = preview.clone().and_then(|p| compose(app, source, &p));
         let model = composed.as_ref().map(|c| c.base().clone()).map_err(Clone::clone);
         let animation = composed
             .as_ref()
@@ -252,17 +290,18 @@ fn load_super(
     m
 }
 
-pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
+pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
+    let key = source.clone();
     if !app.model_views.contains_key(&key) {
         // The editors' working copies, which the preview reads.
         if let Some(ws) = app.ws.as_mut() {
             let _ = ws.flush();
         }
-        let view = ModelView::open(app, key);
-        app.model_views.insert(key, view);
+        let view = ModelView::open(app, &source);
+        app.model_views.insert(key.clone(), view);
     }
     let mut view = app.model_views.remove(&key).expect("just inserted");
-    view.refresh(app, key);
+    view.refresh(app, &source);
     let model = match &view.model {
         Ok(m) => m.clone(),
         Err(e) => {
@@ -297,7 +336,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, key: ResKey) {
         }
         ui.separator();
         let current = view.animation.clone().unwrap_or_else(|| "(rest pose)".into());
-        egui::ComboBox::new(("anim", key), "Animation").selected_text(current).show_ui(ui, |ui| {
+        egui::ComboBox::new(("anim", &key), "Animation").selected_text(current).show_ui(ui, |ui| {
             if ui.selectable_label(view.animation.is_none(), "(rest pose)").clicked() {
                 view.animation = None;
             }

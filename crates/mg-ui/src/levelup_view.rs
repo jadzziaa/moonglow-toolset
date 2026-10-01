@@ -152,7 +152,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         });
         ui.separator();
         ui.horizontal(|ui| {
-            ok = ui.button("OK").on_hover_text("Accept changes").clicked();
+            ok = ui.button("OK").on_hover_text("Accept changes").clicked() || crate::widgets::enter(ui);
             cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
         });
     });

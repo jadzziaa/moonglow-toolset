@@ -71,7 +71,8 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
             });
             ui.weak("Rows and columns come and go at the north and east edges.");
             ui.horizontal(|ui| {
-                ok = ui.button("OK").on_hover_text("Accept changes").clicked();
+                ok = ui.button("OK").on_hover_text("Accept changes").clicked()
+                    || crate::widgets::enter(ui);
                 cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
             });
         },
@@ -101,7 +102,8 @@ fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
             ui.horizontal(|ui| {
-                ok = ui.button("OK").on_hover_text("Accept changes").clicked();
+                ok = ui.button("OK").on_hover_text("Accept changes").clicked()
+                    || crate::widgets::enter(ui);
                 cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
             });
         },

@@ -1783,7 +1783,8 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
                 ui.add(egui::TextEdit::singleline(&mut name).hint_text("set name"));
             });
             ui.horizontal(|ui| {
-                done = ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked();
+                done = ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()
+                    || (!name.trim().is_empty() && crate::widgets::enter(ui));
                 cancel = ui.button("Cancel").clicked();
             });
         },

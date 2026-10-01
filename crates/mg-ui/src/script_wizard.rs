@@ -973,7 +973,9 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                     w.selected = None;
                     w.entry.clear();
                 }
-                if ui.add_enabled(w.step != Step::Name, egui::Button::new("Next >")).clicked() {
+                if ui.add_enabled(w.step != Step::Name, egui::Button::new("Next >")).clicked()
+                    || (w.step != Step::Name && crate::widgets::enter(ui))
+                {
                     w.step = w.next();
                     w.selected = None;
                     w.entry.clear();
@@ -981,6 +983,7 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                 if ui
                     .add_enabled(w.step == Step::Name && valid_name, egui::Button::new("Finish"))
                     .clicked()
+                    || (w.step == Step::Name && valid_name && crate::widgets::enter(ui))
                 {
                     finish = true;
                 }

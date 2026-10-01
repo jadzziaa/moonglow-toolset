@@ -417,7 +417,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 if ui.button("Defaults").clicked() {
                     done = Some(false);
                 }
-                if ui.button("OK").on_hover_text("Accept changes").clicked() {
+                if ui.button("OK").on_hover_text("Accept changes").clicked()
+                    || crate::widgets::enter(ui)
+                {
                     done = Some(true);
                 }
                 if ui.button("Cancel").on_hover_text("Discard changes").clicked() {

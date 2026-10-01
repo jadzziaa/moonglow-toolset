@@ -476,7 +476,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             });
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("OK").clicked() {
+                if ui.button("OK").clicked() || crate::widgets::enter(ui) {
                     close = true;
                     if draft.moves_game(&app.settings) {
                         app.actions.push(Action::ApplyOptions(draft.clone()));

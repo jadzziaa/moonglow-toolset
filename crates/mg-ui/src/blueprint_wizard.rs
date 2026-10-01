@@ -434,10 +434,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 w.step -= 1;
             }
             let ok = w.complete();
-            if ui.add_enabled(ok && !w.last(), egui::Button::new("Next >")).clicked() {
+            if ui.add_enabled(ok && !w.last(), egui::Button::new("Next >")).clicked()
+                || (ok && !w.last() && crate::widgets::enter(ui))
+            {
                 w.step += 1;
             }
-            if ui.add_enabled(ok && w.last(), egui::Button::new("Finish")).clicked() {
+            if ui.add_enabled(ok && w.last(), egui::Button::new("Finish")).clicked()
+                || (ok && w.last() && crate::widgets::enter(ui))
+            {
                 finish = true;
             }
             if ui.button("Cancel").clicked() {

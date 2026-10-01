@@ -185,7 +185,7 @@ pub struct Moonglow {
     pub script_wizard: Option<script_wizard::ScriptWizard>,
     /// The GPU for 3D views (from the window), if there is one.
     pub viewport: Option<model_view::Viewport3d>,
-    pub model_views: HashMap<ResKey, model_view::ModelView>,
+    pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
     /// The Adjust Location window.

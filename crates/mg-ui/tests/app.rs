@@ -921,7 +921,10 @@ fn model_viewer_plays_animations() {
     h.get_by_label("open").click();
     // A playing animation keeps repainting: step frames.
     h.run_steps(3);
-    assert_eq!(h.state().model_views[&key].animation.as_deref(), Some("open"));
+    assert_eq!(
+        h.state().model_views[&mg_ui::model_view::Source::Resource(key)].animation.as_deref(),
+        Some("open")
+    );
     let img = h.render().expect("render");
     assert!(img.width() > 0);
 }
@@ -951,7 +954,10 @@ fn blueprint_previews_open() {
     // The idle animation plays from the start: step frames.
     h.run_steps(4);
     h.get_by_label_contains("pmg0: ");
-    assert_eq!(h.state().model_views[&key].animation.as_deref(), Some("pause1"));
+    assert_eq!(
+        h.state().model_views[&mg_ui::model_view::Source::Resource(key)].animation.as_deref(),
+        Some("pause1")
+    );
     let img = h.render().expect("render");
     assert!(img.width() > 0);
 }
@@ -2380,7 +2386,10 @@ fn preview_window_shows_the_chosen_blueprint() {
     h.state_mut().palette.selected = Some(chest);
     h.run_steps(3);
     h.get_by_label("plc_chest1");
-    assert!(h.state().model_views.contains_key(&chest), "the 3D view");
+    assert!(
+        h.state().model_views.contains_key(&mg_ui::model_view::Source::Resource(chest)),
+        "the 3D view"
+    );
     // An item: also its inventory icon.
     h.state_mut().palette.selected = ResKey::parse("nw_wswls001", ResType::UTI);
     h.run_steps(3);
@@ -4603,7 +4612,9 @@ fn a_preview_follows_its_blueprint_s_editor() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(4);
     let head = |h: &Harness<'_, Moonglow>| -> Vec<String> {
-        let p = h.state().model_views[&key].preview().expect("a preview");
+        let p = h.state().model_views[&mg_ui::model_view::Source::Resource(key)]
+            .preview()
+            .expect("a preview");
         p.parts.iter().map(|p| p.model.clone()).filter(|m| m.contains("_head")).collect()
     };
     assert_eq!(head(&h), ["pmh0_head001"]);
@@ -4648,4 +4659,92 @@ fn blueprints_drag_from_the_palette_into_the_area() {
     assert_eq!(count(&mut h), 3, "{:?}", h.state().log.entries);
     let (x, y, _) = waypoint(&mut h, area, 2).unwrap();
     assert!((x - 25.0).abs() < 0.5 && (y - 25.0).abs() < 0.5, "dropped at {x}, {y}");
+}
+
+#[test]
+fn placed_objects_preview_as_placed() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("instance-preview") else { return };
+    // A human of parts, placed in the area.
+    let git = ResKey::new(area, ResType::GIT);
+    let entry = {
+        let game = h.state().game.as_ref().unwrap();
+        let data = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap();
+        let mut bp = Gff::read(&data).unwrap().root;
+        bp.set("Appearance_Type", mg_gff::Value::Word(6));
+        bp.set("Appearance_Head", mg_gff::Value::Byte(1));
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [25.0, 25.0, 0.0], rotation: 0.0 };
+        instance(&placing, ResType::UTC, &bp, at, &[]).unwrap()
+    };
+    let path = mg_edit::GffPath::root().item("Creature List", 0);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "place",
+        vec![mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "Creature List".into(),
+            index: 0,
+            item: entry,
+        }],
+    )));
+    h.state_mut()
+        .actions
+        .push(mg_ui::Action::OpenTab(Tab::InstanceModel { area, path: path.clone() }));
+    h.run_steps(4);
+    let source = mg_ui::model_view::Source::Instance { area, path: path.clone() };
+    let head = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        let p = h.state().model_views[&source].preview().expect("a preview of the placed creature");
+        p.parts.iter().map(|p| p.model.clone()).filter(|m| m.contains("_head")).collect()
+    };
+    assert_eq!(head(&h), ["pmh0_head001"]);
+    // Its Properties change its head (both fields, as the editor sets them:
+    // a placed creature has EE's wide one too): the preview follows.
+    let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
+        key: git,
+        path: path.clone(),
+        label: label.into(),
+        value: Some(value),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Head",
+        vec![
+            set("Appearance_Head", mg_gff::Value::Byte(3)),
+            set("xAppearance_Head", mg_gff::Value::Word(3)),
+        ],
+    )));
+    h.run_steps(4);
+    assert_eq!(head(&h), ["pmh0_head003"]);
+}
+
+#[test]
+fn enter_does_what_a_dialog_s_main_button_does() {
+    let root = mg_testkit::corpus!();
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    // Enter on Cancel presses Cancel, not Create.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
+    h.run();
+    h.get_by_label("Cancel").focus();
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().ws.is_none() && h.state().wizard.is_none(), "cancelled");
+    // A name typed, then Enter: the module, as Create makes it.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
+    h.run();
+    h.get_all_by_value("module000").find(is_input).expect("the name field").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value("module000").find(is_input).unwrap().type_text("moonglowTEST");
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().ws.is_some(), "{:?}", h.state().log.entries);
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "Created module moonglowTEST"));
 }

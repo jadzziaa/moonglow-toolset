@@ -214,10 +214,14 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 Page::Store => w.store.is_some(),
                 Page::Finish => false,
             };
-            if ui.add_enabled(next_ok, egui::Button::new("Next >")).clicked() {
+            if ui.add_enabled(next_ok, egui::Button::new("Next >")).clicked()
+                || (next_ok && crate::widgets::enter(ui))
+            {
                 w.page = if w.page == Page::Conversation { Page::Store } else { Page::Finish };
             }
-            if ui.add_enabled(w.page == Page::Finish, egui::Button::new("Finish")).clicked() {
+            if ui.add_enabled(w.page == Page::Finish, egui::Button::new("Finish")).clicked()
+                || (w.page == Page::Finish && crate::widgets::enter(ui))
+            {
                 finish = true;
             }
             if ui.button("Cancel").clicked() {
@@ -349,7 +353,8 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
             ok = ui
                 .add_enabled(ready, egui::Button::new("OK"))
                 .on_hover_text("Accept changes")
-                .clicked();
+                .clicked()
+                || (ready && crate::widgets::enter(ui));
             close = ui.button("Cancel").on_hover_text("Discard changes").clicked();
         });
     });

@@ -502,7 +502,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 input.shown = true;
             }
             ui.horizontal(|ui| {
-                ok = ui.button("OK").on_hover_text("Accept changes").clicked();
+                ok = ui.button("OK").on_hover_text("Accept changes").clicked()
+                    || crate::widgets::enter(ui);
                 cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
             });
         });
@@ -1099,7 +1100,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 );
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(key.is_some() && !exists, egui::Button::new("Create")).clicked()
+                if (ui.add_enabled(key.is_some() && !exists, egui::Button::new("Create")).clicked()
+                    || (key.is_some() && !exists && crate::widgets::enter(ui)))
                     && let Some(k) = key
                 {
                     app.actions.push(Action::Apply(Command::new(

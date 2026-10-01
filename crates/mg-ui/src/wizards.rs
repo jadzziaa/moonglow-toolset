@@ -71,7 +71,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.text_edit_singleline(name);
                 ui.horizontal(|ui| {
                     let ok = !name.trim().is_empty();
-                    if ui.add_enabled(ok, egui::Button::new("Create")).clicked() {
+                    if ui.add_enabled(ok, egui::Button::new("Create")).clicked()
+                        || (ok && crate::widgets::enter(ui))
+                    {
                         app.actions.push(Action::NewModule(name.trim().to_string()));
                         close = true;
                     }
@@ -118,7 +120,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let spec = w.spec().filter(|s| !s.name.is_empty());
-                    if ui.add_enabled(spec.is_some(), egui::Button::new("Create")).clicked()
+                    if (ui.add_enabled(spec.is_some(), egui::Button::new("Create")).clicked()
+                        || (spec.is_some() && crate::widgets::enter(ui)))
                         && let Some(spec) = spec
                     {
                         app.actions.push(Action::NewArea(spec));

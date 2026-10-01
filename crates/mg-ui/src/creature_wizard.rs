@@ -218,10 +218,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                     let last = w.page + 1 == PAGES.len();
                     if ui.add_enabled(!last && w.complete(), egui::Button::new("Next >")).clicked()
+                        || (!last && w.complete() && crate::widgets::enter(ui))
                     {
                         w.page += 1;
                     }
-                    finish = ui.add_enabled(last, egui::Button::new("Finish")).clicked();
+                    finish = ui.add_enabled(last, egui::Button::new("Finish")).clicked()
+                        || (last && crate::widgets::enter(ui));
                     cancel = ui.button("Cancel").clicked();
                 });
             });

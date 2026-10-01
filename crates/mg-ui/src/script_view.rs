@@ -1116,7 +1116,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 );
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(key.is_some(), egui::Button::new("Save")).clicked()
+                if (ui.add_enabled(key.is_some(), egui::Button::new("Save")).clicked()
+                    || (key.is_some() && crate::widgets::enter(ui)))
                     && let Some(k) = key
                 {
                     let text = app.scripts.get(&from).map(|b| b.text.clone()).unwrap_or_default();
@@ -1153,7 +1154,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 );
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(key.is_some() && !exists, egui::Button::new("Create")).clicked()
+                if (ui.add_enabled(key.is_some() && !exists, egui::Button::new("Create")).clicked()
+                    || (key.is_some() && !exists && crate::widgets::enter(ui)))
                     && let Some(k) = key
                 {
                     app.actions.push(Action::Apply(Command::new(

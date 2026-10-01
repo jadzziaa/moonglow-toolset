@@ -327,7 +327,8 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                 ok |= ui
                     .add_enabled(state.chosen.is_some(), egui::Button::new("OK"))
                     .on_hover_text("Accept changes")
-                    .clicked();
+                    .clicked()
+                    || (state.chosen.is_some() && crate::widgets::enter(ui));
                 cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
             });
         });
@@ -570,6 +571,12 @@ pub(super) fn pick(
 /// the dialog).
 pub(super) fn preview_button(f: &mut Form<'_>, ui: &mut Ui) {
     if ui.button("Preview").on_hover_text("Show the model").clicked() {
-        f.app.actions.push(crate::Action::OpenTab(crate::Tab::Model(f.key)));
+        // A placed object as it is placed (its GIT entry), else the blueprint.
+        let tab = if f.key.restype == ResType::GIT {
+            crate::Tab::InstanceModel { area: f.key.resref, path: f.path.clone() }
+        } else {
+            crate::Tab::Model(f.key)
+        };
+        f.app.actions.push(crate::Action::OpenTab(tab));
     }
 }

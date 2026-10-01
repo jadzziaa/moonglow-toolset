@@ -48,6 +48,8 @@ pub enum Tab {
     Instance { area: mg_core::ResRef, path: mg_edit::GffPath },
     /// Help › User Manual.
     Manual,
+    /// What an object placed in an area looks like, in the 3D viewer.
+    InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
 }
 
 impl Tab {
@@ -101,6 +103,9 @@ impl TabViewer for Viewer<'_> {
             Tab::AreaProperties(area) => format!("{area} (Area Properties)").into(),
             Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()).into(),
             Tab::Manual => "User Manual".into(),
+            Tab::InstanceModel { area, path } => {
+                format!("{} (preview)", instance_title(self.app, *area, path)).into()
+            }
         }
     }
 
@@ -117,7 +122,11 @@ impl TabViewer for Viewer<'_> {
             Tab::Journal => journal_view::ui(self.app, ui),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
-            Tab::Model(k) => model_view::ui(self.app, ui, *k),
+            Tab::Model(k) => model_view::ui(self.app, ui, model_view::Source::Resource(*k)),
+            Tab::InstanceModel { area, path } => {
+                let source = model_view::Source::Instance { area: *area, path: path.clone() };
+                model_view::ui(self.app, ui, source);
+            }
             Tab::Area(r) => area_view::ui(self.app, ui, *r),
             Tab::AreaProperties(area) => crate::area_props::ui(self.app, ui, *area),
             Tab::Instances { area, paths } => {

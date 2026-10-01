@@ -114,7 +114,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                 }
             });
             ui.horizontal(|ui| {
-                if ui.button("OK").clicked() {
+                if ui.button("OK").clicked() || crate::widgets::enter(ui) {
                     done = Some(true);
                 }
                 if ui.button("Apply").clicked() {
@@ -353,7 +353,7 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
             if crate::model_view::previewable(key.restype) {
                 ui.separator();
                 ui.allocate_ui(egui::vec2(ui.available_width(), 300.0), |ui| {
-                    crate::model_view::ui(app, ui, key);
+                    crate::model_view::ui(app, ui, crate::model_view::Source::Resource(key));
                 });
             }
         },

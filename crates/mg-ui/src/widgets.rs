@@ -300,7 +300,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 );
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(value.is_some(), egui::Button::new("OK")).clicked() {
+                if ui.add_enabled(value.is_some(), egui::Button::new("OK")).clicked()
+                    || (value.is_some() && crate::widgets::enter(ui))
+                {
                     if let Some(v) = value.filter(|v| *v != edit.original) {
                         app.actions.push(
                             edit.target
@@ -358,7 +360,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.colored_label(ui.visuals().error_fg_color, p);
             }
             ui.horizontal(|ui| {
-                if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked() {
+                if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked()
+                    || (problem.is_none() && crate::widgets::enter(ui))
+                {
                     app.actions
                         .push(edit.target.command("Edit variables", Value::List(edit.list())));
                     close = true;
@@ -516,6 +520,15 @@ pub(crate) fn two_columns(ui: &mut egui::Ui, min: f32, mut add: impl FnMut(&mut 
     }
 }
 
+/// Enter in a dialog: what its main button (Create, OK, Next, Finish) does,
+/// when nothing else has the keyboard: after typing in a one-line field
+/// (which lets go of it on Enter), or with nothing focused. Not while a
+/// multi-line field (where Enter starts a line) or a button (which Enter
+/// presses) has it.
+pub(crate) fn enter(ui: &egui::Ui) -> bool {
+    ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none())
+        && ui.memory(|m| m.focused().is_none())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
