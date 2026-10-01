@@ -104,6 +104,24 @@ pub fn waypoint(resref: ResRef, tag_name: &str, appearance: u8, category: u8) ->
     )
 }
 
+/// The Sound Properties' play styles as Aurora writes them: (label,
+/// `Looping`, `Continuous`). Seamless looping takes a single sound and
+/// plays it in order (`Random` 0).
+pub const SOUND_PLAY_STYLES: [(&str, bool, bool); 3] =
+    [("Once", false, false), ("Repeating", false, true), ("Seamlessly looping", true, false)];
+
+/// A sound's prioritygroups.2da row, as Aurora sets it whenever its play
+/// style or positioning changes: looping area-wide 2, looping positional 3,
+/// else (single shots) area-wide 19, positional 20.
+pub fn sound_priority(looping: bool, positional: bool) -> u8 {
+    match (looping, positional) {
+        (true, false) => 2,
+        (true, true) => 3,
+        (false, false) => 19,
+        (false, true) => 20,
+    }
+}
+
 /// How a new sound plays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SoundStyle {
@@ -122,12 +140,7 @@ pub enum SoundStyle {
 impl SoundStyle {
     /// Its prioritygroups.2da row.
     pub fn priority(self) -> u8 {
-        match self {
-            SoundStyle::LoopingAreaWide => 2,
-            SoundStyle::LoopingPositional => 3,
-            SoundStyle::SingleShotAreaWide => 19,
-            SoundStyle::SingleShotRandom | SoundStyle::SingleShotPositional => 20,
-        }
+        sound_priority(self.looping(), self.positional())
     }
 
     fn looping(self) -> bool {

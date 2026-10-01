@@ -154,14 +154,18 @@ fn positioning(f: &mut Form<'_>, ui: &mut Ui) {
         ("Plays from a random position each time it is played", true, true),
         ("Plays from a specific position", true, false),
     ];
+    let looping = f.int("Looping") != 0;
     for (text, p, r) in choices {
         let on = positional == p && (!p || random == r);
         if ui.radio(on, text).clicked() && !on {
+            // Aurora sets the priority group with it.
+            let priority = i64::from(mg_module::blueprints::sound_priority(looping, p));
             f.set_many(
                 "Positioning",
                 &[
                     ("Positional", i64::from(p), FieldType::Byte),
                     ("RandomPosition", i64::from(r), FieldType::Byte),
+                    ("Priority", priority, FieldType::Byte),
                 ],
             );
         }
@@ -250,32 +254,44 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
 
     let looping = f.int("Looping") != 0;
     let continuous = f.int("Continuous") != 0;
+    let positional = f.int("Positional") != 0;
+    let single = f.root.list("Sounds").is_some_and(|l| l.len() == 1);
     ui.label("Play Style");
     ui.horizontal(|ui| {
-        // (label, Looping, Continuous)
-        for (text, l, c) in
-            [("Seamlessly looping", true, true), ("Repeating", false, true), ("Once", false, false)]
-        {
+        // (label, Looping, Continuous), as Aurora writes them; seamless
+        // looping takes a single sound, played in order.
+        for (text, l, c) in mg_module::blueprints::SOUND_PLAY_STYLES {
             let on = if l { looping } else { !looping && continuous == c };
-            if ui.radio(on, text).clicked() && !on {
-                f.set_many(
-                    "Play style",
-                    &[
-                        ("Looping", i64::from(l), FieldType::Byte),
-                        ("Continuous", i64::from(c), FieldType::Byte),
-                    ],
-                );
+            let enabled = !l || single || looping;
+            if ui
+                .add_enabled(enabled, egui::RadioButton::new(on, text))
+                .on_disabled_hover_text("Seamless looping plays a single sound")
+                .clicked()
+                && !on
+            {
+                let priority = i64::from(mg_module::blueprints::sound_priority(l, positional));
+                let mut fields = vec![
+                    ("Looping", i64::from(l), FieldType::Byte),
+                    ("Continuous", i64::from(c), FieldType::Byte),
+                    ("Priority", priority, FieldType::Byte),
+                ];
+                if l {
+                    fields.push(("Random", 0, FieldType::Byte));
+                }
+                f.set_many("Play style", &fields);
             }
         }
     });
     ui.label("Play Order");
     let random = f.int("Random") != 0;
-    ui.horizontal(|ui| {
-        for (text, v) in [("Sequential", false), ("Random", true)] {
-            if ui.radio(random == v, text).clicked() && random != v {
-                f.set_int("Play order", "Random", i64::from(v), FieldType::Byte);
+    ui.add_enabled_ui(!looping, |ui| {
+        ui.horizontal(|ui| {
+            for (text, v) in [("Sequential", false), ("Random", true)] {
+                if ui.radio(random == v, text).clicked() && random != v {
+                    f.set_int("Play order", "Random", i64::from(v), FieldType::Byte);
+                }
             }
-        }
+        });
     });
     ui.add_enabled_ui(!looping, |ui| {
         egui::Grid::new(("uts-interval", f.key)).num_columns(2).spacing([12.0, 6.0]).show(

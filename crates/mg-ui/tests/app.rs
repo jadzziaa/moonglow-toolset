@@ -4083,3 +4083,26 @@ fn colours_are_chosen_from_palette_swatches() {
     h.run();
     assert_eq!(field(&mut h, &key).integer("Cloth1Color"), Some(pick));
 }
+
+#[test]
+fn sound_play_styles_set_aurora_s_fields_and_priority() {
+    let Some((mut h, key)) = blueprint_harness("animalcriesday", "sound_styles", ResType::UTS)
+    else {
+        return;
+    };
+    h.run();
+    let int = |h: &mut Harness<'_, Moonglow>, l: &str| field(h, &key).integer(l);
+    h.get_by_label("Advanced").click();
+    h.run();
+    // Four sounds: no seamless looping (Aurora greys it).
+    assert!(h.get_by_label("Seamlessly looping").accesskit_node().is_disabled());
+    h.get_by_label("Once").click();
+    h.run();
+    assert_eq!((int(&mut h, "Looping"), int(&mut h, "Continuous")), (Some(0), Some(0)));
+    assert_eq!(int(&mut h, "Priority"), Some(20), "a positional single shot");
+    h.get_by_label("Positioning").click();
+    h.run();
+    h.get_by_label("Plays everywhere in area").click();
+    h.run();
+    assert_eq!(int(&mut h, "Priority"), Some(19), "an area-wide single shot");
+}
