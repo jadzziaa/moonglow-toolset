@@ -5,6 +5,7 @@
 //! turn edits into undoable [`mg_edit::Command`]s.
 
 mod area_props;
+pub mod area_reshape;
 pub mod area_tools;
 pub mod area_view;
 pub mod blueprint;
@@ -172,6 +173,10 @@ pub struct Moonglow {
     pub preview_window: bool,
     /// The Tile Properties window, while it is open.
     pub tile_props: Option<tile_select::TileProps>,
+    /// The Resize Area window, while it is open.
+    pub resize_area: Option<area_reshape::ResizeDraft>,
+    /// The Rotate Area window, while it is open.
+    pub rotate_area: Option<area_reshape::RotateDraft>,
     /// Objects copied in an area viewer.
     pub object_clip: Option<area_view::ObjectClip>,
     /// An object to show and select when its area's view is next drawn.
@@ -246,6 +251,8 @@ impl Moonglow {
             object_clip: None,
             preview_window: false,
             tile_props: None,
+            resize_area: None,
+            rotate_area: None,
             palette: Default::default(),
             hak_report: None,
             custom_tlk: None,
@@ -326,6 +333,7 @@ impl Moonglow {
         area_tools::windows(self, ui);
         area_tools::preview_window(self, ui);
         tile_select::window(self, ui.ctx());
+        area_reshape::windows(self, ui.ctx());
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -446,6 +454,19 @@ impl Moonglow {
                 if ui.add_enabled(open, egui::Button::new("Module Properties")).clicked() {
                     self.actions.push(Action::OpenTab(Tab::ModuleProperties));
                 }
+                ui.separator();
+                let area = self.palette.area.filter(|a| self.area_views.contains_key(a));
+                if ui.add_enabled(area.is_some(), egui::Button::new("Resize Area…")).clicked()
+                    && let Some(a) = area
+                {
+                    area_reshape::open_resize(self, a);
+                }
+                if ui.add_enabled(area.is_some(), egui::Button::new("Rotate Area…")).clicked()
+                    && let Some(a) = area
+                {
+                    self.rotate_area = Some(area_reshape::RotateDraft { area: a, turns: 1 });
+                }
+                ui.separator();
                 if ui.add_enabled(open, egui::Button::new("Find Instance…")).clicked() {
                     self.find_instance.get_or_insert_with(Default::default);
                 }

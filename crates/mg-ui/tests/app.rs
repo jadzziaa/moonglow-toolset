@@ -2630,3 +2630,52 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     h.run_steps(1);
     assert_eq!(tile(&mut h, 5), original);
 }
+
+#[test]
+fn resize_and_rotate_area_from_the_edit_menu() {
+    let Some((mut h, area)) = area_harness("reshape") else { return };
+    let size = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        let tiles = are.root.list("Tile_List").unwrap().len();
+        (are.root.integer("Width").unwrap(), are.root.integer("Height").unwrap(), tiles)
+    };
+    assert_eq!(size(&mut h), (4, 4, 16));
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Resize Area…").click();
+    h.run_steps(2);
+    let d = h.state_mut().resize_area.as_mut().expect("the window is open");
+    (d.columns, d.rows) = (6, 3);
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert_eq!(size(&mut h), (6, 3, 18));
+    // The waypoints at (20, 20) and (30, 20) stay: inside 60 by 30.
+    let waypoints = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root
+            .list("WaypointList")
+            .unwrap()
+            .iter()
+            .map(|w| (w.float("XPosition").unwrap(), w.float("YPosition").unwrap()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(waypoints(&mut h).len(), 2);
+    // A quarter turn counter-clockwise: 3 by 6, (20, 20) to (10, 20).
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Rotate Area…").click();
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert_eq!(size(&mut h), (3, 6, 18));
+    let w = waypoints(&mut h);
+    assert!((w[0].0 - 10.0).abs() < 1e-3 && (w[0].1 - 20.0).abs() < 1e-3, "{w:?}");
+    // Both undone, one step each.
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(1);
+    assert_eq!(size(&mut h), (4, 4, 16));
+}

@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+fastrand.workspace = true
 glam.workspace = true
 mg-core.workspace = true
 mg-edit.workspace = true

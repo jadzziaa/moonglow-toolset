@@ -26,6 +26,7 @@ use mg_set::Tileset;
 
 pub mod edit;
 pub mod pick;
+pub mod reshape;
 mod scene;
 pub mod terrain;
 pub mod walk;

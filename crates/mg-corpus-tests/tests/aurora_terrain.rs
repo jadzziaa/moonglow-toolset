@@ -219,3 +219,170 @@ fn painting_matches_aurora() {
     );
     eprintln!("{steps} steps as Aurora paints them");
 }
+
+/// Resize Area and Rotate Area against Aurora's (captured by hand in the
+/// probe module's ttr01 area: grown from 10 by 10 to 13 by 12, grown a
+/// column past water on the east edge, shrunk to 9 by 8 through three tile
+/// groups, rotated a quarter turn counter-clockwise).
+#[test]
+fn resize_and_rotate_match_aurora() {
+    use mg_area::reshape::{resize, rotate};
+    use mg_edit::{Command, Workspace};
+    let root = corpus!();
+    let names = ["resize-00", "resize-01-grow", "resize-02-water", "resize-03-grow-east"];
+    let names = names.iter().chain(&["resize-04-shrink", "resize-05-rotate-ccw90"]);
+    let mut paths = Vec::new();
+    for n in names {
+        let Some(p) = mg_testkit::aurora_capture(&format!("terrain/{n}.mod")) else {
+            assert!(!mg_testkit::corpus_required(), "Aurora capture terrain/{n} not found");
+            eprintln!("skipped: no Aurora capture terrain/{n}");
+            return;
+        };
+        paths.push(p);
+    }
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let area = ResRef::from_str("ttr01").unwrap();
+    let (are_key, git_key) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+    let set = mg_area::tileset(&game, area).unwrap();
+    let index = TileIndex::new(&set);
+    let docs = |p: &Path| {
+        let m = Module::open(p).unwrap();
+        (m.gff(&are_key).unwrap().unwrap().root, m.gff(&git_key).unwrap().unwrap().root)
+    };
+    // Applies the edits to the module at `from` and returns its ARE and GIT.
+    let after = |from: &Path, edits: Vec<mg_edit::Edit>| {
+        let mut ws = Workspace::new(Module::open(from).unwrap());
+        ws.apply(Command::new("Reshape", edits)).unwrap();
+        (ws.doc(&are_key).unwrap().root.clone(), ws.doc(&git_key).unwrap().root.clone())
+    };
+    let doors = |git: &mg_gff::Struct| -> Vec<[f32; 4]> {
+        git.list("Door List")
+            .unwrap_or(&[])
+            .iter()
+            .map(|d| ["X", "Y", "Z", "Bearing"].map(|l| d.float(l).unwrap()))
+            .collect()
+    };
+    let close = |a: &[[f32; 4]], b: &[[f32; 4]]| {
+        a.len() == b.len()
+            && a.iter().zip(b).all(|(p, q)| p.iter().zip(q).all(|(u, v)| (u - v).abs() < 1e-3))
+    };
+    let mut rng = fastrand::Rng::with_seed(4);
+    for (from, to, size) in [(0, 1, (13, 12)), (2, 3, (14, 12)), (3, 4, (9, 8))] {
+        let (are, git) = docs(&paths[from]);
+        let (aurora_are, aurora_git) = docs(&paths[to]);
+        let r = resize(
+            are_key,
+            git_key,
+            &are,
+            &git,
+            &set,
+            &index,
+            size.0,
+            size.1,
+            &mut rng,
+            &mut || [0; 3],
+        )
+        .unwrap();
+        let (ours_are, ours_git) = after(&paths[from], r.edits);
+        let (ours, theirs) = (grid(&ours_are, &index).unwrap(), grid(&aurora_are, &index).unwrap());
+        assert_eq!(
+            ours.lattice,
+            theirs.lattice,
+            "{:?}: Moonglow:\n{}Aurora:\n{}",
+            size,
+            render(&index, &ours.lattice),
+            render(&index, &theirs.lattice)
+        );
+        // The tiles Aurora kept, Moonglow keeps.
+        let old = grid(&are, &index).unwrap();
+        for y in 0..size.1.min(old.lattice.height()) {
+            for x in 0..size.0.min(old.lattice.width()) {
+                if theirs.tile(x, y) == old.tile(x, y) {
+                    assert_eq!(ours.tile(x, y), old.tile(x, y), "{size:?}: tile ({x}, {y})");
+                }
+            }
+        }
+        assert!(
+            close(&doors(&ours_git), &doors(&aurora_git)),
+            "{size:?}: doors {:?}",
+            doors(&ours_git)
+        );
+    }
+    // Rotation: tiles and doors exactly where Aurora puts them.
+    let (are, git) = docs(&paths[4]);
+    let (aurora_are, aurora_git) = docs(&paths[5]);
+    let (ours_are, ours_git) = after(&paths[4], rotate(are_key, git_key, &are, &git, 1));
+    for label in ["Width", "Height", "Tile_List"] {
+        assert_eq!(ours_are.get(label), aurora_are.get(label), "{label}");
+    }
+    assert!(close(&doors(&ours_git), &doors(&aurora_git)), "doors {:?}", doors(&ours_git));
+}
+
+/// The doors a placed group brings, against Aurora's (the first barn of
+/// the groups scenario: two doors on its typed hooks), field for field.
+#[test]
+fn group_doors_match_aurora() {
+    let root = corpus!();
+    let (Some(start), Some(placed)) = (
+        mg_testkit::aurora_capture("terrain/ttr01-groups/00.mod"),
+        mg_testkit::aurora_capture("terrain/ttr01-groups/01.mod"),
+    ) else {
+        assert!(!mg_testkit::corpus_required(), "Aurora capture terrain/ttr01-groups not found");
+        eprintln!("skipped: no Aurora capture terrain/ttr01-groups");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let area = ResRef::from_str("ttr01").unwrap();
+    let (are_key, git_key) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+    let set = mg_area::tileset(&game, area).unwrap();
+    let index = TileIndex::new(&set);
+    let m = Module::open(&start).unwrap();
+    let (are, git) =
+        (m.gff(&are_key).unwrap().unwrap().root, m.gff(&git_key).unwrap().unwrap().root);
+    let mut g = grid(&are, &index).unwrap();
+    let before = g.clone();
+    let palette = TilesetPalette::read(&game, area, &set, &index);
+    let Some(Brush::Group(barn)) = palette.brush("Barn 1 2x2") else { panic!("no barn") };
+    let stroke = g.place_group(&index, &set.groups[barn], 5, 5, 0).unwrap();
+    let changes = g.apply(&index, stroke, &mut fastrand::Rng::with_seed(1));
+    let read = |r: ResRef| {
+        let data = game.resman.get(&ResKey::new(r, ResType::UTD)).ok()?;
+        mg_gff::Gff::read(&data).ok().map(|g| g.root)
+    };
+    let old = |(x, y): (u32, u32)| before.tile(x, y);
+    let edits = mg_area::terrain::door_edits(
+        &game,
+        git_key,
+        &git,
+        &set,
+        set.general.transition,
+        &old,
+        &changes,
+        &read,
+    );
+    let ours: Vec<mg_gff::Struct> = edits
+        .into_iter()
+        .filter_map(|e| match e {
+            mg_edit::Edit::InsertItem { item, .. } => Some(item),
+            _ => None,
+        })
+        .collect();
+    let aurora = Module::open(&placed).unwrap().gff(&git_key).unwrap().unwrap().root;
+    let theirs = aurora.list("Door List").unwrap();
+    assert_eq!(ours.len(), theirs.len());
+    for (o, t) in ours.iter().zip(theirs) {
+        let labels = |s: &mg_gff::Struct| -> Vec<String> {
+            s.fields.iter().map(|f| f.label.to_string_lossy()).collect()
+        };
+        assert_eq!(labels(o), labels(t), "field order");
+        for f in &t.fields {
+            let label = f.label.to_string_lossy();
+            match (&f.value, o.get(&label)) {
+                (mg_gff::Value::Float(a), Some(mg_gff::Value::Float(b))) => {
+                    assert!((a - b).abs() < 1e-3, "{label}: Aurora {a}, Moonglow {b}")
+                }
+                (a, b) => assert_eq!(Some(a), b, "{label}"),
+            }
+        }
+    }
+}

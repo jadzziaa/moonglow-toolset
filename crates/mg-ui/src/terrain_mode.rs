@@ -160,6 +160,7 @@ fn commit(
         return;
     };
     let Some(tools) = view.terrain.as_ref() else { return };
+    let before = grid.clone();
     let mut rng = fastrand::Rng::new();
     let changes = match pick {
         Some(p) => {
@@ -170,7 +171,24 @@ fn commit(
         }
         None => grid.apply(&tools.index, stroke, &mut rng),
     };
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
+    tile_command(app, view, &before, &changes, label);
+    view.notice = None;
+}
+
+/// One command putting `changes` (cells and their new tiles) into the
+/// area, with fresh lights, and the doors the tiles bring and take.
+pub(crate) fn tile_command(
+    app: &mut Moonglow,
+    view: &AreaView,
+    before: &Grid,
+    changes: &[((u32, u32), Placement)],
+    label: &str,
+) {
+    let (Some(ws), Some(game), Some(tools)) =
+        (app.ws.as_mut(), app.game.as_ref(), view.terrain.as_ref())
+    else {
+        return;
+    };
     let key = ResKey::new(view.area, ResType::ARE);
     let Ok(are) = ws.doc(&key) else { return };
     let root = are.root.clone();
@@ -179,11 +197,28 @@ fn commit(
         .and_then(|row| mg_module::new::Scheme::read(game, row.max(0) as usize).ok());
     let mut lights_rng = fastrand::Rng::new();
     let mut lights = || scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut lights_rng));
-    let edits = tile_edits(key, &root, &tools.set, &changes, &mut lights);
+    let mut edits = tile_edits(key, &root, &tools.set, changes, &mut lights);
+    let git_key = ResKey::new(view.area, ResType::GIT);
+    if let Ok(git) = ws.doc(&git_key) {
+        let git = git.root.clone();
+        let read = |r: ResRef| -> Option<mg_gff::Struct> {
+            let k = ResKey::new(r, ResType::UTD);
+            let data = ws
+                .module
+                .get(&k)
+                .map(<[u8]>::to_vec)
+                .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+            mg_gff::Gff::read(&data).ok().map(|g| g.root)
+        };
+        let step = tools.set.general.transition;
+        let old = |(x, y): (u32, u32)| before.tile(x, y);
+        edits.extend(mg_area::terrain::door_edits(
+            game, git_key, &git, &tools.set, step, &old, changes, &read,
+        ));
+    }
     if !edits.is_empty() {
         app.actions.push(crate::Action::Apply(Command::new(label, edits)));
     }
-    view.notice = None;
 }
 
 /// Terrain mode's input; `false` when no tileset brush applies to the area

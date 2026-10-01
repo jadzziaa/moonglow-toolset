@@ -143,32 +143,6 @@ pub(crate) fn context_menu(
     }
 }
 
-/// Puts the tiles `changes` into the area as one command.
-fn commit(
-    app: &mut Moonglow,
-    view: &mut AreaView,
-    changes: &[((u32, u32), mg_tiles::Placement)],
-    label: &str,
-) {
-    let (Some(ws), Some(game), Some(tools)) =
-        (app.ws.as_mut(), app.game.as_ref(), view.terrain.as_ref())
-    else {
-        return;
-    };
-    let key = ResKey::new(view.area, ResType::ARE);
-    let Ok(are) = ws.doc(&key) else { return };
-    let root = are.root.clone();
-    let scheme = root
-        .integer("LightingScheme")
-        .and_then(|row| mg_module::new::Scheme::read(game, row.max(0) as usize).ok());
-    let mut rng = fastrand::Rng::new();
-    let mut lights = || scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut rng));
-    let edits = mg_area::terrain::tile_edits(key, &root, &tools.set, changes, &mut lights);
-    if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new(label, edits)));
-    }
-}
-
 fn grid(app: &mut Moonglow, view: &AreaView) -> Option<mg_tiles::paint::Grid> {
     let tools = view.terrain.as_ref()?;
     let are = app.ws.as_mut()?.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
@@ -183,7 +157,7 @@ fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32)) {
         view.notice = Some("No other tile fits there".into());
         return;
     };
-    commit(app, view, &[((x, y), next)], "Next tile");
+    crate::terrain_mode::tile_command(app, view, &g, &[((x, y), next)], "Next tile");
 }
 
 /// Delete on the selected tiles.
@@ -191,10 +165,11 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
     let Some(mut g) = grid(app, view) else { return };
     let Some(tools) = view.terrain.as_ref() else { return };
     let cells = view.tile_selection.clone();
+    let before = g.clone();
     match g.delete(&tools.index, &cells) {
         Some(stroke) => {
             let changes = g.apply(&tools.index, stroke, &mut fastrand::Rng::new());
-            commit(app, view, &changes, "Delete tiles");
+            crate::terrain_mode::tile_command(app, view, &before, &changes, "Delete tiles");
         }
         None => view.notice = Some("Delete: no tile fits there".into()),
     }
