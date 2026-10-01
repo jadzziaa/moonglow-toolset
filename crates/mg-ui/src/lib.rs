@@ -224,6 +224,12 @@ pub struct Moonglow {
     pub quit_requested: bool,
     /// Test Module asked to minimize the window (Options › General).
     pub minimize_requested: bool,
+    /// Where conversation backups go (Options › Conversation Editor), a
+    /// folder per module: the temporary folder's `moonglow-backups`.
+    pub conversation_backups: std::path::PathBuf,
+    /// When conversations were last backed up, and what was written.
+    dialog_backup_at: Option<std::time::Instant>,
+    dialog_backed_up: HashMap<ResKey, Vec<u8>>,
 }
 
 impl std::fmt::Debug for Moonglow {
@@ -299,6 +305,9 @@ impl Moonglow {
             confirm_discard: None,
             quit_requested: false,
             minimize_requested: false,
+            conversation_backups: std::env::temp_dir().join("moonglow-backups"),
+            dialog_backup_at: None,
+            dialog_backed_up: HashMap::new(),
         }
     }
 
@@ -361,6 +370,7 @@ impl Moonglow {
             }
             self.dock = dock;
         });
+        self.backup_timer(ui);
         wizards::ui(self, ui);
         blueprint_wizard::ui(self, ui);
         options::ui(self, ui);
@@ -1254,6 +1264,67 @@ impl Moonglow {
 
     /// Uses new game and user folders: closes the module and reloads the
     /// game data.
+    /// Options › Conversation Editor: backs the open conversations up
+    /// every so many minutes (Aurora's default: 5).
+    fn backup_timer(&mut self, ui: &egui::Ui) {
+        if self.settings.dialog_no_backup {
+            return;
+        }
+        let minutes = u64::from(self.settings.dialog_backup_minutes.unwrap_or(5).max(1));
+        let every = std::time::Duration::from_secs(60 * minutes);
+        let now = std::time::Instant::now();
+        let since = *self.dialog_backup_at.get_or_insert(now);
+        if now.duration_since(since) >= every {
+            self.backup_conversations();
+            self.dialog_backup_at = Some(now);
+        }
+        ui.ctx().request_repaint_after(every);
+    }
+
+    /// Writes each conversation open in an editor, while the module has
+    /// unsaved changes, as `<name>.bak` (Aurora's name; its backups go in
+    /// the module's working folder) in [`Self::conversation_backups`]'
+    /// folder for the module, unless it is as last backed up. The files
+    /// written.
+    pub fn backup_conversations(&mut self) -> Vec<std::path::PathBuf> {
+        let keys: Vec<ResKey> = self
+            .dock
+            .iter_all_tabs()
+            .filter_map(|(_, t)| match t {
+                Tab::Dialog(k) => Some(*k),
+                _ => None,
+            })
+            .collect();
+        let Some(ws) = self.ws.as_mut() else { return Vec::new() };
+        if keys.is_empty() || !ws.is_modified() {
+            return Vec::new();
+        }
+        let module = ws
+            .module
+            .location
+            .as_ref()
+            .and_then(|l| l.path().file_stem())
+            .map_or_else(|| "untitled".to_string(), |s| s.to_string_lossy().into_owned());
+        let docs: Vec<(ResKey, Vec<u8>)> =
+            keys.into_iter().filter_map(|k| Some((k, ws.doc(&k).ok()?.to_bytes().ok()?))).collect();
+        let dir = self.conversation_backups.join(module);
+        let mut written = Vec::new();
+        for (key, bytes) in docs {
+            if self.dialog_backed_up.get(&key) == Some(&bytes) {
+                continue;
+            }
+            let path = dir.join(format!("{}.bak", key.resref));
+            match std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, &bytes)) {
+                Ok(()) => {
+                    self.dialog_backed_up.insert(key, bytes);
+                    written.push(path);
+                }
+                Err(e) => self.log.error(format!("Backup of {}: {e}", key.resref)),
+            }
+        }
+        written
+    }
+
     fn apply_options(&mut self, draft: OptionsDraft) {
         let settings = draft.apply(&self.settings);
         self.close();

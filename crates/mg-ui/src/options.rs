@@ -51,6 +51,11 @@ pub struct OptionsDraft {
     pub door_arrows: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
     pub dialog_pc_color: Option<[u8; 3]>,
+    pub dialog_text_popup: bool,
+    pub dialog_paste_source_to_dest: bool,
+    pub dialog_drag_source_to_dest: bool,
+    pub dialog_backup: bool,
+    pub dialog_backup_minutes: u32,
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -88,6 +93,11 @@ impl OptionsDraft {
             door_arrows: !s.no_door_arrows,
             dialog_npc_color: s.dialog_npc_color,
             dialog_pc_color: s.dialog_pc_color,
+            dialog_text_popup: !s.dialog_no_text_popup,
+            dialog_paste_source_to_dest: s.dialog_paste_source_to_dest,
+            dialog_drag_source_to_dest: !s.dialog_drag_dest_to_source,
+            dialog_backup: !s.dialog_no_backup,
+            dialog_backup_minutes: s.dialog_backup_minutes.unwrap_or(5),
         }
     }
 
@@ -116,6 +126,12 @@ impl OptionsDraft {
             no_door_arrows: !self.door_arrows,
             dialog_npc_color: self.dialog_npc_color,
             dialog_pc_color: self.dialog_pc_color,
+            dialog_no_text_popup: !self.dialog_text_popup,
+            dialog_paste_source_to_dest: self.dialog_paste_source_to_dest,
+            dialog_drag_dest_to_source: !self.dialog_drag_source_to_dest,
+            dialog_no_backup: !self.dialog_backup,
+            dialog_backup_minutes: (self.dialog_backup_minutes != 5)
+                .then_some(self.dialog_backup_minutes.clamp(1, 180)),
             ..s.clone()
         }
     }
@@ -206,8 +222,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         }
                     }
                     OptionsPage::General => {
+                        // Aurora's order and groups.
+                        ui.checkbox(&mut draft.backups, "Create backups of modules").on_hover_text(
+                            "Keep the module as it was as <name>.BackupMod at each save",
+                        );
                         ui.checkbox(&mut draft.build_on_save, "Build module on save")
                             .on_hover_text("Run Build Module (with its defaults) before saving");
+                        ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
+                        ui.add_space(8.0);
                         ui.checkbox(
                             &mut draft.namespace_warning,
                             "Show reserved Blueprint ResRef namespace warning",
@@ -215,6 +237,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         .on_hover_text(
                             "Warn about a blueprint named like the game's (nw_, x0_ to x3_)",
                         );
+                        ui.checkbox(
+                            &mut draft.standard_warning,
+                            "Show standard resource overwrite warning",
+                        )
+                        .on_hover_text("Warn when the module adds a resource the game has");
+                        ui.checkbox(&mut draft.hak_warning, "Show resource in Hak Pak warning")
+                            .on_hover_text(
+                                "Warn when a hak has a resource the module adds (the hak's wins)",
+                            );
+                        ui.add_space(8.0);
                         ui.checkbox(
                             &mut draft.spell_warning,
                             "Show invalid creature spell assignment warning",
@@ -231,19 +263,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             "On a creature's Inventory page: the game may unequip what its \
                                  feats or level do not allow",
                         );
-                        ui.checkbox(&mut draft.hak_warning, "Show resource in Hak Pak warning")
-                            .on_hover_text(
-                                "Warn when a hak has a resource the module adds (the hak's wins)",
-                            );
-                        ui.checkbox(
-                            &mut draft.standard_warning,
-                            "Show standard resource overwrite warning",
-                        )
-                        .on_hover_text("Warn when the module adds a resource the game has");
-                        ui.checkbox(&mut draft.backups, "Create backups of modules").on_hover_text(
-                            "Keep the module as it was as <name>.BackupMod at each save",
-                        );
-                        ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
                     }
                     OptionsPage::Area => {
                         ui.horizontal(|ui| {
@@ -288,6 +307,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         });
                     }
                     OptionsPage::ConversationEditor => {
+                        ui.checkbox(
+                            &mut draft.dialog_text_popup,
+                            "Show popup when creating a new text entry",
+                        );
                         ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
                         for (label, color, default) in [
                             ("NPC Text Color", &mut draft.dialog_npc_color, [210, 70, 70]),
@@ -304,6 +327,45 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 }
                             });
                         }
+                        ui.add_space(6.0);
+                        ui.horizontal_top(|ui| {
+                            for (title, source_to_dest) in [
+                                ("Paste Link Options", &mut draft.dialog_paste_source_to_dest),
+                                ("Drag Link Options", &mut draft.dialog_drag_source_to_dest),
+                            ] {
+                                ui.group(|ui| {
+                                    ui.vertical(|ui| {
+                                        ui.strong(title);
+                                        ui.radio_value(
+                                            source_to_dest,
+                                            true,
+                                            "Link Source To Destination",
+                                        );
+                                        ui.radio_value(
+                                            source_to_dest,
+                                            false,
+                                            "Link Destination To Source",
+                                        );
+                                    });
+                                });
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.checkbox(
+                                &mut draft.dialog_backup,
+                                "Automatically backup the conversation files",
+                            )
+                            .on_hover_text(
+                                "Every few minutes, a copy of each open conversation with \
+                                 unsaved changes, in the temporary folder's moonglow-backups",
+                            );
+                            ui.add_enabled(
+                                draft.dialog_backup,
+                                egui::DragValue::new(&mut draft.dialog_backup_minutes)
+                                    .range(1..=180),
+                            );
+                            ui.label("minutes");
+                        });
                     }
                     OptionsPage::ScriptEditor => {
                         ui.label("Code Templates Directory");
@@ -491,6 +553,22 @@ mod tests {
         assert_eq!(t.edit_language, Some(1));
         assert!(!d.moves_game(&s));
         assert_eq!(OptionsDraft::from_settings(&t).edit_language, Some(1));
+    }
+
+    #[test]
+    fn conversation_link_and_backup_options_apply() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        // Aurora's defaults.
+        assert!(d.dialog_text_popup && d.dialog_backup);
+        assert!(!d.dialog_paste_source_to_dest && d.dialog_drag_source_to_dest);
+        assert_eq!(d.dialog_backup_minutes, 5);
+        assert_eq!(d.apply(&s), s, "the defaults change nothing");
+        (d.dialog_text_popup, d.dialog_paste_source_to_dest, d.dialog_backup_minutes) =
+            (false, true, 12);
+        let t = d.apply(&s);
+        assert!(t.dialog_no_text_popup && t.dialog_paste_source_to_dest);
+        assert_eq!(t.dialog_backup_minutes, Some(12));
     }
 
     #[test]

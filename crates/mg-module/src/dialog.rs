@@ -221,6 +221,68 @@ pub fn add_link(g: &mut Gff, parent: Parent, target: u32) -> bool {
     true
 }
 
+/// Moves the link at `pos` under `from` to the end of `to`'s children
+/// (Aurora's drag): its condition and parameters go with it, and a line it
+/// owns moves with its branch. Refused for a parent of the other kind, the
+/// same parent, a link (not a line) onto the root, or a line onto its own
+/// branch.
+pub fn move_link(g: &mut Gff, from: Parent, pos: usize, to: Parent) -> bool {
+    let Some(link) = links(g, from).get(pos).cloned() else { return false };
+    let kind = from.child_kind();
+    if to.child_kind() != kind || to == from {
+        return false;
+    }
+    if let Parent::Node(k, i) = to
+        && node(g, k, i).is_none()
+    {
+        return false;
+    }
+    let linked = is_link(&link);
+    if to == Parent::Root && linked {
+        return false;
+    }
+    if !linked && let Parent::Node(k, i) = to {
+        // The branch the line owns, itself included.
+        let mut branch = HashSet::new();
+        let mut stack = vec![(kind, link_index(&link))];
+        while let Some((k, i)) = stack.pop() {
+            if branch.insert((k, i)) {
+                stack.extend(
+                    links(g, Parent::Node(k, i))
+                        .iter()
+                        .filter(|l| !is_link(l))
+                        .map(|l| (k.child(), link_index(l))),
+                );
+            }
+        }
+        if branch.contains(&(k, i)) {
+            return false;
+        }
+    }
+    let mut moved = new_link(link_index(&link), to, linked);
+    for label in ["Active", "ConditionParams", "LinkComment"] {
+        if let Some(v) = link.get(label).filter(|_| moved.get(label).is_some()) {
+            moved.set(label, v.clone());
+        }
+    }
+    if let Some(l) = links_mut(g, from) {
+        l.remove(pos);
+    }
+    if let Some(l) = links_mut(g, to) {
+        l.push(moved);
+    }
+    renumber(g);
+    true
+}
+
+/// Gives line `from` a link to line `to` (of the other kind), the way
+/// Paste As Link and a link drag do in either direction.
+pub fn link_lines(g: &mut Gff, from: (Kind, u32), to: (Kind, u32)) -> bool {
+    from.0.child() == to.0 && node(g, from.0, from.1).is_some() && {
+        add_link(g, Parent::Node(from.0, from.1), to.1)
+    }
+}
+
 /// The owning link of a line: its parent and position.
 pub fn owner(g: &Gff, kind: Kind, index: u32) -> Option<(Parent, usize)> {
     let parents = std::iter::once(Parent::Root).chain(
@@ -524,6 +586,51 @@ mod tests {
         let go = add_node(&mut g, Parent::Root, "Go away.");
         add_link(&mut g, Parent::Node(Kind::Entry, go), who);
         g
+    }
+
+    #[test]
+    fn lines_move_with_their_branch_and_link_either_way() {
+        // Hello (Hi (Again)), Second.
+        let mut g = new_dialog();
+        let hello = add_node(&mut g, Parent::Root, "Hello");
+        let hi = add_node(&mut g, Parent::Node(Kind::Entry, hello), "Hi");
+        add_node(&mut g, Parent::Node(Kind::Reply, hi), "Again");
+        let second = add_node(&mut g, Parent::Root, "Second");
+        // Hi, with its branch, under Second.
+        assert!(move_link(
+            &mut g,
+            Parent::Node(Kind::Entry, hello),
+            0,
+            Parent::Node(Kind::Entry, second)
+        ));
+        assert_eq!(
+            outline(&g),
+            [
+                "Entry|Hello||if ()|do ()|anim 0|",
+                "Entry|Second||if ()|do ()|anim 0|",
+                "  Reply|Hi||if ()|do ()|anim 0|",
+                "    Entry|Again||if ()|do ()|anim 0|",
+            ]
+        );
+        // Not onto a line of its own kind, nor into its own branch.
+        assert!(!move_link(&mut g, Parent::Node(Kind::Entry, second), 0, Parent::Root));
+        assert!(!move_link(&mut g, Parent::Root, 1, Parent::Node(Kind::Reply, hi)));
+        // Hi (a reply) gets a link to Hello; not to a reply.
+        assert!(link_lines(&mut g, (Kind::Reply, hi), (Kind::Entry, hello)));
+        assert!(!link_lines(&mut g, (Kind::Reply, hi), (Kind::Reply, hi)));
+        let hi_links = Parent::Node(Kind::Reply, hi);
+        let pos = links(&g, hi_links).iter().position(is_link).unwrap();
+        assert_eq!(link_index(&links(&g, hi_links)[pos]), hello);
+        // A link moves as a link, its comment kept, but not to the root.
+        links_mut(&mut g, hi_links).unwrap()[pos]
+            .set("LinkComment", Value::String(b"note".to_vec()));
+        let bye = add_node(&mut g, Parent::Node(Kind::Entry, second), "Bye");
+        assert!(!move_link(&mut g, hi_links, pos, Parent::Root));
+        assert!(move_link(&mut g, hi_links, pos, Parent::Node(Kind::Reply, bye)));
+        let moved = &links(&g, Parent::Node(Kind::Reply, bye))[0];
+        assert!(is_link(moved) && link_index(moved) == hello);
+        assert_eq!(moved.string("LinkComment"), Some(&b"note"[..]));
+        assert!(links(&g, hi_links).iter().all(|l| !is_link(l)));
     }
 
     #[test]

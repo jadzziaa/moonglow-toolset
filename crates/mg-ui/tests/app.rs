@@ -645,6 +645,8 @@ fn conversation_editor_builds_and_links() {
     let dir = mg_testkit::scratch_dir("ui-dialog");
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
+    // New lines' text edited in place (the Input Text popup off).
+    app.settings.dialog_no_text_popup = true;
     app.open_module(&path);
     app.new_dialog = Some("capdlg".into());
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -795,6 +797,8 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
     let path = sample_module(&dir);
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // The new line selected (the Input Text popup off).
+    app.settings.dialog_no_text_popup = true;
     app.open_module(&path);
     app.new_dialog = Some("wizdlg".into());
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -3693,4 +3697,119 @@ fn equipping_without_the_feat_asks_to_add_it() {
     h.run();
     assert!(feats(&mut h).is_empty());
     assert_eq!(primary(&mut h), before);
+}
+
+#[test]
+fn conversation_options_popup_link_directions_drag_and_backup() {
+    let dir = mg_testkit::scratch_dir("ui-dialog-options");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.conversation_backups = dir.join("backups");
+    app.new_dialog = Some("optdlg".into());
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    let key = ResKey::parse("optdlg", ResType::DLG).unwrap();
+    let outline = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let g = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
+        mg_module::dialog::outline(&g)
+            .iter()
+            .map(|l| l.split('|').take(3).collect::<Vec<_>>().join("|"))
+            .collect()
+    };
+    let click = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        h.get_by_label(label).click();
+        h.run();
+    };
+    // The popup's text field (its text is also a text run).
+    fn input<'h>(h: &'h mut Harness<'_, Moonglow>) -> egui_kittest::Node<'h> {
+        let role = egui::accesskit::Role::MultilineTextInput;
+        h.get_all_by_value("<< Enter text here >>")
+            .find(|n| n.accesskit_node().role() == role)
+            .expect("the Input Text field")
+    }
+    // Add asks for the text (the placeholder selected, typed over); the
+    // parent stays selected.
+    let add = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        click(h, "Add");
+        input(h).type_text(text);
+        h.run();
+        click(h, "OK");
+    };
+    add(&mut h, "Hello");
+    assert!(h.query_by_label("Enter what the NPC says next:").is_none());
+    click(&mut h, "Add");
+    assert!(h.query_by_label("Enter what the NPC says next:").is_some());
+    click(&mut h, "Cancel");
+    add(&mut h, "Second");
+    click(&mut h, "[OWNER] - Hello");
+    click(&mut h, "Add");
+    assert!(h.query_by_label("Enter what the player says next:").is_some());
+    input(&mut h).type_text("Hi");
+    h.run();
+    click(&mut h, "OK");
+    assert_eq!(outline(&mut h), ["Entry|Hello|", "  Reply|Hi|", "Entry|Second|"]);
+
+    // Paste As Link, Aurora's default: the selected line links to the
+    // copied one.
+    click(&mut h, "[OWNER] - Second");
+    click(&mut h, "Copy");
+    click(&mut h, "Hi [END DIALOGUE]");
+    click(&mut h, "Paste As Link");
+    assert_eq!(
+        outline(&mut h),
+        ["Entry|Hello|", "  Reply|Hi|", "    Entry|Second|link", "Entry|Second|"]
+    );
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    // Link Source To Destination: the copied line links to the selected.
+    h.state_mut().settings.dialog_paste_source_to_dest = true;
+    click(&mut h, "Hi [END DIALOGUE]");
+    click(&mut h, "Paste As Link");
+    assert_eq!(
+        outline(&mut h),
+        ["Entry|Hello|", "  Reply|Hi|", "Entry|Second|", "  Reply|Hi|link"]
+    );
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+
+    // A drag moves Hi under Second; with Ctrl, Hi links to Second.
+    let drag = |h: &mut Harness<'_, Moonglow>, from: &str, to: &str, ctrl: bool| {
+        let a = h.get_by_label(from).rect().center();
+        let b = h.get_by_label(to).rect().center();
+        h.hover_at(a);
+        h.run();
+        h.drag_at(a);
+        h.run();
+        h.hover_at(a + egui::vec2(10.0, 4.0));
+        h.run();
+        h.hover_at(b);
+        h.run();
+        if ctrl {
+            h.event(egui::Event::ModifiersChanged(egui::Modifiers::CTRL));
+        }
+        h.drop_at(b);
+        h.run();
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run();
+    };
+    drag(&mut h, "Hi [END DIALOGUE]", "[OWNER] - Second", true);
+    assert_eq!(
+        outline(&mut h),
+        ["Entry|Hello|", "  Reply|Hi|", "    Entry|Second|link", "Entry|Second|"]
+    );
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    drag(&mut h, "Hi [END DIALOGUE]", "[OWNER] - Second", false);
+    assert_eq!(outline(&mut h), ["Entry|Hello|", "Entry|Second|", "  Reply|Hi|"]);
+
+    // The backup: the open, changed conversation as optdlg.bak, once.
+    let written = h.state_mut().backup_conversations();
+    let bak = dir.join("backups").join("sample").join("optdlg.bak");
+    assert_eq!(written, std::slice::from_ref(&bak));
+    let g = Gff::read(&std::fs::read(&bak).unwrap()).unwrap();
+    assert_eq!(mg_module::dialog::outline(&g).len(), 3);
+    assert!(h.state_mut().backup_conversations().is_empty(), "unchanged since");
 }

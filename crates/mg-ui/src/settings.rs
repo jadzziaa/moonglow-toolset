@@ -94,6 +94,23 @@ pub struct Settings {
     /// `None`: Moonglow's red and blue.
     pub dialog_npc_color: Option<[u8; 3]>,
     pub dialog_pc_color: Option<[u8; 3]>,
+    /// Options > Conversation Editor: Show popup when creating a new text
+    /// entry, off (Aurora's default: on; Add asks for the new line's text).
+    pub dialog_no_text_popup: bool,
+    /// Options > Conversation Editor › Paste Link Options: Link Source To
+    /// Destination (the copied line gets a link to the selected one); off:
+    /// Aurora's default, Link Destination To Source (the selected line gets
+    /// a link to the copied one).
+    pub dialog_paste_source_to_dest: bool,
+    /// Options > Conversation Editor › Drag Link Options: Link Destination
+    /// To Source (the line dropped on gets a link to the dragged one); off:
+    /// Aurora's default, Link Source To Destination.
+    pub dialog_drag_dest_to_source: bool,
+    /// Options > Conversation Editor: Automatically backup the conversation
+    /// files, off (Aurora's default: on).
+    pub dialog_no_backup: bool,
+    /// The backup interval in minutes (`None`: Aurora's 5).
+    pub dialog_backup_minutes: Option<u32>,
 }
 
 impl Settings {

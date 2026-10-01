@@ -12,8 +12,8 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::dialog::{
-    ANIMATIONS, Branch, Kind, Parent, add_link, add_node, copy_branch, is_link, link_index, links,
-    new_dialog, node, paste_branch, remove, text,
+    ANIMATIONS, Branch, Kind, Parent, add_node, copy_branch, is_link, link_index, link_lines,
+    links, move_link, new_dialog, node, paste_branch, remove, text, word_count,
 };
 use mg_resman::ResKey;
 use mg_schema::{GffValue, StructExt, jrl};
@@ -56,6 +56,26 @@ pub struct DialogView {
     pub search: DialogSearch,
     /// Test mode: the lines visited, the current one last.
     pub test: Option<Vec<(Kind, u32)>>,
+    /// The Input Text popup's new line, while it is open.
+    pub input: Option<NewLine>,
+}
+
+/// A line the Input Text popup is asking for (Options › Conversation
+/// Editor, "Show popup when creating a new text entry").
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewLine {
+    pub parent: Parent,
+    pub text: String,
+    /// Whether its text has been selected for typing over.
+    pub shown: bool,
+}
+
+/// A row dropped on a line (or the root): moved, or linked with Ctrl.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Drop {
+    from: Row,
+    onto: Parent,
+    link: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -141,6 +161,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut actions: Vec<Action> = Vec::new();
     let target_of = |r: Row| (r.parent.child_kind(), link_index(&links(&g, r.parent)[r.pos]));
 
+    // Options › Conversation Editor.
+    let popup = !app.settings.dialog_no_text_popup;
+    let paste_source_first = app.settings.dialog_paste_source_to_dest;
+    let drag_source_first = !app.settings.dialog_drag_dest_to_source;
+    let tlk = |strref: u32, english: &str| {
+        app.game
+            .as_ref()
+            .and_then(|g| g.string(mg_core::StrRef(strref)))
+            .unwrap_or_else(|| english.to_string())
+    };
+    let placeholder = tlk(10336, "<< Enter text here >>");
+    let prompts = [
+        tlk(67057, "Enter what the NPC says next:"),
+        tlk(67056, "Enter what the player says next:"),
+    ];
+
     // Toolbar.
     ui.horizontal_wrapped(|ui| {
         let sel = view.selected;
@@ -158,13 +194,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             .clicked()
             && let Some(p) = add_parent
         {
-            let mut ng = g.clone();
-            add_node(&mut ng, p, "");
-            view.selected = Some(Row { parent: p, pos: links(&ng, p).len() - 1 });
-            if let Parent::Node(k, i) = p {
-                view.collapsed.remove(&(k, i));
+            if popup {
+                view.input = Some(NewLine { parent: p, text: placeholder.clone(), shown: false });
+            } else {
+                // The new line is selected, its text edited in place.
+                let mut ng = g.clone();
+                add_node(&mut ng, p, "");
+                view.selected = Some(Row { parent: p, pos: links(&ng, p).len() - 1 });
+                if let Parent::Node(k, i) = p {
+                    view.collapsed.remove(&(k, i));
+                }
+                actions.push(replace(key, "Add line", &ng));
             }
-            actions.push(replace(key, "Add line", &ng));
         }
         let copy = |r: Row| {
             copy_branch(&g, r.parent, r.pos).map(|b| DialogClip {
@@ -193,13 +234,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 actions.push(replace(key, "Paste lines", &ng));
             }
         }
-        let can_link = paste_parent.is_some_and(|p| p != Parent::Root && fits(p))
-            && clip.as_ref().is_some_and(|c| c.from == key);
-        if ui.add_enabled(can_link, egui::Button::new("Paste As Link")).clicked()
-            && let (Some(p), Some(c)) = (paste_parent, &clip)
+        // Paste As Link: by default the selected line gets a link to the
+        // copied one (Link Destination To Source); the other way round,
+        // the copied line gets a link to the selected one.
+        let selected_line = sel.filter(|r| !is_link(&links(&g, r.parent)[r.pos])).map(target_of);
+        let pair = match (selected_line, clip.as_ref().filter(|c| c.from == key)) {
+            (Some(dest), Some(c)) => {
+                let (from, to) =
+                    if paste_source_first { (c.target, dest) } else { (dest, c.target) };
+                (from.0.child() == to.0).then_some((from, to))
+            }
+            _ => None,
+        };
+        if ui.add_enabled(pair.is_some(), egui::Button::new("Paste As Link")).clicked()
+            && let Some((from, to)) = pair
         {
             let mut ng = g.clone();
-            if add_link(&mut ng, p, c.target.1) {
+            if link_lines(&mut ng, from, to) {
                 actions.push(replace(key, "Paste as link", &ng));
             }
         }
@@ -387,20 +438,92 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
     // The tree, in the Options' colours.
     let hl = view.highlight;
+    let mut dropped: Option<Drop> = None;
     let look = Look::new(&app.settings);
     egui::ScrollArea::both().id_salt(("dlg-tree", key)).auto_shrink([false, false]).show(
         ui,
         |ui| {
-            if ui
-                .selectable_label(view.selected.is_none(), RichText::new("Root").strong())
-                .clicked()
-            {
+            let root = ui.selectable_label(view.selected.is_none(), RichText::new("Root").strong());
+            if root.clicked() {
                 view.selected = None;
             }
+            if let Some(from) = root.dnd_release_payload::<Row>() {
+                dropped = Some(Drop { from: *from, onto: Parent::Root, link: link_key(ui) });
+            }
             let mut path = HashSet::new();
-            tree(ui, &g, Parent::Root, 1, &mut view, &mut path, hl, &look);
+            tree(ui, &g, Parent::Root, 1, &mut view, &mut path, hl, &look, &mut dropped);
         },
     );
+    // A drag moves the line (with its branch) under the line it is dropped
+    // on; with Ctrl it links them instead, by default the dragged line to
+    // the other (Link Source To Destination).
+    if let Some(d) = dropped {
+        let mut ng = g.clone();
+        let source = target_of(d.from);
+        let done = match d.onto {
+            Parent::Node(k, i) if d.link => {
+                let (from, to) =
+                    if drag_source_first { (source, (k, i)) } else { ((k, i), source) };
+                link_lines(&mut ng, from, to)
+            }
+            _ if d.link => false,
+            onto => {
+                let moved = move_link(&mut ng, d.from.parent, d.from.pos, onto);
+                if moved {
+                    view.selected = Some(Row { parent: onto, pos: links(&ng, onto).len() - 1 });
+                }
+                moved
+            }
+        };
+        if done {
+            actions.push(replace(key, if d.link { "Link lines" } else { "Move line" }, &ng));
+        }
+    }
+    // The Input Text popup: OK adds the line (the parent stays selected, as
+    // in Aurora), Cancel adds nothing.
+    if let Some(mut input) = view.input.take() {
+        let prompt = &prompts[usize::from(input.parent.child_kind() == Kind::Reply)];
+        let (mut ok, mut cancel) = (false, false);
+        let modal = egui::Modal::new(egui::Id::new(("dlg-input", key))).show(ui.ctx(), |ui| {
+            ui.set_width(340.0);
+            ui.label(prompt.as_str());
+            let id = egui::Id::new(("dlg-input-text", key));
+            let out = egui::TextEdit::multiline(&mut input.text).id(id).desired_rows(6).show(ui);
+            if !input.shown {
+                // The placeholder is selected, so typing replaces it.
+                let mut state = out.state.clone();
+                let all = input.text.chars().count();
+                state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+                    egui::text::CCursor::new(0),
+                    egui::text::CCursor::new(all),
+                )));
+                state.store(ui.ctx(), id);
+                out.response.request_focus();
+                input.shown = true;
+            }
+            ui.horizontal(|ui| {
+                ok = ui.button("OK").on_hover_text("Accept changes").clicked();
+                cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
+            });
+        });
+        if ok {
+            let mut ng = g.clone();
+            let kind = input.parent.child_kind();
+            let i = add_node(&mut ng, input.parent, "");
+            if let Some(n) = ng.root.list_mut(kind.list()).and_then(|l| l.get_mut(i as usize)) {
+                let t = with_english(Default::default(), input.text.trim_end());
+                n.set("Text", Value::LocString(t));
+            }
+            let words = word_count(&ng);
+            ng.root.set("NumWords", Value::Dword(words));
+            if let Parent::Node(k, i) = input.parent {
+                view.collapsed.remove(&(k, i));
+            }
+            actions.push(replace(key, "Add line", &ng));
+        } else if !cancel && !modal.should_close() {
+            view.input = Some(input);
+        }
+    }
 
     app.dialog_views.insert(key, view);
     app.actions.extend(actions);
@@ -439,6 +562,11 @@ impl Look {
     }
 }
 
+/// Whether a drop links (Ctrl, or Cmd on macOS) rather than moves.
+fn link_key(ui: &Ui) -> bool {
+    ui.input(|i| i.modifiers.ctrl || i.modifiers.mac_cmd)
+}
+
 /// Draws the rows under a parent; `path` stops cycles through owning links.
 #[allow(clippy::too_many_arguments)]
 fn tree(
@@ -450,6 +578,7 @@ fn tree(
     path: &mut HashSet<(Kind, u32)>,
     hl: [bool; 5],
     look: &Look,
+    dropped: &mut Option<Drop>,
 ) {
     let kind = parent.child_kind();
     for (pos, l) in links(g, parent).iter().enumerate() {
@@ -499,7 +628,15 @@ fn tree(
             } else {
                 ui.add_space(18.0);
             }
-            let r = ui.selectable_label(view.selected == Some(row), rich);
+            let r =
+                ui.selectable_label(view.selected == Some(row), rich).interact(egui::Sense::drag());
+            r.dnd_set_drag_payload(row);
+            if let Some(from) = r.dnd_release_payload::<Row>()
+                && *from != row
+            {
+                *dropped =
+                    Some(Drop { from: *from, onto: Parent::Node(kind, index), link: link_key(ui) });
+            }
             let r = match cond {
                 Some(c) => r.on_hover_text(format!("Appears when {c} returns TRUE")),
                 None => r,
@@ -512,7 +649,7 @@ fn tree(
             }
         });
         if children && open && path.insert((kind, index)) {
-            tree(ui, g, Parent::Node(kind, index), depth + 1, view, path, hl, look);
+            tree(ui, g, Parent::Node(kind, index), depth + 1, view, path, hl, look, dropped);
             path.remove(&(kind, index));
         }
     }

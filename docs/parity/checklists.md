@@ -78,7 +78,7 @@ unless given otherwise.
 | Area: background colour, encounter spawn point markers (height, width), door orientation arrows | Options › Area: a background colour (default: the area's fog, as the game shows it; Aurora's is silver grey), a post over each spawn point (Aurora's default size), a cyan arrow along each door's facing | ◐ [area_options_apply]; the markers' size is not adjustable |
 | Area: undo levels | — (undo is unlimited) | — |
 | Conversation Editor: Show speaker name before text, player and NPC text colours | the same | ✅ [conversation_lines_without_speaker_names_when_chosen] |
-| Conversation Editor: popup for a new text entry, paste and drag link modes, automatic backup | not yet (Moonglow edits a new line's text in place, and saves undoably) | ✗ |
+| Conversation Editor: Show popup when creating a new text entry (on), Paste Link Options (Link Destination To Source), Drag Link Options (Link Source To Destination), automatic backup every 5 minutes | the same options and defaults (`notes_dialog_options.md`); backups go to the temporary folder's `moonglow-backups/<module>/<name>.bak` (Aurora: the module's working folder) | ✅ [conversation_options_popup_link_directions_drag_and_backup], [conversation_link_and_backup_options_apply] |
 | Language page | the language text fields show and edit (Use Default Language: English, or a chosen one); labels name it | ✅ |
 | Spell Checking, Sounds pages | not yet (no dictionary or audio) | ✗ |
 
@@ -137,8 +137,9 @@ unless given otherwise.
 |---|---|---|
 | Tree: Root, NPC lines `[OWNER] - text` / `[tag] - text` (red), PC lines (blue), `[END DIALOGUE]`, `[CONTINUE]`, links grey | same; conditions marked `?` with the script on hover | ✅ |
 | Add (with Root: a greeting; with a line: a line of the other kind), new conversation with `nw_walk_wp` end scripts | same; the file's fields, order and defaults as Aurora's | ✅ (`aurora_dialog.rs`) [conversation_editor_builds_and_links] |
-| Input Text popup for a new line | the new line is selected and its Text field edited in place | — |
-| Copy, Cut, Paste, Paste As Link, Delete | same; Delete removes the branch and every link to it, then renumbers | ✅ (`dialog.rs` tests) |
+| Input Text popup for a new line ("Enter what the NPC/player says next:", the placeholder selected; OK adds it, the parent staying selected; Cancel adds nothing) | the same; with the option off, the new line is selected and its Text field edited in place | ✅ [conversation_options_popup_link_directions_drag_and_backup] |
+| Drag a line onto another: moves it with its branch; Ctrl+drag links them (direction from Options) | the same (Ctrl or Cmd); a line is not dropped into its own branch, nor a link onto Root | ✅ (`dialog.rs` tests) [conversation_options_popup_link_directions_drag_and_backup] |
+| Copy, Cut, Paste, Paste As Link (direction from Options), Delete | same; Delete removes the branch and every link to it, then renumbers | ✅ (`dialog.rs` tests) |
 | Expand All, Collapse All; highlight filters (comments, actions, quests, animations, sounds) | same | ✅ |
 | Speaker Tag (combo of module creature tags, Add) | a text field and the list of the tags of the creatures placed in the module's areas | ✅ [speaker_tags_come_from_the_module_s_creatures] |
 | Text + `…` all languages; Insert Token (stringtokens.2da, highlight tokens) | same | ✅ |
