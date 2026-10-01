@@ -34,7 +34,8 @@ packaging/linux/build-appimage.sh
 ```
 
 Needs [appimagetool](https://github.com/AppImage/appimagetool/releases) on
-`PATH` or named by `$APPIMAGETOOL`; without it the script stops after
+`PATH` or named by `$APPIMAGETOOL` (it fetches the AppImage runtime from
+GitHub as it builds); without it the script stops after
 assembling `target/dist/AppDir`, which runs as it is
 (`target/dist/AppDir/AppRun`). The image links the system's glibc,
 libstdc++ and ALSA (`libasound.so.2`), and loads Vulkan, Wayland and X11 at
