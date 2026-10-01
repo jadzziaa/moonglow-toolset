@@ -46,7 +46,7 @@ modules:
       - install -Dm644 packaging/icons/moonglow.svg /app/share/icons/hicolor/scalable/apps/io.github.moonglow_toolset.Moonglow.svg
       - for s in 16 24 32 48 64 128 256 512; do install -Dm644 packaging/icons/moonglow-$s.png /app/share/icons/hicolor/${s}x$s/apps/io.github.moonglow_toolset.Moonglow.png; done
       - install -Dm644 LICENSE -t /app/share/doc/moonglow/
-      - python3 packaging/third_party_licenses.py > /app/share/doc/moonglow/THIRD-PARTY-LICENSES.txt
+      - python3 packaging/third_party_licenses.py --output /app/share/doc/moonglow/THIRD-PARTY-LICENSES.txt
       - cp -r docs/manual /app/share/doc/moonglow/manual
     sources:
       - type: dir

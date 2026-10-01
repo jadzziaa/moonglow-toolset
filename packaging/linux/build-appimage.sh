@@ -30,7 +30,7 @@ for s in 16 24 32 48 64 128 256 512; do
     install -m 644 packaging/icons/moonglow-$s.png "$d/$ID.png"
 done
 install -m 644 LICENSE "$APPDIR/usr/share/doc/moonglow/"
-python3 packaging/third_party_licenses.py > "$APPDIR/usr/share/doc/moonglow/THIRD-PARTY-LICENSES.txt"
+python3 packaging/third_party_licenses.py --output "$APPDIR/usr/share/doc/moonglow/THIRD-PARTY-LICENSES.txt"
 cp -r docs/manual "$APPDIR/usr/share/doc/moonglow/manual" 2>/dev/null || true
 
 # The AppImage's top: the desktop entry, its icon and the start script.

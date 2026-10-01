@@ -27,7 +27,7 @@ sed "s/@VERSION@/$VERSION/g" packaging/macos/Info.plist > "$APP/Contents/Info.pl
 cp packaging/icons/moonglow.icns "$APP/Contents/Resources/"
 cp LICENSE "$APP/Contents/Resources/"
 python3 packaging/third_party_licenses.py --target aarch64-apple-darwin \
-    > "$APP/Contents/Resources/THIRD-PARTY-LICENSES.txt"
+    --output "$APP/Contents/Resources/THIRD-PARTY-LICENSES.txt"
 [ -d docs/manual ] && cp -R docs/manual "$APP/Contents/Resources/manual"
 codesign --force --deep --options runtime --sign "${CODESIGN_IDENTITY:--}" "$APP"
 

@@ -8,7 +8,10 @@ for one target, not build or dev ones) with its license, followed by the
 license files each ships, the same text printed once for all the crates
 that share it.
 
-    packaging/third_party_licenses.py [--target TRIPLE] > THIRD-PARTY-LICENSES.txt
+    packaging/third_party_licenses.py [--target TRIPLE] --output THIRD-PARTY-LICENSES.txt
+
+The file is UTF-8 (license files name their authors in every script),
+whatever the system's code page.
 """
 
 import argparse
@@ -38,6 +41,7 @@ def licence_files(root):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", help="target triple (default: the host's)")
+    ap.add_argument("--output", help="file to write (default: standard output)")
     args = ap.parse_args()
     target = args.target or host()
     meta = json.loads(subprocess.check_output(
@@ -59,7 +63,11 @@ def main():
     crates = sorted((packages[i] for i in seen - workspace),
                     key=lambda p: (p["name"], p["version"]))
 
-    out = sys.stdout
+    if args.output:
+        out = open(args.output, "w", encoding="utf-8", newline="\n")
+    else:
+        sys.stdout.reconfigure(encoding="utf-8")
+        out = sys.stdout
     out.write("Moonglow Toolset is licensed under the GNU General Public License,\n"
               "version 3 (LICENSE). It includes Beamdog's NWScript compiler (GPL-3.0)\n"
               "with neverwinter.nim's C API over it (MIT, copyright the neverwinter.nim\n"
