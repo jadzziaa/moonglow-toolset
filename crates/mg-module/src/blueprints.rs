@@ -3,8 +3,8 @@
 //! ("<category> 001"), and the resref and tag a name gives. Checked against
 //! blueprints Aurora's wizards made (`aurora_blueprints.rs`).
 //!
-//! The creature wizard (which also levels the creature up by its class
-//! package) is not here yet.
+//! The Creature Wizard's creature ([`creature`]) is levelled up from
+//! nothing by its classes' packages (`mg_rules::levelup`).
 
 use mg_core::{Gender, Language, LocString, ResRef};
 use mg_gff::{Gff, Struct, Value};
@@ -510,4 +510,214 @@ mod tests {
         assert_eq!(tag("1. Average 001"), "1Average001");
         assert_eq!(default_name("Civilization", 1), "Civilization 001");
     }
+}
+
+/// What the Creature Wizard asks for.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreatureSpec {
+    pub resref: ResRef,
+    pub first_name: String,
+    pub last_name: String,
+    /// racialtypes.2da row.
+    pub race: u32,
+    /// 0 male, 1 female.
+    pub gender: u8,
+    /// appearance.2da row.
+    pub appearance: u16,
+    /// portraits.2da row.
+    pub portrait: u16,
+    pub faction: u16,
+    /// (class, level), up to eight.
+    pub classes: Vec<(u32, u32)>,
+    pub category: u8,
+}
+
+/// The default event scripts of new creatures.
+const CREATURE_SCRIPTS: [(&str, &str); 13] = [
+    ("ScriptHeartbeat", "x2_def_heartbeat"),
+    ("ScriptOnNotice", "x2_def_percept"),
+    ("ScriptSpellAt", "x2_def_spellcast"),
+    ("ScriptAttacked", "x2_def_attacked"),
+    ("ScriptDamaged", "x2_def_ondamage"),
+    ("ScriptDisturbed", "x2_def_ondisturb"),
+    ("ScriptEndRound", "x2_def_endcombat"),
+    ("ScriptDialogue", "x2_def_onconv"),
+    ("ScriptSpawn", "x2_def_spawn"),
+    ("ScriptRested", "x2_def_rested"),
+    ("ScriptDeath", "x2_def_ondeath"),
+    ("ScriptUserDefine", "x2_def_userdef"),
+    ("ScriptOnBlocked", "x2_def_onblocked"),
+];
+
+/// The body parts of a new creature, in Aurora's order, and their value
+/// (Aurora writes the right foot as `ArmorPart_RFoot`).
+const CREATURE_PARTS: [(&str, u8); 18] = [
+    ("ArmorPart_RFoot", 1),
+    ("BodyPart_LFoot", 1),
+    ("BodyPart_RShin", 1),
+    ("BodyPart_LShin", 1),
+    ("BodyPart_LThigh", 1),
+    ("BodyPart_RThigh", 1),
+    ("BodyPart_Pelvis", 1),
+    ("BodyPart_Torso", 1),
+    ("BodyPart_Belt", 0),
+    ("BodyPart_Neck", 1),
+    ("BodyPart_RFArm", 1),
+    ("BodyPart_LFArm", 1),
+    ("BodyPart_RBicep", 1),
+    ("BodyPart_LBicep", 1),
+    ("BodyPart_RShoul", 0),
+    ("BodyPart_LShoul", 0),
+    ("BodyPart_RHand", 1),
+    ("BodyPart_LHand", 1),
+];
+
+/// A creature as Aurora's Creature Wizard makes it: the fields in its
+/// order, the first class's recommended abilities (classes.2da `Str` to
+/// `Cha`) and package, levelled up from nothing by the classes' packages
+/// (hit points, skills, feats, spells; [`GameData::level_up`]), each
+/// class's package equipment, and its hit points and challenge rating.
+/// `item` reads item blueprints. Aurora leaves `Interruptable`,
+/// `NoPermDeath`, `Disarmable` and `SoundSetFile` uninitialized (stray
+/// values; the three flags then read as set): Moonglow writes 1, 1, 1 and
+/// 0.
+pub fn creature(
+    game: &GameData,
+    spec: &CreatureSpec,
+    item: &dyn Fn(ResRef) -> Option<Struct>,
+) -> Gff {
+    let classes = game.table("classes").ok();
+    let first = spec.classes.first().map_or(0, |&(c, _)| c as usize);
+    let cell = |c: &str| classes.as_ref().and_then(|t| t.get_int(first, c)).unwrap_or(10);
+    let package = classes.as_ref().and_then(|t| t.get_int(first, "Package")).unwrap_or(0);
+    let skills = game.table("skills").map_or(28, |t| t.len());
+    let skill_list = (0..skills)
+        .map(|_| {
+            let mut s = Struct::new(0);
+            s.set("Rank", Value::Byte(0));
+            s
+        })
+        .collect();
+    let mut fields: Vec<(&str, Value)> = vec![
+        ("TemplateResRef", resref_value(spec.resref)),
+        ("Race", Value::Byte(spec.race.min(255) as u8)),
+        ("FirstName", name(&spec.first_name)),
+        ("LastName", name(&spec.last_name)),
+        ("Appearance_Type", Value::Word(spec.appearance)),
+        ("Gender", Value::Byte(spec.gender)),
+        ("Phenotype", Value::Int(0)),
+        ("PortraitId", Value::Word(spec.portrait)),
+        ("Description", empty_name()),
+        ("Tag", text(&spec.first_name)),
+        ("Conversation", no_script()),
+        ("IsPC", Value::Byte(0)),
+        ("FactionID", Value::Word(spec.faction)),
+        ("Disarmable", Value::Byte(1)),
+        ("Subrace", text("")),
+        ("Deity", text("")),
+        ("Wings_New", Value::Dword(0)),
+        ("Tail_New", Value::Dword(0)),
+        ("SoundSetFile", Value::Word(0)),
+        ("Plot", Value::Byte(0)),
+        ("IsImmortal", Value::Byte(0)),
+        ("Interruptable", Value::Byte(1)),
+        ("Lootable", Value::Byte(0)),
+        ("NoPermDeath", Value::Byte(1)),
+        ("BodyBag", Value::Byte(0)),
+        ("StartingPackage", Value::Byte(package.clamp(0, 255) as u8)),
+        ("DecayTime", Value::Dword(5000)),
+    ];
+    let twins: Vec<(String, String, u8)> = CREATURE_PARTS
+        .iter()
+        .map(|(l, v)| (l.to_string(), format!("x{l}"), *v))
+        .chain(std::iter::once(("Appearance_Head".to_string(), "xAppearance_Head".to_string(), 1)))
+        .collect();
+    let mut g = Gff::new(*b"UTC ");
+    for (label, v) in fields.drain(..) {
+        g.root.set(label, v);
+    }
+    for (l, x, v) in &twins {
+        g.root.set(l, Value::Byte(*v));
+        g.root.set(x, Value::Word(u16::from(*v)));
+    }
+    let abilities = ["Str", "Dex", "Con", "Int", "Wis", "Cha"];
+    let rest: Vec<(&str, Value)> = vec![
+        ("Color_Skin", Value::Byte(1)),
+        ("Color_Hair", Value::Byte(1)),
+        ("Color_Tattoo1", Value::Byte(1)),
+        ("Color_Tattoo2", Value::Byte(1)),
+    ];
+    for (label, v) in rest {
+        g.root.set(label, v);
+    }
+    for a in abilities {
+        g.root.set(a, Value::Byte(cell(a).clamp(0, 255) as u8));
+    }
+    for (label, v) in [
+        ("WalkRate", Value::Int(4)),
+        ("NaturalAC", Value::Byte(0)),
+        ("HitPoints", Value::Short(0)),
+        ("CurrentHitPoints", Value::Short(0)),
+        ("MaxHitPoints", Value::Short(0)),
+        ("refbonus", Value::Short(0)),
+        ("willbonus", Value::Short(0)),
+        ("fortbonus", Value::Short(0)),
+        ("GoodEvil", Value::Byte(50)),
+        ("LawfulChaotic", Value::Byte(50)),
+        ("ChallengeRating", Value::Float(0.0)),
+        ("CRAdjust", Value::Int(0)),
+        ("PerceptionRange", Value::Byte(11)),
+    ] {
+        g.root.set(label, v);
+    }
+    for (label, script) in CREATURE_SCRIPTS {
+        g.root.set(label, Value::resref(ResRef::from_str(script).expect("valid")));
+    }
+    for (label, v) in [
+        ("SkillList", Value::List(skill_list)),
+        ("FeatList", Value::List(Vec::new())),
+        ("TemplateList", Value::List(Vec::new())),
+        ("SpecAbilityList", Value::List(Vec::new())),
+        ("ClassList", Value::List(Vec::new())),
+        ("ItemList", Value::List(Vec::new())),
+        ("Equip_ItemList", Value::List(Vec::new())),
+        ("PaletteID", Value::Byte(spec.category)),
+        ("Comment", text("")),
+    ] {
+        g.root.set(label, v);
+    }
+
+    // Levelled up from nothing, each class's gear, then the derived
+    // numbers.
+    let mut c = game.level_up(&g.root, &spec.classes);
+    for &(class, _) in &spec.classes {
+        for (res, at) in game.new_class_gear(&c, class, item) {
+            match at {
+                mg_rules::levelup::GearPlace::Equip(slot) => {
+                    let mut e = Struct::new(slot);
+                    e.set("EquippedRes", Value::resref(res));
+                    let mut list = c.list("Equip_ItemList").unwrap_or(&[]).to_vec();
+                    let at = list.iter().position(|s| s.id > slot).unwrap_or(list.len());
+                    list.insert(at, e);
+                    c.set("Equip_ItemList", Value::List(list));
+                }
+                mg_rules::levelup::GearPlace::Carry(x, y) => {
+                    let mut list = c.list("ItemList").unwrap_or(&[]).to_vec();
+                    let mut e = Struct::new(list.len() as u32);
+                    e.set("InventoryRes", Value::resref(res));
+                    e.set("Repos_PosX", Value::Word(x));
+                    e.set("Repos_Posy", Value::Word(y));
+                    list.push(e);
+                    c.set("ItemList", Value::List(list));
+                }
+            }
+        }
+    }
+    let mut sheet = mg_rules::CreatureSheet::from_gff(&c);
+    let max = game.creature_stats(&sheet).max_hit_points;
+    c.set("MaxHitPoints", Value::Short(max.clamp(0, i32::from(i16::MAX)) as i16));
+    sheet.gear_value = game.gear_value(&c, item);
+    c.set("ChallengeRating", Value::Float(game.challenge(&sheet).rating));
+    g.root = c;
+    g
 }

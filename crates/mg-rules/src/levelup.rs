@@ -2,24 +2,27 @@
 //! Wizard does (captured: `levelup/bandit-fighter5.mod`, `six-after.mod`).
 //! Each level, in class slot order:
 //!
-//! - hit points: the class's average, (HitDie + 1) / 2, the total rounded
-//!   down at the end (Fighter 1 to 10: + 49);
+//! - hit points: the whole hit die at the first level, after that the
+//!   class's average, (HitDie + 1) / 2, the total rounded down at the end
+//!   (Fighter 1 to 10: + 49);
 //! - every fourth character level, one point to the package's ability
 //!   (packages.2da `Attribute`);
 //! - skill points (classes.2da `SkillPointBase` + Intelligence modifier +
-//!   the race's `ExtraSkillPointsPerLevel`), spent one rank at a time down
-//!   the package's skill list (`SkillPref2DA`): a class skill costs 1 and
-//!   goes up to the character level + 3, a cross-class skill 2 and half
-//!   that; one rank per skill per level, and what is left is kept;
-//! - feats: a cleric's domain powers (the package's domains) at its first
-//!   level, the class's own (`FeatsTable` list 3 at that level, replacing
+//!   the race's `ExtraSkillPointsPerLevel`, times its
+//!   `FirstLevelSkillPointsMultiplier` at the first level), spent a rank at
+//!   a time on the class skills down the package's skill list
+//!   (`SkillPref2DA`), round after round while points last, up to the
+//!   character level + 3; cross-class skills get none;
+//! - feats: the race's (`FeatsTable`) at the first level, a cleric's
+//!   domain powers (the package's domains) at its first level, the class's own (`FeatsTable` list 3 at that level, replacing
 //!   the feat they succeed), a normal feat every third character level
-//!   (the race's `NormalFeatEveryNthLevel`) and a bonus feat where the
+//!   (the race's `NormalFeatEveryNthLevel`; and its `ExtraFeatsAtFirstLevel`
+//!   at the first) and a bonus feat where the
 //!   class's `BonusFeatsTable` has one, each the first of the package's
 //!   feats (`FeatPref2DA`) the levelling class lists (its `FeatsTable`:
 //!   list 0 or 1 for a normal feat, 1 or 2 for a bonus one) and whose
-//!   prerequisites the creature meets, feats taken the same level not
-//!   counting as prerequisites.
+//!   prerequisites the creature meets, the feats granted that level
+//!   counting but not the level's other picks.
 //!
 //! A class the creature did not have gets its spells: for a class that
 //! prepares them, each spell level's slots (the `SpellGainTable`, and
@@ -206,44 +209,53 @@ impl GameData {
             s.abilities[i] += 1;
         }
 
-        // Skills, one rank each down the package's list.
+        // Skills: class skills only, a rank each down the package's list,
+        // again and again while points last (a first level's 12 points go
+        // two rounds).
         let extra = self.race_value(s, "ExtraSkillPointsPerLevel").unwrap_or(0);
-        let mut points = *spare as i32
-            + (num("SkillPointBase").unwrap_or(0) + modifier(s.total(3)) + extra).max(1);
+        let mut per_level =
+            (num("SkillPointBase").unwrap_or(0) + modifier(s.total(3)) + extra).max(1);
+        if level == 1 {
+            per_level *= self.race_value(s, "FirstLevelSkillPointsMultiplier").unwrap_or(4).max(1);
+        }
+        let mut points = *spare as i32 + per_level;
         let skill_table = col("SkillsTable").and_then(|t| self.table(&t.to_lowercase()).ok());
-        let class_skill = |skill: u32| -> Option<bool> {
-            let t = skill_table.as_ref()?;
-            (0..t.len())
-                .find(|&r| t.get_int(r, "SkillIndex") == Some(skill as i32))
-                .map(|r| t.get_int(r, "ClassSkill") == Some(1))
+        let class_skill = |skill: u32| -> bool {
+            skill_table.as_ref().is_some_and(|t| {
+                (0..t.len()).any(|r| {
+                    t.get_int(r, "SkillIndex") == Some(skill as i32)
+                        && t.get_int(r, "ClassSkill") == Some(1)
+                })
+            })
         };
-        let skills_2da = self.table("skills").ok();
-        if let Some(t) = pkg("SkillPref2DA").and_then(|n| self.table(&n.to_lowercase()).ok()) {
-            for r in 0..t.len() {
-                let Some(skill) = t.get_int(r, "SkillIndex").and_then(|v| u32::try_from(v).ok())
-                else {
-                    continue;
-                };
-                let usable = skills_2da
-                    .as_ref()
-                    .and_then(|k| k.get_int(skill as usize, "AllClassesCanUse"))
-                    .is_some_and(|v| v == 1);
-                let own = class_skill(skill).unwrap_or(false);
-                if !own && !usable {
-                    continue;
-                }
-                let (cost, max) = if own { (1, level + 3) } else { (2, (level + 3) / 2) };
-                let Some(rank) = s.skills.get_mut(skill as usize) else { continue };
-                if u32::from(*rank) < max && points >= cost {
+        let order: Vec<usize> = pkg("SkillPref2DA")
+            .and_then(|n| self.table(&n.to_lowercase()).ok())
+            .map(|t| {
+                (0..t.len())
+                    .filter_map(|r| t.get_int(r, "SkillIndex").and_then(|v| u32::try_from(v).ok()))
+                    .filter(|&k| class_skill(k))
+                    .map(|k| k as usize)
+                    .collect()
+            })
+            .unwrap_or_default();
+        loop {
+            let mut spent = false;
+            for &k in &order {
+                let Some(rank) = s.skills.get_mut(k) else { continue };
+                if points >= 1 && u32::from(*rank) < level + 3 {
                     *rank += 1;
-                    points -= cost;
+                    points -= 1;
+                    spent = true;
                 }
+            }
+            if !spent || points < 1 {
+                break;
             }
         }
         *spare = points.max(0) as u32;
 
-        // Feats: domains, the class's own, then the picks.
-        let before = s.feats.clone();
+        // Feats: the race's at the first level, domains, the class's own,
+        // then the picks.
         let mut taken: BTreeSet<u16> = BTreeSet::new();
         let feat_2da = self.table("feat").ok();
         let grant = |s: &mut State, f: u16| {
@@ -259,6 +271,19 @@ impl GameData {
             });
             s.feats.push(f);
         };
+        if level == 1
+            && let Some(t) = self
+                .table("racialtypes")
+                .ok()
+                .and_then(|r| r.get(s.race, "FeatsTable").map(str::to_lowercase))
+                .and_then(|n| self.table(&n).ok())
+        {
+            for r in 0..t.len() {
+                if let Some(f) = t.get_int(r, "FeatIndex").and_then(|f| u16::try_from(f).ok()) {
+                    grant(s, f);
+                }
+            }
+        }
         if class_level == 1 {
             for d in ["Domain1", "Domain2"] {
                 let feat = pkg(d)
@@ -280,12 +305,19 @@ impl GameData {
                 }
             }
         }
+        // What the picks' prerequisites see: the feats granted so far, this
+        // level's included (a fighter's first-level Martial Weapon
+        // Proficiency lets it take Weapon Focus), but not the other picks.
+        let before = s.feats.clone();
         let every = self.race_value(s, "NormalFeatEveryNthLevel").unwrap_or(3).max(1) as u32;
-        let normal = if level == 1 || level.is_multiple_of(every) {
+        let mut normal = if level == 1 || level.is_multiple_of(every) {
             self.race_value(s, "NumberNormalFeatsEveryNthLevel").unwrap_or(1).max(0) as u32
         } else {
             0
         };
+        if level == 1 {
+            normal += self.race_value(s, "ExtraFeatsAtFirstLevel").unwrap_or(0).max(0) as u32;
+        }
         let bonus = col("BonusFeatsTable")
             .and_then(|t| self.table(&t.to_lowercase()).ok())
             .and_then(|t| t.get_int(class_level as usize - 1, "Bonus"))
@@ -310,7 +342,8 @@ impl GameData {
                 }
             }
         }
-        (die + 1.0) / 2.0
+        // The first level's hit die is whole, the others average.
+        if level == 1 { die } else { (die + 1.0) / 2.0 }
     }
 
     /// The spell lists of a class new to the creature at `level`: (label,
