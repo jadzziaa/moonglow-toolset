@@ -3050,3 +3050,30 @@ fn build_on_save_opens_the_results_when_something_is_wrong() {
     assert!(build.results.iter().any(|f| f.text.starts_with("Error:")), "{:?}", build.results);
     assert!(h.state().log.entries.iter().any(|(_, m)| m == "Finished Building Module"));
 }
+
+#[test]
+fn tab_indents_selected_lines_in_the_script_editor() {
+    let dir = mg_testkit::scratch_dir("ui-script-indent");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    // Select into the second line, then Tab: both lines indented.
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowRight);
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), "\tvoid main()\n\t{\n}\n");
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n}\n");
+}

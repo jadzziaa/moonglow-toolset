@@ -563,6 +563,23 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let at = cursor(&ctx, key).map_or(c.start, |x| x.0);
         insert(buf, &ctx, key, c.start, at, &text);
     }
+    // Tab on a selection of several lines indents them; Shift+Tab outdents
+    // the selected lines, or the cursor's.
+    if script_tools.completion.is_none()
+        && ui.memory(|m| m.has_focus(editor_id(key)))
+        && let Some((a, b)) = cursor(&ctx, key)
+    {
+        use egui::{Key, Modifiers};
+        let lines = buf.text.chars().skip(a).take(b - a).any(|c| c == '\n');
+        let outdent = ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Tab));
+        let indent =
+            !outdent && lines && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
+        if outdent || indent {
+            let (text, from, to) = tools::indent_lines(&buf.text, a, b, outdent);
+            buf.text = text;
+            set_cursor(&ctx, key, from, to);
+        }
+    }
     let pending = script_tools.jump.take_if(|(k, _)| *k == key).or(jump).map(|(_, at)| at);
     if let Some(at) = pending {
         set_cursor(&ctx, key, at, at);

@@ -274,6 +274,38 @@ pub fn word_before(text: &str, chars: usize) -> (usize, String) {
     (start, before[start..].iter().collect())
 }
 
+/// Indents (a tab before each) or outdents (one leading tab, or up to four
+/// spaces, off each) the lines a selection touches, as Tab and Shift+Tab do
+/// in the script editor. Character indexes in and out; the selection
+/// returned covers the lines, from the first's start.
+pub fn indent_lines(text: &str, from: usize, to: usize, outdent: bool) -> (String, usize, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    let (from, to) = (from.min(chars.len()), to.min(chars.len()).max(from.min(chars.len())));
+    let start = chars[..from].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
+    // A selection ending at a line's start leaves that line alone.
+    let last = if to > from && chars[to - 1] == '\n' { to - 1 } else { to };
+    let end = chars[last..].iter().position(|&c| c == '\n').map_or(chars.len(), |i| last + i);
+    let block: String = chars[start..end].iter().collect();
+    let lines: Vec<String> = block
+        .split('\n')
+        .map(|line| {
+            if !outdent {
+                return format!("\t{line}");
+            }
+            if let Some(rest) = line.strip_prefix('\t') {
+                return rest.to_string();
+            }
+            let spaces = line.chars().take(4).take_while(|&c| c == ' ').count();
+            line[spaces..].to_string()
+        })
+        .collect();
+    let new_block = lines.join("\n");
+    let head: String = chars[..start].iter().collect();
+    let tail: String = chars[end..].iter().collect();
+    let new_end = start + new_block.chars().count();
+    (format!("{head}{new_block}{tail}"), start, new_end)
+}
+
 /// The identifier around a character index.
 pub fn word_at(text: &str, chars: usize) -> Option<String> {
     let all: Vec<char> = text.chars().collect();
@@ -396,6 +428,21 @@ pub fn nss(name: &str) -> Option<ResKey> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tab_indents_and_shift_tab_outdents_the_selected_lines() {
+        let text = "a\nb\nc\n";
+        // From inside "a" to inside "b": lines a and b.
+        let (t, from, to) = super::indent_lines(text, 0, 3, false);
+        assert_eq!(t, "\ta\n\tb\nc\n");
+        assert_eq!((from, to), (0, 5));
+        let (back, _, _) = super::indent_lines(&t, from, to, true);
+        assert_eq!(back, text);
+        // A selection ending at a line's start leaves that line alone.
+        assert_eq!(super::indent_lines(text, 0, 2, false).0, "\ta\nb\nc\n");
+        // Up to four spaces come off.
+        assert_eq!(super::indent_lines("      x", 2, 2, true).0, "  x");
+    }
+
     use super::*;
 
     #[test]

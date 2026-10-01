@@ -118,7 +118,8 @@ unless given otherwise.
 | Open (all resources / module / hak) | resource browser and the module tree | ✅ |
 | Options › Script Editor: font, colours of text, comment, directive, identifier, keyword, number, string, error, with a preview | font size and a colour per element (else the light or dark theme's), preview, reset; applied without reloading the game | ✅ (`options.rs` tests) |
 | Options › Script Editor: templates folder, auto-compile, debug info (.ndb), external editor | the templates folder (listed with `data/scr` and `scripttemplates`), compile on save, `.ndb` with each compiled script; font size and colours | ✅ [saving_a_script_compiles_it_with_debug_information_when_chosen] / external editor ✗ |
-| Print, indent with Tab | not yet | ✗ |
+| Indent with Tab | Tab indents the lines a selection touches, Shift+Tab outdents them (or the cursor's line) | ✅ [tab_indents_selected_lines_in_the_script_editor] |
+| Print | not yet | ✗ |
 | Large scripts | nwscript.nss (13,869 lines): 0.4 ms per idle frame, ~10 ms per keystroke | ✅ (`editor_perf.rs`) |
 
 ## Conversation Editor (`TdlgConversationEditor`, `TfraConversationTree`)
