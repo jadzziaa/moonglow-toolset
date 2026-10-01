@@ -217,7 +217,7 @@ scripts (name, picker, Edit), Comments.
 | Creature inventory (`TdlgInventory`: equipment and natural equipment slots, backpack, Dropable, Pickpocketable, drag and drop) | an Inventory page: the item palette, the 18 slots (an item goes only where its base item's `EquipableSlots` allows), the backpack at the first free place | ◐ [creature_editor_lists] (Dropable and Pickpocketable not shown yet) |
 | The CR calculation (Basic and Advanced: Challenge Rating, CR Adjustment) | Aurora's calculation (`mg_rules::challenge`, `docs/research/notes_creature_cr.md`), recalculated with every change (as Aurora does on OK); the calculation shown on hover | ✅ [challenge_ratings_match_aurora: 4204 creatures] |
 | Levelup Wizard (`TfrmCreatureLevelupWizard`: classes and levels; packages pick hit points, abilities, skills and feats) | the same window, from the Classes page and the area viewer's context menu; one undoable step (`mg_rules::levelup`) | ✅ [levelling_up_matches_aurora: 7 levellings, with a new class's memorized spells and package equipment; the_levelup_wizard_levels_a_creature_up_as_aurora_does, the_levelup_wizard_adds_a_class_with_its_spells_and_gear]; a new spontaneous caster's known spells not checked against Aurora |
-| Creature Template tab | not yet | ✗ |
+| Creature Template tab (crtemplates.2da: Half-Dragon, Lich, Vampire, ...) | not shown: Aurora 89.8193.37's Creature Properties hide the tab (its form still has it) | — |
 
 ## Blueprint wizards (`TdlgBlueprintWizard` and each type's)
 
