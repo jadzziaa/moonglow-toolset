@@ -801,7 +801,10 @@ fn script_wizard_writes_compiles_and_sets_scripts() {
     app.settings.dialog_no_text_popup = true;
     app.open_module(&path);
     app.new_dialog = Some("wizdlg".into());
-    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    // Room for the conversation's window to show its tabs' buttons.
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
     h.get_by_label("Create").click();
     h.run();
@@ -994,6 +997,8 @@ fn palette_edit_copy_and_delete() {
         &gff.root,
         h.state().game.as_ref().unwrap(),
     );
+    // (The copy's editor, opened in a window, closed first.)
+    close_windows(&mut h);
     h.run();
     h.get_by_label(&name).click_secondary();
     h.run();
@@ -1030,6 +1035,9 @@ fn blueprint_harness(
         vec![mg_edit::Edit::SetResource { key, data: Some(data) }],
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    // The editor alone on screen (Module Properties, docked when the module
+    // opened, would show beside its window).
+    close_tab(&mut app, &Tab::ModuleProperties);
     let h = Harness::builder()
         .with_size(egui::vec2(1000.0, 800.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -2184,7 +2192,7 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     let path = mg_edit::GffPath::root().item("Placeable List", 0);
     assert!(h.state().dock.find_tab(&Tab::Instance { area, path: path.clone() }).is_some());
     assert_eq!(h.state().blueprint_pages.get(&(git_key, path)), Some(&"Inventory"));
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    close_windows(&mut h);
     h.run_steps(3);
     // The sound: Mute.
     right_click(&mut h, Vec3::new(28.0, 30.0, 1.9));
@@ -2304,7 +2312,7 @@ fn add_to_palette_create_waypoint_and_set() {
     assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its editor opens");
 
     // Create Waypoint on the bandit, where the menu was opened.
-    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    close_windows(&mut h);
     h.run_steps(3);
     right_click(&mut h, Vec3::new(28.0, 30.0, 0.9));
     h.get_by_label("Create Waypoint").click();
@@ -4813,4 +4821,53 @@ fn the_start_location_shows_on_raised_ground() {
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!((target.z - 5.0).abs() < 0.5, "looks at the ground, not under it: {target}");
     assert_eq!(stored(&mut h), (area, 0.0), "the module's start is as it was");
+}
+
+/// Closes a tab, wherever it is.
+fn close_tab(app: &mut Moonglow, tab: &Tab) {
+    if let Some(path) = app.dock.find_tab(tab) {
+        app.dock.remove_tab(path);
+    }
+}
+
+/// Closes the editors' windows (the tabs not in the main dock), back to the
+/// area.
+fn close_windows(h: &mut Harness<'_, Moonglow>) {
+    let app = h.state_mut();
+    let open: Vec<Tab> = app
+        .dock
+        .iter_all_tabs()
+        .filter(|(p, _)| !p.surface.is_main())
+        .map(|(_, t)| t.clone())
+        .collect();
+    for t in open {
+        close_tab(app, &t);
+    }
+}
+
+#[test]
+fn editors_open_in_windows_over_the_area() {
+    let Some((mut h, area)) = area_harness("editor-windows") else { return };
+    h.run_steps(3);
+    for tab in [Tab::Factions, Tab::ModuleProperties] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab.clone()));
+        h.run_steps(3);
+        let dock = &h.state().dock;
+        let path = dock.find_tab(&tab).expect("open");
+        assert!(!path.surface.is_main(), "{tab:?} in a window of its own");
+        // The area still shows in the main pane.
+        let area_path = dock.find_tab(&Tab::Area(area)).unwrap();
+        assert!(area_path.surface.is_main());
+        let (_, leaf) = dock
+            .iter_leaves()
+            .find(|(p, _)| p.node == area_path.node && p.surface.is_main())
+            .unwrap();
+        assert_eq!(leaf.tabs[leaf.active.0], Tab::Area(area), "the area stays in front");
+    }
+    // Below the toolbar, never over it.
+    let toolbar = h.get_by_label_contains("Verify").rect().bottom();
+    let top = h.get_all_by_label("Factions").map(|n| n.rect().top()).fold(f32::MAX, f32::min);
+    assert!(top > toolbar, "the window starts below the toolbar ({top} vs {toolbar})");
+    let img = h.render().expect("render");
+    let _ = img.save(mg_testkit::scratch_dir("ui-editor-windows").join("windows.png"));
 }

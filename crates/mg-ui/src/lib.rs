@@ -258,6 +258,8 @@ pub struct Moonglow {
     manual: manual::Manual,
     /// Help › About is open.
     pub about: bool,
+    /// The window's content area at the last frame (where new windows go).
+    screen: Option<egui::Rect>,
 }
 
 impl std::fmt::Debug for Moonglow {
@@ -347,6 +349,7 @@ impl Moonglow {
             dialog_backed_up: HashMap::new(),
             manual: Default::default(),
             about: false,
+            screen: None,
         }
     }
 
@@ -383,6 +386,7 @@ impl Moonglow {
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.screen = Some(ui.ctx().content_rect());
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
@@ -457,6 +461,42 @@ impl Moonglow {
             self.run_actions();
             // Show the result now, not at the next input event.
             ui.ctx().request_repaint();
+        }
+    }
+
+    /// Opens a tab in a window of its own, sized for it and fitted to the
+    /// screen, centred over the main pane (clear of the palette's), each a
+    /// little below and right of the last.
+    fn open_window(&mut self, tab: Tab) {
+        let screen = self
+            .screen
+            .unwrap_or(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0)));
+        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
+        let main = self
+            .dock
+            .iter_leaves()
+            .find(|(p, _)| p.surface.is_main() && Some((p.surface, p.node)) != palette)
+            .map(|(_, leaf)| leaf.rect)
+            .filter(|r| r.is_positive())
+            .unwrap_or(screen);
+        // Below the menu and toolbar (the main pane's top), never over them.
+        let room = egui::Rect::from_min_max(egui::pos2(screen.left(), main.top()), screen.max);
+        let want = tab.window_size();
+        // Some of the main pane (the area view) shows beside it.
+        let wide = (main.width() * 0.85).max(420.0).min(room.width());
+        let size = egui::vec2(want.x.min(wide), want.y.min(room.height() * 0.9));
+        let windows = self
+            .dock
+            .iter_surfaces()
+            .filter(|s| matches!(s, egui_dock::Surface::Window(..)))
+            .count();
+        let step = 28.0 * (windows % 8) as f32;
+        let mut at = main.center() - size / 2.0 + egui::vec2(step, step);
+        at.x = at.x.min(room.right() - size.x).max(room.left());
+        at.y = at.y.min(room.bottom() - size.y).max(room.top());
+        let surface = self.dock.add_window(vec![tab]);
+        if let Some(state) = self.dock.get_window_state_mut(surface) {
+            state.set_position(at).set_size(size);
         }
     }
 
@@ -1059,6 +1099,19 @@ impl Moonglow {
                 }
             }
             Action::OpenTab(tab) => {
+                // A tab docked in an area's pane (Module Properties, docked
+                // when the module opened) moves to a window of its own
+                // rather than come to the front over the area.
+                if !tab.docks()
+                    && tab != Tab::Palette
+                    && let Some(path) = self.dock.find_tab(&tab)
+                    && let Ok(leaf) = self
+                        .dock
+                        .leaf(egui_dock::NodePath { surface: path.surface, node: path.node })
+                    && leaf.tabs.iter().any(|t| matches!(t, Tab::Area(_)))
+                {
+                    self.dock.remove_tab(path);
+                }
                 if self.dock.find_tab(&tab).is_none() {
                     if tab == Tab::Palette {
                         // Its own pane on the right, as in Aurora.
@@ -1067,6 +1120,8 @@ impl Moonglow {
                             0.72,
                             vec![tab.clone()],
                         );
+                    } else if !tab.docks() {
+                        self.open_window(tab.clone());
                     } else {
                         // Not into the palette's pane: the focused pane, else
                         // the first other one. (Right after the palette's pane

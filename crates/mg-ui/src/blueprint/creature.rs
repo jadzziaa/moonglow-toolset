@@ -630,7 +630,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let sounds = choices(f, "soundset", "STRREF", "LABEL");
     let ranges = choices(f, "ranges", "Name", "Label");
     let (cr, cr_detail) = rating_text(f);
-    crate::widgets::two_columns(ui, 360.0, |ui, col| {
+    crate::widgets::two_columns(ui, 440.0, |ui, col| {
         if col == 0 {
             egui::Grid::new(("utc-adv", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
                 ui,

@@ -53,6 +53,26 @@ pub enum Tab {
 }
 
 impl Tab {
+    /// Whether it opens in the main dock: areas (and the start page), which
+    /// the rest open over in windows of their own, so a window never takes
+    /// the area view's place.
+    pub fn docks(&self) -> bool {
+        matches!(self, Tab::Area(_) | Tab::Welcome)
+    }
+
+    /// The size its own window opens at (before fitting the screen).
+    pub(crate) fn window_size(&self) -> egui::Vec2 {
+        let (w, h) = match self {
+            Tab::Script(_) | Tab::Manual | Tab::Resources | Tab::Resource(_) => (920.0, 700.0),
+            Tab::Dialog(_) => (920.0, 660.0),
+            Tab::Model(_) | Tab::InstanceModel { .. } => (540.0, 640.0),
+            Tab::Factions | Tab::Journal | Tab::Gff(_) => (780.0, 600.0),
+            Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 580.0),
+            _ => (820.0, 640.0),
+        };
+        egui::vec2(w, h)
+    }
+
     /// The tab that edits a resource.
     pub fn for_resource(key: ResKey) -> Option<Tab> {
         match key.restype {

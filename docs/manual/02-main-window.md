@@ -49,14 +49,19 @@ A double click opens a resource in its editor. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields
 of its `.are` and `.git` files; on any resource, **Export…**.
 
-## Tabs
+## Tabs and windows
 
-Every editor opens as a tab: areas, blueprints, conversations, scripts,
-Module Properties, the Faction and Journal Editors, the palettes, the
-resource browser. Drag a tab to rearrange them, or out beside another to
-split the space. Closing a tab never loses work: every change is already
-part of the module (and undoable) the moment you make it; **Save** writes
-the module.
+Areas open as tabs in the main pane. Everything else (blueprint and object
+editors, scripts, conversations, previews, Module Properties, the Faction
+and Journal Editors, the resource browser, this manual) opens in a window
+of its own over the area, sized for what it shows, so the area view stays
+where it is. Drag a window by its tab into the main pane, or beside
+another, to dock it; drag a tab out to float it again. The palettes keep
+their pane on the right.
+
+Closing a tab or window never loses work: every change is already part of
+the module (and undoable) the moment you make it; **Save** writes the
+module.
 
 **Undo and redo** cover every change, in every editor, without limit: a
 field typed into, an object moved, a tile painted, a script compiled.
