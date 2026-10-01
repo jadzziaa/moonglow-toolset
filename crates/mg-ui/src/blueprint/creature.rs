@@ -254,74 +254,77 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
             }
         });
     ui.separator();
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        ui.strong("Armor Class");
-        egui::Grid::new(("utc-ac", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-            ui.label("Natural AC");
-            f.number(ui, "Natural AC", "NaturalAC", 0..=100);
-            ui.end_row();
-            for (label, v) in [
-                ("Base", "10".to_string()),
-                ("Dexterity Bonus", signed(stats.ac_dex)),
-                ("Size Modifier", signed(stats.ac_size)),
-                ("Total Armor Class", stats.ac.to_string()),
-            ] {
-                ui.label(label);
-                ui.label(v);
+    crate::widgets::two_columns(ui, 340.0, |ui, col| {
+        if col == 0 {
+            ui.strong("Armor Class");
+            egui::Grid::new(("utc-ac", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
+                ui.label("Natural AC");
+                f.number(ui, "Natural AC", "NaturalAC", 0..=100);
                 ui.end_row();
-            }
-        });
-        ui.separator();
-        ui.strong("Hit Points");
-        egui::Grid::new(("utc-hp", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-            ui.label("Base Hit Points");
-            // The current hit points follow the base.
-            if let Some(v) = commit_number(ui, f.int("HitPoints"), 1..=10_000) {
-                f.set_many(
-                    "Hit points",
-                    &[
-                        ("HitPoints", v, FieldType::Short),
-                        ("CurrentHitPoints", v, FieldType::Short),
-                    ],
-                );
-            }
-            ui.end_row();
-            ui.label("Hit Point Bonuses");
-            ui.label(signed(stats.hp_bonus));
-            ui.end_row();
-            ui.label("Total Hit Points");
-            ui.label(stats.max_hit_points.to_string());
-            ui.end_row();
-        });
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Movement Rate");
-            f.choice(ui, "Movement rate", "WalkRate", &speeds, FieldType::Int);
-        });
-
-        let ui = &mut cols[1];
-        ui.strong("Saves");
-        egui::Grid::new(("utc-saves", f.key)).num_columns(5).spacing([16.0, 4.0]).show(ui, |ui| {
-            for h in ["", "Base", "Modifier", "Bonus", "Total"] {
-                ui.strong(h);
-            }
-            ui.end_row();
-            for (i, (name, label)) in
-                [("Fortitude", "fortbonus"), ("Reflex", "refbonus"), ("Will", "willbonus")]
-                    .into_iter()
-                    .enumerate()
-            {
-                ui.label(name);
-                ui.label(stats.saves_base[i].to_string());
-                ui.label(signed(stats.saves_modifier[i]));
-                if let Some(v) = commit_number(ui, f.int(label), -100..=100) {
-                    f.set_int(name, label, v, FieldType::Short);
+                for (label, v) in [
+                    ("Base", "10".to_string()),
+                    ("Dexterity Bonus", signed(stats.ac_dex)),
+                    ("Size Modifier", signed(stats.ac_size)),
+                    ("Total Armor Class", stats.ac.to_string()),
+                ] {
+                    ui.label(label);
+                    ui.label(v);
+                    ui.end_row();
                 }
-                ui.label(stats.saves[i].to_string());
+            });
+            ui.separator();
+            ui.strong("Hit Points");
+            egui::Grid::new(("utc-hp", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
+                ui.label("Base Hit Points");
+                // The current hit points follow the base.
+                if let Some(v) = commit_number(ui, f.int("HitPoints"), 1..=10_000) {
+                    f.set_many(
+                        "Hit points",
+                        &[
+                            ("HitPoints", v, FieldType::Short),
+                            ("CurrentHitPoints", v, FieldType::Short),
+                        ],
+                    );
+                }
                 ui.end_row();
-            }
-        });
+                ui.label("Hit Point Bonuses");
+                ui.label(signed(stats.hp_bonus));
+                ui.end_row();
+                ui.label("Total Hit Points");
+                ui.label(stats.max_hit_points.to_string());
+                ui.end_row();
+            });
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label("Movement Rate");
+                f.choice(ui, "Movement rate", "WalkRate", &speeds, FieldType::Int);
+            });
+        } else {
+            ui.strong("Saves");
+            egui::Grid::new(("utc-saves", f.key)).num_columns(5).spacing([16.0, 4.0]).show(
+                ui,
+                |ui| {
+                    for h in ["", "Base", "Modifier", "Bonus", "Total"] {
+                        ui.strong(h);
+                    }
+                    ui.end_row();
+                    for (i, (name, label)) in
+                        [("Fortitude", "fortbonus"), ("Reflex", "refbonus"), ("Will", "willbonus")]
+                            .into_iter()
+                            .enumerate()
+                    {
+                        ui.label(name);
+                        ui.label(stats.saves_base[i].to_string());
+                        ui.label(signed(stats.saves_modifier[i]));
+                        if let Some(v) = commit_number(ui, f.int(label), -100..=100) {
+                            f.set_int(name, label, v, FieldType::Short);
+                        }
+                        ui.label(stats.saves[i].to_string());
+                        ui.end_row();
+                    }
+                },
+            );
+        }
     });
 }
 
@@ -403,55 +406,60 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui) {
     let tails = game
         .choices("tailmodel", ChoiceColumns { name: None, label: Some("LABEL") })
         .unwrap_or_default();
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        match &prefix {
-            Some(prefix) => {
-                egui::Grid::new(("utc-parts", f.key)).num_columns(2).spacing([12.0, 4.0]).show(
-                    ui,
-                    |ui| {
-                        for (text, label, part) in BODY_PARTS {
-                            let numbers = part_numbers(ui, &game, &format!("{prefix}_{part}"));
-                            let current = part_number(&f.root, label).unwrap_or(0);
-                            let choices: Vec<Choice> = numbers
-                                .iter()
-                                .map(|&n| Choice { row: n as usize, text: n.to_string() })
-                                .collect();
-                            ui.label(text);
-                            if let Some(v) = situated::pick(ui, f.key, label, &choices, current) {
-                                set_part(f, text, label, v);
+    crate::widgets::two_columns(ui, 340.0, |ui, col| {
+        if col == 0 {
+            match &prefix {
+                Some(prefix) => {
+                    egui::Grid::new(("utc-parts", f.key)).num_columns(2).spacing([12.0, 4.0]).show(
+                        ui,
+                        |ui| {
+                            for (text, label, part) in BODY_PARTS {
+                                let numbers = part_numbers(ui, &game, &format!("{prefix}_{part}"));
+                                let current = part_number(&f.root, label).unwrap_or(0);
+                                let choices: Vec<Choice> = numbers
+                                    .iter()
+                                    .map(|&n| Choice { row: n as usize, text: n.to_string() })
+                                    .collect();
+                                ui.label(text);
+                                if let Some(v) = situated::pick(ui, f.key, label, &choices, current)
+                                {
+                                    set_part(f, text, label, v);
+                                }
+                                ui.end_row();
                             }
-                            ui.end_row();
-                        }
-                    },
-                );
+                        },
+                    );
+                }
+                None => {
+                    ui.weak("This appearance is a single model: it has no body parts.");
+                }
             }
-            None => {
-                ui.weak("This appearance is a single model: it has no body parts.");
-            }
+        } else {
+            egui::Grid::new(("utc-extras", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
+                ui,
+                |ui| {
+                    ui.label("Wings");
+                    f.choice(ui, "Wings", "Wings_New", &wings, FieldType::Dword);
+                    ui.end_row();
+                    ui.label("Tail");
+                    f.choice(ui, "Tail", "Tail_New", &tails, FieldType::Dword);
+                    ui.end_row();
+                    for (text, label, palette) in [
+                        ("Skin Color", "Color_Skin", "pal_skin01"),
+                        ("Hair Color", "Color_Hair", "pal_hair01"),
+                        ("Tattoo 1 Color", "Color_Tattoo1", "pal_tattoo01"),
+                        ("Tattoo 2 Color", "Color_Tattoo2", "pal_tattoo01"),
+                    ] {
+                        ui.label(text);
+                        f.palette_color(ui, Some(&game), text, label, palette);
+                        ui.end_row();
+                    }
+                    ui.label("");
+                    situated::preview_button(f, ui);
+                    ui.end_row();
+                },
+            );
         }
-        let ui = &mut cols[1];
-        egui::Grid::new(("utc-extras", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            ui.label("Wings");
-            f.choice(ui, "Wings", "Wings_New", &wings, FieldType::Dword);
-            ui.end_row();
-            ui.label("Tail");
-            f.choice(ui, "Tail", "Tail_New", &tails, FieldType::Dword);
-            ui.end_row();
-            for (text, label, palette) in [
-                ("Skin Color", "Color_Skin", "pal_skin01"),
-                ("Hair Color", "Color_Hair", "pal_hair01"),
-                ("Tattoo 1 Color", "Color_Tattoo1", "pal_tattoo01"),
-                ("Tattoo 2 Color", "Color_Tattoo2", "pal_tattoo01"),
-            ] {
-                ui.label(text);
-                f.palette_color(ui, Some(&game), text, label, palette);
-                ui.end_row();
-            }
-            ui.label("");
-            situated::preview_button(f, ui);
-            ui.end_row();
-        });
     });
     f.app.game = Some(game);
 }
@@ -622,128 +630,137 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let sounds = choices(f, "soundset", "STRREF", "LABEL");
     let ranges = choices(f, "ranges", "Name", "Label");
     let (cr, cr_detail) = rating_text(f);
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        egui::Grid::new(("utc-adv", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            ui.label("Blueprint ResRef");
-            f.blueprint_resref(ui);
-            ui.end_row();
-            ui.label("Faction");
-            ui.horizontal(|ui| {
-                situated::faction(f, ui, "Faction", "FactionID");
-                if ui.small_button("Edit Factions").clicked() {
-                    f.app.actions.push(Action::OpenTab(Tab::Factions));
-                }
-            });
-            ui.end_row();
-            ui.label("Treasure Model");
-            f.choice(ui, "Treasure model", "BodyBag", &bags, FieldType::Byte);
-            ui.end_row();
-            ui.label("Corpse Decay Time (s)");
-            f.millis(ui, "Decay time", "DecayTime", 0.0..=32767.0);
-            ui.end_row();
-            ui.label("Perception Range");
-            f.choice(ui, "Perception range", "PerceptionRange", &ranges, FieldType::Byte);
-            ui.end_row();
-            ui.label("Sound Set");
-            ui.horizontal(|ui| {
-                // Aurora's filters: gender and soundsettype.2da type.
-                let id = egui::Id::new(("utc-soundset-filter", f.key));
-                let (mut gender, mut kind): (Option<i64>, Option<i64>) =
-                    ui.data(|d| d.get_temp(id)).unwrap_or_default();
-                let types = choices(f, "soundsettype", "STRREF", "LABEL");
-                let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
-                    v.map_or(all.to_string(), names)
-                };
-                egui::ComboBox::from_id_salt(id.with("gender"))
-                    .selected_text(name(gender, "Both", &|g| ["Male", "Female"][g as usize].into()))
-                    .width(70.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut gender, None, "Both");
-                        ui.selectable_value(&mut gender, Some(0), "Male");
-                        ui.selectable_value(&mut gender, Some(1), "Female");
-                    });
-                let type_name = |t: i64| {
-                    types
-                        .iter()
-                        .find(|c| c.row as i64 == t)
-                        .map_or(t.to_string(), |c| c.text.clone())
-                };
-                egui::ComboBox::from_id_salt(id.with("type"))
-                    .selected_text(name(kind, "All", &type_name))
-                    .width(90.0)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut kind, None, "All");
-                        for c in &types {
-                            ui.selectable_value(&mut kind, Some(c.row as i64), &c.text);
+    crate::widgets::two_columns(ui, 360.0, |ui, col| {
+        if col == 0 {
+            egui::Grid::new(("utc-adv", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
+                ui,
+                |ui| {
+                    ui.label("Blueprint ResRef");
+                    f.blueprint_resref(ui);
+                    ui.end_row();
+                    ui.label("Faction");
+                    ui.horizontal(|ui| {
+                        situated::faction(f, ui, "Faction", "FactionID");
+                        if ui.small_button("Edit Factions").clicked() {
+                            f.app.actions.push(Action::OpenTab(Tab::Factions));
                         }
                     });
-                ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
-                let current = f.root.integer("SoundSetFile").unwrap_or(-1);
-                let table = f.app.game.as_ref().and_then(|g| g.table("soundset").ok());
-                let shown: Vec<_> = sounds
-                    .iter()
-                    .filter(|c| {
-                        let col = |l: &str| {
-                            table.as_ref().and_then(|t| t.get_int(c.row, l)).map(i64::from)
+                    ui.end_row();
+                    ui.label("Treasure Model");
+                    f.choice(ui, "Treasure model", "BodyBag", &bags, FieldType::Byte);
+                    ui.end_row();
+                    ui.label("Corpse Decay Time (s)");
+                    f.millis(ui, "Decay time", "DecayTime", 0.0..=32767.0);
+                    ui.end_row();
+                    ui.label("Perception Range");
+                    f.choice(ui, "Perception range", "PerceptionRange", &ranges, FieldType::Byte);
+                    ui.end_row();
+                    ui.label("Sound Set");
+                    ui.horizontal(|ui| {
+                        // Aurora's filters: gender and soundsettype.2da type.
+                        let id = egui::Id::new(("utc-soundset-filter", f.key));
+                        let (mut gender, mut kind): (Option<i64>, Option<i64>) =
+                            ui.data(|d| d.get_temp(id)).unwrap_or_default();
+                        let types = choices(f, "soundsettype", "STRREF", "LABEL");
+                        let name = |v: Option<i64>, all: &str, names: &dyn Fn(i64) -> String| {
+                            v.map_or(all.to_string(), names)
                         };
-                        c.row as i64 == current
-                            || (gender.is_none_or(|g| col("GENDER") == Some(g))
-                                && kind.is_none_or(|k| col("TYPE") == Some(k)))
-                    })
-                    .cloned()
-                    .collect();
-                f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
-                // Aurora's sound set list plays a sample when clicked.
-                let set = f.root.integer("SoundSetFile").unwrap_or(-1);
-                if ui.small_button("▶").on_hover_text("Play a sample of the sound set").clicked()
-                    && let Some(name) = sound_set_sample(f.app, set)
-                {
-                    f.app.play_sound(crate::audio::Channel::Preview, name, 1.0, false);
+                        egui::ComboBox::from_id_salt(id.with("gender"))
+                            .selected_text(name(gender, "Both", &|g| {
+                                ["Male", "Female"][g as usize].into()
+                            }))
+                            .width(70.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut gender, None, "Both");
+                                ui.selectable_value(&mut gender, Some(0), "Male");
+                                ui.selectable_value(&mut gender, Some(1), "Female");
+                            });
+                        let type_name = |t: i64| {
+                            types
+                                .iter()
+                                .find(|c| c.row as i64 == t)
+                                .map_or(t.to_string(), |c| c.text.clone())
+                        };
+                        egui::ComboBox::from_id_salt(id.with("type"))
+                            .selected_text(name(kind, "All", &type_name))
+                            .width(90.0)
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(&mut kind, None, "All");
+                                for c in &types {
+                                    ui.selectable_value(&mut kind, Some(c.row as i64), &c.text);
+                                }
+                            });
+                        ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
+                        let current = f.root.integer("SoundSetFile").unwrap_or(-1);
+                        let table = f.app.game.as_ref().and_then(|g| g.table("soundset").ok());
+                        let shown: Vec<_> = sounds
+                            .iter()
+                            .filter(|c| {
+                                let col = |l: &str| {
+                                    table.as_ref().and_then(|t| t.get_int(c.row, l)).map(i64::from)
+                                };
+                                c.row as i64 == current
+                                    || (gender.is_none_or(|g| col("GENDER") == Some(g))
+                                        && kind.is_none_or(|k| col("TYPE") == Some(k)))
+                            })
+                            .cloned()
+                            .collect();
+                        f.choice(ui, "Sound set", "SoundSetFile", &shown, FieldType::Word);
+                        // Aurora's sound set list plays a sample when clicked.
+                        let set = f.root.integer("SoundSetFile").unwrap_or(-1);
+                        if ui
+                            .small_button("▶")
+                            .on_hover_text("Play a sample of the sound set")
+                            .clicked()
+                            && let Some(name) = sound_set_sample(f.app, set)
+                        {
+                            f.app.play_sound(crate::audio::Channel::Preview, name, 1.0, false);
+                        }
+                    });
+                    ui.end_row();
+                    ui.label("Subrace");
+                    f.text(ui, "Subrace", "Subrace", 32);
+                    ui.end_row();
+                    ui.label("Deity");
+                    f.text(ui, "Deity", "Deity", 32);
+                    ui.end_row();
+                    ui.label("Variables");
+                    f.variables(ui);
+                    ui.end_row();
+                    ui.label("");
+                    f.update_instances(ui);
+                    ui.end_row();
+                },
+            );
+        } else {
+            for (text, label) in [
+                ("Leaves Lootable Corpse", "Lootable"),
+                ("Disarmable", "Disarmable"),
+                ("Plot", "Plot"),
+                ("No Permanent Death", "NoPermDeath"),
+                ("Immortal", "IsImmortal"),
+            ] {
+                f.check(ui, text, label);
+            }
+            ui.separator();
+            ui.strong("Challenge Rating");
+            egui::Grid::new(("utc-cr", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                ui.label("Adjustment");
+                // The rating is recalculated with it (`refresh_hit_points`).
+                let adjust = f.int("CRAdjust");
+                if let Some(v) = commit_number(ui, adjust, -100..=100) {
+                    let adjust_value = super::integer(f.root.get("CRAdjust"), v, FieldType::Int);
+                    f.set_fields("CR adjustment", vec![("CRAdjust", adjust_value)]);
                 }
+                ui.end_row();
+                ui.label("Challenge Rating");
+                let r = ui.label(&cr);
+                if let Some(d) = &cr_detail {
+                    r.on_hover_text(d);
+                }
+                ui.end_row();
             });
-            ui.end_row();
-            ui.label("Subrace");
-            f.text(ui, "Subrace", "Subrace", 32);
-            ui.end_row();
-            ui.label("Deity");
-            f.text(ui, "Deity", "Deity", 32);
-            ui.end_row();
-            ui.label("Variables");
-            f.variables(ui);
-            ui.end_row();
-            ui.label("");
-            f.update_instances(ui);
-            ui.end_row();
-        });
-        let ui = &mut cols[1];
-        for (text, label) in [
-            ("Leaves Lootable Corpse", "Lootable"),
-            ("Disarmable", "Disarmable"),
-            ("Plot", "Plot"),
-            ("No Permanent Death", "NoPermDeath"),
-            ("Immortal", "IsImmortal"),
-        ] {
-            f.check(ui, text, label);
         }
-        ui.separator();
-        ui.strong("Challenge Rating");
-        egui::Grid::new(("utc-cr", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-            ui.label("Adjustment");
-            // The rating is recalculated with it (`refresh_hit_points`).
-            let adjust = f.int("CRAdjust");
-            if let Some(v) = commit_number(ui, adjust, -100..=100) {
-                let adjust_value = super::integer(f.root.get("CRAdjust"), v, FieldType::Int);
-                f.set_fields("CR adjustment", vec![("CRAdjust", adjust_value)]);
-            }
-            ui.end_row();
-            ui.label("Challenge Rating");
-            let r = ui.label(&cr);
-            if let Some(d) = &cr_detail {
-                r.on_hover_text(d);
-            }
-            ui.end_row();
-        });
     });
 }
 

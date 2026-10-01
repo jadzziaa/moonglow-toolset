@@ -221,3 +221,71 @@ fn user_manual() {
     h.state_mut().about = true;
     shoot(&mut h, &dir, "about");
 }
+
+#[test]
+#[ignore]
+fn script_beside_the_palette_pane() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-narrow");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    m.set(ResKey::parse("hello", ResType::NSS).unwrap(), b"void main() { }\n".to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(800.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    for tab in [
+        mg_ui::Tab::Palette,
+        mg_ui::Tab::Manual,
+        mg_ui::Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap()),
+    ] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run();
+    }
+    shoot(&mut h, &dir, "script-800");
+}
+
+#[test]
+#[ignore]
+fn creature_wizard() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-creature-wizard");
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.actions.push(mg_ui::Action::NewModule("wiz".into()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().creature_wizard = Some(Default::default());
+    h.run();
+    for page in 0..8 {
+        if page == 1 {
+            h.get_by_label("Human").click();
+            h.run();
+        }
+        if page == 3 {
+            h.get_by_label("po_hu_m_01_").click();
+            h.run();
+        }
+        if page == 6 {
+            h.get_by_label("Tutorial").click();
+            h.run();
+        }
+        shoot(&mut h, &dir, &format!("page-{page}"));
+        h.get_by_label("Next >").click();
+        h.run();
+    }
+}

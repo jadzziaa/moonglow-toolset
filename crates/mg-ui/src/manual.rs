@@ -55,13 +55,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         for (file, _) in CHAPTERS {
             m.cache.add_link_hook(file);
         }
-        egui::ScrollArea::vertical().id_salt(("manual", m.chapter)).auto_shrink(false).show(
-            ui,
-            |ui| {
-                ui.set_max_width(760.0);
-                CommonMarkViewer::new().show(ui, &mut m.cache, text);
-            },
-        );
+        ui.vertical(|ui| {
+            egui::ScrollArea::vertical().id_salt(("manual", m.chapter)).auto_shrink(false).show(
+                ui,
+                |ui| {
+                    ui.set_max_width(760.0);
+                    CommonMarkViewer::new().show(ui, &mut m.cache, text);
+                },
+            );
+        });
         go = go.or_else(|| {
             CHAPTERS.iter().position(|(file, _)| m.cache.get_link_hook(file) == Some(true))
         });

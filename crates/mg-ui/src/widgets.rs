@@ -497,6 +497,25 @@ pub(crate) fn commit_number<T: egui::emath::Numeric>(
     ((r.drag_stopped() || (r.changed() && !r.dragged())) && v != current).then_some(v)
 }
 
+/// Two columns side by side where each gets at least `min` points, else one
+/// above the other (in a narrow tab or window, half the width would squeeze
+/// fixed-width fields into the other column): `add(ui, 0)` fills the first,
+/// `add(ui, 1)` the second.
+pub(crate) fn two_columns(ui: &mut egui::Ui, min: f32, mut add: impl FnMut(&mut egui::Ui, usize)) {
+    if ui.available_width() >= 2.0 * min + ui.spacing().item_spacing.x {
+        ui.columns(2, |cols| {
+            add(&mut cols[0], 0);
+            add(&mut cols[1], 1);
+        });
+    } else {
+        ui.vertical(|ui| {
+            add(ui, 0);
+            ui.add_space(8.0);
+            add(ui, 1);
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

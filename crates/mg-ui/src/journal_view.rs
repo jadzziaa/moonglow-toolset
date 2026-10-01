@@ -242,75 +242,91 @@ fn category_fields(
     use jrl::categories as f;
     let path = GffPath::root().item(jrl::CATEGORIES.label, c);
     let id = |name: &str| egui::Id::new(("jrl-cat", c, name.to_string()));
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        egui::Grid::new(("jrl-cat-grid", c)).num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
-            ui.label("Name");
-            let name = cat.read(&f::NAME);
-            ui.horizontal(|ui| {
-                if let Some(v) = commit_text(app, ui, id("name"), &english(&name), false, 200.0) {
-                    actions.push(set_field(
-                        "Category name",
-                        path.clone(),
-                        f::NAME.label,
-                        with_english(name.clone(), &v).into_value(),
-                    ));
-                }
-                if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked()
-                {
-                    app.loc_edit = Some(LocStringEdit::new(
-                        FieldTarget::new(key(), path.clone(), f::NAME.label),
-                        "Category name",
-                        &name,
-                    ));
-                }
-            });
-            ui.end_row();
-            ui.label("Tag");
-            let tag = decode(cat.read(&f::TAG).as_bytes());
-            if let Some(v) = commit_text(app, ui, id("tag"), &tag, false, 200.0) {
-                let v: String = v.chars().take(32).collect();
+    crate::widgets::two_columns(ui, 300.0, |ui, col| {
+        if col == 0 {
+            egui::Grid::new(("jrl-cat-grid", c)).num_columns(2).spacing([10.0, 6.0]).show(
+                ui,
+                |ui| {
+                    ui.label("Name");
+                    let name = cat.read(&f::NAME);
+                    ui.horizontal(|ui| {
+                        if let Some(v) =
+                            commit_text(app, ui, id("name"), &english(&name), false, 200.0)
+                        {
+                            actions.push(set_field(
+                                "Category name",
+                                path.clone(),
+                                f::NAME.label,
+                                with_english(name.clone(), &v).into_value(),
+                            ));
+                        }
+                        if ui
+                            .small_button("…")
+                            .on_hover_text("Edit text in multiple languages")
+                            .clicked()
+                        {
+                            app.loc_edit = Some(LocStringEdit::new(
+                                FieldTarget::new(key(), path.clone(), f::NAME.label),
+                                "Category name",
+                                &name,
+                            ));
+                        }
+                    });
+                    ui.end_row();
+                    ui.label("Tag");
+                    let tag = decode(cat.read(&f::TAG).as_bytes());
+                    if let Some(v) = commit_text(app, ui, id("tag"), &tag, false, 200.0) {
+                        let v: String = v.chars().take(32).collect();
+                        actions.push(set_field(
+                            "Category tag",
+                            path.clone(),
+                            f::TAG.label,
+                            ExoString(encode(&v)).into_value(),
+                        ));
+                    }
+                    ui.end_row();
+                    ui.label("Priority");
+                    let prio = cat.read(&f::PRIORITY);
+                    egui::ComboBox::from_id_salt(("jrl-prio", c))
+                        .selected_text(PRIORITIES.get(prio as usize).copied().unwrap_or("?"))
+                        .show_ui(ui, |ui| {
+                            for (i, p) in PRIORITIES.iter().enumerate() {
+                                if ui.selectable_label(prio == i as u32, *p).clicked()
+                                    && prio != i as u32
+                                {
+                                    actions.push(set_field(
+                                        "Category priority",
+                                        path.clone(),
+                                        f::PRIORITY.label,
+                                        Value::Dword(i as u32),
+                                    ));
+                                }
+                            }
+                        });
+                    ui.end_row();
+                    ui.label("XP");
+                    if let Some(v) = commit_number(ui, cat.read(&f::XP), 0..=u32::MAX) {
+                        actions.push(set_field(
+                            "Category XP",
+                            path.clone(),
+                            f::XP.label,
+                            Value::Dword(v),
+                        ));
+                    }
+                    ui.end_row();
+                },
+            );
+        } else {
+            ui.label("Comments");
+            let comment = decode(cat.read(&f::COMMENT).as_bytes());
+            if let Some(v) = commit_text(app, ui, id("comment"), &comment, true, f32::INFINITY) {
                 actions.push(set_field(
-                    "Category tag",
+                    "Category comments",
                     path.clone(),
-                    f::TAG.label,
+                    f::COMMENT.label,
                     ExoString(encode(&v)).into_value(),
                 ));
             }
-            ui.end_row();
-            ui.label("Priority");
-            let prio = cat.read(&f::PRIORITY);
-            egui::ComboBox::from_id_salt(("jrl-prio", c))
-                .selected_text(PRIORITIES.get(prio as usize).copied().unwrap_or("?"))
-                .show_ui(ui, |ui| {
-                    for (i, p) in PRIORITIES.iter().enumerate() {
-                        if ui.selectable_label(prio == i as u32, *p).clicked() && prio != i as u32 {
-                            actions.push(set_field(
-                                "Category priority",
-                                path.clone(),
-                                f::PRIORITY.label,
-                                Value::Dword(i as u32),
-                            ));
-                        }
-                    }
-                });
-            ui.end_row();
-            ui.label("XP");
-            if let Some(v) = commit_number(ui, cat.read(&f::XP), 0..=u32::MAX) {
-                actions.push(set_field("Category XP", path.clone(), f::XP.label, Value::Dword(v)));
-            }
-            ui.end_row();
-        });
-        let ui = &mut cols[1];
-        ui.label("Comments");
-        let comment = decode(cat.read(&f::COMMENT).as_bytes());
-        if let Some(v) = commit_text(app, ui, id("comment"), &comment, true, f32::INFINITY) {
-            actions.push(set_field(
-                "Category comments",
-                path.clone(),
-                f::COMMENT.label,
-                ExoString(encode(&v)).into_value(),
-            ));
         }
     });
 }
@@ -326,48 +342,55 @@ fn entry_fields(
     use jrl::categories::entry_list as f;
     let path =
         GffPath::root().item(jrl::CATEGORIES.label, c).item(jrl::categories::ENTRY_LIST.label, e);
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        egui::Grid::new(("jrl-entry-grid", c, e)).num_columns(2).spacing([10.0, 6.0]).show(
-            ui,
-            |ui| {
-                ui.label("ID");
-                if let Some(v) = commit_number(ui, entry.read(&f::ID), 0..=u32::MAX) {
-                    actions.push(set_field("Entry ID", path.clone(), f::ID.label, Value::Dword(v)));
-                }
-                ui.end_row();
-                let mut end = entry.read(&f::END) != 0;
-                if ui.checkbox(&mut end, "Finish Category").changed() {
-                    actions.push(set_field(
-                        "Entry finishes the category",
-                        path.clone(),
-                        f::END.label,
-                        Value::Word(u16::from(end)),
+    crate::widgets::two_columns(ui, 300.0, |ui, col| {
+        if col == 0 {
+            egui::Grid::new(("jrl-entry-grid", c, e)).num_columns(2).spacing([10.0, 6.0]).show(
+                ui,
+                |ui| {
+                    ui.label("ID");
+                    if let Some(v) = commit_number(ui, entry.read(&f::ID), 0..=u32::MAX) {
+                        actions.push(set_field(
+                            "Entry ID",
+                            path.clone(),
+                            f::ID.label,
+                            Value::Dword(v),
+                        ));
+                    }
+                    ui.end_row();
+                    let mut end = entry.read(&f::END) != 0;
+                    if ui.checkbox(&mut end, "Finish Category").changed() {
+                        actions.push(set_field(
+                            "Entry finishes the category",
+                            path.clone(),
+                            f::END.label,
+                            Value::Word(u16::from(end)),
+                        ));
+                    }
+                    ui.end_row();
+                },
+            );
+        } else {
+            let text = entry.read(&f::TEXT);
+            ui.horizontal(|ui| {
+                ui.label("Text");
+                if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked()
+                {
+                    app.loc_edit = Some(LocStringEdit::new(
+                        FieldTarget::new(key(), path.clone(), f::TEXT.label),
+                        "Entry text",
+                        &text,
                     ));
                 }
-                ui.end_row();
-            },
-        );
-        let ui = &mut cols[1];
-        let text = entry.read(&f::TEXT);
-        ui.horizontal(|ui| {
-            ui.label("Text");
-            if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
-                app.loc_edit = Some(LocStringEdit::new(
-                    FieldTarget::new(key(), path.clone(), f::TEXT.label),
+            });
+            let id = egui::Id::new(("jrl-entry-text", c, e));
+            if let Some(v) = commit_text(app, ui, id, &english(&text), true, f32::INFINITY) {
+                actions.push(set_field(
                     "Entry text",
-                    &text,
+                    path.clone(),
+                    f::TEXT.label,
+                    with_english(text.clone(), &v).into_value(),
                 ));
             }
-        });
-        let id = egui::Id::new(("jrl-entry-text", c, e));
-        if let Some(v) = commit_text(app, ui, id, &english(&text), true, f32::INFINITY) {
-            actions.push(set_field(
-                "Entry text",
-                path.clone(),
-                f::TEXT.label,
-                with_english(text.clone(), &v).into_value(),
-            ));
         }
     });
 }

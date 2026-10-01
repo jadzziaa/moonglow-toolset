@@ -182,9 +182,11 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let mut shown: u32 = ui.data(|d| d.get_temp(shown_id)).unwrap_or(first);
     let mut add = None;
     let mut edits = Vec::new();
-    ui.columns(2, |cols| {
-        add = f.palette_picker(&mut cols[0], BlueprintKind::Item, "Add Item");
-        let ui = &mut cols[1];
+    crate::widgets::two_columns(ui, 300.0, |ui, col| {
+        if col == 0 {
+            add = f.palette_picker(ui, BlueprintKind::Item, "Add Item");
+            return;
+        }
         ui.horizontal_wrapped(|ui| {
             for (id, name) in STORE_PAGES {
                 let count = pages

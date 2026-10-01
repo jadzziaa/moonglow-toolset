@@ -392,9 +392,12 @@ impl Moonglow {
             self.toolbar(ui);
         });
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
+        // The log shrinks to a single line if the user wants it that small.
+        let line = ui.text_style_height(&egui::TextStyle::Monospace);
         egui::Panel::bottom("log")
             .resizable(true)
             .default_size(120.0)
+            .min_size(line + 6.0)
             .show(ui, |ui| self.log_ui(ui));
         if self.ws.is_some() {
             egui::Panel::left("tree").resizable(true).default_size(240.0).show(ui, |ui| {
@@ -721,9 +724,12 @@ impl Moonglow {
     }
 
     fn log_ui(&mut self, ui: &mut egui::Ui) {
-        egui::ScrollArea::vertical().stick_to_bottom(true).auto_shrink([false, false]).show(
-            ui,
-            |ui| {
+        // No minimum of its own (egui's is 64 points), so the panel decides.
+        egui::ScrollArea::vertical()
+            .stick_to_bottom(true)
+            .auto_shrink([false, false])
+            .min_scrolled_height(0.0)
+            .show(ui, |ui| {
                 for (level, msg) in &self.log.entries {
                     let color = match level {
                         Level::Info => ui.visuals().text_color(),
@@ -732,8 +738,7 @@ impl Moonglow {
                     };
                     ui.label(egui::RichText::new(msg).color(color).monospace());
                 }
-            },
-        );
+            });
     }
 
     /// Opens a module: the workspace, and the game data with the module's
@@ -1063,17 +1068,32 @@ impl Moonglow {
                             vec![tab.clone()],
                         );
                     } else {
-                        // Not into the palette's pane.
-                        let palette = self.dock.find_tab(&Tab::Palette);
-                        let in_palette = self
+                        // Not into the palette's pane: the focused pane, else
+                        // the first other one. (Right after the palette's pane
+                        // is made, egui_dock reports no focused pane but would
+                        // push into the palette's.)
+                        let palette =
+                            self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
+                        let other = |p: &egui_dock::NodePath| Some((p.surface, p.node)) != palette;
+                        let target = self
                             .dock
                             .focused_leaf()
-                            .zip(palette)
-                            .is_some_and(|(f, p)| f.surface == p.surface && f.node == p.node);
-                        if in_palette {
-                            self.dock.push_to_first_leaf(tab.clone());
-                        } else {
-                            self.dock.push_to_focused_leaf(tab.clone());
+                            .filter(other)
+                            .or_else(|| self.dock.iter_leaves().map(|(p, _)| p).find(other));
+                        match (target, palette) {
+                            (Some(pane), _) => {
+                                self.dock.set_focused_node_and_surface(pane);
+                                self.dock.push_to_focused_leaf(tab.clone());
+                            }
+                            // The palette's is the only pane: a new one on its left.
+                            (None, Some((_, node))) => {
+                                self.dock.main_surface_mut().split_left(
+                                    node,
+                                    0.72,
+                                    vec![tab.clone()],
+                                );
+                            }
+                            (None, None) => self.dock.push_to_first_leaf(tab.clone()),
                         }
                     }
                 }

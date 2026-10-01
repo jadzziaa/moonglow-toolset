@@ -12,6 +12,7 @@ use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 use mg_rules::{Choice, ChoiceColumns, GameData};
 
+use crate::images::Loader;
 use crate::{Action, Moonglow, Tab};
 
 /// The wizard's pages, in order.
@@ -191,26 +192,41 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let (mut finish, mut cancel) = (false, false);
     let summary = if w.page == 7 { review(app, &w) } else { String::new() };
-    let game = app.game.as_ref().expect("checked");
+    // The game data, and its pictures (the portraits).
+    let mut loader = app.loader().expect("checked");
+    // Most of the screen to begin with, and resizable: the pages' lists and
+    // the review fill what is between the heading and the buttons.
+    let screen = ctx.content_rect();
+    let size = egui::vec2(
+        (screen.width() * 0.6).clamp(560.0, 960.0),
+        (screen.height() * 0.75).clamp(440.0, 800.0),
+    );
     egui::Window::new("Creature Wizard")
         .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .resizable(true)
+        .default_size(size)
+        .min_width(480.0)
+        .min_height(360.0)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(screen.center())
         .show(ctx, |ui| {
-            ui.heading(PAGES[w.page]);
-            page(ui, game, &mut w, &summary);
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.add_enabled(w.page > 0, egui::Button::new("< Back")).clicked() {
-                    w.page -= 1;
-                }
-                let last = w.page + 1 == PAGES.len();
-                if ui.add_enabled(!last && w.complete(), egui::Button::new("Next >")).clicked() {
-                    w.page += 1;
-                }
-                finish = ui.add_enabled(last, egui::Button::new("Finish")).clicked();
-                cancel = ui.button("Cancel").clicked();
+            egui::Panel::bottom("cw-buttons").show(ui, |ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(w.page > 0, egui::Button::new("< Back")).clicked() {
+                        w.page -= 1;
+                    }
+                    let last = w.page + 1 == PAGES.len();
+                    if ui.add_enabled(!last && w.complete(), egui::Button::new("Next >")).clicked()
+                    {
+                        w.page += 1;
+                    }
+                    finish = ui.add_enabled(last, egui::Button::new("Finish")).clicked();
+                    cancel = ui.button("Cancel").clicked();
+                });
             });
+            ui.heading(PAGES[w.page]);
+            page(ui, &mut loader, &mut w, &summary);
         });
     if finish {
         make(app, &w);
@@ -219,7 +235,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
-fn page(ui: &mut Ui, game: &GameData, w: &mut CreatureWizard, summary: &str) {
+fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &str) {
+    let game = loader.game;
     match w.page {
         0 => {
             ui.label("Welcome to the Creature Wizard.");
@@ -234,7 +251,7 @@ fn page(ui: &mut Ui, game: &GameData, w: &mut CreatureWizard, summary: &str) {
                 "The Racial Type determines the default abilities, class, and appearance of the \
                  Creature.",
             );
-            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 for c in choices(game, "racialtypes", "Name", "Label") {
                     if ui.selectable_label(w.race == Some(c.row as u32), &c.text).clicked() {
                         w.choose_race(game, c.row as u32);
@@ -249,9 +266,12 @@ fn page(ui: &mut Ui, game: &GameData, w: &mut CreatureWizard, summary: &str) {
                 names.iter().find(|c| c.row == k as usize).map_or(String::new(), |c| c.text.clone())
             };
             ui.horizontal_top(|ui| {
-                egui::ScrollArea::vertical().max_height(240.0).id_salt("cw-classes").show(
-                    ui,
-                    |ui| {
+                // A list down the left (a scroll area takes the layout of
+                // the row it is in: classes side by side, drawn over each
+                // other).
+                ui.vertical(|ui| {
+                    ui.set_width(160.0);
+                    egui::ScrollArea::vertical().id_salt("cw-classes").show(ui, |ui| {
                         ui.set_width(160.0);
                         for c in &names {
                             let k = c.row as u32;
@@ -266,8 +286,8 @@ fn page(ui: &mut Ui, game: &GameData, w: &mut CreatureWizard, summary: &str) {
                                 w.classes.push((k, 1));
                             }
                         }
-                    },
-                );
+                    });
+                });
                 ui.vertical(|ui| {
                     if ui
                         .add_enabled(
@@ -334,12 +354,52 @@ fn page(ui: &mut Ui, game: &GameData, w: &mut CreatureWizard, summary: &str) {
                 ui.end_row();
             });
             ui.label("Portrait");
-            egui::ScrollArea::vertical().max_height(200.0).id_salt("cw-portraits").show(ui, |ui| {
-                for (row, base) in portraits(game, w.race.unwrap_or(6), w.gender) {
-                    if ui.selectable_label(w.portrait == Some(row), &base).clicked() {
-                        w.portrait = Some(row);
+            // The race's and gender's portraits as pictures, the chosen one
+            // large beside them (as Select Portrait shows them).
+            let list = portraits(game, w.race.unwrap_or(6), w.gender);
+            let per_row = 6;
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(per_row as f32 * 50.0 + 16.0);
+                    egui::ScrollArea::vertical()
+                        .id_salt(("cw-portraits", w.race, w.gender))
+                        .show_rows(ui, 68.0, list.len().div_ceil(per_row), |ui, lines| {
+                            for line in lines {
+                                ui.horizontal(|ui| {
+                                    for (row, base) in
+                                        list.iter().skip(line * per_row).take(per_row)
+                                    {
+                                        let base = base.to_lowercase();
+                                        let r = loader
+                                            .portrait(ui, &base, 'm', 40.0, egui::Sense::click())
+                                            .on_hover_text(&base);
+                                        if w.portrait == Some(*row) {
+                                            ui.painter().rect_stroke(
+                                                r.rect.expand(1.0),
+                                                2.0,
+                                                ui.visuals().selection.stroke,
+                                                egui::StrokeKind::Outside,
+                                            );
+                                        }
+                                        if r.clicked() {
+                                            w.portrait = Some(*row);
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                });
+                ui.vertical(|ui| {
+                    ui.set_width(130.0);
+                    let chosen = w.portrait.and_then(|p| list.iter().find(|(r, _)| *r == p));
+                    if let Some((_, base)) = chosen {
+                        let base = base.to_lowercase();
+                        let large = loader.picture(ui.ctx(), &format!("po_{base}l")).is_some();
+                        let size = if large { 'l' } else { 'm' };
+                        loader.portrait(ui, &base, size, 128.0, egui::Sense::hover());
+                        ui.label(base);
                     }
-                }
+                });
             });
         }
         4 => {
@@ -388,7 +448,7 @@ fn page(ui: &mut Ui, game: &GameData, w: &mut CreatureWizard, summary: &str) {
         6 => {
             ui.label("Please select the category in the palette that you wish this blueprint to appear under.");
             let nodes = crate::blueprint_wizard::categories(game, BlueprintKind::Creature);
-            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 crate::blueprint_wizard::category_tree(ui, &nodes, game, &mut w.category);
             });
         }
@@ -396,7 +456,7 @@ fn page(ui: &mut Ui, game: &GameData, w: &mut CreatureWizard, summary: &str) {
             ui.label(
                 "Check that the following statistics are correct. Click Back to make any changes.",
             );
-            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
                 ui.label(summary);
             });
         }

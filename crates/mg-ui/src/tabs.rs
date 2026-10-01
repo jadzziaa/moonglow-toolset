@@ -136,6 +136,14 @@ impl TabViewer for Viewer<'_> {
     fn is_closeable(&self, tab: &Tab) -> bool {
         *tab != Tab::Welcome
     }
+
+    /// The script editor scrolls its own text, lists and messages, and fits
+    /// its pane (in a pane that scrolled, its side lists ran past the pane's
+    /// edge and were cut off); the others scroll when wider or taller.
+    fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
+        let fits = matches!(tab, Tab::Script(_));
+        [!fits, !fits]
+    }
 }
 
 /// A placed object's tab title: its tag and where it is.

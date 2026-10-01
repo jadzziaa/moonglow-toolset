@@ -122,8 +122,7 @@ struct PortraitPick {
     chosen: Option<usize>,
 }
 
-/// A portrait's image: `po_<base><size>` (h, l, m, s, t), the part a
-/// portrait uses (the upper 100/128 of its canvas), at `width` points.
+/// A portrait's image (`Loader::portrait`).
 fn portrait_image(
     f: &mut Form<'_>,
     ui: &mut Ui,
@@ -132,18 +131,12 @@ fn portrait_image(
     width: f32,
     sense: egui::Sense,
 ) -> egui::Response {
-    let pic = f.app.picture(ui.ctx(), &format!("po_{base}{size}"));
-    let used = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 100.0 / 128.0));
-    let at = egui::vec2(width, width * 100.0 / 64.0);
-    match pic {
-        Some(p) => ui.add(
-            egui::Image::new(&p.texture)
-                .uv(used)
-                .fit_to_exact_size(at)
-                .alt_text(format!("po_{base}"))
-                .sense(sense),
+    match f.app.loader() {
+        Some(mut l) => l.portrait(ui, base, size, width, sense),
+        None => ui.add_sized(
+            egui::vec2(width, width * 100.0 / 64.0),
+            egui::Label::new(format!("({base})")).sense(sense),
         ),
-        None => ui.add_sized(at, egui::Label::new(format!("({base})")).sense(sense)),
     }
 }
 

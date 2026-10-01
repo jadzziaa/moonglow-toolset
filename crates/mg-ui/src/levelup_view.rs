@@ -96,6 +96,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
              and the higher its ability scores will be.",
         );
         ui.horizontal_top(|ui| {
+            // A list down the left (a scroll area takes the layout of the
+            // row it is in: classes side by side, drawn over each other).
+            ui.vertical(|ui| {
+            ui.set_width(160.0);
             egui::ScrollArea::vertical().max_height(220.0).id_salt("levelup-classes").show(ui, |ui| {
                 ui.set_width(160.0);
                 for c in &names {
@@ -113,6 +117,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                         w.chosen = None;
                     }
                 }
+            });
             });
             ui.vertical(|ui| {
                 let can_add = w.chosen.is_some() && w.slots.len() < 8;

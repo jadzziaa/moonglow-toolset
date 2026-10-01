@@ -194,6 +194,33 @@ impl Loader<'_> {
         self.keep(ctx, key, rgba)
     }
 
+    /// A portrait's image: `po_<base><size>` (h, l, m, s, t), the part a
+    /// portrait uses (the upper 100/128 of its canvas), at `width` points;
+    /// named after the picture (`po_<base>`), or the base in parentheses
+    /// when there is no picture.
+    pub(crate) fn portrait(
+        &mut self,
+        ui: &mut Ui,
+        base: &str,
+        size: char,
+        width: f32,
+        sense: egui::Sense,
+    ) -> egui::Response {
+        let pic = self.picture(ui.ctx(), &format!("po_{base}{size}"));
+        let used = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 100.0 / 128.0));
+        let at = egui::vec2(width, width * 100.0 / 64.0);
+        match pic {
+            Some(p) => ui.add(
+                egui::Image::new(&p.texture)
+                    .uv(used)
+                    .fit_to_exact_size(at)
+                    .alt_text(format!("po_{base}"))
+                    .sense(sense),
+            ),
+            None => ui.add_sized(at, egui::Label::new(format!("({base})")).sense(sense)),
+        }
+    }
+
     /// An item's inventory icon, its layers bottom first (PLT layers in
     /// the item's colours), else the base item's `DefaultIcon`.
     pub(crate) fn item_icon(&mut self, ctx: &egui::Context, item: &Struct) -> Vec<Picture> {

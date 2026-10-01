@@ -134,14 +134,17 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let names = f.blueprint_names(BlueprintKind::Item);
     let mut add = None;
     let mut edits = Vec::new();
-    ui.columns(2, |cols| {
-        add = f.palette_picker(&mut cols[0], BlueprintKind::Item, "Add Item");
-        let ctx = cols[1].ctx().clone();
+    crate::widgets::two_columns(ui, 300.0, |ui, col| {
+        if col == 0 {
+            add = f.palette_picker(ui, BlueprintKind::Item, "Add Item");
+            return;
+        }
+        let ctx = ui.ctx().clone();
         let icons: Vec<_> = items.iter().map(|it| f.entry_icon(&ctx, it)).collect();
         let name = |it: &Struct| f.entry_name(it, &names);
         let look =
             inventory::ItemLook { icons: &icons, name: &name, infinite: false, selected: None };
-        edits = inventory::item_list(&mut cols[1], key, &base, &items, look).0;
+        edits = inventory::item_list(ui, key, &base, &items, look).0;
     });
     if let Some(r) = add {
         let item = f.inventory_item(&items, r);

@@ -388,57 +388,58 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
         .sum::<i64>()
         .max(1);
     let mut edits: Vec<(&str, Edit)> = Vec::new();
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        ui.strong("Spells");
-        let needle = filter(ui, egui::Id::new(("utc-special-find", key)));
-        egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
-            ui,
-            |ui| {
-                for c in names.iter().filter(|c| c.text.to_lowercase().contains(&needle)) {
-                    if ui.selectable_label(false, &c.text).on_hover_text("Add").clicked() {
-                        let mut s = Struct::new(SPECIAL_ID);
-                        s.set("Spell", Value::Word(c.row as u16));
-                        s.set("SpellCasterLevel", Value::Byte(level.min(255) as u8));
-                        s.set("SpellFlags", Value::Byte(1));
+    crate::widgets::two_columns(ui, 300.0, |ui, col| {
+        if col == 0 {
+            ui.strong("Spells");
+            let needle = filter(ui, egui::Id::new(("utc-special-find", key)));
+            egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
+                ui,
+                |ui| {
+                    for c in names.iter().filter(|c| c.text.to_lowercase().contains(&needle)) {
+                        if ui.selectable_label(false, &c.text).on_hover_text("Add").clicked() {
+                            let mut s = Struct::new(SPECIAL_ID);
+                            s.set("Spell", Value::Word(c.row as u16));
+                            s.set("SpellCasterLevel", Value::Byte(level.min(255) as u8));
+                            s.set("SpellFlags", Value::Byte(1));
+                            edits.push((
+                                "Add special ability",
+                                insert(key, base.clone(), "SpecAbilityList", list.len(), s),
+                            ));
+                        }
+                    }
+                },
+            );
+        } else {
+            ui.strong("Special Abilities");
+            egui::Grid::new(("utc-special", key)).num_columns(3).striped(true).show(ui, |ui| {
+                ui.strong("Ability");
+                ui.strong("Caster Level");
+                ui.label("");
+                ui.end_row();
+                for (i, s) in list.iter().enumerate() {
+                    ui.label(name_of(s.integer("Spell").unwrap_or(0)));
+                    let lvl = s.integer("SpellCasterLevel").unwrap_or(1);
+                    if let Some(v) = commit_number(ui, lvl, 1..=60) {
                         edits.push((
-                            "Add special ability",
-                            insert(key, base.clone(), "SpecAbilityList", list.len(), s),
+                            "Caster level",
+                            Edit::SetField {
+                                key,
+                                path: base.clone().item("SpecAbilityList", i),
+                                label: "SpellCasterLevel".into(),
+                                value: Some(Value::Byte(v as u8)),
+                            },
                         ));
                     }
+                    if ui.small_button("Remove").clicked() {
+                        edits.push((
+                            "Remove special ability",
+                            remove(key, base.clone(), "SpecAbilityList", i),
+                        ));
+                    }
+                    ui.end_row();
                 }
-            },
-        );
-        let ui = &mut cols[1];
-        ui.strong("Special Abilities");
-        egui::Grid::new(("utc-special", key)).num_columns(3).striped(true).show(ui, |ui| {
-            ui.strong("Ability");
-            ui.strong("Caster Level");
-            ui.label("");
-            ui.end_row();
-            for (i, s) in list.iter().enumerate() {
-                ui.label(name_of(s.integer("Spell").unwrap_or(0)));
-                let lvl = s.integer("SpellCasterLevel").unwrap_or(1);
-                if let Some(v) = commit_number(ui, lvl, 1..=60) {
-                    edits.push((
-                        "Caster level",
-                        Edit::SetField {
-                            key,
-                            path: base.clone().item("SpecAbilityList", i),
-                            label: "SpellCasterLevel".into(),
-                            value: Some(Value::Byte(v as u8)),
-                        },
-                    ));
-                }
-                if ui.small_button("Remove").clicked() {
-                    edits.push((
-                        "Remove special ability",
-                        remove(key, base.clone(), "SpecAbilityList", i),
-                    ));
-                }
-                ui.end_row();
-            }
-        });
+            });
+        }
     });
     for (what, e) in edits {
         apply(f, what, vec![e]);

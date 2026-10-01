@@ -216,6 +216,18 @@ fn insert(
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    // Fit the pane, whose clip rectangle is its true size: the tab does not
+    // scroll (`Viewer::scroll_bars`), and the dock's non-scrolling scroll area
+    // grows to the size its content had before (so the side lists ran past
+    // the pane's edge). A child area, as a Ui never shrinks below its size.
+    let margin = ui.max_rect().left() - ui.clip_rect().left();
+    let mut fit = ui.max_rect();
+    fit.max.x = fit.max.x.min(ui.clip_rect().max.x - margin).max(fit.min.x + 120.0);
+    fit.max.y = fit.max.y.min(ui.clip_rect().max.y - margin).max(fit.min.y + 120.0);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(fit), |ui| editor(app, ui, key));
+}
+
+fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // The external editor's saves, if it has the script (looked for twice a
     // second).
     reload_external(app, key);
@@ -319,7 +331,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut compile = false;
     let mut save_as = false;
     let dirty = app.scripts[&key].is_dirty();
-    ui.horizontal(|ui| {
+    // Wrapping: a narrow pane keeps its width (the row would widen the
+    // editor past the pane, side lists and all).
+    ui.horizontal_wrapped(|ui| {
         save = ui
             .add_enabled(dirty, egui::Button::new("Save"))
             .on_hover_text("Save the script into the module")
@@ -413,12 +427,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
     // Side lists.
     let mut insert_text: Option<String> = None;
+    // At most half the tab, so a narrow tab keeps room for the text (and the
+    // lists stay inside it).
+    let half = (ui.available_width() / 2.0).max(120.0);
     egui::Panel::right(egui::Id::new(("script-side", key)))
         .resizable(true)
-        .default_size(260.0)
+        .default_size(260.0_f32.min(half))
+        .max_size(half)
         .show(ui, |ui| {
             let t = &mut app.script_tools;
-            ui.horizontal(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for (tab, label) in [
                     (SideTab::Functions, "Functions"),
                     (SideTab::Variables, "Variables"),
@@ -434,6 +452,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             });
             let filter = t.filter.to_ascii_lowercase();
             let row = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+            // Long names end in "…" in a narrow panel (Help gives them whole).
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             if t.side == SideTab::Templates {
                 let templates = tools::templates(
                     app.install.as_ref(),

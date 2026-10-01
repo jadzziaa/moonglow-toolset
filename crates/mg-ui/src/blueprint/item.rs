@@ -158,54 +158,58 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
             Some((name, t.get_int(row, "Stacking").unwrap_or(1).max(1)))
         })
         .unwrap_or_else(|| (format!("({})", f.int("BaseItem")), 1));
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        egui::Grid::new(("uti-general", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
-            ui,
-            |ui| {
-                ui.label("Item Name");
-                f.locstring(ui, "Name", "LocalizedName");
-                ui.end_row();
-                ui.label("Tag");
-                f.text(ui, "Tag", "Tag", 32);
-                ui.end_row();
-                ui.label("Blueprint ResRef");
-                f.blueprint_resref(ui);
-                ui.end_row();
-                ui.label("Base Type Name");
-                ui.label(base_name);
-                ui.end_row();
-                ui.label("Category");
-                f.category(ui, BlueprintKind::Item);
-                ui.end_row();
-                ui.label("Stack Size");
-                f.number(ui, "Stack size", "StackSize", 1..=i64::from(stacking));
-                ui.end_row();
-                ui.label("Charges");
-                f.number(ui, "Charges", "Charges", 0..=250);
-                ui.end_row();
-                ui.label("Additional Cost");
-                f.number(ui, "Additional cost", "AddCost", 0..=999_999_999);
-                ui.end_row();
-                ui.label("");
-                ui.horizontal(|ui| {
-                    f.check(ui, "Plot Item", "Plot");
-                    f.check(ui, "Stolen", "Stolen");
-                });
-                ui.end_row();
-                ui.label("");
-                super::situated::preview_button(f, ui);
-                ui.end_row();
-            },
-        );
-        let ui = &mut cols[1];
-        egui::Grid::new(("uti-stats", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-            for (label, value) in statistics(f) {
-                ui.label(label);
-                ui.strong(value);
-                ui.end_row();
-            }
-        });
+    crate::widgets::two_columns(ui, 340.0, |ui, col| {
+        if col == 0 {
+            egui::Grid::new(("uti-general", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
+                ui,
+                |ui| {
+                    ui.label("Item Name");
+                    f.locstring(ui, "Name", "LocalizedName");
+                    ui.end_row();
+                    ui.label("Tag");
+                    f.text(ui, "Tag", "Tag", 32);
+                    ui.end_row();
+                    ui.label("Blueprint ResRef");
+                    f.blueprint_resref(ui);
+                    ui.end_row();
+                    ui.label("Base Type Name");
+                    ui.label(&base_name);
+                    ui.end_row();
+                    ui.label("Category");
+                    f.category(ui, BlueprintKind::Item);
+                    ui.end_row();
+                    ui.label("Stack Size");
+                    f.number(ui, "Stack size", "StackSize", 1..=i64::from(stacking));
+                    ui.end_row();
+                    ui.label("Charges");
+                    f.number(ui, "Charges", "Charges", 0..=250);
+                    ui.end_row();
+                    ui.label("Additional Cost");
+                    f.number(ui, "Additional cost", "AddCost", 0..=999_999_999);
+                    ui.end_row();
+                    ui.label("");
+                    ui.horizontal(|ui| {
+                        f.check(ui, "Plot Item", "Plot");
+                        f.check(ui, "Stolen", "Stolen");
+                    });
+                    ui.end_row();
+                    ui.label("");
+                    super::situated::preview_button(f, ui);
+                    ui.end_row();
+                },
+            );
+        } else {
+            egui::Grid::new(("uti-stats", f.key)).num_columns(2).spacing([12.0, 4.0]).show(
+                ui,
+                |ui| {
+                    for (label, value) in statistics(f) {
+                        ui.label(label);
+                        ui.strong(value);
+                        ui.end_row();
+                    }
+                },
+            );
+        }
     });
 }
 
@@ -558,71 +562,73 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let available = game.available_properties(base);
     let mut add: Option<(PropertyType, Option<u16>)> = None;
     let mut remove = None;
-    ui.columns(2, |cols| {
-        let ui = &mut cols[0];
-        ui.strong("Available Properties");
-        egui::ScrollArea::vertical().id_salt(("uti-available", key)).max_height(380.0).show(
-            ui,
-            |ui| {
-                for t in &available {
-                    let subtypes = game.property_subtypes(t, base);
-                    if subtypes.is_empty() {
-                        let r = ui.selectable_label(
-                            chosen == Some(t.row) && chosen_sub.is_none(),
-                            &t.name,
-                        );
-                        if r.clicked() {
-                            (chosen, chosen_sub) = (Some(t.row), None);
-                        }
-                        if r.double_clicked() {
-                            add = Some((t.clone(), None));
-                        }
-                    } else {
-                        egui::CollapsingHeader::new(&t.name)
-                            .id_salt(("uti-type", key, t.row))
-                            .show(ui, |ui| {
-                                for s in &subtypes {
-                                    let sub = s.row as u16;
-                                    let on = chosen == Some(t.row) && chosen_sub == Some(sub);
-                                    let r = ui.selectable_label(on, &s.text);
-                                    if r.clicked() {
-                                        (chosen, chosen_sub) = (Some(t.row), Some(sub));
+    crate::widgets::two_columns(ui, 340.0, |ui, col| {
+        if col == 0 {
+            ui.strong("Available Properties");
+            egui::ScrollArea::vertical().id_salt(("uti-available", key)).max_height(380.0).show(
+                ui,
+                |ui| {
+                    for t in &available {
+                        let subtypes = game.property_subtypes(t, base);
+                        if subtypes.is_empty() {
+                            let r = ui.selectable_label(
+                                chosen == Some(t.row) && chosen_sub.is_none(),
+                                &t.name,
+                            );
+                            if r.clicked() {
+                                (chosen, chosen_sub) = (Some(t.row), None);
+                            }
+                            if r.double_clicked() {
+                                add = Some((t.clone(), None));
+                            }
+                        } else {
+                            egui::CollapsingHeader::new(&t.name)
+                                .id_salt(("uti-type", key, t.row))
+                                .show(ui, |ui| {
+                                    for s in &subtypes {
+                                        let sub = s.row as u16;
+                                        let on = chosen == Some(t.row) && chosen_sub == Some(sub);
+                                        let r = ui.selectable_label(on, &s.text);
+                                        if r.clicked() {
+                                            (chosen, chosen_sub) = (Some(t.row), Some(sub));
+                                        }
+                                        if r.double_clicked() {
+                                            add = Some((t.clone(), Some(sub)));
+                                        }
                                     }
-                                    if r.double_clicked() {
-                                        add = Some((t.clone(), Some(sub)));
-                                    }
-                                }
-                            });
+                                });
+                        }
                     }
-                }
-            },
-        );
-        let ui = &mut cols[1];
-        ui.strong("Assigned Properties");
-        egui::ScrollArea::vertical().id_salt(("uti-assigned", key)).max_height(200.0).show(
-            ui,
-            |ui| {
-                for (i, p) in assigned.iter().enumerate() {
-                    if ui.selectable_label(selected == Some(i), game.property_text(p)).clicked() {
-                        selected = Some(i);
+                },
+            );
+        } else {
+            ui.strong("Assigned Properties");
+            egui::ScrollArea::vertical().id_salt(("uti-assigned", key)).max_height(200.0).show(
+                ui,
+                |ui| {
+                    for (i, p) in assigned.iter().enumerate() {
+                        if ui.selectable_label(selected == Some(i), game.property_text(p)).clicked()
+                        {
+                            selected = Some(i);
+                        }
                     }
+                },
+            );
+            ui.horizontal(|ui| {
+                let can_add = chosen.is_some();
+                if ui.add_enabled(can_add, egui::Button::new("Add")).clicked()
+                    && let Some(t) = chosen.and_then(|c| available.iter().find(|t| t.row == c))
+                {
+                    add = Some((t.clone(), chosen_sub));
                 }
-            },
-        );
-        ui.horizontal(|ui| {
-            let can_add = chosen.is_some();
-            if ui.add_enabled(can_add, egui::Button::new("Add")).clicked()
-                && let Some(t) = chosen.and_then(|c| available.iter().find(|t| t.row == c))
-            {
-                add = Some((t.clone(), chosen_sub));
+                if ui.add_enabled(selected.is_some(), egui::Button::new("Remove")).clicked() {
+                    remove = selected;
+                }
+            });
+            if let Some(i) = selected {
+                ui.separator();
+                property_editor(f, ui, game, base, i, &assigned[i]);
             }
-            if ui.add_enabled(selected.is_some(), egui::Button::new("Remove")).clicked() {
-                remove = selected;
-            }
-        });
-        if let Some(i) = selected {
-            ui.separator();
-            property_editor(f, ui, game, base, i, &assigned[i]);
         }
     });
     ui.separator();

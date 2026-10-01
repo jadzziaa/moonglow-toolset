@@ -3335,7 +3335,10 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     h.run();
     h.get_by_label("Creature Wizard…").click();
     h.run();
+    // Each page as it comes, nothing drawn over anything else.
     let next = |h: &mut Harness<'_, Moonglow>| {
+        let over = overlapping(h);
+        assert!(over.is_empty(), "drawn over each other: {over:?}");
         h.get_by_label("Next >").click();
         h.run();
     };
@@ -3346,7 +3349,8 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     // Fighter 1, the Human's default class.
     assert_eq!(h.state().creature_wizard.as_ref().unwrap().classes, [(4, 1)]);
     next(&mut h);
-    h.get_by_label("hu_m_01_").click();
+    // The portraits are pictures (named after them once loaded).
+    h.get_by_label("po_hu_m_01_").click();
     h.run();
     next(&mut h);
     next(&mut h); // Hostile
@@ -3358,7 +3362,11 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     h.run();
     next(&mut h); // the review
     next(&mut h);
-    h.get_all_by_label("Finish").last().unwrap().click();
+    // The button (the last page's heading is "Finish" too).
+    h.query_all_by_label("Finish")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .unwrap()
+        .click();
     h.run();
     let ws = h.state_mut().ws.as_mut().unwrap();
     let c = ws.doc(&ResKey::parse("hent", ResType::UTC).unwrap()).unwrap().root.clone();
@@ -4260,4 +4268,293 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
     h.get_by_label("About Moonglow Toolset").click();
     h.run();
     h.get_by_label(&format!("Version {}", env!("CARGO_PKG_VERSION")));
+}
+
+/// Widgets drawn over each other: pairs of named widgets in one layer (a
+/// window, the main panels) whose visible rectangles (clipped by their scroll
+/// areas, as egui records them for the frame) overlap by more than a quarter
+/// of the smaller, as when a row of widgets is squeezed into a narrow
+/// column. Their names, for the failure message.
+fn overlapping(h: &Harness<'_, Moonglow>) -> Vec<String> {
+    use egui_kittest::kittest::{AccessKitNode, NodeT};
+    use std::collections::HashMap;
+    // The named widgets (role and name), by egui id.
+    fn names(n: AccessKitNode<'_>, out: &mut HashMap<u64, String>) {
+        let role = n.role();
+        let name = n.label().or_else(|| n.value()).unwrap_or_default();
+        let part = matches!(
+            role,
+            egui::accesskit::Role::Unknown | egui::accesskit::Role::GenericContainer
+        );
+        // Widgets, not the windows and groups that hold them.
+        let leaf = n.children().next().is_none();
+        if leaf && !name.trim().is_empty() && !part {
+            out.insert(n.locate().0.0, format!("{role:?} {name:?}"));
+        }
+        for k in n.children() {
+            names(k, out);
+        }
+    }
+    let mut named = HashMap::new();
+    names(h.root().accesskit_node(), &mut named);
+    let mut out = Vec::new();
+    h.ctx.viewport(|v| {
+        for (_, widgets) in v.prev_pass.widgets.layers() {
+            let shown: Vec<(egui::Rect, &String)> = widgets
+                .iter()
+                .filter(|w| w.interact_rect.area() > 1.0)
+                .filter_map(|w| Some((w.interact_rect, named.get(&w.id.value())?)))
+                .collect();
+            for (i, (a, name_a)) in shown.iter().enumerate() {
+                for (b, name_b) in &shown[i + 1..] {
+                    let both = a.intersect(*b);
+                    let smaller = a.area().min(b.area());
+                    if both.is_positive() && both.area() > 0.25 * smaller {
+                        out.push(format!("{name_a} over {name_b}"));
+                    }
+                }
+            }
+        }
+    });
+    out
+}
+
+#[test]
+fn blueprint_editor_pages_draw_nothing_over_anything_else() {
+    // Every page of every editor, roomy and narrow (a tab beside the
+    // palette and tree).
+    let editors = [
+        ("nw_bandit001", ResType::UTC),
+        ("nw_arhe001", ResType::UTI),
+        ("plc_chest1", ResType::UTP),
+        ("nw_door_ttr_01", ResType::UTD),
+        ("trackstrigger", ResType::UTT),
+        ("nw_verminbeet", ResType::UTE),
+        ("nw_storebar01", ResType::UTM),
+        ("animalcriesday", ResType::UTS),
+        ("nw_waypoint001", ResType::UTW),
+    ];
+    let mut found = Vec::new();
+    for (name, t) in editors {
+        let copy = format!("over_{}", t.extension().unwrap_or("x"));
+        let Some((mut h, key)) = blueprint_harness(name, &copy, t) else { return };
+        if t == ResType::UTC {
+            // A human of parts (the bandit is one model), for the body
+            // parts on the Appearance page.
+            h.run();
+            h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+                "appearance",
+                vec![mg_edit::Edit::SetField {
+                    key,
+                    path: mg_edit::GffPath::root(),
+                    label: "Appearance_Type".into(),
+                    value: Some(mg_gff::Value::Word(6)),
+                }],
+            )));
+        }
+        for size in [
+            egui::vec2(1280.0, 800.0),
+            egui::vec2(1000.0, 800.0),
+            egui::vec2(800.0, 700.0),
+            egui::vec2(600.0, 700.0),
+        ] {
+            h.set_size(size);
+            for page in mg_ui::blueprint::pages(t) {
+                h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), page);
+                h.run();
+                for o in overlapping(&h) {
+                    found.push(format!("{t:?} {page} at {}: {o}", size.x));
+                }
+            }
+        }
+    }
+    assert!(found.is_empty(), "drawn over each other:\n{}", found.join("\n"));
+}
+
+#[test]
+fn views_draw_nothing_over_anything_else() {
+    // The editors, windows and wizards outside the blueprint editors, roomy
+    // and narrow, on a module with a conversation.
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-overlaps");
+    let path = sample_module(&dir);
+    let talk = ResKey::parse("mg_talk", ResType::DLG).unwrap();
+    let mut g = mg_module::dialog::new_dialog();
+    mg_module::dialog::add_node(&mut g, mg_module::dialog::Parent::Root, "Hello there");
+    let mut m = Module::open(&path).unwrap();
+    m.set(talk, g.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let mut found: Vec<String> = Vec::new();
+    let mut look = |h: &mut Harness<'_, Moonglow>, what: &str| {
+        h.run();
+        let width = h.ctx.content_rect().width();
+        found.extend(overlapping(h).into_iter().map(|o| format!("{what} at {width}: {o}")));
+    };
+    let button = |h: &Harness<'_, Moonglow>, label: &str| {
+        use egui_kittest::kittest::NodeT;
+        h.query_all_by_label(label)
+            .find(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+            .map(|n| n.click())
+            .is_some()
+    };
+    for size in [
+        egui::vec2(1280.0, 800.0),
+        egui::vec2(1000.0, 800.0),
+        egui::vec2(800.0, 700.0),
+        egui::vec2(600.0, 700.0),
+    ] {
+        h.set_size(size);
+        use mg_ui::module_props::Page;
+        for page in
+            [Page::Basic, Page::Events, Page::Advanced, Page::Description, Page::CustomContent]
+        {
+            h.state_mut().module_page = page;
+            h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+            look(&mut h, &format!("Module Properties {page:?}"));
+        }
+        for (tab, what) in [
+            (Tab::Factions, "Factions"),
+            (Tab::Journal, "Journal"),
+            (Tab::Dialog(talk), "Conversation"),
+            (Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap()), "Script"),
+            (Tab::Resources, "Resources"),
+            (Tab::Palette, "Palettes"),
+            (Tab::Manual, "Manual"),
+        ] {
+            h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+            look(&mut h, what);
+            if std::env::var("DEBUG_DOCK").is_ok() && size.x == 800.0 && what == "Script" {
+                for (path, leaf) in h.state().dock.iter_leaves() {
+                    println!(
+                        "leaf {path:?} rect {:?} tabs {:?} active {:?}",
+                        leaf.rect,
+                        leaf.tabs.len(),
+                        leaf.active
+                    );
+                }
+            }
+        }
+        // Windows.
+        let settings = h.state().settings.clone();
+        h.state_mut().options = Some(mg_ui::OptionsDraft::from_settings(&settings));
+        look(&mut h, "Options Folders");
+        for page in
+            ["Area", "General", "Script Editor", "Conversation Editor", "Sounds", "Language"]
+        {
+            assert!(button(&h, page), "{page}");
+            look(&mut h, &format!("Options {page}"));
+        }
+        h.state_mut().options = None;
+        h.state_mut().about = true;
+        look(&mut h, "About");
+        h.state_mut().about = false;
+        h.state_mut().build = Some(Default::default());
+        look(&mut h, "Build Module");
+        h.state_mut().build = None;
+        h.state_mut().find_instance = Some(Default::default());
+        look(&mut h, "Find Instance");
+        h.state_mut().find_instance = None;
+        h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+        look(&mut h, "Area Wizard");
+        h.state_mut().wizard = None;
+        // Wizards, page by page while Next leads on.
+        for kind in mg_ui::blueprint_wizard::KINDS {
+            h.state_mut().blueprint_wizard =
+                Some(mg_ui::blueprint_wizard::BlueprintWizard::new(kind));
+            for step in 0..8 {
+                look(&mut h, &format!("{kind:?} Wizard, page {step}"));
+                if !button(&h, "Next >") {
+                    break;
+                }
+                h.run();
+            }
+            h.state_mut().blueprint_wizard = None;
+        }
+        h.state_mut().creature_wizard = Some(Default::default());
+        h.run();
+        for step in 0..8 {
+            if step == 1 {
+                assert!(button(&h, "Human"));
+                h.run();
+            }
+            look(&mut h, &format!("Creature Wizard, page {step}"));
+            if !button(&h, "Next >") {
+                break;
+            }
+            h.run();
+        }
+        h.state_mut().creature_wizard = None;
+    }
+    assert!(found.is_empty(), "drawn over each other:\n{}", found.join("\n"));
+}
+
+#[test]
+fn tabs_open_beside_the_palette_not_in_its_pane() {
+    let dir = mg_testkit::scratch_dir("ui-tab-panes");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let script = Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    for tab in [Tab::Palette, Tab::Manual, script.clone(), Tab::Factions] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run();
+    }
+    let dock = &h.state().dock;
+    let pane = |t: &Tab| dock.find_tab(t).map(|p| (p.surface, p.node));
+    let palette = pane(&Tab::Palette).unwrap();
+    for t in [Tab::Manual, script, Tab::Factions] {
+        assert_ne!(pane(&t), Some(palette), "{t:?} opened in the palette's pane");
+    }
+}
+
+#[test]
+fn the_log_shrinks_to_one_line() {
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run();
+    let line = h.ctx.global_style().text_styles[&egui::TextStyle::Monospace].size;
+    let entry = |h: &Harness<'_, Moonglow>| h.get_by_label_contains("No Neverwinter Nights").rect();
+    let status = h.get_by_label("No module").rect();
+    // The panel's top edge, just above its first line: drag it far down.
+    let top = entry(&h).top() - 3.0;
+    let x = 500.0;
+    h.event(egui::Event::PointerMoved(egui::pos2(x, top)));
+    h.run();
+    let button = egui::PointerButton::Primary;
+    let modifiers = egui::Modifiers::NONE;
+    h.event(egui::Event::PointerButton {
+        pos: egui::pos2(x, top),
+        button,
+        pressed: true,
+        modifiers,
+    });
+    h.run();
+    for y in [top + 40.0, top + 120.0, status.top() - 2.0] {
+        h.event(egui::Event::PointerMoved(egui::pos2(x, y)));
+        h.run();
+    }
+    let end = egui::pos2(x, status.top() - 2.0);
+    h.event(egui::Event::PointerButton { pos: end, button, pressed: false, modifiers });
+    h.run();
+    // About a line between the log's first line and the status bar (three
+    // lines' room was the least it would take).
+    let room = status.top() - entry(&h).top();
+    assert!(room < 2.0 * line + 12.0, "the log keeps {room} points (a line is {line})");
 }
