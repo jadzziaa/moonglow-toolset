@@ -4144,3 +4144,66 @@ fn creature_items_can_be_dropable_and_pickpocketable() {
     h.run();
     assert_eq!(flag(&mut h, "Pickpocketable"), Some(1));
 }
+
+#[test]
+fn unsaved_work_survives_a_crash() {
+    let dir = mg_testkit::scratch_dir("ui-recovery");
+    let path = sample_module(&dir);
+    let recovery = dir.join("recovery");
+    let tag = |app: &mut Moonglow| -> Vec<u8> {
+        let key = ResKey::parse("module", ResType::IFO).unwrap();
+        app.ws.as_mut().unwrap().doc(&key).unwrap().root.string("Mod_Tag").unwrap().to_vec()
+    };
+    // A session edits the module, its copy is written, then it "crashes".
+    {
+        let mut app = app_with(Vec::new());
+        app.recovery_dir = Some(recovery.clone());
+        app.open_module(&path);
+        let edit = mg_edit::Edit::SetField {
+            key: ResKey::parse("module", ResType::IFO).unwrap(),
+            path: mg_edit::GffPath::root(),
+            label: "Mod_Tag".into(),
+            value: Some(mg_gff::Value::String(b"RECOVERED".to_vec())),
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("tag", vec![edit])));
+        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        let copy = h.state_mut().write_recovery().unwrap();
+        assert!(copy.starts_with(&recovery) && copy.is_file());
+    }
+    // The next session offers it back; Recover opens it as the module.
+    let mut app = app_with(Vec::new());
+    app.recovery_dir = Some(recovery.clone());
+    app.find_recoveries();
+    assert_eq!(app.recoveries.len(), 1);
+    assert_eq!(app.recoveries[0].note.module.as_deref(), Some(path.as_path()));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Recover Unsaved Work");
+    h.get_by_label("Recover").click();
+    h.run();
+    assert_eq!(tag(h.state_mut()), b"RECOVERED");
+    assert!(h.state().ws.as_ref().unwrap().is_modified(), "not saved yet");
+    assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+    // Saving writes it to the module and removes the copy.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(mg_ui::recovery::find(&recovery).is_empty());
+    let saved = Module::open(&path).unwrap();
+    let ifo = saved.gff(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap().unwrap();
+    assert_eq!(ifo.root.string("Mod_Tag"), Some(&b"RECOVERED"[..]));
+}
+
+#[test]
+fn closing_without_saving_leaves_no_copy() {
+    let dir = mg_testkit::scratch_dir("ui-recovery-close");
+    let path = sample_module(&dir);
+    let recovery = dir.join("recovery");
+    let mut app = app_with(Vec::new());
+    app.recovery_dir = Some(recovery.clone());
+    app.open_module(&path);
+    app.write_recovery().unwrap();
+    assert_eq!(mg_ui::recovery::find(&recovery).len(), 1);
+    app.close();
+    assert!(mg_ui::recovery::find(&recovery).is_empty());
+}

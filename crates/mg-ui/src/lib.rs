@@ -26,6 +26,7 @@ pub mod model_view;
 pub mod module_props;
 mod options;
 pub mod palette_view;
+pub mod recovery;
 pub mod script_tools;
 mod script_view;
 pub mod script_wizard;
@@ -240,6 +241,13 @@ pub struct Moonglow {
     /// Where conversation backups go (Options › Conversation Editor), a
     /// folder per module: the temporary folder's `moonglow-backups`.
     pub conversation_backups: std::path::PathBuf,
+    /// Where recovery copies of unsaved work go (Options › General); none
+    /// until the desktop app gives its data folder.
+    pub recovery_dir: Option<std::path::PathBuf>,
+    autosave: recovery::Autosave,
+    /// Recovery copies a session that did not end left (Recover Unsaved
+    /// Work).
+    pub recoveries: Vec<recovery::Copy>,
     /// Where Print writes the pages it opens in the browser.
     pub print_dir: std::path::PathBuf,
     /// When conversations were last backed up, and what was written.
@@ -326,6 +334,9 @@ impl Moonglow {
             quit_requested: false,
             minimize_requested: false,
             conversation_backups: std::env::temp_dir().join("moonglow-backups"),
+            recovery_dir: None,
+            autosave: Default::default(),
+            recoveries: Vec::new(),
             print_dir: std::env::temp_dir().join("moonglow-print"),
             dialog_backup_at: None,
             dialog_backed_up: HashMap::new(),
@@ -393,6 +404,8 @@ impl Moonglow {
             self.dock = dock;
         });
         self.backup_timer(ui);
+        self.autosave_timer(ui);
+        recovery::window(self, ui);
         // The area view's sounds go on between frames.
         let heard = self.heard.take();
         if area_audio::update(self, heard, ui.input(|i| i.time)) {
@@ -863,6 +876,8 @@ impl Moonglow {
 
     /// Closes the module (discarding unsaved changes; the caller asks first).
     pub fn close(&mut self) {
+        // Closed (saved, or its changes discarded): no recovery copy.
+        self.forget_recovery();
         self.ws = None;
         self.scripts.clear();
         self.buffers.clear();
@@ -1052,7 +1067,11 @@ impl Moonglow {
             Action::CompileScripts => self.compile_scripts(),
             Action::Verify => self.verify(),
             Action::TestModule => self.test_module(),
-            Action::Quit => self.quit_requested = true,
+            Action::Quit => {
+                // Saved or discarded by now: no recovery copy.
+                self.forget_recovery();
+                self.quit_requested = true;
+            }
         }
     }
 
@@ -1171,9 +1190,7 @@ impl Moonglow {
                 } else {
                     ModuleLocation::Folder(p)
                 };
-                ws.flush()
-                    .map_err(|e| e.to_string())
-                    .and_then(|_| ws.module.save_as(&loc).map_err(|e| e.to_string()))
+                ws.save_as(&loc).map_err(|e| e.to_string())
             }
             None if ws.module.location.is_none() => {
                 self.run_now(Action::SaveAsDialog);
@@ -1186,6 +1203,7 @@ impl Moonglow {
                 let path = self.module_path().unwrap_or_default();
                 self.log.info(format!("Saved {}", path.display()));
                 self.settings.remember(&path);
+                self.forget_recovery();
             }
             Err(e) => self.log.error(format!("Save failed: {e}")),
         }

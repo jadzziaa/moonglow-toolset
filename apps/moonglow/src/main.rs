@@ -77,7 +77,31 @@ impl eframe::App for App {
     }
 }
 
+/// On a crash, a report in Moonglow's data folder (`crash-<time>.txt`):
+/// the message, where, and the backtrace; the unsaved work is in the
+/// recovery copy.
+fn crash_reports() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default(info);
+        let Some(dir) = mg_ui::recovery::data_dir() else { return };
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        let report = format!(
+            "Moonglow Toolset {} crashed.\n\n{info}\n\nBacktrace:\n{}\n",
+            env!("CARGO_PKG_VERSION"),
+            std::backtrace::Backtrace::force_capture()
+        );
+        let path = dir.join(format!("crash-{time}.txt"));
+        if std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, report)).is_ok() {
+            eprintln!("A crash report was written to {}", path.display());
+        }
+    }));
+}
+
 fn main() -> eframe::Result<()> {
+    crash_reports();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
@@ -108,6 +132,10 @@ fn main() -> eframe::Result<()> {
             if let Some(rs) = &cc.wgpu_render_state {
                 moonglow.set_render_state(rs.clone());
             }
+            // Recovery copies of unsaved work go to Moonglow's data folder;
+            // those a crashed session left are offered back.
+            moonglow.recovery_dir = mg_ui::recovery::data_dir().map(|d| d.join("recovery"));
+            moonglow.find_recoveries();
             // Sounds play when there is an output device.
             if let Some(s) = speakers::Speakers::open() {
                 moonglow.speaker = Box::new(s);

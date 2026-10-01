@@ -48,6 +48,11 @@ pub struct Settings {
     /// Options > General: Create backups of modules off (Aurora's default:
     /// on; the module as it was kept as `<name>.BackupMod` at each save).
     pub no_backups: bool,
+    /// Options > General: Keep recovery copies of unsaved work, off (on by
+    /// default; Moonglow's, Aurora has none).
+    pub no_autosave: bool,
+    /// Every so many minutes (`None`: 5).
+    pub autosave_minutes: Option<u32>,
     /// Options > General: Show reserved Blueprint ResRef namespace warning,
     /// off.
     pub no_namespace_warning: bool,

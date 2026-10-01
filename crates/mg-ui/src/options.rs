@@ -36,6 +36,8 @@ pub struct OptionsDraft {
     pub build_on_save: bool,
     pub minimize_on_test: bool,
     pub backups: bool,
+    pub autosave: bool,
+    pub autosave_minutes: u32,
     pub hak_warning: bool,
     pub namespace_warning: bool,
     pub spell_warning: bool,
@@ -84,6 +86,8 @@ impl OptionsDraft {
             build_on_save: s.build_on_save,
             minimize_on_test: s.minimize_on_test,
             backups: !s.no_backups,
+            autosave: !s.no_autosave,
+            autosave_minutes: s.autosave_minutes.unwrap_or(5),
             hak_warning: !s.no_hak_warning,
             namespace_warning: !s.no_namespace_warning,
             spell_warning: !s.no_spell_warning,
@@ -122,6 +126,9 @@ impl OptionsDraft {
             build_on_save: self.build_on_save,
             minimize_on_test: self.minimize_on_test,
             no_backups: !self.backups,
+            no_autosave: !self.autosave,
+            autosave_minutes: (self.autosave_minutes != 5)
+                .then_some(self.autosave_minutes.clamp(1, 120)),
             no_hak_warning: !self.hak_warning,
             no_namespace_warning: !self.namespace_warning,
             no_spell_warning: !self.spell_warning,
@@ -249,6 +256,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.checkbox(&mut draft.build_on_save, "Build module on save")
                             .on_hover_text("Run Build Module (with its defaults) before saving");
                         ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
+                        ui.horizontal(|ui| {
+                            ui.checkbox(
+                                &mut draft.autosave,
+                                "Keep a recovery copy of unsaved work every",
+                            )
+                            .on_hover_text(
+                                "In Moonglow's data folder; offered back after a crash \
+                                     (Recover Unsaved Work)",
+                            );
+                            ui.add_enabled(
+                                draft.autosave,
+                                egui::DragValue::new(&mut draft.autosave_minutes).range(1..=120),
+                            );
+                            ui.label("minutes");
+                        });
                         ui.add_space(8.0);
                         ui.checkbox(
                             &mut draft.namespace_warning,
@@ -582,6 +604,18 @@ mod tests {
         let t = d.apply(&s);
         assert!(t.dialog_hide_names);
         assert_eq!((t.dialog_pc_color, t.dialog_npc_color), (Some([1, 2, 3]), None));
+    }
+
+    #[test]
+    fn autosave_is_on_every_five_minutes_by_default() {
+        let s = Settings::default();
+        let mut d = OptionsDraft::from_settings(&s);
+        assert!(d.autosave);
+        assert_eq!(d.autosave_minutes, 5);
+        (d.autosave, d.autosave_minutes) = (false, 10);
+        let t = d.apply(&s);
+        assert!(t.no_autosave);
+        assert_eq!(t.autosave_minutes, Some(10));
     }
 
     #[test]

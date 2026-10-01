@@ -360,6 +360,27 @@ impl Workspace {
         self.changes_since_save = 0;
         Ok(())
     }
+
+    /// Flushes and saves the module to another place, which becomes its
+    /// location.
+    pub fn save_as(&mut self, location: &mg_module::ModuleLocation) -> Result<(), EditError> {
+        self.flush()?;
+        self.module.save_as(location)?;
+        self.changes_since_save = 0;
+        Ok(())
+    }
+
+    /// The module as it is now, edits included (for a recovery copy).
+    pub fn snapshot(&mut self) -> Result<Module, EditError> {
+        self.flush()?;
+        Ok(self.module.clone())
+    }
+
+    /// Counts the module as changed since it was saved (recovered work
+    /// that is not in its file yet).
+    pub fn mark_modified(&mut self) {
+        self.changes_since_save = self.changes_since_save.max(1);
+    }
 }
 
 #[cfg(test)]
