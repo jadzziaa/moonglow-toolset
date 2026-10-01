@@ -68,6 +68,17 @@ struct Shown {
     bounds: (Vec3, Vec3),
 }
 
+/// What an area's loaded models use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Usage {
+    pub tile_models: usize,
+    pub object_models: usize,
+    pub meshes: usize,
+    pub triangles: usize,
+    pub buffer_bytes: u64,
+    pub textures: usize,
+}
+
 /// An area's models, loaded. Models are kept by name (tiles) and by
 /// preview (objects), so that updating the scene after an edit loads only
 /// what is new.
@@ -295,6 +306,43 @@ impl AreaScene {
     /// Whether the area has a skybox model loaded.
     pub fn has_sky(&self) -> bool {
         self.sky.is_some()
+    }
+
+    /// What the loaded models use (Area Statistics): distinct tile and
+    /// object models, their meshes and triangles, the GPU memory of their
+    /// vertex and index buffers, and the distinct textures they name.
+    pub fn usage(&self) -> Usage {
+        let mut models: Vec<&Arc<GpuModel>> = Vec::new();
+        let tiles: Vec<&Arc<Loaded>> = {
+            let mut t: Vec<&Arc<Loaded>> = self.tiles.iter().flatten().collect();
+            t.sort_by_key(|l| Arc::as_ptr(l));
+            t.dedup_by_key(|l| Arc::as_ptr(l));
+            t
+        };
+        models.extend(tiles.iter().map(|l| &l.gpu));
+        let mut objects: Vec<&Arc<Shown>> = self.objects.iter().flatten().collect();
+        objects.sort_by_key(|s| Arc::as_ptr(s));
+        objects.dedup_by_key(|s| Arc::as_ptr(s));
+        for o in &objects {
+            models.extend(o.composed.models());
+        }
+        let mut u =
+            Usage { tile_models: tiles.len(), object_models: objects.len(), ..Usage::default() };
+        let mut textures: Vec<&str> = Vec::new();
+        for m in models {
+            for mesh in &m.meshes {
+                u.meshes += 1;
+                u.triangles += mesh.index_count as usize / 3;
+                u.buffer_bytes += mesh.vertices.size() + mesh.indices.size();
+                if let Some(t) = &mesh.material.texture {
+                    textures.push(t);
+                }
+            }
+        }
+        textures.sort_unstable();
+        textures.dedup();
+        u.textures = textures.len();
+        u
     }
 
     /// How many distinct looks the objects have (each loaded once).

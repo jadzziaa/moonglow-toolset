@@ -116,6 +116,10 @@ pub struct AreaView {
     pub(crate) crossing: Vec<((u32, u32), usize)>,
     /// Where the crosser drag's pointer was last (on the ground).
     pub(crate) crossing_at: Option<Vec3>,
+    /// The walkmesh is drawn over the view (Aurora's Render AABB Nodes).
+    pub walkmesh: bool,
+    /// surfacemat.2da's `Walk` by row, read once.
+    walkable: Option<Vec<bool>>,
     /// Tiles are selected rather than objects (Aurora's Select Terrain).
     pub tile_mode: bool,
     /// The selected tiles (column, row).
@@ -170,6 +174,8 @@ impl AreaView {
             spot: None,
             crossing: Vec::new(),
             crossing_at: None,
+            walkmesh: false,
+            walkable: None,
             tile_mode: false,
             tile_selection: Vec::new(),
             tile_box: None,
@@ -409,6 +415,8 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         ui.toggle_value(&mut view.night, "Night").on_hover_text("Show the area at night");
         ui.toggle_value(&mut view.fog, "Fog");
         ui.toggle_value(&mut view.grid, "Grid").on_hover_text("Display Grid");
+        ui.toggle_value(&mut view.walkmesh, "Walkmesh")
+            .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
         if ui
             .toggle_value(&mut view.tile_mode, "Select Tiles")
             .on_hover_text("Select tiles rather than objects (Aurora's Select Terrain)")
@@ -570,11 +578,50 @@ fn viewport(
     view.rect = response.rect;
     let door_brush = brush(app).is_some_and(|k| k.restype == ResType::UTD);
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush);
+    walkmesh_overlay(app, ui, view);
     crate::terrain_mode::overlay(app, ui, view);
     crate::tile_select::overlay(ui, view);
     // Tiles animate: keep drawing while the view is on screen.
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     input(app, ui, view, &response);
+}
+
+/// The ground's walkmesh over the view: walkable faces (surfacemat.2da
+/// `Walk`) green, the others red.
+fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
+    if !view.walkmesh {
+        return;
+    }
+    if view.walkable.is_none() {
+        let walkable = app.game.as_ref().and_then(|g| g.table("surfacemat").ok()).map(|t| {
+            (0..t.len()).map(|r| t.get_int(r, "Walk").unwrap_or(0) != 0).collect::<Vec<bool>>()
+        });
+        view.walkable = Some(walkable.unwrap_or_default());
+    }
+    let (Some(ground), Some(walkable)) = (view.ground.as_ref(), view.walkable.as_ref()) else {
+        return;
+    };
+    let mut mesh = egui::Mesh::default();
+    let (walk, wall) = (
+        egui::Color32::from_rgba_unmultiplied(60, 200, 80, 70),
+        egui::Color32::from_rgba_unmultiplied(220, 60, 60, 70),
+    );
+    for (corners, material) in ground.faces() {
+        let lifted = corners.map(|c| c + Vec3::Z * 0.03);
+        let Some(points) =
+            lifted.iter().map(|c| view.screen_pos(*c)).collect::<Option<Vec<Pos2>>>()
+        else {
+            continue;
+        };
+        let color =
+            if walkable.get(material as usize).copied().unwrap_or(false) { walk } else { wall };
+        let first = mesh.vertices.len() as u32;
+        for p in points {
+            mesh.colored_vertex(p, color);
+        }
+        mesh.add_triangle(first, first + 1, first + 2);
+    }
+    ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
 }
 
 /// Markers for objects without models, outlines, the grid, the start
@@ -1690,4 +1737,50 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
     } else {
         format!("Added {first} to the palette")
     });
+}
+
+/// Area Statistics (Aurora's Resources Used): what the area's loaded
+/// models use.
+pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(area) = app.area_stats else { return };
+    let Some(view) = app.area_views.get(&area) else {
+        app.area_stats = None;
+        return;
+    };
+    let mut open = true;
+    let mut done = false;
+    egui::Window::new("Resources Used").open(&mut open).collapsible(false).resizable(false).show(
+        ctx,
+        |ui| {
+            ui.strong(area.to_string());
+            egui::Grid::new("usage").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
+                if let Some(m) = &view.model {
+                    ui.label("Tiles");
+                    ui.label(format!("{} ({} by {})", m.tiles.len(), m.width, m.height));
+                    ui.end_row();
+                    ui.label("Objects");
+                    ui.label(m.objects.len().to_string());
+                    ui.end_row();
+                }
+                if let Some(u) = view.scene.as_ref().map(|s| s.usage()) {
+                    for (label, value) in [
+                        ("Tile models", u.tile_models.to_string()),
+                        ("Object models", u.object_models.to_string()),
+                        ("Meshes", u.meshes.to_string()),
+                        ("Triangles", u.triangles.to_string()),
+                        ("Model memory", format!("{:.1} MB", u.buffer_bytes as f64 / 1048576.0)),
+                        ("Textures", u.textures.to_string()),
+                    ] {
+                        ui.label(label);
+                        ui.label(value);
+                        ui.end_row();
+                    }
+                }
+            });
+            done = ui.button("Done").clicked();
+        },
+    );
+    if !open || done {
+        app.area_stats = None;
+    }
 }

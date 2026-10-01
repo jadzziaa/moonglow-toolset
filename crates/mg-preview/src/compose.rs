@@ -65,6 +65,11 @@ fn place(
 }
 
 impl Composed {
+    /// The models it draws: the base, then the parts.
+    pub fn models(&self) -> impl Iterator<Item = &Arc<GpuModel>> {
+        std::iter::once(&self.base.gpu).chain(self.parts.iter().map(|p| &p.gpu))
+    }
+
     /// Loads the preview's models (`load` finds a model and its
     /// supermodels by name); `None` without a base model.
     pub fn new(

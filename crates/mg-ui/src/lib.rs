@@ -173,6 +173,8 @@ pub struct Moonglow {
     pub preview_window: bool,
     /// The Tile Properties window, while it is open.
     pub tile_props: Option<tile_select::TileProps>,
+    /// The area whose Area Statistics window is open.
+    pub area_stats: Option<mg_core::ResRef>,
     /// The Resize Area window, while it is open.
     pub resize_area: Option<area_reshape::ResizeDraft>,
     /// The Rotate Area window, while it is open.
@@ -251,6 +253,7 @@ impl Moonglow {
             object_clip: None,
             preview_window: false,
             tile_props: None,
+            area_stats: None,
             resize_area: None,
             rotate_area: None,
             palette: Default::default(),
@@ -334,6 +337,7 @@ impl Moonglow {
         area_tools::preview_window(self, ui);
         tile_select::window(self, ui.ctx());
         area_reshape::windows(self, ui.ctx());
+        area_view::stats_window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
@@ -513,6 +517,11 @@ impl Moonglow {
                 }
                 if ui.add_enabled(open, egui::Button::new("Verify Module")).clicked() {
                     self.actions.push(Action::Verify);
+                }
+                ui.separator();
+                let area = self.palette.area.filter(|a| self.area_views.contains_key(a));
+                if ui.add_enabled(area.is_some(), egui::Button::new("Area Statistics")).clicked() {
+                    self.area_stats = area;
                 }
             });
         });

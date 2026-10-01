@@ -2679,3 +2679,27 @@ fn resize_and_rotate_area_from_the_edit_menu() {
     h.run_steps(1);
     assert_eq!(size(&mut h), (4, 4, 16));
 }
+
+#[test]
+fn walkmesh_overlay_and_area_statistics() {
+    let Some((mut h, area)) = area_harness("stats") else { return };
+    h.get_by_label("Walkmesh").click();
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].walkmesh);
+    h.get_by_label("Build").click();
+    h.run_steps(2);
+    h.get_by_label("Area Statistics").click();
+    h.run_steps(3);
+    h.get_by_label("Resources Used");
+    h.get_by_label("Triangles");
+    h.get_by_label("16 (4 by 4)");
+    h.get_by_label("Done").click();
+    h.run_steps(2);
+    assert!(h.state().area_stats.is_none());
+    if std::env::var_os("MOONGLOW_SCREENS").is_some() {
+        let image = h.render().expect("render");
+        let out = mg_testkit::scratch_dir("screens-walkmesh").parent().unwrap().join("screens");
+        std::fs::create_dir_all(&out).unwrap();
+        image.save(out.join("walkmesh.png")).unwrap();
+    }
+}
