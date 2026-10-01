@@ -3,6 +3,12 @@
 //! animations and, for names it lacks, its supermodels' (nearest first).
 //! Keys interpolate linearly (orientations by slerp); a node the animation
 //! does not key keeps its rest transform.
+//!
+//! A time within an animation (0 to its length, inclusive) is taken as it
+//! is and later times wrap ([`time_in`]): an animation played once holds its
+//! last frame while its time stays at its length. [`blend`] makes the
+//! transition from one pose to another, as an animation starting from
+//! another over its `transtime`.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,8 +16,51 @@ use std::sync::Arc;
 use glam::{Mat4, Quat, Vec3};
 use mg_mdl::{AnimMeshSets, AnimNode, Animation, Controller, Mesh, Model};
 
-use crate::model::{GpuModel, Vertex, local};
+use crate::model::{GpuModel, Vertex};
 use crate::scene::MeshState;
+
+/// An animation's time at `t`: `t` within the animation (its length
+/// included), else wrapped (looping).
+pub fn time_in(anim: &Animation, t: f32) -> f32 {
+    if anim.length <= 0.0 {
+        0.0
+    } else if (0.0..=anim.length).contains(&t) {
+        t
+    } else {
+        t.rem_euclid(anim.length)
+    }
+}
+
+/// A node's transform relative to its parent.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Local {
+    pub position: Vec3,
+    pub rotation: Quat,
+    pub scale: f32,
+}
+
+impl Local {
+    /// From a model's position, orientation (x, y, z, w) and scale.
+    pub fn new(position: [f32; 3], orientation: [f32; 4], scale: f32) -> Local {
+        let q = Quat::from_array(orientation);
+        let rotation = if q.length_squared() > 1e-12 { q.normalize() } else { Quat::IDENTITY };
+        Local { position: Vec3::from(position), rotation, scale }
+    }
+
+    pub fn matrix(&self) -> Mat4 {
+        Mat4::from_scale_rotation_translation(Vec3::splat(self.scale), self.rotation, self.position)
+    }
+
+    /// `f` of the way to `other`: position and scale linearly, rotation by
+    /// slerp.
+    pub fn lerp(&self, other: &Local, f: f32) -> Local {
+        Local {
+            position: self.position.lerp(other.position, f),
+            rotation: self.rotation.slerp(other.rotation, f),
+            scale: self.scale + (other.scale - self.scale) * f,
+        }
+    }
+}
 
 /// A controller's value at `t` (clamped to its keys).
 pub fn sample(c: &Controller, t: f32) -> Vec<f32> {
@@ -59,17 +108,17 @@ pub fn animations(
 }
 
 /// The model-space transform of every node of `model` playing `anim` at
-/// time `t` (seconds, wrapped to the animation's length).
+/// time `t` (seconds; see [`time_in`]).
 pub fn pose(model: &Model, anim: &Animation, t: f32) -> Vec<Mat4> {
     pose_layers(model, &[anim], t)
 }
 
 /// The animation nodes of `layers` by node name (lower case), in layer
-/// order, each with `t` wrapped to its layer's length.
+/// order, each with its layer's time at `t`.
 fn keyed<'a>(layers: &[&'a Animation], t: f32) -> HashMap<String, Vec<(&'a AnimNode, f32)>> {
     let mut out: HashMap<String, Vec<_>> = HashMap::new();
     for a in layers {
-        let at = if a.length > 0.0 { t.rem_euclid(a.length) } else { 0.0 };
+        let at = time_in(a, t);
         for n in &a.nodes {
             if !n.controllers.is_empty() || n.anim_mesh.is_some() {
                 out.entry(n.name.to_ascii_lowercase()).or_default().push((n, at));
@@ -98,28 +147,63 @@ fn controllers<'a, 'b>(
 /// `day` and animation loops): each controller follows the last layer that
 /// keys it.
 pub fn pose_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Mat4> {
+    compose(model, &locals_layers(model, layers, t))
+}
+
+/// Every node's transform relative to its parent playing `anim` at `t`.
+pub fn locals(model: &Model, anim: &Animation, t: f32) -> Vec<Local> {
+    locals_layers(model, &[anim], t)
+}
+
+/// [`locals`] for several animations played together (see
+/// [`pose_layers`]).
+pub fn locals_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Local> {
     let by_name = keyed(layers, t);
-    let mut out: Vec<Mat4> = Vec::with_capacity(model.nodes.len());
-    for n in &model.nodes {
-        let (mut pos, mut orient, mut scale) = (n.position, n.orientation, n.scale);
-        if let Some(nodes) = by_name.get(&n.name.to_ascii_lowercase()) {
-            for (c, t) in controllers(nodes) {
-                let v = sample(c, t);
-                match (c.name.as_str(), v.len()) {
-                    ("position", 3) => pos = [v[0], v[1], v[2]],
-                    ("orientation", 4) => orient = [v[0], v[1], v[2], v[3]],
-                    ("scale", 1) => scale = v[0],
-                    _ => {}
+    model
+        .nodes
+        .iter()
+        .map(|n| {
+            let (mut pos, mut orient, mut scale) = (n.position, n.orientation, n.scale);
+            if let Some(nodes) = by_name.get(&n.name.to_ascii_lowercase()) {
+                for (c, t) in controllers(nodes) {
+                    let v = sample(c, t);
+                    match (c.name.as_str(), v.len()) {
+                        ("position", 3) => pos = [v[0], v[1], v[2]],
+                        ("orientation", 4) => orient = [v[0], v[1], v[2], v[3]],
+                        ("scale", 1) => scale = v[0],
+                        _ => {}
+                    }
                 }
             }
-        }
-        let l = local(pos, orient, scale);
-        out.push(match n.parent {
+            Local::new(pos, orient, scale)
+        })
+        .collect()
+}
+
+/// The rest pose's transforms relative to their parents.
+pub fn rest_locals(model: &Model) -> Vec<Local> {
+    model.nodes.iter().map(|n| Local::new(n.position, n.orientation, n.scale)).collect()
+}
+
+/// Model-space transforms from transforms relative to the parents.
+pub fn compose(model: &Model, locals: &[Local]) -> Vec<Mat4> {
+    let mut out: Vec<Mat4> = Vec::with_capacity(model.nodes.len());
+    for (i, n) in model.nodes.iter().enumerate() {
+        let l = locals.get(i).map_or(Mat4::IDENTITY, Local::matrix);
+        out.push(match n.parent.filter(|&p| p < i) {
             Some(p) => out[p] * l,
             None => l,
         });
     }
     out
+}
+
+/// A transition: each node `f` (0 to 1) of the way from one pose to
+/// another, relative to its parent (as when an animation starts from
+/// another over its `transtime`; the engine's exact blend is not measured).
+pub fn blend(from: &[Local], to: &[Local], f: f32) -> Vec<Local> {
+    let f = f.clamp(0.0, 1.0);
+    from.iter().zip(to).map(|(a, b)| a.lerp(b, f)).collect()
 }
 
 /// The lights of a model instance: its light nodes at their posed
@@ -327,6 +411,37 @@ mod tests {
         };
         let half = Quat::from_slice(&sample(&q, 0.5));
         assert!(half.angle_between(Quat::from_rotation_z(0.5)) < 1e-4);
+    }
+
+    #[test]
+    fn times_within_hold_and_past_wrap() {
+        let a = Animation { length: 2.0, ..Default::default() };
+        assert_eq!(time_in(&a, 2.0), 2.0, "the last frame, for playing once");
+        assert_eq!(time_in(&a, 2.5), 0.5);
+        assert_eq!(time_in(&a, -0.5), 1.5);
+        assert_eq!(time_in(&Animation::default(), 3.0), 0.0);
+    }
+
+    #[test]
+    fn transitions_blend_each_node_from_its_parent() {
+        let mut model = Model::default();
+        model.nodes.push(mg_mdl::Node::new("root", mg_mdl::NodeKind::Dummy));
+        let mut child = mg_mdl::Node::new("arm", mg_mdl::NodeKind::Dummy);
+        child.parent = Some(0);
+        child.position = [1.0, 0.0, 0.0];
+        model.nodes.push(child);
+        let rest = rest_locals(&model);
+        let mut turned = rest.clone();
+        turned[0].rotation = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        turned[1].scale = 3.0;
+        let half = blend(&rest, &turned, 0.5);
+        assert!(half[0].rotation.angle_between(Quat::from_rotation_z(std::f32::consts::FRAC_PI_4)) < 1e-5);
+        assert_eq!(half[1].scale, 2.0);
+        // The arm swings with the root, around it (not across).
+        let pose = compose(&model, &half);
+        let arm = pose[1].w_axis.truncate();
+        assert!((arm - Vec3::new(1.0, 1.0, 0.0).normalize()).length() < 1e-5, "{arm}");
+        assert_eq!(compose(&model, &blend(&rest, &turned, 7.0))[1], compose(&model, &turned)[1]);
     }
 
     #[test]

@@ -224,7 +224,7 @@ impl Particles {
         transform: Mat4,
     ) {
         let dt = dt.clamp(0.0, 0.25);
-        let t = anim.map_or(time, |a| if a.length > 0.0 { time.rem_euclid(a.length) } else { 0.0 });
+        let t = anim.map_or(time, |a| crate::anim::time_in(a, time));
         let at = anim.map(|a| (a, t));
         for e in &mut self.emitters {
             let node = &model.nodes[e.node];
@@ -397,7 +397,7 @@ impl Particles {
         transform: Mat4,
         view: Mat4,
     ) -> Vec<ParticleBatch> {
-        let t = anim.map_or(time, |a| if a.length > 0.0 { time.rem_euclid(a.length) } else { 0.0 });
+        let t = anim.map_or(time, |a| crate::anim::time_in(a, time));
         let at = anim.map(|a| (a, t));
         let inv_view = view.inverse();
         let eye = inv_view.w_axis.truncate();
@@ -543,7 +543,7 @@ impl Particles {
         pose: &[Mat4],
         transform: Mat4,
     ) -> Vec<Chunk> {
-        let t = anim.map_or(time, |a| if a.length > 0.0 { time.rem_euclid(a.length) } else { 0.0 });
+        let t = anim.map_or(time, |a| crate::anim::time_in(a, time));
         let at = anim.map(|a| (a, t));
         let mut out = Vec::new();
         for e in &self.emitters {
