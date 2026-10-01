@@ -823,6 +823,14 @@ fn arrange(s: &mut Struct, order: &[&str], parts: &[&str]) {
     s.fields.sort_by_key(rank);
 }
 
+/// An item as a placed object holds it (in its inventory, a store page or
+/// equipped), as Aurora writes it: the item blueprint's fields as placed, at
+/// −1, −1, −1 facing north; containers hold theirs. `id` is its struct id
+/// (its place in the list, or its equipment slot).
+pub fn held(p: &Placing<'_>, bp: &Struct, id: u32) -> Struct {
+    held_item(p, bp, id, 1)
+}
+
 /// An item as it is held (in an inventory, a store or equipped): its
 /// fields as placed, at −1, −1, −1 facing north; containers hold theirs.
 fn held_item(p: &Placing<'_>, bp: &Struct, id: u32, depth: u32) -> Struct {

@@ -647,13 +647,9 @@ pub(crate) fn instance_type(path: &GffPath) -> Option<ResType> {
 }
 
 /// The pages of a placed object's Properties: its blueprint's, less the
-/// blueprint's comments and (not yet for placed objects) inventories.
+/// blueprint's comments.
 pub(crate) fn instance_pages(t: ResType) -> Vec<&'static str> {
-    pages(t)
-        .iter()
-        .copied()
-        .filter(|p| !matches!(*p, "Comments" | "Inventory" | "Contents" | "Store"))
-        .collect()
+    pages(t).iter().copied().filter(|p| *p != "Comments").collect()
 }
 
 /// The Properties of the object at `path` in the document `key` (a

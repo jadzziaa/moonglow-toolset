@@ -2347,3 +2347,62 @@ fn preview_window_shows_the_chosen_blueprint() {
     h.get_by_label("plc_chest1");
     assert!(h.state().model_views.contains_key(&chest), "the 3D view");
 }
+
+#[test]
+fn placed_chest_holds_whole_items() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("held") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_ref().unwrap();
+        let data = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
+        let mut chest = Gff::read(&data).unwrap().root;
+        chest.set("HasInventory", mg_gff::Value::Byte(1));
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 30.0, 0.0], rotation: 0.0 };
+        let item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+        let path = mg_edit::GffPath::root().item("Placeable List", 0);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path }));
+    }
+    h.run_steps(3);
+    h.get_by_label("Inventory…").click();
+    h.run_steps(2);
+    type_into_hint(&mut h, "Find", "nw_it_torch001");
+    let torch = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::Button && n.label().is_some_and(|l| l == "Torch")
+    };
+    h.get(egui_kittest::kittest::by().predicate(torch)).click();
+    h.run_steps(2);
+    for _ in 0..2 {
+        h.get_by_label("Add Item").click();
+        h.run_steps(2);
+    }
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let chest = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[0].clone();
+    let items = chest.list("ItemList").unwrap();
+    let at: Vec<_> = items
+        .iter()
+        .map(|i| {
+            (
+                i.id,
+                i.resref("TemplateResRef").unwrap().to_string(),
+                i.integer("BaseItem").is_some(),
+                i.integer("Repos_PosX").unwrap(),
+                i.float("XPosition"),
+            )
+        })
+        .collect();
+    let whole = |id, x| (id, "nw_it_torch001".to_string(), true, x, Some(-1.0));
+    assert_eq!(at, [whole(0, 0), whole(1, 1)], "whole items, as Aurora holds them");
+    assert!(h.query_all_by_label("Torch").count() >= 2, "named by the items themselves");
+}

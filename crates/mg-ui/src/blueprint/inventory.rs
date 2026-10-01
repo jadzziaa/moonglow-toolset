@@ -23,7 +23,66 @@ pub(super) struct ItemFit {
     pub h: u32,
 }
 
+/// The item blueprint an inventory entry names: a blueprint's
+/// `InventoryRes`, or a placed object's whole item's `TemplateResRef`.
+pub(super) fn entry_resref(entry: &Struct) -> ResRef {
+    entry
+        .resref("InventoryRes")
+        .or_else(|| entry.resref("EquippedRes"))
+        .or_else(|| entry.resref("TemplateResRef"))
+        .unwrap_or(ResRef::EMPTY)
+}
+
 impl Form<'_> {
+    /// An entry's name: a whole item's own, else its blueprint's.
+    pub(super) fn entry_name(&self, entry: &Struct, names: &HashMap<ResRef, String>) -> String {
+        let own = entry
+            .locstring("LocalizedName")
+            .and_then(|ls| self.app.game.as_ref().and_then(|g| g.locstring(ls)))
+            .filter(|n| !n.is_empty());
+        let r = entry_resref(entry);
+        own.or_else(|| names.get(&r).cloned()).unwrap_or_else(|| r.to_string())
+    }
+
+    /// Where an inventory entry fits (a whole item's own base item, else
+    /// its blueprint's).
+    fn entry_fit(&mut self, entry: &Struct) -> ItemFit {
+        match entry.integer("BaseItem") {
+            Some(base) => self.base_item_fit(base),
+            None => self.item_fit(entry_resref(entry)),
+        }
+    }
+
+    fn base_item_fit(&self, base: i64) -> ItemFit {
+        let table = self.app.game.as_ref().and_then(|g| g.table("baseitems").ok());
+        let cell = |col: &str| {
+            let t = table.as_ref()?;
+            t.get_int(usize::try_from(base).ok()?, col).and_then(|v| u32::try_from(v).ok())
+        };
+        ItemFit {
+            panel: cell("StorePanel"),
+            w: cell("InvSlotWidth").unwrap_or(1).clamp(1, GRID_WIDTH),
+            h: cell("InvSlotHeight").unwrap_or(1).max(1),
+        }
+    }
+
+    /// The whole item a placed object holds for blueprint `resref` (`id`:
+    /// its struct id), as Aurora expands it; `None` if not found.
+    pub(super) fn held_item(&mut self, resref: ResRef, id: u32) -> Option<Struct> {
+        let bp = self.blueprint(BlueprintKind::Item, resref)?;
+        let game = self.app.game.as_ref()?;
+        let ws = self.app.ws.as_ref();
+        let item = |r: ResRef| -> Option<Struct> {
+            let k = ResKey::new(r, mg_core::ResType::UTI);
+            let data = ws
+                .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
+                .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+            mg_gff::Gff::read(&data).ok().map(|g| g.root)
+        };
+        let placing = mg_module::instances::Placing { game, item: &item };
+        Some(mg_module::instances::held(&placing, &bp, id))
+    }
+
     pub(super) fn item_fit(&mut self, resref: ResRef) -> ItemFit {
         let base = self.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
         let table = self.app.game.as_ref().and_then(|g| g.table("baseitems").ok());
@@ -41,11 +100,12 @@ impl Form<'_> {
     /// A new entry for `resref` in an inventory holding `items`: at the
     /// first free place, its struct id the list position (as Aurora writes
     /// them).
+    /// For a placed object, the whole item instead of its resref.
     pub(super) fn inventory_item(&mut self, items: &[Struct], resref: ResRef) -> Struct {
         let taken: Vec<_> = items
             .iter()
             .map(|it| {
-                let fit = self.item_fit(it.resref("InventoryRes").unwrap_or(ResRef::EMPTY));
+                let fit = self.entry_fit(it);
                 let x = it.integer("Repos_PosX").unwrap_or(0) as u32;
                 let y = it.integer("Repos_Posy").unwrap_or(0) as u32;
                 (x, y, fit.w, fit.h)
@@ -53,8 +113,16 @@ impl Form<'_> {
             .collect();
         let fit = self.item_fit(resref);
         let (x, y) = place(&taken, fit.w, fit.h);
-        let mut item = Struct::new(items.len() as u32);
-        item.set("InventoryRes", Value::resref(resref));
+        let id = items.len() as u32;
+        let mut item = if self.is_instance()
+            && let Some(whole) = self.held_item(resref, id)
+        {
+            whole
+        } else {
+            let mut entry = Struct::new(id);
+            entry.set("InventoryRes", Value::resref(resref));
+            entry
+        };
         item.set("Repos_PosX", Value::Word(x as u16));
         item.set("Repos_Posy", Value::Word(y as u16));
         item
@@ -81,7 +149,7 @@ pub(super) fn item_list(
     key: ResKey,
     path: &GffPath,
     items: &[Struct],
-    names: &HashMap<ResRef, String>,
+    name: &dyn Fn(&Struct) -> String,
     infinite: bool,
 ) -> Vec<(&'static str, Edit)> {
     let mut edits = Vec::new();
@@ -100,10 +168,8 @@ pub(super) fn item_list(
                     ui.label("");
                     ui.end_row();
                     for (i, it) in items.iter().enumerate() {
-                        let resref = it.resref("InventoryRes").unwrap_or(ResRef::EMPTY);
-                        let name =
-                            names.get(&resref).cloned().unwrap_or_else(|| resref.to_string());
-                        ui.label(name).on_hover_text(resref.to_string());
+                        let resref = entry_resref(it);
+                        ui.label(name(it)).on_hover_text(resref.to_string());
                         if infinite {
                             let mut on = it.integer("Infinite").unwrap_or(0) != 0;
                             if ui.checkbox(&mut on, "").changed() {

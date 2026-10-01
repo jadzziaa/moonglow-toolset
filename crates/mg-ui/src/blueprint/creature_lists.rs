@@ -380,8 +380,9 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 for (bit, slot) in SLOTS {
                     ui.label(slot);
                     let at = equipped.iter().position(|s| s.id == bit);
-                    let item = at.and_then(|i| equipped[i].resref("EquippedRes"));
-                    ui.label(item.map_or_else(|| "—".to_string(), name_of));
+                    let shown =
+                        at.map_or_else(|| "—".to_string(), |i| f.entry_name(&equipped[i], &names));
+                    ui.label(shown);
                     if ui
                         .add_enabled(chosen.is_some(), egui::Button::new("Equip").small())
                         .on_hover_text("Equip the item chosen in the palette")
@@ -400,15 +401,24 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             ui.separator();
             ui.strong("Backpack");
             let path = base.clone();
-            edits.extend(inventory::item_list(ui, key, &path, &backpack, &names, false));
+            let name = |it: &Struct| f.entry_name(it, &names);
+            edits.extend(inventory::item_list(ui, key, &path, &backpack, &name, false));
         });
     });
     if let (Some(bit), Some(r)) = (equip, chosen) {
         if item_slots(f, r) & bit == 0 {
             f.app.log.error(format!("{} does not go in that slot", name_of(r)));
         } else {
-            let mut s = Struct::new(bit);
-            s.set("EquippedRes", Value::resref(r));
+            // A placed creature holds the whole item; a blueprint its resref.
+            let s = if f.is_instance()
+                && let Some(whole) = f.held_item(r, bit)
+            {
+                whole
+            } else {
+                let mut s = Struct::new(bit);
+                s.set("EquippedRes", Value::resref(r));
+                s
+            };
             let mut e = Vec::new();
             // One item per slot; the list is kept in slot order.
             if let Some(i) = equipped.iter().position(|s| s.id == bit) {
