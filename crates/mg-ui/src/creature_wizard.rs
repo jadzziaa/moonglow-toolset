@@ -359,13 +359,19 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
             // The race's and gender's portraits as pictures, the chosen one
             // large beside them (as Select Portrait shows them).
             let list = portraits(game, w.race.unwrap_or(6), w.gender);
-            let per_row = 6;
+            // As many to a row as the window's width holds, beside the
+            // chosen one's large picture.
+            let preview = 140.0;
+            let width = (ui.available_width() - preview - 2.0 * ui.spacing().item_spacing.x)
+                .max(crate::images::PORTRAIT_THUMB + 40.0);
+            let (per_row, row_height) = crate::images::portrait_grid(ui, width);
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.set_width(per_row as f32 * 50.0 + 16.0);
+                    ui.set_width(width);
                     egui::ScrollArea::vertical()
                         .id_salt(("cw-portraits", w.race, w.gender))
-                        .show_rows(ui, 68.0, list.len().div_ceil(per_row), |ui, lines| {
+                        .auto_shrink([false, false])
+                        .show_rows(ui, row_height, list.len().div_ceil(per_row), |ui, lines| {
                             for line in lines {
                                 ui.horizontal(|ui| {
                                     for (row, base) in
@@ -373,7 +379,13 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                                     {
                                         let base = base.to_lowercase();
                                         let r = loader
-                                            .portrait(ui, &base, 'm', 40.0, egui::Sense::click())
+                                            .portrait(
+                                                ui,
+                                                &base,
+                                                'm',
+                                                crate::images::PORTRAIT_THUMB,
+                                                egui::Sense::click(),
+                                            )
                                             .on_hover_text(&base);
                                         if w.portrait == Some(*row) {
                                             ui.painter().rect_stroke(
@@ -392,7 +404,7 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                         });
                 });
                 ui.vertical(|ui| {
-                    ui.set_width(130.0);
+                    ui.set_width(preview);
                     let chosen = w.portrait.and_then(|p| list.iter().find(|(r, _)| *r == p));
                     if let Some((_, base)) = chosen {
                         let base = base.to_lowercase();

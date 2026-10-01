@@ -227,8 +227,10 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
             })
             .collect();
         let (mut ok, mut cancel) = (false, false);
+        // Most of the screen's width, the grid as many to a row as it holds.
+        let wide = (ui.ctx().content_rect().width() * 0.8).clamp(480.0, 900.0);
         let modal = egui::Modal::new(pick_id.with("modal")).show(ui.ctx(), |ui| {
-            ui.set_max_width(600.0);
+            ui.set_width(wide);
             ui.heading("Select Portrait");
             ui.horizontal(|ui| {
                 for (m, text) in [
@@ -266,16 +268,19 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
             });
             ui.separator();
             ui.horizontal_top(|ui| {
-                let per_row = 8;
-                let grid = egui::vec2(per_row as f32 * 50.0 + 16.0, 320.0);
+                let preview = 140.0;
+                let width = wide - preview - 2.0 * ui.spacing().item_spacing.x;
+                let (per_row, row_height) = crate::images::portrait_grid(ui, width);
+                let height = (ui.ctx().content_rect().height() * 0.55).clamp(320.0, 640.0);
+                let grid = egui::vec2(width, height);
                 let layout = egui::Layout::top_down(egui::Align::Min);
                 ui.allocate_ui_with_layout(grid, layout, |ui| {
-                    ui.set_max_width(grid.x);
+                    ui.set_width(grid.x);
                     egui::ScrollArea::vertical()
-                        .max_height(320.0)
+                        .max_height(height)
+                        .auto_shrink([false, true])
                         .id_salt(pick_id.with("grid"))
-                        .show_rows(ui, 68.0, rows.len().div_ceil(per_row), |ui, range| {
-                            ui.set_width(per_row as f32 * 50.0);
+                        .show_rows(ui, row_height, rows.len().div_ceil(per_row), |ui, range| {
                             for line in range {
                                 ui.horizontal(|ui| {
                                     for &r in rows.iter().skip(line * per_row).take(per_row) {
@@ -285,7 +290,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                                             ui,
                                             &b,
                                             'm',
-                                            40.0,
+                                            crate::images::PORTRAIT_THUMB,
                                             egui::Sense::click(),
                                         )
                                         .on_hover_text(b.as_str());
@@ -310,7 +315,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                         });
                 });
                 ui.vertical(|ui| {
-                    ui.set_width(140.0);
+                    ui.set_width(preview);
                     if let Some(b) = state.chosen.and_then(base) {
                         let b = b.to_lowercase();
                         if f.app.picture(ui.ctx(), &format!("po_{b}l")).is_some() {

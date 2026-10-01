@@ -267,6 +267,19 @@ impl Moonglow {
     }
 }
 
+/// A portrait thumbnail's width in a grid of them (Select Portrait, the
+/// Creature Wizard), points; it is 100/64 of that tall.
+pub(crate) const PORTRAIT_THUMB: f32 = 54.0;
+
+/// A grid of portrait thumbnails `width` points wide (a scroll bar
+/// included): how many to a row, and each row's height.
+pub(crate) fn portrait_grid(ui: &Ui, width: f32) -> (usize, f32) {
+    let gap = ui.spacing().item_spacing;
+    let usable = width - ui.spacing().scroll.bar_width - gap.x;
+    let per_row = ((usable + gap.x) / (PORTRAIT_THUMB + gap.x)).floor().max(1.0) as usize;
+    (per_row, PORTRAIT_THUMB * 100.0 / 64.0 + gap.y)
+}
+
 /// Draws an icon's layers over each other, `scale` times their size (the
 /// first layer's); the response of the whole.
 pub(crate) fn stacked(
