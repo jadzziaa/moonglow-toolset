@@ -86,6 +86,19 @@ pub(crate) struct Form<'a> {
 }
 
 /// The text in the editing language (Options › Language).
+/// The right-hand side of a page beside a palette: it scrolls (sideways
+/// too, in a narrow window) and keeps a gutter on its right, clear of the
+/// scroll bar, so its last column is never cut off.
+pub(crate) fn side_panel<R>(ui: &mut Ui, id: egui::Id, add: impl FnOnce(&mut Ui) -> R) -> R {
+    let gutter = egui::Margin { right: 14, ..Default::default() };
+    egui::ScrollArea::both()
+        .id_salt(id)
+        .show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(gutter).show(ui, |ui| ui.vertical(add).inner).inner
+        })
+        .inner
+}
+
 fn english(ls: &LocString) -> String {
     crate::text::edited_text(ls)
 }
