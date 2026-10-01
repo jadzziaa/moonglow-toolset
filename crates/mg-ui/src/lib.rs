@@ -25,6 +25,7 @@ pub mod script_tools;
 mod script_view;
 pub mod script_wizard;
 pub mod settings;
+pub mod store_wizard;
 mod tabs;
 pub mod terrain_mode;
 pub mod test_module;
@@ -179,6 +180,8 @@ pub struct Moonglow {
     pub tile_props: Option<tile_select::TileProps>,
     /// The Build Module window, while it is open.
     pub build: Option<build_view::BuildWindow>,
+    /// Setup Store (a creature's context menu).
+    pub store_wizard: Option<store_wizard::StoreWizard>,
     /// The area whose Area Statistics window is open.
     pub area_stats: Option<mg_core::ResRef>,
     /// The Resize Area window, while it is open.
@@ -270,6 +273,7 @@ impl Moonglow {
             tile_props: None,
             area_stats: None,
             build: None,
+            store_wizard: None,
             resize_area: None,
             rotate_area: None,
             palette: Default::default(),
@@ -359,6 +363,7 @@ impl Moonglow {
         area_reshape::windows(self, ui.ctx());
         area_view::stats_window(self, ui.ctx());
         build_view::window(self, ui.ctx());
+        store_wizard::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")

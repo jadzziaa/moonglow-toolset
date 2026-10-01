@@ -1472,6 +1472,12 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         create_waypoint(app, view, index, at);
         ui.close();
     }
+    if let Some((ObjectKind::Creature, index)) = single
+        && ui.button("Setup Store…").clicked()
+    {
+        crate::store_wizard::open(app, view.area, index);
+        ui.close();
+    }
     if all(ObjectKind::Waypoint) && ui.button("Create Set…").clicked() {
         view.set_name = Some(String::new());
         ui.close();

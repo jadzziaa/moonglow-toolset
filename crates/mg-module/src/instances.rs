@@ -905,6 +905,9 @@ fn item_fields(p: &Placing<'_>, bp: &Struct, depth: u32) -> Struct {
     held_list(p, &mut s, "ItemList", depth);
     let mut properties = s.list("PropertiesList").unwrap_or(&[]).to_vec();
     for property in &mut properties {
+        // Aurora writes every property's struct id as 0 (a few game
+        // blueprints have others: nw_storgenral003's items).
+        property.id = 0;
         arrange(property, PROPERTY_ORDER, &[]);
     }
     s.set("PropertiesList", Value::List(properties));

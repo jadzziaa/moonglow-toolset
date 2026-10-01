@@ -3077,3 +3077,74 @@ fn tab_indents_selected_lines_in_the_script_editor() {
     h.run();
     assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n}\n");
 }
+
+#[test]
+fn setup_store_makes_the_conversation_script_and_store() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Shop", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    // A hostile bandit at (5, 5).
+    let bp =
+        Gff::read(&game.resman.get(&ResKey::parse("nw_bandit001", ResType::UTC).unwrap()).unwrap())
+            .unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [5.0, 5.0, 0.0], rotation: 0.0 };
+    let bandit = instance(&placing, ResType::UTC, &bp.root, at, &[]).unwrap();
+    let git = ResKey::new(area, ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    g.root.set("Creature List", mg_gff::Value::List(vec![bandit]));
+    m.set_gff(git, &g).unwrap();
+    let path = mg_testkit::scratch_dir("ui-setup-store").join("shop.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    mg_ui::store_wizard::open(&mut app, area, 0);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Aurora's defaults; then a standard store, and Finish.
+    let w = h.state().store_wizard.clone().unwrap();
+    assert_eq!((w.dialog.as_str(), w.script.as_str()), ("store001", "openstore001"));
+    assert!(w.hostile, "the bandit's faction");
+    h.get_by_label("Next >").click();
+    h.run();
+    type_into_hint(&mut h, "Find", "nw_storethief001");
+    h.run();
+    h.get_by_label_contains("(nw_storethief001)").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    h.get_all_by_label("Finish").last().unwrap().click();
+    h.run();
+    assert!(h.state().store_wizard.is_none(), "{:?}", h.state().log.entries);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    for (name, t) in
+        [("store001", ResType::DLG), ("openstore001", ResType::NSS), ("openstore001", ResType::NCS)]
+    {
+        assert!(ws.module.contains(&ResKey::parse(name, t).unwrap()), "{name}.{t:?}");
+    }
+    let g = ws.doc(&git).unwrap();
+    let c = &g.root.list("Creature List").unwrap()[0];
+    assert_eq!(c.resref("Conversation"), Some(ResRef::from_str("store001").unwrap()));
+    assert_eq!(c.integer("FactionID"), Some(3), "Merchant");
+    let store = &g.root.list("StoreList").unwrap()[0];
+    assert_eq!(store.resref("ResRef"), Some(ResRef::from_str("nw_storethief001").unwrap()));
+    assert_eq!((store.float("XPosition"), store.float("YPosition")), (Some(5.0), Some(5.0)));
+}
