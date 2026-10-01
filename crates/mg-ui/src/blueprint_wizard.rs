@@ -420,7 +420,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.heading("Name");
                 ui.label("Please enter a name for the new blueprint");
                 let edit = egui::TextEdit::singleline(&mut w.name).hint_text("Name");
-                if ui.add(edit).changed() {
+                let field = ui.add(edit);
+                crate::widgets::autofocus(ui, &field);
+                if field.changed() {
                     w.named = true;
                 }
             }

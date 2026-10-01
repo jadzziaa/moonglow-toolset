@@ -1790,7 +1790,8 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         |ui| {
             ui.horizontal(|ui| {
                 ui.label("What is the name of the set?");
-                ui.add(egui::TextEdit::singleline(&mut name).hint_text("set name"));
+                let field = ui.add(egui::TextEdit::singleline(&mut name).hint_text("set name"));
+                crate::widgets::autofocus(ui, &field);
             });
             ui.horizontal(|ui| {
                 done = ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()

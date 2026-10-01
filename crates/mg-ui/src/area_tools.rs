@@ -266,7 +266,9 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
             });
             ui.end_row();
             ui.label("From Blueprint");
-            ui.add(egui::TextEdit::singleline(&mut f.template).hint_text("blueprint resref"));
+            let field =
+                ui.add(egui::TextEdit::singleline(&mut f.template).hint_text("blueprint resref"));
+            crate::widgets::autofocus(ui, &field);
             ui.end_row();
             ui.label("With Tag");
             ui.add(egui::TextEdit::singleline(&mut f.tag).hint_text("tag"));

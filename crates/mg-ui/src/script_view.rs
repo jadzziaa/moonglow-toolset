@@ -1022,7 +1022,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             |ui| {
                 egui::Grid::new("find-grid").num_columns(2).show(ui, |ui| {
                     ui.label("Find What");
-                    ui.text_edit_singleline(&mut s.find);
+                    let field = ui.text_edit_singleline(&mut s.find);
+                    crate::widgets::autofocus(ui, &field);
                     ui.end_row();
                     if s.replace_mode {
                         ui.label("Replace With");
@@ -1102,7 +1103,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         egui::Window::new("Save Script As").collapsible(false).resizable(false).show(&ctx, |ui| {
             ui.label("New name (up to 16 characters)");
-            ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
+            let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
+            crate::widgets::autofocus(ui, &field);
             let key = mg_core::ResRef::from_str(name.trim())
                 .ok()
                 .filter(|r| !r.is_empty())
@@ -1140,7 +1142,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         egui::Window::new("New Script").collapsible(false).resizable(false).show(&ctx, |ui| {
             ui.label("Name (up to 16 characters)");
-            ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
+            let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
+            crate::widgets::autofocus(ui, &field);
             let key = mg_core::ResRef::from_str(name.trim())
                 .ok()
                 .filter(|r| !r.is_empty())

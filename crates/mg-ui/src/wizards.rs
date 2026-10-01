@@ -68,7 +68,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Some(Wizard::NewModule { name }) => {
             window("New Module").show(&ctx, |ui| {
                 ui.label("Module name");
-                ui.text_edit_singleline(name);
+                let field = ui.text_edit_singleline(name);
+                crate::widgets::autofocus(ui, &field);
                 ui.horizontal(|ui| {
                     let ok = !name.trim().is_empty();
                     if ui.add_enabled(ok, egui::Button::new("Create")).clicked()
@@ -86,7 +87,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Some(Wizard::NewArea(w)) => {
             window("Area Wizard").show(&ctx, |ui| {
                 ui.label("Name");
-                ui.text_edit_singleline(&mut w.name);
+                let field = ui.text_edit_singleline(&mut w.name);
+                crate::widgets::autofocus(ui, &field);
                 ui.add_space(6.0);
                 ui.label("Tileset");
                 egui::Frame::group(ui.style()).show(ui, |ui| {

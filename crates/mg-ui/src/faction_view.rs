@@ -233,7 +233,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         egui::Window::new("Add Faction").collapsible(false).resizable(false).show(&ctx, |ui| {
             ui.label("Name");
-            ui.text_edit_singleline(&mut add.name);
+            let field = ui.text_edit_singleline(&mut add.name);
+            crate::widgets::autofocus(ui, &field);
             ui.checkbox(&mut add.global, "Global Effect");
             ui.label("Parent (its reputations are copied)");
             for p in 1..STANDARD.len() as u32 {
@@ -261,7 +262,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         egui::Window::new("Change Faction Name").collapsible(false).resizable(false).show(
             &ctx,
             |ui| {
-                ui.text_edit_singleline(&mut name);
+                let field = ui.text_edit_singleline(&mut name);
+                crate::widgets::autofocus(ui, &field);
                 ui.horizontal(|ui| {
                     if ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()
                         || (!name.trim().is_empty() && crate::widgets::enter(ui))

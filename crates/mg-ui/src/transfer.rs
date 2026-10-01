@@ -176,7 +176,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         window("Export Resources").show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Filter");
-                ui.text_edit_singleline(&mut draft.filter);
+                let field = ui.text_edit_singleline(&mut draft.filter);
+                crate::widgets::autofocus(ui, &field);
             });
             let filter = draft.filter.to_ascii_lowercase();
             egui::Frame::group(ui.style()).show(ui, |ui| {

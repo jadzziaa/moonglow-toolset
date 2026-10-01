@@ -441,7 +441,8 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
             egui::Grid::new("cw-name").num_columns(2).show(ui, |ui| {
                 ui.label("Name");
                 ui.end_row();
-                ui.text_edit_singleline(&mut w.first_name);
+                let field = ui.text_edit_singleline(&mut w.first_name);
+                crate::widgets::autofocus(ui, &field);
                 if ui.button("Random").clicked()
                     && let Some(n) = game.random_name(race, w.gender, false, &mut rng)
                 {

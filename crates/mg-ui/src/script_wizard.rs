@@ -944,11 +944,12 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                     Step::Page(i) => action_page(app, ui, &mut w, i),
                     Step::Name => {
                         ui.label("Enter the script name");
-                        ui.add(
+                        let field = ui.add(
                             egui::TextEdit::singleline(&mut w.name)
                                 .char_limit(16)
                                 .id_salt("wiz-name"),
                         );
+                        crate::widgets::autofocus(ui, &field);
                         let exists = ResRef::from_str(w.name.trim()).ok().is_some_and(|r| {
                             app.ws
                                 .as_ref()

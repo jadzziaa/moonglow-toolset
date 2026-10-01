@@ -4768,3 +4768,29 @@ fn enter_does_what_a_dialog_s_main_button_does() {
     assert!(h.state().ws.is_some(), "{:?}", h.state().log.entries);
     assert!(h.state().log.entries.iter().any(|(_, m)| m == "Created module moonglowTEST"));
 }
+
+#[test]
+fn dialogs_open_with_their_main_field_ready_to_type_in() {
+    let root = mg_testkit::corpus!();
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // New Module: typed straight away, no click, the name is replaced...
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("Typed".into()));
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().log.entries.iter().any(|(_, m)| m == "Created module Typed"));
+    // ...and the Area Wizard that follows takes its name the same way.
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("Glade".into()));
+    h.run();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    assert!(h.get_all_by_value("Glade").any(|n| is_input(&n)), "the area's name typed in");
+}

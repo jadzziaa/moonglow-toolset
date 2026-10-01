@@ -1086,7 +1086,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         ui.ctx(),
         |ui| {
             ui.label("Name (up to 16 characters)");
-            ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
+            let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
+            crate::widgets::autofocus(ui, &field);
             let key = ResRef::from_str(name.trim())
                 .ok()
                 .filter(|r| !r.is_empty())
@@ -1142,7 +1143,8 @@ fn search_pane(
     let s = &mut view.search;
     egui::Grid::new(("dlg-search", key)).num_columns(2).show(ui, |ui| {
         ui.label("Find What");
-        ui.text_edit_singleline(&mut s.find);
+        let field = ui.text_edit_singleline(&mut s.find);
+        crate::widgets::autofocus(ui, &field);
         ui.end_row();
         ui.label("Replace With");
         ui.text_edit_singleline(&mut s.replace);

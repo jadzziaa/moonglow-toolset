@@ -380,7 +380,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         window(&p.title).show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Filter");
-                ui.text_edit_singleline(&mut p.filter);
+                let field = ui.text_edit_singleline(&mut p.filter);
+                crate::widgets::autofocus(ui, &field);
             });
             let filter = p.filter.to_ascii_lowercase();
             let shown: Vec<ResRef> = p
@@ -528,6 +529,19 @@ pub(crate) fn two_columns(ui: &mut egui::Ui, min: f32, mut add: impl FnMut(&mut 
 pub(crate) fn enter(ui: &egui::Ui) -> bool {
     ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none())
         && ui.memory(|m| m.focused().is_none())
+}
+
+/// Gives a dialog's main field the keyboard when it appears (the dialog
+/// opening, a wizard reaching its page): a field shown this frame but not
+/// the one before. Later clicks elsewhere keep their focus.
+pub(crate) fn autofocus(ui: &egui::Ui, field: &egui::Response) {
+    let seen = field.id.with("autofocus");
+    let pass = ui.ctx().cumulative_pass_nr();
+    let last: Option<u64> = ui.data(|d| d.get_temp(seen));
+    ui.data_mut(|d| d.insert_temp(seen, pass));
+    if last.is_none_or(|l| l + 1 < pass) {
+        field.request_focus();
+    }
 }
 #[cfg(test)]
 mod tests {

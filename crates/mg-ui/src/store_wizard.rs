@@ -142,7 +142,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.heading("Conversation");
                 ui.label("Enter the conversation text for the shopkeeper.");
                 ui.label("What does the shopkeeper say when the conversation begins?");
-                ui.add(egui::TextEdit::multiline(&mut w.greeting).desired_rows(2));
+                let field = ui.add(egui::TextEdit::multiline(&mut w.greeting).desired_rows(2));
+                crate::widgets::autofocus(ui, &field);
                 ui.label("What does the player say when the player wishes to see the store?");
                 ui.text_edit_singleline(&mut w.yes);
                 ui.label("What does the player say when the player is not interested?");
@@ -338,7 +339,8 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
     });
     egui::Window::new("Add Popup Text").collapsible(false).resizable(false).show(ctx, |ui| {
         ui.label("Popup Text");
-        ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(4));
+        let field = ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(4));
+        crate::widgets::autofocus(ui, &field);
         ui.label("Conversation File");
         ui.add(egui::TextEdit::singleline(&mut p.name).char_limit(16));
         if exists {
