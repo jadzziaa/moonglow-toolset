@@ -2198,3 +2198,95 @@ fn doors_go_on_door_hooks() {
     assert!((d.float("Bearing").unwrap() + std::f32::consts::FRAC_PI_2).abs() < 1e-5);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Door, 0)]);
 }
+
+#[test]
+fn add_to_palette_create_waypoint_and_set() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("palette-add") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_ref().unwrap();
+        let read = |name: &str, t: ResType| {
+            Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+        };
+        let items = |r: ResRef| {
+            Gff::read(&game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?).ok().map(|g| g.root)
+        };
+        let placing = Placing { game, item: &items };
+        let mut edits = Vec::new();
+        for (name, t, x) in
+            [("plc_chest1", ResType::UTP, 12.0), ("nw_bandit001", ResType::UTC, 28.0)]
+        {
+            let at = Placement { position: [x, 30.0, 0.0], rotation: 0.0 };
+            let item = instance(&placing, t, &read(name, t), at, &[]).unwrap();
+            let (list, _) = mg_module::instances::git_list(t).unwrap();
+            edits.push(mg_edit::Edit::InsertItem {
+                key: git_key,
+                path: mg_edit::GffPath::root(),
+                list: list.into(),
+                index: 0,
+                item,
+            });
+        }
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let right_click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    let git = |h: &mut Harness<'_, Moonglow>| -> mg_gff::Struct {
+        h.state_mut().ws.as_mut().unwrap().doc(&git_key).unwrap().root.clone()
+    };
+
+    // Add to Palette on the chest: a new blueprint, which the chest names.
+    right_click(&mut h, Vec3::new(12.0, 30.0, 0.3));
+    h.get_by_label("Add to Palette").click();
+    h.run_steps(3);
+    let chest = git(&mut h).list("Placeable List").unwrap()[0].clone();
+    let new = chest.resref("TemplateResRef").unwrap();
+    assert!(new.to_string().starts_with("plc_chest"), "{new}");
+    let key = ResKey::new(new, ResType::UTP);
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&key), "the new blueprint");
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(key)).is_some(), "its editor opens");
+
+    // Create Waypoint on the bandit, where the menu was opened.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    h.run_steps(3);
+    right_click(&mut h, Vec3::new(28.0, 30.0, 0.9));
+    h.get_by_label("Create Waypoint").click();
+    h.run_steps(3);
+    let tag = String::from_utf8_lossy(
+        git(&mut h).list("Creature List").unwrap()[0].string("Tag").unwrap(),
+    )
+    .into_owned();
+    let waypoints = git(&mut h).list("WaypointList").unwrap().to_vec();
+    assert_eq!(waypoints.len(), 3);
+    assert_eq!(waypoints[2].string("Tag").unwrap(), format!("WP_{tag}_01").as_bytes());
+
+    // Create Set on the first two waypoints: Patrol_01, Patrol_02.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)];
+    right_click(&mut h, Vec3::new(20.0, 20.0, 0.9));
+    h.get_by_label("Create Set…").click();
+    h.run_steps(2);
+    type_into_hint(&mut h, "set name", "Patrol");
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let waypoints = git(&mut h).list("WaypointList").unwrap().to_vec();
+    assert_eq!(waypoints[0].string("Tag"), Some(&b"Patrol_01"[..]));
+    assert_eq!(waypoints[1].string("Tag"), Some(&b"Patrol_02"[..]));
+}

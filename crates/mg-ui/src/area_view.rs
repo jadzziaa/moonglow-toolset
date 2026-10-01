@@ -129,6 +129,8 @@ pub struct AreaView {
     menu_at: Option<Vec3>,
     /// A trigger or encounter whose outline is being drawn anew.
     pub redraw: Option<(ObjectKind, usize)>,
+    /// The Create Set window's name, while it is open.
+    pub set_name: Option<String>,
     targets: Option<(Targets, egui::TextureId)>,
     time: f32,
     last_frame: Option<f64>,
@@ -158,6 +160,7 @@ impl AreaView {
             pasting: false,
             menu_at: None,
             redraw: None,
+            set_name: None,
             targets: None,
             time: 0.0,
             last_frame: None,
@@ -345,6 +348,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     } else {
         viewport(app, ui, &mut view, start);
     }
+    set_window(app, ui, &mut view);
     app.area_views.insert(area, view);
 }
 
@@ -1279,6 +1283,23 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         }
     }
     if let Some((kind, index)) = single
+        && ui.button("Add to Palette").clicked()
+    {
+        add_to_palette(app, view, kind, index);
+        ui.close();
+    }
+    if let Some((ObjectKind::Creature, index)) = single
+        && let Some(at) = view.menu_at
+        && ui.button("Create Waypoint").clicked()
+    {
+        create_waypoint(app, view, index, at);
+        ui.close();
+    }
+    if all(ObjectKind::Waypoint) && ui.button("Create Set…").clicked() {
+        view.set_name = Some(String::new());
+        ui.close();
+    }
+    if let Some((kind, index)) = single
         && ui.button("Variables…").clicked()
     {
         let path = mg_edit::GffPath::root().item(kind.list(), index);
@@ -1390,4 +1411,159 @@ fn redraw_outline(
         value: Some(Value::List(points)),
     };
     app.actions.push(Action::Apply(Command::new("Redraw polygon", vec![edit])));
+}
+
+/// Every waypoint tag in the module's areas.
+fn waypoint_tags(app: &mut Moonglow) -> Vec<String> {
+    let Some(ws) = app.ws.as_mut() else { return Vec::new() };
+    let areas: Vec<ResRef> = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
+    let mut tags = Vec::new();
+    for a in areas {
+        let Ok(git) = ws.doc(&ResKey::new(a, ResType::GIT)) else { continue };
+        for w in git.root.list(ObjectKind::Waypoint.list()).unwrap_or(&[]) {
+            if let Some(t) = w.string("Tag") {
+                tags.push(String::from_utf8_lossy(t).into_owned());
+            }
+        }
+    }
+    tags
+}
+
+/// Aurora's Create Waypoint: one of the creature's walk waypoints
+/// (`WP_<its tag>_NN`) where the menu was opened.
+fn create_waypoint(app: &mut Moonglow, view: &mut AreaView, creature: usize, at: Vec3) {
+    let git = view.git();
+    let tags = waypoint_tags(app);
+    let Some(ws) = app.ws.as_mut() else { return };
+    let Ok(doc) = ws.doc(&git) else { return };
+    let tag = doc
+        .root
+        .list(ObjectKind::Creature.list())
+        .and_then(|l| l.get(creature))
+        .and_then(|c| c.string("Tag"))
+        .map(|t| String::from_utf8_lossy(t).into_owned())
+        .unwrap_or_default();
+    let index = doc.root.list(ObjectKind::Waypoint.list()).map_or(0, <[_]>::len);
+    let tag = mg_module::instances::set_tag(&format!("WP_{tag}"), &tags);
+    let item = mg_module::instances::walk_waypoint(&tag, at.to_array());
+    let edit = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: ObjectKind::Waypoint.list().into(),
+        index,
+        item,
+    };
+    app.actions.push(Action::Apply(Command::new("Create waypoint", vec![edit])));
+    view.selection = vec![(ObjectKind::Waypoint, index)];
+}
+
+/// Aurora's Create Set: the selected waypoints named `<name>_01`,
+/// `<name>_02`, … in the order they were selected.
+fn create_set(app: &mut Moonglow, view: &AreaView, name: &str) {
+    let mut tags = waypoint_tags(app);
+    let mut edits = Vec::new();
+    for &(kind, index) in &view.selection {
+        if kind != ObjectKind::Waypoint {
+            continue;
+        }
+        let tag = mg_module::instances::set_tag(name, &tags);
+        tags.push(tag.clone());
+        edits.push(mg_edit::Edit::SetField {
+            key: view.git(),
+            path: mg_edit::GffPath::root().item(kind.list(), index),
+            label: "Tag".into(),
+            value: Some(Value::String(tag.into_bytes())),
+        });
+    }
+    if !edits.is_empty() {
+        app.actions.push(Action::Apply(Command::new("Create set", edits)));
+    }
+}
+
+/// The Create Set window.
+fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
+    let Some(mut name) = view.set_name.take() else { return };
+    let mut open = true;
+    let mut done = false;
+    let mut cancel = false;
+    egui::Window::new("Create Set").collapsible(false).resizable(false).open(&mut open).show(
+        ui.ctx(),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.label("What is the name of the set?");
+                ui.add(egui::TextEdit::singleline(&mut name).hint_text("set name"));
+            });
+            ui.horizontal(|ui| {
+                done = ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked();
+                cancel = ui.button("Cancel").clicked();
+            });
+        },
+    );
+    if done {
+        create_set(app, view, name.trim());
+    } else if open && !cancel {
+        view.set_name = Some(name);
+    }
+}
+
+/// Aurora's Add to Palette: the object made into a new custom blueprint
+/// (with the items it holds), the object naming it; its editor opens.
+fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: usize) {
+    let git = view.git();
+    let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return };
+    let Some(placed) = ws
+        .doc(&git)
+        .ok()
+        .and_then(|g| g.root.list(kind.list()).and_then(|l| l.get(index)).cloned())
+    else {
+        return;
+    };
+    let module = &ws.module;
+    let original = |k: ResKey| -> Option<mg_gff::Struct> {
+        let data = module
+            .get(&k)
+            .map(<[u8]>::to_vec)
+            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+        Gff::read(&data).ok().map(|g| g.root)
+    };
+    let taken = |k: &ResKey| module.contains(k) || game.resman.get(k).is_ok();
+    let Some(added) =
+        mg_module::palette_add::add_to_palette(game, kind.restype(), &placed, &original, &taken)
+    else {
+        app.log.error("Add to Palette: no blueprint name is free");
+        return;
+    };
+    let mut edits = Vec::new();
+    for (key, gff) in &added.blueprints {
+        match gff.to_bytes() {
+            Ok(data) => edits.push(mg_edit::Edit::SetResource { key: *key, data: Some(data) }),
+            Err(e) => {
+                app.log.error(format!("{key}: {e}"));
+                return;
+            }
+        }
+    }
+    let path = mg_edit::GffPath::root();
+    edits.push(mg_edit::Edit::RemoveItem {
+        key: git,
+        path: path.clone(),
+        list: kind.list().into(),
+        index,
+    });
+    edits.push(mg_edit::Edit::InsertItem {
+        key: git,
+        path,
+        list: kind.list().into(),
+        index,
+        item: added.instance,
+    });
+    let first = added.blueprints[0].0;
+    let held = added.blueprints.len() - 1;
+    app.actions.push(Action::Apply(Command::new("Add to palette", edits)));
+    app.actions.push(Action::OpenTab(crate::Tab::Blueprint(first)));
+    app.log.info(if held > 0 {
+        format!("Added {first} to the palette, and the {held} items it holds")
+    } else {
+        format!("Added {first} to the palette")
+    });
 }

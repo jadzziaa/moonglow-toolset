@@ -1135,6 +1135,44 @@ pub fn instance(
     Some(s)
 }
 
+/// The waypoint Aurora's Create Waypoint makes for a creature (one of its
+/// walk waypoints): from no blueprint, facing north, at `position`.
+pub fn walk_waypoint(tag: &str, position: [f32; 3]) -> Struct {
+    let (_, id) = git_list(ResType::UTW).expect("waypoints have a list");
+    let mut s = Struct::new(id);
+    let text = |t: &str| Value::String(t.as_bytes().to_vec());
+    let none = || Value::LocString(LocString::default());
+    for (label, value) in [
+        ("Appearance", Value::Byte(1)),
+        ("LinkedTo", text("")),
+        ("TemplateResRef", Value::resref(ResRef::EMPTY)),
+        ("Tag", text(tag)),
+        ("LocalizedName", none()),
+        ("Description", none()),
+        ("HasMapNote", Value::Byte(0)),
+        ("MapNote", none()),
+        ("MapNoteEnabled", Value::Byte(0)),
+        ("XPosition", Value::Float(position[0])),
+        ("YPosition", Value::Float(position[1])),
+        ("ZPosition", Value::Float(position[2])),
+        ("XOrientation", Value::Float(0.0)),
+        ("YOrientation", Value::Float(1.0)),
+    ] {
+        s.set(label, value);
+    }
+    s
+}
+
+/// The tag of the next waypoint in a set named `name` (`<name>_01`, the
+/// first number not among `tags`): Create Waypoint's `WP_<creature tag>`
+/// and Create Set's names.
+pub fn set_tag(name: &str, tags: &[String]) -> String {
+    (1..1000)
+        .map(|n| format!("{name}_{n:02}"))
+        .find(|t| !tags.iter().any(|x| x.eq_ignore_ascii_case(t)))
+        .unwrap_or_else(|| format!("{name}_01"))
+}
+
 /// An outline's points as GIT structs.
 fn points(outline: &[[f32; 3]], id: u32, labels: [&str; 3]) -> Vec<Struct> {
     outline
