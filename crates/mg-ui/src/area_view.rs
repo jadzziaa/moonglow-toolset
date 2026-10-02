@@ -177,6 +177,8 @@ pub struct AreaView {
     /// The tileset brush's cursor as the last frame drew it: its shapes'
     /// points on the ground.
     pub brush_cursor: Vec<Vec<Vec3>>,
+    /// A terrain brush's drag: the corners it is painting.
+    pub(crate) terrain_drag: Option<crate::terrain_mode::TerrainDrag>,
     /// A trigger or encounter whose outline is being drawn anew.
     pub redraw: Option<(ObjectKind, usize)>,
     /// The Create Set window's name, while it is open.
@@ -244,6 +246,7 @@ impl AreaView {
             snap: (None, None),
             pointer: None,
             brush_cursor: Vec::new(),
+            terrain_drag: None,
             redraw: None,
             set_name: None,
             targets: None,

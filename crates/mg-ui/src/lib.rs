@@ -115,6 +115,9 @@ pub enum Action {
     /// An area's minimap, saved as a PNG.
     ExportMinimap(mg_core::ResRef),
     Apply(Command),
+    /// More edits to the last command (one undo reverts both): a terrain
+    /// brush's drag, corner by corner.
+    Amend(Vec<mg_edit::Edit>),
     OpenTab(Tab),
     /// Renames a blueprint (and points its editor at the new name).
     /// Build › Test Module, Choose Character: the game's character
@@ -1585,6 +1588,12 @@ impl Moonglow {
                     self.load_custom_tlk();
                 }
                 self.sync_haks();
+            }
+            Action::Amend(edits) => {
+                let Some(ws) = &mut self.ws else { return };
+                if let Err(e) = ws.amend(edits) {
+                    self.log.error(e.to_string());
+                }
             }
             Action::OpenTab(tab) => {
                 // A tab docked in an area's pane (Module Properties, docked

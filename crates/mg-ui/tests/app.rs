@@ -6759,3 +6759,48 @@ fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
     h.run_steps(3);
     assert!(shown(&h), "{first} is at the top of the list again");
 }
+
+#[test]
+fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("terrain-drag") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let water = index.terrain("Water").unwrap();
+    let lattice = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap().lattice
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    let before = lattice(&mut h);
+    // Dragged from corner (1, 2) to corner (3, 2), 10 m apart each.
+    let from = screen(&h, area, Vec3::new(10.0, 20.0, 0.0));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for x in [12.0, 16.0, 20.0, 24.0, 28.0, 30.0] {
+        h.hover_at(screen(&h, area, Vec3::new(x, 20.0, 0.0)));
+        h.run_steps(1);
+    }
+    let to = screen(&h, area, Vec3::new(30.0, 20.0, 0.0));
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(8);
+    let after = lattice(&mut h);
+    for x in 1..=3 {
+        assert_eq!(after.corner(x, 2).terrain, water, "corner ({x}, 2)");
+    }
+    assert_eq!(after.corner(0, 2).terrain, before.corner(0, 2).terrain);
+    // The drag is one command: one undo takes all of it back.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(lattice(&mut h), before);
+}
