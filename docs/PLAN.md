@@ -488,7 +488,11 @@ surveyed after 0.2.0):
      locked, `engine_locked.rs`);
    - a "Coming from Aurora" chapter.
 2. Tier 2, depth:
-   - script intelligence and `mg lsp`;
+   - script intelligence and `mg lsp` — done: definitions, references,
+     symbol rename and errors as you type in the editor and in `mg lsp`
+     (locals checked against the compiler's NDB for all 2,854,819
+     compiled functions of the game's and shipped modules' scripts);
+     incremental compiles not yet;
    - budgets at persistent-world scale;
    - the EE fields Aurora hides;
    - bulk editing;

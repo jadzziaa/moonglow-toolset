@@ -545,6 +545,60 @@ impl Index {
         None
     }
 
+    /// The names a script can use at `offset`: the locals and parameters in
+    /// scope, then every top-level declaration of its unit (engine names
+    /// last), each once.
+    pub fn completions(
+        &mut self,
+        file: &str,
+        offset: usize,
+        sources: &mut dyn Sources,
+    ) -> Vec<Declaration> {
+        let name = file.to_ascii_lowercase();
+        let mut out: Vec<Declaration> = Vec::new();
+        let mut seen = HashSet::new();
+        if let Some(f) = self.file(&name, sources) {
+            let mut locals: Vec<&Local> = f
+                .locals
+                .iter()
+                .filter(|l| l.decl.start <= offset && l.scope.contains(&offset))
+                .collect();
+            locals.sort_by_key(|l| std::cmp::Reverse(l.decl.start));
+            for l in locals {
+                if seen.insert(l.name.clone()) {
+                    out.push(Declaration {
+                        name: l.name.clone(),
+                        kind: l.kind,
+                        at: Location { file: name.clone(), span: l.decl.clone() },
+                        signature: format!("{} {}", l.ty, l.name),
+                        doc: String::new(),
+                    });
+                }
+            }
+        }
+        for f in self.unit(&name, sources) {
+            let names: Vec<String> = match self.file(&f, sources) {
+                Some(idx) => idx
+                    .outline
+                    .functions
+                    .iter()
+                    .map(|x| x.name.clone())
+                    .chain(idx.outline.globals.iter().map(|g| g.name.clone()))
+                    .chain(idx.outline.structs.iter().map(|s| s.name.clone()))
+                    .collect(),
+                None => continue,
+            };
+            for n in names {
+                if seen.insert(n.clone())
+                    && let Some(d) = self.top_level(&name, &n, sources)
+                {
+                    out.push(d);
+                }
+            }
+        }
+        out
+    }
+
     /// The declarations of a script itself, for an outline.
     pub fn symbols(&mut self, file: &str, sources: &mut dyn Sources) -> Vec<Declaration> {
         let name = file.to_ascii_lowercase();
@@ -650,5 +704,14 @@ mod tests {
         // Renaming the outer x to y clashes with the local y.
         assert!(idx.rename(&outer, "y", &files, &mut src).is_err());
         assert_eq!(idx.symbols("inc_math", &mut src).len(), 3);
+        let names: Vec<String> = idx
+            .completions("main", at(MAIN, "y = x +", 0), &mut src)
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        assert_eq!(&names[..2], ["y", "x"], "locals in scope first");
+        for n in ["Twice", "LIMIT", "Pair", "GetSelf", "TRUE"] {
+            assert!(names.contains(&n.to_string()), "{n}");
+        }
     }
 }

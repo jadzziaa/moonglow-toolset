@@ -37,7 +37,8 @@ What's there:
 - **Conversations, scripts, journal and factions**: the Conversation Editor
   with the Script Wizard, and the script editor with Beamdog's own NWScript
   compiler built in. Its output is byte-identical to `nwn_script_comp` on
-  33,196 scripts.
+  33,196 scripts. Go to definition, references, symbol rename and errors as
+  you type, also in VS Code, Neovim and other editors through `mg lsp`.
 - **Build, verify and test**: Build Module, Verify, missing and unused
   resources, and Test Module (F9) in the game.
 - **Version control**: modules kept as [nasher](https://github.com/squattingmonk/nasher)

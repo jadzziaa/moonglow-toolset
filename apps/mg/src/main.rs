@@ -5,6 +5,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod lsp;
+
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 use mg_core::{Codepage, ResType, StrRef};
@@ -93,6 +95,10 @@ enum Cmd {
         #[arg(long)]
         uncompiled: bool,
     },
+    /// An NWScript language server (the Language Server Protocol on standard
+    /// input and output) for VS Code, Neovim and other editors: errors as you
+    /// type, definitions, references, rename, hover, completion, outline.
+    Lsp,
     /// Where a resource (or, with --tag, a tag) is used in a module, and the
     /// script strings that spell it.
     Refs {
@@ -293,6 +299,17 @@ fn run(cli: Cli) -> Result<()> {
             }
             m.save()?;
             eprintln!("compiled {} scripts, {} failed", results.len() - failed.len(), failed.len());
+        }
+        Cmd::Lsp => {
+            // The game's scripts and nwscript.nss, if there is a game.
+            let game = match install(&cli) {
+                Ok(gi) => ResMan::for_game(&gi).ok(),
+                Err(e) => {
+                    eprintln!("mg lsp: {e:#}; only the workspace's scripts are known");
+                    None
+                }
+            };
+            lsp::serve(game)?;
         }
         Cmd::Refs { module, name, tag } => {
             let m = Module::open(module)?;

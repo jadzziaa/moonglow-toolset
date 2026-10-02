@@ -96,6 +96,10 @@ Moonglow's own.
 - **Completion in the script editor**: F2 or Ctrl+Space completes
   functions, constants and variables, from `nwscript.nss`, the script and
   its includes.
+- **Code navigation**: F12 (or Ctrl+click) goes to a name's definition,
+  Shift+F12 lists its uses, and Ctrl+Shift+R renames it everywhere. Errors
+  show as you type. `mg lsp` brings the same features to VS Code, Neovim
+  and other editors (see [Scripts](07-scripts.md)).
 - **Find In Files** searches every script in the module and can replace
   in all of them, including scripts with unsaved edits.
 - **Compiler messages**: click one to go to its line, also when the line

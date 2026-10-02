@@ -68,3 +68,53 @@ version is kept beside it (`mymodule.mod.bak`).
 
 It needs the game for `nwscript.nss` and the includes (`--root` or
 `NWN_ROOT`).
+
+## NWScript in other editors
+
+`mg lsp` is an NWScript language server: it gives VS Code, Neovim, Emacs,
+Helix and other editors that speak the Language Server Protocol the same
+help as Moonglow's script editor:
+- errors as you type, from the game's own compiler;
+- go to definition, find references and rename (across the workspace);
+- hover (a declaration and its comment);
+- completion;
+- each script's outline.
+
+It finds scripts in this order:
+1. the files open in the editor;
+2. the `.nss` files anywhere in the folder you open (a nasher project's
+   `src` included);
+3. the game's scripts.
+
+It finds the game as `mg` does (`--root`, `NWN_ROOT` or Steam's). Without
+the game it still works, but doesn't know `nwscript.nss` or the game's
+includes. Definitions in game scripts open read-only copies kept in your
+cache folder.
+
+To use it, tell your editor to run `mg lsp` for `.nss` files:
+- **Neovim** (0.11):
+
+  ```lua
+  vim.lsp.config('nwscript', { cmd = { 'mg', 'lsp' }, filetypes = { 'nwscript' }, root_markers = { 'nasher.cfg', '.git' } })
+  vim.filetype.add({ extension = { nss = 'nwscript' } })
+  vim.lsp.enable('nwscript')
+  ```
+
+- **Helix** (`languages.toml`):
+
+  ```toml
+  [language-server.mg]
+  command = "mg"
+  args = ["lsp"]
+
+  [[language]]
+  name = "nwscript"
+  scope = "source.nwscript"
+  file-types = ["nss"]
+  language-servers = ["mg"]
+  ```
+
+- **VS Code**: with an extension that starts a language server for a
+  file type, such as a generic "LSP client" extension, set its command to
+  `mg lsp` for `.nss`.
+

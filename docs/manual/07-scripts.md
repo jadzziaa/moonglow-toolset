@@ -24,16 +24,48 @@ Below the text, the **Compiler** messages: click one to go to its line.
 | F3 | find the next |
 | Ctrl+R | Replace |
 | F2, Ctrl+Space | complete the word at the cursor (functions, constants, variables) |
+| F12, Ctrl+click | go to the definition of the name at the cursor |
+| Shift+F12 | list where the name at the cursor is used |
+| Ctrl+Shift+R | rename the name at the cursor everywhere |
 | F5 | set or clear a bookmark on the line |
 | Ctrl+Shift+1 … 9 | set numbered bookmark 1 to 9 |
 | Ctrl+1 … 9 | go to numbered bookmark 1 to 9 |
 | F7 | compile all the module's scripts |
 
 **Find In Files** searches (and replaces in) every script in the module.
-**References** (on the toolbar) lists where the module runs or includes
-the script: objects' and areas' events, conversation lines, the module's
+**Used By** (on the toolbar) lists where the module runs or includes the
+script: objects' and areas' events, conversation lines, the module's
 events, `#include` lines. It also lists the strings in scripts that spell
 its name (`ExecuteScript("name", …)`).
+
+## Finding your way in code
+
+Moonglow knows what each name in a script stands for:
+- a local variable or parameter in scope;
+- a function, variable, constant or struct of the script itself;
+- one from its includes (in the order the compiler reads them);
+- one from `nwscript.nss`, the engine's own.
+
+On that:
+- **Definition** (F12, or Ctrl+click a name): opens where the name is
+  declared, at the line. For a function, that's its body if it has one.
+  A game script or `nwscript.nss` opens read-only, with the declaration's
+  comment in Help.
+- **References** (Shift+F12): every use of the name in the module's
+  scripts, listed in **Search Results**. Click one to go there. A local's
+  uses are only in its own block; a function's, only in scripts that
+  include the file it's in.
+- **Rename Symbol…** (Ctrl+Shift+R): renames a function, variable,
+  constant, struct, local or parameter everywhere it's used, as one step
+  Undo takes back. A name already taken, or one of the engine's, is
+  refused. Compiled scripts stay valid, since names aren't in them.
+
+**Errors as you type**: half a second after you stop typing, Moonglow
+compiles the script (an include file needs no `main`). The first error
+shows under the toolbar and its line is underlined.
+
+Struct members (`p.nX`) aren't followed. The same features are in other
+editors through `mg lsp` (see [Command-line tools](11-command-line.md)).
 
 The buttons:
 
