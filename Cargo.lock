@@ -2010,6 +2010,7 @@ dependencies = [
  "mg-testkit",
  "mg-tiles",
  "mg-tlk",
+ "regex-lite",
  "serde_json",
  "thiserror 2.0.21",
 ]

@@ -8,6 +8,13 @@
 //! (see `docs/research/notes_nasher.md`), so saving a module changes only the
 //! files of the resources that changed.
 
+mod cfg;
+mod glob;
+mod project;
+
+pub use cfg::{Package, Settings, Target};
+pub use project::{Project, Resources, SaveReport};
+
 use mg_core::{Codepage, ResType};
 use mg_gff::{Gff, TextStyle, from_json, to_json, to_json_text};
 

@@ -104,6 +104,16 @@ impl Codepage {
     pub const WINDOWS_1252: Codepage = Codepage(encoding_rs::WINDOWS_1252);
     pub const WINDOWS_1250: Codepage = Codepage(encoding_rs::WINDOWS_1250);
 
+    /// A codepage by its name (`windows-1252`, `cp1250`, `latin1`, ...).
+    pub fn for_label(label: &str) -> Option<Codepage> {
+        let label = label.trim();
+        let label = match label.to_ascii_lowercase().strip_prefix("cp") {
+            Some(n) if n.chars().all(|c| c.is_ascii_digit()) => format!("windows-{n}"),
+            _ => label.to_string(),
+        };
+        Encoding::for_label(label.as_bytes()).map(Codepage)
+    }
+
     /// Decodes game bytes to text. Windows-1252 and -1250 map every byte, so
     /// for the EE languages this never loses information.
     pub fn decode<'a>(&self, bytes: &'a [u8]) -> Cow<'a, str> {

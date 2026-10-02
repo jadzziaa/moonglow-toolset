@@ -20,6 +20,7 @@ mg-tiles.workspace = true
 fastrand.workspace = true
 mg-schema.workspace = true
 mg-script.workspace = true
+regex-lite.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 

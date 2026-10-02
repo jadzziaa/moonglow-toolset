@@ -51,6 +51,8 @@ pub enum ModuleError {
     BadName(String),
     #[error("{name}: {message}")]
     Source { name: String, message: String },
+    #[error("changed on disk since Moonglow read them: {}", .0.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))]
+    ChangedOnDisk(Vec<PathBuf>),
 }
 
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> ModuleError + '_ {
@@ -64,12 +66,15 @@ pub enum ModuleLocation {
     Archive(PathBuf),
     /// A folder of loose resource files (EE's module directories).
     Folder(PathBuf),
+    /// A nasher project (its root folder) and the target edited.
+    Project { root: PathBuf, target: String },
 }
 
 impl ModuleLocation {
     pub fn path(&self) -> &Path {
         match self {
             ModuleLocation::Archive(p) | ModuleLocation::Folder(p) => p,
+            ModuleLocation::Project { root, .. } => root,
         }
     }
 }
@@ -83,6 +88,8 @@ pub struct Module {
     pub description: Description,
     resources: IndexMap<ResKey, Arc<[u8]>>,
     dirty: bool,
+    /// The nasher project the module is kept in, when it is.
+    pub project: Option<Box<nasher::Project>>,
 }
 
 impl Default for Module {
@@ -100,11 +107,21 @@ impl Module {
             description: Description::default(),
             resources: IndexMap::new(),
             dirty: false,
+            project: None,
         }
     }
 
-    /// Opens a module archive or folder.
+    /// Opens a module archive, folder, or nasher project (its folder or its
+    /// `nasher.cfg`).
     pub fn open(path: &Path) -> Result<Module, ModuleError> {
+        if path.file_name().is_some_and(|n| n == "nasher.cfg")
+            && let Some(root) = path.parent()
+        {
+            return Self::open_project(root, None);
+        }
+        if path.is_dir() && nasher::Package::is_package(path) {
+            return Self::open_project(path, None);
+        }
         if path.is_dir() {
             return Self::open_folder(path);
         }
@@ -127,6 +144,19 @@ impl Module {
             m.resources.insert(key, Arc::from(bytes.as_ref()));
         }
         m.location = Some(ModuleLocation::Archive(path.into()));
+        Ok(m)
+    }
+
+    /// Opens a nasher project, editing `target` (by default the target that
+    /// packs a module). The project's warnings are in
+    /// `module.project.warnings`.
+    pub fn open_project(root: &Path, target: Option<&str>) -> Result<Module, ModuleError> {
+        let (project, resources) = nasher::Project::open(root, target)?;
+        let mut m = Module::new();
+        m.resources = resources;
+        m.location =
+            Some(ModuleLocation::Project { root: root.into(), target: project.target.clone() });
+        m.project = Some(Box::new(project));
         Ok(m)
     }
 
@@ -278,15 +308,68 @@ impl Module {
         self.save_as(&location)
     }
 
-    /// Saves to an archive or folder and makes it the module's location.
+    /// Saves to an archive, folder or nasher project and makes it the
+    /// module's location. Saving into a project the module isn't in makes
+    /// one there (or adds the module to a project without one).
     pub fn save_as(&mut self, location: &ModuleLocation) -> Result<(), ModuleError> {
         match location {
             ModuleLocation::Archive(path) => self.write_archive(path)?,
             ModuleLocation::Folder(path) => self.write_folder(path)?,
+            ModuleLocation::Project { root, target } => {
+                let same = self
+                    .project
+                    .as_ref()
+                    .is_some_and(|p| p.root() == root.as_path() && &p.target == target);
+                if !same {
+                    let file = format!("{}.mod", self.project_file_stem(root));
+                    self.project = Some(Box::new(nasher::Project::create(root, &file)?));
+                }
+                let project = self.project.as_mut().expect("just made");
+                project.save(&self.resources)?;
+                let location =
+                    ModuleLocation::Project { root: root.clone(), target: project.target.clone() };
+                self.location = Some(location);
+                self.dirty = false;
+                return Ok(());
+            }
         }
+        self.project = None;
         self.location = Some(location.clone());
         self.dirty = false;
         Ok(())
+    }
+
+    /// The name a new project's module file takes: the module's archive or
+    /// folder name, else the project folder's.
+    fn project_file_stem(&self, root: &Path) -> String {
+        self.location
+            .as_ref()
+            .and_then(|l| l.path().file_stem())
+            .or_else(|| root.file_name())
+            .map_or_else(|| "module".into(), |s| s.to_string_lossy().to_string())
+    }
+
+    /// For a module in a nasher project, its target's file and contents as
+    /// nasher packs them (filters and module name applied).
+    pub fn target_archive(&self) -> Result<Option<(PathBuf, Vec<u8>)>, ModuleError> {
+        let Some(project) = &self.project else { return Ok(None) };
+        let mut w = ErfWriter::new(self.file_type);
+        w.description = self.description.clone();
+        let (year, day) = build_date();
+        w.build_year = year;
+        w.build_day = day;
+        let packed = project.packed(&self.resources)?;
+        for (k, v) in &packed {
+            w.add(k.resref, k.restype, &v[..]).map_err(|e| ModuleError::Archive {
+                path: project.target_path(),
+                message: e.to_string(),
+            })?;
+        }
+        let bytes = w.to_bytes().map_err(|e| ModuleError::Archive {
+            path: project.target_path(),
+            message: e.to_string(),
+        })?;
+        Ok(Some((project.target_path(), bytes)))
     }
 
     /// The module as archive bytes. The build date is today's (or
@@ -357,14 +440,14 @@ impl Module {
 /// The resource a module-folder file holds. Like [`ResKey::from_filename`],
 /// but also accepts an empty name (`.res`): shipped modules contain such
 /// entries, and module folders must keep them.
-fn folder_key(name: &str) -> Option<ResKey> {
+pub(crate) fn folder_key(name: &str) -> Option<ResKey> {
     if let Some(ext) = name.strip_prefix('.') {
         return ResType::from_extension(ext).map(|t| ResKey::new(ResRef::EMPTY, t));
     }
     ResKey::from_filename(name)
 }
 
-fn sibling(path: &Path, suffix: &str) -> PathBuf {
+pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(suffix);
     path.with_file_name(name)
