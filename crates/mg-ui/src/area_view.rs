@@ -646,9 +646,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
             mg_area::terrain::Brush::Eraser => "click a tile (Shift + click: its next variant)",
             mg_area::terrain::Brush::Refine => "click a tile for the next that fits there",
-            mg_area::terrain::Brush::Group(_) => {
-                "click to place (Shift + click: place more), right click to turn"
-            }
+            mg_area::terrain::Brush::Group(_) => "click to place, right click to turn",
             _ => "click a corner",
         };
         let at = crate::terrain_mode::status(view).unwrap_or_default();
@@ -1130,7 +1128,10 @@ fn overlays(
 fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
-    camera_input(ui, view, response, shift, command, &app.keymap);
+    // Painting tiles, Shift is the brush's (a drag's rectangle or outline):
+    // the camera moves as it does without it.
+    let painting = crate::terrain_mode::active(app, view).is_some();
+    camera_input(ui, view, response, shift && !painting, command, &app.keymap);
     if let Some(dragged) = response.dnd_release_payload::<crate::palette_view::Dragged>() {
         drop_blueprint(app, view, response, dragged.0);
         return;
@@ -1448,8 +1449,12 @@ fn camera_input(
     if !response.hovered() {
         return;
     }
-    let (scroll, slow) =
-        ui.input(|i| (i.smooth_scroll_delta.y, i.modifiers.shift || i.modifiers.command));
+    // (egui turns the wheel sideways with Shift held.)
+    let (scroll, slow) = ui.input(|i| {
+        let d = i.smooth_scroll_delta;
+        let scroll = if i.modifiers.shift && d.y == 0.0 { d.x } else { d.y };
+        (scroll, shift || i.modifiers.command)
+    });
     if scroll != 0.0 {
         let rate = if slow { 0.001 } else { 0.002 };
         o.distance = (o.distance * (-scroll * rate).exp()).clamp(1.0, 2000.0);

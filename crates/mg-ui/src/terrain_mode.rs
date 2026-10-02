@@ -420,12 +420,8 @@ pub(crate) fn input(
             {
                 let tools = view.terrain.as_ref().expect("checked");
                 let (st, label) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
-                let placed = st.is_some();
+                // (It stays chosen, to place another.)
                 commit(app, view, g, st, &label, None);
-                // One group a click (Shift + click: place more).
-                if placed && !shift {
-                    app.palette.tile_brush = None;
-                }
             }
         }
         Brush::Terrain(_) | Brush::RaiseLower if terrain_drag(app, view, response, &brush) => {}

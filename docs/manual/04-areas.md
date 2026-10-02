@@ -44,7 +44,7 @@ Tools › Options › Keyboard):
 | Ctrl + drag | move the camera over the area |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
 | Shift + middle drag | move the camera |
-| Wheel | zoom (with Shift or Ctrl: slowly) |
+| Wheel | zoom (with Shift or Ctrl: slowly; painting tiles, Shift is the brush's) |
 | Arrow keys, W A S D, or numpad 4, 6, 8, 2 | move the camera |
 | Numpad 7, 9 | turn |
 | Numpad 1, 3 | tilt |
@@ -169,7 +169,7 @@ as Aurora's Terrain tab does:
   outline of the rectangle from the tile where the drag began (straight
   along a rectangle one tile wide).
 - **Groups** (buildings, big features) are placed whole; right-click to
-  turn one before placing it.
+  turn one before placing it. It stays chosen, to place another.
 - The **Eraser** takes the crossers off a tile; with Shift + click it
   steps the tile through the other tiles that fit there.
 - **Refine Tile** (Moonglow's own) steps the tile you click through the

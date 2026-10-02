@@ -3576,7 +3576,7 @@ fn area_viewer_paints_terrain() {
     let g = tiles(&mut h);
     let at = |x: u32, y: u32| (g.tile(x, y).tile, g.tile(x, y).orientation);
     assert_eq!([at(2, 1), at(2, 2), at(1, 1), at(1, 2)], [(145, 1), (147, 1), (144, 1), (146, 1)]);
-    assert!(h.state().palette.tile_brush.is_none(), "one group a click");
+    assert!(h.state().palette.tile_brush.is_some(), "the group stays chosen");
 }
 
 /// A screenshot of terrain mode (`target/test-output/screens/terrain.png`),
@@ -7034,4 +7034,51 @@ fn a_crosser_drag_with_shift_follows_its_rectangle_s_outline() {
     assert_eq!(edges(0, 1), on(&[NORTH, SOUTH]));
     assert_eq!(edges(1, 1), [None; 4], "nothing inside");
     assert_eq!(edges(3, 3), before.cell(3, 3).edges);
+}
+
+#[test]
+fn painting_with_shift_held_the_camera_still_zooms_and_turns() {
+    let Some((mut h, area)) = area_harness("shift-camera") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    let at = screen(&h, area, glam::Vec3::new(20.0, 10.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(1);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.run_steps(1);
+    // The wheel (which egui turns sideways with Shift) zooms.
+    let before = orbit(&h);
+    for _ in 0..5 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, 60.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::SHIFT,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(10);
+    let zoomed = orbit(&h);
+    assert!(zoomed.distance < before.distance - 0.5, "{} → {}", before.distance, zoomed.distance);
+    // A right drag turns it.
+    let button = egui::PointerButton::Secondary;
+    let modifiers = egui::Modifiers::SHIFT;
+    h.event(egui::Event::PointerButton { pos: at, button, pressed: true, modifiers });
+    h.run_steps(1);
+    for dx in [20.0, 40.0, 60.0] {
+        h.event(egui::Event::PointerMoved(at + egui::vec2(dx, 0.0)));
+        h.run_steps(1);
+    }
+    let pos = at + egui::vec2(60.0, 0.0);
+    h.event(egui::Event::PointerButton { pos, button, pressed: false, modifiers });
+    h.run_steps(1);
+    let turned = orbit(&h);
+    assert!((turned.yaw - zoomed.yaw).abs() > 0.3, "turned: {} → {}", zoomed.yaw, turned.yaw);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
 }
