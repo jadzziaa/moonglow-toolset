@@ -44,6 +44,7 @@ mod text;
 pub mod tile_select;
 mod transfer;
 mod tree;
+pub mod var_sets;
 pub mod widgets;
 pub mod wizards;
 
@@ -265,6 +266,8 @@ pub struct Moonglow {
     /// Where prefabs are kept (the app sets Moonglow's data folder's
     /// `prefabs`; none: prefabs can't be saved).
     pub prefab_dir: Option<PathBuf>,
+    /// Where variable sets are kept (`var_sets`).
+    pub var_set_dir: Option<PathBuf>,
     /// When changed haks and folders were last looked for.
     reload_checked: Option<std::time::Instant>,
     /// The custom talk table's file and its time when loaded.
@@ -370,6 +373,7 @@ impl Moonglow {
             prefab_save: None,
             update_draft: None,
             prefab_dir: None,
+            var_set_dir: None,
             reload_checked: None,
             tlk_stamp: None,
             object_clip: None,

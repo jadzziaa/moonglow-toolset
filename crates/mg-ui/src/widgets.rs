@@ -99,11 +99,20 @@ pub struct VarRow {
     original: Struct,
 }
 
+impl VarRow {
+    /// A new variable: 1 int, 2 float, 3 string.
+    pub fn new(name: &str, kind: u32, value: &str) -> VarRow {
+        VarRow { name: name.to_string(), kind, value: value.to_string(), original: Struct::new(0) }
+    }
+}
+
 /// The Variables window: a VarTable list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarTableEdit {
     pub target: FieldTarget,
     pub rows: Vec<VarRow>,
+    /// Save Set's name, while it's being typed.
+    pub set_name: Option<String>,
 }
 
 impl VarTableEdit {
@@ -126,7 +135,7 @@ impl VarTableEdit {
                 }
             })
             .collect();
-        VarTableEdit { target, rows }
+        VarTableEdit { target, rows, set_name: None }
     }
 
     /// Why the table cannot be saved, if it cannot.
@@ -347,13 +356,63 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     edit.rows.remove(i);
                 }
             });
-            if ui.button("Add").clicked() {
-                edit.rows.push(VarRow {
-                    name: String::new(),
-                    kind: 1,
-                    value: "0".into(),
-                    original: Struct::new(0),
+            ui.horizontal(|ui| {
+                if ui.button("Add").clicked() {
+                    edit.rows.push(VarRow::new("", 1, "0"));
+                }
+                ui.separator();
+                // Variable sets, kept in Moonglow's data folder.
+                let dir = app.var_set_dir.clone();
+                let names = crate::var_sets::list(dir.as_deref());
+                ui.add_enabled_ui(dir.is_some(), |ui| {
+                    ui.menu_button("Add Set", |ui| {
+                        if names.is_empty() {
+                            ui.weak("No variable sets saved yet");
+                        }
+                        for n in &names {
+                            if ui.button(n).clicked() {
+                                let dir = dir.as_deref().expect("enabled");
+                                match crate::var_sets::load(dir, n) {
+                                    Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
+                                    Err(e) => app.log.error(format!("Add Set: {e}")),
+                                }
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .on_hover_text("Add a saved set's variables (same names take its values)");
+                    if edit.set_name.is_none()
+                        && ui
+                            .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save Set…"))
+                            .on_hover_text("Keep these variables under a name, to add elsewhere")
+                            .clicked()
+                    {
+                        edit.set_name = Some(String::new());
+                    }
                 });
+            });
+            if let Some(name) = edit.set_name.as_mut() {
+                let mut save = false;
+                let mut cancel = false;
+                ui.horizontal(|ui| {
+                    ui.label("Set name");
+                    let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
+                    crate::widgets::autofocus(ui, &r);
+                    let ok = crate::prefabs::valid_name(name);
+                    save = ui.add_enabled(ok, egui::Button::new("Save")).clicked()
+                        || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                    cancel = ui.button("Cancel").clicked();
+                });
+                if save && let Some(dir) = app.var_set_dir.clone() {
+                    match crate::var_sets::save(&dir, name, &edit.rows) {
+                        Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
+                        Err(e) => app.log.error(format!("Save Set: {e}")),
+                    }
+                }
+                if save || cancel {
+                    edit.set_name = None;
+                }
             }
             let problem = edit.problem();
             if let Some(p) = &problem {

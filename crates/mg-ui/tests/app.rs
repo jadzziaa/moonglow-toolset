@@ -3397,6 +3397,63 @@ fn several_blueprints_are_edited_together() {
 }
 
 #[test]
+fn variable_sets_are_saved_and_added_elsewhere() {
+    let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "waypoint_vars", ResType::UTW)
+    else {
+        return;
+    };
+    let sets = mg_testkit::scratch_dir("ui-var-sets").join("sets");
+    h.state_mut().var_set_dir = Some(sets.clone());
+    h.run();
+    h.get_by_label("Advanced").click();
+    h.run();
+    h.get_by_label("Variables (0)…").click();
+    h.run();
+    // Two variables, kept as a set.
+    {
+        let edit = h.state_mut().var_edit.as_mut().expect("the Variables window");
+        edit.rows.push(mg_ui::widgets::VarRow::new("MG_LOOT", 1, "3"));
+        edit.rows.push(mg_ui::widgets::VarRow::new("MG_SAY", 3, "Hail"));
+    }
+    h.run();
+    h.get_by_label("Save Set…").click();
+    h.run();
+    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Loot");
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    assert!(sets.join("Loot.vars.json").is_file());
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(field(&mut h, &key).list("VarTable").is_none_or(|l| l.is_empty()), "not applied");
+    // Added to the variables (one already named MG_LOOT takes its value).
+    h.get_by_label("Variables (0)…").click();
+    h.run();
+    h.state_mut()
+        .var_edit
+        .as_mut()
+        .unwrap()
+        .rows
+        .push(mg_ui::widgets::VarRow::new("MG_LOOT", 1, "9"));
+    h.run();
+    h.get_by_label("Add Set").click();
+    h.run();
+    h.get_by_label("Loot").click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    let vars: Vec<(String, Option<i64>)> = field(&mut h, &key)
+        .list("VarTable")
+        .unwrap()
+        .iter()
+        .map(|v| {
+            (String::from_utf8_lossy(v.string("Name").unwrap()).into_owned(), v.integer("Value"))
+        })
+        .collect();
+    assert_eq!(vars, [("MG_LOOT".to_string(), Some(3)), ("MG_SAY".to_string(), None)]);
+}
+
+#[test]
 fn build_module_compiles_and_reports() {
     use mg_edit::{Command, Edit, GffPath};
     let Some((mut h, area)) = area_harness("build") else { return };
