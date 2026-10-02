@@ -76,6 +76,32 @@ fn split_cells(line: &str, max: usize) -> Vec<Option<String>> {
     cells
 }
 
+/// Rows with more cells than the table has columns (after the row label),
+/// as `(row, cells)`: the game and [`TwoDa::parse`] drop the extra cells,
+/// and Aurora fails on them. Usually two rows run together.
+pub fn overlong_rows(data: &[u8], codepage: Codepage) -> Vec<(usize, usize)> {
+    let text = codepage.decode(data);
+    let mut lines = text.lines().map(str::trim);
+    if lines.next() != Some("2DA V2.0") {
+        return Vec::new();
+    }
+    let mut lines = lines.skip_while(|l| l.is_empty()).peekable();
+    if lines.peek().is_some_and(|l| l.starts_with("DEFAULT:")) {
+        lines.next();
+    }
+    let mut lines = lines.skip_while(|l| l.is_empty());
+    let Some(header) = lines.next() else { return Vec::new() };
+    let width = split_cells(header, usize::MAX).into_iter().flatten().count();
+    lines
+        .skip_while(|l| l.is_empty())
+        .enumerate()
+        .filter_map(|(row, line)| {
+            let cells = split_cells(line, usize::MAX).len().saturating_sub(1);
+            (cells > width).then_some((row, cells))
+        })
+        .collect()
+}
+
 impl TwoDa {
     /// A table with the given columns and no rows.
     pub fn new(columns: Vec<String>) -> Result<TwoDa, TwoDaError> {
@@ -348,5 +374,12 @@ mod tests {
     fn rejects_non_2da() {
         assert_eq!(TwoDa::parse(b"hello", Codepage::default()), Err(TwoDaError::NotTwoDa));
         assert_eq!(TwoDa::parse(b"2DA V2.0\n\n", Codepage::default()), Err(TwoDaError::NoColumns));
+    }
+
+    #[test]
+    fn overlong_rows_are_found() {
+        let t = b"2DA V2.0\n\n   LABEL Model\n0  a     m_a\n1  b     m_b 2 c m_c\n2  \"d e\" m_d\n";
+        assert_eq!(overlong_rows(t, Codepage::default()), [(1, 5)]);
+        assert!(overlong_rows(b"nope", Codepage::default()).is_empty());
     }
 }

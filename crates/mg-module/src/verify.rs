@@ -82,6 +82,27 @@ pub struct Missing {
     pub uncompiled: bool,
 }
 
+impl Missing {
+    /// Whether it breaks the module as it plays: references to scripts,
+    /// conversations, areas and the like from areas, placed objects, the
+    /// module, conversations and scripts. A blueprint's
+    /// matter only once something places it, and an object placed from a
+    /// blueprint that is gone keeps working (it holds all it needs), so those
+    /// are warnings.
+    pub fn is_error(&self) -> bool {
+        let r = &self.reference;
+        // A missing sound, portrait or movie leaves silence or a blank.
+        if matches!(r.kind, RefKind::Sound | RefKind::Portrait | RefKind::Movie) {
+            return false;
+        }
+        match r.from.restype {
+            ResType::GIT => !r.path.ends_with("/TemplateResRef"),
+            ResType::ARE | ResType::IFO | ResType::DLG | ResType::NSS => true,
+            _ => false,
+        }
+    }
+}
+
 /// Every reference in the module.
 pub fn module_references(module: &Module) -> Vec<Reference> {
     module.keys().flat_map(|k| references(*k, module.get(k).unwrap_or_default())).collect()

@@ -55,13 +55,18 @@ enum Cmd {
     Layers,
     /// Print talk-table strings by StrRef.
     Tlk { strrefs: Vec<u32> },
-    /// Check a module for missing and unused resources.
+    /// Check a module: references to resources that exist nowhere, and its
+    /// custom content's problems (tilesets, 2DAs, materials, objects naming
+    /// rows that don't exist). Exits with an error if there are errors.
     Verify {
-        /// A module archive or folder.
+        /// A module archive, folder or nasher project.
         module: PathBuf,
         /// Also list module resources nothing references.
         #[arg(long)]
         unused: bool,
+        /// Print the results as JSON (for build pipelines).
+        #[arg(long)]
+        json: bool,
     },
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
@@ -242,7 +247,11 @@ fn run(cli: Cli) -> Result<()> {
                 println!("{:>3}  {:>7}  {:?}  {}", l.priority, l.container.len(), l.class, l.label);
             }
         }
-        Cmd::Verify { module, unused } => verify(&install(&cli)?, module, *unused)?,
+        Cmd::Verify { module, unused, json } => {
+            if !verify(&install(&cli)?, module, *unused, *json)? {
+                bail!("{} has errors", module.display());
+            }
+        }
         Cmd::Haks { module } => {
             let m = Module::open(module)?;
             let report = mg_module::haks::hak_report(&install(&cli)?, &m.haks()?)?;
@@ -433,26 +442,83 @@ fn module_resman(gi: &GameInstall, m: &Module) -> Result<ResMan> {
     Ok(rm)
 }
 
-fn verify(gi: &GameInstall, path: &Path, show_unused: bool) -> Result<()> {
+fn verify(gi: &GameInstall, path: &Path, show_unused: bool, json: bool) -> Result<bool> {
     let m = Module::open(path)?;
     let rm = module_resman(gi, &m)?;
     let missing = mg_module::verify::missing(&m, &rm);
+    let unused = if show_unused { mg_module::verify::unused(&m) } else { Vec::new() };
+    let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
+    let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
+    let custom = m.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty()).and_then(|name| {
+        gi.tlk_dirs()
+            .iter()
+            .find_map(|d| std::fs::read(d.join(format!("{name}.tlk"))).ok().and_then(count))
+    });
+    let findings =
+        mg_module::doctor::examine(&m, &rm, mg_module::doctor::TalkTables { base, custom });
+    let errors = missing.iter().filter(|x| x.is_error()).count()
+        + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
+    let warnings = findings.len() + missing.len() - errors;
+    if json {
+        let severity = |s: mg_module::doctor::Severity| match s {
+            mg_module::doctor::Severity::Error => "error",
+            mg_module::doctor::Severity::Warning => "warning",
+        };
+        let out = serde_json::json!({
+            "module": path.display().to_string(),
+            "errors": errors,
+            "warnings": warnings,
+            "missing": missing.iter().map(|x| serde_json::json!({
+                "severity": if x.is_error() { "error" } else { "warning" },
+                "category": format!("{:?}", x.category),
+                "from": x.reference.from.to_string(),
+                "path": x.reference.path,
+                "kind": x.reference.kind.name(),
+                "target": x.reference.target.to_string(),
+                "uncompiled": x.uncompiled,
+            })).collect::<Vec<_>>(),
+            "findings": findings.iter().map(|f| serde_json::json!({
+                "severity": severity(f.severity),
+                "check": f.check,
+                "source": f.source,
+                "resource": f.resource.to_string(),
+                "at": f.at,
+                "message": f.message,
+            })).collect::<Vec<_>>(),
+            "unused": unused.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
+        });
+        println!("{}", serde_json::to_string_pretty(&out)?);
+        return Ok(errors == 0);
+    }
     for x in &missing {
         let what = if x.uncompiled { "not compiled" } else { "missing" };
+        let sev = if x.is_error() { "error" } else { "warning" };
         println!(
-            "{:?}\t{}{}\t{:?} {} {what}",
-            x.category, x.reference.from, x.reference.path, x.reference.kind, x.reference.target
+            "{sev}\t{:?}\t{}{}\t{} {} {what}",
+            x.category,
+            x.reference.from,
+            x.reference.path,
+            x.reference.kind.name(),
+            x.reference.target
         );
     }
     println!("{} missing references", missing.len());
+    for f in &findings {
+        let sev = match f.severity {
+            mg_module::doctor::Severity::Error => "error",
+            mg_module::doctor::Severity::Warning => "warning",
+        };
+        let at = if f.at.is_empty() { String::new() } else { format!(" {}", f.at) };
+        println!("{sev}\t{} › {}{at}: {}", f.source, f.resource, f.message);
+    }
+    println!("{} content problems", findings.len());
     if show_unused {
-        let unused = mg_module::verify::unused(&m);
         for k in &unused {
             println!("unused\t{k}");
         }
         println!("{} unused resources", unused.len());
     }
-    Ok(())
+    Ok(errors == 0)
 }
 
 fn gff(input: &Path, output: Option<&Path>) -> Result<()> {

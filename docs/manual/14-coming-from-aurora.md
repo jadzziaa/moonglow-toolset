@@ -26,7 +26,11 @@ Each is something Aurora does, then what Moonglow does instead.
   unavailable; every editor still works.
 - **Error boxes that keep coming back** until you end the program. In
   Moonglow, problems are written to the log at the bottom of the window,
-  and Moonglow carries on.
+  and Moonglow carries on. **Build › Verify Module** finds most of what
+  makes Aurora crash in custom content (a tileset's counts, a missing tile
+  model, two 2DA rows run together, an object on a 2DA row that isn't
+  there) and names the hak, file and row (see
+  [Build, verify and test](09-build-and-test.md)).
 - **`temp0`.** Aurora unpacks the module into a `temp0` folder, which
   antivirus software and file locks can disturb, and crash recovery from
   it can damage the module. Moonglow keeps the module in memory. Saving

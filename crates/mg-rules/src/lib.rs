@@ -102,6 +102,11 @@ impl GameData {
         self.custom_tlk.as_ref()
     }
 
+    /// `dialog.tlk`.
+    pub fn tlk(&self) -> &Tlk {
+        &self.tlk
+    }
+
     /// Forgets cached tables (call after the resource stack changes, e.g.
     /// when a module's haks change).
     pub fn invalidate(&self) {

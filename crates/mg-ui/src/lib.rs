@@ -1588,20 +1588,47 @@ impl Moonglow {
 
     fn verify(&mut self) {
         self.refresh_module_layer();
-        let (Some(ws), Some(game)) = (&self.ws, &self.game) else { return };
+        let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
         let missing = mg_module::verify::missing(&ws.module, &game.resman);
         for m in &missing {
             let what = if m.uncompiled { "is not compiled" } else { "is missing" };
-            self.log.warn(format!(
-                "{:?}: {}{} → {:?} {} {what}",
+            let text = format!(
+                "{:?}: {}{} → {} {} {what}",
                 m.category,
                 m.reference.from,
                 m.reference.path,
-                m.reference.kind,
+                m.reference.kind.name(),
                 m.reference.target
-            ));
+            );
+            if m.is_error() { self.log.error(text) } else { self.log.warn(text) }
         }
-        self.log.info(format!("Verify: {} missing reference(s)", missing.len()));
+        // The custom content: tilesets, 2DAs, materials, objects naming rows
+        // that don't exist.
+        let tlk = mg_module::doctor::TalkTables {
+            base: game.tlk().entries.len(),
+            custom: game.custom_tlk().map(|t| t.entries.len()),
+        };
+        let findings = mg_module::doctor::examine(&ws.module, &game.resman, tlk);
+        for f in &findings {
+            let at = if f.at.is_empty() { String::new() } else { format!(" › {}", f.at) };
+            let text = format!("{} › {}{at}: {}", f.source, f.resource, f.message);
+            match f.severity {
+                mg_module::doctor::Severity::Error => self.log.error(text),
+                mg_module::doctor::Severity::Warning => self.log.warn(text),
+            }
+        }
+        let errors = missing.iter().filter(|m| m.is_error()).count()
+            + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
+        let warnings = missing.len() + findings.len() - errors;
+        self.log.info(format!(
+            "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s))",
+            missing.len(),
+            findings.len()
+        ));
     }
 
     /// Uses new game and user folders: closes the module and reloads the

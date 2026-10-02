@@ -10,6 +10,7 @@
 pub mod blueprints;
 pub mod build;
 pub mod dialog;
+pub mod doctor;
 pub mod factions;
 pub mod haks;
 pub mod instances;

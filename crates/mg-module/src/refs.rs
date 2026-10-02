@@ -29,6 +29,14 @@ pub enum RefKind {
 }
 
 impl RefKind {
+    /// What it names, for people: `script`, `blueprint (utc)`, ...
+    pub fn name(self) -> String {
+        match self {
+            RefKind::Blueprint(t) => format!("blueprint ({})", t.extension().unwrap_or("?")),
+            other => format!("{other:?}").to_ascii_lowercase(),
+        }
+    }
+
     /// Resource types that satisfy the reference, preferred first.
     pub fn types(self) -> &'static [ResType] {
         match self {

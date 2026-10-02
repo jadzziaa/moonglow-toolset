@@ -471,7 +471,10 @@ surveyed after 0.2.0):
      includers recompiled), `mg refs` and `mg rename`; checked in the
      engine (`engine_rename.rs`);
    - a content doctor (Verify that names the bad 2DA row, SET section or
-     MTR, with CI output);
+     MTR, with CI output) — done: `mg-module` `doctor`, in Verify and `mg
+     verify --json` (failing on errors); calibrated on all shipped modules
+     and their haks, the shadowed-row verdicts checked in the engine
+     (`docs/research/notes_doctor.md`);
    - a test loop builders trust (choose the character, test from here,
      reload haks and 2DAs without a restart);
    - placement tools (drop to ground, rotation keys, snapping, locking,
