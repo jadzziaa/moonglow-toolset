@@ -58,6 +58,23 @@ back:
 - **Recompiling:** scripts whose text changed, and every script that
   includes them, are compiled again.
 
+## Find and Replace Text
+
+**Edit › Find and Replace Text…** (Ctrl+H) finds text in what players
+read: the module's names, descriptions, conversation lines, the journal
+and the rest (map notes and such), in every language each string is
+written in.
+- **What's searched:** choose the kinds, and whether case matters and
+  whether only whole words count.
+- **What's found** is listed by place, as Find References lists them; click
+  one to go there, and untick any to leave alone.
+- **Replace** changes the ticked strings as one step that **Undo** takes
+  back, then lists what's left.
+
+Text that comes from the game's talk table (a string number with no text
+of the module's own) isn't the module's to change, and isn't searched.
+Scripts have their own **Find in Files**.
+
 ## nasher projects (version control)
 
 A `.mod` is one binary file, so version control (git) can't show what

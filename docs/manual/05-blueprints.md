@@ -23,6 +23,31 @@ Choose a blueprint to place it in an area. The palette's buttons:
   as a new custom one, and open it.
 - **Delete**: remove a custom blueprint from the module.
 - **Preview**: show the blueprint in the model viewer.
+- **Update Instances** (custom blueprints): make the objects placed from
+  the blueprint again from it.
+
+**Ctrl+click** chooses several custom blueprints of one type. With
+several chosen, the right-click menu offers:
+- **Edit N Together**: one editor for all of them. What you change is set
+  on each, as one undoable step. Inventories, classes, skills, feats,
+  spells and item properties are edited one blueprint at a time, so
+  those pages aren't offered.
+- **Update Instances of N**.
+
+A custom category's right-click menu updates the instances of every
+blueprint in it.
+
+### Update Instances
+
+Update Instances makes each object placed from a blueprint again from it,
+as Aurora's does: it keeps where the object stands, which way it faces, a
+trigger's or encounter's outline and a visual transform. Everything else
+comes from the blueprint, including the object's tag, name, scripts,
+local variables and a door's transition. A window lists the objects it
+would change:
+- **Every area**, or **only** the area shown.
+- **Untick** objects to leave them as they are.
+- **Update** changes the rest as one undoable step.
 
 New blueprints come from the **Wizards** menu (or the palette's New): a
 wizard for each type asks what Aurora's asks (the base item for an item,
@@ -44,11 +69,14 @@ Shared parts:
   [Modules](03-modules.md)); Edit Copy makes a copy under another name.
 - **Scripts**: event scripts, picked from the module's and the game's
   (**Edit** opens one).
-- **Variables…**: local variables the object starts with.
+- **Variables…**: local variables the object starts with. **Save Set…**
+  keeps them under a name, and **Add Set** adds a saved set to any
+  object's or blueprint's variables, in any module; one of the same name
+  takes the set's value. Sets are small JSON files in Moonglow's data
+  folder (`variable-sets`), easy to share.
 - **Comments**: notes for the builder, not seen in the game.
 - **Advanced**: the palette category, and **Update Instances** (every
-  type but waypoints): every object placed from this blueprint, in every
-  area, made again from it, where it stands and facing as it faces.
+  type but waypoints; see below).
 - **Visuals** (creatures, items, placeables, doors; triggers have the
   last part only): what Enhanced Edition's scripts can change about how
   an object looks, set from the start. Aurora has no fields for these;

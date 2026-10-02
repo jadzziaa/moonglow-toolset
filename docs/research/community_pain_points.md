@@ -160,8 +160,8 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 | --- | --- | --- | --- |
 | No palette search; messy categories (CEP's long lists) | ●● | Steam "Toolset Search" (2021); Vault 7150, 7936; Radoub #2566 | ◐ Find filters by name and resref; no tag, fuzzy search or hover preview |
 | Changed haks leave palettes blank or stale ("Refresh Palette" confusion) | ●● | nwn-issues #346; Vault 7765 | ◐ palettes are rebuilt from the module; no reload of changed haks |
-| Update Instances works on one blueprint at a time; no mass edit of blueprints | ●● | Beamdog 78962 (Winter's LOTR), 82940; SWLOR's store-sync script; Radoub #1318 | ◐ Update Instances per blueprint, as in Aurora |
-| No variable sets or templates | ● | Beamdog 69624 p2, 82940 | ✗ |
+| Update Instances works on one blueprint at a time; no mass edit of blueprints | ●● | Beamdog 78962 (Winter's LOTR), 82940; SWLOR's store-sync script; Radoub #1318 | ✅ Update Instances for a selection or a whole palette category, editing several blueprints together, Find and Replace across the module's text |
+| No variable sets or templates | ● | Beamdog 69624 p2, 82940 | ✅ variable sets (Save Set, Add Set); blueprints are the templates |
 | The item editor won't load DDS icons; PLT-layered icon bugs; MinRange ≥ 100 breaks appearance pickers | ●● | nwn-issues #455, #456, #658 | ◐ DDS icons load; MinRange ≥ 100 not checked |
 | The creature editor can't set familiars, companions, domains or the wizard school, and strips some of them | ● | nwn.wiki Creature and Creature JSON pages; nwn-issues #566, #816 | ✅ domains, school, familiar and companion on the Classes page, with the rule for when the game reads them (`notes_ee_fields.md`) |
 

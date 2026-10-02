@@ -506,7 +506,13 @@ surveyed after 0.2.0). What each item left undone is collected in
      (drawn), domains, school, familiar and companion, stacks past the
      base item's limit; each read back by the engine
      (`engine_ee_fields.rs`, `docs/research/notes_ee_fields.md`);
-   - bulk editing;
+   - bulk editing — done: Update Instances for a selection or a palette
+     category (every area or one, objects to untick, as Aurora asks; its
+     rules captured from Aurora, `aurora_update_instances.rs`, which also
+     fixed triggers and encounters losing their outlines), editing several
+     blueprints together, variable sets, Find and Replace Text across the
+     module's strings in every language (`text_replace.rs`), `mg
+     update-instances` and `mg replace`;
    - conversation authoring (node markers, import and export, play-through);
    - palette search.
 3. Tier 3, later:

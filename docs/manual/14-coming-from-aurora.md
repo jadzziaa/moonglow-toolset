@@ -133,6 +133,12 @@ Moonglow's own.
   locking objects out of the way; prefabs (an area's right-click menu,
   and Edit › Prefabs); the pointer's position to the centimeter (see
   [Areas](04-areas.md)).
+- **Bulk edits**: Ctrl+click several custom blueprints to edit them
+  together or update all their instances at once (or a whole category's,
+  from its right-click menu); saved variable sets; **Edit › Find and
+  Replace Text…** (Ctrl+H) across names, descriptions, conversations and
+  the journal (see [Blueprints](05-blueprints.md) and
+  [Modules](03-modules.md)).
 - **Find References and Rename** (the module tree's right-click menu):
   where a script, area, conversation, blueprint or tag is used, and
   renaming a resource everywhere in one step (see [Modules](03-modules.md)).

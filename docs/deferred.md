@@ -77,6 +77,24 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **The Classes page in a narrow window:** the second domain picker
   sits at the window's edge. (S)
 
+## Bulk editing
+
+- **Lists across several blueprints:** Edit Together leaves out the
+  pages that edit lists (inventories, classes, skills, feats, spells,
+  item properties); those are edited one blueprint at a time. Adding the
+  same item or feat to each would need its own design. (M)
+- **The multi-object editor's list pages:** with several placed objects
+  selected, those pages still change the first object only, as before.
+  Edit Together's guard (leave the pages out, drop changes that reach only
+  the first) could apply there too, once Aurora's multi-editor is checked
+  for what it allows. (S, plus an Aurora capture)
+- **Find and Replace beyond strings players read:** tags, resrefs and
+  other plain text fields aren't searched (Find References covers tags,
+  Find in Files covers scripts), and there are no regular expressions.
+  (S–M)
+- **Variable sets** hold int, float and string variables only, as the
+  Variables window edits; object and location variables aren't kept. (S)
+
 ## Release and packaging (v0.1.0)
 
 - **macOS:** the app and disk image are built by CI but have never been
