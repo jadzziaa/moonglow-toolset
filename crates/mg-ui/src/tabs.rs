@@ -99,6 +99,17 @@ impl Tab {
             _ => None,
         }
     }
+
+    /// The resource the tab shows that can be renamed (a script, an area, a
+    /// conversation, a blueprint, a GFF file), whether or not the module
+    /// has it.
+    pub fn renamable(&self) -> Option<ResKey> {
+        match self {
+            Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => Some(*k),
+            Tab::Area(r) | Tab::AreaProperties(r) => Some(ResKey::new(*r, ResType::ARE)),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) struct Viewer<'a> {
@@ -198,6 +209,20 @@ impl TabViewer for Viewer<'_> {
             }
             Tab::Manual => crate::manual::ui(self.app, ui),
             Tab::References => crate::references::ui(self.app, ui),
+        }
+    }
+
+    /// The tab's menu (beside egui_dock's Eject and Close): Rename… for a
+    /// resource of the module, which renames it everywhere it is named.
+    fn context_menu(&mut self, ui: &mut Ui, tab: &mut Tab, _path: egui_dock::NodePath) {
+        let ours = tab
+            .renamable()
+            .filter(|k| self.app.ws.as_ref().is_some_and(|ws| ws.module.contains(k)));
+        if let Some(key) = ours
+            && ui.button("Rename…").clicked()
+        {
+            self.app.actions.push(crate::Action::RenameDialog(key));
+            ui.close();
         }
     }
 

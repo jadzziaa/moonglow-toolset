@@ -7136,3 +7136,37 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
     h.run_steps(2);
     check(&mut h, Vec3::new(5.0, 5.0, 0.0));
 }
+
+#[test]
+fn an_area_is_renamed_from_its_tab() {
+    let Some((mut h, area)) = area_harness("rename-tab") else { return };
+    h.run_steps(3);
+    // Right click on the area's tab: Rename….
+    h.get_by_label(&area.to_string()).click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Rename…").click();
+    h.run_steps(2);
+    // (The dialog's own typing is another test's.)
+    h.state_mut().rename.as_mut().expect("the Rename dialog").to = "meadow".into();
+    h.run();
+    h.get_by_label("Rename").click();
+    h.run_steps(3);
+    let meadow = ResRef::from_str("meadow").unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    for t in [ResType::ARE, ResType::GIT] {
+        assert!(ws.module.contains(&ResKey::new(meadow, t)), "{t:?} renamed");
+        assert!(!ws.module.contains(&ResKey::new(area, t)));
+    }
+    // The module's area list names it, and its tab and view follow.
+    let ifo = ws.module.info().unwrap();
+    let areas: Vec<_> = ifo
+        .root
+        .list("Mod_Area_list")
+        .unwrap()
+        .iter()
+        .filter_map(|a| a.resref("Area_Name"))
+        .collect();
+    assert_eq!(areas, [meadow]);
+    assert!(h.state().dock.find_tab(&Tab::Area(meadow)).is_some());
+    assert!(h.state().area_views.contains_key(&meadow));
+}

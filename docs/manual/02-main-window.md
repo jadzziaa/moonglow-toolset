@@ -70,7 +70,10 @@ and Journal Editors, the resource browser, this manual) opens in a window
 of its own over the area, sized for what it shows, so the area view stays
 where it is. Drag a window by its tab into the main pane, or beside
 another, to dock it; drag a tab out to float it again. The palettes keep
-their pane on the right.
+their pane on the right. Right-click a tab for **Eject** and **Close**, and
+for an area, script, conversation or blueprint of the module, **Rename…**:
+it is renamed everywhere the module names it (an area with its instances
+and its entry in the module's area list), its tab with it.
 
 Closing a tab or window never loses work: every change is already part of
 the module (and undoable) the moment you make it; **Save** writes the
