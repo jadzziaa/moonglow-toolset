@@ -443,8 +443,13 @@ fn new_module_and_area_through_the_wizards() {
     h.get_by_label("Create").click();
     h.run();
 
-    // The Area Wizard follows, as in Aurora's Module Wizard.
+    // The Area Wizard follows, as in Aurora's Module Wizard, with the first
+    // tileset chosen.
     h.run();
+    let Some(mg_ui::wizards::Wizard::NewArea(w)) = &h.state().wizard else {
+        panic!("the Area Wizard is open")
+    };
+    assert_eq!(w.selected, Some(0));
     h.get_by_label("Castle Interior").click();
     h.run();
     h.get_by_label("Small").click();
@@ -6704,4 +6709,53 @@ fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
     h.get_by_label("📦 Palettes").click();
     h.run();
     assert!(h.state().dock.find_tab(&Tab::Palette).is_some());
+}
+
+#[test]
+fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-area-wizard-top");
+    let path = sample_module(&dir);
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    let first = mg_module::new::tilesets(app.game.as_ref().unwrap())[0].name.clone();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let shown = |h: &Harness<'_, Moonglow>| {
+        let top = h.get_by_label("Tileset").rect().bottom();
+        let bottom = h.get_by_label("Size").rect().top();
+        let r = h.get_by_label(&first).rect();
+        r.top() >= top && r.bottom() <= bottom
+    };
+    h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+    h.run_steps(3);
+    assert!(shown(&h), "{first} is at the top of the list");
+    // Scrolled to the end, closed and opened again: at the top again.
+    let over = h.get_by_label(&first).rect().center();
+    h.hover_at(over);
+    for _ in 0..20 {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, -400.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(5);
+    assert!(!shown(&h), "the list scrolled");
+    h.state_mut().wizard = None;
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::AreaWizard);
+    h.run_steps(3);
+    assert!(shown(&h), "{first} is at the top of the list again");
 }

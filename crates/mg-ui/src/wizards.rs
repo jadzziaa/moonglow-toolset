@@ -25,20 +25,24 @@ pub struct AreaWizard {
     pub launch_properties: bool,
     /// Open Area in the Area Viewer (Aurora's default: on).
     pub open_viewer: bool,
+    /// Not yet shown: its tileset list starts at the top (not where the
+    /// last one was left).
+    fresh: bool,
 }
 
 impl AreaWizard {
-    /// Aurora's defaults: "Area NNN" after the module's areas, no tileset
-    /// chosen yet, Medium (8×8).
+    /// Aurora's defaults, "Area NNN" after the module's areas and Medium
+    /// (8×8), with the first tileset chosen (Aurora chooses none).
     pub fn new(tilesets: Vec<TilesetChoice>, areas: usize) -> AreaWizard {
         AreaWizard {
             name: format!("Area {:03}", areas + 1),
+            selected: (!tilesets.is_empty()).then_some(0),
             tilesets,
-            selected: None,
             width: 8,
             height: 8,
             launch_properties: false,
             open_viewer: true,
+            fresh: true,
         }
     }
 
@@ -92,7 +96,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.add_space(6.0);
                 ui.label("Tileset");
                 egui::Frame::group(ui.style()).show(ui, |ui| {
-                    egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                    let mut list = egui::ScrollArea::vertical().max_height(220.0);
+                    if std::mem::take(&mut w.fresh) {
+                        list = list.vertical_scroll_offset(0.0);
+                    }
+                    list.show(ui, |ui| {
                         ui.set_width(280.0);
                         for (i, t) in w.tilesets.iter().enumerate() {
                             if ui.selectable_label(w.selected == Some(i), &t.name).clicked() {

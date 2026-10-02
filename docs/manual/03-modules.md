@@ -253,5 +253,6 @@ Closing a hak with unsaved changes asks first.
 ## Areas
 
 **Wizards › Area Wizard…** makes an area from a name, a tileset and a
-size (2 to 32 tiles each way); **Edit › Resize Area…** and **Rotate Area…**
+size (2 to 32 tiles each way). It opens with the first tileset chosen
+(Aurora chooses none); **Edit › Resize Area…** and **Rotate Area…**
 change the area shown last, as in Aurora. See [Areas](04-areas.md).
