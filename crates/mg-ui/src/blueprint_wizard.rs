@@ -376,6 +376,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     BlueprintKind::Creature,
                     "Add Creature",
                     egui::Id::new("wizard-creatures"),
+                    Some(360.0),
                 );
                 if let Some(r) = add {
                     w.creatures.push(crate::blueprint::encounter::creature_entry(app, r));

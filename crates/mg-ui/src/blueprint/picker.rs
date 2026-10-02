@@ -56,18 +56,20 @@ impl Form<'_> {
         add: &str,
     ) -> Option<ResRef> {
         let state_id = self.id(&format!("picker-{}", kind.name()));
-        palette_picker(self.app, ui, kind, add, state_id)
+        palette_picker(self.app, ui, kind, add, state_id, None)
     }
 }
 
 /// A palette to choose blueprints from (see [`Form::palette_picker`]), its
-/// state kept under `state_id`.
+/// state kept under `state_id`; its tree `height` points tall, or (`None`)
+/// down to the bottom of what shows, its button below.
 pub(crate) fn palette_picker(
     app: &mut crate::Moonglow,
     ui: &mut Ui,
     kind: BlueprintKind,
     add: &str,
     state_id: egui::Id,
+    height: Option<f32>,
 ) -> Option<ResRef> {
     // (custom palette, filter, chosen blueprint)
     let (mut custom, mut filter, mut chosen): (bool, String, Option<ResRef>) =
@@ -80,7 +82,11 @@ pub(crate) fn palette_picker(
     ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Find"));
     let palette = palette_view::palette(app, kind, custom);
     let game = app.game.as_ref();
-    egui::ScrollArea::vertical().id_salt(state_id.with("tree")).max_height(360.0).show(ui, |ui| {
+    let button = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y;
+    let height =
+        height.unwrap_or_else(|| (ui.clip_rect().bottom() - ui.cursor().top() - button).max(200.0));
+    let list = egui::ScrollArea::vertical().id_salt(state_id.with("tree")).max_height(height);
+    list.auto_shrink([false, true]).show(ui, |ui| {
         if let (Some(p), Some(game)) = (palette, game) {
             let filter = filter.to_lowercase();
             for (i, node) in p.nodes.iter().enumerate() {
