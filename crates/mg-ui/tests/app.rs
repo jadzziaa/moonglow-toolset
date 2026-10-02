@@ -6782,23 +6782,28 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     h.get_by_label("Water").click();
     h.run_steps(2);
     let before = lattice(&mut h);
-    // Dragged from corner (1, 2) to corner (3, 2), 10 m apart each.
+    // Dragged from corner (1, 2) to corner (3, 2), 10 m apart each, then
+    // run back to (2, 2): (3, 2) is let go.
     let from = screen(&h, area, Vec3::new(10.0, 20.0, 0.0));
     h.hover_at(from);
     press(&h, from, true, egui::Modifiers::NONE);
     h.run_steps(1);
-    for x in [12.0, 16.0, 20.0, 24.0, 28.0, 30.0] {
+    for x in [12.0, 16.0, 20.0, 24.0, 28.0, 30.0, 27.0, 23.0, 20.0] {
         h.hover_at(screen(&h, area, Vec3::new(x, 20.0, 0.0)));
         h.run_steps(1);
     }
-    let to = screen(&h, area, Vec3::new(30.0, 20.0, 0.0));
+    // Nothing is painted before the button is let go.
+    assert_eq!(lattice(&mut h), before);
+    let to = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
     press(&h, to, false, egui::Modifiers::NONE);
-    h.run_steps(8);
+    h.run_steps(3);
     let after = lattice(&mut h);
-    for x in 1..=3 {
+    for x in 1..=2 {
         assert_eq!(after.corner(x, 2).terrain, water, "corner ({x}, 2)");
     }
-    assert_eq!(after.corner(0, 2).terrain, before.corner(0, 2).terrain);
+    for x in [0, 3] {
+        assert_eq!(after.corner(x, 2).terrain, before.corner(x, 2).terrain, "corner ({x}, 2)");
+    }
     // The drag is one command: one undo takes all of it back.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);

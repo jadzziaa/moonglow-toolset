@@ -4,7 +4,8 @@
 //! - A terrain brush or Raise/Lower acts on the lattice corner nearest the
 //!   pointer (the right button lowers); the cursor is the square of the four
 //!   tiles around it, red where Aurora would refuse the stroke. Dragged, it
-//!   paints every corner the pointer passes, each once, as one command.
+//!   marks the corners the pointer passes (run back, it lets them go) and
+//!   paints them all, as one command, when the button is let go.
 //! - A crosser brush is dragged: the crosser goes on the edge of every
 //!   quarter of a tile the pointer passes through (the quarter nearest that
 //!   edge), as Aurora draws it. A click chooses the tile again.
@@ -77,18 +78,25 @@ pub struct Spot {
 const SIDE_REACH: f32 = 0.25;
 
 /// A terrain brush (or Raise/Lower) dragged across the area: the corners
-/// it passes, painted one a frame (each stroke on the tiles the last one
-/// left), each once.
+/// it has marked, in order, to paint when it is let go.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TerrainDrag {
     /// Where the pointer was last seen.
     at: Option<Vec3>,
-    /// Corners passed and not yet painted, in order.
-    queue: std::collections::VecDeque<(u32, u32)>,
-    /// Corners painted (or queued) in this drag.
-    seen: Vec<(u32, u32)>,
-    /// A command was made for the drag: later corners amend it.
-    committed: bool,
+    corners: Vec<(u32, u32)>,
+}
+
+impl TerrainDrag {
+    /// The pointer reaching corner `c`: marked if new; back at the corner
+    /// before the last, the last is let go (the drag run back).
+    fn reach(&mut self, c: (u32, u32)) {
+        let n = self.corners.len();
+        if n >= 2 && self.corners[n - 2] == c {
+            self.corners.pop();
+        } else if !self.corners.contains(&c) {
+            self.corners.push(c);
+        }
+    }
 }
 
 /// The spot at ground point `p` of a `width` × `height` area.
@@ -197,30 +205,16 @@ fn stroke(
 fn commit(
     app: &mut Moonglow,
     view: &mut AreaView,
-    grid: Grid,
-    stroke: Option<Stroke>,
-    label: &str,
-    pick: Option<Placement>,
-) {
-    commit_as(app, view, grid, stroke, label, pick, false);
-}
-
-/// [`commit`], as part of the last command when `amend` (a drag's later
-/// corners); whether it made edits.
-fn commit_as(
-    app: &mut Moonglow,
-    view: &mut AreaView,
     mut grid: Grid,
     stroke: Option<Stroke>,
     label: &str,
     pick: Option<Placement>,
-    amend: bool,
-) -> bool {
+) {
     let Some(stroke) = stroke else {
         view.notice = Some(format!("{label}: no tile fits there"));
-        return false;
+        return;
     };
-    let Some(tools) = view.terrain.as_ref() else { return false };
+    let Some(tools) = view.terrain.as_ref() else { return };
     let before = grid.clone();
     let mut rng = fastrand::Rng::new();
     let changes = match pick {
@@ -232,8 +226,8 @@ fn commit_as(
         }
         None => grid.apply(&tools.index, stroke, &mut rng),
     };
+    tile_command(app, view, &before, &changes, label);
     view.notice = None;
-    tile_command_as(app, view, &before, &changes, label, &[], amend)
 }
 
 /// One command putting `changes` (cells and their new tiles) into the
@@ -258,27 +252,13 @@ pub(crate) fn tile_command_keeping(
     label: &str,
     kept: &[((u32, u32), mg_gff::Struct)],
 ) {
-    tile_command_as(app, view, before, changes, label, kept, false);
-}
-
-/// [`tile_command_keeping`], amending the last command when `amend`;
-/// whether there were edits.
-fn tile_command_as(
-    app: &mut Moonglow,
-    view: &AreaView,
-    before: &Grid,
-    changes: &[((u32, u32), Placement)],
-    label: &str,
-    kept: &[((u32, u32), mg_gff::Struct)],
-    amend: bool,
-) -> bool {
     let (Some(ws), Some(game), Some(tools)) =
         (app.ws.as_mut(), app.game.as_ref(), view.terrain.as_ref())
     else {
-        return false;
+        return;
     };
     let key = ResKey::new(view.area, ResType::ARE);
-    let Ok(are) = ws.doc(&key) else { return false };
+    let Ok(are) = ws.doc(&key) else { return };
     let root = are.root.clone();
     let scheme = root
         .integer("LightingScheme")
@@ -326,14 +306,9 @@ fn tile_command_as(
             game, git_key, &git, &tools.set, step, &old, changes, &read,
         ));
     }
-    if edits.is_empty() {
-        return false;
+    if !edits.is_empty() {
+        app.actions.push(crate::Action::Apply(Command::new(label, edits)));
     }
-    app.actions.push(match amend {
-        true => crate::Action::Amend(edits),
-        false => crate::Action::Apply(Command::new(label, edits)),
-    });
-    true
 }
 
 /// Terrain mode's input; `false` when no tileset brush applies to the area
@@ -347,6 +322,7 @@ pub(crate) fn input(
     let Some(brush) = active(app, view) else {
         view.crossing.clear();
         view.crossing_at = None;
+        view.terrain_drag = None;
         return false;
     };
     let (Some(model), Some(_)) = (view.model.as_ref(), view.terrain.as_ref()) else { return true };
@@ -357,6 +333,7 @@ pub(crate) fn input(
     if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         app.palette.tile_brush = None;
         view.crossing.clear();
+        view.terrain_drag = None;
         return true;
     }
     match brush.brush {
@@ -447,9 +424,9 @@ pub(crate) fn input(
     true
 }
 
-/// A terrain brush (or Raise/Lower) dragged with the primary button: the
-/// corners it passes are queued and painted one a frame, the first as a
-/// command and the rest amending it; whether a drag is going on.
+/// A terrain brush (or Raise/Lower) dragged with the primary button: it
+/// marks the corners the pointer passes, and when it is let go paints
+/// them, in order, as one command; whether a drag is going on.
 fn terrain_drag(
     app: &mut Moonglow,
     view: &mut AreaView,
@@ -469,42 +446,47 @@ fn terrain_drag(
         let from = drag.at.unwrap_or(to);
         let steps = (to - from).truncate().length().ceil().max(1.0) as u32;
         for k in 0..=steps {
-            let p = from.lerp(to, k as f32 / steps as f32);
-            if let Some(c) = spot(p, w, h).map(|s| s.corner)
-                && !drag.seen.contains(&c)
-            {
-                drag.seen.push(c);
-                drag.queue.push_back(c);
+            if let Some(s) = spot(from.lerp(to, k as f32 / steps as f32), w, h) {
+                drag.reach(s.corner);
             }
         }
         drag.at = Some(to);
     }
-    // One corner a frame, on the tiles the last one's command left (it has
-    // run by now: actions run between frames).
-    if app.actions.is_empty()
-        && let Some(corner) = drag.queue.pop_front()
-        && let Some(g) = current_grid(app, view)
-    {
-        let tools = view.terrain.as_ref().expect("checked");
+    if response.dragged_by(egui::PointerButton::Primary) {
+        view.terrain_drag = Some(drag);
+        return true;
+    }
+    // Let go: each corner's stroke on the tiles the last one left.
+    let (Some(mut g), Some(tools)) = (current_grid(app, view), view.terrain.as_ref()) else {
+        return true;
+    };
+    let before = g.clone();
+    let mut rng = fastrand::Rng::new();
+    let mut changed: Vec<(u32, u32)> = Vec::new();
+    let (mut label, mut refused) = (format!("Paint {}", brush.label), 0);
+    for &corner in &drag.corners {
         let at = Vec3::new(
             corner.0 as f32 * mg_area::TILE_SIZE,
             corner.1 as f32 * mg_area::TILE_SIZE,
             0.0,
         );
-        if let Some(s) = spot(at, w, h) {
-            let s = Spot { corner, ..s };
-            let (st, label) = stroke(tools, &g, brush, s, false, false, 0);
-            if commit_as(app, view, g, st, &label, None, drag.committed) {
-                drag.committed = true;
+        let Some(s) = spot(at, w, h) else { continue };
+        let (st, l) = stroke(tools, &g, brush, Spot { corner, ..s }, false, false, 0);
+        match st {
+            Some(st) => {
+                label = l;
+                for (cell, _) in g.apply(&tools.index, st, &mut rng) {
+                    if !changed.contains(&cell) {
+                        changed.push(cell);
+                    }
+                }
             }
+            None => refused += 1,
         }
     }
-    let going = response.dragged_by(egui::PointerButton::Primary);
-    if going || !drag.queue.is_empty() {
-        // The rest of the queue after the button is let go.
-        response.ctx.request_repaint();
-        view.terrain_drag = Some(drag);
-    }
+    let changes: Vec<_> = changed.iter().map(|&(x, y)| ((x, y), g.tile(x, y))).collect();
+    tile_command(app, view, &before, &changes, &label);
+    view.notice = (refused > 0).then(|| format!("{label}: no tile fits at {refused} corners"));
     true
 }
 
@@ -611,6 +593,18 @@ fn cursor_shapes(
     let refused = Color32::from_rgb(230, 60, 60);
     for &(cell, edge) in &view.crossing {
         quarter(cell, edge, Color32::from_rgb(240, 200, 60));
+    }
+    // A terrain drag's marked corners.
+    for &(x, y) in view.terrain_drag.iter().flat_map(|d| &d.corners) {
+        let (fx, fy) = (x as f32, y as f32);
+        let h = z(x, y) + 0.05;
+        let square = [
+            point(fx - 0.5, fy - 0.5, h),
+            point(fx + 0.5, fy - 0.5, h),
+            point(fx + 0.5, fy + 0.5, h),
+            point(fx - 0.5, fy + 0.5, h),
+        ];
+        polygon(&square, Color32::from_rgb(240, 200, 60));
     }
     let Some(s) = view.spot else { return };
     match brush.brush {
