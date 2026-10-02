@@ -16,8 +16,9 @@
 //! - a skill list as long as skills.2da, sounds' struct ids 0, a sound's
 //!   priority from how it plays, an item's cost when it has none, a
 //!   store's five pages, an encounter's creatures by challenge rating;
-//! - where it stands; all in the order Aurora writes each type (fields it
-//!   does not know, such as local variables, follow, kept).
+//! - where it stands; all in the order Aurora writes each type, local
+//!   variables included (`aurora_update_instances.rs`; fields it does not
+//!   know follow, kept).
 //!
 //! Aurora's two quirks with blueprints lacking `Comment` (a creature then
 //! gets an empty `Comment`, and its first skill another) are not copied.
@@ -265,6 +266,7 @@ const CREATURE_ORDER: &[&str] = &[
     "TemplateList",
     "SpecAbilityList",
     "ClassList",
+    "VarTable",
     "ItemList",
     "Equip_ItemList",
 ];
@@ -292,6 +294,7 @@ const ITEM_ORDER: &[&str] = &[
     "Cursed",
     "#parts",
     "PropertiesList",
+    "VarTable",
 ];
 
 const PLACEABLE_ORDER: &[&str] = &[
@@ -339,6 +342,7 @@ const PLACEABLE_ORDER: &[&str] = &[
     "OnUnlock",
     "OnUserDefined",
     "OnClick",
+    "VarTable",
     "HasInventory",
     "BodyBag",
     "Static",
@@ -350,6 +354,7 @@ const PLACEABLE_ORDER: &[&str] = &[
     "Y",
     "Z",
     "Bearing",
+    "VisTransformList",
     "ItemList",
 ];
 
@@ -373,6 +378,7 @@ const STORE_ORDER: &[&str] = &[
     "OnStoreClosed",
     "WillNotBuy",
     "WillOnlyBuy",
+    "VarTable",
     "StoreList",
 ];
 
@@ -400,6 +406,7 @@ const SOUND_ORDER: &[&str] = &[
     "Volume",
     "VolumeVrtn",
     "Sounds",
+    "VarTable",
     "GeneratedType",
     "XPosition",
     "YPosition",
@@ -416,6 +423,7 @@ const WAYPOINT_ORDER: &[&str] = &[
     "HasMapNote",
     "MapNote",
     "MapNoteEnabled",
+    "VarTable",
     "XPosition",
     "YPosition",
     "ZPosition",
@@ -451,6 +459,7 @@ const TRIGGER_ORDER: &[&str] = &[
     "ScriptOnEnter",
     "ScriptOnExit",
     "ScriptUserDefine",
+    "VarTable",
     "XPosition",
     "YPosition",
     "ZPosition",
@@ -480,6 +489,7 @@ const ENCOUNTER_ORDER: &[&str] = &[
     "OnExhausted",
     "OnHeartbeat",
     "OnUserDefined",
+    "VarTable",
     "CreatureList",
     "XPosition",
     "YPosition",
@@ -652,6 +662,7 @@ const DOOR_ORDER: &[&str] = &[
     "OnUnlock",
     "OnUserDefined",
     "OnClick",
+    "VarTable",
     "LinkedTo",
     "LinkedToFlags",
     "LoadScreenID",
@@ -1125,6 +1136,13 @@ pub fn instance(
         }
         _ => return None,
     }
+    arrange_as(restype, &mut s);
+    Some(s)
+}
+
+/// Puts a placed object's fields in the order Aurora writes its type
+/// (items are written in order).
+fn arrange_as(restype: ResType, s: &mut Struct) {
     let order: Vec<&str> = match restype {
         ResType::UTC => {
             let mut order = CREATURE_ORDER.to_vec();
@@ -1139,11 +1157,92 @@ pub fn instance(
         ResType::UTT => TRIGGER_ORDER.to_vec(),
         ResType::UTE => ENCOUNTER_ORDER.to_vec(),
         ResType::UTD => DOOR_ORDER.to_vec(),
-        // Items are in order already.
-        _ => return Some(s),
+        _ => return,
     };
-    arrange(&mut s, &order, &CREATURE_PARTS);
-    Some(s)
+    arrange(s, &order, &CREATURE_PARTS);
+}
+
+/// Where a placed object stands, as [`instance`] writes it (the inverse
+/// of its placement), and its outline (triggers' and encounters'
+/// `Geometry`, as stored).
+pub fn placement_of(restype: ResType, s: &Struct) -> (Placement, Vec<[f32; 3]>) {
+    let f = |l: &str| s.float(l).unwrap_or(0.0);
+    let (position, rotation) = match restype {
+        ResType::UTD | ResType::UTP => ([f("X"), f("Y"), f("Z")], f("Bearing")),
+        _ => {
+            let (x, y) = (f("XOrientation"), f("YOrientation"));
+            // Sounds, triggers and encounters don't face anywhere.
+            let facing = if x == 0.0 && y == 0.0 { FRAC_PI_2 } else { y.atan2(x) };
+            ([f("XPosition"), f("YPosition"), f("ZPosition")], facing - FRAC_PI_2)
+        }
+    };
+    let labels = match restype {
+        ResType::UTT => ["PointX", "PointY", "PointZ"],
+        _ => ["X", "Y", "Z"],
+    };
+    let outline = s
+        .list("Geometry")
+        .unwrap_or(&[])
+        .iter()
+        .map(|p| labels.map(|l| p.float(l).unwrap_or(0.0)))
+        .collect();
+    (Placement { position, rotation }, outline)
+}
+
+/// What Update Instances keeps of a placed object besides where it
+/// stands: its visual transform (EE's list, or the older struct) and an
+/// encounter's spawn points.
+const KEPT: [&str; 3] = ["VisTransformList", "VisualTransform", "SpawnPointList"];
+
+/// Update Instances (Aurora's palette › Update Instances, with every area
+/// or one): the placed objects of the blueprints `blueprint` returns,
+/// made again from them where they stand, as Aurora does
+/// (`aurora_update_instances.rs`): everything else (tag, name, scripts,
+/// variables, a door's transition) comes from the blueprint. A store's
+/// blueprint is named by `ResRef`, the rest by `TemplateResRef`.
+///
+/// Returns the GIT with the objects replaced, and how many, or `None`
+/// when it has none of them.
+pub fn update(
+    p: &Placing<'_>,
+    git: &Struct,
+    blueprint: &dyn Fn(ResType, ResRef) -> Option<Struct>,
+) -> Option<(Struct, usize)> {
+    let mut out = git.clone();
+    let mut count = 0;
+    for restype in [
+        ResType::UTC,
+        ResType::UTD,
+        ResType::UTE,
+        ResType::UTI,
+        ResType::UTP,
+        ResType::UTS,
+        ResType::UTM,
+        ResType::UTT,
+        ResType::UTW,
+    ] {
+        let (list, _) = git_list(restype).expect("a GIT type");
+        let field = if restype == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+        let Some(items) = out.list_mut(list) else { continue };
+        for s in items.iter_mut() {
+            let Some(bp) =
+                s.resref(field).filter(|r| !r.is_empty()).and_then(|r| blueprint(restype, r))
+            else {
+                continue;
+            };
+            let (at, outline) = placement_of(restype, s);
+            let Some(mut made) = instance(p, restype, &bp, at, &outline) else { continue };
+            for label in KEPT {
+                if let Some(v) = s.get(label) {
+                    made.set(label, v.clone());
+                }
+            }
+            arrange_as(restype, &mut made);
+            *s = made;
+            count += 1;
+        }
+    }
+    (count > 0).then_some((out, count))
 }
 
 /// The waypoint Aurora's Create Waypoint makes for a creature (one of its
