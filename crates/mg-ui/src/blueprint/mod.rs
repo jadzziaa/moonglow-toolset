@@ -700,72 +700,9 @@ impl Form<'_> {
         let r = ui
             .button("Update Instances")
             .on_hover_text("Update all instances created from this Blueprint");
-        if !r.clicked() {
-            return;
+        if r.clicked() {
+            self.app.update_instances_of(vec![self.key]);
         }
-        let (Some(ws), Some(game)) = (self.app.ws.as_mut(), self.app.game.as_ref()) else { return };
-        let Some(kind) = mg_area::ObjectKind::from_restype(self.key.restype) else { return };
-        let template_field = BlueprintKind::from_restype(self.key.restype)
-            .map_or("TemplateResRef", |k| k.resref_field());
-        let areas = ws.module.areas().unwrap_or_default();
-        let gits: Vec<(ResKey, Struct)> = areas
-            .into_iter()
-            .filter_map(|a| {
-                let k = ResKey::new(a, ResType::GIT);
-                ws.doc(&k).ok().map(|g| (k, g.root.clone()))
-            })
-            .collect();
-        let module = &ws.module;
-        let items = |r: ResRef| -> Option<Struct> {
-            let k = ResKey::new(r, ResType::UTI);
-            let data = module
-                .get(&k)
-                .map(<[u8]>::to_vec)
-                .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-            mg_gff::Gff::read(&data).ok().map(|g| g.root)
-        };
-        let placing = mg_module::instances::Placing { game, item: &items };
-        let mut edits = Vec::new();
-        let mut updated = 0;
-        for (git_key, git) in gits {
-            let Some(list) = git.list(kind.list()) else { continue };
-            let mut new = list.to_vec();
-            let mut changed = false;
-            for (i, s) in list.iter().enumerate() {
-                if s.resref(template_field) != Some(self.key.resref) {
-                    continue;
-                }
-                let o = mg_area::AreaObject::read(game, kind, i, s);
-                let at = mg_module::instances::Placement {
-                    position: o.position.to_array(),
-                    rotation: o.rotation,
-                };
-                if let Some(made) =
-                    mg_module::instances::instance(&placing, self.key.restype, &self.root, at, &[])
-                {
-                    new[i] = made;
-                    changed = true;
-                    updated += 1;
-                }
-            }
-            if changed {
-                edits.push(Edit::SetField {
-                    key: git_key,
-                    path: GffPath::root(),
-                    label: kind.list().into(),
-                    value: Some(Value::List(new)),
-                });
-            }
-        }
-        if edits.is_empty() {
-            self.app.log.info(format!("No instances of {} to update", self.key.resref));
-            return;
-        }
-        self.app.actions.push(crate::Action::Apply(mg_edit::Command::new(
-            format!("Update instances of {}", self.key.resref),
-            edits,
-        )));
-        self.app.log.info(format!("Updated {updated} instances of {}", self.key.resref));
     }
 
     /// The blueprint's resref (Aurora's "Blueprint ResRef"): changing it

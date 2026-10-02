@@ -226,7 +226,8 @@ fn update_instances_matches_aurora() {
         for area in m.areas().unwrap() {
             let key = ResKey::new(area, ResType::GIT);
             let before = m.gff(&key).unwrap().unwrap();
-            let (ours, n) = update(&placing, &before.root, &blueprint).expect("objects to update");
+            let (ours, n) = update(&placing, &before.root, &blueprint, &|_, _| true)
+                .expect("objects to update");
             let theirs = aurora.gff(&key).unwrap().unwrap();
             for (list, _) in LISTS {
                 let ours = ours.list(list).unwrap_or(&[]);

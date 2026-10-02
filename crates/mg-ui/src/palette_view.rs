@@ -34,6 +34,9 @@ pub struct PaletteView {
     /// Custom palettes, each built for a workspace revision.
     custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
     pub selected: Option<ResKey>,
+    /// More custom blueprints chosen with Ctrl+click, for bulk edits (with
+    /// `selected`).
+    pub chosen: Vec<ResKey>,
     /// The tileset palette is shown, rather than blueprints.
     pub tiles: bool,
     /// The tileset brush chosen.
@@ -61,6 +64,7 @@ impl Default for PaletteView {
             standard: HashMap::new(),
             custom_cache: HashMap::new(),
             selected: None,
+            chosen: Vec::new(),
             tiles: false,
             tile_brush: None,
             area: None,
@@ -155,6 +159,7 @@ enum Pick {
     Delete(ResKey),
     Preview(ResKey),
     References(ResKey),
+    UpdateInstances(Vec<ResKey>),
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
@@ -219,16 +224,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let filter = view.filter.to_lowercase();
     let custom = view.custom;
     let mut picks = Vec::new();
-    let mut selected = view.selected;
+    let mut sel = Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) };
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for (i, node) in palette.nodes.iter().enumerate() {
-            show_node(ui, game, node, &filter, kind, custom, &mut selected, &mut picks, &[i]);
+            show_node(ui, game, node, &filter, kind, custom, &mut sel, &mut picks, &[i]);
         }
     });
-    if selected.is_some() && selected != view.selected {
+    if sel.selected.is_some() && sel.selected != view.selected {
         view.tile_brush = None;
     }
-    view.selected = selected;
+    view.selected = sel.selected;
+    view.chosen = sel.chosen;
     app.palette = view;
 
     for pick in picks {
@@ -260,7 +266,41 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             }
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
             Pick::References(key) => app.actions.push(Action::FindReferences(key)),
+            Pick::UpdateInstances(keys) => app.update_instances_of(keys),
         }
+    }
+}
+
+/// The blueprints picked in a palette: the one clicked, and more chosen
+/// with Ctrl+click (custom palettes).
+struct Selection {
+    selected: Option<ResKey>,
+    chosen: Vec<ResKey>,
+}
+
+impl Selection {
+    fn has(&self, key: ResKey) -> bool {
+        self.selected == Some(key) || self.chosen.contains(&key)
+    }
+
+    /// What a bulk edit on `key` applies to: the selection, if `key` is in
+    /// it, else `key` alone.
+    fn bulk(&self, key: ResKey) -> Vec<ResKey> {
+        if !self.has(key) || self.chosen.is_empty() {
+            return vec![key];
+        }
+        let mut keys: Vec<ResKey> = self.selected.into_iter().chain(self.chosen.clone()).collect();
+        keys.sort();
+        keys.dedup();
+        keys
+    }
+}
+
+/// Every blueprint under a palette node.
+fn all_under(node: &PaletteNode, kind: BlueprintKind, out: &mut Vec<ResKey>) {
+    out.extend(node.blueprints.iter().map(|b| ResKey::new(b.resref, kind.restype())));
+    for c in &node.children {
+        all_under(c, kind, out);
     }
 }
 
@@ -286,7 +326,7 @@ fn show_node(
     filter: &str,
     kind: BlueprintKind,
     custom: bool,
-    selected: &mut Option<ResKey>,
+    sel: &mut Selection,
     picks: &mut Vec<Pick>,
     path: &[usize],
 ) {
@@ -300,14 +340,14 @@ fn show_node(
         node.name.text(game)
     };
     // Finding opens every category with a match, whatever was open before.
-    egui::CollapsingHeader::new(title)
+    let shown = egui::CollapsingHeader::new(title)
         .id_salt(("palette", kind, custom, path))
         .open((!filter.is_empty()).then_some(true))
         .show(ui, |ui| {
             for (i, child) in node.children.iter().enumerate() {
                 let mut p = path.to_vec();
                 p.push(i);
-                show_node(ui, game, child, filter, kind, custom, selected, picks, &p);
+                show_node(ui, game, child, filter, kind, custom, sel, picks, &p);
             }
             for b in &node.blueprints {
                 let name = b.name.text(game);
@@ -322,12 +362,22 @@ fn show_node(
                 // Dragged into an area view, it is placed where it is dropped.
                 let r = ui
                     .add(
-                        egui::Button::selectable(*selected == Some(key), label)
+                        egui::Button::selectable(sel.has(key), label)
                             .sense(egui::Sense::click_and_drag()),
                     )
                     .on_hover_text(b.resref.to_string());
                 if r.clicked() {
-                    *selected = Some(key);
+                    // Ctrl+click chooses several custom blueprints.
+                    if custom && ui.input(|i| i.modifiers.command) {
+                        if let Some(at) = sel.chosen.iter().position(|k| *k == key) {
+                            sel.chosen.remove(at);
+                        } else if sel.selected != Some(key) {
+                            sel.chosen.push(key);
+                        }
+                    } else {
+                        sel.selected = Some(key);
+                        sel.chosen.clear();
+                    }
                 }
                 if r.drag_started() {
                     r.dnd_set_drag_payload(Dragged(key));
@@ -361,6 +411,21 @@ fn show_node(
                         picks.push(Pick::References(key));
                         ui.close();
                     }
+                    if custom {
+                        let keys = sel.bulk(key);
+                        let text = match keys.len() {
+                            1 => "Update Instances".to_string(),
+                            n => format!("Update Instances of {n}"),
+                        };
+                        if ui
+                            .button(text)
+                            .on_hover_text("Make the objects placed from it again from it")
+                            .clicked()
+                        {
+                            picks.push(Pick::UpdateInstances(keys));
+                            ui.close();
+                        }
+                    }
                     if custom && ui.button("Delete").clicked() {
                         picks.push(Pick::Delete(key));
                         ui.close();
@@ -368,6 +433,21 @@ fn show_node(
                 });
             }
         });
+    // A custom category: Update Instances of everything in it.
+    if custom {
+        shown.header_response.context_menu(|ui| {
+            let mut keys = Vec::new();
+            all_under(node, kind, &mut keys);
+            if ui
+                .add_enabled(!keys.is_empty(), egui::Button::new("Update Instances"))
+                .on_hover_text("Every blueprint in this category")
+                .clicked()
+            {
+                picks.push(Pick::UpdateInstances(keys));
+                ui.close();
+            }
+        });
+    }
 }
 
 #[cfg(test)]

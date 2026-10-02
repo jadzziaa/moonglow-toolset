@@ -1162,6 +1162,19 @@ fn arrange_as(restype: ResType, s: &mut Struct) {
     arrange(s, &order, &CREATURE_PARTS);
 }
 
+/// A GIT's lists of placed objects and their blueprint types.
+pub const GIT_LISTS: [(&str, ResType); 9] = [
+    ("Creature List", ResType::UTC),
+    ("Door List", ResType::UTD),
+    ("Encounter List", ResType::UTE),
+    ("List", ResType::UTI),
+    ("Placeable List", ResType::UTP),
+    ("SoundList", ResType::UTS),
+    ("StoreList", ResType::UTM),
+    ("TriggerList", ResType::UTT),
+    ("WaypointList", ResType::UTW),
+];
+
 /// Where a placed object stands, as [`instance`] writes it (the inverse
 /// of its placement), and its outline (triggers' and encounters'
 /// `Geometry`, as stored).
@@ -1201,30 +1214,24 @@ const KEPT: [&str; 3] = ["VisTransformList", "VisualTransform", "SpawnPointList"
 /// variables, a door's transition) comes from the blueprint. A store's
 /// blueprint is named by `ResRef`, the rest by `TemplateResRef`.
 ///
-/// Returns the GIT with the objects replaced, and how many, or `None`
-/// when it has none of them.
+/// `which` picks objects by GIT list and index (Aurora lists them to
+/// untick). Returns the GIT with the objects replaced, and how many, or
+/// `None` when it has none of them.
 pub fn update(
     p: &Placing<'_>,
     git: &Struct,
     blueprint: &dyn Fn(ResType, ResRef) -> Option<Struct>,
+    which: &dyn Fn(&str, usize) -> bool,
 ) -> Option<(Struct, usize)> {
     let mut out = git.clone();
     let mut count = 0;
-    for restype in [
-        ResType::UTC,
-        ResType::UTD,
-        ResType::UTE,
-        ResType::UTI,
-        ResType::UTP,
-        ResType::UTS,
-        ResType::UTM,
-        ResType::UTT,
-        ResType::UTW,
-    ] {
-        let (list, _) = git_list(restype).expect("a GIT type");
+    for (list, restype) in GIT_LISTS {
         let field = if restype == ResType::UTM { "ResRef" } else { "TemplateResRef" };
         let Some(items) = out.list_mut(list) else { continue };
-        for s in items.iter_mut() {
+        for (i, s) in items.iter_mut().enumerate() {
+            if !which(list, i) {
+                continue;
+            }
             let Some(bp) =
                 s.resref(field).filter(|r| !r.is_empty()).and_then(|r| blueprint(restype, r))
             else {

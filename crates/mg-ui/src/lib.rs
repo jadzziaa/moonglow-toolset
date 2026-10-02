@@ -14,6 +14,7 @@ pub mod blueprint;
 pub mod blueprint_wizard;
 mod browser;
 pub mod build_view;
+pub mod bulk;
 pub mod creature_wizard;
 pub mod dialog_view;
 pub mod dialogs;
@@ -259,6 +260,8 @@ pub struct Moonglow {
     pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
+    /// The Update Instances window.
+    pub update_draft: Option<bulk::UpdateDraft>,
     /// Where prefabs are kept (the app sets Moonglow's data folder's
     /// `prefabs`; none: prefabs can't be saved).
     pub prefab_dir: Option<PathBuf>,
@@ -365,6 +368,7 @@ impl Moonglow {
             rename: None,
             script_nav: Default::default(),
             prefab_save: None,
+            update_draft: None,
             prefab_dir: None,
             reload_checked: None,
             tlk_stamp: None,
@@ -499,6 +503,7 @@ impl Moonglow {
         references::rename_window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
+        bulk::update_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {

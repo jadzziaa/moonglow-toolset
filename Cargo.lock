@@ -1849,6 +1849,7 @@ dependencies = [
  "mg-gff",
  "mg-module",
  "mg-resman",
+ "mg-rules",
  "mg-script",
  "mg-testkit",
  "mg-tlk",

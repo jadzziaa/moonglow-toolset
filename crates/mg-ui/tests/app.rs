@@ -3197,6 +3197,12 @@ fn update_instances_remakes_placed_sounds() {
     h.run_steps(2);
     h.get_by_label("Update Instances").click();
     h.run_steps(3);
+    // The window lists both, every area chosen.
+    let draft = h.state().update_draft.clone().expect("the Update Instances window");
+    assert_eq!(draft.objects.len(), 2);
+    h.get_by_label("Update 2").click();
+    h.run_steps(3);
+    assert!(h.state().update_draft.is_none());
     let ws = h.state_mut().ws.as_mut().unwrap();
     let sounds = ws.doc(&git).unwrap().root.list("SoundList").unwrap().to_vec();
     assert_eq!(sounds.len(), 2);
@@ -3208,6 +3214,121 @@ fn update_instances_remakes_placed_sounds() {
             "where it stood"
         );
     }
+}
+
+#[test]
+fn palette_updates_the_instances_of_a_selection_and_a_category() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-bulk-update");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    // Two trigger blueprints, each placed once with an outline.
+    let game = app.game.as_ref().unwrap();
+    let base = Gff::read(&game.resman.get_named("trackstrigger", ResType::UTT).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game, item: &none };
+    let mut edits = Vec::new();
+    let mut placed = Vec::new();
+    for (i, name) in ["mg_trig_a", "mg_trig_b"].into_iter().enumerate() {
+        let key = ResKey::parse(name, ResType::UTT).unwrap();
+        let mut bp = base.clone();
+        bp.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+        let at = Placement { position: [10.0 + 10.0 * i as f32, 10.0, 0.0], rotation: 0.0 };
+        let outline = [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [4.0, 3.0, 0.0]];
+        placed.push(instance(&placing, ResType::UTT, &bp.root, at, &outline).unwrap());
+        // The blueprint changes after placing.
+        bp.root.set("Tag", mg_gff::Value::String(format!("NEW_{i}").into_bytes()));
+        edits.push(Edit::SetResource { key, data: Some(bp.to_bytes().unwrap()) });
+    }
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("TriggerList", mg_gff::Value::List(placed));
+    let git_key = ResKey::parse("start", ResType::GIT).unwrap();
+    edits.push(Edit::SetResource { key: git_key, data: Some(git.to_bytes().unwrap()) });
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Trigger;
+    app.palette.custom = true;
+    app.palette.filter = "mg_trig".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let triggers = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list("TriggerList").unwrap().to_vec()
+    };
+    let tag = |s: &mg_gff::Struct| String::from_utf8_lossy(s.string("Tag").unwrap()).into_owned();
+    let before = triggers(&mut h);
+    // Both chosen (Ctrl+click), the second object unticked: one updated.
+    // The blueprints' name in the palette, and their category's title.
+    let (a, title) = {
+        let app = h.state();
+        let game = app.game.as_ref().unwrap();
+        let kind = mg_module::palette::BlueprintKind::Trigger;
+        let gff = mg_module::palette::rebuild_custom_palette(
+            &app.ws.as_ref().unwrap().module,
+            game,
+            kind,
+        )
+        .unwrap();
+        let palette = mg_module::palette::Palette::read(&gff);
+        fn find<'p>(
+            nodes: &'p [mg_module::palette::PaletteNode],
+        ) -> Option<&'p mg_module::palette::PaletteNode> {
+            nodes.iter().find_map(|n| {
+                if n.blueprints.iter().any(|b| b.resref.to_string() == "mg_trig_a") {
+                    Some(n)
+                } else {
+                    find(&n.children)
+                }
+            })
+        }
+        let category = find(&palette.nodes).unwrap();
+        let names: Vec<String> = category.blueprints.iter().map(|b| b.name.text(game)).collect();
+        assert_eq!(names[0], names[1], "copies of one blueprint share its name");
+        let title = format!("{} ({})", category.name.text(game), category.blueprints.len());
+        (names[0].clone(), title)
+    };
+    let buttons: Vec<_> = h.get_all_by_label(&a).collect();
+    assert_eq!(buttons.len(), 2);
+    buttons[0].click();
+    h.run();
+    let buttons: Vec<_> = h.get_all_by_label(&a).collect();
+    buttons[1].click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    assert_eq!(h.state().palette.chosen.len(), 1);
+    h.get_all_by_label(&a).next().unwrap().click_secondary();
+    h.run();
+    h.get_by_label("Update Instances of 2").click();
+    h.run();
+    let draft = h.state().update_draft.clone().expect("the window");
+    assert_eq!(draft.objects.len(), 2);
+    h.get_all_by_label_contains("(mg_trig_b)").next().unwrap().click();
+    h.run();
+    h.get_by_label("Update 1").click();
+    h.run();
+    let after = triggers(&mut h);
+    assert_eq!((tag(&after[0]), tag(&after[1])), ("NEW_0".to_string(), tag(&before[1])));
+    // Its outline and place are kept.
+    assert_eq!(after[0].get("Geometry"), before[0].get("Geometry"));
+    assert_eq!(after[0].float("XPosition"), Some(10.0));
+    // The whole category, from its menu.
+    h.get_by_label(&title).click_secondary();
+    h.run();
+    h.get_by_label("Update Instances").click();
+    h.run();
+    h.get_by_label("Update 2").click();
+    h.run();
+    let after = triggers(&mut h);
+    assert_eq!((tag(&after[0]), tag(&after[1])), ("NEW_0".to_string(), "NEW_1".to_string()));
+    // One undo step.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(tag(&triggers(&mut h)[1]), tag(&before[1]));
 }
 
 #[test]

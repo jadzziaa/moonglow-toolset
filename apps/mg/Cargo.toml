@@ -15,6 +15,7 @@ mg-erf.workspace = true
 mg-gff.workspace = true
 mg-module.workspace = true
 mg-resman.workspace = true
+mg-rules.workspace = true
 mg-script.workspace = true
 mg-tlk.workspace = true
 serde_json.workspace = true

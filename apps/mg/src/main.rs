@@ -122,6 +122,18 @@ enum Cmd {
         #[arg(long)]
         strings: bool,
     },
+    /// Make the objects placed from blueprints again from them, where they
+    /// stand (Aurora's Update Instances), and save: their tags, names,
+    /// scripts and variables become the blueprints'.
+    UpdateInstances {
+        module: PathBuf,
+        /// `name.ext` of each blueprint, e.g. `guard.utc`; none: every
+        /// blueprint in the module.
+        blueprints: Vec<String>,
+        /// Only in this area.
+        #[arg(long)]
+        area: Option<String>,
+    },
     /// Build a nasher project's module: compile its scripts and pack its
     /// target as nasher does (filters, modName and the rest). Fails if a
     /// script doesn't compile, unless --keep-going.
@@ -378,6 +390,66 @@ fn run(cli: Cli) -> Result<()> {
                 report.in_scripts,
                 report.recompile.len()
             );
+        }
+        Cmd::UpdateInstances { module, blueprints, area } => {
+            let mut m = Module::open(module)?;
+            let gi = install(&cli)?;
+            let wanted: Vec<ResKey> = if blueprints.is_empty() {
+                let types: Vec<_> =
+                    mg_module::instances::GIT_LISTS.iter().map(|(_, t)| *t).collect();
+                m.keys().copied().filter(|k| types.contains(&k.restype)).collect()
+            } else {
+                blueprints
+                    .iter()
+                    .map(|b| ResKey::from_filename(b).context("give each blueprint as name.ext"))
+                    .collect::<Result<_>>()?
+            };
+            for k in &wanted {
+                if !m.contains(k) {
+                    bail!("{k} is not in the module");
+                }
+            }
+            let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false))?)?;
+            let game = mg_rules::GameData::new(module_resman(&gi, &m)?, tlk);
+            let only = area
+                .as_deref()
+                .map(mg_core::ResRef::from_str)
+                .transpose()
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            let mut total = 0;
+            for a in m.areas()? {
+                if only.is_some_and(|o| o != a) {
+                    continue;
+                }
+                let key = ResKey::new(a, mg_core::ResType::GIT);
+                let Some(Ok(git)) = m.gff(&key) else { continue };
+                let read = |k: ResKey| -> Option<mg_gff::Struct> {
+                    let data = m
+                        .get(&k)
+                        .map(<[u8]>::to_vec)
+                        .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+                    mg_gff::Gff::read(&data).ok().map(|g| g.root)
+                };
+                let item = |r: mg_core::ResRef| read(ResKey::new(r, mg_core::ResType::UTI));
+                let placing = mg_module::instances::Placing { game: &game, item: &item };
+                let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {
+                    let k = ResKey::new(r, t);
+                    if wanted.contains(&k) { read(k) } else { None }
+                };
+                if let Some((new, n)) =
+                    mg_module::instances::update(&placing, &git.root, &blueprint, &|_, _| true)
+                {
+                    let mut g = git.clone();
+                    g.root = new;
+                    m.set_gff(key, &g)?;
+                    println!("{a}: {n}");
+                    total += n;
+                }
+            }
+            if total > 0 {
+                m.save()?;
+            }
+            eprintln!("updated {total} objects from {} blueprints", wanted.len());
         }
         Cmd::Build { project, target, output, keep_going } => {
             let mut m = Module::open_project(project, target.as_deref())?;
