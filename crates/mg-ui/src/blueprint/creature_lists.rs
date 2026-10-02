@@ -595,7 +595,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                             |i| f.entry_name(&equipped[i], &names),
                         );
                         let icon = at.map_or(&[][..], |i| &icons[i][..]);
-                        crate::images::icon_row(ui, icon, &shown);
+                        crate::images::icon_box(ui, icon, 48.0, &shown);
                         let on = at.is_some() && at.map(|i| ("Equip_ItemList", i)) == chosen_item;
                         if ui.selectable_label(on, shown).clicked()
                             && let Some(i) = at

@@ -324,14 +324,23 @@ pub(crate) fn swatch(ui: &Ui, rect: egui::Rect, tones: &[egui::Color32; 4]) {
     }
 }
 
-/// An icon in a list row: its layers scaled to the row's height (32 points
-/// for one cell), else an empty space.
-pub(crate) fn icon_row(ui: &mut egui::Ui, layers: &[Picture], alt: &str) -> egui::Response {
-    match layers.first() {
-        Some(p) => {
-            let scale = (32.0 / p.size.y.max(1.0)).min(1.0);
-            stacked(ui, layers, scale, alt)
+/// An icon in a `side`-point square: its layers at their own size, or
+/// smaller to fit, centered; an empty square without one.
+pub(crate) fn icon_box(
+    ui: &mut egui::Ui,
+    layers: &[Picture],
+    side: f32,
+    alt: &str,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+    if let Some(p) = layers.first() {
+        let scale = (side / p.size.x.max(1.0)).min(side / p.size.y.max(1.0)).min(1.0);
+        let at = egui::Rect::from_center_size(rect.center(), p.size * scale);
+        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+        for p in layers {
+            ui.painter().image(p.texture.id(), at, uv, egui::Color32::WHITE);
         }
-        None => ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::hover()).1,
     }
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
+    response
 }

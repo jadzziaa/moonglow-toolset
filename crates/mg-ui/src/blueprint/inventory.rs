@@ -154,8 +154,6 @@ pub(super) fn place(taken: &[(u32, u32, u32, u32)], w: u32, h: u32) -> (u32, u32
         .expect("an empty row fits any item")
 }
 
-/// The items of the `ItemList` at `path`, by name, each with Remove (and
-/// with `infinite`, a store's Infinite flag); the edits asked for.
 /// A creature's item flag (`Dropable`, `Pickpocketable`) as a checkbox:
 /// written as 1 when set and left out when not, as the game's blueprints
 /// have it. The edit, if it changed.
@@ -185,7 +183,16 @@ pub(super) struct ItemLook<'a> {
     pub selected: Option<usize>,
 }
 
-/// The items with their Remove buttons: the edits, and the item clicked.
+/// The side of the square an item list shows each icon in: armor (2×3
+/// cells) and wide items (belts, 2×1) at a readable size.
+const ICON: f32 = 64.0;
+
+/// The width of a store's Infinite column.
+const FLAG_WIDTH: f32 = 60.0;
+
+/// The items of the `ItemList` at `path`, a row each across the whole
+/// width: icon, name, (with `infinite`, a store's Infinite flag) and Remove.
+/// The edits asked for, and the item clicked.
 pub(super) fn item_list(
     ui: &mut Ui,
     key: ResKey,
@@ -196,35 +203,61 @@ pub(super) fn item_list(
     let ItemLook { icons, name, infinite, selected } = look;
     let mut clicked = None;
     let mut edits = Vec::new();
-    let columns = if infinite { 4 } else { 3 };
-    egui::ScrollArea::vertical().id_salt(("items", key, path.to_string())).max_height(400.0).show(
-        ui,
-        |ui| {
-            egui::Grid::new(("items-grid", key, path.to_string()))
-                .num_columns(columns)
-                .striped(true)
-                .show(ui, |ui| {
-                    ui.label("");
-                    ui.strong("Item");
-                    if infinite {
-                        ui.strong("Infinite");
+    let gap = ui.spacing().item_spacing.x;
+    let header = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+    let (rect, _) = ui.allocate_exact_size(header, egui::Sense::hover());
+    let layout = egui::Layout::left_to_right(egui::Align::Center);
+    let mut head = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
+    head.add_space(ICON + gap);
+    head.strong("Item");
+    if infinite {
+        head.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Over the checkboxes: past the Remove buttons.
+            let font = egui::TextStyle::Button.resolve(ui.style());
+            let remove = ui.painter().layout_no_wrap("Remove".into(), font, egui::Color32::WHITE);
+            ui.add_space(remove.size().x + 2.0 * ui.spacing().button_padding.x + gap);
+            let cell = egui::vec2(FLAG_WIDTH, header.y);
+            let centered = egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
+            ui.allocate_ui_with_layout(cell, centered, |ui| ui.strong("Infinite"));
+        });
+    }
+    // The list fills what is left of the page's visible height.
+    let height = (ui.clip_rect().bottom() - ui.cursor().top()).max(200.0);
+    egui::ScrollArea::vertical()
+        .id_salt(("items", key, path.to_string()))
+        .max_height(height)
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            for (i, it) in items.iter().enumerate() {
+                let resref = entry_resref(it);
+                let n = name(it);
+                let row = egui::vec2(ui.available_width(), ICON);
+                let (rect, _) = ui.allocate_exact_size(row, egui::Sense::hover());
+                if i % 2 == 1 {
+                    ui.painter().rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
+                }
+                let layout = egui::Layout::left_to_right(egui::Align::Center);
+                let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
+                crate::images::icon_box(&mut ui, icons.get(i).map_or(&[][..], |v| v), ICON, &n);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("Remove").clicked() {
+                        edits.push((
+                            "Remove item",
+                            Edit::RemoveItem {
+                                key,
+                                path: path.clone(),
+                                list: "ItemList".into(),
+                                index: i,
+                            },
+                        ));
                     }
-                    ui.label("");
-                    ui.end_row();
-                    for (i, it) in items.iter().enumerate() {
-                        let resref = entry_resref(it);
-                        let n = name(it);
-                        crate::images::icon_row(ui, icons.get(i).map_or(&[][..], |v| v), &n);
-                        if ui
-                            .selectable_label(selected == Some(i), &n)
-                            .on_hover_text(resref.to_string())
-                            .clicked()
-                        {
-                            clicked = Some(i);
-                        }
-                        if infinite {
+                    if infinite {
+                        let cell = egui::vec2(FLAG_WIDTH, ICON);
+                        let centered =
+                            egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
+                        ui.allocate_ui_with_layout(cell, centered, |ui| {
                             let mut on = it.integer("Infinite").unwrap_or(0) != 0;
-                            if ui.checkbox(&mut on, "").changed() {
+                            if ui.checkbox(&mut on, "").on_hover_text("Infinite").changed() {
                                 edits.push((
                                     "Infinite store item",
                                     Edit::SetField {
@@ -235,23 +268,21 @@ pub(super) fn item_list(
                                     },
                                 ));
                             }
-                        }
-                        if ui.small_button("Remove").clicked() {
-                            edits.push((
-                                "Remove item",
-                                Edit::RemoveItem {
-                                    key,
-                                    path: path.clone(),
-                                    list: "ItemList".into(),
-                                    index: i,
-                                },
-                            ));
-                        }
-                        ui.end_row();
+                        });
+                    }
+                    let width = ui.available_width();
+                    let label = egui::Button::selectable(
+                        selected == Some(i),
+                        (n.as_str(), egui::Atom::grow()),
+                    )
+                    .min_size(egui::vec2(width, 0.0))
+                    .truncate();
+                    if ui.add(label).on_hover_text(resref.to_string()).clicked() {
+                        clicked = Some(i);
                     }
                 });
-        },
-    );
+            }
+        });
     (edits, clicked)
 }
 
