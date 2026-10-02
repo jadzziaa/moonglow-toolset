@@ -166,7 +166,8 @@ as Aurora's Terrain tab does:
 - **Groups** (buildings, big features) are placed whole; right-click to
   turn one before placing it.
 - The **Eraser** takes the crossers off a tile; with Shift + click it
-  steps the tile through the other tiles that fit there.
+  steps the tile through the other tiles that fit there. It and
+  **Raise/Lower** head the Terrain list, whatever the tileset's order.
 
 The cursor is green where a click paints and red where the tileset
 refuses it. It is blue where a click only chooses tiles again: a crosser

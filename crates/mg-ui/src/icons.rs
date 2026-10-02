@@ -6,6 +6,8 @@ use mg_area::ObjectKind;
 use mg_module::palette::BlueprintKind;
 
 pub(crate) const TILES: &str = "🗻";
+pub(crate) const ERASER: &str = "🗑";
+pub(crate) const RAISE_LOWER: &str = "↕";
 pub(crate) const START: &str = "🏁";
 pub(crate) const NIGHT: &str = "🌙";
 pub(crate) const FOG: &str = "☁";

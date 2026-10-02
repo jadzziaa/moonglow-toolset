@@ -3405,7 +3405,7 @@ fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: ground well above the tiles'
     // own corners nearby.
-    h.get_by_label("Raise/Lower").click();
+    h.get_by_label("↕ Raise/Lower").click();
     h.run_steps(2);
     for corner in [(10.0, 10.0), (10.0, 20.0)] {
         for _ in 0..2 {
@@ -3516,7 +3516,7 @@ fn area_viewer_paints_terrain() {
     assert!(moved > 0, "the tiles step to their next variants");
 
     // Raise and lower a corner.
-    h.get_by_label("Raise/Lower").click();
+    h.get_by_label("↕ Raise/Lower").click();
     h.run_steps(2);
     click(&mut h, Vec3::new(10.0, 30.0, 0.0));
     assert_eq!(lattice(&mut h).corner(1, 3).height, 1);
@@ -3554,7 +3554,7 @@ fn area_viewer_paints_terrain() {
     h.get_by_label_contains("no tile fits there");
 
     // The Eraser on the road's middle tile takes the road away.
-    h.get_by_label("Eraser").click();
+    h.get_by_label("🗑 Eraser").click();
     h.run_steps(2);
     click(&mut h, Vec3::new(15.0, 5.0, 0.0));
     let l = lattice(&mut h);
@@ -3601,7 +3601,7 @@ fn terrain_screen() {
         ("Water", [10.0, 20.0]),
         ("Water", [10.0, 30.0]),
         ("Trees", [30.0, 30.0]),
-        ("Raise/Lower", [40.0, 30.0]),
+        ("↕ Raise/Lower", [40.0, 30.0]),
     ] {
         h.get_by_label(brush).click();
         h.run_steps(2);
@@ -6851,7 +6851,7 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     h.run_steps(3);
     // The Eraser erases, and with Shift steps the tile through those that
     // fit: blue then.
-    h.get_by_label("Eraser").click();
+    h.get_by_label("🗑 Eraser").click();
     h.run_steps(2);
     h.hover_at(at);
     h.run_steps(3);
@@ -6859,4 +6859,20 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
     h.run_steps(3);
     assert_eq!(colors(&h), [CYCLE]);
+}
+
+#[test]
+fn the_eraser_and_raise_lower_head_the_terrain_brushes() {
+    let Some((mut h, _)) = area_harness("tools-first") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    // Rural lists them Eraser, Grass, Raise/Lower, Road…
+    let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
+    let (eraser, raise) = (top(&h, "🗑 Eraser"), top(&h, "↕ Raise/Lower"));
+    assert!(eraser < raise);
+    for other in ["Grass", "Road", "Water"] {
+        assert!(raise < top(&h, other), "Raise/Lower is above {other}");
+    }
 }

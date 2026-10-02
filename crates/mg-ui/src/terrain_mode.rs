@@ -765,6 +765,14 @@ fn show_item(
                             .any(|i| matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. })),
                 )
                 .show(ui, |ui| {
+                    // The tools first (where tilesets list them varies),
+                    // then the rest in the palette's order.
+                    let mut items: Vec<&PaletteItem> = items.iter().collect();
+                    items.sort_by_key(|i| match i {
+                        PaletteItem::Brush { brush: Brush::Eraser, .. } => 0,
+                        PaletteItem::Brush { brush: Brush::RaiseLower, .. } => 1,
+                        _ => 2,
+                    });
                     for i in items {
                         show_item(ui, i, tileset, chosen, depth + 1);
                     }
@@ -772,7 +780,12 @@ fn show_item(
         }
         PaletteItem::Brush { label, brush } => {
             let on = chosen.as_ref().is_some_and(|b| b.label == *label && b.brush == *brush);
-            if ui.selectable_label(on, label.as_str()).clicked() {
+            let shown = match brush {
+                Brush::Eraser => crate::icons::labelled(crate::icons::ERASER, label),
+                Brush::RaiseLower => crate::icons::labelled(crate::icons::RAISE_LOWER, label),
+                _ => label.clone(),
+            };
+            if ui.selectable_label(on, shown).clicked() {
                 *chosen = if on {
                     None
                 } else {

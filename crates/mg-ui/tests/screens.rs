@@ -811,7 +811,7 @@ fn crosser_cursor() {
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: tile (1, 1) slopes up to its
     // west.
-    h.get_by_label("Raise/Lower").click();
+    h.get_by_label("↕ Raise/Lower").click();
     h.run_steps(2);
     for corner in [(10.0, 10.0), (10.0, 20.0)] {
         for _ in 0..2 {
