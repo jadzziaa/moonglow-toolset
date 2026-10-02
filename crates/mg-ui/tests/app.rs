@@ -52,6 +52,24 @@ fn welcome_then_open_a_module_through_the_dialog() {
 }
 
 #[test]
+fn filtering_the_tree_opens_its_groups() {
+    let dir = mg_testkit::scratch_dir("ui-tree-filter");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Scripts start closed.
+    assert!(h.query_by_label("hello").is_none());
+    // The tree's filter, the first text field.
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.run();
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("hel");
+    h.run();
+    h.get_by_label("hello");
+}
+
+#[test]
 fn edit_undo_save_reopen() {
     let dir = mg_testkit::scratch_dir("ui-edit");
     let path = sample_module(&dir);
@@ -1200,6 +1218,28 @@ fn palette_edit_copy_and_delete() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert!(h.state().ws.as_ref().unwrap().module.contains(&copy));
+}
+
+#[test]
+fn finding_in_a_palette_opens_its_categories() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette-find");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    let tavern = app.game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Seen collapsed first, as a builder opening the palette would.
+    assert!(h.query_by_label(&tavern).is_none());
+    h.state_mut().palette.filter = "nw_wp_tavern".into();
+    h.run();
+    h.get_by_label(&tavern);
 }
 
 /// A module with an edit copy of a standard blueprint, open in its editor

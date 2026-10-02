@@ -299,9 +299,10 @@ fn show_node(
     } else {
         node.name.text(game)
     };
+    // Finding opens every category with a match, whatever was open before.
     egui::CollapsingHeader::new(title)
         .id_salt(("palette", kind, custom, path))
-        .default_open(!filter.is_empty())
+        .open((!filter.is_empty()).then_some(true))
         .show(ui, |ui| {
             for (i, child) in node.children.iter().enumerate() {
                 let mut p = path.to_vec();

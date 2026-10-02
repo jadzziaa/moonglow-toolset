@@ -45,7 +45,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         keys.retain(|k| filter.is_empty() || k.to_string().contains(&filter));
         egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
             .id_salt(name)
-            .default_open(*name == "Areas" || !filter.is_empty())
+            .default_open(*name == "Areas")
+            // Filtering opens every group with a match, whatever was open.
+            .open((!filter.is_empty()).then_some(true))
             .show(ui, |ui| {
                 for k in keys {
                     let label = match k.restype {
