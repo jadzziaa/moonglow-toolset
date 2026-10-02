@@ -513,7 +513,14 @@ surveyed after 0.2.0). What each item left undone is collected in
      blueprints together, variable sets, Find and Replace Text across the
      module's strings in every language (`text_replace.rs`), `mg
      update-instances` and `mg replace`;
-   - conversation authoring (node markers, import and export, play-through);
+   - conversation authoring (node markers, import and export, play-through)
+     — done: lines name their condition, action, journal update and sound;
+     Test plays as the game does (the first NPC line whose condition
+     passes, the replies whose conditions pass, each condition switchable);
+     export to plain text, CSV, Twine (Twee 3) and Ink, import of CSV lines
+     and of Twine and Ink stories as new conversations, `mg dialog-export`
+     and `mg dialog-import`; all 2,854 shipped conversations survive a round
+     trip (`dialog_formats.rs`); spell checking deferred;
    - palette search.
 3. Tier 3, later:
    - 2DA and TLK editing;

@@ -664,6 +664,14 @@ impl Moonglow {
                 if ui.add_enabled(open, egui::Button::new("Export…")).clicked() {
                     self.actions.push(Action::ExportDialog(Vec::new()));
                 }
+                if ui
+                    .add_enabled(open, egui::Button::new("Import Conversation…"))
+                    .on_hover_text("A Twine (.twee) or Ink (.ink) story, as a new conversation")
+                    .clicked()
+                    && let Some(path) = self.dialogs.open_file(dialogs::FileKind::Story, None)
+                {
+                    self.import_conversation(&path);
+                }
                 ui.separator();
                 if ui.add_enabled(open, egui::Button::new("Close")).clicked() {
                     self.actions.push(Action::Close);

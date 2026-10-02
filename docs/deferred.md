@@ -95,6 +95,24 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Variable sets** hold int, float and string variables only, as the
   Variables window edits; object and location variables aren't kept. (S)
 
+## Conversation authoring
+
+- **Spell checking** in the conversation editor (and text fields). The
+  game ships no dictionary, so it means the system's:
+  - Linux: hunspell dictionaries, read by a pure-Rust crate (`spellbook`).
+    That's a new dependency to download.
+  - Windows: the Windows Spell Checking API (Windows 8 and later).
+  - macOS: NSSpellChecker.
+
+  One interface over the three, words underlined in the text fields. (M–L)
+- **Other languages in exports:** Twine, Ink and CSV carry the English
+  text only. A CSV could carry a column per language for translators. (S)
+- **Parameters, animations and delays** don't go to Twine or Ink.
+  Conditions and actions go by script name only. (S–M)
+- **Articy:draft** isn't read; its JSON export could map like Twine. (M)
+- **Ink beyond the subset** (stitches, gathers, inline logic) is refused,
+  not converted. (M)
+
 ## Release and packaging (v0.1.0)
 
 - **macOS:** the app and disk image are built by CI but have never been

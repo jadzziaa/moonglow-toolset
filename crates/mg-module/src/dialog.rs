@@ -174,6 +174,17 @@ pub fn links(g: &Gff, parent: Parent) -> &[Struct] {
     }
 }
 
+/// Adds a starting link to an NPC line already made (a conversation may
+/// start at the same line under two conditions).
+pub fn add_start(g: &mut Gff, target: u32) -> bool {
+    if node(g, Kind::Entry, target).is_none() {
+        return false;
+    }
+    list_mut(g, "StartingList").push(new_link(target, Parent::Root, false));
+    renumber(g);
+    true
+}
+
 /// Sets the condition script (`Active`, Text Appears When) of the link at
 /// `pos` under `parent`; empty removes it. Whether there was such a link.
 pub fn set_condition(g: &mut Gff, parent: Parent, pos: usize, script: &str) -> bool {
@@ -426,6 +437,12 @@ fn renumber(g: &mut Gff) {
             }
         }
     }
+    let words = word_count(g);
+    g.root.set("NumWords", Value::Dword(words));
+}
+
+/// Counts the words again (`NumWords`), after text changed.
+pub fn recount(g: &mut Gff) {
     let words = word_count(g);
     g.root.set("NumWords", Value::Dword(words));
 }

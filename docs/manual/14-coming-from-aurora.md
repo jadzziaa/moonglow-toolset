@@ -133,6 +133,10 @@ Moonglow's own.
   locking objects out of the way; prefabs (an area's right-click menu,
   and Edit › Prefabs); the pointer's position to the centimeter (see
   [Areas](04-areas.md)).
+- **Conversations**: lines name their scripts and journal updates; Test
+  follows the conditions as the game does (switch each one TRUE or
+  FALSE); Export to plain text, CSV, Twine or Ink, and File › Import
+  Conversation… from Twine or Ink (see [Conversations](06-conversations.md)).
 - **Bulk edits**: Ctrl+click several custom blueprints to edit them
   together or update all their instances at once (or a whole category's,
   from its right-click menu); saved variable sets; **Edit › Find and

@@ -122,6 +122,24 @@ enum Cmd {
         #[arg(long)]
         strings: bool,
     },
+    /// Write a conversation as plain text, CSV, Twine (Twee) or Ink, by the
+    /// output's extension (.txt, .csv, .twee, .ink).
+    DialogExport {
+        module: PathBuf,
+        /// The conversation, `name.dlg`.
+        dialog: String,
+        output: PathBuf,
+    },
+    /// Read a Twine (.twee) or Ink (.ink) story into a module as a
+    /// conversation (replacing one of the same name) and save; or, from a
+    /// .csv export, read back the text of the conversation's lines.
+    DialogImport {
+        module: PathBuf,
+        file: PathBuf,
+        /// The conversation's name (default: the file's).
+        #[arg(long)]
+        name: Option<String>,
+    },
     /// Replace text in a module's names, descriptions, conversation lines
     /// and journal (every language they're written in) and save; prints
     /// each string changed.
@@ -409,6 +427,42 @@ fn run(cli: Cli) -> Result<()> {
                 report.references,
                 report.in_scripts,
                 report.recompile.len()
+            );
+        }
+        Cmd::DialogExport { module, dialog, output } => {
+            use mg_module::dialog_io::Format;
+            let m = Module::open(module)?;
+            let key = ResKey::from_filename(dialog).context("give the conversation as name.dlg")?;
+            let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
+            let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
+            std::fs::write(output, f.write(&g, &key.resref.to_string()))?;
+        }
+        Cmd::DialogImport { module, file, name } => {
+            use mg_module::dialog_io::{Format, from_ink, from_twee, update_from_csv};
+            let mut m = Module::open(module)?;
+            let stem = file.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
+            let name = name.clone().or(stem).context("name the conversation with --name")?;
+            let key = ResKey::parse(&name, mg_core::ResType::DLG)
+                .with_context(|| format!("{name:?} isn't a resource name"))?;
+            let source = std::fs::read_to_string(file)?;
+            let g = match Format::of(file) {
+                Some(Format::Twine) => from_twee(&source).map_err(|e| anyhow::anyhow!("{e}"))?,
+                Some(Format::Ink) => from_ink(&source).map_err(|e| anyhow::anyhow!("{e}"))?,
+                Some(Format::Csv) => {
+                    let mut g =
+                        m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
+                    let n = update_from_csv(&mut g, &source).map_err(|e| anyhow::anyhow!("{e}"))?;
+                    eprintln!("{n} lines changed");
+                    g
+                }
+                _ => bail!("{}: not a .twee, .ink or .csv file", file.display()),
+            };
+            m.set_gff(key, &g)?;
+            m.save()?;
+            eprintln!(
+                "{key}: {} lines",
+                mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Entry).len()
+                    + mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Reply).len()
             );
         }
         Cmd::Replace { module, find, with, match_case, whole_word, only, dry_run } => {

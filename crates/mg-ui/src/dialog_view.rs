@@ -286,6 +286,49 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 .on_hover_text(format!("Highlight lines with {}", label.to_lowercase()));
         }
         ui.separator();
+        // Export and import (dialog_io): the lines back by CSV.
+        let mut export = None;
+        ui.menu_button("Export", |ui| {
+            for f in mg_module::dialog_io::Format::ALL {
+                if ui.button(format!("{}…", f.name())).clicked() {
+                    export = Some(f);
+                    ui.close();
+                }
+            }
+        });
+        if let Some(f) = export {
+            let suggested =
+                std::path::PathBuf::from(format!("{}.{}", key.resref, f.extensions()[0]));
+            if let Some(path) =
+                app.dialogs.save_file(crate::dialogs::FileKind::Conversation(f), Some(&suggested))
+            {
+                match std::fs::write(&path, f.write(&g, &key.resref.to_string())) {
+                    Ok(()) => app.log.info(format!("Exported {key} to {}", path.display())),
+                    Err(e) => app.log.error(format!("{}: {e}", path.display())),
+                }
+            }
+        }
+        if ui
+            .button("Import Lines…")
+            .on_hover_text("Read back the text, speakers and comments of a CSV export")
+            .clicked()
+            && let Some(path) = app.dialogs.open_file(
+                crate::dialogs::FileKind::Conversation(mg_module::dialog_io::Format::Csv),
+                None,
+            )
+        {
+            let mut ng = g.clone();
+            let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+            match read.and_then(|csv| mg_module::dialog_io::update_from_csv(&mut ng, &csv)) {
+                Ok(0) => app.log.info(format!("{}: no lines changed", path.display())),
+                Ok(n) => {
+                    app.log.info(format!("{}: {n} line(s) changed", path.display()));
+                    actions.push(replace(key, "Import lines", &ng));
+                }
+                Err(e) => app.log.error(format!("{}: {e}", path.display())),
+            }
+        }
+        ui.separator();
         let mut scripts = !app.settings.dialog_hide_scripts;
         if ui
             .toggle_value(&mut scripts, "Scripts")
@@ -1286,6 +1329,61 @@ fn search_pane(
 
 /// Test mode: click through the conversation from a greeting, as a player
 /// would, without evaluating conditions.
+impl Moonglow {
+    /// Reads a Twine or Ink story as a new conversation of the module,
+    /// named after the file (made unique), and opens it; its name.
+    pub fn import_conversation(&mut self, path: &std::path::Path) -> Option<ResKey> {
+        use mg_module::dialog_io::{Format, from_ink, from_twee};
+        let source = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(e) => {
+                self.log.error(format!("{}: {e}", path.display()));
+                return None;
+            }
+        };
+        let read = match Format::of(path) {
+            Some(Format::Twine) => from_twee(&source),
+            Some(Format::Ink) => from_ink(&source),
+            _ => Err("not a Twine (.twee) or Ink (.ink) story".to_string()),
+        };
+        let g = match read {
+            Ok(g) => g,
+            Err(e) => {
+                self.log.error(format!("{}: {e}", path.display()));
+                return None;
+            }
+        };
+        let ws = self.ws.as_mut()?;
+        let stem: String = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_ascii_lowercase())
+            .unwrap_or_default()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .take(16)
+            .collect();
+        let stem = if stem.is_empty() { "conversation".to_string() } else { stem };
+        let free =
+            |name: &str| ResKey::parse(name, ResType::DLG).filter(|k| !ws.module.contains(k));
+        let key = free(&stem).or_else(|| {
+            (1..1000).find_map(|n| {
+                let suffix = format!("{n:03}");
+                let base: String = stem.chars().take(16 - suffix.len()).collect();
+                free(&format!("{base}{suffix}"))
+            })
+        })?;
+        let lines = mg_module::dialog::nodes(&g, Kind::Entry).len()
+            + mg_module::dialog::nodes(&g, Kind::Reply).len();
+        self.actions.push(Action::Apply(mg_edit::Command::new(
+            format!("Import conversation {}", key.resref),
+            vec![mg_edit::Edit::SetResource { key, data: g.to_bytes().ok() }],
+        )));
+        self.actions.push(Action::OpenTab(Tab::Dialog(key)));
+        self.log.info(format!("Imported {} as {key}: {lines} lines", path.display()));
+        Some(key)
+    }
+}
+
 /// A link's condition script, if it has one.
 fn condition(link: &Struct) -> Option<String> {
     link.resref("Active").filter(|r| !r.is_empty()).map(|r| r.to_string())

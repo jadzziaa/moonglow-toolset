@@ -22,6 +22,13 @@ button edits every language).
 | Paste As Link | a link to the copied line under the selected one |
 | Delete | the selected line and everything under it (a link: just the link) |
 | Expand All, Collapse All | open or close the whole tree |
+| Export | the conversation as plain text, CSV, Twine or Ink (see below) |
+| Import Lines… | read back an edited CSV export's text |
+| Scripts | show each line's condition, action, journal update and sound |
+
+With **Scripts** on (the default), each line names what it does besides
+its text: `if c_has_key` (its Text Appears When), `do a_give_gold` (its
+Actions Taken), `journal q_rats 20` and `sound vs_hello`.
 
 **Dragging** a line onto another moves it there; Ctrl + drag (Cmd on
 macOS) links it instead. Lines move only where they fit (an NPC line under
@@ -31,8 +38,18 @@ asks for its text in a popup first.
 
 **Search** finds text in this conversation or every conversation in the
 module (match case, whole words, replace); **Bookmarks** remember lines to
-go back to. **Test** clicks through the conversation from its first
-greeting, as a player would (without running its conditions).
+go back to.
+
+**Test** plays the conversation as the game does: the NPC says the first
+of its lines whose condition passes, and the player is offered (numbered)
+the replies whose conditions pass.
+- **Conditions:** Moonglow can't run the scripts, so each one is taken to
+  return TRUE until you click it to switch it to FALSE. Lines passed over
+  are shown as not said or hidden.
+- **What happens:** each line's actions and journal updates are listed.
+  A transcript keeps what was said, and **Back** goes back a turn.
+
+(Aurora's Test shows every line, whatever its condition.)
 
 ## A line's tabs
 
@@ -50,6 +67,46 @@ greeting, as a player would (without running its conditions).
 
 **Tokens** (`<FirstName>`, `<Class>`, custom tokens…) go into the text from
 **Token…**; the game replaces them when the line is spoken.
+
+## Writing conversations elsewhere
+
+**Export** writes the conversation in other formats:
+- **Plain text**: a readable script, for proofreading or review.
+- **CSV**: one row per line (`E3` an NPC line, `R5` a reply) with its
+  speaker, text, condition, action and comment. Edit the text in a
+  spreadsheet or have it translated, then **Import Lines…** reads back
+  the speakers, text and comments of the lines it names, as one undoable
+  step. Lines whose text comes from the game's talk table show empty.
+- **Twine** (Twee 3, for Twine 2 or Tweego) and **Ink** (for Inky): the
+  conversation as a branching story.
+
+**File › Import Conversation…** reads a Twine (`.twee`) or Ink (`.ink`)
+story as a new conversation, named after the file. So dialogue can be
+written in those tools and brought in. The mapping:
+- **NPC lines** are passages (Twine) or knots (Ink). Tags give a line's
+  speaker, action, journal update and sound: `speaker:TAG`,
+  `do:a_script`, `journal:q_rats:20`, `sound:vs_hello`. In Ink a tag goes
+  on its own line, as `# do:a_script`.
+- **Player replies** are a passage's links or a knot's choices, leading
+  to the next NPC line or to `END`.
+  - Twine: `[[Who are you? {if c_curious} {do a_note}->E5]]`.
+  - Ink: `+ {c_curious} [Who are you?] -> E5 # do:a_note`, the condition
+    declared with `VAR c_curious = true`.
+  - An empty reply is `(Continue)`.
+- **Several NPC lines to choose from** (the first whose condition passes
+  is said):
+  - Twine: a passage tagged `npc-choice`, its links `[[if c_seen->E2]]`
+    and `[[otherwise->E3]]`.
+  - Ink: a knot of conditional diverts, `{c_seen: -> E2}` then `-> E3`.
+- **A passage or knot reached twice** becomes a link.
+
+Text Moonglow writes is escaped where the format would read it as syntax:
+in Twine as HTML character references, which story formats show as the
+characters; in Ink with backslashes, and a blank line as `//`. Only the
+English text goes out, not condition and action parameters, animations,
+comments or delays. Every conversation the game and its modules ship
+plays the same after a round trip through Twine or Ink. Ink beyond this
+subset (stitches, gathers, logic) is refused with its line number.
 
 ## The Script Wizard
 

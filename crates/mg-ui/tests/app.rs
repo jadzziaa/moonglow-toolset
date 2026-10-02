@@ -979,22 +979,16 @@ fn conversation_search_bookmarks_and_test() {
     let doc = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().clone();
     assert!(mg_module::dialog::outline(&doc).iter().any(|l| l.starts_with("Entry|Leave.|")));
 
-    // Test mode walks greeting → reply → answer, and back.
+    // Test mode: the greeting said, the reply chosen, the answer said;
+    // back a turn.
     click(&mut h, "Test");
-    click(&mut h, "NPC: Hello there.");
-    // The tree has a row of the same text: look inside the test window.
-    let window =
-        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Window;
-    h.get_all_by_label("Conversation Test: talk.dlg")
-        .find(window)
-        .unwrap()
-        .get_by_label("Who are you?")
-        .click();
-    h.run();
-    click(&mut h, "NPC: A traveller.");
+    h.get_by_label("NPC: Hello there.");
+    click(&mut h, "1. Who are you?");
+    h.get_by_label("NPC: A traveller.");
     h.get_by_label("[END DIALOGUE]");
-    click(&mut h, "<-- Back");
     assert_eq!(h.state().dialog_views[&key].test.as_ref().unwrap().len(), 2);
+    click(&mut h, "<-- Back");
+    assert!(h.state().dialog_views[&key].test.as_ref().unwrap().is_empty());
     click(&mut h, "Done");
     assert!(h.state().dialog_views[&key].test.is_none());
 }
@@ -4100,6 +4094,58 @@ fn conversation_lines_show_their_scripts_and_play_as_the_game_plays_them() {
     h.get_by_label("NPC: I am the keeper.");
     h.get_by_label("You: Who are you?");
     h.get_by_label("[END DIALOGUE]");
+}
+
+#[test]
+fn conversations_export_and_import() {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog, nodes, text};
+    let dir = mg_testkit::scratch_dir("ui-dialog-io");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("mg_guard", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    let halt = add_node(&mut g, Parent::Root, "Halt!");
+    add_node(&mut g, Parent::Node(Kind::Entry, halt), "Sorry.");
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, g.to_bytes().unwrap());
+    m.save().unwrap();
+    // A Twine export, then the CSV edited and read back.
+    let twee = dir.join("guard.twee");
+    let csv = dir.join("guard.csv");
+    let mut app = Moonglow::new(
+        None,
+        Box::new(NoDialogs { save: vec![csv.clone(), twee.clone()], ..Default::default() }),
+    );
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    for format in ["Twine (Twee)…", "CSV…"] {
+        h.get_by_label("Export").click();
+        h.run();
+        h.get_by_label(format).click();
+        h.run();
+    }
+    assert!(std::fs::read_to_string(&twee).unwrap().contains("[[Sorry.->END]]"));
+    let edited = std::fs::read_to_string(&csv).unwrap().replace("Halt!", "Stop right there!");
+    std::fs::write(&csv, edited).unwrap();
+    h.state_mut().dialogs = Box::new(NoDialogs { open: vec![csv.clone()], ..Default::default() });
+    h.get_by_label("Import Lines…").click();
+    h.run();
+    let line = |h: &mut Harness<'_, Moonglow>, k: ResKey| {
+        let g = h.state_mut().ws.as_mut().unwrap().doc(&k).unwrap().clone();
+        text(&nodes(&g, Kind::Entry)[0])
+    };
+    assert_eq!(line(&mut h, key), "Stop right there!");
+    // An Ink story, as a new conversation named after its file.
+    let ink = dir.join("Night Watch.ink");
+    std::fs::write(&ink, "-> gate\n=== gate ===\nWho goes there?\n+ [A friend.] -> END\n").unwrap();
+    let new = h.state_mut().import_conversation(&ink).expect("imported");
+    h.run();
+    assert_eq!(new.resref.to_string(), "night_watch");
+    assert!(h.state().dock.find_tab(&Tab::Dialog(new)).is_some());
+    assert_eq!(line(&mut h, new), "Who goes there?");
 }
 
 #[test]

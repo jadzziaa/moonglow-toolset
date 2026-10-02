@@ -171,8 +171,8 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 | --- | --- | --- | --- |
 | A weak script editor. Builders move to VS Code and edit in `temp0`. | ●●● | Lexicon *NWN:EE Script Editing Tutorial* (2025); Vault 3321; Beamdog 69624, 67054, 84125; 3 language servers, 5 VS Code extensions (~3k installs), Notepad++, Sublime, Vim and Emacs plugins | ◐ completion, Find in Files, editor tabs, dark theme, an external editor whose saves come back. No go to definition, references or live diagnostics. |
 | Poor compiler messages; slow full compiles | ●● | Vault 7056; nwn-issues #736, #561; ARE_Compile (Arelith) | ◐ Beamdog's own compiler, messages link to lines; 1,433 scripts in 0.7 s |
-| The conversation editor: tiny font, no undo for nodes, no script names on nodes, paste-as-link bugs | ●● | Vault 6783, 1183, 749; Beamdog 67054; nwn.wiki Conversation Editor page | ◐ node undo (unlimited), zoomable UI, Paste As Link; no script markers on nodes |
-| Dialogue can't be written outside the toolset and imported | ●● | Beamdog 67054; Vault 6783 (Articy, Twine, Ink); Flamewind; Radoub Parley | ✗ |
+| The conversation editor: tiny font, no undo for nodes, no script names on nodes, paste-as-link bugs | ●● | Vault 6783, 1183, 749; Beamdog 67054; nwn.wiki Conversation Editor page | ✅ node undo (unlimited), zoomable UI, Paste As Link, lines name their scripts and journal updates, a Test that follows conditions |
+| Dialogue can't be written outside the toolset and imported | ●● | Beamdog 67054; Vault 6783 (Articy, Twine, Ink); Flamewind; Radoub Parley | ✅ export to text, CSV, Twine and Ink; import from Twine and Ink, and CSV lines back |
 | No spell check that works (EE ships no dictionary) | ● | nwn.wiki (spell check "wipes text"); Radoub; TlkEdit | ✗ left out on purpose (`12-differences.md`) |
 
 ### 2.9 Custom content data
