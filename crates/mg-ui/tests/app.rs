@@ -3332,6 +3332,71 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
 }
 
 #[test]
+fn several_blueprints_are_edited_together() {
+    use mg_edit::{Command, Edit};
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-edit-together");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let game = app.game.as_ref().unwrap();
+    let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
+    let keys: Vec<ResKey> =
+        ["mg_box_a", "mg_box_b"].iter().map(|n| ResKey::parse(n, ResType::UTP).unwrap()).collect();
+    let edits = keys
+        .iter()
+        .map(|k| {
+            let mut g = base.clone();
+            g.root.set("TemplateResRef", mg_gff::Value::resref(k.resref));
+            Edit::SetResource { key: *k, data: Some(g.to_bytes().unwrap()) }
+        })
+        .collect();
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    app.palette.custom = true;
+    app.palette.filter = "mg_box".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let name = {
+        let game = h.state().game.as_ref().unwrap();
+        mg_module::palette::blueprint_name(
+            mg_module::palette::BlueprintKind::Placeable,
+            &base.root,
+            game,
+        )
+    };
+    let buttons: Vec<_> = h.get_all_by_label(&name).collect();
+    assert_eq!(buttons.len(), 2);
+    buttons[0].click();
+    h.run();
+    h.get_all_by_label(&name).nth(1).unwrap().click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    h.get_all_by_label(&name).next().unwrap().click_secondary();
+    h.run();
+    h.get_by_label("Edit 2 Together").click();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Blueprints(keys.clone())).is_some());
+    // Lists are edited one at a time: no Inventory page.
+    assert!(h.query_by_label_contains("edited one blueprint at a time").is_some());
+    assert!(h.query_by_label("Inventory").is_none());
+    h.get_by_label("Plot").click();
+    h.run();
+    for k in &keys {
+        assert_eq!(field(&mut h, k).integer("Plot"), Some(1), "{k}");
+    }
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Plot"));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    for k in &keys {
+        assert_eq!(field(&mut h, k).integer("Plot"), Some(0), "{k}");
+    }
+}
+
+#[test]
 fn build_module_compiles_and_reports() {
     use mg_edit::{Command, Edit, GffPath};
     let Some((mut h, area)) = area_harness("build") else { return };

@@ -79,9 +79,10 @@ pub(crate) struct Form<'a> {
     /// Where the object is in it: the root for a blueprint, its entry in a
     /// GIT list for a placed object.
     pub path: GffPath,
-    /// Other objects of the same type edited with it (Aurora's
-    /// multi-editor): each field set is set on them too.
-    pub also: Vec<GffPath>,
+    /// Other objects or blueprints of the same type edited with it
+    /// (Aurora's multi-editor): each field set is set on them too. Each is
+    /// its document and path.
+    pub also: Vec<(ResKey, GffPath)>,
     /// The object as it is now.
     pub root: Struct,
 }
@@ -140,9 +141,15 @@ impl Form<'_> {
         t
     }
 
-    /// The paths a field set goes to: the object's and the others'.
-    fn paths(&self) -> impl Iterator<Item = &GffPath> {
-        std::iter::once(&self.path).chain(&self.also)
+    /// Where a field set goes: the object's document and path, and the
+    /// others'.
+    fn targets(&self) -> impl Iterator<Item = (ResKey, &GffPath)> {
+        std::iter::once((self.key, &self.path)).chain(self.also.iter().map(|(k, p)| (*k, p)))
+    }
+
+    /// Several blueprints edited together (not placed objects).
+    pub(crate) fn several_blueprints(&self) -> bool {
+        !self.is_instance() && !self.also.is_empty()
     }
 
     /// Whether this is an object placed in an area (not a blueprint).
@@ -159,9 +166,9 @@ impl Form<'_> {
     /// Sets a field (one undoable command named `what`).
     pub(crate) fn set(&mut self, what: &str, label: &str, value: Value) {
         let edits = self
-            .paths()
-            .map(|path| Edit::SetField {
-                key: self.key,
+            .targets()
+            .map(|(key, path)| Edit::SetField {
+                key,
                 path: path.clone(),
                 label: label.to_string(),
                 value: Some(value.clone()),
@@ -173,9 +180,9 @@ impl Form<'_> {
     /// Sets a field, or removes it (`None`).
     pub(crate) fn set_opt(&mut self, what: &str, label: &str, value: Option<Value>) {
         let edits = self
-            .paths()
-            .map(|path| Edit::SetField {
-                key: self.key,
+            .targets()
+            .map(|(key, path)| Edit::SetField {
+                key,
                 path: path.clone(),
                 label: label.to_string(),
                 value: value.clone(),
@@ -256,10 +263,10 @@ impl Form<'_> {
     /// Sets several fields in one command.
     pub(crate) fn set_fields(&mut self, what: &str, fields: Vec<(&str, Value)>) {
         let edits = self
-            .paths()
-            .flat_map(|path| {
-                fields.iter().map(|(label, value)| Edit::SetField {
-                    key: self.key,
+            .targets()
+            .flat_map(|(key, path)| {
+                fields.iter().map(move |(label, value)| Edit::SetField {
+                    key,
                     path: path.clone(),
                     label: label.to_string(),
                     value: Some(value.clone()),
@@ -271,18 +278,22 @@ impl Form<'_> {
 
     /// Sets several integer fields in one command.
     pub(crate) fn set_many(&mut self, what: &str, fields: &[(&str, i64, FieldType)]) {
+        let values: Vec<(&str, Value)> = fields
+            .iter()
+            .map(|(label, v, t)| {
+                let t = mg_schema::root_field_type(self.restype(), label).unwrap_or(*t);
+                (*label, integer(self.root.get(label), *v, t))
+            })
+            .collect();
+        let values = &values;
         let edits = self
-            .paths()
-            .flat_map(|path| {
-                fields.iter().map(|(label, v, t)| Edit::SetField {
-                    key: self.key,
+            .targets()
+            .flat_map(|(key, path)| {
+                values.iter().map(move |(label, value)| Edit::SetField {
+                    key,
                     path: path.clone(),
                     label: label.to_string(),
-                    value: Some(integer(
-                        self.root.get(label),
-                        *v,
-                        mg_schema::root_field_type(self.restype(), label).unwrap_or(*t),
-                    )),
+                    value: Some(value.clone()),
                 })
             })
             .collect();
@@ -701,13 +712,18 @@ impl Form<'_> {
             .button("Update Instances")
             .on_hover_text("Update all instances created from this Blueprint");
         if r.clicked() {
-            self.app.update_instances_of(vec![self.key]);
+            let keys = self.targets().map(|(k, _)| k).collect();
+            self.app.update_instances_of(keys);
         }
     }
 
     /// The blueprint's resref (Aurora's "Blueprint ResRef"): changing it
     /// renames the blueprint.
     pub(crate) fn blueprint_resref(&mut self, ui: &mut Ui) {
+        if self.several_blueprints() {
+            ui.weak(format!("{} and {} more", self.key.resref, self.also.len()));
+            return;
+        }
         if self.is_instance() {
             // A placed object names the blueprint it was made from.
             let field = BlueprintKind::from_restype(self.restype())
@@ -822,14 +838,15 @@ pub(crate) fn edit(app: &mut Moonglow, ui: &mut Ui, key: ResKey, path: GffPath) 
     edit_many(app, ui, key, path, Vec::new());
 }
 
-/// The Properties of several objects of one type at once (Aurora's
-/// multi-editor): shown as the first, each field changed set on all.
+/// The Properties of several objects or blueprints of one type at once
+/// (Aurora's multi-editor for placed objects): shown as the first, each
+/// field changed set on all.
 pub(crate) fn edit_many(
     app: &mut Moonglow,
     ui: &mut Ui,
     key: ResKey,
     path: GffPath,
-    also: Vec<GffPath>,
+    also: Vec<(ResKey, GffPath)>,
 ) {
     let Some(ws) = &mut app.ws else {
         ui.label("No module is open.");
@@ -849,8 +866,15 @@ pub(crate) fn edit_many(
         }
     };
     let restype = instance_type(&path).unwrap_or(key.restype);
-    let pages: Vec<&str> =
-        if path.0.is_empty() { pages(restype).to_vec() } else { instance_pages(restype) };
+    let several = path.0.is_empty() && !also.is_empty();
+    let pages: Vec<&str> = if several {
+        // Lists are edited one blueprint at a time.
+        pages(restype).iter().copied().filter(|p| !LIST_PAGES.contains(p)).collect()
+    } else if path.0.is_empty() {
+        pages(restype).to_vec()
+    } else {
+        instance_pages(restype)
+    };
     let page_key = (key, path.clone());
     let mut page = app.blueprint_pages.get(&page_key).copied().unwrap_or(pages[0]);
     if !pages.contains(&page) {
@@ -864,11 +888,20 @@ pub(crate) fn edit_many(
     app.blueprint_pages.insert(page_key, page);
     ui.separator();
     if !also.is_empty() {
+        let what = if path.0.is_empty() { "blueprints" } else { "objects" };
         ui.weak(format!(
-            "{} objects: shown as the first; what you change is set on each",
+            "{} {what}: shown as the first; what you change is set on each",
             also.len() + 1
         ));
     }
+    if several {
+        ui.weak("Inventories, classes, skills, feats, spells and properties are edited one blueprint at a time.");
+    }
+    let note_id = egui::Id::new(("several-note", key));
+    if let Some(note) = ui.data(|d| d.get_temp::<String>(note_id)) {
+        ui.colored_label(ui.visuals().warn_fg_color, note);
+    }
+    let pending = app.actions.len();
     let mut form = Form { app, key, path, also, root };
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match restype {
         ResType::UTW => waypoint::page(&mut form, ui, page),
@@ -882,4 +915,56 @@ pub(crate) fn edit_many(
         ResType::UTC => creature::page(&mut form, ui, page),
         _ => {}
     });
+    // A change only the first would take (a page's own list edits) is
+    // dropped rather than made to one of several blueprints.
+    if several {
+        let keys: Vec<ResKey> = form.targets().map(|(k, _)| k).collect();
+        let app = form.app;
+        let mut dropped = false;
+        let mut i = pending;
+        while i < app.actions.len() {
+            let partial = match &app.actions[i] {
+                Action::Apply(cmd) => {
+                    let edited: Vec<ResKey> = cmd.edits.iter().map(edit_key).collect();
+                    keys.iter().any(|k| edited.contains(k))
+                        && !keys.iter().all(|k| edited.contains(k))
+                }
+                _ => false,
+            };
+            if partial {
+                app.actions.remove(i);
+                dropped = true;
+            } else {
+                i += 1;
+            }
+        }
+        if dropped {
+            let note = "That change can only be made to one blueprint at a time.".to_string();
+            ui.data_mut(|d| d.insert_temp(note_id, note));
+        }
+    }
+}
+
+/// The pages that edit lists of their own (the first blueprint's only),
+/// left out when editing several blueprints.
+const LIST_PAGES: [&str; 9] = [
+    "Inventory",
+    "Classes",
+    "Skills",
+    "Feats",
+    "Spells",
+    "Special Abilities",
+    "Properties",
+    "Creature List",
+    "Restrictions",
+];
+
+/// The document an edit changes.
+fn edit_key(e: &Edit) -> ResKey {
+    match e {
+        Edit::SetField { key, .. }
+        | Edit::InsertItem { key, .. }
+        | Edit::RemoveItem { key, .. }
+        | Edit::SetResource { key, .. } => *key,
+    }
 }

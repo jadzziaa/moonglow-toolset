@@ -37,6 +37,8 @@ pub enum Tab {
     Palette,
     /// A blueprint in its Properties editor.
     Blueprint(ResKey),
+    /// Several blueprints of one type, edited together.
+    Blueprints(Vec<ResKey>),
     /// An area, in the area viewer.
     Area(mg_core::ResRef),
     /// An area's Properties.
@@ -124,6 +126,10 @@ impl TabViewer for Viewer<'_> {
             Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),
             Tab::AreaProperties(area) => format!("{area} (Area Properties)").into(),
             Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()).into(),
+            Tab::Blueprints(keys) => {
+                let ext = keys[0].restype.extension().unwrap_or_default();
+                format!("{} blueprints (.{ext})", keys.len()).into()
+            }
             Tab::Manual => "User Manual".into(),
             Tab::References => "References".into(),
             Tab::InstanceModel { area, path } => {
@@ -155,7 +161,14 @@ impl TabViewer for Viewer<'_> {
             Tab::Instances { area, paths } => {
                 let git = ResKey::new(*area, ResType::GIT);
                 let (first, rest) = paths.split_first().expect("at least one");
-                crate::blueprint::edit_many(self.app, ui, git, first.clone(), rest.to_vec());
+                let rest = rest.iter().map(|p| (git, p.clone())).collect();
+                crate::blueprint::edit_many(self.app, ui, git, first.clone(), rest);
+            }
+            Tab::Blueprints(keys) => {
+                let (first, rest) = keys.split_first().expect("at least one");
+                let root = mg_edit::GffPath::root();
+                let rest = rest.iter().map(|k| (*k, root.clone())).collect();
+                crate::blueprint::edit_many(self.app, ui, *first, root, rest);
             }
             Tab::Instance { area, path } => {
                 let git = ResKey::new(*area, ResType::GIT);

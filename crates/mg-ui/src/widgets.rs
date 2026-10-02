@@ -18,9 +18,9 @@ pub struct FieldTarget {
     pub key: ResKey,
     pub path: GffPath,
     pub label: String,
-    /// More structs that take the same value (several objects edited at
-    /// once).
-    pub also: Vec<GffPath>,
+    /// More structs that take the same value (several objects or
+    /// blueprints edited at once): each document and path.
+    pub also: Vec<(ResKey, GffPath)>,
 }
 
 impl FieldTarget {
@@ -29,10 +29,10 @@ impl FieldTarget {
     }
 
     fn command(&self, what: &str, value: Value) -> Action {
-        let edits = std::iter::once(&self.path)
-            .chain(&self.also)
-            .map(|path| Edit::SetField {
-                key: self.key,
+        let edits = std::iter::once((self.key, &self.path))
+            .chain(self.also.iter().map(|(k, p)| (*k, p)))
+            .map(|(key, path)| Edit::SetField {
+                key,
                 path: path.clone(),
                 label: self.label.clone(),
                 value: Some(value.clone()),

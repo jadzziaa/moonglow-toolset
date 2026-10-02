@@ -160,6 +160,7 @@ enum Pick {
     Preview(ResKey),
     References(ResKey),
     UpdateInstances(Vec<ResKey>),
+    EditTogether(Vec<ResKey>),
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
@@ -267,6 +268,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
             Pick::References(key) => app.actions.push(Action::FindReferences(key)),
             Pick::UpdateInstances(keys) => app.update_instances_of(keys),
+            Pick::EditTogether(keys) => app.actions.push(Action::OpenTab(Tab::Blueprints(keys))),
         }
     }
 }
@@ -388,6 +390,17 @@ fn show_node(
                 r.context_menu(|ui| {
                     if custom && ui.button("Edit").clicked() {
                         picks.push(Pick::Edit(key));
+                        ui.close();
+                    }
+                    let keys = sel.bulk(key);
+                    if custom
+                        && keys.len() > 1
+                        && ui
+                            .button(format!("Edit {} Together", keys.len()))
+                            .on_hover_text("One editor: what you change is set on each")
+                            .clicked()
+                    {
+                        picks.push(Pick::EditTogether(keys));
                         ui.close();
                     }
                     if ui
