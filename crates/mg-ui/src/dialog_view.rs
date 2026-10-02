@@ -114,6 +114,20 @@ pub struct DialogClip {
 }
 
 /// The GFF path of a link.
+/// A line's text as shown: its own (English), else its talk-table string
+/// (the original campaign's lines, and many modules', are all in the game's
+/// talk table).
+fn line_text(game: Option<&mg_rules::GameData>, n: &Struct) -> String {
+    let own = text(n);
+    if !own.is_empty() {
+        return own;
+    }
+    n.locstring("Text")
+        .filter(|ls| !ls.strref.is_none())
+        .and_then(|ls| game?.string(ls.strref))
+        .unwrap_or_default()
+}
+
 fn link_path(row: Row) -> GffPath {
     match row.parent {
         Parent::Root => GffPath::root().item("StartingList", row.pos),
@@ -400,7 +414,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 for (kind, index) in view.bookmarks.clone() {
                     let Some(n) = node(&g, kind, index) else { continue };
                     if ui
-                        .selectable_label(false, format!("{kind:?} {index}: {}", text(n)))
+                        .selectable_label(
+                            false,
+                            format!("{kind:?} {index}: {}", line_text(app.game.as_ref(), n)),
+                        )
                         .clicked()
                         && let Some((parent, pos)) = mg_module::dialog::owner(&g, kind, index)
                     {
@@ -537,7 +554,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 dropped = Some(Drop { from: *from, onto: Parent::Root, link: link_key(ui) });
             }
             let mut path = HashSet::new();
-            tree(ui, &g, Parent::Root, 1, &mut view, &mut path, hl, &look, &mut dropped);
+            tree(
+                ui,
+                app.game.as_ref(),
+                &g,
+                Parent::Root,
+                1,
+                &mut view,
+                &mut path,
+                hl,
+                &look,
+                &mut dropped,
+            );
         },
     );
     // A drag moves the line (with its branch) under the line it is dropped
@@ -684,6 +712,7 @@ fn link_key(ui: &Ui) -> bool {
 #[allow(clippy::too_many_arguments)]
 fn tree(
     ui: &mut Ui,
+    game: Option<&mg_rules::GameData>,
     g: &Gff,
     parent: Parent,
     depth: usize,
@@ -702,7 +731,7 @@ fn tree(
         let children = !linked && !links(g, Parent::Node(kind, index)).is_empty();
         let open = !view.collapsed.contains(&(kind, index));
         let speaker = decode(n.string("Speaker").unwrap_or_default());
-        let first = text(n).lines().next().unwrap_or_default().to_string();
+        let first = line_text(game, n).lines().next().unwrap_or_default().to_string();
         let mut label = match kind {
             Kind::Entry if !look.names => first,
             Kind::Entry if speaker.is_empty() => format!("[OWNER] - {first}"),
@@ -767,7 +796,7 @@ fn tree(
             }
         });
         if children && open && path.insert((kind, index)) {
-            tree(ui, g, Parent::Node(kind, index), depth + 1, view, path, hl, look, dropped);
+            tree(ui, game, g, Parent::Node(kind, index), depth + 1, view, path, hl, look, dropped);
             path.remove(&(kind, index));
         }
     }
@@ -854,6 +883,11 @@ fn text_panel(
         .map(|t| t.into_owned())
         .unwrap_or_default();
     let id = egui::Id::new(("dlg-text", key, kind, index));
+    // Text from the talk table shows under the field; text typed in the
+    // field is the line's own, said instead.
+    let from_tlk = (english.is_empty() && !ls.strref.is_none())
+        .then(|| app.game.as_ref().and_then(|g| g.string(ls.strref)))
+        .flatten();
     if let Some(v) = commit_text(app, ui, id, &english, true, f32::INFINITY) {
         actions.push(set(
             key,
@@ -862,6 +896,9 @@ fn text_panel(
             "Text",
             with_english(ls.clone(), &v).into_value(),
         ));
+    }
+    if let Some(t) = from_tlk {
+        ui.weak(format!("From the talk table (string {}): {t}", ls.strref.0));
     }
     if view.token_picker {
         let tokens: Vec<String> = app
@@ -1302,7 +1339,7 @@ fn search_pane(
             let Some(d) = doc else { continue };
             for kind in [Kind::Entry, Kind::Reply] {
                 for (i, n) in mg_module::dialog::nodes(&d, kind).iter().enumerate() {
-                    let t = text(n);
+                    let t = line_text(app.game.as_ref(), n);
                     if matches(&t, &s.find, s) {
                         results.push((k, kind, i as u32, t));
                     }
@@ -1463,6 +1500,7 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
     for key in open {
         let Some(g) = app.ws.as_mut().and_then(|w| w.doc(&key).ok().cloned()) else { continue };
         let view = app.dialog_views.get_mut(&key).expect("listed");
+        let game = app.game.as_ref();
         let mut path = view.test.clone().unwrap_or_default();
         let mut assume = view.assume.clone();
         let mut close = false;
@@ -1474,7 +1512,7 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
                     for (k, i) in &path {
                         if let Some(n) = node(&g, *k, *i) {
                             let who = if *k == Kind::Entry { "NPC" } else { "You" };
-                            ui.weak(format!("{who}: {}", text(n)));
+                            ui.weak(format!("{who}: {}", line_text(game, n)));
                         }
                     }
                 });
@@ -1492,9 +1530,11 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
                     let Some(n) = node(&g, Kind::Entry, i) else { continue };
                     ui.horizontal(|ui| {
                         if Some(i) == spoken {
-                            ui.label(RichText::new(format!("NPC: {}", text(n))).strong());
+                            ui.label(
+                                RichText::new(format!("NPC: {}", line_text(game, n))).strong(),
+                            );
                         } else {
-                            ui.weak(format!("(not said) {}", text(n)));
+                            ui.weak(format!("(not said) {}", line_text(game, n)));
                         }
                         if let Some(c) = condition(l) {
                             condition_toggle(ui, &c, &mut assume);
@@ -1528,7 +1568,7 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
                 for l in &replies {
                     let i = link_index(l);
                     let Some(n) = node(&g, Kind::Reply, i) else { continue };
-                    let t = text(n);
+                    let t = line_text(game, n);
                     let t = if t.is_empty() { "[CONTINUE]".to_string() } else { t };
                     let shown = passes(l, &assume);
                     number += usize::from(shown);

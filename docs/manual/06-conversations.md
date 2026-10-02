@@ -12,7 +12,9 @@ A line shown in gray is a **link**: it stands for a line elsewhere in the
 tree, so branches can join and loop without copying text. Select a line
 to edit it below the tree: its **Speaker** (NPC lines: the conversation's
 owner, or a creature in the module by tag) and its **Text** (the **…**
-button edits every language).
+button edits every language) A line whose text is a talk-table string
+(as all the original campaign's are) shows that string, in the tree and
+under the empty field; text typed in the field is said instead.
 
 With the pointer over the editor, Ctrl+A adds a line, Delete deletes the
 selected one, and Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, as in

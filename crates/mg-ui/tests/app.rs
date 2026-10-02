@@ -1144,6 +1144,35 @@ fn tileset_made_edited_saved_with_its_palette() {
 }
 
 #[test]
+fn conversation_lines_show_their_talk_table_text() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-dialog-tlk");
+    let path = sample_module(&dir);
+    // A line whose text is the game's talk table's string 12 alone.
+    let mut g = mg_module::dialog::new_dialog();
+    mg_module::dialog::add_node(&mut g, mg_module::dialog::Parent::Root, "");
+    let entries = g.root.list_mut("EntryList").unwrap();
+    entries[0].set("Text", mg_gff::Value::LocString(LocString::from_strref(mg_core::StrRef(12))));
+    let mut m = Module::open(&path).unwrap();
+    let key = ResKey::parse("tlkdlg", ResType::DLG).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save().unwrap();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    h.run();
+    h.get_by_label_contains("[OWNER] - Paladin").click();
+    h.run();
+    h.get_by_label_contains("From the talk table (string 12): Paladin");
+}
+
+#[test]
 fn faction_editor_adds_and_removes_factions() {
     let dir = mg_testkit::scratch_dir("ui-factions");
     let path = sample_module(&dir);
