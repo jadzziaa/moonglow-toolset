@@ -257,6 +257,15 @@ enum Cmd {
     /// What a module is: its name, tag, areas, haks, talk table and
     /// resources by type.
     Info { module: PathBuf },
+    /// Make a tileset's palette (<tileset>palstd.itp) from its .set: its
+    /// groups, features, terrains and crossers, as the painter offers them.
+    TilesetPalette {
+        /// The .set file.
+        set: PathBuf,
+        /// Where to write it (default: beside the .set).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
     /// Publish a module's haks and talk table for NWSync: write a manifest
     /// and its data into a repository folder, for a web server to serve and
     /// nwserver to name (-nwsyncurl), as nwn_nwsync_write does.
@@ -1134,6 +1143,40 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!(
                 "serve {} on a web server, and start nwserver with -nwsyncurl <its address>",
                 repository.display()
+            ));
+            out
+        }
+        Cmd::TilesetPalette { set, output } => {
+            let data = std::fs::read(set).with_context(|| path_text(set))?;
+            let tileset = mg_set::Tileset::parse(&data, Codepage::default())?;
+            let (gff, warnings) = mg_module::tileset::palette(&tileset);
+            let stem =
+                set.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let path =
+                output.clone().unwrap_or_else(|| set.with_file_name(format!("{stem}palstd.itp")));
+            std::fs::write(&path, gff.to_bytes()?)?;
+            let count = |id: usize| match gff.root.get("MAIN") {
+                Some(mg_gff::Value::List(c)) => match c.get(id).and_then(|c| c.get("LIST")) {
+                    Some(mg_gff::Value::List(l)) => l.len(),
+                    _ => 0,
+                },
+                _ => 0,
+            };
+            let mut out = Output::new(json!({
+                "palette": path_text(&path),
+                "features": count(0),
+                "groups": count(1),
+                "terrain": count(2),
+            }));
+            for w in warnings {
+                out.note(format!("warning: {w}"));
+            }
+            out.note(format!(
+                "wrote {}: {} features, {} groups, {} terrain",
+                path.display(),
+                count(0),
+                count(1),
+                count(2)
             ));
             out
         }

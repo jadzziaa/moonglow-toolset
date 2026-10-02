@@ -24,6 +24,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 
 | Command | Does |
 | --- | --- |
+| `mg tileset-palette SET [-o OUT]` | make a tileset's palette (`<tileset>palstd.itp`) from its `.set`: groups, features, terrains and crossers |
 | `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav` |
 | `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
 | `mg pack DIR ARCHIVE` | pack a folder into an archive (its type from the extension); warns when files would start past 2 GiB, where the game stops reading |

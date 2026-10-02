@@ -517,3 +517,117 @@ fn object_walkmeshes() {
     h.run_steps(5);
     shoot(&mut h, &dir, "object-walkmeshes");
 }
+
+#[test]
+#[ignore]
+fn tileset_minimap_pictures() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-minimaps");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_resman::ResMan::for_game(&install).unwrap();
+    // A copy of a game tileset, its pictures rendered beside it.
+    let name = "tcn01";
+    let set = game.get(&ResKey::parse(name, ResType::SET).unwrap()).unwrap().into_owned();
+    let set_dir = dir.join("set");
+    let _ = std::fs::remove_dir_all(&set_dir);
+    std::fs::create_dir_all(&set_dir).unwrap();
+    let path = set_dir.join(format!("{name}.set"));
+    std::fs::write(&path, &set).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    mg_ui::tileset_view::open_path(h.state_mut(), path.clone());
+    h.run();
+    h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
+    h.state_mut().tilesets[0].tile = Some(3);
+    h.run();
+    shoot(&mut h, &dir, "tileset-editor");
+    let mut doc = h.state_mut().tilesets.remove(0);
+    let tiles = doc.tileset().unwrap().tiles.clone();
+    mg_ui::tileset_view::render_minimaps(h.state_mut(), &mut doc, 32);
+    // A sheet: the game's picture beside Moonglow's, for the first tiles.
+    let shown: Vec<_> = tiles.iter().filter(|t| t.image_map_2d.is_some()).take(12).collect();
+    let mut sheet = mg_image::Rgba::new(32 * 2 + 8, 40 * shown.len() as u32);
+    let mut lit = 0;
+    for (row, t) in shown.iter().enumerate() {
+        let pic = t.image_map_2d.clone().unwrap().to_lowercase();
+        let ours = std::fs::read(set_dir.join(format!("{pic}.tga"))).unwrap();
+        let ours = mg_image::read(ResType::TGA, &ours).unwrap().to_rgba();
+        lit += usize::from(
+            ours.data.as_chunks::<4>().0.iter().any(|p| p[0] > 20 || p[1] > 20 || p[2] > 20),
+        );
+        let theirs = game
+            .texture(mg_core::ResRef::from_str(&pic).unwrap())
+            .and_then(|(t, d)| mg_image::read(t, &d).ok())
+            .map(|t| t.to_rgba());
+        let y0 = sheet.height - 40 * (row as u32 + 1) + 4;
+        for (x0, img) in [(0u32, theirs.as_ref()), (40, Some(&ours))] {
+            let Some(img) = img else { continue };
+            for y in 0..32 {
+                for x in 0..32 {
+                    let p = img.pixel(x * img.width / 32, y * img.height / 32);
+                    let i = (((y0 + y) * sheet.width + x0 + x) * 4) as usize;
+                    sheet.data[i..i + 4].copy_from_slice(&p);
+                }
+            }
+        }
+    }
+    assert!(lit >= shown.len() - 1, "{lit} of {} pictures have anything in them", shown.len());
+    // Laid out as the game's pictures: for each tile, Moonglow's picture
+    // correlates best with the game's as it is, not flipped or turned.
+    let lum = |img: &mg_image::Rgba, flip_x: bool, flip_y: bool| -> Vec<f32> {
+        let mut v = Vec::with_capacity(256);
+        for y in 0..16 {
+            for x in 0..16 {
+                let (sx, sy) = (if flip_x { 15 - x } else { x }, if flip_y { 15 - y } else { y });
+                let p = img.pixel(sx * img.width / 16, sy * img.height / 16);
+                v.push(0.3 * f32::from(p[0]) + 0.59 * f32::from(p[1]) + 0.11 * f32::from(p[2]));
+            }
+        }
+        let mean = v.iter().sum::<f32>() / v.len() as f32;
+        let sd =
+            (v.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / v.len() as f32).sqrt().max(1e-3);
+        v.iter().map(|x| (x - mean) / sd).collect()
+    };
+    let corr =
+        |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>() / a.len() as f32;
+    let (mut best_as_is, mut judged) = (0, 0);
+    for t in tiles.iter().filter(|t| t.image_map_2d.is_some()).take(60) {
+        let pic = t.image_map_2d.clone().unwrap().to_lowercase();
+        let Ok(ours) = std::fs::read(set_dir.join(format!("{pic}.tga"))) else { continue };
+        let ours = mg_image::read(ResType::TGA, &ours).unwrap().to_rgba();
+        let Some(theirs) = game
+            .texture(mg_core::ResRef::from_str(&pic).unwrap())
+            .and_then(|(t, d)| mg_image::read(t, &d).ok())
+            .map(|t| t.to_rgba())
+        else {
+            continue;
+        };
+        let reference = lum(&theirs, false, false);
+        let scores: Vec<f32> = [(false, false), (false, true), (true, false), (true, true)]
+            .iter()
+            .map(|&(fx, fy)| corr(&lum(&ours, fx, fy), &reference))
+            .collect();
+        // Symmetric pictures say nothing about the way up.
+        if scores.iter().cloned().fold(f32::MIN, f32::max)
+            - scores.iter().cloned().fold(f32::MAX, f32::min)
+            < 0.2
+        {
+            continue;
+        }
+        judged += 1;
+        best_as_is += usize::from(scores[1..].iter().all(|s| scores[0] >= *s));
+    }
+    println!("{best_as_is} of {judged} pictures match best as they are");
+    assert!(judged >= 20 && best_as_is * 10 >= judged * 8, "{best_as_is} of {judged}");
+    std::fs::write(dir.join("minimaps.png"), mg_module::minimap::png(&sheet).unwrap()).unwrap();
+}

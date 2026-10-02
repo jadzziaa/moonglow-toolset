@@ -223,6 +223,22 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Portraits, music and ambient sound** in folders (not haks) aren't
   gathered; they go in a hak first, as with `nwn_nwsync_write`. (S)
 
+## Tileset authoring
+
+- **Rules and doors:** primary and secondary painting rules and a tile's
+  door hooks (`[TILEnDOORm]`) aren't on the editor's pages; they stay as
+  the file has them (edit the text for now). (M)
+- **Renaming a terrain or crosser** isn't offered: every tile naming it
+  would change with it. (S)
+- **Minimap pictures** are Moonglow's renderer's look (lit models, as in
+  the area view), not the painted look of the game's; and models must be
+  readable (beside the `.set` or in the game data). (S–M)
+- **Making models** (Neverblender's job) and **testing a tileset** by
+  painting an area with it straight from its folder (it has to be in a hak
+  the module uses, or in development). (M)
+- **The palette's arrangement:** it's generated flat, without the
+  subfolders hand-made palettes have. (S)
+
 ## Release and packaging (v0.1.0)
 
 - **macOS:** the app and disk image are built by CI but have never been

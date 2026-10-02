@@ -160,11 +160,36 @@ impl Rgba {
     }
 }
 
+/// An uncompressed 24-bit TGA of a picture (rows stored bottom first, as
+/// [`Rgba`] keeps them), as the game's minimap pictures are.
+pub fn write_tga(image: &Rgba) -> Vec<u8> {
+    let (w, h) = (image.width as u16, image.height as u16);
+    let mut out = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    out.extend(w.to_le_bytes());
+    out.extend(h.to_le_bytes());
+    out.extend([24, 0]);
+    for px in image.data.as_chunks::<4>().0 {
+        out.extend([px[2], px[1], px[0]]);
+    }
+    out
+}
+
 /// Reads a TGA or DDS.
 pub fn read(restype: ResType, data: &[u8]) -> Result<Texture, ImageError> {
     match restype {
         ResType::TGA => tga::read(data),
         ResType::DDS => dds::read(data),
         t => Err(ImageError::NotImage(t)),
+    }
+}
+
+#[cfg(test)]
+mod write_tests {
+    #[test]
+    fn tga_written_reads_back() {
+        let mut img = super::Rgba::new(2, 1);
+        img.data.copy_from_slice(&[255, 0, 0, 255, 0, 0, 255, 255]);
+        let back = super::read(mg_core::ResType::TGA, &super::write_tga(&img)).unwrap().to_rgba();
+        assert_eq!(back, img);
     }
 }

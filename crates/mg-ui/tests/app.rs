@@ -1050,6 +1050,100 @@ fn published_to_nwsync_from_the_build_menu() {
 }
 
 #[test]
+fn tileset_made_edited_saved_with_its_palette() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-tileset");
+    let set_path = dir.join("zzz01.set");
+    let _ = std::fs::remove_file(&set_path);
+    // A game tileset's copy, to edit too.
+    let game =
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let tic = game.get(&ResKey::parse("tic01", ResType::SET).unwrap()).unwrap().into_owned();
+    let tic_path = dir.join("tic01.set");
+    std::fs::write(&tic_path, &tic).unwrap();
+    let dialogs = NoDialogs {
+        save: vec![set_path.clone()],
+        open: vec![tic_path.clone()],
+        ..Default::default()
+    };
+    let mut app =
+        Moonglow::new(Some(mg_resman::GameInstall::new(&root, None, "en")), Box::new(dialogs));
+    app.open_module(&sample_module(&dir));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1300.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    mg_ui::tileset_view::new_tileset(h.state_mut());
+    h.run();
+    assert!(set_path.is_file());
+    let id = h.state().tilesets[0].id;
+    assert!(h.state().dock.find_tab(&Tab::Tileset(id)).is_some());
+
+    // Terrains and a crosser.
+    h.get_by_label("Terrains and Crossers").click();
+    h.run();
+    for (name, button) in
+        [("Grass", "Add Terrain"), ("Water", "Add Terrain"), ("Road", "Add Crosser")]
+    {
+        h.state_mut().tilesets[0].new_type = name.into();
+        h.run();
+        h.get_by_label(button).click();
+        h.run();
+    }
+    let t = h.state().tilesets[0].tileset().unwrap().clone();
+    assert_eq!((t.terrains.len(), t.crossers.len()), (2, 1));
+
+    // A tile, a group; an undo and a redo.
+    h.get_by_label("Tiles").click();
+    h.run();
+    h.get_by_label("Add Tile").click();
+    h.run();
+    h.get_by_label("Groups").click();
+    h.run();
+    h.get_by_label("Add Group").click();
+    h.run();
+    h.get_by_label("Undo").click();
+    h.run();
+    assert!(h.state().tilesets[0].tileset().unwrap().groups.is_empty());
+    h.get_by_label("Redo").click();
+    h.run();
+    let t = h.state().tilesets[0].tileset().unwrap().clone();
+    assert_eq!((t.tiles.len(), t.groups.len()), (1, 1));
+    assert_eq!(t.tiles[0].corners[0].0, "Grass");
+
+    // Saved, its palette made, checked.
+    h.get_by_label("Save").click();
+    h.run();
+    let saved =
+        mg_set::Tileset::parse(&std::fs::read(&set_path).unwrap(), mg_core::Codepage::default())
+            .unwrap();
+    assert_eq!(saved.groups.len(), 1);
+    h.get_by_label("Make Palette").click();
+    h.run();
+    let pal = mg_gff::Gff::read(&std::fs::read(dir.join("zzz01palstd.itp")).unwrap()).unwrap();
+    assert_eq!(pal.file_type, *b"ITP ");
+    h.get_by_label("Check").click();
+    h.run();
+    let findings = h.state().tilesets[0].findings.clone().unwrap();
+    assert!(
+        findings.iter().any(|f| f.message.contains("zzz01_a01_01")),
+        "the tile's model is missing: {findings:?}"
+    );
+
+    // A game tileset's copy: one value changed, one line saved.
+    mg_ui::tileset_view::open(h.state_mut());
+    h.run();
+    let doc = h.state_mut().tilesets.iter_mut().find(|d| d.path == tic_path).unwrap();
+    doc.change(|f| f.set("GENERAL", "Transition", "6"));
+    assert!(doc.is_dirty());
+    doc.save().unwrap();
+    let after = std::fs::read(&tic_path).unwrap();
+    let (a, b) =
+        (String::from_utf8_lossy(&tic).into_owned(), String::from_utf8_lossy(&after).into_owned());
+    assert_eq!(a.lines().zip(b.lines()).filter(|(x, y)| x != y).count(), 1);
+}
+
+#[test]
 fn faction_editor_adds_and_removes_factions() {
     let dir = mg_testkit::scratch_dir("ui-factions");
     let path = sample_module(&dir);

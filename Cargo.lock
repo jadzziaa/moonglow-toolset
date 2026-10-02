@@ -1851,6 +1851,7 @@ dependencies = [
  "mg-resman",
  "mg-rules",
  "mg-script",
+ "mg-set",
  "mg-testkit",
  "mg-tlk",
  "serde_json",

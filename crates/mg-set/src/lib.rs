@@ -4,6 +4,7 @@
 //! [`Tileset::parse`] reads the typed model; the underlying [`Ini`] is kept
 //! for anything the model does not cover. The toolset never writes tilesets.
 
+pub mod edit;
 pub mod ini;
 
 use mg_core::{Codepage, StrRef};

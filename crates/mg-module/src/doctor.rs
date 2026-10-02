@@ -212,10 +212,23 @@ fn past_read_limit(d: &mut Doctor, layer: &Layer) {
 /// Tilesets: section counts, models, groups, doors (Aurora's "Range Check
 /// Error" and access violations when opening or painting an area).
 fn tileset(d: &mut Doctor, source: &str, key: ResKey) {
-    use Severity::*;
     let Ok(data) = d.rm.get(&key) else { return };
     let data = data.into_owned();
-    let set = match Tileset::parse(&data, Codepage::default()) {
+    tileset_data(d, source, key, &data);
+}
+
+/// A tileset being made (in the tileset editor, not yet in a hak): its
+/// problems, its models looked for in `resman`.
+pub fn examine_tileset(resman: &ResMan, key: ResKey, data: &[u8]) -> Vec<Finding> {
+    let mut d =
+        Doctor { rm: resman, tlk: TalkTables::default(), out: Vec::new(), tables: HashMap::new() };
+    tileset_data(&mut d, "tileset", key, data);
+    d.out
+}
+
+fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
+    use Severity::*;
+    let set = match Tileset::parse(data, Codepage::default()) {
         Ok(s) => s,
         Err(e) => {
             d.push(Error, "set-read", source, key, "", format!("can't be read: {e}"));

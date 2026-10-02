@@ -31,6 +31,8 @@ pub enum Tab {
     TalkTable,
     /// A hak in the hak editor (its id among the open haks).
     Hak(u32),
+    /// A tileset in the tileset editor (its id among the open tilesets).
+    Tileset(u32),
     /// A conversation.
     Dialog(ResKey),
     /// A resource from the load order, read-only.
@@ -73,6 +75,7 @@ impl Tab {
         let (w, h) = match self {
             Tab::Script(_) | Tab::Manual | Tab::Resources | Tab::Resource(_) => (920.0, 700.0),
             Tab::Dialog(_) => (920.0, 660.0),
+            Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
             Tab::Model(_) | Tab::InstanceModel { .. } => (780.0, 680.0),
             Tab::Factions | Tab::Journal | Tab::Gff(_) => (780.0, 600.0),
             Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 580.0),
@@ -123,6 +126,10 @@ impl TabViewer for Viewer<'_> {
             Tab::Blueprint(k) => k.to_string().into(),
             Tab::Factions => "Factions".into(),
             Tab::Journal => "Journal".into(),
+            Tab::Tileset(id) => {
+                let doc = self.app.tilesets.iter().find(|d| d.id == *id);
+                doc.map_or("Tileset".into(), |d| d.title()).into()
+            }
             Tab::Hak(id) => {
                 let doc = self.app.haks.iter().find(|d| d.id == *id);
                 doc.map_or("Hak".into(), |d| d.title()).into()
@@ -163,6 +170,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Journal => journal_view::ui(self.app, ui),
             Tab::TalkTable => crate::talk_view::ui(self.app, ui),
             Tab::Hak(id) => crate::hak_view::ui(self.app, ui, *id),
+            Tab::Tileset(id) => crate::tileset_view::ui(self.app, ui, *id),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
             Tab::Model(k) => model_view::ui(self.app, ui, model_view::Source::Resource(*k)),
@@ -202,6 +210,13 @@ impl TabViewer for Viewer<'_> {
                 return OnCloseResponse::Focus;
             }
             self.app.haks.retain(|d| d.id != id);
+        }
+        if let Tab::Tileset(id) = *tab {
+            if self.app.tilesets.iter().any(|d| d.id == id && d.is_dirty()) {
+                self.app.tileset_closing = Some(id);
+                return OnCloseResponse::Focus;
+            }
+            self.app.tilesets.retain(|d| d.id != id);
         }
         OnCloseResponse::Close
     }

@@ -46,6 +46,7 @@ pub mod terrain_mode;
 pub mod test_module;
 mod text;
 pub mod tile_select;
+pub mod tileset_view;
 mod transfer;
 mod tree;
 pub mod var_sets;
@@ -247,6 +248,11 @@ pub struct Moonglow {
     pub attach: Option<module_props::AttachDraft>,
     /// Build › Publish to NWSync.
     pub publish: Option<nwsync_view::Publish>,
+    /// Tilesets open in the tileset editor.
+    pub tilesets: Vec<tileset_view::TilesetDoc>,
+    pub(crate) next_tileset: u32,
+    /// A tileset whose tab is being closed with unsaved changes.
+    pub(crate) tileset_closing: Option<u32>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
@@ -406,6 +412,9 @@ impl Moonglow {
             suggested_hak: None,
             attach: None,
             publish: None,
+            tilesets: Vec::new(),
+            next_tileset: 0,
+            tileset_closing: None,
             model_views: HashMap::new(),
             area_views: HashMap::new(),
             adjust: None,
@@ -556,6 +565,7 @@ impl Moonglow {
         hak_view::closing_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());
+        tileset_view::closing_window(self, ui.ctx());
         bulk::text_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
@@ -936,6 +946,15 @@ impl Moonglow {
                 if ui.button("Resource Browser").clicked() {
                     self.actions.push(Action::OpenTab(Tab::Resources));
                 }
+                ui.menu_button("Tilesets", |ui| {
+                    if ui.button("New Tileset…").on_hover_text("A new .set file to fill").clicked()
+                    {
+                        tileset_view::new_tileset(self);
+                    }
+                    if ui.button("Open Tileset…").clicked() {
+                        tileset_view::open(self);
+                    }
+                });
                 ui.menu_button("Haks", |ui| {
                     if ui.button("New Hak").clicked() {
                         hak_view::new_hak(self);
@@ -1282,6 +1301,7 @@ impl Moonglow {
             || self.scripts.values().any(|b| b.is_dirty())
             || self.talk.as_ref().is_some_and(|t| t.is_dirty() && t.editable())
             || hak_view::unsaved(self)
+            || tileset_view::unsaved(self)
     }
 
     fn new_module(&mut self, name: &str) {
@@ -1710,6 +1730,7 @@ impl Moonglow {
         self.store_script_text();
         talk_view::save(self);
         hak_view::save_all(self);
+        tileset_view::save_all(self);
         let Some(ws) = &mut self.ws else { return };
         // The custom palettes list the module's blueprints, as Aurora keeps
         // them.

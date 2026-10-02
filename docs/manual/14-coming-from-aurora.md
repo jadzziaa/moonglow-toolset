@@ -133,6 +133,8 @@ Moonglow's own.
   each row comes from, and what a hak changed.
 - **Talk tables**: Tools › Talk Table edits the module's own, and String
   Edit's **Move to Talk Table** puts a text there by StrRef.
+- **Tilesets**: Tools › Tilesets edits `.set` files (the Set File
+  Editor's job), makes their palettes and renders their minimap pictures.
 - **NWSync**: Build › Publish to NWSync… (and `mg nwsync`) writes the
   repository a server's players download its haks from.
 - **Keys** can be changed (Tools › Options › Keyboard); they start as

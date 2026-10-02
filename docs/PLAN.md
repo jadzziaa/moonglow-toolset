@@ -571,7 +571,15 @@ surveyed after 0.2.0). What each item left undone is collected in
      same resources and `module.ifo` (`nwsync.rs`). SHA-1 is Moonglow's
      own; ruzstd's frames are given their content size, which the
      reference zstd's one-shot decoder needs;
-   - tileset authoring.
+   - tileset authoring — done: Tools › Tilesets edits `.set` files line by
+     line (every shipped set written back untouched is the same bytes, a
+     value changed is one line), with undo: general settings, terrains and
+     crossers, tiles (added only at the end), groups; Make Palette (and
+     `mg tileset-palette`) generates `palstd.itp`, holding every group the
+     game's 33 palettes place (`tileset_authoring.rs`); Check runs the
+     doctor's tileset checks; Render Minimap Pictures draws tiles from
+     above, laid out as the game's pictures (38 of 42 tcn01 tiles judged
+     match best unturned; `screens.rs`, by hand).
 
 ## 7. Testing strategy
 

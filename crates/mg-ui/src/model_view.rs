@@ -615,3 +615,64 @@ fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::T
     );
     Some((targets, id))
 }
+
+/// A tile's model seen from straight above, its 10 m square filling
+/// `size` pixels: a minimap picture. Rendered four times larger and
+/// averaged down; rows bottom first. `None` without a GPU or the model.
+pub(crate) fn render_tile_from_above(
+    app: &mut Moonglow,
+    model: &str,
+    size: u32,
+) -> Option<mg_image::Rgba> {
+    let key = ResKey::parse(model, ResType::MDL)?;
+    let source = Source::Resource(key);
+    let preview = preview_of(app, &source).ok()?;
+    let composed = compose(app, &source, &preview).ok()?;
+    let vp = app.viewport.as_mut()?;
+    let (min, max) = composed.bounds();
+    // Nearly orthographic: a 2° view from far above, its square the tile's
+    // (tiles' models are centred on their origin). A hair off vertical,
+    // from the south, so north is up.
+    let fov = 2f32.to_radians();
+    let distance = (mg_area::TILE_SIZE / 2.0) / (fov / 2.0).tan();
+    let centre = Vec3::new(0.0, 0.0, (min.z + max.z) * 0.5);
+    let mut camera =
+        Camera::orbit(centre, distance, -std::f32::consts::FRAC_PI_2, 89.9f32.to_radians());
+    camera.fov_y = fov;
+    let scene = Scene {
+        instances: composed.instances(None, 0.0, Mat4::IDENTITY),
+        lights: composed.point_lights(Mat4::IDENTITY),
+        area: AreaLight::default(),
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let assets: &dyn mg_render::Assets = match app.game.as_ref() {
+        Some(g) => &g.resman,
+        None => &mg_render::NoAssets,
+    };
+    let big = size * 4;
+    let image = vp.renderer.render_image(&vp.gpu, assets, &scene, &camera, big, big);
+    let mut out = mg_image::Rgba::new(size, size);
+    for y in 0..size {
+        for x in 0..size {
+            let mut sum = [0u32; 3];
+            for dy in 0..4 {
+                for dx in 0..4 {
+                    let p = image.pixel(x * 4 + dx, y * 4 + dy);
+                    for c in 0..3 {
+                        sum[c] += u32::from(p[c]);
+                    }
+                }
+            }
+            let i = ((y * size + x) * 4) as usize;
+            out.data[i..i + 4].copy_from_slice(&[
+                (sum[0] / 16) as u8,
+                (sum[1] / 16) as u8,
+                (sum[2] / 16) as u8,
+                255,
+            ]);
+        }
+    }
+    // Rendered rows come top first; pictures keep them bottom first.
+    Some(out.top_down())
+}

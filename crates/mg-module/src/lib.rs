@@ -33,6 +33,7 @@ pub mod store_setup;
 pub mod table_layers;
 pub mod talk;
 pub mod text;
+pub mod tileset;
 pub mod transfer;
 pub mod verify;
 

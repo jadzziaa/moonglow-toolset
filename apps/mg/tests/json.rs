@@ -91,6 +91,10 @@ fn every_command_answers_in_json() {
     assert_eq!(ok(&["attach", c, hak.to_str().unwrap()])["haks"][0], "mg_json");
     let map = ok(&["minimap", c, "chess", &at("map.png")]);
     assert!(map["width"].as_u64().unwrap() > 0);
+    let set = ok(&["cat", "tcn01.set"])["text"].as_str().unwrap().to_string();
+    std::fs::write(dir.join("tcn01.set"), set).unwrap();
+    let pal = ok(&["tileset-palette", &at("tcn01.set")]);
+    assert!(pal["groups"].as_u64().unwrap() > 10 && dir.join("tcn01palstd.itp").is_file());
     let synced = ok(&["nwsync", c, &at("repo"), "--with-module"]);
     assert_eq!(synced["sha1"].as_str().unwrap().len(), 40);
     assert!(synced["files"].as_u64().unwrap() > 100);

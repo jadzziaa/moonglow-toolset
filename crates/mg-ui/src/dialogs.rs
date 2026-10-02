@@ -27,6 +27,8 @@ pub enum FileKind {
     HakFiles,
     /// A picture: `.png`.
     Png,
+    /// A tileset: `.set`.
+    Tileset,
 }
 
 impl FileKind {
@@ -50,6 +52,8 @@ impl FileKind {
             (FileKind::Content, _) => "Add Haks and Talk Table",
             (FileKind::HakFiles, _) => "Add Files to the Hak",
             (FileKind::Png, _) => "Save Picture",
+            (FileKind::Tileset, false) => "Open Tileset",
+            (FileKind::Tileset, true) => "New Tileset",
         }
     }
 
@@ -69,6 +73,7 @@ impl FileKind {
             (FileKind::Content, _) => Some(("Haks and talk tables", &["hak", "tlk"])),
             (FileKind::HakFiles, _) => None,
             (FileKind::Png, _) => Some(("PNG picture", &["png"])),
+            (FileKind::Tileset, _) => Some(("Tileset", &["set"])),
         }
     }
 }

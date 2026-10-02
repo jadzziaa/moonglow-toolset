@@ -203,3 +203,44 @@ maximum, each repeating, looping or playing once as it is set. **Ambient**
 and **Music** play the area's ambient sound and music (by day or night, as
 the view shows). Options › Sounds sets which play when an area opens, and
 the music's volume.
+
+## Making tilesets
+
+**Tools › Tilesets** edits a tileset's `.set` file: **New Tileset…**
+starts one, **Open Tileset…** opens one (a copy of a game tileset, or one
+being made beside its models). An edit changes only the lines it is
+about, so comments, order and spacing stay; **Undo**, **Redo** and
+**Save** are in the editor's toolbar, and saving the module saves open
+tilesets too.
+- **General:** the name, the name players see, the height step, the
+  border, default and floor terrains, interior, height transitions, and
+  grass.
+- **Terrains and Crossers:** the lists, and **Add Terrain** and **Add
+  Crosser** by name.
+- **Tiles:** every tile with its corners and edges; **Find** by model or
+  terrain. A tile's model, walkmesh, minimap picture, path node,
+  orientation, corner terrains and heights, edge crossers, lights and
+  animation loops. **Add Tile** and **Duplicate Tile** add at the end and
+  **Remove Last Tile** takes the last away: areas store tiles by number,
+  so tiles in the middle stay where they are. **Preview** shows the
+  model when the game data has it.
+- **Groups:** each group's name, size and tiles, the bottom row first.
+
+The toolbar also:
+- **Make Palette** writes `<tileset>palstd.itp` beside the `.set`, the
+  palette the painter offers: one-tile groups as Features, the others as
+  Groups, the terrains and crossers, the eraser and (with height
+  transitions) raise and lower. For the game's own tilesets it holds
+  every group their palettes place. `mg tileset-palette` does the same.
+- **Check** runs Verify's tileset checks: counts that disagree with the
+  sections, tiles whose models are missing, groups that won't paint.
+- **Render Minimap Pictures** draws each tile from above with Moonglow's
+  renderer and saves it as its minimap picture (32 pixels, a TGA named
+  by the tile's `ImageMap2D`, which tiles without one get as
+  `mi_<model>`) beside the `.set`. Models and textures beside the `.set`
+  are used before the game's.
+
+Put the `.set`, palette, models, walkmeshes, textures and minimap
+pictures in a hak (Tools › Haks › Build Hak from Folder…) to use the
+tileset.
+
