@@ -171,6 +171,44 @@ fn walk(
     }
 }
 
+/// Points the references of the given kinds to `from` (compared ignoring
+/// case, as the game does) at `to`; returns how many changed.
+pub fn rewrite_references(gff: &mut Gff, kinds: &[RefKind], from: ResRef, to: ResRef) -> usize {
+    fn walk_mut(
+        file_type: &str,
+        s: &mut Struct,
+        list: Option<&str>,
+        kinds: &[RefKind],
+        from: ResRef,
+        to: ResRef,
+    ) -> usize {
+        let mut n = 0;
+        for f in &mut s.fields {
+            let label = f.label.to_string_lossy();
+            match &mut f.value {
+                Value::ResRef(_) => {
+                    let hit = f.value.as_resref() == Some(from)
+                        && classify(file_type, list, &label).is_some_and(|k| kinds.contains(&k));
+                    if hit {
+                        f.value = Value::resref(to);
+                        n += 1;
+                    }
+                }
+                Value::Struct(c) => n += walk_mut(file_type, c, list, kinds, from, to),
+                Value::List(items) => {
+                    for c in items {
+                        n += walk_mut(file_type, c, Some(&label), kinds, from, to);
+                    }
+                }
+                _ => {}
+            }
+        }
+        n
+    }
+    let file_type = gff.file_type_str();
+    walk_mut(&file_type, &mut gff.root, None, kinds, from, to)
+}
+
 /// The references in a GFF resource.
 pub fn gff_references(from: ResKey, gff: &Gff) -> Vec<Reference> {
     let mut out = Vec::new();
