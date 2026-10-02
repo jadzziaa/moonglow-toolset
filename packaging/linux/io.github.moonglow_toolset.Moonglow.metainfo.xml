@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.4.0" date="2026-10-02">
+      <description>
+        <p>Palettes find blueprints by tag and close matches, show a picture on
+        hover, and keep favorites and recent ones; a talk-table editor and 2DAs
+        shown with their text and the hak each row comes from; a hak editor,
+        and haks and a talk table attached to a module in one step; placeable
+        and door walkmeshes in the area view, and minimaps exported as the game
+        draws them; keys that can be changed in Options.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-10-02">
       <description>
         <p>Modules as nasher projects for git; Find References and Rename
