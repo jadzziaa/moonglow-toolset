@@ -27,6 +27,10 @@ struct Cli {
     /// Ignore the user directory (base game only).
     #[arg(long, global = true)]
     no_user_dir: bool,
+    /// Print the result as one JSON object, for scripts and build
+    /// pipelines (warnings in its "notes"; an error as {"error": …}).
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -66,9 +70,6 @@ enum Cmd {
         /// Also list module resources nothing references.
         #[arg(long)]
         unused: bool,
-        /// Print the results as JSON (for build pipelines).
-        #[arg(long)]
-        json: bool,
     },
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
@@ -222,6 +223,40 @@ enum Cmd {
         #[arg(long)]
         size: Option<u32>,
     },
+    /// Find a module's blueprints and the objects placed in its areas, by
+    /// type, tag, name, resref, area or field values.
+    Find {
+        module: PathBuf,
+        /// Blueprint types: utc, utd, ute, uti, utp, uts, utm, utt, utw
+        /// (comma-separated; default all).
+        #[arg(long = "type", value_delimiter = ',')]
+        types: Vec<String>,
+        /// The tag (`*` matches any run of characters; case ignored).
+        #[arg(long)]
+        tag: Option<String>,
+        /// Words the name contains.
+        #[arg(long)]
+        name: Option<String>,
+        /// The blueprint's resref (a placed object's blueprint); `*` as in tags.
+        #[arg(long)]
+        resref: Option<String>,
+        /// Only objects placed in this area.
+        #[arg(long)]
+        area: Option<String>,
+        /// Only placed objects.
+        #[arg(long, conflicts_with = "blueprints")]
+        placed: bool,
+        /// Only blueprints.
+        #[arg(long)]
+        blueprints: bool,
+        /// A field and its value, `Label=Value` (`*` as in tags), or `Label`
+        /// for any value; repeatable.
+        #[arg(long = "where")]
+        fields: Vec<String>,
+    },
+    /// What a module is: its name, tag, areas, haks, talk table and
+    /// resources by type.
+    Info { module: PathBuf },
     /// Import an ERF into a module and save it.
     Import {
         module: PathBuf,
@@ -232,9 +267,70 @@ enum Cmd {
     },
 }
 
+/// What a command produced: its result as JSON, and the same for people
+/// as lines of standard output and notes (warnings, summaries) on
+/// standard error.
+#[derive(Default)]
+struct Output {
+    json: serde_json::Value,
+    text: Vec<String>,
+    notes: Vec<String>,
+    /// Found errors (verify): printed, then a failing exit.
+    failed: bool,
+    /// Written already (cat's bytes, the language server).
+    done: bool,
+}
+
+impl Output {
+    fn new(json: serde_json::Value) -> Output {
+        Output { json, ..Default::default() }
+    }
+
+    fn line(&mut self, s: impl Into<String>) {
+        self.text.push(s.into());
+    }
+
+    fn note(&mut self, s: impl Into<String>) {
+        self.notes.push(s.into());
+    }
+
+    /// Prints it as text, or as JSON with the notes in "notes".
+    fn print(mut self, json: bool) -> io::Result<()> {
+        if self.done {
+            return Ok(());
+        }
+        let mut out = io::stdout().lock();
+        if json {
+            if let serde_json::Value::Object(o) = &mut self.json
+                && !self.notes.is_empty()
+            {
+                o.insert("notes".into(), self.notes.into());
+            }
+            let text = serde_json::to_string_pretty(&self.json).map_err(io::Error::other)?;
+            writeln!(out, "{text}")?;
+        } else {
+            for l in &self.text {
+                writeln!(out, "{l}")?;
+            }
+            for n in &self.notes {
+                eprintln!("{n}");
+            }
+        }
+        Ok(())
+    }
+}
+
 fn main() -> ExitCode {
-    match run(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+    let cli = Cli::parse();
+    let json = cli.json;
+    let result = run(&cli).and_then(|out| {
+        let failed = out.failed;
+        out.print(json)?;
+        Ok(failed)
+    });
+    match result {
+        Ok(false) => ExitCode::SUCCESS,
+        Ok(true) => ExitCode::FAILURE,
         // The reader went away (`mg cat x | head`): not an error.
         Err(e)
             if e.downcast_ref::<io::Error>()
@@ -243,7 +339,11 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("mg: {e:#}");
+            if json {
+                println!("{}", serde_json::json!({ "error": format!("{e:#}") }));
+            } else {
+                eprintln!("mg: {e:#}");
+            }
             ExitCode::FAILURE
         }
     }
@@ -273,24 +373,52 @@ fn resource_key(name: &str) -> Result<ResKey> {
         .with_context(|| format!("{name:?} is not a resource name like classes.2da"))
 }
 
-fn run(cli: Cli) -> Result<()> {
-    match &cli.cmd {
-        Cmd::Ls { archive } => {
-            let data = std::fs::read(archive).with_context(|| archive.display().to_string())?;
-            let erf = Erf::read(&data)?;
-            let mut out = io::stdout().lock();
-            for e in &erf.entries {
-                writeln!(out, "{:>10}  {}", e.size, e.filename())?;
-            }
+fn path_text(p: &Path) -> String {
+    p.display().to_string()
+}
+
+/// Compile results: errors as lines and as JSON.
+fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> serde_json::Value {
+    let mut errors = Vec::new();
+    for r in results {
+        if let Err(e) = &r.result {
+            out.line(e.message.clone());
+            let (script, line) =
+                e.location().map_or((r.script.resref.to_string(), None), |(s, l)| (s, Some(l)));
+            errors
+                .push(serde_json::json!({ "script": script, "line": line, "message": e.message }));
         }
-        Cmd::Unpack { archive, out } => {
-            let data = std::fs::read(archive).with_context(|| archive.display().to_string())?;
+    }
+    serde_json::json!({ "scripts": results.len(), "failed": errors.len(), "errors": errors })
+}
+
+fn run(cli: &Cli) -> Result<Output> {
+    use serde_json::json;
+    let out = match &cli.cmd {
+        Cmd::Ls { archive } => {
+            let data = std::fs::read(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;
-            std::fs::create_dir_all(out)?;
+            let mut out = Output::new(json!({
+                "archive": path_text(archive),
+                "type": String::from_utf8_lossy(&erf.file_type).trim(),
+                "resources": erf.entries.iter().map(|e| json!({ "name": e.filename(), "size": e.size })).collect::<Vec<_>>(),
+            }));
             for e in &erf.entries {
-                std::fs::write(out.join(e.filename()), erf.data(e)?)?;
+                out.line(format!("{:>10}  {}", e.size, e.filename()));
             }
-            eprintln!("unpacked {} files", erf.entries.len());
+            out
+        }
+        Cmd::Unpack { archive, out: dir } => {
+            let data = std::fs::read(archive).with_context(|| path_text(archive))?;
+            let erf = Erf::read(&data)?;
+            std::fs::create_dir_all(dir)?;
+            for e in &erf.entries {
+                std::fs::write(dir.join(e.filename()), erf.data(e)?)?;
+            }
+            let mut out =
+                Output::new(json!({ "folder": path_text(dir), "files": erf.entries.len() }));
+            out.note(format!("unpacked {} files", erf.entries.len()));
+            out
         }
         Cmd::Pack { dir, archive } => {
             let ext =
@@ -307,53 +435,99 @@ fn run(cli: Cli) -> Result<()> {
                 w.add(key.resref, key.restype, std::fs::read(p)?)?;
             }
             // Streamed: a hak can be gigabytes.
-            let mut out = io::BufWriter::new(std::fs::File::create(archive)?);
-            w.write_to(&mut out)?;
-            out.flush()?;
-            eprintln!("packed {} files", w.len());
+            let mut file = io::BufWriter::new(std::fs::File::create(archive)?);
+            w.write_to(&mut file)?;
+            file.flush()?;
             let past = w.past_read_limit();
+            let mut out = Output::new(json!({
+                "archive": path_text(archive),
+                "files": w.len(),
+                "past_read_limit": past.iter().map(|(r, t)| format!("{r}.{t}")).collect::<Vec<_>>(),
+            }));
+            out.note(format!("packed {} files", w.len()));
             if let Some(first) = past.first() {
-                eprintln!(
+                out.note(format!(
                     "warning: {} file(s) from {}.{} on start past 2 GiB into the archive, \
                      which the game can't read; split it into two",
                     past.len(),
                     first.0,
                     first.1
-                );
+                ));
             }
+            out
         }
-        Cmd::Gff { input, output } => gff(input, output.as_deref())?,
+        Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
         Cmd::Which { resource } => {
-            let rm = ResMan::for_game(&install(&cli)?)?;
+            let rm = ResMan::for_game(&install(cli)?)?;
             let key = resource_key(resource)?;
-            match rm.origin(&key) {
-                Some(label) => println!("{label}"),
-                None => bail!("{key} not found"),
-            }
+            let Some(label) = rm.origin(&key) else { bail!("{key} not found") };
+            let mut out = Output::new(json!({ "resource": key.to_string(), "layer": label }));
+            out.line(label);
+            out
         }
         Cmd::Cat { resource } => {
-            let rm = ResMan::for_game(&install(&cli)?)?;
-            io::stdout().lock().write_all(&rm.get(&resource_key(resource)?)?)?;
+            let rm = ResMan::for_game(&install(cli)?)?;
+            let key = resource_key(resource)?;
+            let data = rm.get(&key)?;
+            if cli.json {
+                // Text as text; other bytes as hexadecimal.
+                let text = std::str::from_utf8(&data).ok().map(str::to_string);
+                let hex = text
+                    .is_none()
+                    .then(|| data.iter().map(|b| format!("{b:02x}")).collect::<String>());
+                Output::new(json!({
+                    "resource": key.to_string(),
+                    "layer": rm.origin(&key),
+                    "size": data.len(),
+                    "text": text,
+                    "hex": hex,
+                }))
+            } else {
+                io::stdout().lock().write_all(&data)?;
+                Output { done: true, ..Default::default() }
+            }
         }
         Cmd::Layers => {
-            let rm = ResMan::for_game(&install(&cli)?)?;
+            let rm = ResMan::for_game(&install(cli)?)?;
+            let mut out = Output::new(json!({
+                "layers": rm.layers().iter().map(|l| json!({
+                    "label": l.label,
+                    "priority": l.priority,
+                    "class": format!("{:?}", l.class),
+                    "resources": l.container.len(),
+                })).collect::<Vec<_>>(),
+            }));
             for l in rm.layers() {
-                println!("{:>3}  {:>7}  {:?}  {}", l.priority, l.container.len(), l.class, l.label);
+                out.line(format!(
+                    "{:>3}  {:>7}  {:?}  {}",
+                    l.priority,
+                    l.container.len(),
+                    l.class,
+                    l.label
+                ));
             }
+            out
         }
-        Cmd::Verify { module, unused, json } => {
-            if !verify(&install(&cli)?, module, *unused, *json)? {
-                bail!("{} has errors", module.display());
-            }
-        }
+        Cmd::Verify { module, unused } => verify(&install(cli)?, module, *unused)?,
         Cmd::Haks { module } => {
             let m = Module::open(module)?;
-            let report = mg_module::haks::hak_report(&install(&cli)?, &m.haks()?)?;
-            print!("{}", report.to_text());
+            let report = mg_module::haks::hak_report(&install(cli)?, &m.haks()?)?;
+            let rows = |it: &mut dyn Iterator<Item = (&ResKey, &Vec<String>)>| {
+                it.map(|(k, h)| json!({ "resource": k.to_string(), "haks": h })).collect::<Vec<_>>()
+            };
+            let mut out = Output::new(json!({
+                "haks": report.haks.iter().map(|(n, p)| json!({ "name": n, "path": p.as_deref().map(path_text) })).collect::<Vec<_>>(),
+                "conflicts": rows(&mut report.conflicts()),
+                "overrides": rows(&mut report.overrides.iter()),
+                "resources": report.resources.len(),
+            }));
+            out.line(report.to_text().trim_end());
+            out
         }
         Cmd::Export { module, resources, output, comment, keep_factions } => {
             let m = Module::open(module)?;
-            let rm = module_resman(&install(&cli)?, &m)?;
+            let mut out = Output::default();
+            let rm = module_resman(&install(cli)?, &m, &mut out)?;
             let roots = resources.iter().map(|r| resource_key(r)).collect::<Result<Vec<_>>>()?;
             for r in &roots {
                 if !m.contains(r) {
@@ -362,35 +536,43 @@ fn run(cli: Cli) -> Result<()> {
             }
             let plan = mg_module::transfer::plan_export(&m, &roots, &rm);
             for r in &plan.missing {
-                eprintln!(
+                out.note(format!(
                     "warning: {} {} needs {:?} {}, found nowhere",
                     r.from, r.path, r.kind, r.target
-                );
+                ));
             }
             let erf =
                 mg_module::transfer::export_erf(&m, &plan.resources, comment, !keep_factions)?;
             std::fs::write(output, erf)?;
-            eprintln!("exported {} resources", plan.resources.len());
+            out.json = json!({
+                "erf": path_text(output),
+                "resources": plan.resources.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            });
+            out.note(format!("exported {} resources", plan.resources.len()));
+            out
         }
         Cmd::Compile { module, uncompiled } => {
             let mut m = Module::open(module)?;
-            let rm = module_resman(&install(&cli)?, &m)?;
+            let mut out = Output::default();
+            let rm = module_resman(&install(cli)?, &m, &mut out)?;
             let sel = if *uncompiled {
                 mg_module::build::ScriptSelection::Uncompiled
             } else {
                 mg_module::build::ScriptSelection::All
             };
             let results = mg_module::build::compile_scripts(&mut m, &rm, sel);
-            let failed: Vec<_> = results.iter().filter_map(|r| r.result.as_ref().err()).collect();
-            for e in &failed {
-                println!("{}", e.message);
-            }
+            out.json = compiled(&mut out, &results);
             m.save()?;
-            eprintln!("compiled {} scripts, {} failed", results.len() - failed.len(), failed.len());
+            let failed = out.json["failed"].as_u64().unwrap_or(0) as usize;
+            out.note(format!("compiled {} scripts, {failed} failed", results.len() - failed));
+            out
         }
         Cmd::Lsp => {
+            if cli.json {
+                bail!("mg lsp speaks the Language Server Protocol, which is JSON already");
+            }
             // The game's scripts and nwscript.nss, if there is a game.
-            let game = match install(&cli) {
+            let game = match install(cli) {
                 Ok(gi) => ResMan::for_game(&gi).ok(),
                 Err(e) => {
                     eprintln!("mg lsp: {e:#}; only the workspace's scripts are known");
@@ -398,6 +580,7 @@ fn run(cli: Cli) -> Result<()> {
                 }
             };
             lsp::serve(game)?;
+            Output { done: true, ..Default::default() }
         }
         Cmd::Refs { module, name, tag } => {
             let m = Module::open(module)?;
@@ -413,46 +596,58 @@ fn run(cli: Cli) -> Result<()> {
                     mg_module::rename::mentions(&m, &key.resref.to_string(), true),
                 )
             };
+            let mut out = Output::new(json!({
+                "uses": usages.iter().map(|u| json!({ "place": u.place, "from": u.from.to_string(), "path": u.path })).collect::<Vec<_>>(),
+                "script_strings": mentions.iter().map(|x| json!({ "script": x.script.to_string(), "line": x.line, "text": x.text })).collect::<Vec<_>>(),
+            }));
             for u in &usages {
-                println!("{}\t{} {}", u.place, u.from, u.path);
+                out.line(format!("{}\t{} {}", u.place, u.from, u.path));
             }
             for x in &mentions {
-                println!("{} line {}: {}", x.script, x.line, x.text);
+                out.line(format!("{} line {}: {}", x.script, x.line, x.text));
             }
-            eprintln!("{} uses, {} script strings", usages.len(), mentions.len());
+            out.note(format!("{} uses, {} script strings", usages.len(), mentions.len()));
+            out
         }
         Cmd::Rename { module, from, to, strings } => {
             let mut m = Module::open(module)?;
             let from = ResKey::from_filename(from).context("give the resource as name.ext")?;
             let to = mg_core::ResRef::from_str(to).map_err(|e| anyhow::anyhow!("{to}: {e}"))?;
             let report = mg_module::rename::rename(&mut m, from, to, *strings)?;
+            let mut out = Output::default();
+            let mut compile = json!(null);
             if !report.recompile.is_empty() {
-                let rm = module_resman(&install(&cli)?, &m)?;
+                let rm = module_resman(&install(cli)?, &m, &mut out)?;
                 let results = mg_module::build::compile_scripts(
                     &mut m,
                     &rm,
                     mg_module::build::ScriptSelection::Uncompiled,
                 );
-                for r in &results {
-                    if let Err(e) = &r.result {
-                        println!("{}", e.message);
-                    }
-                }
+                compile = compiled(&mut out, &results);
             }
             m.save()?;
             let left = mg_module::rename::mentions(&m, &from.resref.to_string(), true);
             for x in &left {
-                eprintln!(
+                out.note(format!(
                     "warning: {} line {} still spells {}: {}",
                     x.script, x.line, from.resref, x.text
-                );
+                ));
             }
-            eprintln!(
+            out.json = json!({
+                "from": from.to_string(),
+                "to": to.to_string(),
+                "references": report.references,
+                "in_scripts": report.in_scripts,
+                "changed": report.changed.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "compiled": compile,
+            });
+            out.note(format!(
                 "renamed {from} to {to}: {} references, {} in scripts, {} scripts compiled again",
                 report.references,
                 report.in_scripts,
                 report.recompile.len()
-            );
+            ));
+            out
         }
         Cmd::DialogExport { module, dialog, output } => {
             use mg_module::dialog_io::Format;
@@ -461,6 +656,9 @@ fn run(cli: Cli) -> Result<()> {
             let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
             let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
             std::fs::write(output, f.write(&g, &key.resref.to_string()))?;
+            Output::new(
+                json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
+            )
         }
         Cmd::DialogImport { module, file, name } => {
             use mg_module::dialog_io::{Format, from_ink, from_twee, update_from_csv};
@@ -470,6 +668,8 @@ fn run(cli: Cli) -> Result<()> {
             let key = ResKey::parse(&name, mg_core::ResType::DLG)
                 .with_context(|| format!("{name:?} isn't a resource name"))?;
             let source = std::fs::read_to_string(file)?;
+            let mut out = Output::default();
+            let mut changed = None;
             let g = match Format::of(file) {
                 Some(Format::Twine) => from_twee(&source).map_err(|e| anyhow::anyhow!("{e}"))?,
                 Some(Format::Ink) => from_ink(&source).map_err(|e| anyhow::anyhow!("{e}"))?,
@@ -477,18 +677,20 @@ fn run(cli: Cli) -> Result<()> {
                     let mut g =
                         m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
                     let n = update_from_csv(&mut g, &source).map_err(|e| anyhow::anyhow!("{e}"))?;
-                    eprintln!("{n} lines changed");
+                    out.note(format!("{n} lines changed"));
+                    changed = Some(n);
                     g
                 }
                 _ => bail!("{}: not a .twee, .ink or .csv file", file.display()),
             };
             m.set_gff(key, &g)?;
             m.save()?;
-            eprintln!(
-                "{key}: {} lines",
-                mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Entry).len()
-                    + mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Reply).len()
-            );
+            let lines = mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Entry).len()
+                + mg_module::dialog::nodes(&g, mg_module::dialog::Kind::Reply).len();
+            out.json =
+                json!({ "conversation": key.to_string(), "lines": lines, "changed": changed });
+            out.note(format!("{key}: {lines} lines"));
+            out
         }
         Cmd::Replace { module, find, with, match_case, whole_word, only, dry_run } => {
             use mg_module::text::{Options, TextKind};
@@ -511,24 +713,34 @@ fn run(cli: Cli) -> Result<()> {
             let o = Options { match_case: *match_case, whole_word: *whole_word };
             let mut m = Module::open(module)?;
             let hits = mg_module::text::find(&m, find, o, &kinds);
+            let mut out = Output::default();
             for h in &hits {
-                println!("{}\t{}", h.place, h.text);
+                out.line(format!("{}\t{}", h.place, h.text));
             }
             let times: usize = hits.iter().map(|h| h.count).sum();
+            let mut replaced = 0;
             if *dry_run || hits.is_empty() {
-                eprintln!("{} strings, {times} times", hits.len());
+                out.note(format!("{} strings, {times} times", hits.len()));
             } else {
                 let (n, errors) = mg_module::text::replace(&mut m, &hits, find, with, o);
                 for e in &errors {
-                    eprintln!("warning: {e}");
+                    out.note(format!("warning: {e}"));
                 }
                 m.save()?;
-                eprintln!("replaced {n} times in {} strings", hits.len() - errors.len());
+                replaced = n;
+                out.note(format!("replaced {n} times in {} strings", hits.len() - errors.len()));
             }
+            out.json = json!({
+                "strings": hits.iter().map(|h| json!({ "place": h.place, "resource": h.key.to_string(), "kind": h.kind.label(), "text": h.text, "times": h.count })).collect::<Vec<_>>(),
+                "times": times,
+                "replaced": replaced,
+                "dry_run": *dry_run,
+            });
+            out
         }
         Cmd::UpdateInstances { module, blueprints, area } => {
             let mut m = Module::open(module)?;
-            let gi = install(&cli)?;
+            let gi = install(cli)?;
             let wanted: Vec<ResKey> = if blueprints.is_empty() {
                 let types: Vec<_> =
                     mg_module::instances::GIT_LISTS.iter().map(|(_, t)| *t).collect();
@@ -544,14 +756,16 @@ fn run(cli: Cli) -> Result<()> {
                     bail!("{k} is not in the module");
                 }
             }
+            let mut out = Output::default();
             let tlk = mg_tlk::Tlk::read(&std::fs::read(gi.talk_table(false))?)?;
-            let game = mg_rules::GameData::new(module_resman(&gi, &m)?, tlk);
+            let game = mg_rules::GameData::new(module_resman(&gi, &m, &mut out)?, tlk);
             let only = area
                 .as_deref()
                 .map(mg_core::ResRef::from_str)
                 .transpose()
                 .map_err(|e| anyhow::anyhow!("{e}"))?;
             let mut total = 0;
+            let mut by_area = serde_json::Map::new();
             for a in m.areas()? {
                 if only.is_some_and(|o| o != a) {
                     continue;
@@ -577,34 +791,45 @@ fn run(cli: Cli) -> Result<()> {
                     let mut g = git.clone();
                     g.root = new;
                     m.set_gff(key, &g)?;
-                    println!("{a}: {n}");
+                    out.line(format!("{a}: {n}"));
+                    by_area.insert(a.to_string(), n.into());
                     total += n;
                 }
             }
             if total > 0 {
                 m.save()?;
             }
-            eprintln!("updated {total} objects from {} blueprints", wanted.len());
+            out.json = json!({ "updated": total, "areas": by_area, "blueprints": wanted.len() });
+            out.note(format!("updated {total} objects from {} blueprints", wanted.len()));
+            out
         }
         Cmd::Build { project, target, output, keep_going } => {
             let mut m = Module::open_project(project, target.as_deref())?;
+            let mut out = Output::default();
             if let Some(p) = &m.project {
                 for w in &p.warnings {
-                    eprintln!("warning: {w}");
+                    out.note(format!("warning: {w}"));
                 }
             }
-            let rm = module_resman(&install(&cli)?, &m)?;
+            let rm = module_resman(&install(cli)?, &m, &mut out)?;
             let results = mg_module::build::compile_scripts(
                 &mut m,
                 &rm,
                 mg_module::build::ScriptSelection::All,
             );
-            let failed: Vec<_> = results.iter().filter_map(|r| r.result.as_ref().err()).collect();
-            for e in &failed {
-                println!("{}", e.message);
-            }
-            if !failed.is_empty() && !keep_going {
-                bail!("{} of {} scripts failed to compile", failed.len(), results.len());
+            let compile = compiled(&mut out, &results);
+            let failed = compile["failed"].as_u64().unwrap_or(0) as usize;
+            if failed > 0 && !keep_going {
+                // The compiler's messages, then the failure.
+                if cli.json {
+                    out.json = json!({ "compiled": compile, "packed": null });
+                    out.failed = true;
+                    return Ok(out);
+                }
+                for l in &out.text {
+                    println!("{l}");
+                }
+                bail!("{failed} of {} scripts failed to compile", results.len());
             }
             let (path, bytes) = m.target_archive()?.context("not a nasher project")?;
             let path = output.clone().unwrap_or(path);
@@ -612,12 +837,14 @@ fn run(cli: Cli) -> Result<()> {
                 std::fs::create_dir_all(dir)?;
             }
             std::fs::write(&path, bytes)?;
-            eprintln!(
+            out.json = json!({ "compiled": compile, "packed": path_text(&path) });
+            out.note(format!(
                 "compiled {} of {} scripts; packed {}",
-                results.len() - failed.len(),
+                results.len() - failed,
                 results.len(),
                 path.display()
-            );
+            ));
+            out
         }
         Cmd::Init { module, project } => {
             let mut m = Module::open(module)?;
@@ -626,39 +853,58 @@ fn run(cli: Cli) -> Result<()> {
                 target: "default".into(),
             })?;
             let p = m.project.as_ref().context("no project")?;
+            let mut out = Output::new(json!({
+                "project": path_text(project),
+                "resources": m.len(),
+                "target": p.target,
+                "file": p.target().file,
+            }));
             for w in &p.warnings {
-                eprintln!("warning: {w}");
+                out.note(format!("warning: {w}"));
             }
-            eprintln!(
+            out.note(format!(
                 "{} resources in {} (target {}, packs {})",
                 m.len(),
                 project.display(),
                 p.target,
                 p.target().file
-            );
+            ));
+            out
         }
         Cmd::Import { module, erf, overwrite } => {
             let mut m = Module::open(module)?;
             let data = std::fs::read(erf)?;
-            let gi = install(&cli)?;
-            let rm = module_resman(&gi, &m)?;
+            let gi = install(cli)?;
+            let mut out = Output::default();
+            let rm = module_resman(&gi, &m, &mut out)?;
             let plan = mg_module::transfer::plan_import(&m, &data, &rm)?;
             for r in &plan.missing {
-                eprintln!("warning: {} needs {:?} {}, found nowhere", r.from, r.kind, r.target);
+                out.note(format!(
+                    "warning: {} needs {:?} {}, found nowhere",
+                    r.from, r.kind, r.target
+                ));
             }
             let s = mg_module::transfer::import_erf(&mut m, &data, |_| *overwrite)?;
             m.save()?;
-            eprintln!(
+            let names = |v: &[ResKey]| v.iter().map(ToString::to_string).collect::<Vec<_>>();
+            out.json = json!({
+                "added": names(&s.added),
+                "replaced": names(&s.replaced),
+                "skipped": names(&s.skipped),
+                "new_areas": s.new_areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            });
+            out.note(format!(
                 "imported {} new, replaced {}, skipped {} existing; new areas: {:?}",
                 s.added.len(),
                 s.replaced.len(),
                 s.skipped.len(),
                 s.new_areas.iter().map(|a| a.to_string()).collect::<Vec<_>>()
-            );
+            ));
+            out
         }
         Cmd::Attach { module, files, replace } => {
             use mg_module::attach::{There, copy, hak_list, placements};
-            let gi = install(&cli)?;
+            let gi = install(cli)?;
             let user = gi.user_dir.clone().context("no user folder; pass --user-dir")?;
             let placed = placements(&user, files).map_err(anyhow::Error::msg)?;
             let differ: Vec<String> = placed
@@ -680,55 +926,168 @@ fn run(cli: Cli) -> Result<()> {
             if !haks.is_empty() {
                 info.root.set("Mod_HakList", hak_list(&info.root, &haks));
             }
-            if let Some(t) = placed.iter().find(|p| p.is_tlk) {
-                info.root.set("Mod_CustomTlk", mg_gff::Value::String(t.name.clone().into_bytes()));
+            let tlk = placed.iter().find(|p| p.is_tlk).map(|t| t.name.clone());
+            if let Some(t) = &tlk {
+                info.root.set("Mod_CustomTlk", mg_gff::Value::String(t.clone().into_bytes()));
             }
             m.set_info(&info)?;
             m.save()?;
-            eprintln!(
+            let mut out =
+                Output::new(json!({ "copied": copied, "haks": m.haks()?, "custom_tlk": tlk }));
+            out.note(format!(
                 "copied {copied} file(s); the module has {} hak(s) attached",
                 m.haks()?.len()
-            );
+            ));
+            out
         }
-        Cmd::Minimap { module, area, out, size } => {
+        Cmd::Minimap { module, area, out: png, size } => {
             let m = Module::open(module)?;
-            let gi = install(&cli)?;
-            let rm = module_resman(&gi, &m)?;
+            let gi = install(cli)?;
+            let mut out = Output::default();
+            let rm = module_resman(&gi, &m, &mut out)?;
             let key = ResKey::parse(area, ResType::ARE).context("not an area name")?;
             let data = rm.get(&key).with_context(|| format!("{area}.are"))?;
             let are = mg_gff::Gff::read(&data)?;
             let set = mg_module::minimap::tileset(&rm, &are.root).map_err(anyhow::Error::msg)?;
             let image = mg_module::minimap::minimap(&rm, &are.root, &set, *size)
                 .map_err(anyhow::Error::msg)?;
-            std::fs::write(out, mg_module::minimap::png(&image).map_err(anyhow::Error::msg)?)?;
-            eprintln!("{}×{} pixels", image.width, image.height);
+            std::fs::write(png, mg_module::minimap::png(&image).map_err(anyhow::Error::msg)?)?;
+            out.json =
+                json!({ "file": path_text(png), "width": image.width, "height": image.height });
+            out.note(format!("{}×{} pixels", image.width, image.height));
+            out
+        }
+        Cmd::Find { module, types, tag, name, resref, area, placed, blueprints, fields } => {
+            let m = Module::open(module)?;
+            let types = types
+                .iter()
+                .map(|t| {
+                    ResType::from_extension(t.trim_start_matches('.'))
+                        .filter(|t| mg_module::instances::GIT_LISTS.iter().any(|(_, x)| x == t))
+                        .with_context(|| format!("{t}: not a blueprint type (utc, utp, …)"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let q = mg_module::query::Query {
+                types,
+                tag: tag.clone(),
+                name: name.clone(),
+                resref: resref.clone(),
+                area: area
+                    .as_deref()
+                    .map(mg_core::ResRef::from_str)
+                    .transpose()
+                    .map_err(|e| anyhow::anyhow!("{e}"))?,
+                placed: if *placed {
+                    Some(true)
+                } else if *blueprints {
+                    Some(false)
+                } else {
+                    None
+                },
+                fields: fields
+                    .iter()
+                    .map(|f| match f.split_once('=') {
+                        Some((l, v)) => (l.trim().to_string(), Some(v.to_string())),
+                        None => (f.trim().to_string(), None),
+                    })
+                    .collect(),
+            };
+            let found = mg_module::query::find(&m, &q);
+            let mut out = Output::new(json!({
+                "found": found.iter().map(|f| json!({
+                    "kind": if f.placed.is_some() { "placed" } else { "blueprint" },
+                    "type": f.restype.extension(),
+                    "resref": f.resref.map(|r| r.to_lowercase().to_string()),
+                    "tag": f.tag,
+                    "name": f.name,
+                    "area": f.placed.map(|(a, _)| a.to_string()),
+                    "index": f.placed.map(|(_, i)| i),
+                    "position": f.position,
+                })).collect::<Vec<_>>(),
+            }));
+            for f in &found {
+                let what = format!(
+                    "{}\t{}\t{}\t{}",
+                    f.restype.extension().unwrap_or("?"),
+                    f.resref.map(|r| r.to_lowercase().to_string()).unwrap_or_default(),
+                    f.tag,
+                    f.name
+                );
+                match (f.placed, f.position) {
+                    (Some((a, i)), Some([x, y, z])) => {
+                        out.line(format!("{a}[{i}]\t{what}\t{x:.2}, {y:.2}, {z:.2}"))
+                    }
+                    (Some((a, i)), None) => out.line(format!("{a}[{i}]\t{what}")),
+                    _ => out.line(format!("blueprint\t{what}")),
+                }
+            }
+            out.note(format!("{} found", found.len()));
+            out
+        }
+        Cmd::Info { module } => {
+            let m = Module::open(module)?;
+            let i = mg_module::query::info(&m)?;
+            let mut out = Output::new(json!({
+                "name": i.name,
+                "tag": i.tag,
+                "description": i.description,
+                "entry_area": i.entry_area.map(|a| a.to_string()),
+                "areas": i.areas.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                "haks": i.haks,
+                "custom_tlk": i.custom_tlk,
+                "min_game_version": i.min_game_version,
+                "resources": i.resources.iter().map(|(t, n)| (t.clone(), json!(n))).collect::<serde_json::Map<_, _>>(),
+            }));
+            out.line(format!("Name\t{}", i.name));
+            out.line(format!("Tag\t{}", i.tag));
+            out.line(format!(
+                "Entry area\t{}",
+                i.entry_area.map(|a| a.to_string()).unwrap_or_default()
+            ));
+            out.line(format!(
+                "Areas\t{}",
+                i.areas.iter().map(ToString::to_string).collect::<Vec<_>>().join(", ")
+            ));
+            out.line(format!("Haks\t{}", i.haks.join(", ")));
+            out.line(format!("Talk table\t{}", i.custom_tlk.clone().unwrap_or_default()));
+            out.line(format!("Game version\t{}", i.min_game_version));
+            let counts: Vec<String> = i.resources.iter().map(|(t, n)| format!("{n} {t}")).collect();
+            out.line(format!("Resources\t{}", counts.join(", ")));
+            out
         }
         Cmd::Tlk { strrefs } => {
-            let gi = install(&cli)?;
+            let gi = install(cli)?;
             let data = std::fs::read(gi.talk_table(false))?;
             let tlk = mg_tlk::Tlk::read(&data)?;
-            for &s in strrefs {
-                println!("{s}\t{}", tlk.text(StrRef(s)).unwrap_or_default());
+            let texts: Vec<(u32, String)> =
+                strrefs.iter().map(|&s| (s, tlk.text(StrRef(s)).unwrap_or_default())).collect();
+            let mut out = Output::new(json!({
+                "strings": texts.iter().map(|(s, t)| json!({ "strref": s, "text": t })).collect::<Vec<_>>(),
+            }));
+            for (s, t) in &texts {
+                out.line(format!("{s}\t{t}"));
             }
+            out
         }
-    }
-    Ok(())
+    };
+    Ok(out)
 }
 
 /// The resman for a module: the game, the module's haks and the module.
-fn module_resman(gi: &GameInstall, m: &Module) -> Result<ResMan> {
+fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
     let haks = m.haks()?;
     for missing in rm.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>())? {
-        eprintln!("warning: hak {missing} not found");
+        out.note(format!("warning: hak {missing} not found"));
     }
     rm.add(priority::MODULE, "module", LayerClass::Erf, m.container());
     Ok(rm)
 }
 
-fn verify(gi: &GameInstall, path: &Path, show_unused: bool, json: bool) -> Result<bool> {
+fn verify(gi: &GameInstall, path: &Path, show_unused: bool) -> Result<Output> {
     let m = Module::open(path)?;
-    let rm = module_resman(gi, &m)?;
+    let mut out = Output::default();
+    let rm = module_resman(gi, &m, &mut out)?;
     let missing = mg_module::verify::missing(&m, &rm);
     let unused = if show_unused { mg_module::verify::unused(&m) } else { Vec::new() };
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
@@ -741,91 +1100,101 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, json: bool) -> Resul
     let errors = missing.iter().filter(|x| x.is_error()).count()
         + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
     let warnings = findings.len() + missing.len() - errors;
-    if json {
-        let severity = |s: mg_module::doctor::Severity| match s {
-            mg_module::doctor::Severity::Error => "error",
-            mg_module::doctor::Severity::Warning => "warning",
-        };
-        let out = serde_json::json!({
-            "module": path.display().to_string(),
-            "errors": errors,
-            "warnings": warnings,
-            "missing": missing.iter().map(|x| serde_json::json!({
-                "severity": if x.is_error() { "error" } else { "warning" },
-                "category": format!("{:?}", x.category),
-                "from": x.reference.from.to_string(),
-                "path": x.reference.path,
-                "kind": x.reference.kind.name(),
-                "target": x.reference.target.to_string(),
-                "uncompiled": x.uncompiled,
-            })).collect::<Vec<_>>(),
-            "findings": findings.iter().map(|f| serde_json::json!({
-                "severity": severity(f.severity),
-                "check": f.check,
-                "source": f.source,
-                "resource": f.resource.to_string(),
-                "at": f.at,
-                "message": f.message,
-            })).collect::<Vec<_>>(),
-            "unused": unused.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
-        });
-        println!("{}", serde_json::to_string_pretty(&out)?);
-        return Ok(errors == 0);
-    }
+    let severity = |s: mg_module::doctor::Severity| match s {
+        mg_module::doctor::Severity::Error => "error",
+        mg_module::doctor::Severity::Warning => "warning",
+    };
+    out.json = serde_json::json!({
+        "module": path.display().to_string(),
+        "errors": errors,
+        "warnings": warnings,
+        "missing": missing.iter().map(|x| serde_json::json!({
+            "severity": if x.is_error() { "error" } else { "warning" },
+            "category": format!("{:?}", x.category),
+            "from": x.reference.from.to_string(),
+            "path": x.reference.path,
+            "kind": x.reference.kind.name(),
+            "target": x.reference.target.to_string(),
+            "uncompiled": x.uncompiled,
+        })).collect::<Vec<_>>(),
+        "findings": findings.iter().map(|f| serde_json::json!({
+            "severity": severity(f.severity),
+            "check": f.check,
+            "source": f.source,
+            "resource": f.resource.to_string(),
+            "at": f.at,
+            "message": f.message,
+        })).collect::<Vec<_>>(),
+        "unused": unused.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
+    });
     for x in &missing {
         let what = if x.uncompiled { "not compiled" } else { "missing" };
         let sev = if x.is_error() { "error" } else { "warning" };
-        println!(
+        out.line(format!(
             "{sev}\t{:?}\t{}{}\t{} {} {what}",
             x.category,
             x.reference.from,
             x.reference.path,
             x.reference.kind.name(),
             x.reference.target
-        );
+        ));
     }
-    println!("{} missing references", missing.len());
+    out.line(format!("{} missing references", missing.len()));
     for f in &findings {
-        let sev = match f.severity {
-            mg_module::doctor::Severity::Error => "error",
-            mg_module::doctor::Severity::Warning => "warning",
-        };
         let at = if f.at.is_empty() { String::new() } else { format!(" {}", f.at) };
-        println!("{sev}\t{} › {}{at}: {}", f.source, f.resource, f.message);
+        out.line(format!(
+            "{}\t{} › {}{at}: {}",
+            severity(f.severity),
+            f.source,
+            f.resource,
+            f.message
+        ));
     }
-    println!("{} content problems", findings.len());
+    out.line(format!("{} content problems", findings.len()));
     if show_unused {
         for k in &unused {
-            println!("unused\t{k}");
+            out.line(format!("unused\t{k}"));
         }
-        println!("{} unused resources", unused.len());
+        out.line(format!("{} unused resources", unused.len()));
     }
-    Ok(errors == 0)
+    if errors > 0 {
+        out.failed = true;
+        out.note(format!("mg: {} has errors", path.display()));
+    }
+    Ok(out)
 }
 
-fn gff(input: &Path, output: Option<&Path>) -> Result<()> {
+fn gff(input: &Path, output: Option<&Path>, json: bool) -> Result<Output> {
     let data = std::fs::read(input).with_context(|| input.display().to_string())?;
     let cp = Codepage::WINDOWS_1252;
     if input.extension().is_some_and(|e| e.eq_ignore_ascii_case("json")) {
-        let json: serde_json::Value = serde_json::from_slice(&data)?;
-        let gff = mg_gff::from_json(&json, cp)?;
+        let value: serde_json::Value = serde_json::from_slice(&data)?;
+        let gff = mg_gff::from_json(&value, cp)?;
         let out = output.context("writing GFF needs --output")?;
         std::fs::write(out, gff.to_bytes()?)?;
-    } else {
-        let is_gff = input
-            .extension()
-            .and_then(|e| e.to_str())
-            .and_then(ResType::from_extension)
-            .is_none_or(ResType::is_gff);
-        if !is_gff {
-            bail!("{} is not a GFF file type", input.display());
+        return Ok(Output::new(serde_json::json!({ "written": path_text(out) })));
+    }
+    let is_gff = input
+        .extension()
+        .and_then(|e| e.to_str())
+        .and_then(ResType::from_extension)
+        .is_none_or(ResType::is_gff);
+    if !is_gff {
+        bail!("{} is not a GFF file type", input.display());
+    }
+    let gff = Gff::read(&data)?;
+    let value = mg_gff::to_json(&gff, cp)?;
+    match output {
+        Some(o) => {
+            std::fs::write(o, serde_json::to_string_pretty(&value)? + "\n")?;
+            Ok(Output::new(serde_json::json!({ "written": path_text(o) })))
         }
-        let gff = Gff::read(&data)?;
-        let text = serde_json::to_string_pretty(&mg_gff::to_json(&gff, cp)?)?;
-        match output {
-            Some(o) => std::fs::write(o, text + "\n")?,
-            None => println!("{text}"),
+        // The GFF as JSON is the output, with --json or without.
+        None if json => Ok(Output::new(value)),
+        None => {
+            let mut out = Output::default();
+            out.line(serde_json::to_string_pretty(&value)?);
+            Ok(out)
         }
     }
-    Ok(())
 }

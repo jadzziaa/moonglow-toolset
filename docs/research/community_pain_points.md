@@ -131,7 +131,7 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 | No "where is this used": which object or conversation node runs a script, whether a hak placeable is placed anywhere | ●● | Vault 1346, 609, 5637, 7161; Radoub #1318 and #1319 | ◐ Verify lists missing and unused resources, and a reference graph exists (`mg-module` `refs`), but there's no Find References command |
 | Area resrefs can't be renamed ("area001" forever); renaming by hand breaks the module | ● | Vault 6613 (31 posts) | ✗ only blueprints rename |
 | Build errors don't point at their cause (a missing script, but in which conversation node?) | ●● | Vault 609, 6602, 7138; Lexicon tutorial | ◐ Verify names each missing reference's source; build diagnostics as in Aurora |
-| No validation for CI: teams write their own lint suites | ●● | The Frozen North's RSpec lints; nwn_sqlite; Moneo; nwn-mcp | ◐ `mg verify` exists; no rules beyond references, no machine-readable output |
+| No validation for CI: teams write their own lint suites | ●● | The Frozen North's RSpec lints; nwn_sqlite; Moneo; nwn-mcp | ✅ `mg verify` with the content doctor's checks; `--json` on every `mg` command; `mg find` and `mg info` for questions about a module |
 
 ### 2.5 Testing
 

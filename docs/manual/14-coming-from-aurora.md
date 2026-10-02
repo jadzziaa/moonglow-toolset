@@ -164,7 +164,8 @@ Moonglow's own.
 - **Version control**: **File › Save As nasher Project…** keeps the
   module as text files for git; Moonglow opens and saves them in place
   (see [Modules](03-modules.md)).
-- **Command line**: `mg` packs, unpacks, verifies and compiles from a
+- **Command line**: every `mg` command answers in JSON with `--json`,
+  and `mg find` and `mg info` answer questions about a module. `mg` packs, unpacks, verifies and compiles from a
   terminal or a build pipeline (see [Command-line tools](11-command-line.md)).
 
 ## Going back to Aurora

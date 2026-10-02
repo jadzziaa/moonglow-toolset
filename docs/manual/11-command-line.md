@@ -12,13 +12,13 @@ Moonglow package:
 | macOS | `/Applications/Moonglow Toolset.app/Contents/MacOS/mg` |
 
 ```text
-mg [--root GAME] [--user-dir DIR | --no-user-dir] COMMAND ...
+mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 ```
 
 `--root` is the game's folder (default: `$NWN_ROOT`, else Steam's);
 `--user-dir` the user folder (default: `$NWN_HOME`, else the platform's);
-`--no-user-dir` reads the game alone. `mg COMMAND --help` describes each
-command.
+`--no-user-dir` reads the game alone; `--json` prints the result as JSON
+(below). `mg COMMAND --help` describes each command.
 
 ## Archives and files
 
@@ -42,7 +42,9 @@ command.
 
 | Command | Does |
 | --- | --- |
-| `mg verify MODULE [--unused] [--json]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops; `--json` writes the results as JSON |
+| `mg info MODULE` | what the module is: its name, tag, entry area, areas, haks, talk table, game version and resources by type |
+| `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed |
+| `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops |
 | `mg haks MODULE` | what the module's haks provide, where they conflict and which game resources they override |
 | `mg minimap MODULE AREA OUT.png [--size PX]` | an area's minimap as a PNG, laid out as the game's map draws it (`PX` pixels a tile) |
 | `mg attach MODULE FILE…` | copy haks and a talk table (from anywhere) into the user folder's `hak` and `tlk`, list the haks at the top of the module's hak list in the order given, name the talk table, and save (`--replace` replaces different files of the same names there) |
@@ -59,6 +61,37 @@ command.
 A module is a `.mod` archive, a module folder or a nasher project. `mg
 compile` and `mg import` write the module in place; an archive's previous
 version is kept beside it (`mymodule.mod.bak`).
+
+For example, every placed creature whose tag starts `GUARD` and that has
+no OnSpawn script set, in the area `keep`:
+
+```text
+mg find mymodule.mod --type utc --placed --area keep --tag 'GUARD*' --where ScriptSpawn=
+```
+
+## JSON output
+
+With `--json`, every command prints one JSON object on standard output,
+and nothing on standard error, for scripts, build pipelines and tools
+(an AI assistant's included):
+- **The result:** a command's result as fields: `mg find` a `found` list
+  (each with `kind`, `type`, `resref`, `tag`, `name`, and for placed
+  objects `area`, `index` and `position`); `mg verify` its `errors`,
+  `warnings`, `missing`, `findings` and `unused`; `mg refs` its `uses`
+  and `script_strings`; `mg compile` its `scripts`, `failed` and
+  `errors` (each with `script`, `line` and `message`); and so on.
+- **Notes:** warnings and summaries, which otherwise go to standard
+  error, are in `notes`.
+- **Errors:** a command that fails prints `{"error": "…"}` and exits with
+  an error. `mg verify` prints its result and exits with an error when it
+  found errors.
+- **What doesn't change:** `mg gff` prints the GFF's JSON as it does
+  without `--json`. `mg cat` gives the resource's `text`, or its bytes as
+  `hex`. `mg lsp` speaks JSON already, and refuses `--json`.
+
+```text
+mg --json verify mymodule.mod | jq '.findings[] | select(.severity == "error")'
+```
 
 ## nasher projects
 

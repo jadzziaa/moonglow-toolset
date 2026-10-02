@@ -65,7 +65,8 @@ a rule. When it matters, an object naming one of the lost rows is
 reported instead.
 
 `mg verify` does the same from a terminal, and can write its results as
-JSON for a build pipeline (see [Command-line tools](11-command-line.md)).
+JSON for a build pipeline (`mg --json verify`; see [Command-line
+tools](11-command-line.md)).
 
 ## Test Module
 

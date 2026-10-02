@@ -193,6 +193,20 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Sharing key sets:** no import or export of the keys (they're in the
   settings file). (S)
 
+## Automation
+
+- **A plugin or scripting API** for the GUI (menu commands and panels of
+  one's own): not started. `mg --json` and the `mg-module` crate are the
+  interface for now. (L)
+- **`mg find` beyond objects:** it searches blueprints and placed objects;
+  conversation lines, scripts' text and 2DA rows have `mg replace
+  --dry-run`, the script editor's Find in Files and the resource browser.
+  (S–M)
+- **Editing fields from the command line** (`mg set MODULE NAME.EXT
+  Label=Value`): `mg gff` round trips through JSON instead. (S)
+- **A JSON schema** for each command's output: the fields are described
+  in the manual, not in a machine-readable schema. (S)
+
 ## Release and packaging (v0.1.0)
 
 - **macOS:** the app and disk image are built by CI but have never been

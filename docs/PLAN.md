@@ -558,7 +558,11 @@ surveyed after 0.2.0). What each item left undone is collected in
      settings by command id), matched exactly; menus and tooltips show
      them; Aurora's missing keys added (Ctrl+Alt+V/S/C/I, F10, F11, the
      conversation editor's Ctrl+A, Delete, Ctrl+C/X/V);
-   - automation and a plugin API;
+   - automation — done: `--json` on every `mg` command (one object on
+     standard output, notes inside, `{"error": …}` on failure;
+     `apps/mg/tests/json.rs` runs them all), `mg find` (blueprints and
+     placed objects by type, tag, name, resref, area and field values)
+     and `mg info`; a plugin or scripting API deferred;
    - NWSync publishing;
    - tileset authoring.
 
