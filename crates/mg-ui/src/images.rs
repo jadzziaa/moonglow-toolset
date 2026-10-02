@@ -210,10 +210,13 @@ impl Loader<'_> {
         let used = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 100.0 / 128.0));
         let at = egui::vec2(width, width * 100.0 / 64.0);
         match pic {
+            // The used part (64 × 100 of 64 × 128) fills the size exactly;
+            // keeping the whole texture's proportions drew it narrower.
             Some(p) => ui.add(
                 egui::Image::new(&p.texture)
                     .uv(used)
                     .fit_to_exact_size(at)
+                    .maintain_aspect_ratio(false)
                     .alt_text(format!("po_{base}"))
                     .sense(sense),
             ),

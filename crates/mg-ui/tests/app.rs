@@ -4581,6 +4581,9 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     // Fighter 1, the Human's default class.
     assert_eq!(h.state().creature_wizard.as_ref().unwrap().classes, [(4, 1)]);
     next(&mut h);
+    // The page opens with the first portrait chosen.
+    let first = h.state().creature_wizard.as_ref().unwrap().portrait;
+    assert!(first.is_some(), "a portrait is chosen when the page opens");
     // The portraits are pictures (named after them once loaded).
     h.get_by_label("po_hu_m_01_").click();
     h.run();

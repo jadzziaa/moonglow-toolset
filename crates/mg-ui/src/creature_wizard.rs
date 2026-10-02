@@ -359,6 +359,10 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
             // The race's and gender's portraits as pictures, the chosen one
             // large beside them (as Select Portrait shows them).
             let list = portraits(game, w.race.unwrap_or(6), w.gender);
+            // The first chosen until another is, so the page opens with one.
+            if w.portrait.is_none_or(|p| !list.iter().any(|(r, _)| *r == p)) {
+                w.portrait = list.first().map(|(r, _)| *r);
+            }
             // As many to a row as the window's width holds, beside the
             // chosen one's large picture.
             let preview = 140.0;

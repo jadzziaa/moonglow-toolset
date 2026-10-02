@@ -317,6 +317,8 @@ fn creature_wizard() {
             h.run();
         }
         if page == 3 {
+            // As it opens: the first portrait chosen.
+            shoot(&mut h, &dir, "page-3-opened");
             h.get_by_label("po_hu_m_01_").click();
             h.run();
         }
