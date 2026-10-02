@@ -539,7 +539,11 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         );
         if ui
             .toggle_value(&mut view.tile_mode, "Select Tiles")
-            .on_hover_text("Select tiles rather than objects (Aurora's Select Terrain)")
+            .on_hover_text(app.keymap.titled(
+                "Select tiles rather than objects (Aurora's Select Terrain)",
+                crate::keys::Cmd::SelectTiles,
+                ui.ctx(),
+            ))
             .changed()
         {
             view.selection.clear();
@@ -1052,7 +1056,7 @@ fn overlays(
 fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
-    camera_input(ui, view, response, shift, command);
+    camera_input(ui, view, response, shift, command, &app.keymap);
     if let Some(dragged) = response.dnd_release_payload::<crate::palette_view::Dragged>() {
         drop_blueprint(app, view, response, dragged.0);
         return;
@@ -1308,20 +1312,24 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             None => {}
         }
     }
-    // Q and E turn the selection by the snapping angle (15° when free;
-    // Shift: 90°), G drops it to the ground.
-    if hovered && !typing && !command && !view.selection.is_empty() {
-        let (q, e, g) = ui.input(|i| {
-            (i.key_pressed(egui::Key::Q), i.key_pressed(egui::Key::E), i.key_pressed(egui::Key::G))
-        });
-        let step = if shift { 90.0 } else { view.snap.1.unwrap_or(15.0) }.to_radians();
-        if q {
-            rotate_selection(app, view, step);
+    // Q and E (Options › Keyboard) turn the selection by the snapping angle
+    // (15° when free), Shift + Q and E by 90°; G drops it to the ground.
+    if hovered && !typing && !view.selection.is_empty() {
+        use crate::keys::Cmd;
+        let keys = app.keymap.clone();
+        let pressed = |c: Cmd| ui.input(|i| keys.pressed(i, c));
+        let step = view.snap.1.unwrap_or(15.0).to_radians();
+        for (cmd, by) in [
+            (Cmd::TurnLeft, step),
+            (Cmd::TurnRight, -step),
+            (Cmd::TurnLeft90, std::f32::consts::FRAC_PI_2),
+            (Cmd::TurnRight90, -std::f32::consts::FRAC_PI_2),
+        ] {
+            if pressed(cmd) {
+                rotate_selection(app, view, by);
+            }
         }
-        if e {
-            rotate_selection(app, view, -step);
-        }
-        if g {
+        if pressed(Cmd::DropToGround) {
             drop_to_ground(app, view);
         }
     }
@@ -1332,13 +1340,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 
 /// The camera: Ctrl + drag moves it, Ctrl + right or middle drag (or a
 /// middle drag) turns it, Shift + middle drag moves it, the wheel zooms;
-/// numpad and arrow keys.
+/// the keys of Options › Keyboard (WASD, the arrows and the number keys).
 fn camera_input(
     ui: &egui::Ui,
     view: &mut AreaView,
     response: &egui::Response,
     shift: bool,
     command: bool,
+    keys: &crate::keys::Keymap,
 ) {
     let rect = view.rect;
     let Some(o) = &mut view.orbit else { return };
@@ -1366,30 +1375,22 @@ fn camera_input(
         let rate = if slow { 0.001 } else { 0.002 };
         o.distance = (o.distance * (-scroll * rate).exp()).clamp(1.0, 2000.0);
     }
-    use egui::Key;
-    let down = |k: Key| ui.input(|i| i.key_down(k));
-    let axis = |plus: &[Key], minus: &[Key]| {
-        f32::from(u8::from(plus.iter().any(|&k| down(k))))
-            - f32::from(u8::from(minus.iter().any(|&k| down(k))))
-    };
+    use crate::keys::Cmd;
+    // Letters and digits don't move the camera while a field has the
+    // keyboard (in a window over the view).
+    let typing = ui.memory(|m| m.focused().is_some());
+    let held = |c: Cmd| ui.input(|i| keys.held(i, c, typing));
+    let axis =
+        |plus: Cmd, minus: Cmd| f32::from(u8::from(held(plus))) - f32::from(u8::from(held(minus)));
     let dt = ui.input(|i| i.stable_dt).min(0.1);
-    // W, A, S and D as the arrows, unless typing (in a window over the view)
-    // or with Ctrl, Alt or Cmd (Ctrl+S and the like).
-    let letters = ui.memory(|m| m.focused().is_none())
-        && ui.input(|i| !(i.modifiers.command || i.modifiers.ctrl || i.modifiers.alt));
-    let wasd = |k: Key| if letters { Some(k) } else { None };
-    let keys = |ks: &[Option<Key>]| ks.iter().flatten().copied().collect::<Vec<Key>>();
     let travel = Vec2::new(
-        axis(
-            &keys(&[Some(Key::ArrowRight), Some(Key::Num6), wasd(Key::D)]),
-            &keys(&[Some(Key::ArrowLeft), Some(Key::Num4), wasd(Key::A)]),
-        ),
-        axis(
-            &keys(&[Some(Key::ArrowUp), Some(Key::Num8), wasd(Key::W)]),
-            &keys(&[Some(Key::ArrowDown), Some(Key::Num2), wasd(Key::S)]),
-        ),
+        axis(Cmd::CameraRight, Cmd::CameraLeft),
+        axis(Cmd::CameraForward, Cmd::CameraBack),
     );
-    let turn = Vec2::new(axis(&[Key::Num9], &[Key::Num7]), axis(&[Key::Num1], &[Key::Num3]));
+    let turn = Vec2::new(
+        axis(Cmd::CameraTurnRight, Cmd::CameraTurnLeft),
+        axis(Cmd::CameraTiltUp, Cmd::CameraTiltDown),
+    );
     if travel != Vec2::ZERO {
         pan(o, travel * o.distance * dt);
     }
@@ -1400,7 +1401,14 @@ fn camera_input(
     if travel != Vec2::ZERO || turn != Vec2::ZERO {
         ui.ctx().request_repaint();
     }
-    if ui.input(|i| i.key_pressed(Key::Num5))
+    // F10, as in Aurora: select tiles or objects.
+    if !typing && response.hovered() && ui.input(|i| keys.pressed(i, Cmd::SelectTiles)) {
+        view.tile_mode = !view.tile_mode;
+        view.selection.clear();
+        view.tile_selection.clear();
+    }
+    if !typing
+        && ui.input(|i| keys.pressed(i, Cmd::Overview))
         && let Some(model) = &view.model
     {
         view.orbit = Some(Orbit::overview(model));

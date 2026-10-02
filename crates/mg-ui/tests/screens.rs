@@ -80,6 +80,14 @@ fn options_window() {
     shoot(&mut h, &dir, "options-general");
     h.get_by_label("Script Editor").click();
     shoot(&mut h, &dir, "options-script-editor");
+    h.get_by_label("Keyboard").click();
+    h.run();
+    let draft = h.state_mut().options.as_mut().unwrap();
+    draft.keymap.set(
+        mg_ui::keys::Cmd::Manual,
+        vec![egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::S)],
+    );
+    shoot(&mut h, &dir, "options-keyboard");
 }
 
 #[test]

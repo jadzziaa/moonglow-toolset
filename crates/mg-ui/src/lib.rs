@@ -23,6 +23,7 @@ mod gff_view;
 pub mod hak_view;
 mod images;
 pub mod journal_view;
+pub mod keys;
 pub mod levelup_view;
 mod manual;
 pub mod model_view;
@@ -230,6 +231,10 @@ pub struct Moonglow {
     pub talk_view: talk_view::TalkView,
     /// The haks layered into the game data, as the module listed them.
     haks_layered: Vec<String>,
+    /// The keys of commands (Options › Keyboard), and the settings they
+    /// were read from.
+    pub keymap: keys::Keymap,
+    keymap_from: std::collections::BTreeMap<String, Vec<String>>,
     /// Haks open in the hak editor.
     pub haks: Vec<hak_view::HakDoc>,
     pub(crate) next_hak: u32,
@@ -390,6 +395,8 @@ impl Moonglow {
             talk: None,
             talk_view: Default::default(),
             haks_layered: Vec::new(),
+            keymap: Default::default(),
+            keymap_from: Default::default(),
             haks: Vec::new(),
             next_hak: 0,
             hak_closing: None,
@@ -603,50 +610,74 @@ impl Moonglow {
     }
 
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
-        use egui::{Key, KeyboardShortcut, Modifiers};
-        let pressed = |ui: &mut egui::Ui, m, k| {
-            ui.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)))
-        };
-        if pressed(ui, Modifiers::COMMAND, Key::N) {
+        use keys::Cmd;
+        // The keys as Options › Keyboard last set them.
+        if self.keymap_from != self.settings.key_bindings {
+            self.keymap = keys::Keymap::new(&self.settings.key_bindings);
+            self.keymap_from = self.settings.key_bindings.clone();
+        }
+        // Options › Keyboard takes the next key itself.
+        if self.options.as_ref().is_some_and(|o| o.recording.is_some()) {
+            return;
+        }
+        let keymap = self.keymap.clone();
+        let pressed = |cmd: Cmd| ui.input_mut(|i| keymap.consume(i, cmd));
+        let open = self.ws.is_some();
+        if pressed(Cmd::NewModule) {
             self.actions.push(Action::NewModuleDialog);
         }
-        if self.ws.is_some() && pressed(ui, Modifiers::COMMAND, Key::H) {
+        if pressed(Cmd::ReplaceText) && open {
             self.text_replace.get_or_insert_with(Default::default);
         }
-        if pressed(ui, Modifiers::COMMAND | Modifiers::ALT, Key::A) {
+        if pressed(Cmd::AreaWizard) {
             self.actions.push(Action::AreaWizard);
         }
-        if pressed(ui, Modifiers::COMMAND | Modifiers::ALT, Key::F) && self.ws.is_some() {
+        if pressed(Cmd::Factions) && open {
             self.actions.push(Action::OpenTab(Tab::Factions));
         }
-        if pressed(ui, Modifiers::COMMAND | Modifiers::ALT, Key::J) && self.ws.is_some() {
+        if pressed(Cmd::Journal) && open {
             self.actions.push(Action::OpenTab(Tab::Journal));
         }
-        if pressed(ui, Modifiers::COMMAND, Key::O) {
+        if pressed(Cmd::OpenModule) {
             self.actions.push(Action::OpenModuleDialog);
         }
-        if pressed(ui, Modifiers::COMMAND, Key::S) {
+        if pressed(Cmd::Save) {
             self.actions.push(Action::Save);
         }
-        if pressed(ui, Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)
-            || pressed(ui, Modifiers::COMMAND, Key::Y)
-        {
+        if pressed(Cmd::Redo) {
             self.actions.push(Action::Redo);
         }
-        if pressed(ui, Modifiers::COMMAND, Key::Z) {
+        if pressed(Cmd::Undo) {
             self.actions.push(Action::Undo);
         }
-        if pressed(ui, Modifiers::NONE, Key::F7) {
+        if pressed(Cmd::CompileAll) {
             self.actions.push(Action::CompileScripts);
         }
-        if pressed(ui, Modifiers::NONE, Key::F9) && self.ws.is_some() {
+        if pressed(Cmd::TestModule) && open {
             self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
         }
-        if pressed(ui, Modifiers::SHIFT, Key::F9) && self.ws.is_some() {
+        if pressed(Cmd::TestChoose) && open {
             self.actions.push(Action::SaveThen(Box::new(Action::TestModuleChoose)));
         }
-        if pressed(ui, Modifiers::NONE, Key::F1) {
+        if pressed(Cmd::Manual) {
             self.actions.push(Action::OpenTab(Tab::Manual));
+        }
+        if pressed(Cmd::NewConversation) && open {
+            self.new_dialog = Some(String::new());
+        }
+        if pressed(Cmd::NewScript) && open {
+            self.new_script = Some(String::new());
+        }
+        if pressed(Cmd::CreatureWizard) && open {
+            self.creature_wizard = Some(Default::default());
+        }
+        if pressed(Cmd::ItemWizard) && open {
+            let kind = mg_module::palette::BlueprintKind::Item;
+            self.blueprint_wizard = Some(blueprint_wizard::BlueprintWizard::new(kind));
+        }
+        if pressed(Cmd::FullScreen) {
+            let full = ui.ctx().input(|i| i.viewport().fullscreen.unwrap_or(false));
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
         }
     }
 
@@ -654,10 +685,22 @@ impl Moonglow {
         let open = self.ws.is_some();
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
-                if ui.button("New Module…").clicked() {
+                if ui
+                    .add(
+                        egui::Button::new("New Module…")
+                            .shortcut_text(self.keymap.label(keys::Cmd::NewModule, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::NewModuleDialog);
                 }
-                if ui.button("Open Module…").clicked() {
+                if ui
+                    .add(
+                        egui::Button::new("Open Module…")
+                            .shortcut_text(self.keymap.label(keys::Cmd::OpenModule, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::OpenModuleDialog);
                 }
                 if ui
@@ -677,7 +720,14 @@ impl Moonglow {
                         }
                     });
                 });
-                if ui.add_enabled(open, egui::Button::new("Save")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("Save")
+                            .shortcut_text(self.keymap.label(keys::Cmd::Save, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::Save);
                 }
                 if ui.add_enabled(open, egui::Button::new("Save As…")).clicked() {
@@ -725,11 +775,23 @@ impl Moonglow {
                     Some(c) => format!("{what} {c}"),
                     None => what.to_string(),
                 };
-                if ui.add_enabled(undo.is_some(), egui::Button::new(label("Undo", &undo))).clicked()
+                if ui
+                    .add_enabled(
+                        undo.is_some(),
+                        egui::Button::new(label("Undo", &undo))
+                            .shortcut_text(self.keymap.label(keys::Cmd::Undo, ui.ctx())),
+                    )
+                    .clicked()
                 {
                     self.actions.push(Action::Undo);
                 }
-                if ui.add_enabled(redo.is_some(), egui::Button::new(label("Redo", &redo))).clicked()
+                if ui
+                    .add_enabled(
+                        redo.is_some(),
+                        egui::Button::new(label("Redo", &redo))
+                            .shortcut_text(self.keymap.label(keys::Cmd::Redo, ui.ctx())),
+                    )
+                    .clicked()
                 {
                     self.actions.push(Action::Redo);
                 }
@@ -768,7 +830,11 @@ impl Moonglow {
                 });
                 if ui
                     .add_enabled(open, egui::Button::new("Find and Replace Text…"))
-                    .on_hover_text("In names, descriptions, conversations and the journal (Ctrl+H)")
+                    .on_hover_text(self.keymap.titled(
+                        "In names, descriptions, conversations and the journal",
+                        keys::Cmd::ReplaceText,
+                        ui.ctx(),
+                    ))
                     .clicked()
                 {
                     self.text_replace.get_or_insert_with(Default::default);
@@ -782,11 +848,25 @@ impl Moonglow {
                 }
             });
             ui.menu_button("Wizards", |ui| {
-                if ui.add_enabled(open, egui::Button::new("Area Wizard…")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("Area Wizard…")
+                            .shortcut_text(self.keymap.label(keys::Cmd::AreaWizard, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::AreaWizard);
                 }
                 ui.separator();
-                if ui.add_enabled(open, egui::Button::new("Creature Wizard…")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("Creature Wizard…")
+                            .shortcut_text(self.keymap.label(keys::Cmd::CreatureWizard, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.creature_wizard = Some(Default::default());
                 }
                 for kind in blueprint_wizard::KINDS {
@@ -797,13 +877,34 @@ impl Moonglow {
                 }
             });
             ui.menu_button("Tools", |ui| {
-                if ui.add_enabled(open, egui::Button::new("New Conversation…")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("New Conversation…")
+                            .shortcut_text(self.keymap.label(keys::Cmd::NewConversation, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.new_dialog = Some(String::new());
                 }
-                if ui.add_enabled(open, egui::Button::new("Faction Editor")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("Faction Editor")
+                            .shortcut_text(self.keymap.label(keys::Cmd::Factions, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::OpenTab(Tab::Factions));
                 }
-                if ui.add_enabled(open, egui::Button::new("Journal Editor")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("Journal Editor")
+                            .shortcut_text(self.keymap.label(keys::Cmd::Journal, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::OpenTab(Tab::Journal));
                 }
                 if ui
@@ -813,7 +914,14 @@ impl Moonglow {
                 {
                     self.actions.push(Action::OpenTab(Tab::TalkTable));
                 }
-                if ui.add_enabled(open, egui::Button::new("New Script…")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("New Script…")
+                            .shortcut_text(self.keymap.label(keys::Cmd::NewScript, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.new_script = Some(String::new());
                 }
                 ui.separator();
@@ -852,7 +960,14 @@ impl Moonglow {
                 }
             });
             ui.menu_button("Build", |ui| {
-                if ui.add_enabled(open, egui::Button::new("Compile All Scripts")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("Compile All Scripts")
+                            .shortcut_text(self.keymap.label(keys::Cmd::CompileAll, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::CompileScripts);
                 }
                 if ui.add_enabled(open, egui::Button::new("Build Module…")).clicked() {
@@ -861,13 +976,21 @@ impl Moonglow {
                 if ui.add_enabled(open, egui::Button::new("Verify Module")).clicked() {
                     self.actions.push(Action::Verify);
                 }
-                if ui.add_enabled(open, egui::Button::new("Test Module (F9)")).clicked() {
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("Test Module")
+                            .shortcut_text(self.keymap.label(keys::Cmd::TestModule, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
                 }
                 if ui
                     .add_enabled(
                         open,
-                        egui::Button::new("Test Module, Choose Character (Shift+F9)"),
+                        egui::Button::new("Test Module, Choose Character")
+                            .shortcut_text(self.keymap.label(keys::Cmd::TestChoose, ui.ctx())),
                     )
                     .on_hover_text("The game asks which character to play")
                     .clicked()
@@ -893,7 +1016,13 @@ impl Moonglow {
                 }
             });
             ui.menu_button("Help", |ui| {
-                if ui.button("User Manual (F1)").clicked() {
+                if ui
+                    .add(
+                        egui::Button::new("User Manual")
+                            .shortcut_text(self.keymap.label(keys::Cmd::Manual, ui.ctx())),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::OpenTab(Tab::Manual));
                 }
                 if ui.button("About Moonglow Toolset").clicked() {
@@ -910,6 +1039,9 @@ impl Moonglow {
             .ws
             .as_ref()
             .map_or((false, false), |ws| (ws.can_undo().is_some(), ws.can_redo().is_some()));
+        let keymap = self.keymap.clone();
+        let ctx = ui.ctx().clone();
+        let tip = |text: &str, cmd: keys::Cmd| keymap.titled(text, cmd, &ctx);
         ui.horizontal(|ui| {
             let mut button =
                 |ui: &mut egui::Ui, enabled: bool, label: &str, tip: &str, action: Action| {
@@ -921,12 +1053,24 @@ impl Moonglow {
                         self.actions.push(action);
                     }
                 };
-            button(ui, true, "🗋 New", "New module (Ctrl+N)", Action::NewModuleDialog);
-            button(ui, true, "🗁 Open", "Open module (Ctrl+O)", Action::OpenModuleDialog);
-            button(ui, open, "💾 Save", "Save module (Ctrl+S)", Action::Save);
+            button(
+                ui,
+                true,
+                "🗋 New",
+                &tip("New module", keys::Cmd::NewModule),
+                Action::NewModuleDialog,
+            );
+            button(
+                ui,
+                true,
+                "🗁 Open",
+                &tip("Open module", keys::Cmd::OpenModule),
+                Action::OpenModuleDialog,
+            );
+            button(ui, open, "💾 Save", &tip("Save module", keys::Cmd::Save), Action::Save);
             ui.separator();
-            button(ui, undo, "⟲ Undo", "Undo (Ctrl+Z)", Action::Undo);
-            button(ui, redo, "⟳ Redo", "Redo (Ctrl+Y)", Action::Redo);
+            button(ui, undo, "⟲ Undo", &tip("Undo", keys::Cmd::Undo), Action::Undo);
+            button(ui, redo, "⟳ Redo", &tip("Redo", keys::Cmd::Redo), Action::Redo);
             ui.separator();
             button(
                 ui,
@@ -935,13 +1079,25 @@ impl Moonglow {
                 "Module properties",
                 Action::OpenTab(Tab::ModuleProperties),
             );
-            button(ui, open, "🗺 New Area", "Area Wizard (Ctrl+Alt+A)", Action::AreaWizard);
+            button(
+                ui,
+                open,
+                "🗺 New Area",
+                &tip("Area Wizard", keys::Cmd::AreaWizard),
+                Action::AreaWizard,
+            );
             button(ui, true, "🔍 Resources", "Resource browser", Action::OpenTab(Tab::Resources));
             button(ui, true, "📦 Palettes", "Blueprint palettes", Action::OpenTab(Tab::Palette));
             ui.toggle_value(&mut self.preview_window, "👁 Preview")
                 .on_hover_text("Show Preview Window: the blueprint chosen in the palette");
             ui.separator();
-            button(ui, open, "⚙ Compile", "Compile all scripts (F7)", Action::CompileScripts);
+            button(
+                ui,
+                open,
+                "⚙ Compile",
+                &tip("Compile all scripts", keys::Cmd::CompileAll),
+                Action::CompileScripts,
+            );
             button(ui, open, "✔ Verify", "Verify the module", Action::Verify);
         });
     }

@@ -188,7 +188,7 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 | --- | --- | --- | --- |
 | Modal windows that open behind the main window and lock it | ●●● | Beamdog 66932, 69624, 84125; nwn-issues #230, #368 | ✅ tabs and floating windows |
 | Unreadable at high DPI; icons vanish at scaling that isn't a multiple of 50%; no dark mode | ●● | Vault 6225, 6783; nwn.wiki *Aurora Toolset*; Beamdog 82940 | ✅ follows the system's scale and theme; Ctrl + plus and minus zoom |
-| Keys can't be remapped | ● | Beamdog 69624, 75035 | ✗ |
+| Keys can't be remapped | ● | Beamdog 69624, 75035 | ✅ Tools › Options › Keyboard |
 | Small things: 4 recent modules, column widths forgotten, tab order | ● | Beamdog 75035, 82940 | ◐ 10 recent modules |
 
 ### 2.11 Reported pain that isn't the toolset's to fix

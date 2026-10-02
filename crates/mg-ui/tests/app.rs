@@ -924,6 +924,80 @@ fn minimap_exported_and_object_walkmeshes_shown() {
 }
 
 #[test]
+fn keys_remapped_in_options_and_used() {
+    use mg_ui::keys::Cmd;
+    let dir = mg_testkit::scratch_dir("ui-keys");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.dialog_no_text_popup = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Keyboard").click();
+    h.run();
+    // User Manual: F1 taken away, Ctrl+M added by pressing it.
+    h.get_by_label("F1 ×").click();
+    h.run();
+    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::M);
+    h.run();
+    // A key two commands share is named.
+    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
+    h.run();
+    assert!(h.query_by_label_contains("is the key of both Save and User Manual").is_some());
+    // Save's row comes first; the User Manual's Ctrl+S is taken away again.
+    h.get_all_by_label("Ctrl+S ×").last().unwrap().click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    let chosen = &h.state().settings.key_bindings;
+    assert_eq!(chosen.get("manual"), Some(&vec!["Ctrl+M".to_string()]), "{chosen:?}");
+    assert_eq!(chosen.len(), 1);
+
+    // F1 no longer opens the manual; Ctrl+M does.
+    h.key_press(egui::Key::F1);
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Manual).is_none());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::M);
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Manual).is_some());
+    // The menu shows the new key.
+    h.get_by_label("Help").click();
+    h.run();
+    assert!(h.query_by_label_contains("Ctrl+M").is_some() || cfg!(target_os = "macos"));
+    h.key_press(egui::Key::Escape);
+    h.run();
+
+    // Ctrl+A adds a line in the conversation editor, with the pointer over
+    // it, as in Aurora.
+    let tab = h.state().dock.find_tab(&Tab::Manual).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.state_mut().new_dialog = Some("keysdlg".into());
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    let key = ResKey::parse("keysdlg", ResType::DLG).unwrap();
+    let starts = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&key).unwrap().root.list("StartingList").map_or(0, <[_]>::len)
+    };
+    assert_eq!(starts(&mut h), 0);
+    let at = h.get_by_label("Expand All").rect().center();
+    h.hover_at(at);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    assert_eq!(starts(&mut h), 1);
+}
+
+#[test]
 fn faction_editor_adds_and_removes_factions() {
     let dir = mg_testkit::scratch_dir("ui-factions");
     let path = sample_module(&dir);
@@ -4316,7 +4390,7 @@ fn the_creature_wizard_makes_aurora_s_creature() {
     h.run();
     h.get_by_label("Wizards").click();
     h.run();
-    h.get_by_label("Creature Wizard…").click();
+    h.get_by_label_contains("Creature Wizard…").click();
     h.run();
     // Each page as it comes, nothing drawn over anything else.
     let next = |h: &mut Harness<'_, Moonglow>| {
@@ -5342,7 +5416,7 @@ fn the_user_manual_opens_from_help_and_follows_its_links() {
     h.run();
     h.get_by_label("Help").click();
     h.run();
-    h.get_by_label("User Manual (F1)").click();
+    h.get_by_label_contains("User Manual").click();
     h.run();
     // The contents, with the chapters beside them.
     h.get_by_label("Moonglow Toolset: User Manual");

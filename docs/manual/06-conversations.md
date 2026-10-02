@@ -14,6 +14,10 @@ to edit it below the tree: its **Speaker** (NPC lines: the conversation's
 owner, or a creature in the module by tag) and its **Text** (the **…**
 button edits every language).
 
+With the pointer over the editor, Ctrl+A adds a line, Delete deletes the
+selected one, and Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, as in
+Aurora (Options › Keyboard changes Add's and Delete's keys).
+
 | Command | Does |
 | --- | --- |
 | Add | a reply to the selected line (an NPC line under Root or a player line, a player line under an NPC line) |

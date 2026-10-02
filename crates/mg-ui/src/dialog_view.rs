@@ -181,6 +181,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         tlk(67056, "Enter what the player says next:"),
     ];
 
+    // Keys, with the pointer over the editor and no text being typed:
+    // Options › Keyboard's, and the platform's Copy, Cut and Paste.
+    let here = ui.ui_contains_pointer() && ui.memory(|m| m.focused().is_none());
+    let keymap = app.keymap.clone();
+    let pressed = |c: crate::keys::Cmd| here && ui.input(|i| keymap.pressed(i, c));
+    let (key_add, key_delete) =
+        (pressed(crate::keys::Cmd::AddLine), pressed(crate::keys::Cmd::DeleteLine));
+    let (key_copy, key_cut, key_paste) = if here {
+        ui.input(|i| {
+            let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
+            let ctrl = |k: egui::Key| i.modifiers.command && i.key_pressed(k);
+            (
+                event(|e| matches!(e, egui::Event::Copy)) || ctrl(egui::Key::C),
+                event(|e| matches!(e, egui::Event::Cut)) || ctrl(egui::Key::X),
+                event(|e| matches!(e, egui::Event::Paste(_))) || ctrl(egui::Key::V),
+            )
+        })
+    } else {
+        (false, false, false)
+    };
+    let add_hint =
+        keymap.titled("Add a line under the selection", crate::keys::Cmd::AddLine, ui.ctx());
+
     // Toolbar.
     ui.horizontal_wrapped(|ui| {
         let sel = view.selected;
@@ -192,10 +215,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             Some(_) => None,
         };
-        if ui
+        if (ui
             .add_enabled(add_parent.is_some(), egui::Button::new("Add"))
-            .on_hover_text("Add a line under the selection (Ctrl+A)")
+            .on_hover_text(add_hint)
             .clicked()
+            || key_add)
             && let Some(p) = add_parent
         {
             if popup {
@@ -218,18 +242,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 target: target_of(r),
             })
         };
-        if ui.add_enabled(sel.is_some(), egui::Button::new("Copy")).clicked() {
+        if ui.add_enabled(sel.is_some(), egui::Button::new("Copy")).clicked()
+            || (key_copy && sel.is_some())
+        {
             app.dialog_clip = sel.and_then(copy);
         }
         let mut delete = false;
-        if ui.add_enabled(sel.is_some(), egui::Button::new("Cut")).clicked() {
+        if (ui.add_enabled(sel.is_some(), egui::Button::new("Cut")).clicked() || key_cut)
+            && sel.is_some()
+        {
             app.dialog_clip = sel.and_then(copy);
             delete = true;
         }
         let paste_parent = add_parent;
         let clip = app.dialog_clip.clone();
         let fits = |p: Parent| clip.as_ref().is_some_and(|c| c.branch.kind == p.child_kind());
-        if ui.add_enabled(paste_parent.is_some_and(fits), egui::Button::new("Paste")).clicked()
+        let can_paste = paste_parent.is_some_and(fits);
+        if (ui.add_enabled(can_paste, egui::Button::new("Paste")).clicked() || key_paste)
+            && can_paste
             && let (Some(p), Some(c)) = (paste_parent, &clip)
         {
             let mut ng = g.clone();
@@ -258,7 +288,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 actions.push(replace(key, "Paste as link", &ng));
             }
         }
-        if ui.add_enabled(sel.is_some(), egui::Button::new("Delete")).clicked() {
+        if ui.add_enabled(sel.is_some(), egui::Button::new("Delete")).clicked() || key_delete {
             delete = true;
         }
         if delete && let Some(r) = sel {

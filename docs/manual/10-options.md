@@ -69,6 +69,21 @@ The language text is shown and edited in, for modules made for players
 of another language: names, descriptions and conversation lines show and
 edit that language's text, and String Edit opens on it.
 
+## Keyboard
+
+Every command with keys, by where it works (anywhere, the area view, the
+script editor, the conversation editor), with its keys:
+- **+** then the keys adds a key (Escape: none); a key's **×** takes it
+  away; a command can have several keys, or none.
+- **Reset** gives a command Moonglow's keys back, **Reset All** every
+  command.
+- **Conflicts:** a key two commands share where both work is named above
+  the list. (A key of the whole window wins over the editors' own.)
+
+Keys match exactly: Shift+Q is not Q. Text editing, Escape and Enter,
+Copy, Cut and Paste, Delete in the area view, and the script editor's
+numbered bookmarks (Ctrl and a digit) keep their keys.
+
 ## Where the settings are kept
 
 | System | Folder |

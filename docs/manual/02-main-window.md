@@ -18,7 +18,9 @@ there are unsaved changes, and the game's folder).
 
 ## Keyboard shortcuts
 
-On macOS, Cmd takes the place of Ctrl.
+On macOS, Cmd takes the place of Ctrl. These are the keys Moonglow starts
+with (Aurora's, where Aurora has the command); **Tools › Options ›
+Keyboard** changes them, and the menus show the keys as they are.
 
 | Keys | Command |
 | --- | --- |
@@ -34,6 +36,11 @@ On macOS, Cmd takes the place of Ctrl.
 | F9 | Save and test the module in the game |
 | Shift+F9 | Save and test it, choosing the character in the game |
 | F1 | User Manual |
+| Ctrl+Alt+V | New Conversation |
+| Ctrl+Alt+S | New Script |
+| Ctrl+Alt+C | Creature Wizard |
+| Ctrl+Alt+I | Item Wizard |
+| F11 | Full screen |
 
 The area viewer and the editors have their own keys; their chapters list
 them.

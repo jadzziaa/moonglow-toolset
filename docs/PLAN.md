@@ -552,7 +552,12 @@ surveyed after 0.2.0). What each item left undone is collected in
      out tile pictures as the game client's map does, TGA and DDS alike
      (`client_minimap.rs`: the client screenshotted with colored test
      pictures); every shipped area's minimap composes (`minimaps.rs`);
-   - remappable keys;
+   - remappable keys — done: Tools › Options › Keyboard (43 commands
+     across the window, the area view, the script and conversation
+     editors; recorded by pressing them; conflicts named; kept in the
+     settings by command id), matched exactly; menus and tooltips show
+     them; Aurora's missing keys added (Ctrl+Alt+V/S/C/I, F10, F11, the
+     conversation editor's Ctrl+A, Delete, Ctrl+C/X/V);
    - automation and a plugin API;
    - NWSync publishing;
    - tileset authoring.

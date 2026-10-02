@@ -133,6 +133,8 @@ Moonglow's own.
   each row comes from, and what a hak changed.
 - **Talk tables**: Tools › Talk Table edits the module's own, and String
   Edit's **Move to Talk Table** puts a text there by StrRef.
+- **Keys** can be changed (Tools › Options › Keyboard); they start as
+  Aurora's.
 - **Area visibility**: **Object Walkmeshes** shows where placeables and
   doors keep creatures out, beside the ground's **Walkmesh**; **Export
   Minimap…** saves an area's map as a PNG.

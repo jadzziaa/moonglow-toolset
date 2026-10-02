@@ -23,6 +23,7 @@ pub enum OptionsPage {
     ConversationEditor,
     Sounds,
     Language,
+    Keyboard,
 }
 
 /// The Options window's fields: folders as typed (empty to detect), and
@@ -66,6 +67,9 @@ pub struct OptionsDraft {
     pub ambient_sound: bool,
     pub ambient_music: bool,
     pub music_volume: u8,
+    pub keymap: crate::keys::Keymap,
+    /// The command whose next key press is being taken as a new key.
+    pub recording: Option<crate::keys::Cmd>,
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -81,6 +85,8 @@ impl OptionsDraft {
     pub fn from_settings(s: &Settings) -> OptionsDraft {
         OptionsDraft {
             page: OptionsPage::default(),
+            keymap: crate::keys::Keymap::new(&s.key_bindings),
+            recording: None,
             game_root: text(&s.game_root),
             user_dir: text(&s.user_dir),
             script_style: s.script_style.clone(),
@@ -161,6 +167,7 @@ impl OptionsDraft {
             ambient_music: self.ambient_music,
             music_volume: (self.music_volume != crate::area_audio::MUSIC_VOLUME)
                 .then_some(self.music_volume.min(127)),
+            key_bindings: self.keymap.chosen(),
             ..s.clone()
         }
     }
@@ -200,12 +207,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         (OptionsPage::ConversationEditor, "Conversation Editor"),
                         (OptionsPage::Sounds, "Sounds"),
                         (OptionsPage::Language, "Language"),
+                        (OptionsPage::Keyboard, "Keyboard"),
                     ] {
                         ui.selectable_value(&mut draft.page, page, name);
                     }
                 });
                 ui.add_space(12.0);
                 ui.vertical(|ui| match draft.page {
+                    OptionsPage::Keyboard => keyboard(ui, draft),
                     OptionsPage::Folders => {
                         ui.label("Neverwinter Nights installation");
                         ui.horizontal(|ui| {
@@ -557,6 +566,97 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
     egui::Frame::group(ui.style()).show(ui, |ui| {
         ui.label(crate::script_view::highlight(preview, &palette));
     });
+}
+
+/// Options › Keyboard: each command's keys, to add to (the next key
+/// pressed), take away or reset; keys two commands share are named.
+fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
+    use crate::keys::{Cmd, shown};
+    let mac = ui.ctx().os() == egui::os::OperatingSystem::Mac;
+    // Taking a key: the next press with a key that isn't only a modifier.
+    if let Some(cmd) = draft.recording {
+        let taken = ui.input_mut(|i| {
+            let mut got = None;
+            i.events.retain(|e| match e {
+                egui::Event::Key { key, pressed: true, modifiers, .. } if got.is_none() => {
+                    got = Some(egui::KeyboardShortcut::new(*modifiers, *key));
+                    false
+                }
+                _ => true,
+            });
+            got
+        });
+        if let Some(k) = taken {
+            draft.recording = None;
+            if k.logical_key != egui::Key::Escape {
+                let mut keys = draft.keymap.keys(cmd);
+                let k = egui::KeyboardShortcut::new(
+                    egui::Modifiers {
+                        command: k.modifiers.command || k.modifiers.ctrl || k.modifiers.mac_cmd,
+                        ctrl: false,
+                        mac_cmd: false,
+                        ..k.modifiers
+                    },
+                    k.logical_key,
+                );
+                if !keys.contains(&k) {
+                    keys.push(k);
+                }
+                draft.keymap.set(cmd, keys);
+            }
+        }
+    }
+    ui.label("Click + and press the keys to add them; × takes a key away.");
+    let conflicts = draft.keymap.conflicts();
+    for (k, a, b) in &conflicts {
+        ui.colored_label(
+            ui.visuals().warn_fg_color,
+            format!("{} is the key of both {} and {}", shown(k, mac), a.name(), b.name()),
+        );
+    }
+    egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+        let mut group = None;
+        egui::Grid::new("keys").num_columns(3).striped(true).show(ui, |ui| {
+            for cmd in Cmd::ALL {
+                if group != Some(cmd.group()) {
+                    group = Some(cmd.group());
+                    ui.strong(cmd.group().name());
+                    ui.end_row();
+                }
+                ui.label(cmd.name());
+                ui.horizontal(|ui| {
+                    let mut keys = draft.keymap.keys(cmd);
+                    let mut remove = None;
+                    for (i, k) in keys.iter().enumerate() {
+                        if ui
+                            .small_button(format!("{} ×", shown(k, mac)))
+                            .on_hover_text("Take this key away")
+                            .clicked()
+                        {
+                            remove = Some(i);
+                        }
+                    }
+                    if let Some(i) = remove {
+                        keys.remove(i);
+                        draft.keymap.set(cmd, keys);
+                    }
+                    let recording = draft.recording == Some(cmd);
+                    let label = if recording { "press a key…" } else { "+" };
+                    if ui.small_button(label).on_hover_text("Add a key (Escape: none)").clicked() {
+                        draft.recording = if recording { None } else { Some(cmd) };
+                    }
+                });
+                let default = draft.keymap.keys(cmd) == cmd.defaults();
+                if ui.add_enabled(!default, egui::Button::new("Reset").small()).clicked() {
+                    draft.keymap.set(cmd, cmd.defaults());
+                }
+                ui.end_row();
+            }
+        });
+    });
+    if ui.button("Reset All").clicked() {
+        draft.keymap = crate::keys::Keymap::default();
+    }
 }
 
 #[cfg(test)]

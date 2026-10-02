@@ -320,16 +320,20 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut go_numbered = None;
     let (mut definition, mut references, mut rename) = (false, false, false);
     if focused {
+        use crate::keys::Cmd;
         use egui::{Key, KeyboardShortcut, Modifiers};
         let pressed = |m, k| ui.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
-        open_find = pressed(Modifiers::COMMAND, Key::F);
-        open_replace = pressed(Modifiers::COMMAND, Key::R);
-        find_next = pressed(Modifiers::NONE, Key::F3);
-        toggle_bookmark = pressed(Modifiers::NONE, Key::F5);
-        complete = pressed(Modifiers::NONE, Key::F2) || pressed(Modifiers::COMMAND, Key::Space);
-        definition = pressed(Modifiers::NONE, Key::F12);
-        references = pressed(Modifiers::SHIFT, Key::F12);
-        rename = pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::R);
+        // The keys of Options › Keyboard.
+        let keys = app.keymap.clone();
+        let cmd = |c: Cmd| ui.input_mut(|i| keys.consume(i, c));
+        rename = cmd(Cmd::RenameSymbol);
+        open_find = cmd(Cmd::Find);
+        open_replace = cmd(Cmd::Replace);
+        find_next = cmd(Cmd::FindNext);
+        toggle_bookmark = cmd(Cmd::Bookmark);
+        complete = cmd(Cmd::Complete);
+        references = cmd(Cmd::References);
+        definition = cmd(Cmd::Definition);
         const DIGITS: [Key; 9] = [
             Key::Num1,
             Key::Num2,
@@ -389,26 +393,38 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             open_external(app, key, &editor);
         }
         ui.separator();
-        open_find |= ui.button("Find…").on_hover_text("Ctrl+F; F3 finds again").clicked();
-        open_replace |= ui.button("Replace…").on_hover_text("Ctrl+R").clicked();
+        use crate::keys::Cmd;
+        let keymap = app.keymap.clone();
+        let ctx = ui.ctx().clone();
+        let tip = |text: &str, cmd: Cmd| keymap.titled(text, cmd, &ctx);
+        let find_tip = format!("{}; {}", tip("Find", Cmd::Find), tip("Find Next", Cmd::FindNext));
+        open_find |= ui.button("Find…").on_hover_text(find_tip).clicked();
+        open_replace |= ui.button("Replace…").on_hover_text(tip("Replace", Cmd::Replace)).clicked();
         toggle_bookmark |= ui
             .button("Bookmark")
-            .on_hover_text("Toggle a bookmark on the cursor's line (F5)")
+            .on_hover_text(tip("Toggle a bookmark on the cursor's line", Cmd::Bookmark))
             .clicked();
         ui.separator();
         definition |= ui
             .button("Definition")
-            .on_hover_text("Go to the definition of the name at the cursor (F12, or Ctrl+click)")
+            .on_hover_text(format!(
+                "{}, or Ctrl+click",
+                tip("Go to the definition of the name at the cursor", Cmd::Definition)
+            ))
             .clicked();
         references |= ui
             .button("References")
-            .on_hover_text(
-                "Where the name at the cursor is used in the module's scripts (Shift+F12)",
-            )
+            .on_hover_text(tip(
+                "Where the name at the cursor is used in the module's scripts",
+                Cmd::References,
+            ))
             .clicked();
         rename |= ui
             .button("Rename Symbol…")
-            .on_hover_text("Rename the name at the cursor everywhere it's used (Ctrl+Shift+R)")
+            .on_hover_text(tip(
+                "Rename the name at the cursor everywhere it's used",
+                Cmd::RenameSymbol,
+            ))
             .clicked();
         if ui
             .button("Used By")

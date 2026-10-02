@@ -109,6 +109,9 @@ pub struct Settings {
     pub palette_favorites: Vec<String>,
     /// The blueprints placed most recently, the last first.
     pub palette_recent: Vec<String>,
+    /// Options › Keyboard: the keys chosen for commands, by command id
+    /// ([`crate::keys::Cmd::id`]), where they aren't Moonglow's.
+    pub key_bindings: std::collections::BTreeMap<String, Vec<String>>,
     /// Options > Conversation Editor: NPC and player text colours (sRGB);
     /// `None`: Moonglow's red and blue.
     pub dialog_npc_color: Option<[u8; 3]>,

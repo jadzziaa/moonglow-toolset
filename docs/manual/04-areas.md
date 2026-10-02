@@ -34,7 +34,8 @@ size unless asked (`--size`); the game's are mostly 16 pixels.
 
 ## The camera
 
-Aurora's bindings, plus a few of Moonglow's:
+Aurora's bindings, plus a few of Moonglow's (the keys can be changed in
+Tools › Options › Keyboard):
 
 | Do | To |
 | --- | --- |
@@ -46,6 +47,7 @@ Aurora's bindings, plus a few of Moonglow's:
 | Numpad 7, 9 | turn |
 | Numpad 1, 3 | tilt |
 | Numpad 5 | look straight down at the whole area |
+| F10 | select tiles or objects (Aurora's) |
 | Double-click an object in Find Instance | go to it |
 
 ## Selecting and arranging objects
