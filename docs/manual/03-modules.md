@@ -160,6 +160,16 @@ Haks listed in Custom Content are searched before the game's own files,
 in their order, as the game does: their tilesets, models, 2DA tables and
 blueprints appear in the area viewer, the palettes and the editors. Haks
 are looked for in the user folder's `hak` and then the game's `data/hk`.
+A change to the list (adding, removing, reordering, an undo) takes effect
+at once.
+
+**Add Haks and Talk Table…** (Custom Content) attaches downloaded content
+in one step: choose the haks and a talk table wherever they are, put the
+haks in order (highest priority first), and Moonglow copies them into the
+user folder's `hak` and `tlk` (asking before replacing different files of
+the same names), lists the haks at the top of the module's list and names
+the talk table. Undo takes back the module's changes; the copies stay.
+`mg attach` does the same from the command line.
 
 A custom talk table (`.tlk`) gives the strings numbered from 16,777,216
 up. The game looks for it in the module's haks, then the module, then the
@@ -198,6 +208,35 @@ translations, and for text a server sends many times.
 **Resources in haks**: when the module has a resource a hak also has, the
 hak's wins in the game. Moonglow warns in the log when you add such a
 resource, or one that replaces the game's own (Options › General).
+
+## The hak editor
+
+**Tools › Haks** opens a hak: **New Hak**, **Open Hak…** (a `.hak` or an
+`.erf`), or **Build Hak from Folder…**, which makes a new hak of a
+folder's files and those of the folders in it, to look over and save.
+- **The list:** every resource with its size, and for files just added,
+  where they come from. **Find** narrows it by name or type. Click to
+  select, Ctrl+click to add to the selection; right-click for **Rename…**,
+  **Extract…** and **Remove**.
+- **Adding:** **Add Files…** and **Add Folder…** add files, replacing
+  resources of the same name. A file the game couldn't read by its name
+  is left out, and the log says why: a name over 16 characters (other hak
+  tools cut it short without a word), a type the game doesn't know.
+  Hidden files, `Thumbs.db` and `desktop.ini` are skipped.
+- **Extracting:** **Extract…** and **Extract All…** write resources as
+  files into a folder.
+- **Undo** and **Redo** in its toolbar. **Description** is the hak's own
+  note, for people.
+- **Saving:** **Save** writes the hak beside the old one and moves it over
+  it, one resource at a time, so a hak of gigabytes needn't fit in memory
+  and a failed save leaves the old one whole. It warns when resources
+  would start past 2 GiB, which the game can't read. Saving the module
+  saves open haks too.
+- **Reloading:** saving a hak the module uses reads it again.
+- **The game's own haks** (in its `data/hk`) aren't written: **Save As…**
+  keeps your changes in a copy.
+
+Closing a hak with unsaved changes asks first.
 
 ## Import and export
 

@@ -20,6 +20,7 @@ pub mod dialog_view;
 pub mod dialogs;
 pub mod faction_view;
 mod gff_view;
+pub mod hak_view;
 mod images;
 pub mod journal_view;
 pub mod levelup_view;
@@ -225,6 +226,17 @@ pub struct Moonglow {
     /// The module's talk table, open for editing (Tools › Talk Table).
     pub talk: Option<mg_module::talk::Table>,
     pub talk_view: talk_view::TalkView,
+    /// The haks layered into the game data, as the module listed them.
+    haks_layered: Vec<String>,
+    /// Haks open in the hak editor.
+    pub haks: Vec<hak_view::HakDoc>,
+    pub(crate) next_hak: u32,
+    /// A hak whose tab is being closed with unsaved changes.
+    pub(crate) hak_closing: Option<u32>,
+    /// Where Build Hak from Folder suggests saving.
+    pub(crate) suggested_hak: Option<std::path::PathBuf>,
+    /// Add Haks and Talk Table: what goes where, before it's done.
+    pub attach: Option<module_props::AttachDraft>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
@@ -375,6 +387,12 @@ impl Moonglow {
             thumbnails: Default::default(),
             talk: None,
             talk_view: Default::default(),
+            haks_layered: Vec::new(),
+            haks: Vec::new(),
+            next_hak: 0,
+            hak_closing: None,
+            suggested_hak: None,
+            attach: None,
             model_views: HashMap::new(),
             area_views: HashMap::new(),
             adjust: None,
@@ -522,6 +540,8 @@ impl Moonglow {
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
         bulk::update_window(self, ui.ctx());
+        hak_view::closing_window(self, ui.ctx());
+        module_props::attach_window(self, ui.ctx());
         bulk::text_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
@@ -801,6 +821,21 @@ impl Moonglow {
                 if ui.button("Resource Browser").clicked() {
                     self.actions.push(Action::OpenTab(Tab::Resources));
                 }
+                ui.menu_button("Haks", |ui| {
+                    if ui.button("New Hak").clicked() {
+                        hak_view::new_hak(self);
+                    }
+                    if ui.button("Open Hak…").clicked() {
+                        hak_view::open_hak(self);
+                    }
+                    if ui
+                        .button("Build Hak from Folder…")
+                        .on_hover_text("A new hak with a folder's files, to look over and save")
+                        .clicked()
+                    {
+                        hak_view::build_from_folder(self);
+                    }
+                });
                 if ui
                     .button("Reload Resources")
                     .on_hover_text(
@@ -995,6 +1030,7 @@ impl Moonglow {
             }
             game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
             game.invalidate();
+            self.haks_layered = haks;
         }
         self.ws = Some(Workspace::new(m));
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
@@ -1073,6 +1109,7 @@ impl Moonglow {
         self.ws.as_ref().is_some_and(|ws| ws.is_modified() || ws.module.location.is_none())
             || self.scripts.values().any(|b| b.is_dirty())
             || self.talk.as_ref().is_some_and(|t| t.is_dirty() && t.editable())
+            || hak_view::unsaved(self)
     }
 
     fn new_module(&mut self, name: &str) {
@@ -1303,6 +1340,7 @@ impl Moonglow {
                 match r {
                     Ok(Some(label)) => {
                         self.scripts.clear();
+                        self.sync_haks();
                         self.log.info(format!(
                             "{} {label}",
                             if action == Action::Undo { "Undid" } else { "Redid" }
@@ -1325,6 +1363,7 @@ impl Moonglow {
                 if custom_tlk && ws.flush().is_ok() {
                     self.load_custom_tlk();
                 }
+                self.sync_haks();
             }
             Action::OpenTab(tab) => {
                 // A tab docked in an area's pane (Module Properties, docked
@@ -1497,6 +1536,7 @@ impl Moonglow {
         // everything means; so does the talk table, a file of its own.
         self.store_script_text();
         talk_view::save(self);
+        hak_view::save_all(self);
         let Some(ws) = &mut self.ws else { return };
         // The custom palettes list the module's blueprints, as Aurora keeps
         // them.
@@ -1811,6 +1851,12 @@ impl Moonglow {
             }
             return;
         }
+        self.game_data_changed();
+        self.log.info(format!("Reloaded {}", changed.join(", ")));
+    }
+
+    /// What was shown from the game data is shown anew: its layers changed.
+    fn game_data_changed(&mut self) {
         if let Some(game) = &mut self.game {
             game.invalidate();
         }
@@ -1822,7 +1868,61 @@ impl Moonglow {
             view.reload();
         }
         self.load_order_changed();
-        self.log.info(format!("Reloaded {}", changed.join(", ")));
+    }
+
+    /// The haks Module Properties lists now, unsaved changes included.
+    fn listed_haks(&mut self) -> Vec<String> {
+        use mg_schema::StructExt;
+        let Some(ws) = &mut self.ws else { return Vec::new() };
+        let key = ResKey::parse("module", ResType::IFO).expect("valid");
+        let Ok(info) = ws.doc(&key) else { return Vec::new() };
+        let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
+        let mut haks: Vec<String> = info
+            .root
+            .items(&mg_schema::ifo::MOD_HAK_LIST)
+            .iter()
+            .map(|h| text(h.read(&mg_schema::ifo::mod_hak_list::MOD_HAK).as_bytes()))
+            .filter(|h| !h.is_empty())
+            .collect();
+        if haks.is_empty() {
+            haks.extend(
+                Some(text(info.root.read(&mg_schema::ifo::MOD_HAK).as_bytes()))
+                    .filter(|h| !h.is_empty()),
+            );
+        }
+        haks
+    }
+
+    /// Layers the module's haks as Module Properties lists them, when the
+    /// list changed (an edit, an undo): no reopening needed.
+    pub(crate) fn sync_haks(&mut self) {
+        let listed = self.listed_haks();
+        if listed == self.haks_layered {
+            return;
+        }
+        let (Some(game), Some(gi)) = (&mut self.game, &self.install) else { return };
+        let old: Vec<String> = game
+            .resman
+            .layers()
+            .iter()
+            .filter(|l| l.label.starts_with("hak:"))
+            .map(|l| l.label.clone())
+            .collect();
+        for l in old {
+            game.resman.remove(&l);
+        }
+        match game.resman.add_haks(gi, &listed.iter().map(String::as_str).collect::<Vec<_>>()) {
+            Ok(missing) => {
+                for h in missing {
+                    self.log.warn(format!("Hak {h} not found"));
+                }
+            }
+            Err(e) => self.log.error(format!("Could not open the module's haks: {e}")),
+        }
+        self.haks_layered = listed;
+        self.game_data_changed();
+        self.reload_custom_tlk();
+        self.log.info("The haks changed: the game data now has them as listed");
     }
 
     /// Every few seconds, with Options › General's reloading on: the haks

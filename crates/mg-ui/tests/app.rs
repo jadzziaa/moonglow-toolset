@@ -801,6 +801,98 @@ fn two_da_view_shows_where_rows_come_from() {
 }
 
 #[test]
+fn hak_built_from_a_folder_attached_edited_and_reloaded() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-editor");
+    let (user, content, download) = (dir.join("user"), dir.join("mg_ui_hak"), dir.join("download"));
+    for d in [&user, &content, &download] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(content.join("mg_ui_test.2da"), "2DA V2.0\n\n   Label\n0  hak\n").unwrap();
+    std::fs::write(content.join("mg_ui_other.2da"), "2DA V2.0\n\n   Label\n0  other\n").unwrap();
+    std::fs::write(content.join("a_name_far_too_long.2da"), "x").unwrap();
+    let tlk = mg_tlk::Tlk::new(Language::ENGLISH).to_bytes().unwrap();
+    std::fs::write(download.join("mg_ui.tlk"), tlk).unwrap();
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let hak = user.join("hak/mg_ui_hak.hak");
+    let dialogs = NoDialogs {
+        folders: vec![content.clone()],
+        save: vec![hak.clone()],
+        open_many: vec![vec![hak.clone(), download.join("mg_ui.tlk")]],
+        open: vec![hak.clone()],
+    };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+
+    // Built from the folder: the name too long is left out, and said why.
+    mg_ui::hak_view::build_from_folder(h.state_mut());
+    h.run();
+    let id = h.state().haks[0].id;
+    assert!(h.state().dock.find_tab(&Tab::Hak(id)).is_some());
+    h.get_by_label("mg_ui_test.2da");
+    let log = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().map(|e| e.1.clone()).collect::<Vec<_>>()
+    };
+    assert!(
+        log(&h).iter().any(|m| m.contains("a_name_far_too_long.2da") && m.contains("16")),
+        "{:?}",
+        log(&h)
+    );
+    h.get_by_label("Save").click();
+    h.run();
+    assert!(hak.is_file(), "{:?}", log(&h));
+    assert!(!h.state().haks[0].hak.is_dirty());
+
+    // Attached with a talk table in one step; the game data has it at once.
+    let tab = h.state().dock.find_tab(&Tab::Hak(id)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.state_mut().haks.clear();
+    h.run();
+    h.get_by_label("Custom Content").click();
+    h.run();
+    h.get_by_label("Add Haks and Talk Table…").click();
+    h.run();
+    assert!(h.state().attach.is_some());
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(user.join("tlk/mg_ui.tlk").is_file());
+    let key = ResKey::parse("mg_ui_test", ResType::TWODA).unwrap();
+    let has = |h: &Harness<'_, Moonglow>| h.state().game.as_ref().unwrap().resman.contains(&key);
+    assert!(has(&h), "{:?}", log(&h));
+    assert!(h.state().game.as_ref().unwrap().custom_tlk().is_some());
+    // Undone, the hak leaves the game data.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert!(!has(&h));
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+    h.run();
+    assert!(has(&h));
+
+    // Edited and saved, the module's hak is read again.
+    mg_ui::hak_view::open_hak(h.state_mut());
+    h.run();
+    h.get_by_label("mg_ui_test.2da").click();
+    h.run();
+    h.get_by_label("Remove (1)").click();
+    h.run();
+    assert!(h.state().haks[0].hak.is_dirty());
+    h.get_by_label("Undo").click();
+    h.run();
+    h.get_by_label("Redo").click();
+    h.run();
+    h.get_by_label("Save").click();
+    h.run();
+    assert!(!has(&h), "{:?}", log(&h));
+    let other = ResKey::parse("mg_ui_other", ResType::TWODA).unwrap();
+    assert!(h.state().game.as_ref().unwrap().resman.contains(&other));
+}
+
+#[test]
 fn faction_editor_adds_and_removes_factions() {
     let dir = mg_testkit::scratch_dir("ui-factions");
     let path = sample_module(&dir);

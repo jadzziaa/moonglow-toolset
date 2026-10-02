@@ -309,7 +309,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     let items = root.items(&ifo::MOD_HAK_LIST);
     let haks: Vec<String> =
         items.iter().map(|h| decode(h.read(&ifo::mod_hak_list::MOD_HAK).as_bytes())).collect();
-    ui.label("Hak paks, highest priority first. Changes apply when the module is reopened.");
+    ui.label("Hak paks, highest priority first.");
     let list = || ifo::MOD_HAK_LIST.label.to_string();
     let command = |edits: Vec<Edit>, label: &str| Action::Apply(Command::new(label, edits));
     for (i, h) in haks.iter().enumerate() {
@@ -366,6 +366,16 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             app.actions.push(Action::HakReport);
         }
     });
+    if ui
+        .button("Add Haks and Talk Table…")
+        .on_hover_text(
+            "Haks and a talk table from anywhere: copied into your hak and tlk folders and \
+             attached to the module in one step",
+        )
+        .clicked()
+    {
+        start_attach(app);
+    }
 
     ui.add_space(10.0);
     ui.horizontal(|ui| {
@@ -402,4 +412,135 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             app.actions.push(Action::OpenTab(crate::Tab::TalkTable));
         }
     });
+}
+
+/// Add Haks and Talk Table: the files chosen, where each goes, and whether
+/// to replace other files of the same names there.
+#[derive(Debug, Clone)]
+pub struct AttachDraft {
+    pub placements: Vec<mg_module::attach::Placement>,
+    pub replace: bool,
+}
+
+fn start_attach(app: &mut Moonglow) {
+    let Some(user) = app.install.as_ref().and_then(|i| i.user_dir.clone()) else {
+        app.log.error("Adding haks needs the game's user folder (Tools › Options)");
+        return;
+    };
+    let files = app.dialogs.open_files(crate::dialogs::FileKind::Content, None);
+    if files.is_empty() {
+        return;
+    }
+    match mg_module::attach::placements(&user, &files) {
+        Ok(placements) => app.attach = Some(AttachDraft { placements, replace: false }),
+        Err(e) => app.log.error(format!("Add Haks and Talk Table: {e}")),
+    }
+}
+
+/// The Add Haks and Talk Table window: the haks in their order (highest
+/// first), the talk table, and what's copied where.
+pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
+    use mg_module::attach::There;
+    let Some(mut draft) = app.attach.take() else { return };
+    let mut done = None;
+    egui::Window::new("Add Haks and Talk Table")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label("Haks go at the top of the module's list, highest priority first:");
+            let n = draft.placements.len();
+            let mut swap = None;
+            for (i, p) in draft.placements.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.monospace(if p.is_tlk {
+                        format!("{}.tlk", p.name)
+                    } else {
+                        format!("{}.hak", p.name)
+                    });
+                    let folder = if p.is_tlk { "tlk" } else { "hak" };
+                    let what = match p.there {
+                        There::Nothing => format!("copied to your {folder} folder"),
+                        There::Same => format!("already in your {folder} folder"),
+                        There::Different => format!("a different one is in your {folder} folder"),
+                    };
+                    ui.weak(what).on_hover_text(p.to.display().to_string());
+                    if !p.is_tlk {
+                        let next_hak = (i + 1..n).find(|&j| !draft.placements[j].is_tlk);
+                        let prev_hak = (0..i).rev().find(|&j| !draft.placements[j].is_tlk);
+                        if ui
+                            .add_enabled(prev_hak.is_some(), egui::Button::new("Move Up").small())
+                            .clicked()
+                        {
+                            swap = prev_hak.map(|j| (i, j));
+                        }
+                        if ui
+                            .add_enabled(next_hak.is_some(), egui::Button::new("Move Down").small())
+                            .clicked()
+                        {
+                            swap = next_hak.map(|j| (i, j));
+                        }
+                    } else {
+                        ui.weak("(the module's talk table)");
+                    }
+                });
+            }
+            if let Some((a, b)) = swap {
+                draft.placements.swap(a, b);
+            }
+            if draft.placements.iter().any(|p| p.there == There::Different) {
+                ui.checkbox(
+                    &mut draft.replace,
+                    "Replace the files of the same names that are there",
+                );
+            }
+            ui.horizontal(|ui| {
+                if ui.button("OK").clicked() {
+                    done = Some(true);
+                }
+                if ui.button("Cancel").clicked() {
+                    done = Some(false);
+                }
+            });
+        });
+    match done {
+        None => app.attach = Some(draft),
+        Some(false) => {}
+        Some(true) => attach(app, &draft),
+    }
+}
+
+/// Copies the files and attaches them, as one undoable step (the copies
+/// stay).
+fn attach(app: &mut Moonglow, draft: &AttachDraft) {
+    let copied = match mg_module::attach::copy(&draft.placements, draft.replace) {
+        Ok(n) => n,
+        Err(e) => {
+            app.log.error(format!("Add Haks and Talk Table: {e}"));
+            return;
+        }
+    };
+    let Some(ws) = &mut app.ws else { return };
+    let Ok(info) = ws.doc(&info_key()) else { return };
+    let haks: Vec<String> =
+        draft.placements.iter().filter(|p| !p.is_tlk).map(|p| p.name.clone()).collect();
+    let mut edits = Vec::new();
+    if !haks.is_empty() {
+        edits.push(Edit::SetField {
+            key: info_key(),
+            path: GffPath::root(),
+            label: ifo::MOD_HAK_LIST.label.to_string(),
+            value: Some(mg_module::attach::hak_list(&info.root, &haks)),
+        });
+    }
+    if let Some(t) = draft.placements.iter().find(|p| p.is_tlk) {
+        edits.push(Edit::SetField {
+            key: info_key(),
+            path: GffPath::root(),
+            label: ifo::MOD_CUSTOM_TLK.label.to_string(),
+            value: Some(ExoString(encode(&t.name)).into_value()),
+        });
+    }
+    app.log.info(format!("Copied {copied} files into the user folder"));
+    app.actions.push(Action::Apply(Command::new("Add haks and talk table", edits)));
 }

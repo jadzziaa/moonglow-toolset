@@ -7,12 +7,14 @@
 //! file is written next to the old one and renamed over it, after the old
 //! one is kept as a single backup.
 
+pub mod attach;
 pub mod blueprints;
 pub mod build;
 pub mod dialog;
 pub mod dialog_io;
 pub mod doctor;
 pub mod factions;
+pub mod hak_edit;
 pub mod haks;
 pub mod instances;
 pub mod journal;

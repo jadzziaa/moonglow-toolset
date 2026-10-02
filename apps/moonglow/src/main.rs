@@ -47,6 +47,17 @@ impl Dialogs for NativeDialogs {
         }
         d.pick_folder()
     }
+
+    fn open_files(&mut self, kind: FileKind, start: Option<&Path>) -> Vec<PathBuf> {
+        let mut d = rfd::FileDialog::new().set_title(kind.title(false));
+        if let Some((name, exts)) = kind.filter(false) {
+            d = d.add_filter(name, exts);
+        }
+        if let Some(s) = start {
+            d = d.set_directory(s);
+        }
+        d.pick_files().unwrap_or_default()
+    }
 }
 
 const APP_NAME: &str = "Moonglow Toolset";

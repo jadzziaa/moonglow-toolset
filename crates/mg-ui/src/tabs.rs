@@ -29,6 +29,8 @@ pub enum Tab {
     Journal,
     /// The module's custom talk table.
     TalkTable,
+    /// A hak in the hak editor (its id among the open haks).
+    Hak(u32),
     /// A conversation.
     Dialog(ResKey),
     /// A resource from the load order, read-only.
@@ -121,6 +123,10 @@ impl TabViewer for Viewer<'_> {
             Tab::Blueprint(k) => k.to_string().into(),
             Tab::Factions => "Factions".into(),
             Tab::Journal => "Journal".into(),
+            Tab::Hak(id) => {
+                let doc = self.app.haks.iter().find(|d| d.id == *id);
+                doc.map_or("Hak".into(), |d| d.title()).into()
+            }
             Tab::TalkTable => {
                 let dirty = self.app.talk.as_ref().is_some_and(|t| t.is_dirty());
                 format!("Talk Table{}", if dirty { " *" } else { "" }).into()
@@ -156,6 +162,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Factions => faction_view::ui(self.app, ui),
             Tab::Journal => journal_view::ui(self.app, ui),
             Tab::TalkTable => crate::talk_view::ui(self.app, ui),
+            Tab::Hak(id) => crate::hak_view::ui(self.app, ui, *id),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
             Tab::Model(k) => model_view::ui(self.app, ui, model_view::Source::Resource(*k)),
@@ -184,6 +191,19 @@ impl TabViewer for Viewer<'_> {
             Tab::Manual => crate::manual::ui(self.app, ui),
             Tab::References => crate::references::ui(self.app, ui),
         }
+    }
+
+    /// A hak with unsaved changes asks first; a closed hak is let go.
+    fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
+        use egui_dock::tab_viewer::OnCloseResponse;
+        if let Tab::Hak(id) = *tab {
+            if self.app.haks.iter().any(|d| d.id == id && d.hak.is_dirty()) {
+                self.app.hak_closing = Some(id);
+                return OnCloseResponse::Focus;
+            }
+            self.app.haks.retain(|d| d.id != id);
+        }
+        OnCloseResponse::Close
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {

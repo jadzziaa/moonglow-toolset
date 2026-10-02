@@ -73,77 +73,26 @@ impl<'a> ErfWriter<'a> {
         self.entries.is_empty()
     }
 
-    fn strings_size(&self) -> usize {
-        self.description.strings.iter().map(|(_, s)| 8 + s.len()).sum()
-    }
-
-    /// Where the resources' data starts.
-    fn data_offset(&self) -> usize {
-        HEADER_SIZE + self.strings_size() + self.entries.len() * (24 + 8)
-    }
-
     /// The resources that would start 2 GiB or further into the archive,
     /// which the game can't read (`mg_resman::ERF_READ_LIMIT`).
     pub fn past_read_limit(&self) -> Vec<(ResRef, ResType)> {
-        let mut at = self.data_offset() as u64;
-        let mut out = Vec::new();
-        for (resref, restype, data) in &self.entries {
-            if at >= 1 << 31 {
-                out.push((*resref, *restype));
-            }
-            at += data.len() as u64;
-        }
-        out
+        let header = Header { description: self.description.clone(), ..Default::default() };
+        let entries: Vec<(ResRef, ResType, u64)> =
+            self.entries.iter().map(|(r, t, d)| (*r, *t, d.len() as u64)).collect();
+        past_read_limit(&header, &entries)
     }
 
     /// Writes the archive.
     pub fn write_to(&self, w: &mut impl Write) -> Result<(), WriteError> {
-        let n = self.entries.len();
-        let strings_size = self.strings_size();
-        let keys_offset = HEADER_SIZE + strings_size;
-        let resources_offset = keys_offset + n * 24;
-        let data_offset = self.data_offset();
-        let total = data_offset + self.entries.iter().map(|(_, _, d)| d.len()).sum::<usize>();
-        if u32::try_from(total).is_err() {
-            return Err(WriteError::TooLarge);
-        }
-
-        let mut head = Vec::with_capacity(data_offset);
-        head.put_bytes(&self.file_type);
-        head.put_bytes(b"V1.0");
-        head.put_u32_usize(self.description.strings.len());
-        head.put_u32_usize(strings_size);
-        head.put_u32_usize(n);
-        head.put_u32_usize(HEADER_SIZE);
-        head.put_u32_usize(keys_offset);
-        head.put_u32_usize(resources_offset);
-        head.put_u32(self.build_year);
-        head.put_u32(self.build_day);
-        head.put_u32(self.description.strref.0);
-        head.resize(HEADER_SIZE, 0);
-        for (lang, s) in &self.description.strings {
-            head.put_u32(*lang);
-            head.put_u32_usize(s.len());
-            head.put_bytes(s);
-        }
-        for (i, (resref, restype, _)) in self.entries.iter().enumerate() {
-            head.put_fixed(resref.to_lowercase().as_bytes(), 16);
-            head.put_u32_usize(i);
-            head.put_u16(restype.0);
-            head.put_u16(0);
-        }
-        let mut offset = data_offset;
-        for (_, _, data) in &self.entries {
-            head.put_u32_usize(offset);
-            head.put_u32_usize(data.len());
-            offset += data.len();
-        }
-        debug_assert_eq!(head.len(), data_offset);
-        w.write_all(&head)?;
-        for (_, _, data) in &self.entries {
-            w.write_all(data)?;
-        }
-        Ok(())
+        let header = Header {
+            file_type: self.file_type,
+            build_year: self.build_year,
+            build_day: self.build_day,
+            description: self.description.clone(),
+        };
+        let entries: Vec<(ResRef, ResType, u64)> =
+            self.entries.iter().map(|(r, t, d)| (*r, *t, d.len() as u64)).collect();
+        write_streamed(w, &header, &entries, |i| Ok(Cow::Borrowed(&self.entries[i].2[..])))
     }
 
     /// The archive as bytes.
@@ -152,6 +101,110 @@ impl<'a> ErfWriter<'a> {
         self.write_to(&mut v)?;
         Ok(v)
     }
+}
+
+/// An archive's header, but for its entries.
+#[derive(Debug, Clone, Default)]
+pub struct Header {
+    pub file_type: [u8; 4],
+    /// Years since 1900.
+    pub build_year: u32,
+    /// Day of the year (0-based).
+    pub build_day: u32,
+    pub description: Description,
+}
+
+fn data_start(header: &Header, entries: usize) -> u64 {
+    let strings: usize = header.description.strings.iter().map(|(_, s)| 8 + s.len()).sum();
+    (HEADER_SIZE + strings + entries * (24 + 8)) as u64
+}
+
+/// The entries (name, type, size) that would start 2 GiB or further into
+/// an archive, which the game can't read (`mg_resman::ERF_READ_LIMIT`).
+pub fn past_read_limit(
+    header: &Header,
+    entries: &[(ResRef, ResType, u64)],
+) -> Vec<(ResRef, ResType)> {
+    let mut at = data_start(header, entries.len());
+    let mut out = Vec::new();
+    for (resref, restype, size) in entries {
+        if at >= 1 << 31 {
+            out.push((*resref, *restype));
+        }
+        at += size;
+    }
+    out
+}
+
+/// Writes a `V1.0` archive whose resources are read one at a time: `data`
+/// gives entry `i`'s bytes, which must be the size `entries` says. For
+/// archives too big to hold in memory (a hak built from files and another
+/// archive).
+pub fn write_streamed<'d>(
+    w: &mut impl Write,
+    header: &Header,
+    entries: &[(ResRef, ResType, u64)],
+    mut data: impl FnMut(usize) -> io::Result<Cow<'d, [u8]>>,
+) -> Result<(), WriteError> {
+    let mut names = HashSet::new();
+    for (resref, restype, _) in entries {
+        if !names.insert((*resref, *restype)) {
+            return Err(WriteError::Duplicate(format!("{resref}.{restype}")));
+        }
+    }
+    let n = entries.len();
+    let strings_size: usize = header.description.strings.iter().map(|(_, s)| 8 + s.len()).sum();
+    let keys_offset = HEADER_SIZE + strings_size;
+    let resources_offset = keys_offset + n * 24;
+    let data_offset = data_start(header, n);
+    let total = data_offset + entries.iter().map(|e| e.2).sum::<u64>();
+    if u32::try_from(total).is_err() {
+        return Err(WriteError::TooLarge);
+    }
+
+    let mut head = Vec::with_capacity(data_offset as usize);
+    head.put_bytes(&header.file_type);
+    head.put_bytes(b"V1.0");
+    head.put_u32_usize(header.description.strings.len());
+    head.put_u32_usize(strings_size);
+    head.put_u32_usize(n);
+    head.put_u32_usize(HEADER_SIZE);
+    head.put_u32_usize(keys_offset);
+    head.put_u32_usize(resources_offset);
+    head.put_u32(header.build_year);
+    head.put_u32(header.build_day);
+    head.put_u32(header.description.strref.0);
+    head.resize(HEADER_SIZE, 0);
+    for (lang, s) in &header.description.strings {
+        head.put_u32(*lang);
+        head.put_u32_usize(s.len());
+        head.put_bytes(s);
+    }
+    for (i, (resref, restype, _)) in entries.iter().enumerate() {
+        head.put_fixed(resref.to_lowercase().as_bytes(), 16);
+        head.put_u32_usize(i);
+        head.put_u16(restype.0);
+        head.put_u16(0);
+    }
+    let mut offset = data_offset;
+    for (_, _, size) in entries {
+        // Fits: the total does.
+        head.put_u32(offset as u32);
+        head.put_u32(*size as u32);
+        offset += size;
+    }
+    debug_assert_eq!(head.len() as u64, data_offset);
+    w.write_all(&head)?;
+    for (i, (resref, restype, size)) in entries.iter().enumerate() {
+        let bytes = data(i)?;
+        if bytes.len() as u64 != *size {
+            return Err(WriteError::Io(io::Error::other(format!(
+                "{resref}.{restype} changed size while the archive was written"
+            ))));
+        }
+        w.write_all(&bytes)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

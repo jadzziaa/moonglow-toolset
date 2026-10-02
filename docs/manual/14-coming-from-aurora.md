@@ -133,6 +133,11 @@ Moonglow's own.
   each row comes from, and what a hak changed.
 - **Talk tables**: Tools › Talk Table edits the module's own, and String
   Edit's **Move to Talk Table** puts a text there by StrRef.
+- **Haks**: Tools › Haks builds a hak from a folder and opens one to add,
+  rename, extract and remove files (nwhak's job, without its cut-short
+  names); Module Properties › Custom Content › **Add Haks and Talk
+  Table…** attaches downloaded content in one step, and hak changes apply
+  without reopening the module.
 - **Placing and arranging**: snapping to a grid and to angles; Q and E
   to turn, G to drop to the ground; lining up, spacing out and mirroring;
   locking objects out of the way; prefabs (an area's right-click menu,

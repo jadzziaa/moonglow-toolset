@@ -422,3 +422,47 @@ fn talk_table_and_2da_layers() {
     h.run();
     shoot(&mut h, &dir, "2da-layers");
 }
+
+#[test]
+#[ignore]
+fn hak_editor_and_attach() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-hak");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    // A shipped hak, opened in the editor, with a file added.
+    let shipped = root.join("data/hk/id_resources.hak");
+    let added = dir.join("mg_chair.mdl");
+    std::fs::write(&added, b"model").unwrap();
+    let path = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &path).unwrap();
+    let tlk = dir.join("mg_text.tlk");
+    std::fs::write(&tlk, mg_tlk::Tlk::new(mg_core::Language::ENGLISH).to_bytes().unwrap()).unwrap();
+    let dialogs = NoDialogs {
+        open: vec![shipped.clone()],
+        open_many: vec![vec![shipped, tlk]],
+        ..Default::default()
+    };
+    let mut app = Moonglow::new(Some(GameInstall::new(&root, Some(user), "en")), Box::new(dialogs));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    mg_ui::hak_view::open_hak(h.state_mut());
+    h.state_mut().haks[0].hak.add_files(&[added]);
+    h.run();
+    shoot(&mut h, &dir, "hak-editor");
+    let tab = h.state().dock.find_tab(&mg_ui::Tab::Hak(h.state().haks[0].id)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.state_mut().haks.clear();
+    h.run();
+    use egui_kittest::kittest::Queryable;
+    h.get_by_label("Custom Content").click();
+    h.run();
+    h.get_by_label("Add Haks and Talk Table…").click();
+    h.run();
+    shoot(&mut h, &dir, "attach");
+}

@@ -15,7 +15,7 @@ use std::borrow::Cow;
 use mg_core::{ResRef, ResType, StrRef};
 
 pub use read::{ReadError, entry_data};
-pub use write::{ErfWriter, WriteError};
+pub use write::{ErfWriter, Header, WriteError, past_read_limit, write_streamed};
 
 /// The archive layout version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

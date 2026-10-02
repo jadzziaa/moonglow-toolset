@@ -145,6 +145,24 @@ Size: S (an hour or two), M (a day or so), L (several days).
   whether the client also reads a table from the module (not only from
   haks and the `tlk` folder) for 2DA text isn't tested. (S)
 
+## Haks in the GUI
+
+- **No viewing inside the hak editor:** a resource is extracted to look at
+  it, or seen in the resource browser once the module uses the hak. (S)
+- **Build Hak from Folder doesn't remember the folder:** rebuilding after
+  changing the folder is Build again (or `mg pack`). A remembered folder
+  could update the hak in one click. (S)
+- **No zip, 7z or rar:** content downloaded as an archive is unpacked
+  first; Add Haks and Talk Table takes the haks and talk table. (S, a new
+  dependency)
+- **Hak order advice:** Moonglow doesn't know which haks go above which
+  (CEP, PRC and the like each document theirs); the conflict report shows
+  what each hak hides. (M)
+- **Sorting** the hak editor's list by size or type, and shift+click
+  ranges. (S)
+- **ERF version:** haks are saved as `V1.0`; EE's compressed `E1.0` is
+  read but not written. (S–M)
+
 ## Release and packaging (v0.1.0)
 
 - **macOS:** the app and disk image are built by CI but have never been

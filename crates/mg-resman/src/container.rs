@@ -129,6 +129,10 @@ pub struct ErfContainer {
     pub path: PathBuf,
     file: std::fs::File,
     entries: HashMap<ResKey, Entry>,
+    /// Each name once, in archive order, with its size.
+    order: Vec<(ResKey, u64)>,
+    /// The header, but for the entries.
+    pub header: mg_erf::Header,
 }
 
 /// Reads `buf.len()` bytes at `offset` without moving a shared cursor.
@@ -168,13 +172,29 @@ impl ErfContainer {
         let map = map_file(path)?;
         let erf = Erf::read(&map)
             .map_err(|e| ResError::Container { path: path.into(), message: e.to_string() })?;
+        let header = mg_erf::Header {
+            file_type: erf.file_type,
+            build_year: erf.build_year,
+            build_day: erf.build_day,
+            description: erf.description.clone(),
+        };
         let mut entries = HashMap::with_capacity(erf.entries.len());
+        let mut order = Vec::with_capacity(erf.entries.len());
         for e in erf.entries {
             // The first of duplicate names wins, as in `Erf::find`.
-            entries.entry(ResKey::new(e.resref, e.restype)).or_insert(e);
+            let key = ResKey::new(e.resref, e.restype);
+            if let std::collections::hash_map::Entry::Vacant(v) = entries.entry(key) {
+                order.push((key, u64::from(e.size)));
+                v.insert(e);
+            }
         }
         drop(map);
-        Ok(ErfContainer { path: path.into(), file, entries })
+        Ok(ErfContainer { path: path.into(), file, entries, order, header })
+    }
+
+    /// Each resource once, in archive order, with its size.
+    pub fn index(&self) -> &[(ResKey, u64)] {
+        &self.order
     }
 }
 

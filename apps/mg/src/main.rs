@@ -197,6 +197,19 @@ enum Cmd {
         /// The project's folder.
         project: PathBuf,
     },
+    /// Attach haks and a talk table to a module: copies them into the user
+    /// folder's hak and tlk (where the game looks), lists the haks at the
+    /// top of the module's hak list in the order given, names the talk
+    /// table, and saves the module.
+    Attach {
+        module: PathBuf,
+        /// .hak and .tlk files, highest priority first.
+        #[arg(required = true)]
+        files: Vec<PathBuf>,
+        /// Replace a different file of the same name in the user folder.
+        #[arg(long)]
+        replace: bool,
+    },
     /// Import an ERF into a module and save it.
     Import {
         module: PathBuf,
@@ -629,6 +642,40 @@ fn run(cli: Cli) -> Result<()> {
                 s.replaced.len(),
                 s.skipped.len(),
                 s.new_areas.iter().map(|a| a.to_string()).collect::<Vec<_>>()
+            );
+        }
+        Cmd::Attach { module, files, replace } => {
+            use mg_module::attach::{There, copy, hak_list, placements};
+            let gi = install(&cli)?;
+            let user = gi.user_dir.clone().context("no user folder; pass --user-dir")?;
+            let placed = placements(&user, files).map_err(anyhow::Error::msg)?;
+            let differ: Vec<String> = placed
+                .iter()
+                .filter(|p| p.there == There::Different)
+                .map(|p| p.to.display().to_string())
+                .collect();
+            if !differ.is_empty() && !*replace {
+                bail!(
+                    "other files of these names are there (--replace replaces them): {}",
+                    differ.join(", ")
+                );
+            }
+            let copied = copy(&placed, *replace).map_err(anyhow::Error::msg)?;
+            let mut m = Module::open(module)?;
+            let mut info = m.info()?;
+            let haks: Vec<String> =
+                placed.iter().filter(|p| !p.is_tlk).map(|p| p.name.clone()).collect();
+            if !haks.is_empty() {
+                info.root.set("Mod_HakList", hak_list(&info.root, &haks));
+            }
+            if let Some(t) = placed.iter().find(|p| p.is_tlk) {
+                info.root.set("Mod_CustomTlk", mg_gff::Value::String(t.name.clone().into_bytes()));
+            }
+            m.set_info(&info)?;
+            m.save()?;
+            eprintln!(
+                "copied {copied} file(s); the module has {} hak(s) attached",
+                m.haks()?.len()
             );
         }
         Cmd::Tlk { strrefs } => {

@@ -44,6 +44,7 @@ command.
 | --- | --- |
 | `mg verify MODULE [--unused] [--json]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops; `--json` writes the results as JSON |
 | `mg haks MODULE` | what the module's haks provide, where they conflict and which game resources they override |
+| `mg attach MODULE FILE…` | copy haks and a talk table (from anywhere) into the user folder's `hak` and `tlk`, list the haks at the top of the module's hak list in the order given, name the talk table, and save (`--replace` replaces different files of the same names there) |
 | `mg compile MODULE [--uncompiled]` | compile the module's scripts (or only those without a compiled version) and save it |
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`) |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |

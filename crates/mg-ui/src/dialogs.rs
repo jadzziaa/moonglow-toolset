@@ -19,6 +19,12 @@ pub enum FileKind {
     Conversation(mg_module::dialog_io::Format),
     /// A story to read as a conversation: Twine (Twee) or Ink.
     Story,
+    /// A hak (or other ERF archive) for the hak editor.
+    Hak,
+    /// Haks and a talk table to attach to the module.
+    Content,
+    /// Files to add to a hak.
+    HakFiles,
 }
 
 impl FileKind {
@@ -37,6 +43,10 @@ impl FileKind {
             (FileKind::Conversation(_), false) => "Import Lines",
             (FileKind::Conversation(_), true) => "Export Conversation",
             (FileKind::Story, _) => "Import Conversation",
+            (FileKind::Hak, false) => "Open Hak",
+            (FileKind::Hak, true) => "Save Hak As",
+            (FileKind::Content, _) => "Add Haks and Talk Table",
+            (FileKind::HakFiles, _) => "Add Files to the Hak",
         }
     }
 
@@ -51,6 +61,10 @@ impl FileKind {
             (FileKind::SpellList, _) => Some(("Spell lists", &["ini"])),
             (FileKind::Conversation(f), _) => Some((f.name(), f.extensions())),
             (FileKind::Story, _) => Some(("Twine or Ink stories", &["twee", "tw", "ink"])),
+            (FileKind::Hak, false) => Some(("Haks and archives", &["hak", "erf"])),
+            (FileKind::Hak, true) => Some(("Hak", &["hak"])),
+            (FileKind::Content, _) => Some(("Haks and talk tables", &["hak", "tlk"])),
+            (FileKind::HakFiles, _) => None,
         }
     }
 }
@@ -63,6 +77,10 @@ pub trait Dialogs {
     fn save_file(&mut self, kind: FileKind, suggested: Option<&Path>) -> Option<PathBuf>;
     /// Asks for a folder.
     fn pick_folder(&mut self, title: &str, start: Option<&Path>) -> Option<PathBuf>;
+    /// Asks for files to open (none: cancelled).
+    fn open_files(&mut self, kind: FileKind, start: Option<&Path>) -> Vec<PathBuf> {
+        self.open_file(kind, start).into_iter().collect()
+    }
 }
 
 /// Dialogs that answer from a script (for tests), or cancel: each call takes
@@ -72,6 +90,8 @@ pub struct NoDialogs {
     pub open: Vec<PathBuf>,
     pub save: Vec<PathBuf>,
     pub folders: Vec<PathBuf>,
+    /// Answers to [`Dialogs::open_files`], the last first.
+    pub open_many: Vec<Vec<PathBuf>>,
 }
 
 impl Dialogs for NoDialogs {
@@ -83,5 +103,8 @@ impl Dialogs for NoDialogs {
     }
     fn pick_folder(&mut self, _title: &str, _start: Option<&Path>) -> Option<PathBuf> {
         self.folders.pop()
+    }
+    fn open_files(&mut self, _kind: FileKind, _start: Option<&Path>) -> Vec<PathBuf> {
+        self.open_many.pop().unwrap_or_default()
     }
 }

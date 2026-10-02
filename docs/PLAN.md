@@ -536,7 +536,15 @@ surveyed after 0.2.0). What each item left undone is collected in
      it can't find (`engine_tlk.rs`; the wiki says haks don't count):
      Moonglow and `mg verify` look where the game does, and the doctor
      reports a missing one;
-   - haks in the GUI;
+   - haks in the GUI — done: Tools › Haks (New Hak, Open Hak…, Build Hak
+     from Folder…) opens a hak editor (add files and folders, remove,
+     rename, extract, undo; names the game can't read refused with why;
+     saved streamed, beside and then over the old one; the game's own haks
+     only saved as copies); every shipped hak re-saved holds the same
+     resources and `nwn_erf` reads it (`hak_edit.rs`). Module Properties ›
+     Add Haks and Talk Table… (and `mg attach`) copies content into the
+     user folder and attaches it in one step; the hak list takes effect
+     without reopening the module;
    - PWK and AABB toggles, and minimap export;
    - remappable keys;
    - automation and a plugin API;
