@@ -6016,13 +6016,26 @@ fn blueprints_drag_from_the_module_tree_into_the_area() {
         h.event(egui::Event::PointerMoved(from + (to - from) * t));
         h.run_steps(1);
     }
-    // Before it is let go, its ghost shows where it would go.
+    // Before it is let go, its ghost shows where it would go; Shift + Q
+    // turns it a quarter anticlockwise.
     let ghost = h.state().area_views[&area].ghost_shown.clone().expect("a ghost");
     assert_eq!(ghost.kind, mg_area::ObjectKind::Waypoint);
     let at = ghost.position;
     assert!((at.x - 25.0).abs() < 0.5 && (at.y - 25.0).abs() < 0.5, "the ghost is at {at}");
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Q);
+    h.run_steps(1);
+    let turned = h.state().area_views[&area].ghost_shown.as_ref().unwrap().rotation;
+    assert!((turned - ghost.rotation - std::f32::consts::FRAC_PI_2).abs() < 1e-4);
     press(&h, to, false, modifiers);
     h.run_steps(3);
+    let model = h.state().area_views[&area].model.as_ref().unwrap();
+    let placed = model
+        .objects
+        .iter()
+        .find(|o| o.kind == mg_area::ObjectKind::Waypoint && o.index == before)
+        .expect("the waypoint is placed");
+    let d = (placed.rotation - turned).rem_euclid(std::f32::consts::TAU);
+    assert!(d < 1e-3 || d > std::f32::consts::TAU - 1e-3, "placed at {}", placed.rotation);
     assert_eq!(count(&mut h), before + 1, "{:?}", h.state().log.entries);
     let (x, y, _) = waypoint(&mut h, area, before).unwrap();
     assert!((x - 25.0).abs() < 0.5 && (y - 25.0).abs() < 0.5, "dropped at {x}, {y}");
@@ -6053,12 +6066,32 @@ fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
     let ghost = h.state().area_views[&area].ghost_shown.clone().expect("a ghost");
     assert!(ghost.preview.is_some(), "the chest has a model to show");
     assert!((ghost.position.x - 20.0).abs() < 0.5 && (ghost.position.y - 22.0).abs() < 0.5);
+    assert!(ghost.rotation.abs() < 1e-4);
+    // E twice turns it clockwise by 15° each (the selection stays as it is).
+    h.key_press(egui::Key::E);
+    h.run_steps(1);
+    h.key_press(egui::Key::E);
+    h.run_steps(1);
+    let turned = h.state().area_views[&area].ghost_shown.as_ref().unwrap().rotation;
+    assert!((turned + 30f32.to_radians()).abs() < 1e-4, "turned to {}", turned.to_degrees());
     // Moved off the view (onto the module tree), it goes.
     h.event(egui::Event::PointerMoved(from));
     h.run_steps(2);
     assert!(h.state().area_views[&area].ghost_shown.is_none());
-    press(&h, from, false, egui::Modifiers::NONE);
+    // Back over the view and let go: placed as the ghost was turned.
+    h.event(egui::Event::PointerMoved(to));
     h.run_steps(2);
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let model = h.state().area_views[&area].model.as_ref().unwrap();
+    // (The last placeable: the copy keeps plc_chest1 as its template.)
+    let placed = model
+        .objects
+        .iter()
+        .filter(|o| o.kind == mg_area::ObjectKind::Placeable)
+        .max_by_key(|o| o.index)
+        .expect("the chest is placed");
+    assert!((placed.rotation - turned).abs() < 1e-3, "placed at {}", placed.rotation.to_degrees());
 }
 
 #[test]

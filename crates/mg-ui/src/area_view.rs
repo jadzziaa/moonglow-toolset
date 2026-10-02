@@ -164,6 +164,9 @@ pub struct AreaView {
     ghost: Option<(ResKey, Option<mg_area::AreaObject>)>,
     /// The blueprint about to be placed as the last frame showed it.
     pub ghost_shown: Option<mg_area::AreaObject>,
+    /// How far Q and E have turned the blueprint about to be placed
+    /// (radians, anticlockwise); it is placed so.
+    ghost_turn: f32,
     /// Where the context menu was opened (on the ground).
     menu_at: Option<Vec3>,
     /// Snapping (the settings', copied each frame): grid in meters, angle in
@@ -233,6 +236,7 @@ impl AreaView {
             pasting: false,
             ghost: None,
             ghost_shown: None,
+            ghost_turn: 0.0,
             menu_at: None,
             snap: (None, None),
             pointer: None,
@@ -1083,6 +1087,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         drop_blueprint(app, view, response, dragged.0);
         return;
     }
+    // Q and E turn a blueprint about to be placed (dragged, or chosen in
+    // the palette), as they turn a selection; doors face as their hooks do.
+    let placing = view.ghost_shown.as_ref().filter(|o| o.kind != ObjectKind::Door).is_some();
+    if placing && !ui.ctx().memory(|m| m.focused().is_some()) {
+        for (cmd, by) in turn_keys(view) {
+            if ui.input(|i| app.keymap.pressed(i, cmd)) {
+                view.ghost_turn += by;
+            }
+        }
+    }
     if crate::terrain_mode::input(app, ui, view, response) {
         return;
     }
@@ -1203,7 +1217,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     None => app.log.warn("Doors go on door hooks: click near one"),
                 }
             } else {
-                place(app, view, key, at, 0.0, &[]);
+                place(app, view, key, at, view.ghost_turn, &[]);
                 if !shift {
                     app.palette.selected = None;
                 }
@@ -1336,17 +1350,12 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     // Q and E (Options › Keyboard) turn the selection by the snapping angle
     // (15° when free), Shift + Q and E by 90°; G drops it to the ground.
-    if hovered && !typing && !view.selection.is_empty() {
+    // (While placing, they turn what is being placed instead.)
+    if hovered && !typing && !placing && !view.selection.is_empty() {
         use crate::keys::Cmd;
         let keys = app.keymap.clone();
         let pressed = |c: Cmd| ui.input(|i| keys.pressed(i, c));
-        let step = view.snap.1.unwrap_or(15.0).to_radians();
-        for (cmd, by) in [
-            (Cmd::TurnLeft, step),
-            (Cmd::TurnRight, -step),
-            (Cmd::TurnLeft90, std::f32::consts::FRAC_PI_2),
-            (Cmd::TurnRight90, -std::f32::consts::FRAC_PI_2),
-        ] {
+        for (cmd, by) in turn_keys(view) {
             if pressed(cmd) {
                 rotate_selection(app, view, by);
             }
@@ -1475,7 +1484,7 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
             None => app.log.warn("Doors go on door hooks: drop it near one"),
         }
     } else {
-        place(app, view, key, at, 0.0, &[]);
+        place(app, view, key, at, view.ghost_turn, &[]);
     }
     // Placed, as a click places it: the palette's choice is let go (with
     // Shift it stays), so what was dropped can be picked up and moved
@@ -1540,6 +1549,19 @@ fn place(
     recent.retain(|x| *x != r);
     recent.insert(0, r);
     recent.truncate(RECENT);
+}
+
+/// The turn keys and how far each turns (radians, anticlockwise): Q and E
+/// by the snapping angle (15° when free), Shift + Q and E by 90°.
+fn turn_keys(view: &AreaView) -> [(crate::keys::Cmd, f32); 4] {
+    use crate::keys::Cmd;
+    let step = view.snap.1.unwrap_or(15.0).to_radians();
+    [
+        (Cmd::TurnLeft, step),
+        (Cmd::TurnRight, -step),
+        (Cmd::TurnLeft90, std::f32::consts::FRAC_PI_2),
+        (Cmd::TurnRight90, -std::f32::consts::FRAC_PI_2),
+    ]
 }
 
 /// The twelve edges of the box `min`–`max` placed by `t`.
@@ -1627,12 +1649,13 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
             Some(mg_area::AreaObject::read(game, kind, usize::MAX, &item))
         });
         view.ghost = Some((key, object));
+        // A blueprint chosen anew starts unturned.
+        view.ghost_turn = 0.0;
     }
     let mut o = view.ghost.as_ref()?.1.clone()?;
     o.position = at + Vec3::Z * lift(kind);
-    if let Some(r) = rotation {
-        o.rotation = r;
-    }
+    // A door faces as its hook does; the others as Q and E turned them.
+    o.rotation = rotation.unwrap_or(o.rotation + view.ghost_turn);
     Some(o)
 }
 

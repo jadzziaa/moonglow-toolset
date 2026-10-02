@@ -124,7 +124,9 @@ places and turns around it.
 Choose a blueprint in the palette and click in the area to place it, or
 drag it onto the area from the palette or the module tree. Until it is
 placed, a see-through copy in a blue box follows the pointer where it would
-go (on the snapping grid, a door on the nearest hook). Shift + click places
+go (on the snapping grid, a door on the nearest hook). **Q** and **E** turn
+it as they turn a selection (Shift + Q and E by 90°), and it is placed
+facing that way; a door faces as its hook does. Shift + click places
 it and keeps it chosen for another; a right click or Escape lets it go. Doors go on a
 tile's door hook when you click near one. Triggers and encounters are
 drawn point by point: click each corner, double-click to close the
