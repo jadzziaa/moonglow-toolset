@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.5.0" date="2026-10-02">
+      <description>
+        <p>JSON output from every command-line tool, and mg find and mg info for
+        questions about a module; NWSync publishing (Build › Publish to NWSync…
+        and mg nwsync), as nwn_nwsync_write publishes; a tileset editor that
+        changes only the lines it edits, makes the tileset's palette and renders
+        its minimap pictures.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-10-02">
       <description>
         <p>Palettes find blueprints by tag and close matches, show a picture on
