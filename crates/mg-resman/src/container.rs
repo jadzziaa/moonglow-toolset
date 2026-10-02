@@ -108,11 +108,37 @@ impl Container for KeyContainer {
     }
 }
 
-/// An ERF archive (hak, module, texture pack) on disk, memory-mapped.
+/// An ERF archive (hak, module, texture pack) on disk. Its table is read
+/// when opened (through a short-lived mapping); entries are read from the
+/// file at their offsets. It isn't kept mapped: Windows refuses to rewrite
+/// a mapped file, and a hak tool must be able to save a hak Moonglow has
+/// open (Reload Resources then picks it up).
 pub struct ErfContainer {
     pub path: PathBuf,
-    map: Mmap,
+    file: std::fs::File,
     entries: HashMap<ResKey, Entry>,
+}
+
+/// Reads `buf.len()` bytes at `offset` without moving a shared cursor.
+fn read_exact_at(file: &std::fs::File, buf: &mut [u8], offset: u64) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::FileExt;
+        file.read_exact_at(buf, offset)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileExt;
+        let mut done = 0;
+        while done < buf.len() {
+            let n = file.seek_read(&mut buf[done..], offset + done as u64)?;
+            if n == 0 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            done += n;
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Debug for ErfContainer {
@@ -126,6 +152,7 @@ impl fmt::Debug for ErfContainer {
 
 impl ErfContainer {
     pub fn open(path: &Path) -> Result<ErfContainer, ResError> {
+        let file = std::fs::File::open(path).map_err(|e| ResError::io(path, e))?;
         let map = map_file(path)?;
         let erf = Erf::read(&map)
             .map_err(|e| ResError::Container { path: path.into(), message: e.to_string() })?;
@@ -134,7 +161,8 @@ impl ErfContainer {
             // The first of duplicate names wins, as in `Erf::find`.
             entries.entry(ResKey::new(e.resref, e.restype)).or_insert(e);
         }
-        Ok(ErfContainer { path: path.into(), map, entries })
+        drop(map);
+        Ok(ErfContainer { path: path.into(), file, entries })
     }
 }
 
@@ -145,9 +173,13 @@ impl Container for ErfContainer {
 
     fn read(&self, key: &ResKey) -> Result<Cow<'_, [u8]>, ResError> {
         let e = self.entries.get(key).ok_or(ResError::NotFound(*key))?;
-        mg_erf::entry_data(&self.map, e).map_err(|err| ResError::Container {
-            path: self.path.clone(),
-            message: err.to_string(),
+        let mut raw = vec![0; e.disk_size as usize];
+        read_exact_at(&self.file, &mut raw, u64::from(e.offset))
+            .map_err(|err| ResError::io(&self.path, err))?;
+        // The stored bytes alone, decompressed if they are.
+        let stored = Entry { offset: 0, ..e.clone() };
+        mg_erf::entry_data(&raw, &stored).map(|d| Cow::Owned(d.into_owned())).map_err(|err| {
+            ResError::Container { path: self.path.clone(), message: err.to_string() }
         })
     }
 
