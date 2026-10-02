@@ -11,7 +11,7 @@ use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 
 use super::Form;
-use crate::images::Picture;
+use crate::images::{ICON_MAX, Picture};
 
 /// An inventory is a grid this many cells wide.
 pub(super) const GRID_WIDTH: u32 = 10;
@@ -108,7 +108,7 @@ impl Form<'_> {
             ui.set_width(ui.available_width());
             ui.weak("Chosen in the palette");
             ui.horizontal_top(|ui| {
-                crate::images::icon_box(ui, &icon, ICON, &name);
+                crate::images::icon_box(ui, &icon, ICON_MAX, &name);
                 ui.vertical(|ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.strong(&name);
@@ -269,10 +269,6 @@ pub(super) struct ItemLook<'a> {
     pub selected: Option<usize>,
 }
 
-/// The side of the square an item list shows each icon in: armor (2×3
-/// cells) and wide items (belts, 2×1) at a readable size.
-const ICON: f32 = 64.0;
-
 /// The width of a store's Infinite column.
 const FLAG_WIDTH: f32 = 60.0;
 
@@ -294,7 +290,7 @@ pub(super) fn item_list(
     let (rect, _) = ui.allocate_exact_size(header, egui::Sense::hover());
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     let mut head = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
-    head.add_space(ICON + gap);
+    head.add_space(ICON_MAX.x + gap);
     head.strong("Item");
     if infinite {
         head.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -317,14 +313,19 @@ pub(super) fn item_list(
             for (i, it) in items.iter().enumerate() {
                 let resref = entry_resref(it);
                 let n = name(it);
-                let row = egui::vec2(ui.available_width(), ICON);
+                let layers = icons.get(i).map_or(&[][..], |v| v);
+                // Each row as tall as its icon: armor at its own size, rings
+                // and potions compact.
+                let height = crate::images::icon_size(layers, ICON_MAX).y + 4.0;
+                let row =
+                    egui::vec2(ui.available_width(), height.max(ui.spacing().interact_size.y));
                 let (rect, _) = ui.allocate_exact_size(row, egui::Sense::hover());
                 if i % 2 == 1 {
                     ui.painter().rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
                 }
                 let layout = egui::Layout::left_to_right(egui::Align::Center);
                 let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
-                crate::images::icon_box(&mut ui, icons.get(i).map_or(&[][..], |v| v), ICON, &n);
+                crate::images::icon_box(&mut ui, layers, ICON_MAX, &n);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.small_button("Remove").clicked() {
                         edits.push((
@@ -338,7 +339,7 @@ pub(super) fn item_list(
                         ));
                     }
                     if infinite {
-                        let cell = egui::vec2(FLAG_WIDTH, ICON);
+                        let cell = egui::vec2(FLAG_WIDTH, row.y);
                         let centered =
                             egui::Layout::centered_and_justified(egui::Direction::LeftToRight);
                         ui.allocate_ui_with_layout(cell, centered, |ui| {

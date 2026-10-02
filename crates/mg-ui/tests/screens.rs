@@ -278,6 +278,9 @@ fn store_chosen_item() {
     };
     h.get(egui_kittest::kittest::by().predicate(row)).click();
     shoot(&mut h, &dir, "store-chosen-item");
+    // Added, on the Armor page beside the bar's potions.
+    h.get_by_label("Add Item").click();
+    shoot(&mut h, &dir, "store-armor-added");
 }
 
 #[test]

@@ -19,6 +19,9 @@ use egui::Ui;
 pub struct Picture {
     pub texture: egui::TextureHandle,
     pub size: egui::Vec2,
+    /// The part of it that is drawn (not transparent), in texture
+    /// coordinates (0 to 1).
+    pub drawn: egui::Rect,
 }
 
 impl std::fmt::Debug for Picture {
@@ -135,7 +138,8 @@ impl Loader<'_> {
             let size = [rgba.width as usize, rgba.height as usize];
             let image = egui::ColorImage::from_rgba_unmultiplied(size, &rgba.data);
             let texture = ctx.load_texture(&key, image, egui::TextureOptions::LINEAR);
-            Picture { texture, size: egui::vec2(size[0] as f32, size[1] as f32) }
+            let drawn = drawn(&rgba);
+            Picture { texture, size: egui::vec2(size[0] as f32, size[1] as f32), drawn }
         });
         self.pictures.insert(key, picture.clone());
         picture
@@ -324,22 +328,65 @@ pub(crate) fn swatch(ui: &Ui, rect: egui::Rect, tones: &[egui::Color32; 4]) {
     }
 }
 
-/// An icon in a `side`-point square: its layers at their own size, or
-/// smaller to fit, centered; an empty square without one.
+/// The part of an image that isn't transparent, in texture coordinates
+/// (rows top first); all of it when none is.
+fn drawn(rgba: &mg_image::Rgba) -> egui::Rect {
+    let (w, h) = (rgba.width as usize, rgba.height as usize);
+    let (mut min, mut max) = ([usize::MAX; 2], [0usize; 2]);
+    for (i, px) in rgba.data.as_chunks::<4>().0.iter().enumerate() {
+        if px[3] > 0 {
+            let (x, y) = (i % w.max(1), i / w.max(1));
+            min = [min[0].min(x), min[1].min(y)];
+            max = [max[0].max(x + 1), max[1].max(y + 1)];
+        }
+    }
+    if min[0] == usize::MAX || w == 0 || h == 0 {
+        return egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    }
+    let (w, h) = (w as f32, h as f32);
+    egui::Rect::from_min_max(
+        egui::pos2(min[0] as f32 / w, min[1] as f32 / h),
+        egui::pos2(max[0] as f32 / w, max[1] as f32 / h),
+    )
+}
+
+/// The largest an item icon is shown in lists: an armor's or a long
+/// weapon's whole texture (64×128 and 32×128 pixels) at its own size.
+pub(crate) const ICON_MAX: egui::Vec2 = egui::vec2(64.0, 128.0);
+
+/// The part of an icon's layers that is drawn, in texture coordinates
+/// (the layers share a size).
+fn icon_drawn(layers: &[Picture]) -> egui::Rect {
+    layers.iter().map(|p| p.drawn).reduce(|a, b| a.union(b)).unwrap_or(egui::Rect::NOTHING)
+}
+
+/// The size an icon is shown at within `max`: its drawn part at its own
+/// size, or smaller to fit (an empty 32-point square without one).
+pub(crate) fn icon_size(layers: &[Picture], max: egui::Vec2) -> egui::Vec2 {
+    match layers.first() {
+        Some(p) => {
+            let size = icon_drawn(layers).size() * p.size;
+            let scale = (max.x / size.x.max(1.0)).min(max.y / size.y.max(1.0)).min(1.0);
+            size * scale
+        }
+        None => egui::vec2(32.0, 32.0),
+    }
+}
+
+/// An icon in a column `max.x` points wide: the drawn part of its layers
+/// at [`icon_size`], centered.
 pub(crate) fn icon_box(
     ui: &mut egui::Ui,
     layers: &[Picture],
-    side: f32,
+    max: egui::Vec2,
     alt: &str,
 ) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
-    if let Some(p) = layers.first() {
-        let scale = (side / p.size.x.max(1.0)).min(side / p.size.y.max(1.0)).min(1.0);
-        let at = egui::Rect::from_center_size(rect.center(), p.size * scale);
-        let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
-        for p in layers {
-            ui.painter().image(p.texture.id(), at, uv, egui::Color32::WHITE);
-        }
+    let size = icon_size(layers, max);
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(max.x, size.y), egui::Sense::hover());
+    let at = egui::Rect::from_center_size(rect.center(), size);
+    let uv = icon_drawn(layers);
+    for p in layers {
+        ui.painter().image(p.texture.id(), at, uv, egui::Color32::WHITE);
     }
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
     response
