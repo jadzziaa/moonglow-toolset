@@ -38,7 +38,10 @@ The palette's buttons:
 - **Edit Copy**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it.
 - **Delete**: remove a custom blueprint from the module.
-- **Preview**: show the blueprint in the model viewer.
+- **Preview**: show the blueprint in the model viewer. A blueprint
+  without a model (a merchant, a sound, a trigger, a waypoint, an
+  encounter) shows its fields instead, and a merchant what it sells, page
+  by page.
 - **Update Instances** (custom blueprints): make the objects placed from
   the blueprint again from it.
 

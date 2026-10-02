@@ -17,7 +17,7 @@ pub(super) const PAGES: [&str; 5] = ["Basic", "Inventory", "Advanced", "Restrict
 
 /// The store's inventory pages as Aurora writes them: (`StoreList` struct
 /// id, name).
-const STORE_PAGES: [(u32, &str); 5] = [
+pub(crate) const STORE_PAGES: [(u32, &str); 5] = [
     (0, "Armor"),
     (4, "Weapons"),
     (2, "Potions & Scrolls"),

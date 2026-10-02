@@ -30,7 +30,7 @@ pub(crate) mod picker;
 mod placeable;
 mod situated;
 mod sound;
-mod store;
+pub(crate) mod store;
 mod trigger;
 mod visuals;
 mod waypoint;

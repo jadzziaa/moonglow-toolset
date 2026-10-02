@@ -7170,3 +7170,30 @@ fn an_area_is_renamed_from_its_tab() {
     assert!(h.state().dock.find_tab(&Tab::Area(meadow)).is_some());
     assert!(h.state().area_views.contains_key(&meadow));
 }
+
+#[test]
+fn a_store_s_preview_lists_what_it_sells() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-store-preview");
+    let path = sample_module(&dir);
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    // The thieves' store of Hordes of the Underdark (its jewelry page has
+    // rings and amulets), as the palette's double click opens it.
+    let key = ResKey::parse("x2_storethief001", ResType::UTM).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("no preview").is_none());
+    h.get_by_label("Blueprint ResRef");
+    h.get_by_label_contains("Rings & Amulets (");
+}

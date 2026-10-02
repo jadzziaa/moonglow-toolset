@@ -200,6 +200,7 @@ fn blueprint_editors() {
         ("nw_mumcleric", ResType::UTC, &["Classes"][..]),
         ("nw_verminbeet", ResType::UTE, &["Basic", "Creature List", "Advanced"][..]),
         ("nw_storebar01", ResType::UTM, &["Basic", "Inventory", "Restrictions"][..]),
+        ("x2_storethief001", ResType::UTM, &["Inventory"][..]),
         ("nw_door_ttr_01", ResType::UTD, &["Basic", "Lock", "Area Transition", "Advanced"][..]),
         ("plc_chest1", ResType::UTP, &["Basic", "Scripts", "Advanced", "Visuals"][..]),
         ("nw_wswmls010", ResType::UTI, &["General", "Appearance", "Properties"][..]),

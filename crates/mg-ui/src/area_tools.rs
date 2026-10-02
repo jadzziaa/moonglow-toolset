@@ -358,9 +358,72 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
                     crate::model_view::ui(app, ui, crate::model_view::Source::Resource(key));
                 });
             }
+            if key.restype == ResType::UTM {
+                egui::ScrollArea::vertical().show(ui, |ui| store_stock(app, ui, &gff.root));
+            }
         },
     );
     app.preview_window = open;
+}
+
+/// A blueprint without a model (a store, a sound, a trigger, a waypoint,
+/// an encounter) where the model viewer would show one: its fields, as the
+/// Preview window lists them, and a store's stock by page.
+pub(crate) fn summary_view(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
+    let Some(gff) = blueprint(app, key) else {
+        ui.colored_label(ui.visuals().error_fg_color, format!("{key}: not found"));
+        return;
+    };
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        egui::Grid::new(("summary", key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+            for (label, value) in summary(app, key.restype, &gff.root) {
+                crate::widgets::field_label(ui, label);
+                ui.label(value);
+                ui.end_row();
+            }
+        });
+        if key.restype == ResType::UTM {
+            store_stock(app, ui, &gff.root);
+        }
+    });
+}
+
+/// A store's items, by page: icon, name, and whether it never runs out.
+fn store_stock(app: &mut Moonglow, ui: &mut Ui, store: &mg_gff::Struct) {
+    let pages = store.list("StoreList").unwrap_or(&[]);
+    if pages.iter().all(|p| p.list("ItemList").is_none_or(<[_]>::is_empty)) {
+        ui.add_space(8.0);
+        ui.weak("It sells nothing.");
+        return;
+    }
+    for (id, page) in crate::blueprint::store::STORE_PAGES {
+        let items = pages.iter().find(|p| p.id == id).and_then(|p| p.list("ItemList"));
+        let Some(items) = items.filter(|l| !l.is_empty()) else { continue };
+        ui.add_space(8.0);
+        ui.strong(format!("{page} ({})", items.len()));
+        for entry in items {
+            let resref = entry.resref("InventoryRes").unwrap_or(ResRef::EMPTY);
+            // A whole item (placed stores hold them) or its blueprint.
+            let item = match entry.integer("BaseItem") {
+                Some(_) => Some(entry.clone()),
+                None => blueprint(app, ResKey::new(resref, ResType::UTI)).map(|g| g.root),
+            };
+            let icon = item.as_ref().map(|i| app.item_icon(ui.ctx(), i)).unwrap_or_default();
+            let name = item
+                .as_ref()
+                .and_then(|i| i.locstring("LocalizedName"))
+                .and_then(|ls| app.game.as_ref()?.locstring(ls))
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| resref.to_string());
+            ui.horizontal(|ui| {
+                crate::images::icon_box(ui, &icon, crate::images::ICON_MAX, &name);
+                ui.label(&name).on_hover_text(resref.to_string());
+                if entry.integer("Infinite").unwrap_or(0) != 0 {
+                    ui.weak("infinite");
+                }
+            });
+        }
+    }
 }
 
 /// A blueprint from the module, else the game.

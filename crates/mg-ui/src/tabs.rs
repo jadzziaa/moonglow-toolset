@@ -184,6 +184,10 @@ impl TabViewer for Viewer<'_> {
             Tab::Tileset(id) => crate::tileset_view::ui(self.app, ui, *id),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
+            // A blueprint without a model: what there is to see of it.
+            Tab::Model(k) if !model_view::previewable(k.restype) => {
+                crate::area_tools::summary_view(self.app, ui, *k)
+            }
             Tab::Model(k) => model_view::ui(self.app, ui, model_view::Source::Resource(*k)),
             Tab::InstanceModel { area, path } => {
                 let source = model_view::Source::Instance { area: *area, path: path.clone() };

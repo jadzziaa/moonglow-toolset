@@ -286,7 +286,10 @@ pub(super) fn item_list(
     let mut clicked = None;
     let mut edits = Vec::new();
     let gap = ui.spacing().item_spacing.x;
-    let header = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+    // Clear of the scroll bar (which floats over the list's right edge).
+    let scroll = &ui.spacing().scroll;
+    let gutter = scroll.bar_width + scroll.bar_inner_margin + scroll.bar_outer_margin + 4.0;
+    let header = egui::vec2(ui.available_width() - gutter, ui.spacing().interact_size.y);
     let (rect, _) = ui.allocate_exact_size(header, egui::Sense::hover());
     let layout = egui::Layout::left_to_right(egui::Align::Center);
     let mut head = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
@@ -317,8 +320,10 @@ pub(super) fn item_list(
                 // Each row as tall as its icon: armor at its own size, rings
                 // and potions compact.
                 let height = crate::images::icon_size(layers, ICON_MAX).y + 4.0;
-                let row =
-                    egui::vec2(ui.available_width(), height.max(ui.spacing().interact_size.y));
+                let row = egui::vec2(
+                    ui.available_width() - gutter,
+                    height.max(ui.spacing().interact_size.y),
+                );
                 let (rect, _) = ui.allocate_exact_size(row, egui::Sense::hover());
                 if i % 2 == 1 {
                     ui.painter().rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
