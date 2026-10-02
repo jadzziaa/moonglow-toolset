@@ -734,6 +734,7 @@ fn viewport(
     }
     let settings = View { time: view.time, night: view.night, fog: view.fog, show: view.show };
     let mut frame = scene.scene(&shown, &settings);
+    frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
     frame.instances.extend(ghost_instances);
     if view.grid {
         frame.lines = grid_lines(view, &shown);
@@ -1607,6 +1608,22 @@ fn box_edges(t: glam::Mat4, min: Vec3, max: Vec3) -> impl Iterator<Item = (Vec3,
         .map(move |(a, b)| (c(a), c(b)))
 }
 
+/// The farthest the game's camera stands from the player (metres; the
+/// classic camera's limit, NWScript's SetCameraFacing): the view's fog is
+/// measured from that near its target.
+const GAME_CAMERA: f32 = 20.0;
+
+/// The game's fog `f` as a view `distance` from its target shows it. The
+/// game measures fog from its camera, which stays near the player (at most
+/// [`GAME_CAMERA`] off); the view often looks from much farther, where the
+/// game's fog would hide what it looks at. So the fog is the game's as a
+/// camera that near the target would see it: what is around the target
+/// clear, the distance fading as in the game.
+fn view_fog(f: mg_render::Fog, distance: f32) -> mg_render::Fog {
+    let beyond = (distance - GAME_CAMERA).max(0.0);
+    mg_render::Fog { start: f.start + beyond, end: f.end + beyond, ..f }
+}
+
 /// How opaque a blueprint about to be placed is drawn.
 const GHOST_OPACITY: f32 = 0.6;
 
@@ -2462,5 +2479,22 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
     );
     if !open || done {
         app.area_stats = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_fog_is_measured_from_a_game_camera_near_the_target() {
+        let city = mg_render::Fog { start: -5.0, end: 45.0, color: Vec3::splat(0.4) };
+        // As near as the game's camera: the game's fog.
+        assert_eq!(view_fog(city, 15.0), city);
+        assert_eq!(view_fog(city, GAME_CAMERA), city);
+        // From 60 m: moved back 40 m, so the target (60 m off) is as clear
+        // as the game shows a player 20 m from its camera.
+        let far = view_fog(city, 60.0);
+        assert_eq!((far.start, far.end, far.color), (35.0, 85.0, city.color));
     }
 }

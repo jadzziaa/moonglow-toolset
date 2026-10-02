@@ -10,7 +10,9 @@ straight down at their middle, north up, as in Aurora.
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
   object and the start location marker; **All** and **None**.
 - **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
-  the tile grid.
+  the tile grid. The fog is the game's as its camera (at most 20 m from the
+  player) would see it from where the view looks, so a view from farther
+  off isn't lost in it.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
 - **Walkmesh**: the ground's walkmesh over the area (Aurora's Render AABB
