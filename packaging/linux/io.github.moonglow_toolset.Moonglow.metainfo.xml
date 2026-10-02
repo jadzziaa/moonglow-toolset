@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.0" date="2026-10-02">
+      <description>
+        <p>Modules as nasher projects for git; Find References and Rename
+        everywhere; Verify names what crashes Aurora in custom content; Test From
+        Here and reloading changed haks; placement tools and prefabs; go to
+        definition, references, renaming and live errors in scripts, and an
+        NWScript language server; fields for EE data Aurora hides; bulk edits and
+        Find and Replace; conversations that play as the game plays them and go
+        out to and come back from text, CSV, Twine and Ink.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-10-01">
       <description>
         <p>Editors open in windows over the area view; blueprints drag from the

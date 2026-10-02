@@ -1840,7 +1840,7 @@ dependencies = [
 
 [[package]]
 name = "mg"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1858,7 +1858,7 @@ dependencies = [
 
 [[package]]
 name = "mg-2da"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "thiserror 2.0.21",
@@ -1866,7 +1866,7 @@ dependencies = [
 
 [[package]]
 name = "mg-area"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fastrand",
  "glam",
@@ -1887,7 +1887,7 @@ dependencies = [
 
 [[package]]
 name = "mg-audio"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "symphonia",
  "thiserror 2.0.21",
@@ -1895,7 +1895,7 @@ dependencies = [
 
 [[package]]
 name = "mg-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "encoding_rs",
  "proptest",
@@ -1904,7 +1904,7 @@ dependencies = [
 
 [[package]]
 name = "mg-corpus-tests"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fastrand",
  "glam",
@@ -1937,7 +1937,7 @@ dependencies = [
 
 [[package]]
 name = "mg-edit"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "mg-gff",
@@ -1949,7 +1949,7 @@ dependencies = [
 
 [[package]]
 name = "mg-erf"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "ruzstd",
@@ -1958,7 +1958,7 @@ dependencies = [
 
 [[package]]
 name = "mg-gff"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "mg-core",
@@ -1971,7 +1971,7 @@ dependencies = [
 
 [[package]]
 name = "mg-image"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "thiserror 2.0.21",
@@ -1979,7 +1979,7 @@ dependencies = [
 
 [[package]]
 name = "mg-key"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "memmap2",
  "mg-core",
@@ -1989,7 +1989,7 @@ dependencies = [
 
 [[package]]
 name = "mg-mdl"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "thiserror 2.0.21",
@@ -1997,7 +1997,7 @@ dependencies = [
 
 [[package]]
 name = "mg-module"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fastrand",
  "glam",
@@ -2023,7 +2023,7 @@ dependencies = [
 
 [[package]]
 name = "mg-preview"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "glam",
  "mg-2da",
@@ -2041,7 +2041,7 @@ dependencies = [
 
 [[package]]
 name = "mg-render"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bytemuck",
  "glam",
@@ -2058,7 +2058,7 @@ dependencies = [
 
 [[package]]
 name = "mg-resman"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "memmap2",
  "mg-core",
@@ -2069,7 +2069,7 @@ dependencies = [
 
 [[package]]
 name = "mg-rules"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fastrand",
  "mg-2da",
@@ -2082,7 +2082,7 @@ dependencies = [
 
 [[package]]
 name = "mg-schema"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "mg-gff",
@@ -2090,7 +2090,7 @@ dependencies = [
 
 [[package]]
 name = "mg-script"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
  "mg-core",
@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "mg-set"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "thiserror 2.0.21",
@@ -2107,7 +2107,7 @@ dependencies = [
 
 [[package]]
 name = "mg-ssf"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "thiserror 2.0.21",
@@ -2115,11 +2115,11 @@ dependencies = [
 
 [[package]]
 name = "mg-testkit"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "mg-tiles"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fastrand",
  "mg-core",
@@ -2129,7 +2129,7 @@ dependencies = [
 
 [[package]]
 name = "mg-tlk"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "mg-core",
  "thiserror 2.0.21",
@@ -2137,7 +2137,7 @@ dependencies = [
 
 [[package]]
 name = "mg-ui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "egui",
  "egui-wgpu",
@@ -2194,7 +2194,7 @@ dependencies = [
 
 [[package]]
 name = "moonglow"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "eframe",
  "egui",
