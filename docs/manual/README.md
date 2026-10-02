@@ -9,7 +9,9 @@ module in the game. Modules made in either toolset open in the other.
 
 If you know Aurora, you know Moonglow: the windows, pages, fields and
 mouse bindings are Aurora's, and what Moonglow writes is what Aurora
-writes. [Differences from Aurora](12-differences.md) lists where it
+writes. Start with [Coming from Aurora](14-coming-from-aurora.md): the
+Aurora problems Moonglow doesn't have, the habits to change, and what's
+easy to miss. [Differences from Aurora](12-differences.md) lists where it
 deliberately departs.
 
 ## Contents
@@ -35,6 +37,8 @@ deliberately departs.
 12. [Differences from Aurora](12-differences.md).
 13. [Troubleshooting](13-troubleshooting.md): where Moonglow keeps its
     files, crash reports, common problems.
+14. [Coming from Aurora](14-coming-from-aurora.md): for builders who know
+    Aurora.
 
 Moonglow is free software under the GNU General Public License, version 3.
 It contains no game data: it reads the game's files from your

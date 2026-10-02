@@ -218,6 +218,8 @@ fn user_manual() {
         |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::Button;
     h.get_all_by_label("Areas").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-areas");
+    h.get_all_by_label("Coming from Aurora").find(|n| listed(n)).unwrap().click();
+    shoot(&mut h, &dir, "manual-coming-from-aurora");
     h.state_mut().about = true;
     shoot(&mut h, &dir, "about");
 }

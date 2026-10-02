@@ -6,8 +6,8 @@ it differs, it is on purpose:
 - **Edits apply as you make them.** Property windows are tabs with no
   OK or Cancel; every change is one undoable step, and **undo is
   unlimited** (Aurora's area undo has a set number of levels).
-- **Tabs, not windows**: every editor is a tab you can rearrange or put
-  side by side.
+- **Tabs and windows, not dialogs**: every editor is a tab or a window
+  that stays open beside the others; areas stay in the main pane.
 - **The Welcome tab** is the start page, rather than a dialog at start.
 - **Module folders** and archives open the same way; there is no "always
   open module directories" option.

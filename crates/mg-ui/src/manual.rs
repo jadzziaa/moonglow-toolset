@@ -8,7 +8,7 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use crate::Moonglow;
 
 /// The chapters: file name and text, the contents first.
-pub(crate) const CHAPTERS: [(&str, &str); 14] = [
+pub(crate) const CHAPTERS: [(&str, &str); 15] = [
     ("README.md", include_str!("../../../docs/manual/README.md")),
     ("01-getting-started.md", include_str!("../../../docs/manual/01-getting-started.md")),
     ("02-main-window.md", include_str!("../../../docs/manual/02-main-window.md")),
@@ -23,6 +23,7 @@ pub(crate) const CHAPTERS: [(&str, &str); 14] = [
     ("11-command-line.md", include_str!("../../../docs/manual/11-command-line.md")),
     ("12-differences.md", include_str!("../../../docs/manual/12-differences.md")),
     ("13-troubleshooting.md", include_str!("../../../docs/manual/13-troubleshooting.md")),
+    ("14-coming-from-aurora.md", include_str!("../../../docs/manual/14-coming-from-aurora.md")),
 ];
 
 /// A chapter's title: its first heading.
@@ -59,7 +60,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("manual", m.chapter)).auto_shrink(false).show(
                 ui,
                 |ui| {
-                    ui.set_max_width(760.0);
+                    ui.set_max_width(ui.available_width().min(760.0));
                     CommonMarkViewer::new().show(ui, &mut m.cache, text);
                 },
             );
@@ -111,5 +112,37 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if !open {
         app.about = false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CHAPTERS;
+
+    /// Every chapter of `docs/manual` is built in, and every link between
+    /// chapters names one of them.
+    #[test]
+    fn links_between_chapters_resolve() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/manual");
+        let mut files: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .filter(|f| f.ends_with(".md"))
+            .collect();
+        files.sort();
+        let mut built: Vec<String> = CHAPTERS.iter().map(|(f, _)| f.to_string()).collect();
+        built.sort();
+        assert_eq!(files, built, "chapters in docs/manual and in CHAPTERS");
+        for (file, text) in CHAPTERS {
+            for link in text.split("](").skip(1) {
+                let target = &link[..link.find(')').unwrap()];
+                if target.ends_with(".md") && !target.contains("://") {
+                    assert!(
+                        CHAPTERS.iter().any(|(f, _)| *f == target),
+                        "{file} links to {target}, which isn't a chapter"
+                    );
+                }
+            }
+        }
     }
 }

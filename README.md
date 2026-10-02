@@ -51,7 +51,8 @@ installation, so it needs a copy of Neverwinter Nights: Enhanced Edition.
 ## Documentation
 
 - [User manual](docs/manual/README.md), also in the app under Help › User
-  Manual (F1).
+  Manual (F1). If you know Aurora, start with
+  [Coming from Aurora](docs/manual/14-coming-from-aurora.md).
 - [The plan](docs/PLAN.md): goals, architecture, phases, testing strategy and
   licensing.
 - [Packaging](packaging/README.md): building the AppImage, Flatpak, Windows
