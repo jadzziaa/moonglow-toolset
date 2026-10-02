@@ -455,7 +455,8 @@ packaging (AppImage/Flatpak, Windows installer, macOS app bundle), user manual.
 
 ### After parity
 Ordered by what builders report about Aurora (`docs/research/community_pain_points.md`,
-surveyed after 0.2.0):
+surveyed after 0.2.0). What each item left undone is collected in
+`docs/deferred.md`, to be decided once the list is worked through.
 
 1. Tier 1, reasons to switch:
    - git-native modules (open and save a nasher JSON tree in place, with no
