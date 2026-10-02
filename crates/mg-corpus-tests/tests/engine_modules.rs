@@ -3,6 +3,7 @@
 //! same world as the original: the same areas and, in each, the same objects
 //! with the same types, tags, blueprints and positions.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use mg_core::{ResRef, ResType};
@@ -174,27 +175,78 @@ fn modules_packed_from_nasher_projects_present_the_same_world() {
         }
         let (wa, wb) = (world(a), world(b));
         objects += wa.iter().filter(|l| l.starts_with("MG_OBJ")).count();
-        let near = |x: &str, y: &str| {
-            let (Some((ka, pa)), Some((kb, pb))) = (split_object(x), split_object(y)) else {
-                return x == y;
-            };
-            let turn = (pa[3] - pb[3]).rem_euclid(360.0);
-            ka == kb
-                && pa[..3].iter().zip(&pb[..3]).all(|(u, v)| (u - v).abs() <= 0.011)
-                && (turn <= 1.0 || turn >= 359.0)
-        };
-        if wa.len() != wb.len() || !wa.iter().zip(&wb).all(|(x, y)| near(x, y)) {
-            let only_a: Vec<_> =
-                wa.iter().filter(|l| !wb.iter().any(|m| near(l, m))).take(3).collect();
-            let only_b: Vec<_> =
-                wb.iter().filter(|l| !wa.iter().any(|m| near(l, m))).take(3).collect();
+        let (only_a, only_b) = unmatched(&wa, &wb);
+        if !only_a.is_empty() || !only_b.is_empty() {
             failures.push(format!(
-                "{label}: worlds differ; original only {only_a:?}; project only {only_b:?}"
+                "{label}: worlds differ; original only {:?}; project only {:?}",
+                &only_a[..only_a.len().min(3)],
+                &only_b[..only_b.len().min(3)]
             ));
         }
     }
+    if !failures.is_empty() {
+        eprintln!("server logs: {}/user-*/logs.0/nwserverLog1.txt", dir.display());
+    }
     eprintln!("compared {} modules ({objects} objects) in the engine", modules.len());
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// The lines of each world with no partner in the other: objects pair up
+/// with an object of the same area, type, tag and blueprint at most a
+/// hundredth away and turned at most a degree, other lines with an equal
+/// line. Objects are paired by a maximum matching rather than in sorted
+/// order, which a hundredth's rounding can reshuffle among alike objects
+/// standing close together.
+fn unmatched<'a>(a: &'a [String], b: &'a [String]) -> (Vec<&'a str>, Vec<&'a str>) {
+    // Per identity (or whole line, for lines that aren't objects): the
+    // lines on each side with their numbers.
+    type Side<'a> = Vec<(&'a str, [f64; 4])>;
+    let mut groups: BTreeMap<String, (Side<'a>, Side<'a>)> = BTreeMap::new();
+    for (lines, right) in [(a, false), (b, true)] {
+        for l in lines {
+            let (key, p) = split_object(l).unwrap_or_else(|| (l.clone(), [0.0; 4]));
+            let group = groups.entry(key).or_default();
+            if right { &mut group.1 } else { &mut group.0 }.push((l, p));
+        }
+    }
+    let near = |p: &[f64; 4], q: &[f64; 4]| {
+        let turn = (p[3] - q[3]).rem_euclid(360.0);
+        p[..3].iter().zip(&q[..3]).all(|(u, v)| (u - v).abs() <= 0.011)
+            && (turn <= 1.0 || turn >= 359.0)
+    };
+    let (mut only_a, mut only_b) = (Vec::new(), Vec::new());
+    for (left, right) in groups.values() {
+        let edges: Vec<Vec<usize>> = left
+            .iter()
+            .map(|(_, p)| (0..right.len()).filter(|&j| near(p, &right[j].1)).collect())
+            .collect();
+        // Kuhn's augmenting paths: partner[j] is the left line paired with
+        // right line j.
+        let mut partner: Vec<Option<usize>> = vec![None; right.len()];
+        fn augment(
+            i: usize,
+            edges: &[Vec<usize>],
+            seen: &mut [bool],
+            partner: &mut [Option<usize>],
+        ) -> bool {
+            for &j in &edges[i] {
+                if !std::mem::replace(&mut seen[j], true)
+                    && partner[j].is_none_or(|k| augment(k, edges, seen, partner))
+                {
+                    partner[j] = Some(i);
+                    return true;
+                }
+            }
+            false
+        }
+        let mut paired = vec![false; left.len()];
+        for (i, done) in paired.iter_mut().enumerate() {
+            *done = augment(i, &edges, &mut vec![false; right.len()], &mut partner);
+        }
+        only_a.extend(left.iter().zip(&paired).filter(|(_, p)| !**p).map(|(l, _)| l.0));
+        only_b.extend(right.iter().zip(&partner).filter(|(_, p)| p.is_none()).map(|(l, _)| l.0));
+    }
+    (only_a, only_b)
 }
 
 /// An `MG_OBJ area|type|tag|resref|x,y,z|facing` line: everything but the
@@ -206,4 +258,58 @@ fn split_object(line: &str) -> Option<(String, [f64; 4])> {
     let xyz: Vec<f64> = pos.split(',').filter_map(|v| v.parse().ok()).collect();
     let [x, y, z] = xyz[..] else { return None };
     Some((format!("{area}|{kind}|{tag}|{resref}"), [x, y, z, facing.parse().ok()?]))
+}
+
+#[test]
+fn worlds_pair_alike_objects_whatever_their_sorted_order() {
+    let lines = |v: &[&str]| -> Vec<String> {
+        let mut v: Vec<String> = v.iter().map(|l| l.to_string()).collect();
+        v.sort();
+        v
+    };
+    // Rounding puts the second urn first in the project's sorted order.
+    let a = lines(&[
+        "MG_AREA hall|Hall|Hall",
+        "MG_OBJ hall|64|Urn|plc_urn|10.00,6.00,0.00|90.0",
+        "MG_OBJ hall|64|Urn|plc_urn|10.01,5.00,0.00|0.0",
+        "MG_OBJ hall|1|Guard|guard (creature)",
+    ]);
+    let b = lines(&[
+        "MG_AREA hall|Hall|Hall",
+        "MG_OBJ hall|64|Urn|plc_urn|10.01,6.00,0.00|89.0",
+        "MG_OBJ hall|64|Urn|plc_urn|10.01,5.00,0.00|360.0",
+        "MG_OBJ hall|1|Guard|guard (creature)",
+    ]);
+    assert_eq!(unmatched(&a, &b), (vec![], vec![]));
+
+    // An urn moved, a guard missing, an area renamed.
+    let c = lines(&[
+        "MG_AREA hall|Hall|Great Hall",
+        "MG_OBJ hall|64|Urn|plc_urn|10.00,6.00,0.00|90.0",
+        "MG_OBJ hall|64|Urn|plc_urn|10.03,5.00,0.00|0.0",
+    ]);
+    let (only_a, only_c) = unmatched(&a, &c);
+    assert_eq!(
+        only_a,
+        [
+            "MG_AREA hall|Hall|Hall",
+            "MG_OBJ hall|1|Guard|guard (creature)",
+            "MG_OBJ hall|64|Urn|plc_urn|10.01,5.00,0.00|0.0"
+        ]
+    );
+    assert_eq!(
+        only_c,
+        ["MG_AREA hall|Hall|Great Hall", "MG_OBJ hall|64|Urn|plc_urn|10.03,5.00,0.00|0.0"]
+    );
+}
+
+#[test]
+#[should_panic(expected = "the probe logged [\"2\"] objects, the server log holds 1")]
+fn worlds_refuse_a_log_missing_objects() {
+    let log = "[Fri Oct  2 07:20:23] MG_MODULE Hall|HALL\n\
+               [Fri Oct  2 07:20:23] MG_AREA hall|Hall|Hall\n\
+               [Fri Oct  2 07:20:23] MG_OBJ hall|64|Urn|plc_urn|10.00,6.00,0.00|90.0\n\
+               [Fri Oct  2 07:20:23] MG_COUNT 2\n\
+               [Fri Oct  2 07:20:23] MG_DONE\n";
+    world(&ServerRun { log: log.into(), finished: true });
 }

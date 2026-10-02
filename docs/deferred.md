@@ -200,6 +200,25 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
 
+## Engine tests
+
+- **The nasher engine check's one failure:**
+  `modules_packed_from_nasher_projects_present_the_same_world` failed
+  once in a full workspace run, and its message was lost. About 200 runs
+  under CPU load, with up to 16 servers at once, gave identical worlds
+  and complete logs, so the cause wasn't found. The probe now resumes
+  without counting and reports its object count, and the comparison
+  pairs alike objects by matching; if it fails again, the message names
+  the unpaired lines and where the server logs are. (S, if it recurs)
+- **Probe yields:** the largest module (Infinite Dungeons, in the
+  rewritten-modules check) needs more than one script run to walk, and
+  the game runs between runs. An object created or destroyed then is logged or not
+  depending on timing. None was in 168 runs. (S)
+- **The master server:** with `-publicserver 0`, nwserver still opens a
+  connection to Beamdog's master server at startup (its engine log) and
+  clears it when the module loads. Whether it sends anything isn't
+  known. (S)
+
 ## From the research notes
 
 - **KTX textures:** `mg-image` doesn't read KTX yet (`PLAN.md` §4). (M)

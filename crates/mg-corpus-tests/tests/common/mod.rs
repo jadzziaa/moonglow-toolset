@@ -90,21 +90,27 @@ pub(crate) fn compile(dir: &Path, name: &str, source: &str) -> Vec<u8> {
 
 /// Walks every area and object during module load, before any heartbeat or
 /// AI has run, yielding with `DelayCommand` only when the instruction budget
-/// runs low (then resuming at the same area and object). Ends with the done
-/// marker and padding that makes the server flush its buffered log.
+/// runs low (the largest campaigns). A yield lets the game run, and the
+/// engine keeps an area's objects in order of x, so a creature that walks
+/// reorders them: the walk resumes at the same area and skips the objects
+/// already logged (marked with a local variable), rather than counting its
+/// way back. Ends with the number of objects logged (`MG_COUNT`, which
+/// `world` checks against the log), the done marker and padding that makes
+/// the server flush its buffered log.
 #[allow(dead_code)]
 pub(crate) const PROBE: &str = r#"
 void Log(string s) { WriteTimestampedLogEntry(s); }
 
-void Finish()
+void Finish(int nLogged)
 {
+    Log("MG_COUNT " + IntToString(nLogged));
     Log("MG_DONE");
     int i;
     for (i = 0; i < 2000; i++)
         Log("MG_PAD ................................................................");
 }
 
-void ProbeFrom(int nArea, int nObj)
+void ProbeFrom(int nArea, int bResumed, int nLogged)
 {
     int a = 0;
     object oArea = GetFirstArea();
@@ -112,43 +118,45 @@ void ProbeFrom(int nArea, int nObj)
     while (GetIsObjectValid(oArea))
     {
         string sArea = GetResRef(oArea);
-        if (nObj == 0)
+        if (!bResumed)
             Log("MG_AREA " + sArea + "|" + GetTag(oArea) + "|" + GetName(oArea));
-        int i = 0;
         object o = GetFirstObjectInArea(oArea);
         while (GetIsObjectValid(o))
         {
-            if (i >= nObj)
+            if (!GetLocalInt(o, "MG_PROBED"))
             {
                 if (GetScriptInstructionsRemaining() < 20000)
                 {
-                    DelayCommand(0.0, ProbeFrom(a, i));
+                    DelayCommand(0.0, ProbeFrom(a, TRUE, nLogged));
                     return;
                 }
+                SetLocalInt(o, "MG_PROBED", TRUE);
+                nLogged++;
                 vector v = GetPosition(o);
                 Log("MG_OBJ " + sArea + "|" + IntToString(GetObjectType(o)) + "|" + GetTag(o)
                     + "|" + GetResRef(o) + "|" + FloatToString(v.x, 0, 2) + "," + FloatToString(v.y, 0, 2)
                     + "," + FloatToString(v.z, 0, 2) + "|" + FloatToString(GetFacing(o), 0, 1));
             }
-            i++;
             o = GetNextObjectInArea(oArea);
         }
-        nObj = 0;
+        bResumed = FALSE;
         a++;
         oArea = GetNextArea();
     }
-    DelayCommand(0.0, Finish());
+    DelayCommand(0.0, Finish(nLogged));
 }
 
 void main()
 {
     Log("MG_MODULE " + GetName(GetModule()) + "|" + GetTag(GetModule()));
-    ProbeFrom(0, 0);
+    ProbeFrom(0, FALSE, 0);
 }
 "#;
 
 /// The probe's view of the world, sorted. Creatures keep only their area,
 /// type, tag and blueprint: their AI may move them between probe chunks.
+/// Panics if the log holds a different number of objects than the probe
+/// logged.
 #[allow(dead_code)]
 pub(crate) fn world(run: &mg_testkit::engine::ServerRun) -> Vec<String> {
     let mut lines: Vec<String> = ["MG_MODULE", "MG_AREA", "MG_OBJ"]
@@ -162,6 +170,13 @@ pub(crate) fn world(run: &mg_testkit::engine::ServerRun) -> Vec<String> {
             _ => l,
         })
         .collect();
+    let objects = lines.iter().filter(|l| l.starts_with("MG_OBJ ")).count();
+    let logged = run.values("MG_COUNT");
+    assert!(
+        logged == [objects.to_string()],
+        "{:?}: the probe logged {logged:?} objects, the server log holds {objects}",
+        run.values("MG_MODULE")
+    );
     lines.sort();
     lines
 }
