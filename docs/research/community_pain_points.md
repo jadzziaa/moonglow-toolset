@@ -179,7 +179,7 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 
 | Pain point | Signal | Evidence | Moonglow 0.2.0 |
 | --- | --- | --- | --- |
-| No 2DA or TLK editing; 2DA rows from several haks merged by hand. Builders are split on whether this belongs in a module toolset. | ●● | Eos Toolset (1.1k downloads, its own wiki section), TlkEdit-EE, Killer TLK (3k), at least 7 2DA mergers; Beamdog 69368 (virusman: "pointless") | ◐ hak conflict report; 2DAs and TLKs readable in the resource browser |
+| No 2DA or TLK editing; 2DA rows from several haks merged by hand. Builders are split on whether this belongs in a module toolset. | ●● | Eos Toolset (1.1k downloads, its own wiki section), TlkEdit-EE, Killer TLK (3k), at least 7 2DA mergers; Beamdog 69368 (virusman: "pointless") | ◐ a talk-table editor (Tools › Talk Table, Move to Talk Table) and a 2DA view with StrRefs as text and each row's hak; no 2DA editor or merger (Eos's ground) |
 | Hak tooling is primitive (nwhak truncates names; Aurora locks up when nwhak has the hak open) | ●● | nwn-issues #82; NWN Explorer (10.5k downloads); Aurora Hak Explorer (2026) | ◐ resource browser, `mg pack` / `unpack` / `ls`; no hak editor in the GUI |
 
 ### 2.10 Interface

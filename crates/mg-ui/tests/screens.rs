@@ -349,3 +349,76 @@ fn references() {
     h.run();
     shoot(&mut h, &dir, "rename");
 }
+
+#[test]
+#[ignore]
+fn talk_table_and_2da_layers() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-talk");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    // A talk table with a feminine table, named by a copy of Chess.
+    let mut t = mg_module::talk::Table::create(
+        "chess_tlk",
+        &user.join("tlk"),
+        mg_core::Language::ENGLISH,
+        true,
+    );
+    let lines = [
+        ("Knight-Errant", "Knight-Errant", "vs_hello"),
+        ("Welcome to the board, <FirstName>.", "Welcome to the board, my lady.", ""),
+        ("The pawns advance at dawn.", "The pawns advance at dawn.", ""),
+    ];
+    for (text, f, sound) in lines {
+        let line = mg_module::talk::Line {
+            text: text.into(),
+            feminine: Some(f.into()),
+            sound: sound.into(),
+            sound_length: if sound.is_empty() { 0.0 } else { 1.2 },
+        };
+        t.add_line(&line).unwrap();
+    }
+    t.save().unwrap();
+    let path = dir.join("chess.mod");
+    let mut m = mg_module::Module::open(&root.join("data/mod/Neverwinter Chess.mod")).unwrap();
+    let mut ifo = m.info().unwrap();
+    ifo.root.set("Mod_CustomTlk", mg_gff::Value::String(b"chess_tlk".to_vec()));
+    m.set_info(&ifo).unwrap();
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    // A 2DA in override over the game's: a row changed, one added.
+    let game = mg_resman::ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let key = ResKey::parse("ambientmusic", ResType::TWODA).unwrap();
+    let text = String::from_utf8(game.get(&key).unwrap().into_owned()).unwrap();
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let last = lines.iter().rposition(|l| !l.trim().is_empty()).unwrap();
+    let n: usize = lines[last].split_whitespace().next().unwrap().parse().unwrap();
+    let row1 = lines.iter().position(|l| l.split_whitespace().next() == Some("1")).unwrap();
+    let mut cells: Vec<String> = lines[row1].split_whitespace().map(str::to_string).collect();
+    cells[2] = "mus_mine".into();
+    lines[row1] = cells.join(" ");
+    cells[0] = (n + 1).to_string();
+    cells[2] = "mus_new".into();
+    lines.insert(last + 1, cells.join(" "));
+    std::fs::write(user.join("override/ambientmusic.2da"), lines.join("\n")).unwrap();
+
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::TalkTable));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().talk_view.selected = Some(1);
+    h.run();
+    shoot(&mut h, &dir, "talk-table");
+    let tab = h.state().dock.find_tab(&mg_ui::Tab::TalkTable).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    h.run();
+    shoot(&mut h, &dir, "2da-layers");
+}

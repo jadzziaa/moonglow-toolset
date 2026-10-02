@@ -26,10 +26,10 @@ mg-script.workspace = true
 regex-lite.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+mg-tlk.workspace = true
 
 [dev-dependencies]
 mg-testkit.workspace = true
-mg-tlk.workspace = true
 
 [lints]
 workspace = true

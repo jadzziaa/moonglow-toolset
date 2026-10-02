@@ -129,7 +129,10 @@ Moonglow's own.
   game uses) and the game's resources the haks replace.
 - **The resource browser** (Tools › Resource Browser) shows any resource
   in the game, the haks or the module, and where it comes from; models
-  open in the model viewer.
+  open in the model viewer. A 2DA shows its StrRefs as text, which hak
+  each row comes from, and what a hak changed.
+- **Talk tables**: Tools › Talk Table edits the module's own, and String
+  Edit's **Move to Talk Table** puts a text there by StrRef.
 - **Placing and arranging**: snapping to a grid and to angles; Q and E
   to turn, G to drop to the ground; lining up, spacing out and mirroring;
   locking objects out of the way; prefabs (an area's right-click menu,

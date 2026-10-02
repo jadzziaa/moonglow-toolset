@@ -59,8 +59,8 @@ impl Drop for KillOnDrop {
 }
 
 /// Runs `<user_dir>/modules/<module>.mod` (or a module folder of that name)
-/// in the headless server until a log line contains `done_marker` or
-/// `timeout` passes.
+/// in the headless server until a log line contains `done_marker`, the
+/// server shuts down or `timeout` passes.
 pub fn run_server(
     root: &Path,
     user_dir: &Path,
@@ -108,7 +108,8 @@ pub fn run_server(
         if log.contains(done_marker) {
             return Ok(ServerRun { log, finished: true });
         }
-        if start.elapsed() > timeout {
+        // It quit (a module it can't load): nothing more will come.
+        if start.elapsed() > timeout || log.contains("Server shutting down") {
             return Ok(ServerRun { log, finished: false });
         }
         std::thread::sleep(Duration::from_millis(100));

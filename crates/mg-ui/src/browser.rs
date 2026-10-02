@@ -26,6 +26,11 @@ pub struct Browser {
     query: Option<(Option<ResType>, String)>,
     /// The load order changed since the index was built.
     pub(crate) stale: bool,
+    /// 2DA views: StrRefs shown as numbers rather than their text.
+    pub(crate) raw_strrefs: bool,
+    /// 2DA views: only the rows a layer last changed (its index in the
+    /// table's copies).
+    pub rows_from: Option<usize>,
 }
 
 impl Browser {
@@ -147,7 +152,7 @@ pub(crate) struct Viewed {
 #[derive(Debug)]
 enum Content {
     Gff(Gff),
-    TwoDa(mg_2da::TwoDa),
+    TwoDa(mg_module::table_layers::Layered),
     Script(String),
     Text(String),
     Binary(String),
@@ -163,8 +168,13 @@ impl Viewed {
         let content = if key.restype.is_gff() {
             Gff::read(&data).map_or_else(|e| Content::Error(e.to_string()), Content::Gff)
         } else if key.restype == ResType::TWODA {
-            mg_2da::TwoDa::parse(&data, codepage)
-                .map_or_else(|e| Content::Error(e.to_string()), Content::TwoDa)
+            match mg_module::table_layers::layered(rm, &key, codepage) {
+                Some(l) => Content::TwoDa(l),
+                None => match mg_2da::TwoDa::parse(&data, codepage) {
+                    Err(e) => Content::Error(e.to_string()),
+                    Ok(_) => Content::Error("the copy the game reads can't be read".into()),
+                },
+            }
         } else if key.restype == ResType::NSS {
             Content::Script(codepage.decode(&data).into_owned())
         } else if is_text(key.restype, &data) {
@@ -221,10 +231,14 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             Err(e) => app.log.error(format!("Could not write {}: {e}", path.display())),
         }
     }
+    if let Content::TwoDa(l) = &viewed.content {
+        two_da(app, ui, l);
+        return;
+    }
     let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| match &viewed.content {
         Content::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
-        Content::TwoDa(t) => two_da(ui, t),
+        Content::TwoDa(_) => {}
         Content::Script(text) => {
             let job = crate::script_view::highlight(text, &palette);
             ui.label(job);
@@ -326,41 +340,121 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
     }
 }
 
-/// A 2DA as a table; only the rows in view are laid out.
-fn two_da(ui: &mut Ui, t: &mg_2da::TwoDa) {
-    let width = 110.0;
-    let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
-    let cell = |ui: &mut Ui, text: &str| {
-        ui.add_sized(
-            [width, row_height],
-            egui::Label::new(egui::RichText::new(text).monospace()).truncate(),
-        );
-    };
+/// A 2DA as a table; only the rows in view are laid out. With copies of
+/// it in several layers (haks over the game's), each row says which layer
+/// it comes from, and the cells a layer changed are marked, with what they
+/// were below. Cells of StrRef columns show their text.
+fn two_da(app: &mut Moonglow, ui: &mut Ui, l: &mg_module::table_layers::Layered) {
+    use mg_module::table_layers::is_strref_column;
+    let Moonglow { browser, game, .. } = app;
+    let t = l.table();
+    let layered = l.copies.len() > 1;
     ui.horizontal(|ui| {
-        ui.add_sized([50.0, row_height], egui::Label::new(egui::RichText::new("").monospace()));
-        for c in t.columns() {
-            ui.add_sized(
-                [width, row_height],
-                egui::Label::new(egui::RichText::new(c).strong()).truncate(),
-            );
-        }
-    });
-    egui::ScrollArea::vertical().id_salt("2da-rows").auto_shrink([false, false]).show_rows(
-        ui,
-        row_height,
-        t.len(),
-        |ui, rows| {
-            for r in rows {
-                ui.horizontal(|ui| {
-                    ui.add_sized(
-                        [50.0, row_height],
-                        egui::Label::new(egui::RichText::new(r.to_string()).weak()),
-                    );
-                    for c in 0..t.columns().len() {
-                        cell(ui, t.cell(r, c).unwrap_or("****"));
+        ui.checkbox(&mut browser.raw_strrefs, "StrRefs as numbers").on_hover_text(
+            "Name, Description and other StrRef columns show their text unless this is on",
+        );
+        if layered {
+            let label = |i: Option<usize>| match i {
+                None => "All rows".to_string(),
+                Some(i) => format!("Rows from {}", l.copies[i].0),
+            };
+            browser.rows_from = browser.rows_from.filter(|&i| i < l.copies.len());
+            egui::ComboBox::from_id_salt("2da-rows-from")
+                .selected_text(label(browser.rows_from))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut browser.rows_from, None, label(None));
+                    for i in 0..l.copies.len() {
+                        ui.selectable_value(&mut browser.rows_from, Some(i), label(Some(i)));
                     }
                 });
+        }
+    });
+    if layered {
+        let parts: Vec<String> = l
+            .summary()
+            .iter()
+            .rev()
+            .map(|(label, added, changed)| match (added, changed) {
+                (a, 0) => format!("{label}: {a} rows"),
+                (0, c) => format!("{label}: changes {c}"),
+                (a, c) => format!("{label}: adds {a}, changes {c}"),
+            })
+            .collect();
+        ui.weak(format!("{} copies, lowest first. {}", l.copies.len(), parts.join("; ")));
+    }
+    let rows: Vec<usize> = match browser.rows_from.filter(|_| layered) {
+        Some(o) => (0..t.len()).filter(|&r| l.row_origin(r) == o).collect(),
+        None => (0..t.len()).collect(),
+    };
+    let strrefs: Vec<bool> =
+        t.columns().iter().map(|c| !browser.raw_strrefs && is_strref_column(c)).collect();
+    let game = game.as_ref();
+    let bottom = l.copies.len() - 1;
+    let changed = ui.visuals().warn_fg_color;
+    let width = 110.0;
+    let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
+    let fixed = |ui: &mut Ui, w: f32, text: egui::RichText| {
+        ui.add_sized([w, row_height], egui::Label::new(text).truncate())
+    };
+    egui::ScrollArea::both().id_salt("2da").auto_shrink([false, false]).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            fixed(ui, 50.0, egui::RichText::new(""));
+            if layered {
+                fixed(ui, width, egui::RichText::new("From").strong());
             }
-        },
-    );
+            for c in t.columns() {
+                fixed(ui, width, egui::RichText::new(c).strong());
+            }
+        });
+        egui::ScrollArea::vertical().id_salt("2da-rows").auto_shrink([false, false]).show_rows(
+            ui,
+            row_height,
+            rows.len(),
+            |ui, range| {
+                for &r in &rows[range] {
+                    ui.horizontal(|ui| {
+                        fixed(ui, 50.0, egui::RichText::new(r.to_string()).weak());
+                        let origin = l.row_origin(r);
+                        if layered {
+                            let text = egui::RichText::new(&l.copies[origin].0);
+                            fixed(ui, width, if origin < bottom { text } else { text.weak() });
+                        }
+                        for (c, &strref) in strrefs.iter().enumerate() {
+                            let raw = t.cell(r, c);
+                            let text = raw
+                                .filter(|_| strref)
+                                .and_then(|v| v.parse::<u32>().ok())
+                                .and_then(|n| game?.string(mg_core::StrRef(n)));
+                            let shown =
+                                text.clone().unwrap_or_else(|| raw.unwrap_or("****").into());
+                            let mut rich = egui::RichText::new(shown).monospace();
+                            let cell_origin = l.cell_origin(r, c);
+                            // Changed, not added: the row is in the copy below.
+                            let was = (layered
+                                && cell_origin < bottom
+                                && r < l.copies[cell_origin + 1].1.len())
+                            .then(|| l.before(r, c))
+                            .flatten();
+                            if was.is_some() {
+                                rich = rich.color(changed);
+                            }
+                            let resp = fixed(ui, width, rich);
+                            if text.is_some() || was.is_some() {
+                                let mut tip = Vec::new();
+                                if text.is_some() {
+                                    tip.push(format!("StrRef {}", raw.unwrap_or_default()));
+                                }
+                                if let Some((below, value)) = was {
+                                    let from = &l.copies[cell_origin].0;
+                                    let value = value.unwrap_or("****");
+                                    tip.push(format!("Set by {from}; {value} in {below}"));
+                                }
+                                resp.on_hover_text(tip.join("\n"));
+                            }
+                        }
+                    });
+                }
+            },
+        );
+    });
 }

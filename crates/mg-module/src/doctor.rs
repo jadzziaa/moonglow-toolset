@@ -48,7 +48,8 @@ pub struct Finding {
 pub struct TalkTables {
     /// `dialog.tlk`'s count.
     pub base: usize,
-    /// The module's custom talk table's count, if it has one loaded.
+    /// The module's custom talk table's count, if it names one and it was
+    /// found where the game looks ([`crate::talk::find`]).
     pub custom: Option<usize>,
 }
 
@@ -153,10 +154,34 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
         }
     }
     objects(&mut d, module);
+    custom_tlk(&mut d, module);
     d.out.sort_by(|a, b| {
         (a.severity, &a.source, a.resource).cmp(&(b.severity, &b.source, b.resource))
     });
     d.out
+}
+
+/// A custom talk table the module names and the game can't find: the game
+/// then won't load the module (`tests/engine_tlk.rs`).
+fn custom_tlk(d: &mut Doctor, module: &Module) {
+    let Some(name) = module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty()) else {
+        return;
+    };
+    if d.tlk.custom.is_some() {
+        return;
+    }
+    let hint = crate::talk::name_hint(&name).map(|h| format!(" ({h})")).unwrap_or_default();
+    d.push(
+        Severity::Error,
+        "custom-tlk",
+        "module",
+        ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO),
+        "Custom Tlk",
+        format!(
+            "the talk table {name:?} isn't in the module's haks, the module or the tlk folder{hint}: \
+             the game won't load the module"
+        ),
+    );
 }
 
 /// An archive's resources that start past 2 GiB: the game finds them and
@@ -738,6 +763,19 @@ mod tests {
         let f = examine(&m, &rm, TalkTables { base: 100, custom: Some(1) });
         let object = f.iter().find(|x| x.check == "object-row").unwrap();
         assert!(object.message.contains("model plc_stool"), "{}", object.message);
+    }
+
+    #[test]
+    fn a_custom_talk_table_the_game_cant_find() {
+        let rm = resman(&[]);
+        let mut m = Module::new();
+        let mut ifo = Gff::new(*b"IFO ");
+        ifo.root.set("Mod_CustomTlk", Value::String(b"mine.tlk".to_vec()));
+        m.set_gff(ResKey::parse("module", ResType::IFO).unwrap(), &ifo).unwrap();
+        let f = examine(&m, &rm, TalkTables { base: 100, custom: None });
+        assert_eq!(checks(&f), [("custom-tlk", "Custom Tlk".into())]);
+        assert!(f[0].message.contains("without .tlk"), "{}", f[0].message);
+        assert!(examine(&m, &rm, TalkTables { base: 100, custom: Some(3) }).is_empty());
     }
 
     /// An archive whose last resources sit past 2 GiB.

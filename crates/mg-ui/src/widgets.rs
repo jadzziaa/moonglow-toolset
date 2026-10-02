@@ -252,6 +252,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let mut edit = edit;
         let mut close = false;
         let tlk = tlk_text(app, &edit.strref);
+        let movable = crate::talk_view::can_add(app);
         window(&format!("String Edit: {}", edit.title)).show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("String Ref");
@@ -263,6 +264,41 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             });
             if let Some(t) = &tlk {
                 ui.weak(format!("Talk table: {t}"));
+            }
+            if let Some((language, feminine)) = movable {
+                let at = |g: Gender| edit.entries.iter().position(|e| e.0 == language && e.1 == g);
+                let (male, female) = (at(Gender::Male), at(Gender::Female));
+                let name = language.name().unwrap_or("?");
+                if ui
+                    .add_enabled(male.is_some(), egui::Button::new("Move to Talk Table"))
+                    .on_hover_text(format!(
+                        "Adds the {name} text as a new line of the module's talk table, and \
+                         names it here by its StrRef"
+                    ))
+                    .clicked()
+                {
+                    let text = |i: usize| from_editor(&edit.entries[i].2, edit.entries[i].3);
+                    let male = male.expect("enabled");
+                    let line = mg_module::talk::Line {
+                        text: text(male),
+                        feminine: feminine.then(|| text(female.unwrap_or(male))),
+                        sound: String::new(),
+                        sound_length: 0.0,
+                    };
+                    match crate::talk_view::add_line(app, &line) {
+                        Ok(strref) => {
+                            edit.strref = strref.0.to_string();
+                            edit.entries.retain(|e| {
+                                e.0 != language || (e.1 == Gender::Female && !feminine)
+                            });
+                            app.log.info(format!(
+                                "Added talk-table line {}; it's saved with the module",
+                                strref.0
+                            ));
+                        }
+                        Err(e) => app.log.error(format!("Move to Talk Table: {e}")),
+                    }
+                }
             }
             ui.add_space(6.0);
             let mut remove = None;

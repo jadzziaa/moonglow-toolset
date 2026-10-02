@@ -526,7 +526,16 @@ surveyed after 0.2.0). What each item left undone is collected in
      each); Favorites and Recent; custom blueprints dragged between
      categories; rows out of sight skipped (10,000 shown: 2.5 ms a frame).
 3. Tier 3, later:
-   - 2DA and TLK editing;
+   - 2DA and TLK editing — done as planned (a 2DA view and a talk-table
+     editor, not a 2DA editor): 2DAs in the resource browser show StrRefs
+     as text, the layer each row comes from and what a hak changed; Tools ›
+     Talk Table edits the module's talk table and its feminine table (new
+     ones made in the `tlk` folder), String Edit moves text into it. The
+     game reads a custom talk table from the module's haks, the module or
+     the `tlk` folder, in that order, and won't load a module whose table
+     it can't find (`engine_tlk.rs`; the wiki says haks don't count):
+     Moonglow and `mg verify` look where the game does, and the doctor
+     reports a missing one;
    - haks in the GUI;
    - PWK and AABB toggles, and minimap export;
    - remappable keys;

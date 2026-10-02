@@ -661,10 +661,8 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, json: bool) -> Resul
     let unused = if show_unused { mg_module::verify::unused(&m) } else { Vec::new() };
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
     let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
-    let custom = m.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty()).and_then(|name| {
-        gi.tlk_dirs()
-            .iter()
-            .find_map(|d| std::fs::read(d.join(format!("{name}.tlk"))).ok().and_then(count))
+    let custom = m.custom_tlk().ok().flatten().and_then(|name| {
+        mg_module::talk::find(&rm, &gi.tlk_dirs(), &name).and_then(|f| count(f.data))
     });
     let findings =
         mg_module::doctor::examine(&m, &rm, mg_module::doctor::TalkTables { base, custom });

@@ -12,7 +12,7 @@ there are unsaved changes, and the game's folder).
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Close, Exit |
 | Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Prefabs, Find References… |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
-| Tools | New Conversation…, Faction Editor, Journal Editor, New Script…, Palettes, Resource Browser, Reload Resources, Options… |
+| Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Resource Browser, Reload Resources, Options… |
 | Build | Compile All Scripts, Build Module…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Help | User Manual, About Moonglow Toolset |
 
@@ -85,6 +85,17 @@ load order (the game's files, haks, override, the module), with the layer
 each one comes from. Open one to view it (GFF files as a field tree, 2DA
 tables, scripts and other text; models, and blueprints with **Preview**,
 in the model viewer), copy it into the module, or save it to a file.
+
+A 2DA shows the copy the game reads, with its StrRef columns (Name,
+Description, StrRef and the like) as their text; **StrRefs as numbers**
+shows the numbers. When several layers have the table (a hak's copy over
+the game's), the view adds:
+- a **From** column with the layer each row comes from: the lowest one
+  it has come down from unchanged;
+- cells a higher layer changed, colored, with what they were below
+  (hover over one);
+- a line on what each layer adds and changes;
+- a menu to show only one layer's rows.
 
 ## The model viewer
 

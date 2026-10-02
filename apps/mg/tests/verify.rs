@@ -45,3 +45,43 @@ fn verify_fails_on_errors_and_names_them_in_json() {
         f["at"].as_str().unwrap().eq_ignore_ascii_case("chess › placeable BROKEN › Appearance")
     );
 }
+
+/// A module naming a talk table the game can't find doesn't load: Verify
+/// fails on it. The table in the module's own resources is found, as the
+/// game finds it there (`tests/engine_tlk.rs`).
+#[test]
+fn verify_finds_the_talk_table_where_the_game_does() {
+    let root = mg_testkit::corpus!();
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let dir = mg_testkit::scratch_dir("mg-verify-tlk");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    let verify = |path: &std::path::Path| {
+        let out = Command::new(env!("CARGO_BIN_EXE_mg"))
+            .args(["--root", root.to_str().unwrap(), "--user-dir", user.to_str().unwrap()])
+            .args(["verify", "--json"])
+            .arg(path)
+            .output()
+            .unwrap();
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+    };
+    let mut m = Module::open(&chess).unwrap();
+    let mut ifo = m.info().unwrap();
+    ifo.root.set("Mod_CustomTlk", Value::String(b"mg_verify".to_vec()));
+    m.set_info(&ifo).unwrap();
+    let path = dir.join("named.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let json = verify(&path);
+    assert_eq!(json["errors"], 1, "{json}");
+    assert_eq!(json["findings"][0]["check"], "custom-tlk");
+
+    let tlk = mg_tlk::Tlk::new(mg_core::Language::ENGLISH).to_bytes().unwrap();
+    m.set(ResKey::new(ResRef::from_str("mg_verify").unwrap(), ResType::TLK), tlk.clone());
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    assert_eq!(verify(&path)["errors"], 0);
+    // In the tlk folder instead.
+    std::fs::write(user.join("tlk/mg_verify.tlk"), tlk).unwrap();
+    m.remove(&ResKey::new(ResRef::from_str("mg_verify").unwrap(), ResType::TLK));
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    assert_eq!(verify(&path)["errors"], 0);
+}

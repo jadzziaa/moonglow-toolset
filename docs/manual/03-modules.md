@@ -162,8 +162,38 @@ blueprints appear in the area viewer, the palettes and the editors. Haks
 are looked for in the user folder's `hak` and then the game's `data/hk`.
 
 A custom talk table (`.tlk`) gives the strings numbered from 16,777,216
-up. Moonglow looks for it in the user folder's `tlk` and then the game's
-`data/tlk` (where the premium campaigns keep theirs).
+up. The game looks for it in the module's haks, then the module, then the
+user folder's `tlk` (and Moonglow also in the game's `data/tlk`, where
+the premium campaigns keep theirs). Its feminine table, `<name>f.tlk`, is
+looked for the same way. If the game can't find the table the module
+names, it won't load the module: Verify reports it. Name it without
+`.tlk`, and in lower case: on Linux the file's name must match exactly.
+
+### The talk table editor
+
+**Tools › Talk Table** (or **Edit…** beside Custom TLK) edits the
+module's talk table:
+- **The lines** are listed by the StrRef the game knows them by
+  (16777216 and up), with the feminine text beside them when there's a
+  feminine table. **Find** finds lines by words or by StrRef.
+- **A line**: choose it to edit its text, its feminine text, and the
+  sound spoken with it and its length. **Copy** copies its StrRef, to put
+  in a 2DA or a script.
+- **Add Line** adds one at the end. **Remove Last Line** removes only the
+  last, since removing another would renumber the lines after it.
+- **Undo** and **Redo** in its toolbar undo the table's changes. The
+  table is a file of its own, so Ctrl+Z still undoes the module's.
+- **Saving**: **Save** saves the table, and so does saving the module.
+
+With no talk table, the editor makes one in the user folder's `tlk`, with
+a feminine table if you ask, and names it in Module Properties. A table
+in a hak or in the module is shown read-only: change it where that is
+built.
+
+**Move to Talk Table** in the String Edit window (the **…** beside a
+name or description) adds the text to the talk table as a new line and
+puts its StrRef in the string, in place of the text. That's for
+translations, and for text a server sends many times.
 
 **Resources in haks**: when the module has a resource a hak also has, the
 hak's wins in the game. Moonglow warns in the log when you add such a

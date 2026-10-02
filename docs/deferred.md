@@ -121,6 +121,30 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Standard palette categories** can't be changed (the game's); only
   custom blueprints move between categories, as in Aurora. (—)
 
+## Custom content data (2DAs and talk tables)
+
+- **No 2DA editor or merger:** 2DAs are read-only (the view shows which
+  hak each row comes from). Editing rows and merging several haks' copies
+  into one is Eos's ground, left for when it's asked for. (L)
+- **Talk tables in a hak or the module** are read-only: Moonglow edits
+  only tables in the `tlk` folder. A table kept in the module could be
+  edited and saved with it. (S)
+- **One language:** the editor edits the table in its own language;
+  translated tables (the same name in other languages' folders) aren't
+  shown side by side. (M)
+- **No talk-table import or export** (CSV or nwn_tlk's JSON, for
+  spreadsheets and git); neverwinter.nim's `nwn_tlk` does it. (S)
+- **Where a StrRef is used:** Find References doesn't find the 2DA cells,
+  blueprints and conversations that name a talk-table line. (M)
+- **Ctrl+Z in the talk table** undoes the module, not the table (its own
+  Undo is in its toolbar). (S)
+- **Inserting or removing lines in the middle** isn't offered, since it
+  renumbers every line after; renumbering their users along with them
+  would need where-used first. (M)
+- **The client and custom talk tables:** the engine test runs the server;
+  whether the client also reads a table from the module (not only from
+  haks and the `tlk` folder) for 2DA text isn't tested. (S)
+
 ## Release and packaging (v0.1.0)
 
 - **macOS:** the app and disk image are built by CI but have never been

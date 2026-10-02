@@ -27,6 +27,8 @@ pub enum Tab {
     Factions,
     /// The Journal Editor.
     Journal,
+    /// The module's custom talk table.
+    TalkTable,
     /// A conversation.
     Dialog(ResKey),
     /// A resource from the load order, read-only.
@@ -119,6 +121,10 @@ impl TabViewer for Viewer<'_> {
             Tab::Blueprint(k) => k.to_string().into(),
             Tab::Factions => "Factions".into(),
             Tab::Journal => "Journal".into(),
+            Tab::TalkTable => {
+                let dirty = self.app.talk.as_ref().is_some_and(|t| t.is_dirty());
+                format!("Talk Table{}", if dirty { " *" } else { "" }).into()
+            }
             Tab::Dialog(k) => k.to_string().into(),
             Tab::Resource(k) => format!("{k} (read-only)").into(),
             Tab::Model(k) => k.to_string().into(),
@@ -149,6 +155,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Blueprint(k) => crate::blueprint::ui(self.app, ui, *k),
             Tab::Factions => faction_view::ui(self.app, ui),
             Tab::Journal => journal_view::ui(self.app, ui),
+            Tab::TalkTable => crate::talk_view::ui(self.app, ui),
             Tab::Dialog(k) => dialog_view::ui(self.app, ui, *k),
             Tab::Resource(k) => browser::resource_ui(self.app, ui, *k),
             Tab::Model(k) => model_view::ui(self.app, ui, model_view::Source::Resource(*k)),

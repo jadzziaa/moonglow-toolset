@@ -13,7 +13,7 @@ use crate::text::{decode, encode, from_editor, to_editor, with_english};
 use crate::widgets::{FieldTarget, LocStringEdit, resref_field, variables_button};
 use crate::{Action, Moonglow, Tab};
 
-fn info_key() -> ResKey {
+pub(crate) fn info_key() -> ResKey {
     ResKey::parse("module", ResType::IFO).expect("valid")
 }
 
@@ -371,11 +371,17 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     ui.horizontal(|ui| {
         ui.label("Custom TLK");
         let tlk = decode(root.read(&ifo::MOD_CUSTOM_TLK).as_bytes());
-        let tlks = app
+        // The game reads talk tables from haks and the module too.
+        let mut tlks = app
             .install
             .as_ref()
             .map(|i| GameInstall::file_names(&i.tlk_dirs(), "tlk"))
             .unwrap_or_default();
+        if let Some(game) = &app.game {
+            tlks.extend(game.resman.list(mg_core::ResType::TLK).iter().map(|r| r.to_string()));
+            tlks.sort();
+            tlks.dedup();
+        }
         let shown = if tlk.is_empty() { "(none)".to_string() } else { tlk.clone() };
         egui::ComboBox::from_id_salt("ifo-tlk").selected_text(shown).show_ui(ui, |ui| {
             let mut chosen = None;
@@ -391,5 +397,9 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                 app.actions.push(set("Custom TLK", &ifo::MOD_CUSTOM_TLK, ExoString(encode(&name))));
             }
         });
+        let label = if tlk.is_empty() { "New…" } else { "Edit…" };
+        if ui.button(label).on_hover_text("Tools › Talk Table").clicked() {
+            app.actions.push(Action::OpenTab(crate::Tab::TalkTable));
+        }
     });
 }

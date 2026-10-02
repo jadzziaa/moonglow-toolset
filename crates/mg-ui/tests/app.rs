@@ -667,6 +667,140 @@ fn module_name_in_every_language_and_variables() {
 }
 
 #[test]
+fn talk_table_made_edited_saved_and_used_by_strings() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-table");
+    let user = dir.join("user");
+    std::fs::create_dir_all(&user).unwrap();
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run();
+    h.get_by_label("This module has no talk table of its own.");
+    type_into_hint(&mut h, "name", "mg_talk");
+    h.get_by_label("With a feminine table").click();
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    h.run();
+    // The table is made in the tlk folder and named by the module.
+    assert!(user.join("tlk/mg_talk.tlk").is_file());
+    assert!(user.join("tlk/mg_talkf.tlk").is_file());
+    let named = |h: &mut Harness<'_, Moonglow>| {
+        h.state().ws.as_ref().unwrap().module.custom_tlk().unwrap().unwrap_or_default()
+    };
+    assert_eq!(named(&mut h), "mg_talk");
+    assert!(h.state().game.as_ref().unwrap().custom_tlk().is_some());
+
+    // A line, typed: one undo takes the typing back.
+    h.get_by_label("Add Line").click();
+    h.run();
+    h.get_by_label("16777216");
+    type_into_hint(&mut h, "the line's text", "Greetings");
+    type_into_hint(&mut h, "the feminine text", "Greetings, lady");
+    let line = |h: &Harness<'_, Moonglow>| h.state().talk.as_ref().unwrap().line(0);
+    assert_eq!(line(&h).text, "Greetings");
+    assert_eq!(line(&h).feminine.as_deref(), Some("Greetings, lady"));
+    h.get_by_label("Undo").click();
+    h.run();
+    assert_eq!((line(&h).text.as_str(), line(&h).feminine.as_deref()), ("Greetings", Some("")));
+    h.get_by_label("Redo").click();
+    h.run();
+    assert!(h.state().has_unsaved_work());
+
+    // Saving the module saves the table, and the game data reads it.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(!h.state().talk.as_ref().unwrap().is_dirty());
+    let game = h.state().game.as_ref().unwrap();
+    assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Greetings"));
+    let f = mg_tlk::Tlk::read(&std::fs::read(user.join("tlk/mg_talkf.tlk")).unwrap()).unwrap();
+    assert_eq!(f.text(mg_core::StrRef(0)).as_deref(), Some("Greetings, lady"));
+
+    // String Edit moves a name into the table (the talk table's window
+    // closed: it lies over Module Properties).
+    let tab = h.state().dock.find_tab(&Tab::TalkTable).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.run();
+    h.get_by_label("…").click();
+    h.run();
+    h.get_by_label("Add Text").click();
+    h.run();
+    h.state_mut().loc_edit.as_mut().unwrap().entries[0].2 = "The Keep".into();
+    h.run();
+    h.get_by_label("Move to Talk Table").click();
+    h.run();
+    let edit = h.state().loc_edit.clone().unwrap();
+    assert_eq!((edit.strref.as_str(), edit.entries.len()), ("16777217", 0));
+    h.get_by_label("OK").click();
+    h.run();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let info = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap().root.clone();
+    let name: LocString = info.read(&ifo::MOD_NAME);
+    assert_eq!((name.strref.0, name.strings.len()), (16_777_217, 0));
+    let t = h.state().talk.as_ref().unwrap();
+    assert_eq!((t.line(1).text.as_str(), t.is_dirty()), ("The Keep", true));
+}
+
+#[test]
+fn two_da_view_shows_where_rows_come_from() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-2da-layers");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    // The game's ambientmusic.2da with a row changed and one added, in
+    // override.
+    let game =
+        mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let key = ResKey::parse("ambientmusic", ResType::TWODA).unwrap();
+    let cp = mg_core::Codepage::default();
+    let t = mg_2da::TwoDa::parse(&game.get(&key).unwrap(), cp).unwrap();
+    let resource = t.column("Resource").unwrap();
+    let mut rows: Vec<Vec<String>> = (0..t.len())
+        .map(|r| (0..t.columns().len()).map(|c| t.cell(r, c).unwrap_or("****").into()).collect())
+        .collect();
+    rows[1][resource] = "mus_mine".into();
+    let mut added = rows[1].clone();
+    added[resource] = "mus_new".into();
+    rows.push(added);
+    let quote = |c: &String| if c.contains(' ') { format!("\"{c}\"") } else { c.clone() };
+    let mut text = format!("2DA V2.0\n\n   {}\n", t.columns().join(" "));
+    for (i, r) in rows.iter().enumerate() {
+        let cells: Vec<String> = r.iter().map(quote).collect();
+        text += &format!("{i} {}\n", cells.join(" "));
+    }
+    std::fs::write(user.join("override/ambientmusic.2da"), text).unwrap();
+
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    h.run();
+    h.get_by_label("From");
+    let summary = h.query_by_label_contains("override: adds 1, changes 1");
+    assert!(summary.is_some(), "the summary names what override does");
+    h.get_by_label("mus_mine");
+    // The Description column shows the talk table's text.
+    let description = t.get(0, "Description").and_then(|s| s.parse::<u32>().ok()).unwrap();
+    let text = h.state().game.as_ref().unwrap().string(mg_core::StrRef(description)).unwrap();
+    assert!(h.query_by_label(&text).is_some(), "{text}");
+    // Only override's rows.
+    h.state_mut().browser.rows_from = Some(0);
+    h.run();
+    assert!(h.query_by_label("mus_new").is_some());
+    assert!(h.query_by_label(&text).is_none());
+}
+
+#[test]
 fn faction_editor_adds_and_removes_factions() {
     let dir = mg_testkit::scratch_dir("ui-factions");
     let path = sample_module(&dir);

@@ -38,6 +38,7 @@ pub mod script_wizard;
 pub mod settings;
 pub mod store_wizard;
 mod tabs;
+pub mod talk_view;
 pub mod terrain_mode;
 pub mod test_module;
 mod text;
@@ -105,6 +106,8 @@ pub enum Action {
     Close,
     Undo,
     Redo,
+    /// Saves the module's talk table (Talk Table › Save).
+    SaveTalkTable,
     Apply(Command),
     OpenTab(Tab),
     /// Renames a blueprint (and points its editor at the new name).
@@ -219,6 +222,9 @@ pub struct Moonglow {
     pub viewport: Option<model_view::Viewport3d>,
     /// The palette's hover previews.
     pub(crate) thumbnails: model_view::Thumbnails,
+    /// The module's talk table, open for editing (Tools › Talk Table).
+    pub talk: Option<mg_module::talk::Table>,
+    pub talk_view: talk_view::TalkView,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
@@ -367,6 +373,8 @@ impl Moonglow {
             script_wizard: None,
             viewport: None,
             thumbnails: Default::default(),
+            talk: None,
+            talk_view: Default::default(),
             model_views: HashMap::new(),
             area_views: HashMap::new(),
             adjust: None,
@@ -776,6 +784,13 @@ impl Moonglow {
                 if ui.add_enabled(open, egui::Button::new("Journal Editor")).clicked() {
                     self.actions.push(Action::OpenTab(Tab::Journal));
                 }
+                if ui
+                    .add_enabled(open, egui::Button::new("Talk Table"))
+                    .on_hover_text("The module's own talk table: text named by StrRef")
+                    .clicked()
+                {
+                    self.actions.push(Action::OpenTab(Tab::TalkTable));
+                }
                 if ui.add_enabled(open, egui::Button::new("New Script…")).clicked() {
                     self.new_script = Some(String::new());
                 }
@@ -995,8 +1010,15 @@ impl Moonglow {
         self.viewed.clear();
     }
 
-    /// Loads the module's custom talk table (from its haks or the user's
-    /// `tlk/` folder) when the module names another one than is loaded.
+    /// Loads the module's custom talk table (from its haks, the module or
+    /// the user's `tlk/` folder, as the game looks) when the module names
+    /// another one than is loaded.
+    /// Reads the module's custom talk table again (after it was saved).
+    pub(crate) fn reload_custom_tlk(&mut self) {
+        self.custom_tlk = None;
+        self.load_custom_tlk();
+    }
+
     fn load_custom_tlk(&mut self) {
         let (Some(ws), Some(game)) = (&self.ws, &mut self.game) else { return };
         let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
@@ -1008,18 +1030,13 @@ impl Moonglow {
             game.set_custom_tlk(None);
             return;
         };
-        let mut stamp = None;
-        let data =
-            game.resman.get_named(&name, ResType::TLK).map(|d| d.into_owned()).ok().or_else(|| {
-                let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
-                dirs.iter().find_map(|d| {
-                    let path = d.join(format!("{name}.tlk"));
-                    let data = std::fs::read(&path).ok()?;
-                    stamp =
-                        std::fs::metadata(&path).and_then(|m| m.modified()).ok().map(|t| (path, t));
-                    Some(data)
-                })
-            });
+        let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
+        let found = mg_module::talk::find(&game.resman, &dirs, &name);
+        let stamp = found.as_ref().and_then(|f| f.source.file()).and_then(|path| {
+            let t = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+            Some((path.to_path_buf(), t))
+        });
+        let data = found.map(|f| f.data);
         self.tlk_stamp = stamp;
         match data.map(|d| mg_tlk::Tlk::read(&d)) {
             Some(Ok(tlk)) => {
@@ -1055,6 +1072,7 @@ impl Moonglow {
     pub fn has_unsaved_work(&self) -> bool {
         self.ws.as_ref().is_some_and(|ws| ws.is_modified() || ws.module.location.is_none())
             || self.scripts.values().any(|b| b.is_dirty())
+            || self.talk.as_ref().is_some_and(|t| t.is_dirty() && t.editable())
     }
 
     fn new_module(&mut self, name: &str) {
@@ -1123,6 +1141,8 @@ impl Moonglow {
         self.ws = None;
         self.scripts.clear();
         self.buffers.clear();
+        self.talk = None;
+        self.talk_view = Default::default();
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
         if let Some(game) = &mut self.game {
@@ -1379,6 +1399,9 @@ impl Moonglow {
             Action::TestModuleChoose => self.test_module(true),
             Action::TestFromHere { area, at, facing } => self.test_from_here(area, at, facing),
             Action::ReloadResources => self.reload_resources(true),
+            Action::SaveTalkTable => {
+                talk_view::save(self);
+            }
             Action::PlacePrefab(name) => self.place_prefab(&name),
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
@@ -1471,8 +1494,9 @@ impl Moonglow {
             build_view::build_on_save(self);
         }
         // Script editors' unsaved text goes into the module first, as saving
-        // everything means.
+        // everything means; so does the talk table, a file of its own.
         self.store_script_text();
+        talk_view::save(self);
         let Some(ws) = &mut self.ws else { return };
         // The custom palettes list the module's blueprints, as Aurora keeps
         // them.

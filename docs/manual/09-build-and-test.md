@@ -49,6 +49,7 @@ that crash Aurora with an access violation that names nothing:
 | A 2DA row with more cells than columns (two rows run together) | Aurora's access violation; the game drops the cells |
 | `baseitems.2da` over 256 rows, `lightcolor.2da` over 32 | Aurora fails (the game is fine) |
 | A 2DA string reference past the end of its talk table | "Bad Strref" |
+| A custom talk table the module names that isn't in its haks, the module or the `tlk` folder (or named with `.tlk`, or in another case than the file on Linux) | the game won't load the module |
 | A hak's 2DA hiding another hak's longer copy | the rows past it are lost (an older copy?) |
 | A creature, placeable, door or item naming a 2DA row that doesn't exist or whose model is missing | Aurora's area view crashes on it; in the game it has no appearance, or the game crashes (a creature with a class that doesn't exist) |
 | A tile model with over 10,000 faces | can crash Aurora when painting |
