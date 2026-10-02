@@ -240,18 +240,103 @@ fn commit(
     };
     let Some(tools) = view.terrain.as_ref() else { return };
     let before = grid.clone();
-    let mut rng = fastrand::Rng::new();
-    let changes = match pick {
+    // The tiles the preview showed; the next preview chooses anew.
+    let changes = changes(tools, &mut grid, stroke, pick, view.preview_seed);
+    view.preview_seed = fastrand::u64(..);
+    tile_command(app, view, &before, &changes, label);
+    view.notice = None;
+}
+
+/// What `stroke` (or `pick`, the tile chosen for its one cell) makes of
+/// `grid`'s tiles, choosing among those that fit by `seed`: the cells
+/// changed and their new tiles.
+fn changes(
+    tools: &Tools,
+    grid: &mut Grid,
+    stroke: Stroke,
+    pick: Option<Placement>,
+    seed: u64,
+) -> Vec<((u32, u32), Placement)> {
+    match pick {
         Some(p) => {
             let cell = stroke.cells[0];
             let w = grid.lattice.width();
             grid.tiles[(cell.1 * w + cell.0) as usize] = p;
             vec![(cell, p)]
         }
-        None => grid.apply(&tools.index, stroke, &mut rng),
-    };
-    tile_command(app, view, &before, &changes, label);
-    view.notice = None;
+        None => grid.apply(&tools.index, stroke, &mut fastrand::Rng::with_seed(seed)),
+    }
+}
+
+/// What a click with `brush` at `s` does (Shift held or not; `lower`: the
+/// right button with Raise/Lower; `turns`: a group's): its stroke and
+/// label, and for a click that only steps a tile, the tile it steps to.
+#[allow(clippy::too_many_arguments)]
+fn click(
+    tools: &Tools,
+    g: &Grid,
+    brush: &TileBrush,
+    s: Spot,
+    shift: bool,
+    lower: bool,
+    turns: u8,
+) -> (Option<Stroke>, String, Option<Placement>) {
+    match brush.brush {
+        Brush::Crosser(_) => {
+            let (st, label) = stroke(tools, g, brush, s, false, false, 0);
+            (st, label, None)
+        }
+        Brush::Group(_) => {
+            let (st, label) = stroke(tools, g, brush, s, false, false, turns);
+            (st, label, None)
+        }
+        _ => {
+            let refine = brush.brush == Brush::Refine;
+            let cycle = refine || shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
+            let (st, label) = stroke(tools, g, brush, s, lower, cycle, 0);
+            let pick = if cycle && matches!(brush.brush, Brush::Eraser | Brush::Refine) {
+                let (cx, cy) = s.cell;
+                next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
+            } else {
+                None
+            };
+            (st, label, pick)
+        }
+    }
+}
+
+/// What a click would make of the tiles under the pointer (Shift held or
+/// not), to show before it: the changed tiles, as the area's with their new
+/// tile, and their indices. Nothing while a drag goes on, or for a click
+/// that changes nothing.
+pub(crate) fn preview(
+    app: &mut Moonglow,
+    view: &AreaView,
+    shift: bool,
+) -> Option<(Vec<mg_area::AreaTile>, Vec<usize>)> {
+    let brush = active(app, view)?;
+    if !view.crossing.is_empty() || view.terrain_drag.is_some() {
+        return None;
+    }
+    let s = view.spot?;
+    let mut g = current_grid(app, view)?;
+    let (model, tools) = (view.model.as_ref()?, view.terrain.as_ref()?);
+    let (st, _, pick) = click(tools, &g, &brush, s, shift, false, view.group_turns);
+    let changed = changes(tools, &mut g, st?, pick, view.preview_seed);
+    let (mut tiles, mut hidden) = (Vec::new(), Vec::new());
+    for ((x, y), p) in changed {
+        let i = (y * model.width + x) as usize;
+        let Some(old) = model.tiles.get(i) else { continue };
+        let mut t = old.clone();
+        t.id = i64::from(p.tile);
+        t.model = tools.set.tiles.get(p.tile as usize).map(|t| t.model.to_ascii_lowercase());
+        t.orientation = p.orientation;
+        t.height = p.height;
+        t.position.z = p.height as f32 * model.height_step;
+        tiles.push(t);
+        hidden.push(i);
+    }
+    (!tiles.is_empty()).then_some((tiles, hidden))
 }
 
 /// One command putting `changes` (cells and their new tiles) into the
@@ -406,8 +491,8 @@ pub(crate) fn input(
                 && let Some(g) = current_grid(app, view)
             {
                 let tools = view.terrain.as_ref().expect("checked");
-                let (st, label) = stroke(tools, &g, &brush, s, false, false, 0);
-                commit(app, view, g, st, &label, None);
+                let (st, label, pick) = click(tools, &g, &brush, s, shift, false, 0);
+                commit(app, view, g, st, &label, pick);
             }
         }
         Brush::Group(_) => {
@@ -419,9 +504,9 @@ pub(crate) fn input(
                 && let Some(g) = current_grid(app, view)
             {
                 let tools = view.terrain.as_ref().expect("checked");
-                let (st, label) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
+                let (st, label, pick) = click(tools, &g, &brush, s, shift, false, view.group_turns);
                 // (It stays chosen, to place another.)
-                commit(app, view, g, st, &label, None);
+                commit(app, view, g, st, &label, pick);
             }
         }
         Brush::Terrain(_) | Brush::RaiseLower if terrain_drag(app, view, response, &brush) => {}
@@ -432,16 +517,7 @@ pub(crate) fn input(
                 && let Some(g) = current_grid(app, view)
             {
                 let tools = view.terrain.as_ref().expect("checked");
-                let refine = brush.brush == Brush::Refine;
-                let cycle =
-                    refine || shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
-                let (st, label) = stroke(tools, &g, &brush, s, lower, cycle, 0);
-                let pick = if cycle && matches!(brush.brush, Brush::Eraser | Brush::Refine) {
-                    let (cx, cy) = s.cell;
-                    next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
-                } else {
-                    None
-                };
+                let (st, label, pick) = click(tools, &g, &brush, s, shift, lower, 0);
                 commit(app, view, g, st, &label, pick);
             } else if response.secondary_clicked() {
                 app.palette.tile_brush = None;

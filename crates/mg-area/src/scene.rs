@@ -226,6 +226,41 @@ impl AreaScene {
         (out, shown.bounds)
     }
 
+    /// `tiles` (not the area's: what a brush would make of them) as
+    /// `view` shows them, `opacity` opaque, their models loaded (and kept)
+    /// as the area's are.
+    pub fn preview_tiles(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        tiles: &[AreaTile],
+        view: &View,
+        opacity: f32,
+    ) -> Vec<Instance> {
+        let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        let load = |name: &str| models.load(name);
+        let (mut out, mut lights) = (Vec::new(), Vec::new());
+        for t in tiles {
+            let Some(name) = t.model.as_ref() else { continue };
+            let loaded = self
+                .tile_cache
+                .entry(name.clone())
+                .or_insert_with(|| {
+                    let model = load(name)?;
+                    let anims = anim::animations(&model, &load);
+                    Some(Arc::new(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims }))
+                })
+                .clone();
+            if let Some(l) = loaded {
+                self.tile(t, &l, view, &mut out, &mut lights);
+            }
+        }
+        for i in &mut out {
+            i.opacity = opacity;
+        }
+        out
+    }
+
     /// Object `i`'s box in its own space: its models' (rest pose), or a
     /// marker's.
     pub fn bounds(&self, area: &AreaModel, i: usize) -> (Vec3, Vec3) {
@@ -238,10 +273,16 @@ impl AreaScene {
     /// The scene of `area` (the model these models were loaded for) as
     /// `view` shows it.
     pub fn scene(&self, area: &AreaModel, view: &View) -> Scene {
+        self.scene_hiding(area, view, &[])
+    }
+
+    /// [`scene`](Self::scene) without the tiles of index `hidden` (a
+    /// preview shows others there).
+    pub fn scene_hiding(&self, area: &AreaModel, view: &View, hidden: &[usize]) -> Scene {
         let mut instances = Vec::new();
         let mut lights = Vec::new();
-        for (tile, loaded) in area.tiles.iter().zip(&self.tiles) {
-            let Some(loaded) = loaded else { continue };
+        for (i, (tile, loaded)) in area.tiles.iter().zip(&self.tiles).enumerate() {
+            let Some(loaded) = loaded.as_ref().filter(|_| !hidden.contains(&i)) else { continue };
             self.tile(tile, loaded, view, &mut instances, &mut lights);
         }
         for (o, shown) in area.objects.iter().zip(&self.objects) {

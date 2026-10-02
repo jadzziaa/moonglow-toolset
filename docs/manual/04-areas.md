@@ -177,6 +177,10 @@ as Aurora's Terrain tab does:
 - The Eraser, Refine Tile and Raise/Lower head the Terrain list, whatever
   the tileset's order.
 
+Under the pointer, the area shows the tiles a click would make in place of
+those they replace, slightly see-through: a feature or group, a terrain's
+or a raised corner's tiles, the Eraser's or Refine Tile's choice. The
+click puts down those very tiles (among the tiles that fit, the one shown).
 The cursor is green where a click paints and red where the tileset
 refuses it. It is blue where a click only chooses tiles again: a crosser
 clicked rather than dragged, the Eraser with Shift, and Shift + click on a

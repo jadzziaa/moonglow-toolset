@@ -934,6 +934,59 @@ fn city_tile_selection() {
 
 #[test]
 #[ignore]
+fn tile_preview() {
+    // A barn under the pointer before it is placed.
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Preview", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 6,
+        height: 6,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let path = dir.join("preview.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        if let Some(o) = &mut view.orbit {
+            o.pitch = 40f32.to_radians();
+            o.yaw = -60f32.to_radians();
+            o.distance = 55.0;
+        }
+    }
+    h.get_by_label("Groups").click();
+    h.run_steps(2);
+    h.get_by_label("Barn 1 2x2").click();
+    h.run_steps(2);
+    let at = h.state().area_views[&area].screen_pos(glam::Vec3::new(25.0, 25.0, 0.0)).unwrap();
+    h.hover_at(at);
+    h.run_steps(5);
+    shoot(&mut h, &dir, "tile-preview");
+}
+
+#[test]
+#[ignore]
 fn area_ghost() {
     // A placeable chosen in the palette: see-through under the pointer.
     mg_testkit::gpu::hold();

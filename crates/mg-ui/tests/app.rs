@@ -7082,3 +7082,57 @@ fn painting_with_shift_held_the_camera_still_zooms_and_turns() {
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
     h.run_steps(1);
 }
+
+#[test]
+fn a_tile_brush_previews_the_tiles_its_click_makes() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("tile-preview") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    // What the preview shows is what the click puts down.
+    let mut check = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+        let pos = screen(h, area, at);
+        h.hover_at(pos);
+        h.run_steps(3);
+        let shown = h.state().area_views[&area].tile_preview.clone();
+        assert!(!shown.is_empty(), "a preview at {at}");
+        for pressed in [true, false] {
+            let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+            h.event(egui::Event::PointerButton { pos, button, pressed, modifiers });
+        }
+        h.run_steps(3);
+        let g = grid(h);
+        for t in &shown {
+            let placed = g.tile(t.column, t.row);
+            assert_eq!(
+                (i64::from(placed.tile), placed.orientation, placed.height),
+                (t.id, t.orientation, t.height),
+                "tile ({}, {})",
+                t.column,
+                t.row
+            );
+        }
+    };
+    // Water on a corner (its four tiles, chosen at random among those that
+    // fit), and a barn.
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    check(&mut h, Vec3::new(20.0, 20.0, 0.0));
+    h.get_by_label("Groups").click();
+    h.run_steps(2);
+    h.get_by_label("Barn 1 2x2").click();
+    h.run_steps(2);
+    check(&mut h, Vec3::new(5.0, 5.0, 0.0));
+}

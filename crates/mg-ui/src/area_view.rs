@@ -180,6 +180,12 @@ pub struct AreaView {
     /// The tileset brush's cursor as the last frame drew it: its shapes'
     /// points on the ground, and their colours.
     pub brush_cursor: Vec<(Vec<Vec3>, Color32)>,
+    /// The tiles a tile brush's click would make, as the last frame showed
+    /// them under the pointer.
+    pub tile_preview: Vec<mg_area::AreaTile>,
+    /// Chooses among the tiles that fit for the preview, and so for the
+    /// click it shows (then anew).
+    pub(crate) preview_seed: u64,
     /// A terrain brush's drag: the corners it is painting.
     pub(crate) terrain_drag: Option<crate::terrain_mode::TerrainDrag>,
     /// A trigger or encounter whose outline is being drawn anew.
@@ -251,6 +257,8 @@ impl AreaView {
             pointer: None,
             brush_cursor: Vec::new(),
             terrain_drag: None,
+            tile_preview: Vec::new(),
+            preview_seed: fastrand::u64(..),
             redraw: None,
             set_name: None,
             targets: None,
@@ -715,6 +723,24 @@ fn viewport(
     // The blueprint about to be placed, see-through where it would go.
     let ghost = ghost(app, ui, view);
     view.ghost_shown.clone_from(&ghost);
+    // What a tile brush's click would make, under the pointer: the tiles in
+    // place of those they replace.
+    let settings = View { time: view.time, night: view.night, fog: view.fog, show: view.show };
+    let shift = ui.input(|i| i.modifiers.shift);
+    let preview = crate::terrain_mode::preview(app, view, shift);
+    let (preview_instances, hidden) =
+        match (preview, view.scene.as_mut(), app.viewport.as_ref(), app.game.as_ref()) {
+            (Some((tiles, hidden)), Some(scene), Some(vp), Some(game)) => {
+                let instances =
+                    scene.preview_tiles(&vp.gpu, game, &tiles, &settings, PREVIEW_OPACITY);
+                view.tile_preview = tiles;
+                (instances, hidden)
+            }
+            _ => {
+                view.tile_preview.clear();
+                (Vec::new(), Vec::new())
+            }
+        };
     let (ghost_instances, ghost_box) =
         match (&ghost, view.scene.as_mut(), app.viewport.as_ref(), app.game.as_ref()) {
             (Some(o), Some(scene), Some(vp), Some(game)) => {
@@ -748,10 +774,10 @@ fn viewport(
         o.position = p;
         o.rotation = r;
     }
-    let settings = View { time: view.time, night: view.night, fog: view.fog, show: view.show };
-    let mut frame = scene.scene(&shown, &settings);
+    let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
     frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
     frame.instances.extend(ghost_instances);
+    frame.instances.extend(preview_instances);
     if view.grid {
         frame.lines = grid_lines(view, &shown);
     }
@@ -1646,6 +1672,9 @@ fn view_fog(f: mg_render::Fog, distance: f32) -> mg_render::Fog {
     let beyond = (distance - GAME_CAMERA).max(0.0);
     mg_render::Fog { start: f.start + beyond, end: f.end + beyond, ..f }
 }
+
+/// How opaque the tiles a tile brush's click would make are drawn.
+const PREVIEW_OPACITY: f32 = 0.85;
 
 /// How opaque a blueprint about to be placed is drawn.
 const GHOST_OPACITY: f32 = 0.6;
