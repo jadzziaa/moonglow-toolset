@@ -628,6 +628,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
             mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
             mg_area::terrain::Brush::Eraser => "click a tile (Shift + click: its next variant)",
+            mg_area::terrain::Brush::Refine => "click a tile for the next that fits there",
             mg_area::terrain::Brush::Group(_) => {
                 "click to place (Shift + click: place more), right click to turn"
             }

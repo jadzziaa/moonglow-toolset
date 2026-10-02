@@ -168,8 +168,11 @@ as Aurora's Terrain tab does:
 - **Groups** (buildings, big features) are placed whole; right-click to
   turn one before placing it.
 - The **Eraser** takes the crossers off a tile; with Shift + click it
-  steps the tile through the other tiles that fit there. It and
-  **Raise/Lower** head the Terrain list, whatever the tileset's order.
+  steps the tile through the other tiles that fit there.
+- **Refine Tile** (Moonglow's own) steps the tile you click through the
+  other tiles that fit there, whatever it holds, and never paints.
+- The Eraser, Refine Tile and Raise/Lower head the Terrain list, whatever
+  the tileset's order.
 
 The cursor is green where a click paints and red where the tileset
 refuses it. It is blue where a click only chooses tiles again: a crosser

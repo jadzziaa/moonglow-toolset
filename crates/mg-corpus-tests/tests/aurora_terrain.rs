@@ -119,6 +119,7 @@ fn act(
             let (x, y) = at(&step["at"]);
             grid.raise(index, rules, x, y, !step["lower"].as_bool().unwrap_or(false))
         }
+        Brush::Refine => panic!("{area}: Refine Tile is Moonglow's, in no tileset's palette"),
     }
 }
 

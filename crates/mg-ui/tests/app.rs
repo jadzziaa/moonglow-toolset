@@ -6876,3 +6876,51 @@ fn the_eraser_and_raise_lower_head_the_terrain_brushes() {
         assert!(raise < top(&h, other), "Raise/Lower is above {other}");
     }
 }
+
+#[test]
+fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("refine-tile") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    // Among the tools at the top: after the Eraser, before Raise/Lower.
+    let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
+    let refine = top(&h, "🔁 Refine Tile");
+    assert!(top(&h, "🗑 Eraser") < refine && refine < top(&h, "↕ Raise/Lower"));
+    h.get_by_label("🔁 Refine Tile").click();
+    h.run_steps(2);
+    let before = grid(&mut h);
+    let next = mg_tiles::paint::next_fit(&index, &before.lattice.cell(1, 1), before.tile(1, 1))
+        .expect("Rural's grass has other tiles");
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(3);
+    let cursor: Vec<_> = h.state().area_views[&area].brush_cursor.iter().map(|(_, c)| *c).collect();
+    assert_eq!(cursor, [mg_ui::terrain_mode::CYCLE]);
+    for pressed in [true, false] {
+        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+    }
+    h.run_steps(3);
+    let after = grid(&mut h);
+    assert_eq!(after.tile(1, 1), next, "the next tile that fits");
+    assert_eq!(after.lattice, before.lattice, "no terrain painted");
+    for (x, y) in [(0, 1), (2, 1), (1, 0), (1, 2)] {
+        assert_eq!(after.tile(x, y), before.tile(x, y), "({x}, {y}) is as it was");
+    }
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h).tile(1, 1), before.tile(1, 1));
+}

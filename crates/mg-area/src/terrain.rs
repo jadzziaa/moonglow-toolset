@@ -27,6 +27,10 @@ pub enum Brush {
     Eraser,
     /// Raises a corner a height step (the right button lowers it).
     RaiseLower,
+    /// Steps the tile under the pointer through the tiles that fit there
+    /// (the Eraser with Shift), whatever it holds; paints nothing.
+    /// Moonglow's own: no tileset's palette has it.
+    Refine,
     /// The tileset's group of this index.
     Group(usize),
 }

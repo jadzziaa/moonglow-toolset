@@ -77,6 +77,9 @@ pub struct Spot {
 /// off its middle would otherwise clip a side one.
 const SIDE_REACH: f32 = 0.25;
 
+/// Refine Tile's name in the palette.
+const REFINE: &str = "Refine Tile";
+
 /// A terrain brush (or Raise/Lower) dragged across the area: the corners
 /// it has marked, in order, to paint when it is let go.
 #[derive(Debug, Clone, Default)]
@@ -179,17 +182,8 @@ fn stroke(
             let what = if lower { "Lower terrain" } else { "Raise terrain" };
             (grid.raise(&tools.index, &tools.rules, x, y, !lower), what.into())
         }
-        Brush::Eraser if cycle => {
-            let (cx, cy) = spot.cell;
-            let cell = grid.lattice.cell(cx, cy);
-            let next = next_fit(&tools.index, &cell, grid.tile(cx, cy));
-            let s = next.map(|_| Stroke {
-                lattice: grid.lattice.clone(),
-                cells: vec![spot.cell],
-                fixed: Vec::new(),
-            });
-            (s, "Next tile".into())
-        }
+        Brush::Eraser if cycle => (next_tile(tools, grid, spot), "Next tile".into()),
+        Brush::Refine => (next_tile(tools, grid, spot), "Refine tile".into()),
         Brush::Eraser => (grid.erase(&tools.index, spot.cell.0, spot.cell.1), "Erase tile".into()),
         Brush::Crosser(c) => (grid.draw_crosser(&tools.index, &[], &[spot.cell], c), label),
         Brush::Group(g) => {
@@ -198,6 +192,18 @@ fn stroke(
             (grid.place_group(&tools.index, group, cx, cy, turns), format!("Place {}", brush.label))
         }
     }
+}
+
+/// The stroke choosing the tile under `spot` again (the next that fits
+/// there, which the commit picks); `None` when no other fits.
+fn next_tile(tools: &Tools, grid: &Grid, spot: Spot) -> Option<Stroke> {
+    let (cx, cy) = spot.cell;
+    let cell = grid.lattice.cell(cx, cy);
+    next_fit(&tools.index, &cell, grid.tile(cx, cy)).map(|_| Stroke {
+        lattice: grid.lattice.clone(),
+        cells: vec![spot.cell],
+        fixed: Vec::new(),
+    })
 }
 
 /// Puts a stroke into the ARE as one command; `pick` chooses each cell's
@@ -407,9 +413,11 @@ pub(crate) fn input(
                 && let Some(g) = current_grid(app, view)
             {
                 let tools = view.terrain.as_ref().expect("checked");
-                let cycle = shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
+                let refine = brush.brush == Brush::Refine;
+                let cycle =
+                    refine || shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
                 let (st, label) = stroke(tools, &g, &brush, s, lower, cycle, 0);
-                let pick = if cycle && brush.brush == Brush::Eraser {
+                let pick = if cycle && matches!(brush.brush, Brush::Eraser | Brush::Refine) {
                     let (cx, cy) = s.cell;
                     next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
                 } else {
@@ -652,7 +660,7 @@ fn cursor_shapes(
                 polygon(&square, color);
             }
         }
-        Brush::Eraser => {
+        Brush::Eraser | Brush::Refine => {
             let (x, y) = (s.cell.0 as f32, s.cell.1 as f32);
             let h = z(s.cell.0, s.cell.1) + 0.05;
             let square = [
@@ -661,8 +669,10 @@ fn cursor_shapes(
                 point(x + 1.0, y + 1.0, h),
                 point(x, y + 1.0, h),
             ];
-            // Shift + click steps the tile through those that fit.
-            polygon(&square, if shift { CYCLE } else { ok });
+            // Refine Tile, and the Eraser with Shift, step the tile through
+            // those that fit.
+            let cycle = shift || brush.brush == Brush::Refine;
+            polygon(&square, if cycle { CYCLE } else { ok });
         }
         _ => {
             // Shift + click on a corner of the brush's terrain steps the
@@ -766,12 +776,21 @@ fn show_item(
                 )
                 .show(ui, |ui| {
                     // The tools first (where tilesets list them varies),
-                    // then the rest in the palette's order.
+                    // with Moonglow's Refine Tile beside the Eraser, then
+                    // the rest in the palette's order.
+                    let refine = PaletteItem::Brush { label: REFINE.into(), brush: Brush::Refine };
                     let mut items: Vec<&PaletteItem> = items.iter().collect();
+                    if items
+                        .iter()
+                        .any(|i| matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. }))
+                    {
+                        items.push(&refine);
+                    }
                     items.sort_by_key(|i| match i {
                         PaletteItem::Brush { brush: Brush::Eraser, .. } => 0,
-                        PaletteItem::Brush { brush: Brush::RaiseLower, .. } => 1,
-                        _ => 2,
+                        PaletteItem::Brush { brush: Brush::Refine, .. } => 1,
+                        PaletteItem::Brush { brush: Brush::RaiseLower, .. } => 2,
+                        _ => 3,
                     });
                     for i in items {
                         show_item(ui, i, tileset, chosen, depth + 1);
@@ -783,6 +802,7 @@ fn show_item(
             let shown = match brush {
                 Brush::Eraser => crate::icons::labelled(crate::icons::ERASER, label),
                 Brush::RaiseLower => crate::icons::labelled(crate::icons::RAISE_LOWER, label),
+                Brush::Refine => crate::icons::labelled(crate::icons::REFINE, label),
                 _ => label.clone(),
             };
             if ui.selectable_label(on, shown).clicked() {
