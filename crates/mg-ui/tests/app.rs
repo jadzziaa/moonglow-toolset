@@ -4043,6 +4043,66 @@ fn conversation_lines_without_speaker_names_when_chosen() {
 }
 
 #[test]
+fn conversation_lines_show_their_scripts_and_play_as_the_game_plays_them() {
+    use mg_module::dialog::{Kind, Parent, add_node, new_dialog, node_mut, set_condition};
+    let dir = mg_testkit::scratch_dir("ui-dialog-play");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("mg_keeper", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    // Two greetings: the first only for those seen before.
+    let again = add_node(&mut g, Parent::Root, "Back again?");
+    set_condition(&mut g, Parent::Root, 0, "c_seen");
+    let hello = add_node(&mut g, Parent::Root, "Hello, stranger.");
+    let n = node_mut(&mut g, Kind::Entry, hello).unwrap();
+    n.set("Script", mg_gff::Value::resref(ResRef::from_str("a_hello").unwrap()));
+    n.set("Quest", mg_gff::Value::String(b"q_intro".to_vec()));
+    n.set("QuestEntry", mg_gff::Value::Dword(10));
+    let who = add_node(&mut g, Parent::Node(Kind::Entry, hello), "Who are you?");
+    set_condition(&mut g, Parent::Node(Kind::Entry, hello), 0, "c_curious");
+    add_node(&mut g, Parent::Node(Kind::Entry, hello), "Bye.");
+    add_node(&mut g, Parent::Node(Kind::Reply, who), "I am the keeper.");
+    let _ = again;
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, g.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // The lines name their scripts and journal updates.
+    h.get_by_label("if c_seen");
+    h.get_by_label("do a_hello  journal q_intro 10");
+    h.get_by_label("Scripts").click();
+    h.run();
+    assert!(h.state().settings.dialog_hide_scripts);
+    assert!(h.query_by_label("if c_seen").is_none());
+    // Played through: the first greeting whose condition passes.
+    h.get_by_label("Test").click();
+    h.run();
+    h.get_by_label("NPC: Back again?");
+    h.get_by_label("if c_seen: TRUE").click();
+    h.run();
+    h.get_by_label("(not said) Back again?");
+    h.get_by_label("NPC: Hello, stranger.");
+    h.get_by_label("do a_hello  journal q_intro 10");
+    // A reply whose condition fails is hidden.
+    h.get_by_label("if c_curious: TRUE").click();
+    h.run();
+    h.get_by_label("(hidden) Who are you?");
+    h.get_by_label("if c_curious: FALSE").click();
+    h.run();
+    h.get_by_label("2. Bye.");
+    h.get_by_label("1. Who are you?").click();
+    h.run();
+    h.get_by_label("NPC: I am the keeper.");
+    h.get_by_label("You: Who are you?");
+    h.get_by_label("[END DIALOGUE]");
+}
+
+#[test]
 fn saving_keeps_the_module_as_it_was_as_a_backup() {
     let dir = mg_testkit::scratch_dir("ui-backup");
     let path = sample_module(&dir);

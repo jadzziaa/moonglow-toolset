@@ -102,6 +102,9 @@ pub struct Settings {
     /// Options > Conversation Editor: Show speaker name before text
     /// (Aurora's default: shown).
     pub dialog_hide_names: bool,
+    /// The conversation editor's Scripts toggle off: lines don't show the
+    /// names of their conditions, actions, journal updates and sounds.
+    pub dialog_hide_scripts: bool,
     /// Options > Conversation Editor: NPC and player text colours (sRGB);
     /// `None`: Moonglow's red and blue.
     pub dialog_npc_color: Option<[u8; 3]>,

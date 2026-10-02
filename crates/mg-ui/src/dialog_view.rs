@@ -54,8 +54,12 @@ pub struct DialogView {
     /// Bookmarked lines.
     pub bookmarks: Vec<(Kind, u32)>,
     pub search: DialogSearch,
-    /// Test mode: the lines visited, the current one last.
+    /// Test mode: the lines spoken, an NPC's and the player's reply in
+    /// turn, the last reply last.
     pub test: Option<Vec<(Kind, u32)>>,
+    /// Test mode: what each condition script is taken to return (TRUE
+    /// unless set), since the editor can't run it.
+    pub assume: std::collections::BTreeMap<String, bool>,
     /// The Input Text popup's new line, while it is open.
     pub input: Option<NewLine>,
 }
@@ -280,6 +284,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         {
             ui.toggle_value(&mut view.highlight[i], *label)
                 .on_hover_text(format!("Highlight lines with {}", label.to_lowercase()));
+        }
+        ui.separator();
+        let mut scripts = !app.settings.dialog_hide_scripts;
+        if ui
+            .toggle_value(&mut scripts, "Scripts")
+            .on_hover_text("Show each line's condition, action, journal update and sound")
+            .changed()
+        {
+            app.settings.dialog_hide_scripts = !scripts;
         }
     });
     ui.separator();
@@ -544,9 +557,34 @@ fn highlighted(n: &Struct, hl: [bool; 5]) -> bool {
         || (hl[4] && has("Sound"))
 }
 
+/// What a line does besides its text, for the tree: its link's condition,
+/// its action, journal update and sound, by name (`if c_has_key`, `do
+/// a_give_gold`, `journal q_rats 20`, `sound vs_hello`).
+pub(crate) fn markers(link: &Struct, n: &Struct) -> Vec<String> {
+    let resref = |s: &Struct, l: &str| s.resref(l).filter(|r| !r.is_empty()).map(|r| r.to_string());
+    let mut out = Vec::new();
+    if let Some(c) = resref(link, "Active") {
+        out.push(format!("if {c}"));
+    }
+    if let Some(a) = resref(n, "Script") {
+        out.push(format!("do {a}"));
+    }
+    let quest = decode(n.string("Quest").unwrap_or_default());
+    if !quest.is_empty() {
+        let entry = n.integer("QuestEntry").unwrap_or(0);
+        out.push(format!("journal {quest} {entry}"));
+    }
+    if let Some(s) = resref(n, "Sound") {
+        out.push(format!("sound {s}"));
+    }
+    out
+}
+
 /// How lines look (Options › Conversation Editor).
 struct Look {
     names: bool,
+    /// Each line's condition, action, journal update and sound, named.
+    scripts: bool,
     npc: Color32,
     pc: Color32,
 }
@@ -557,6 +595,7 @@ impl Look {
             |c: Option<[u8; 3]>, d: Color32| c.map_or(d, |[r, g, b]| Color32::from_rgb(r, g, b));
         Look {
             names: !s.dialog_hide_names,
+            scripts: !s.dialog_hide_scripts,
             npc: rgb(s.dialog_npc_color, Color32::from_rgb(210, 70, 70)),
             pc: rgb(s.dialog_pc_color, Color32::from_rgb(90, 140, 230)),
         }
@@ -645,7 +684,12 @@ fn tree(
             if r.clicked() {
                 view.selected = Some(row);
             }
-            if cond.is_some() {
+            if look.scripts {
+                let marks = markers(l, n);
+                if !marks.is_empty() {
+                    ui.label(RichText::new(marks.join("  ")).weak().small());
+                }
+            } else if cond.is_some() {
                 ui.weak("?");
             }
         });
@@ -1242,6 +1286,49 @@ fn search_pane(
 
 /// Test mode: click through the conversation from a greeting, as a player
 /// would, without evaluating conditions.
+/// A link's condition script, if it has one.
+fn condition(link: &Struct) -> Option<String> {
+    link.resref("Active").filter(|r| !r.is_empty()).map(|r| r.to_string())
+}
+
+/// Whether a link's condition is taken to pass.
+fn passes(link: &Struct, assume: &std::collections::BTreeMap<String, bool>) -> bool {
+    condition(link).is_none_or(|c| assume.get(&c).copied().unwrap_or(true))
+}
+
+/// The NPC line the game says among `parent`'s: the first whose condition
+/// passes.
+pub(crate) fn npc_line(
+    g: &Gff,
+    parent: Parent,
+    assume: &std::collections::BTreeMap<String, bool>,
+) -> Option<u32> {
+    links(g, parent).iter().find(|l| passes(l, assume)).map(link_index)
+}
+
+/// A condition's name as a toggle: TRUE or FALSE, clicked to switch.
+fn condition_toggle(ui: &mut Ui, c: &str, assume: &mut std::collections::BTreeMap<String, bool>) {
+    let on = assume.get(c).copied().unwrap_or(true);
+    let text = format!("if {c}: {}", if on { "TRUE" } else { "FALSE" });
+    if ui
+        .small_button(text)
+        .on_hover_text("What this condition is taken to return; click to switch")
+        .clicked()
+    {
+        assume.insert(c.to_string(), !on);
+    }
+}
+
+/// A line's actions and journal update (its markers but the condition).
+fn effects(link: &Struct, n: &Struct) -> String {
+    markers(link, n).into_iter().filter(|m| !m.starts_with("if ")).collect::<Vec<_>>().join("  ")
+}
+
+/// Test mode: the conversation played as the game plays it. The NPC says
+/// the first of its lines whose condition passes; the player is offered
+/// the replies whose conditions pass. Conditions are taken to return TRUE
+/// until switched, and the actions and journal updates of each line are
+/// shown.
 pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
     let open: Vec<ResKey> =
         app.dialog_views.iter().filter(|(_, v)| v.test.is_some()).map(|(k, _)| *k).collect();
@@ -1249,53 +1336,111 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
         let Some(g) = app.ws.as_mut().and_then(|w| w.doc(&key).ok().cloned()) else { continue };
         let view = app.dialog_views.get_mut(&key).expect("listed");
         let mut path = view.test.clone().unwrap_or_default();
+        let mut assume = view.assume.clone();
         let mut close = false;
         egui::Window::new(format!("Conversation Test: {key}")).collapsible(false).show(
             ui.ctx(),
             |ui| {
-                let next: Vec<(Kind, u32, bool)> = match path.last() {
-                    None => links(&g, Parent::Root)
-                        .iter()
-                        .map(|l| (Kind::Entry, link_index(l), false))
-                        .collect(),
-                    Some(&(k, i)) => {
-                        if let Some(n) = node(&g, k, i) {
-                            let who = if k == Kind::Entry { "NPC" } else { "You" };
-                            ui.label(RichText::new(format!("{who}: {}", text(n))).strong());
+                // What was said so far.
+                egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                    for (k, i) in &path {
+                        if let Some(n) = node(&g, *k, *i) {
+                            let who = if *k == Kind::Entry { "NPC" } else { "You" };
+                            ui.weak(format!("{who}: {}", text(n)));
                         }
-                        links(&g, Parent::Node(k, i))
-                            .iter()
-                            .map(|l| (k.child(), link_index(l), is_link(l)))
-                            .collect()
-                    }
-                };
-                ui.separator();
-                if next.is_empty() {
-                    ui.weak("[END DIALOGUE]");
-                }
-                for (k, i, _) in next {
-                    let Some(n) = node(&g, k, i) else { continue };
-                    let t = text(n);
-                    let label = match (k, t.is_empty()) {
-                        (Kind::Reply, true) => "[CONTINUE]".to_string(),
-                        (Kind::Entry, _) => format!("NPC: {t}"),
-                        (Kind::Reply, false) => t,
-                    };
-                    if ui.button(label).clicked() {
-                        path.push((k, i));
-                    }
-                }
-                ui.separator();
-                ui.horizontal(|ui| {
-                    if ui.add_enabled(!path.is_empty(), egui::Button::new("<-- Back")).clicked() {
-                        path.pop();
-                    }
-                    if ui.button("Done").clicked() {
-                        close = true;
                     }
                 });
+                ui.separator();
+                // The NPC's turn: from the root, or after the last reply.
+                let parent = match path.last() {
+                    None => Parent::Root,
+                    Some(&(k, i)) => Parent::Node(k, i),
+                };
+                let candidates = links(&g, parent).to_vec();
+                let spoken = npc_line(&g, parent, &assume);
+                // The NPC lines before the one said were passed over.
+                for l in &candidates {
+                    let i = link_index(l);
+                    let Some(n) = node(&g, Kind::Entry, i) else { continue };
+                    ui.horizontal(|ui| {
+                        if Some(i) == spoken {
+                            ui.label(RichText::new(format!("NPC: {}", text(n))).strong());
+                        } else {
+                            ui.weak(format!("(not said) {}", text(n)));
+                        }
+                        if let Some(c) = condition(l) {
+                            condition_toggle(ui, &c, &mut assume);
+                        }
+                    });
+                    if Some(i) == spoken {
+                        let e = effects(l, n);
+                        if !e.is_empty() {
+                            ui.weak(e);
+                        }
+                        break;
+                    }
+                }
+                let Some(entry) = spoken else {
+                    ui.weak(if candidates.is_empty() {
+                        "[END DIALOGUE]"
+                    } else {
+                        "[END DIALOGUE: no NPC line's condition passes]"
+                    });
+                    footer(ui, &mut path, &mut close);
+                    return;
+                };
+                ui.separator();
+                // The player's replies.
+                let replies = links(&g, Parent::Node(Kind::Entry, entry)).to_vec();
+                if replies.is_empty() {
+                    ui.weak("[END DIALOGUE]");
+                }
+                // Numbered as the game numbers the ones it offers.
+                let mut number = 0;
+                for l in &replies {
+                    let i = link_index(l);
+                    let Some(n) = node(&g, Kind::Reply, i) else { continue };
+                    let t = text(n);
+                    let t = if t.is_empty() { "[CONTINUE]".to_string() } else { t };
+                    let shown = passes(l, &assume);
+                    number += usize::from(shown);
+                    let label = if shown { format!("{number}. {t}") } else { t };
+                    ui.horizontal(|ui| {
+                        if shown {
+                            if ui.button(&label).clicked() {
+                                path.push((Kind::Entry, entry));
+                                path.push((Kind::Reply, i));
+                            }
+                        } else {
+                            ui.weak(format!("(hidden) {label}"));
+                        }
+                        if let Some(c) = condition(l) {
+                            condition_toggle(ui, &c, &mut assume);
+                        }
+                        let e = effects(l, n);
+                        if !e.is_empty() {
+                            ui.weak(e);
+                        }
+                    });
+                }
+                footer(ui, &mut path, &mut close);
             },
         );
         view.test = if close { None } else { Some(path) };
+        view.assume = assume;
     }
+}
+
+/// Back (a turn: the reply and the NPC line before it) and Done.
+fn footer(ui: &mut Ui, path: &mut Vec<(Kind, u32)>, close: &mut bool) {
+    ui.separator();
+    ui.horizontal(|ui| {
+        if ui.add_enabled(!path.is_empty(), egui::Button::new("<-- Back")).clicked() {
+            path.pop();
+            path.pop();
+        }
+        if ui.button("Done").clicked() {
+            *close = true;
+        }
+    });
 }

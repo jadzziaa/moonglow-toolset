@@ -174,6 +174,24 @@ pub fn links(g: &Gff, parent: Parent) -> &[Struct] {
     }
 }
 
+/// Sets the condition script (`Active`, Text Appears When) of the link at
+/// `pos` under `parent`; empty removes it. Whether there was such a link.
+pub fn set_condition(g: &mut Gff, parent: Parent, pos: usize, script: &str) -> bool {
+    let Ok(r) = ResRef::from_str(script) else { return false };
+    match links_mut(g, parent).and_then(|l| l.get_mut(pos)) {
+        Some(l) => {
+            l.set("Active", Value::resref(r));
+            true
+        }
+        None => false,
+    }
+}
+
+/// A line, to change.
+pub fn node_mut(g: &mut Gff, kind: Kind, index: u32) -> Option<&mut Struct> {
+    list_mut(g, kind.list()).get_mut(index as usize)
+}
+
 fn links_mut(g: &mut Gff, parent: Parent) -> Option<&mut Vec<Struct>> {
     match parent {
         Parent::Root => Some(list_mut(g, "StartingList")),
