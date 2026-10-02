@@ -908,3 +908,29 @@ fn lines_hide_behind_meshes_but_not_under_the_ground_they_lie_on() {
     // Under the board: hidden.
     assert!(!red_near(Vec3::new(0.0, 0.0, 0.0)));
 }
+
+#[test]
+fn opacity_makes_an_instance_see_through() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let area = AreaLight { ambient: Vec3::splat(0.5), ..Default::default() };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut shot = |opacity: f32| {
+        let instance = Instance { opacity, ..Instance::new(model.clone(), Mat4::IDENTITY) };
+        let scene = Scene { instances: vec![instance], area, ..Default::default() };
+        r.render_image(&gpu, &NoAssets, &scene, &camera, 32, 32).pixel(16, 16)
+    };
+    let (whole, half) = (shot(1.0), shot(0.5));
+    // Over the black background: about half as bright.
+    for c in 0..3 {
+        let ratio = f32::from(half[c]) / f32::from(whole[c]).max(1.0);
+        assert!((ratio - 0.5).abs() < 0.08, "channel {c}: {whole:?} then {half:?}");
+    }
+}

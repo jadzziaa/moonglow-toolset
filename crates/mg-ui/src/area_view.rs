@@ -158,6 +158,12 @@ pub struct AreaView {
     pub outline: Vec<Vec3>,
     /// The copied objects follow the pointer, to be placed with a click.
     pub pasting: bool,
+    /// The blueprint about to be placed (dragged over the view, or chosen
+    /// in the palette), as an object to show where it would go; `None` in
+    /// it when it can't be placed.
+    ghost: Option<(ResKey, Option<mg_area::AreaObject>)>,
+    /// The blueprint about to be placed as the last frame showed it.
+    pub ghost_shown: Option<mg_area::AreaObject>,
     /// Where the context menu was opened (on the ground).
     menu_at: Option<Vec3>,
     /// Snapping (the settings', copied each frame): grid in meters, angle in
@@ -225,6 +231,8 @@ impl AreaView {
             drag: None,
             outline: Vec::new(),
             pasting: false,
+            ghost: None,
+            ghost_shown: None,
             menu_at: None,
             snap: (None, None),
             pointer: None,
@@ -655,6 +663,18 @@ fn viewport(
     view: &mut AreaView,
     start: Option<(Vec3, f32)>,
 ) {
+    // The blueprint about to be placed, see-through where it would go.
+    let ghost = ghost(app, ui, view);
+    view.ghost_shown.clone_from(&ghost);
+    let (ghost_instances, ghost_box) =
+        match (&ghost, view.scene.as_mut(), app.viewport.as_ref(), app.game.as_ref()) {
+            (Some(o), Some(scene), Some(vp), Some(game)) => {
+                let (instances, bounds) = scene.ghost(&vp.gpu, game, o, view.time, GHOST_OPACITY);
+                // Outlined too, to stand out from what is around it.
+                (instances, Some((o.transform(), bounds)))
+            }
+            _ => (Vec::new(), None),
+        };
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_ref())
     else {
@@ -681,6 +701,7 @@ fn viewport(
     }
     let settings = View { time: view.time, night: view.night, fog: view.fog, show: view.show };
     let mut frame = scene.scene(&shown, &settings);
+    frame.instances.extend(ghost_instances);
     if view.grid {
         frame.lines = grid_lines(view, &shown);
     }
@@ -726,12 +747,16 @@ fn viewport(
             .sense(egui::Sense::click_and_drag()),
     );
     view.rect = response.rect;
-    let door_brush = brush(app).is_some_and(|k| k.restype == ResType::UTD);
+    // Placing a door, with a click or by dragging one: the hooks show.
+    let dragged = egui::DragAndDrop::payload::<crate::palette_view::Dragged>(ui.ctx());
+    let door_brush =
+        dragged.map(|d| d.0).or_else(|| brush(app)).is_some_and(|k| k.restype == ResType::UTD);
     let (height, width) = app.settings.spawn_marker_size.unwrap_or(SPAWN_MARKER);
     let marks = Marks {
         spawn_points: (!app.settings.no_spawn_markers)
             .then_some((f32::from(height) / 10.0, f32::from(width) / 10.0)),
         door_arrows: !app.settings.no_door_arrows,
+        ghost_box,
     };
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
@@ -844,13 +869,15 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
 /// Aurora's spawn point markers: Height 12 and Width 4 (tenths of a metre).
 pub(crate) const SPAWN_MARKER: (u8, u8) = (12, 4);
 
-/// What Options › Area adds over the view.
+/// What Options › Area adds over the view, and the box of a blueprint
+/// about to be placed (placed by the transform, in its own space).
 #[derive(Clone, Copy)]
 struct Marks {
     /// A post over each encounter spawn point: its height and width (m).
     spawn_points: Option<(f32, f32)>,
     /// An arrow along each door's facing.
     door_arrows: bool,
+    ghost_box: Option<(glam::Mat4, (Vec3, Vec3))>,
 }
 
 /// Markers for objects without models, outlines, the grid, the start
@@ -988,29 +1015,17 @@ fn overlays(
             };
             let t =
                 glam::Mat4::from_rotation_translation(glam::Quat::from_rotation_z(o.rotation), p);
-            let c = |i: usize| {
-                t.transform_point3(Vec3::new(
-                    if i & 1 == 0 { min.x } else { max.x },
-                    if i & 2 == 0 { min.y } else { max.y },
-                    if i & 4 == 0 { min.z } else { max.z },
-                ))
-            };
-            for (a, b) in [
-                (0, 1),
-                (1, 3),
-                (3, 2),
-                (2, 0),
-                (4, 5),
-                (5, 7),
-                (7, 6),
-                (6, 4),
-                (0, 4),
-                (1, 5),
-                (2, 6),
-                (3, 7),
-            ] {
-                line(c(a), c(b), stroke);
+            for (a, b) in box_edges(t, min, max) {
+                line(a, b, stroke);
             }
+        }
+    }
+    // A blueprint about to be placed: its box (its models', else its
+    // marker's).
+    if let Some((t, (min, max))) = marks.ghost_box {
+        let stroke = Stroke::new(1.5, Color32::from_rgb(120, 230, 255));
+        for (a, b) in box_edges(t, min, max) {
+            line(a, b, stroke);
         }
     }
     if door_brush {
@@ -1488,38 +1503,26 @@ fn place(
     rotation: f32,
     outline: &[Vec3],
 ) {
-    use mg_module::instances::{OUTLINE_LIFT, Placement, Placing, instance};
-    let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return };
+    use mg_module::instances::{OUTLINE_LIFT, Placement};
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
     // On the grid (doors go on their hooks; outlines are drawn point by point).
     let at = if kind == ObjectKind::Door || kind.has_outline() { at } else { view.snapped(at) };
-    // A custom blueprint (or item) as its editor has it, not as last saved.
-    let _ = ws.flush();
-    let read = |k: ResKey| -> Option<mg_gff::Struct> {
-        let data = ws
-            .module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        Gff::read(&data).ok().map(|g| g.root)
-    };
-    let Some(blueprint) = read(key) else {
-        app.log.error(format!("{key}: not found or not readable"));
-        return;
-    };
-    let items = |r: ResRef| read(ResKey::new(r, ResType::UTI));
-    let placing = Placing { game, item: &items };
     let ground = |p: Vec3| view.ground.as_ref().and_then(|g| g.height(p.truncate(), p.z));
-    let lift = if kind == ObjectKind::Sound { mg_area::SOUND_HEIGHT } else { 0.0 };
-    let position = at + Vec3::Z * lift;
+    let position = at + Vec3::Z * lift(kind);
     let relative: Vec<[f32; 3]> = outline
         .iter()
         .map(|p| [p.x - at.x, p.y - at.y, ground(*p).unwrap_or(p.z) + OUTLINE_LIFT])
         .collect();
     let placement = Placement { position: position.to_array(), rotation };
-    let Some(item) = instance(&placing, key.restype, &blueprint, placement, &relative) else {
-        return;
+    let item = match instance_of(app, key, placement, &relative) {
+        Ok(Some(item)) => item,
+        Ok(None) => return,
+        Err(e) => {
+            app.log.error(e);
+            return;
+        }
     };
+    let Some(ws) = app.ws.as_mut() else { return };
     let git = view.git();
     let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
     let edit = mg_edit::Edit::InsertItem {
@@ -1537,6 +1540,100 @@ fn place(
     recent.retain(|x| *x != r);
     recent.insert(0, r);
     recent.truncate(RECENT);
+}
+
+/// The twelve edges of the box `min`–`max` placed by `t`.
+fn box_edges(t: glam::Mat4, min: Vec3, max: Vec3) -> impl Iterator<Item = (Vec3, Vec3)> {
+    let c = move |i: usize| {
+        t.transform_point3(Vec3::new(
+            if i & 1 == 0 { min.x } else { max.x },
+            if i & 2 == 0 { min.y } else { max.y },
+            if i & 4 == 0 { min.z } else { max.z },
+        ))
+    };
+    [(0, 1), (1, 3), (3, 2), (2, 0), (4, 5), (5, 7), (7, 6), (6, 4), (0, 4), (1, 5), (2, 6), (3, 7)]
+        .into_iter()
+        .map(move |(a, b)| (c(a), c(b)))
+}
+
+/// How opaque a blueprint about to be placed is drawn.
+const GHOST_OPACITY: f32 = 0.6;
+
+/// How far above the ground an object of `kind` is placed (sounds, at
+/// Aurora's height).
+fn lift(kind: ObjectKind) -> f32 {
+    if kind == ObjectKind::Sound { mg_area::SOUND_HEIGHT } else { 0.0 }
+}
+
+/// Blueprint `key` as an instance at `placement` (`relative`: an outline
+/// from there), its blueprint (and items) as their editors have them, not
+/// as last saved; an error if the blueprint can't be read.
+fn instance_of(
+    app: &mut Moonglow,
+    key: ResKey,
+    placement: mg_module::instances::Placement,
+    relative: &[[f32; 3]],
+) -> Result<Option<mg_gff::Struct>, String> {
+    use mg_module::instances::{Placing, instance};
+    let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return Ok(None) };
+    let _ = ws.flush();
+    let read = |k: ResKey| -> Option<mg_gff::Struct> {
+        let data = ws
+            .module
+            .get(&k)
+            .map(<[u8]>::to_vec)
+            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+        Gff::read(&data).ok().map(|g| g.root)
+    };
+    let blueprint = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
+    let items = |r: ResRef| read(ResKey::new(r, ResType::UTI));
+    let placing = Placing { game, item: &items };
+    Ok(instance(&placing, key.restype, &blueprint, placement, relative))
+}
+
+/// The blueprint about to be placed, where it would go if the pointer
+/// placed it now: one dragged (from the palette or the module tree) over
+/// the view, else the palette's choice while the pointer is over it.
+/// Snapped to the grid, a door on the nearest hook; not for triggers and
+/// encounters (drawn point by point).
+fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_area::AreaObject> {
+    let dragged = egui::DragAndDrop::payload::<crate::palette_view::Dragged>(ui.ctx());
+    let key = dragged.map(|d| d.0).or_else(|| brush(app));
+    let Some(key) = key.filter(|_| !view.pasting && view.outline.is_empty()) else {
+        view.ghost = None;
+        return None;
+    };
+    let kind = ObjectKind::from_restype(key.restype).filter(|k| !k.has_outline())?;
+    // Over the view, not over a window in front of it.
+    let pos = ui.ctx().pointer_hover_pos().filter(|p| view.rect.contains(*p))?;
+    if ui
+        .ctx()
+        .layer_id_at(pos)
+        .is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip)
+    {
+        return None;
+    }
+    let at = view.ground_at(pos, 0.0)?;
+    let (at, rotation) = if kind == ObjectKind::Door {
+        let hook = view.model.as_ref()?.hook_near(at, DOOR_REACH)?;
+        (hook.position, Some(hook.bearing))
+    } else {
+        (view.snapped(at), None)
+    };
+    if view.ghost.as_ref().is_none_or(|(k, _)| *k != key) {
+        let placement = mg_module::instances::Placement { position: [0.0; 3], rotation: 0.0 };
+        let object = instance_of(app, key, placement, &[]).ok().flatten().and_then(|item| {
+            let game = app.game.as_ref()?;
+            Some(mg_area::AreaObject::read(game, kind, usize::MAX, &item))
+        });
+        view.ghost = Some((key, object));
+    }
+    let mut o = view.ghost.as_ref()?.1.clone()?;
+    o.position = at + Vec3::Z * lift(kind);
+    if let Some(r) = rotation {
+        o.rotation = r;
+    }
+    Some(o)
 }
 
 /// Moves the camera's target along the ground: `by.x` to the right of the

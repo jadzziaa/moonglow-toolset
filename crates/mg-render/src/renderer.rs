@@ -784,7 +784,8 @@ impl Renderer {
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
             for (j, mesh) in inst.model.meshes.iter().enumerate() {
                 let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
-                let alpha = replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha);
+                let alpha =
+                    replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha) * inst.opacity;
                 let emissive = replaced.and_then(|r| r.selfillum).unwrap_or(mesh.material.emissive);
                 let dynamic_range = replaced.and_then(|r| r.vertices.as_ref()).map(|v| {
                     let size = std::mem::size_of::<Vertex>() as u64;

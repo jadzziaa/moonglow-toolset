@@ -6016,11 +6016,49 @@ fn blueprints_drag_from_the_module_tree_into_the_area() {
         h.event(egui::Event::PointerMoved(from + (to - from) * t));
         h.run_steps(1);
     }
+    // Before it is let go, its ghost shows where it would go.
+    let ghost = h.state().area_views[&area].ghost_shown.clone().expect("a ghost");
+    assert_eq!(ghost.kind, mg_area::ObjectKind::Waypoint);
+    let at = ghost.position;
+    assert!((at.x - 25.0).abs() < 0.5 && (at.y - 25.0).abs() < 0.5, "the ghost is at {at}");
     press(&h, to, false, modifiers);
     h.run_steps(3);
     assert_eq!(count(&mut h), before + 1, "{:?}", h.state().log.entries);
     let (x, y, _) = waypoint(&mut h, area, before).unwrap();
     assert!((x - 25.0).abs() < 0.5 && (y - 25.0).abs() < 0.5, "dropped at {x}, {y}");
+    // Placed: no ghost.
+    assert!(h.state().area_views[&area].ghost_shown.is_none());
+}
+
+#[test]
+fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
+    let Some((mut h, area)) = area_harness("drag-ghost") else { return };
+    let key = ResKey::parse("mg_ghost_chest", ResType::UTP).unwrap();
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let data = h.state().game.as_ref().unwrap().resman.get(&chest).unwrap().into_owned();
+    h.state_mut().ws.as_mut().unwrap().module.set(key, data);
+    h.run_steps(2);
+    h.get_by_label_contains("Placeables (").click();
+    h.run_steps(2);
+    let from = h.get_by_label("mg_ghost_chest.utp").rect().center();
+    let to = screen(&h, area, glam::Vec3::new(20.0, 22.0, 0.0));
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for t in [0.1, 0.5, 1.0] {
+        h.event(egui::Event::PointerMoved(from + (to - from) * t));
+        h.run_steps(1);
+    }
+    let ghost = h.state().area_views[&area].ghost_shown.clone().expect("a ghost");
+    assert!(ghost.preview.is_some(), "the chest has a model to show");
+    assert!((ghost.position.x - 20.0).abs() < 0.5 && (ghost.position.y - 22.0).abs() < 0.5);
+    // Moved off the view (onto the module tree), it goes.
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].ghost_shown.is_none());
+    press(&h, from, false, egui::Modifiers::NONE);
+    h.run_steps(2);
 }
 
 #[test]

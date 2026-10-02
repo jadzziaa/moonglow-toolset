@@ -772,6 +772,46 @@ fn area_grid() {
 
 #[test]
 #[ignore]
+fn area_ghost() {
+    // A placeable chosen in the palette: see-through under the pointer.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        if let Some(o) = &mut view.orbit {
+            o.pitch = 35f32.to_radians();
+            o.yaw = -55f32.to_radians();
+            o.distance *= 0.25;
+            o.target.x -= 8.0;
+        }
+    }
+    h.state_mut().palette.selected = Some(ResKey::parse("plc_statue1", ResType::UTP).unwrap());
+    h.run_steps(3);
+    let rect = h.state().area_views[&area].rect;
+    h.event(egui::Event::PointerMoved(rect.center()));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "area-ghost");
+}
+
+#[test]
+#[ignore]
 fn readme_screenshots() {
     use egui_kittest::kittest::Queryable;
     mg_testkit::gpu::hold();

@@ -26,6 +26,9 @@ pub struct Instance {
     pub plt_colors: Option<[u8; 10]>,
     /// Texture names to use instead of the model's (lower case).
     pub textures: Option<Arc<std::collections::HashMap<String, String>>>,
+    /// How opaque the whole instance is (each mesh's alpha times this):
+    /// below 1, see-through, as a blueprint about to be placed.
+    pub opacity: f32,
 }
 
 impl Instance {
@@ -39,6 +42,7 @@ impl Instance {
             env_map: None,
             plt_colors: None,
             textures: None,
+            opacity: 1.0,
         }
     }
 }

@@ -19,7 +19,7 @@ use mg_render::scene::{AreaLight, Fog, Instance, PointLight, Scene};
 use mg_render::{Gpu, GpuModel};
 use mg_rules::GameData;
 
-use crate::{AreaModel, AreaTile, Lighting, ObjectKind, TILE_SIZE};
+use crate::{AreaModel, AreaObject, AreaTile, Lighting, ObjectKind, TILE_SIZE};
 
 /// How to show the area.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -189,27 +189,8 @@ impl AreaScene {
             .collect();
         // Objects that look the same share their models.
         let object_cache = &mut self.object_cache;
-        self.objects = area
-            .objects
-            .iter()
-            .map(|o| {
-                let p = o.preview.as_ref()?;
-                object_cache
-                    .entry(format!("{p:?}"))
-                    .or_insert_with(|| {
-                        let c = Composed::new(gpu, p, &load);
-                        match &c {
-                            Some(c) => missing.extend(c.missing.iter().cloned()),
-                            None => missing.push(p.base.model.clone()),
-                        }
-                        c.map(|composed| {
-                            let bounds = composed.bounds();
-                            Arc::new(Shown { composed, bounds })
-                        })
-                    })
-                    .clone()
-            })
-            .collect();
+        self.objects =
+            area.objects.iter().map(|o| shown(gpu, object_cache, o, &load, &mut missing)).collect();
         let needs_flame = area.tiles.iter().any(|t| t.source_lights.iter().any(|&s| s > 0));
         if needs_flame && self.flame.is_none() {
             self.flame = Some(loaded("fx_flame01"));
@@ -217,6 +198,32 @@ impl AreaScene {
         self.missing.extend(missing);
         self.missing.sort();
         self.missing.dedup();
+    }
+
+    /// `object` (not in the area: a blueprint about to be placed) as
+    /// see-through models, `opacity` opaque, and its box in its own space;
+    /// no models and a marker's box for an object without models (a
+    /// waypoint, a sound).
+    pub fn ghost(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        object: &AreaObject,
+        time: f32,
+        opacity: f32,
+    ) -> (Vec<Instance>, (Vec3, Vec3)) {
+        let models = Models { game, cache: RefCell::new(HashMap::new()) };
+        let load = |name: &str| models.load(name);
+        let mut missing = Vec::new();
+        let Some(shown) = shown(gpu, &mut self.object_cache, object, &load, &mut missing) else {
+            return (Vec::new(), crate::pick::marker_bounds(object.kind));
+        };
+        let c = &shown.composed;
+        let mut out = c.instances(c.idle.as_deref(), time, object.model_transform());
+        for i in &mut out {
+            i.opacity = opacity;
+        }
+        (out, shown.bounds)
     }
 
     /// Object `i`'s box in its own space: its models' (rest pose), or a
@@ -389,6 +396,32 @@ impl AreaScene {
         seen.dedup();
         seen.len()
     }
+}
+
+/// An object's models, from `cache` if an object that looks the same
+/// loaded them (what could not be loaded named in `missing`).
+fn shown(
+    gpu: &Gpu,
+    cache: &mut HashMap<String, Option<Arc<Shown>>>,
+    o: &AreaObject,
+    load: &dyn Fn(&str) -> Option<Arc<Model>>,
+    missing: &mut Vec<String>,
+) -> Option<Arc<Shown>> {
+    let p = o.preview.as_ref()?;
+    cache
+        .entry(format!("{p:?}"))
+        .or_insert_with(|| {
+            let c = Composed::new(gpu, p, load);
+            match &c {
+                Some(c) => missing.extend(c.missing.iter().cloned()),
+                None => missing.push(p.base.model.clone()),
+            }
+            c.map(|composed| {
+                let bounds = composed.bounds();
+                Arc::new(Shown { composed, bounds })
+            })
+        })
+        .clone()
 }
 
 /// lightcolor.2da's colours (RED, GREEN, BLUE) by row.
