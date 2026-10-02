@@ -66,8 +66,10 @@ fn uri_path(uri: &str) -> Option<PathBuf> {
         }
     }
     let s = String::from_utf8(bytes).ok()?;
-    // file:///C:/x on Windows.
-    let s = if cfg!(windows) { s.trim_start_matches('/').to_string() } else { s };
+    // file:///C:/x on Windows: the path is C:/x.
+    let drive = s.as_bytes().get(1).is_some_and(u8::is_ascii_alphabetic)
+        && s.as_bytes().get(2) == Some(&b':');
+    let s = if cfg!(windows) && drive { s[1..].to_string() } else { s };
     Some(PathBuf::from(s))
 }
 
@@ -503,5 +505,10 @@ mod tests {
         assert_eq!(path_uri(p), "file:///tmp/my%20mod/src/a_b.nss");
         assert_eq!(uri_path(&path_uri(p)).unwrap(), p);
         assert_eq!(script_name(p).as_deref(), Some("a_b"));
+        if cfg!(windows) {
+            let p = Path::new(r"C:\my mod\a.nss");
+            assert_eq!(path_uri(p), "file:///C:/my%20mod/a.nss");
+            assert_eq!(uri_path(&path_uri(p)).unwrap(), Path::new("C:/my mod/a.nss"));
+        }
     }
 }
