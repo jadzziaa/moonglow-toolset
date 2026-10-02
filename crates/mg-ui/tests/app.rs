@@ -281,6 +281,77 @@ fn nasher_projects_save_in_place_and_never_overwrite_other_changes() {
 }
 
 #[test]
+fn find_references_then_rename_everywhere() {
+    let dir = mg_testkit::scratch_dir("ui-references");
+    let path = sample_module(&dir);
+    // The sample's area places a creature that spawns with `hello`, and a
+    // script runs `hello` by name.
+    let mut m = Module::open(&path).unwrap();
+    let mut git = Gff::new(*b"GIT ");
+    let mut c = mg_schema::git::CREATURE_LIST.new_item();
+    c.write(&mg_schema::git::creature_list::SCRIPT_SPAWN, ResRef::from_str("hello").unwrap());
+    c.set("Tag", mg_gff::Value::String(b"GREETER".to_vec()));
+    git.root.items_mut(&mg_schema::git::CREATURE_LIST).push(c);
+    m.set_gff(ResKey::parse("start", ResType::GIT).unwrap(), &git).unwrap();
+    let caller = ResKey::parse("caller", ResType::NSS).unwrap();
+    m.set(caller, b"void main() { ExecuteScript(\"hello\", OBJECT_SELF); }\n".to_vec());
+    m.save().unwrap();
+
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::FindReferences(hello));
+    h.run();
+    h.run();
+    h.get_by_label("Used in 1 place:");
+    h.get_by_label("Spelled out in scripts (1):");
+    // A place opens its area with the object selected.
+    h.get_by_label("start › creature GREETER › OnSpawn").click();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Area(ResRef::from_str("start").unwrap())).is_some());
+    // The area opens in the main window, not over the References window.
+    let area = h.state().dock.find_tab(&Tab::Area(ResRef::from_str("start").unwrap())).unwrap();
+    assert!(area.surface.is_main());
+    h.run();
+
+    // Rename, script strings included.
+    h.get_by_label("Rename…").click();
+    h.run();
+    h.run();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value("hello").find(is_input).expect("the name field").type_text("greet");
+    h.run();
+    h.get_by_label("Also change the string spelling “hello” in scripts").click();
+    h.run();
+    h.get_by_label("Rename").click();
+    h.run();
+    let module = &h.state().ws.as_ref().unwrap().module;
+    let greet = ResKey::parse("greet", ResType::NSS).unwrap();
+    assert!(module.contains(&greet) && !module.contains(&hello), "{:?}", h.state().log.entries);
+    let g = module.gff(&ResKey::parse("start", ResType::GIT).unwrap()).unwrap().unwrap();
+    assert_eq!(
+        g.root.items(&mg_schema::git::CREATURE_LIST)[0]
+            .read(&mg_schema::git::creature_list::SCRIPT_SPAWN),
+        ResRef::from_str("greet").unwrap()
+    );
+    assert!(String::from_utf8_lossy(module.get(&caller).unwrap()).contains("\"greet\""));
+    // The References tab follows the new name; one undo takes it all back.
+    h.run();
+    h.get_by_label("Used in 1 place:");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    let module = &h.state().ws.as_ref().unwrap().module;
+    assert!(module.contains(&hello) && !module.contains(&greet));
+    assert!(String::from_utf8_lossy(module.get(&caller).unwrap()).contains("\"hello\""));
+}
+
+#[test]
 fn new_module_and_area_through_the_wizards() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-new-module");
@@ -4554,6 +4625,12 @@ fn views_draw_nothing_over_anything_else() {
         h.state_mut().find_instance = Some(Default::default());
         look(&mut h, "Find Instance");
         h.state_mut().find_instance = None;
+        let hello = ResKey::parse("hello", ResType::NSS).unwrap();
+        h.state_mut().actions.push(mg_ui::Action::FindReferences(hello));
+        look(&mut h, "References");
+        h.state_mut().actions.push(mg_ui::Action::RenameDialog(hello));
+        look(&mut h, "Rename");
+        h.state_mut().rename = None;
         h.state_mut().actions.push(mg_ui::Action::AreaWizard);
         look(&mut h, "Area Wizard");
         h.state_mut().wizard = None;

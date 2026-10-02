@@ -828,44 +828,11 @@ pub(crate) fn after_apply(app: &mut Moonglow, cmd: &Command) {
     creature::refresh_hit_points(app, cmd);
 }
 
-/// Renames a blueprint (its resource and `TemplateResRef`, a store's
-/// `ResRef`) as one undoable
+/// Renames a blueprint everywhere (its resource, its `TemplateResRef` or a
+/// store's `ResRef`, and the objects placed from it) as one undoable
 /// command, and points its editor at the new name.
 pub(crate) fn rename(app: &mut Moonglow, from: ResKey, to: ResRef) {
-    let Some(ws) = &mut app.ws else { return };
-    let new = ResKey::new(to, from.restype);
-    if ws.module.contains(&new) {
-        app.log.error(format!("{new} already exists"));
-        return;
-    }
-    let result = ws.flush().map_err(|e| e.to_string()).and_then(|()| {
-        let mut g = ws.doc(&from).map_err(|e| e.to_string())?.clone();
-        let field = BlueprintKind::from_restype(from.restype)
-            .map_or("TemplateResRef", |k| k.resref_field());
-        g.root.set(field, Value::resref(to));
-        let data = g.to_bytes().map_err(|e| e.to_string())?;
-        ws.apply(Command::new(
-            format!("Rename {from} to {new}"),
-            vec![
-                Edit::SetResource { key: new, data: Some(data) },
-                Edit::SetResource { key: from, data: None },
-            ],
-        ))
-        .map_err(|e| e.to_string())
-    });
-    match result {
-        Ok(()) => {
-            for (_, tab) in app.dock.iter_all_tabs_mut() {
-                if *tab == Tab::Blueprint(from) {
-                    *tab = Tab::Blueprint(new);
-                }
-            }
-            if let Some(p) = app.blueprint_pages.remove(&(from, GffPath::root())) {
-                app.blueprint_pages.insert((new, GffPath::root()), p);
-            }
-        }
-        Err(e) => app.log.error(e),
-    }
+    app.rename_resource(from, to, false);
 }
 
 /// A blueprint editor tab.

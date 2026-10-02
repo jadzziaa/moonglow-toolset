@@ -39,8 +39,9 @@ Shared parts:
 
 - **Name** and other text players see: localized strings (the **…**
   button opens String Edit).
-- **Tag** and **ResRef**: the blueprint's resource name is fixed once
-  made; Edit Copy makes a blueprint with another.
+- **Tag** and **ResRef**: changing a blueprint's ResRef renames it
+  everywhere, objects placed from it included (see
+  [Modules](03-modules.md)); Edit Copy makes a copy under another name.
 - **Scripts**: event scripts, picked from the module's and the game's
   (**Edit** opens one).
 - **Variables…**: local variables the object starts with.
@@ -121,6 +122,9 @@ pitch and volume variation), Comments.
 ### Waypoints
 
 Basic (name, tag, appearance, map note), Advanced, Description, Comments.
+
+Right-click a blueprint in a palette and choose **Find References** to see
+where the module places it or names it.
 
 ## Instances
 

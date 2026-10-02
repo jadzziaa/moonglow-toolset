@@ -444,11 +444,37 @@ pub fn rename(
         if !report.changed.contains(&key) {
             report.changed.push(key);
         }
+        report.recompile.push(key);
+    }
+    // Scripts that include a changed one, however indirectly, compile
+    // differently too.
+    let includes: Vec<(ResKey, Vec<ResRef>)> = module
+        .keys_of(ResType::NSS)
+        .map(|k| {
+            let src = module.get(k).unwrap_or_default();
+            (*k, crate::refs::script_includes(*k, src).into_iter().map(|r| r.target).collect())
+        })
+        .collect();
+    loop {
+        let more: Vec<ResKey> = includes
+            .iter()
+            .filter(|(k, inc)| {
+                !report.recompile.contains(k)
+                    && inc.iter().any(|i| report.recompile.iter().any(|r| r.resref == *i))
+            })
+            .map(|(k, _)| *k)
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        report.recompile.extend(more);
+    }
+    for key in &report.recompile {
         for t in [ResType::NCS, ResType::NDB] {
             module.remove(&ResKey::new(key.resref, t));
         }
-        report.recompile.push(key);
     }
+    report.recompile.sort();
     Ok(report)
 }
 
@@ -587,6 +613,24 @@ mod tests {
         assert_eq!(
             rename(&mut m, key("guard_spawn", ResType::NSS), rr("x"), false),
             Err(RenameError::Missing(key("guard_spawn", ResType::NSS)))
+        );
+    }
+
+    #[test]
+    fn changed_includes_recompile_their_includers() {
+        let mut m = module();
+        m.set(
+            key("inc_guard", ResType::NSS),
+            b"void Guard() { ExecuteScript(\"guard_spawn\", OBJECT_SELF); }\n".to_vec(),
+        );
+        m.set(key("top", ResType::NSS), b"#include \"guard_spawn\"\n".to_vec());
+        m.set(key("top", ResType::NCS), b"NCS V1.0".to_vec());
+        let r = rename(&mut m, key("guard_spawn", ResType::NSS), rr("guard_wake"), true).unwrap();
+        // inc_guard's string changed; guard_wake includes it; top includes guard_wake.
+        let names: Vec<String> = r.recompile.iter().map(|k| k.resref.to_string()).collect();
+        assert_eq!(names, ["guard_wake", "inc_guard", "on_load", "top"]);
+        assert!(
+            !m.contains(&key("guard_wake", ResType::NCS)) && !m.contains(&key("top", ResType::NCS))
         );
     }
 

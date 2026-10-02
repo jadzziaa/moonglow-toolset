@@ -372,6 +372,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             .button("Bookmark")
             .on_hover_text("Toggle a bookmark on the cursor's line (F5)")
             .clicked();
+        if ui
+            .button("References")
+            .on_hover_text("Where the module runs or includes this script")
+            .clicked()
+        {
+            app.actions.push(Action::FindReferences(key));
+        }
         if dirty {
             ui.weak("modified");
         }

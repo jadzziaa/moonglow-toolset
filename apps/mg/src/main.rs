@@ -88,6 +88,29 @@ enum Cmd {
         #[arg(long)]
         uncompiled: bool,
     },
+    /// Where a resource (or, with --tag, a tag) is used in a module, and the
+    /// script strings that spell it.
+    Refs {
+        module: PathBuf,
+        /// `name.ext`, e.g. `guard_spawn.nss`, `keep.are`, `guard.utc`.
+        name: String,
+        /// Look for a tag instead of a resource.
+        #[arg(long)]
+        tag: bool,
+    },
+    /// Rename a script, area, conversation or blueprint everywhere in a
+    /// module and save it: what names it follows, scripts whose source
+    /// changed are compiled again.
+    Rename {
+        module: PathBuf,
+        /// `name.ext` of the resource to rename.
+        from: String,
+        /// The new name (without extension).
+        to: String,
+        /// Also change script strings that spell the old name.
+        #[arg(long)]
+        strings: bool,
+    },
     /// Build a nasher project's module: compile its scripts and pack its
     /// target as nasher does (filters, modName and the rest). Fails if a
     /// script doesn't compile, unless --keep-going.
@@ -261,6 +284,61 @@ fn run(cli: Cli) -> Result<()> {
             }
             m.save()?;
             eprintln!("compiled {} scripts, {} failed", results.len() - failed.len(), failed.len());
+        }
+        Cmd::Refs { module, name, tag } => {
+            let m = Module::open(module)?;
+            let (usages, mentions) = if *tag {
+                (
+                    mg_module::rename::tag_usages(&m, name),
+                    mg_module::rename::mentions(&m, name, false),
+                )
+            } else {
+                let key = ResKey::from_filename(name).context("give the resource as name.ext")?;
+                (
+                    mg_module::rename::usages(&m, key),
+                    mg_module::rename::mentions(&m, &key.resref.to_string(), true),
+                )
+            };
+            for u in &usages {
+                println!("{}\t{} {}", u.place, u.from, u.path);
+            }
+            for x in &mentions {
+                println!("{} line {}: {}", x.script, x.line, x.text);
+            }
+            eprintln!("{} uses, {} script strings", usages.len(), mentions.len());
+        }
+        Cmd::Rename { module, from, to, strings } => {
+            let mut m = Module::open(module)?;
+            let from = ResKey::from_filename(from).context("give the resource as name.ext")?;
+            let to = mg_core::ResRef::from_str(to).map_err(|e| anyhow::anyhow!("{to}: {e}"))?;
+            let report = mg_module::rename::rename(&mut m, from, to, *strings)?;
+            if !report.recompile.is_empty() {
+                let rm = module_resman(&install(&cli)?, &m)?;
+                let results = mg_module::build::compile_scripts(
+                    &mut m,
+                    &rm,
+                    mg_module::build::ScriptSelection::Uncompiled,
+                );
+                for r in &results {
+                    if let Err(e) = &r.result {
+                        println!("{}", e.message);
+                    }
+                }
+            }
+            m.save()?;
+            let left = mg_module::rename::mentions(&m, &from.resref.to_string(), true);
+            for x in &left {
+                eprintln!(
+                    "warning: {} line {} still spells {}: {}",
+                    x.script, x.line, from.resref, x.text
+                );
+            }
+            eprintln!(
+                "renamed {from} to {to}: {} references, {} in scripts, {} scripts compiled again",
+                report.references,
+                report.in_scripts,
+                report.recompile.len()
+            );
         }
         Cmd::Build { project, target, output, keep_going } => {
             let mut m = Module::open_project(project, target.as_deref())?;

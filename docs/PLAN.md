@@ -465,7 +465,11 @@ surveyed after 0.2.0):
      projects save to what nasher unpacks from the edited module; packed
      modules present the same world in the engine
      (`docs/research/notes_nasher.md`);
-   - where-used and rename everywhere;
+   - where-used and rename everywhere — done: Find References (resources
+     and tags, with readable places that open the editor there) and Rename
+     (references, own names, `#include` lines, script strings if asked;
+     includers recompiled), `mg refs` and `mg rename`; checked in the
+     engine (`engine_rename.rs`);
    - a content doctor (Verify that names the bad 2DA row, SET section or
      MTR, with CI output);
    - a test loop builders trust (choose the character, test from here,

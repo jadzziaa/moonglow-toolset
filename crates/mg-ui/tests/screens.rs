@@ -291,3 +291,31 @@ fn creature_wizard() {
         h.run();
     }
 }
+
+#[test]
+#[ignore]
+fn references() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-references");
+    let path = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &path).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut()
+        .actions
+        .push(mg_ui::Action::FindReferences(ResKey::parse("pawn_b", ResType::UTC).unwrap()));
+    h.run();
+    shoot(&mut h, &dir, "references");
+    h.state_mut()
+        .actions
+        .push(mg_ui::Action::RenameDialog(ResKey::parse("pawn_b", ResType::UTC).unwrap()));
+    h.run();
+    shoot(&mut h, &dir, "rename");
+}

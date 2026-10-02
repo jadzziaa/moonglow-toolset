@@ -30,6 +30,10 @@ Below the text, the **Compiler** messages: click one to go to its line.
 | F7 | compile all the module's scripts |
 
 **Find In Files** searches (and replaces in) every script in the module.
+**References** (on the toolbar) lists where the module runs or includes
+the script: objects' and areas' events, conversation lines, the module's
+events, `#include` lines. It also lists the strings in scripts that spell
+its name (`ExecuteScript("name", …)`).
 
 The buttons:
 

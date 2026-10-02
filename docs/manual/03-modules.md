@@ -25,6 +25,39 @@ Moonglow keeps everything in a module it does not understand: fields it
 has no editor for, resources it does not know, unusual orderings. An
 untouched module saves as it was.
 
+## Where things are used, and renaming
+
+**Find References** shows everywhere the module names a script, area,
+conversation or blueprint. It's in the module tree's right-click menu, a
+palette's right-click menu, the script editor's toolbar and **Edit ›
+Find References…**.
+- **Places are readable**, such as `keep › creature GUARD › OnSpawn` or
+  `guard_talk › NPC line 3 “Halt!” › action`. Click one to go there: the
+  area with the object selected, the conversation line, the script line.
+- **Tags work too.** Type a tag in the tab's field to find the objects with
+  it, and the transitions, locked doors and conversation lines (journal
+  categories) that name it.
+- **Strings in scripts** that spell the name are listed separately, such as
+  `ExecuteScript("guard_spawn", …)` or `CreateObject(…, "guard", …)`. A
+  script may build names at run time, so a name can be used where no list
+  shows it.
+
+**Rename…** (in the same menus, or the References tab) renames a
+resource and everything that names it, as one step that **Undo** takes
+back:
+- **What moves with it:** a script's compiled code, and an area's objects
+  and comments.
+- **What follows the new name:** objects' and areas' events, conversation
+  lines, the module's area list and start area, objects placed from a
+  blueprint, inventories and stores, `#include` lines.
+- **Strings in scripts** change too if you tick **Also change … in
+  scripts**. Check them in Find References first: a string may also be a
+  tag or something else (Neverwinter Chess compares tags to `"pawn_b"`, its
+  pawns' blueprint name). Strings left spelling the old name are named in
+  the log.
+- **Recompiling:** scripts whose text changed, and every script that
+  includes them, are compiled again.
+
 ## nasher projects (version control)
 
 A `.mod` is one binary file, so version control (git) can't show what

@@ -9,11 +9,11 @@ there are unsaved changes, and the game's folder).
 
 | Menu | Commands |
 | --- | --- |
-| File | New Module…, Open Module…, Recent Modules, Save, Save As…, Import…, Export…, Close, Exit |
-| Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance… |
+| File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Close, Exit |
+| Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Find References… |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, New Script…, Palettes, Resource Browser, Options… |
-| Build | Compile All Scripts, Build Module…, Verify Module, Test Module, Area Statistics |
+| Build | Compile All Scripts, Build Module…, Verify Module, Test Module, Pack *file* (nasher projects), Area Statistics |
 | Help | User Manual, About Moonglow Toolset |
 
 ## Keyboard shortcuts
@@ -47,7 +47,9 @@ names containing the text.
 
 A double click opens a resource in its editor. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields
-of its `.are` and `.git` files; on any resource, **Export…**.
+of its `.are` and `.git` files; on a script, area, conversation or
+blueprint, **Find References** and **Rename…** (see
+[Modules](03-modules.md)); on any resource, **Export…**.
 
 ## Tabs and windows
 

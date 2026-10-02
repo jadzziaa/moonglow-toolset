@@ -145,6 +145,7 @@ enum Pick {
     EditCopy(ResKey),
     Delete(ResKey),
     Preview(ResKey),
+    References(ResKey),
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
@@ -249,6 +250,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
             }
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
+            Pick::References(key) => app.actions.push(Action::FindReferences(key)),
         }
     }
 }
@@ -339,6 +341,14 @@ fn show_node(
                     if crate::model_view::previewable(key.restype) && ui.button("Preview").clicked()
                     {
                         picks.push(Pick::Preview(key));
+                        ui.close();
+                    }
+                    if ui
+                        .button("Find References")
+                        .on_hover_text("Where the module places or names this blueprint")
+                        .clicked()
+                    {
+                        picks.push(Pick::References(key));
                         ui.close();
                     }
                     if custom && ui.button("Delete").clicked() {

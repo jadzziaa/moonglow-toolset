@@ -105,6 +105,9 @@ Moonglow's own.
 - **The resource browser** (Tools › Resource Browser) shows any resource
   in the game, the haks or the module, and where it comes from; models
   open in the model viewer.
+- **Find References and Rename** (the module tree's right-click menu):
+  where a script, area, conversation, blueprint or tag is used, and
+  renaming a resource everywhere in one step (see [Modules](03-modules.md)).
 - **Version control**: **File › Save As nasher Project…** keeps the
   module as text files for git; Moonglow opens and saves them in place
   (see [Modules](03-modules.md)).

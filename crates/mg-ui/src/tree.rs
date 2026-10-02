@@ -72,6 +72,14 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                             }
                             ui.separator();
                         }
+                        if mg_module::rename::renamable(k.restype) {
+                            if ui.button("Find References").clicked() {
+                                app.actions.push(Action::FindReferences(k));
+                            }
+                            if ui.button("Rename…").clicked() {
+                                app.actions.push(Action::RenameDialog(k));
+                            }
+                        }
                         if ui.button("Export…").clicked() {
                             app.actions.push(Action::ExportDialog(vec![k]));
                         }

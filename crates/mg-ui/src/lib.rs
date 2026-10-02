@@ -28,6 +28,7 @@ pub mod module_props;
 mod options;
 pub mod palette_view;
 pub mod recovery;
+pub mod references;
 pub mod script_tools;
 mod script_view;
 pub mod script_wizard;
@@ -103,6 +104,12 @@ pub enum Action {
     Apply(Command),
     OpenTab(Tab),
     /// Renames a blueprint (and points its editor at the new name).
+    /// Edit › Find References: where a resource is used.
+    FindReferences(ResKey),
+    /// Where a tag is used.
+    FindTag(String),
+    /// The Rename window for a resource.
+    RenameDialog(ResKey),
     RenameBlueprint {
         from: ResKey,
         to: mg_core::ResRef,
@@ -228,6 +235,10 @@ pub struct Moonglow {
     pub object_clip: Option<area_view::ObjectClip>,
     /// An object to show and select when its area's view is next drawn.
     pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
+    /// The References tab.
+    pub references: references::References,
+    /// The Rename window, while open.
+    pub rename: Option<references::RenameDraft>,
     /// The blueprint palettes pane.
     pub palette: palette_view::PaletteView,
     /// The hak conflict report being shown.
@@ -323,6 +334,8 @@ impl Moonglow {
             adjust: None,
             find_instance: None,
             area_focus: None,
+            references: Default::default(),
+            rename: None,
             object_clip: None,
             tile_clip: None,
             after_new_area: (false, false),
@@ -450,6 +463,7 @@ impl Moonglow {
         build_view::window(self, ui.ctx());
         store_wizard::window(self, ui.ctx());
         store_wizard::popup_window(self, ui.ctx());
+        references::rename_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
@@ -643,6 +657,13 @@ impl Moonglow {
                 ui.separator();
                 if ui.add_enabled(open, egui::Button::new("Find Instance…")).clicked() {
                     self.find_instance.get_or_insert_with(Default::default);
+                }
+                if ui
+                    .add_enabled(open, egui::Button::new("Find References…"))
+                    .on_hover_text("Where a script, area, conversation, blueprint or tag is used")
+                    .clicked()
+                {
+                    self.actions.push(Action::OpenTab(Tab::References));
                 }
             });
             ui.menu_button("Wizards", |ui| {
@@ -1198,13 +1219,17 @@ impl Moonglow {
                     } else if !tab.docks() {
                         self.open_window(tab.clone());
                     } else {
-                        // Not into the palette's pane: the focused pane, else
-                        // the first other one. (Right after the palette's pane
-                        // is made, egui_dock reports no focused pane but would
-                        // push into the palette's.)
+                        // Into the main window, not the palette's pane: the
+                        // focused pane, else the first other one. (Right after
+                        // the palette's pane is made, egui_dock reports no
+                        // focused pane but would push into the palette's; an
+                        // editor window that has the focus isn't a place for
+                        // an area.)
                         let palette =
                             self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
-                        let other = |p: &egui_dock::NodePath| Some((p.surface, p.node)) != palette;
+                        let other = |p: &egui_dock::NodePath| {
+                            p.surface.is_main() && Some((p.surface, p.node)) != palette
+                        };
                         let target = self
                             .dock
                             .focused_leaf()
@@ -1233,6 +1258,9 @@ impl Moonglow {
                 }
             }
             Action::RenameBlueprint { from, to } => blueprint::rename(self, from, to),
+            Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
+            Action::FindTag(t) => self.find_references(references::Query::Tag(t)),
+            Action::RenameDialog(k) => self.rename_dialog(k),
             Action::CompileScripts => self.compile_scripts(),
             Action::Verify => self.verify(),
             Action::TestModule => self.test_module(),
@@ -1301,14 +1329,10 @@ impl Moonglow {
         }
     }
 
-    fn save(&mut self, to: Option<ModuleLocation>) {
-        // Options > General: Build module on save.
-        if self.settings.build_on_save && self.ws.is_some() {
-            build_view::build_on_save(self);
-        }
+    /// Puts the script editors' unsaved text into the module (one undoable
+    /// command).
+    pub(crate) fn store_script_text(&mut self) {
         let Some(ws) = &mut self.ws else { return };
-        // Script editors' unsaved text goes into the module first (one
-        // undoable command), as saving everything means.
         let mut edits = Vec::new();
         for (key, buf) in self.scripts.iter_mut().filter(|(_, b)| b.is_dirty()) {
             buf.saved = buf.text.clone();
@@ -1323,6 +1347,17 @@ impl Moonglow {
                 self.log.error(e.to_string());
             }
         }
+    }
+
+    fn save(&mut self, to: Option<ModuleLocation>) {
+        // Options > General: Build module on save.
+        if self.settings.build_on_save && self.ws.is_some() {
+            build_view::build_on_save(self);
+        }
+        // Script editors' unsaved text goes into the module first, as saving
+        // everything means.
+        self.store_script_text();
+        let Some(ws) = &mut self.ws else { return };
         // The custom palettes list the module's blueprints, as Aurora keeps
         // them.
         if let Some(game) = &self.game {
