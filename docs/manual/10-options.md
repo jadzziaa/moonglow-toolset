@@ -24,7 +24,7 @@
   each save.
 - **Minimize Toolset on test module**.
 - **Reload haks, override and development when they change**: on by
-  default. Moonglow looks every few seconds and reads again what changed
+  default. Moonglow checks every few seconds and rereads what changed
   (see [Build, verify and test](09-build-and-test.md)).
 - **Keep a recovery copy of unsaved work every … minutes** (5 by
   default; see [Modules](03-modules.md)).
@@ -60,21 +60,21 @@
 
 - **Play placed sound objects in area**, **Play ambient sound in area**,
   **Play ambient music in area**: what plays when an area view opens (the
-  area viewer's toolbar turns each on and off as well).
+  area viewer's toolbar also turns each on and off).
 - **Ambient music volume**.
 
 ## Language
 
-The language text is shown and edited in, for modules made for players
-of another language: names, descriptions and conversation lines show and
-edit that language's text, and String Edit opens on it.
+The language that text is shown and edited in, for modules made for
+players of another language. Names, descriptions and conversation lines
+show and edit that language's text, and String Edit opens on it.
 
 ## Keyboard
 
-Every command with keys, by where it works (anywhere, the area view, the
-script editor, the conversation editor), with its keys:
-- **+** then the keys adds a key (Escape: none); a key's **×** takes it
-  away; a command can have several keys, or none.
+Every command and its keys, by where it works (anywhere, the area view,
+the script editor, the conversation editor):
+- **+** then the keys adds a key (Escape: none); a key's **×** removes
+  it. A command can have several keys, or none.
 - **Reset** gives a command Moonglow's keys back, **Reset All** every
   command.
 - **Conflicts:** a key two commands share where both work is named above

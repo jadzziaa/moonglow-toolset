@@ -8,10 +8,10 @@ factions and the module's properties) and builds, verifies and tests the
 module in the game. Modules made in either toolset open in the other.
 
 If you know Aurora, you know Moonglow: the windows, pages, fields and
-mouse bindings are Aurora's, and what Moonglow writes is what Aurora
-writes. Start with [Coming from Aurora](14-coming-from-aurora.md): the
-Aurora problems Moonglow doesn't have, the habits to change, and what's
-easy to miss. [Differences from Aurora](12-differences.md) lists where it
+mouse bindings are Aurora's, and Moonglow writes what Aurora writes.
+Start with [Coming from Aurora](14-coming-from-aurora.md): the Aurora
+problems Moonglow doesn't have, the habits to change, and what's easy to
+miss. [Differences from Aurora](12-differences.md) lists where it
 deliberately departs.
 
 ## Contents
@@ -42,4 +42,4 @@ deliberately departs.
 
 Moonglow is free software under the GNU General Public License, version 3.
 It contains no game data: it reads the game's files from your
-installation, so it needs a copy of Neverwinter Nights: Enhanced Edition.
+installation, so it needs Neverwinter Nights: Enhanced Edition.

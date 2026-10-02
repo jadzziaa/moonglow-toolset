@@ -4,8 +4,8 @@ From top to bottom: the **menus**, the **toolbar**, then the module tree
 on the left, the **tabs** in the middle and the **palette** on the right,
 the **log**, and the **status bar** (the module's file, "(modified)" while
 there are unsaved changes, and the game's folder).
-The palette opens with each module, as wide as the module tree; **Palettes**
-on the toolbar brings it back after it is closed.
+The palette opens with each module, as wide as the module tree. If you
+close it, **Palettes** on the toolbar brings it back.
 
 ## Menus
 
@@ -20,9 +20,9 @@ on the toolbar brings it back after it is closed.
 
 ## Keyboard shortcuts
 
-On macOS, Cmd takes the place of Ctrl. These are the keys Moonglow starts
-with (Aurora's, where Aurora has the command); **Tools › Options ›
-Keyboard** changes them, and the menus show the keys as they are.
+On macOS, Cmd takes the place of Ctrl. These are the default keys
+(Aurora's, where Aurora has the command). **Tools › Options › Keyboard**
+changes them; the menus show the current keys.
 
 | Keys | Command |
 | --- | --- |
@@ -55,7 +55,7 @@ Placeables, Sounds, Triggers, Waypoints) and the journal and factions;
 **Module Properties** is at the top. **Filter** narrows every group to the
 names containing the text.
 
-A double click opens a resource in its editor; a blueprint dragged onto an
+A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields
 of its `.are` and `.git` files; on a script, area, conversation or
@@ -68,16 +68,15 @@ Areas open as tabs in the main pane. Everything else (blueprint and object
 editors, scripts, conversations, previews, Module Properties, the Faction
 and Journal Editors, the resource browser, this manual) opens in a window
 of its own over the area, sized for what it shows, so the area view stays
-where it is. Drag a window by its tab into the main pane, or beside
-another, to dock it; drag a tab out to float it again. The palettes keep
-their pane on the right. Right-click a tab for **Eject** and **Close**, and
-for an area, script, conversation or blueprint of the module, **Rename…**:
-it is renamed everywhere the module names it (an area with its instances
-and its entry in the module's area list), its tab with it.
+put. Drag a window by its tab into the main pane, or beside another, to
+dock it; drag a tab out to float it again. The palettes keep their pane on
+the right. Right-click a tab for **Eject** and **Close**, and for an area,
+script, conversation or blueprint of the module, **Rename…**: it is renamed
+everywhere the module names it (an area with its instances and its entry in
+the module's area list), and its tab with it.
 
-Closing a tab or window never loses work: every change is already part of
-the module (and undoable) the moment you make it; **Save** writes the
-module.
+Closing a tab or window never loses work: every change is part of the
+module (and undoable) the moment you make it. **Save** writes the module.
 
 **Undo and redo** cover every change, in every editor, without limit: a
 field typed into, an object moved, a tile painted, a script compiled.
@@ -86,8 +85,8 @@ field typed into, an object moved, a tile painted, a script compiled.
 
 The right-hand pane is Aurora's palette: choose a blueprint type,
 **Standard** (the game's blueprints) or **Custom** (the module's), and a
-blueprint from the categories. Chosen, a blueprint is placed by clicking
-in an area (see [Areas](04-areas.md)). With an area's terrain mode on, the
+blueprint from the categories. Click in an area to place the chosen
+blueprint (see [Areas](04-areas.md)). With an area's terrain mode on, the
 palette shows the tileset's brushes instead. **Preview** (toolbar) shows
 the chosen blueprint in a window of its own.
 
@@ -114,8 +113,8 @@ the game's), the view adds:
 
 Models open in the model viewer from the resource browser, and blueprints
 (creatures, items, placeables, doors) through **Preview**. Drag to turn
-the model (right or middle button: move it), use the wheel to zoom, and
-play its animations, including those its supermodels give it.
+the model (right or middle button to move it), use the wheel to zoom, and
+play its animations, including those from its supermodels.
 
 ## The log
 

@@ -3,8 +3,7 @@
 A **blueprint** is a template for an object: a creature (`.utc`), door
 (`.utd`), encounter (`.ute`), item (`.uti`), merchant (`.utm`), placeable
 (`.utp`), sound (`.uts`), trigger (`.utt`) or waypoint (`.utw`). Placing
-one in an area makes an **instance**, a copy that can then be changed on
-its own.
+one in an area makes an **instance**, a copy you can change on its own.
 
 ## Palettes
 
@@ -17,24 +16,23 @@ The palette pane (right) shows the blueprints by type:
 
 Choose a blueprint to place it in an area, or drag it there. Hover over
 one to see its resref, tag and, for creatures, doors, items and
-placeables, a picture of it.
+placeables, a picture.
 
 **Find** (the box above the palette) shows the blueprints that have every
 word you type in their name, resref or tag, in any order (`chest secret`).
-When nothing has them all, it shows close matches instead, letters in
-order (`lngswd` finds Longsword).
+If none has them all, it shows close matches, letters in order (`lngswd`
+finds Longsword).
 
-**Favorites** and **Recent** sit at the top of each palette: right-click a
-blueprint › **Add to Favorites**, and the last dozen you placed are
-remembered. Both are kept between sessions.
+**Favorites** and **Recent** sit at the top of each palette. Right-click a
+blueprint › **Add to Favorites**; Recent holds the last dozen you placed.
+Both are kept between sessions.
 
 Drag a custom blueprint onto another category of the custom palette to
 move it there.
 
 The palette's buttons:
 
-- **Edit**: open a custom blueprint in its editor (a double click does
-  the same).
+- **Edit**: open a custom blueprint in its editor (or double-click it).
 - **Edit Copy**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it.
 - **Delete**: remove a custom blueprint from the module.
@@ -42,15 +40,15 @@ The palette's buttons:
   without a model (a merchant, a sound, a trigger, a waypoint, an
   encounter) shows its fields instead, and a merchant what it sells, page
   by page.
-- **Update Instances** (custom blueprints): make the objects placed from
-  the blueprint again from it.
+- **Update Instances** (custom blueprints): remake the objects placed
+  from the blueprint.
 
 **Ctrl+click** chooses several custom blueprints of one type. With
 several chosen, the right-click menu offers:
-- **Edit N Together**: one editor for all of them. What you change is set
-  on each, as one undoable step. Inventories, classes, skills, feats,
-  spells and item properties are edited one blueprint at a time, so
-  those pages aren't offered.
+- **Edit N Together**: one editor for all of them. A change is set on
+  each, as one undoable step. Inventories, classes, skills, feats, spells
+  and item properties are edited one blueprint at a time, so those pages
+  aren't offered.
 - **Update Instances of N**.
 
 A custom category's right-click menu updates the instances of every
@@ -58,25 +56,24 @@ blueprint in it.
 
 ### Update Instances
 
-Update Instances makes each object placed from a blueprint again from it,
-as Aurora's does: it keeps where the object stands, which way it faces, a
-trigger's or encounter's outline and a visual transform. Everything else
-comes from the blueprint, including the object's tag, name, scripts,
-local variables and a door's transition. A window lists the objects it
-would change:
+Update Instances remakes each object placed from a blueprint, as Aurora's
+does. It keeps where the object stands, which way it faces, a trigger's
+or encounter's outline and a visual transform. Everything else comes from
+the blueprint, including the object's tag, name, scripts, local variables
+and a door's transition. A window lists the objects it would change:
 - **Every area**, or **only** the area shown.
 - **Untick** objects to leave them as they are.
 - **Update** changes the rest as one undoable step.
 
-New blueprints come from the **Wizards** menu (or the palette's New): a
-wizard for each type asks what Aurora's asks (the base item for an item,
-the appearance for a placeable, the classes for a creature…), a palette
+New blueprints come from the **Wizards** menu (or the palette's New). Each
+type's wizard asks what Aurora's asks (the base item for an item, the
+appearance for a placeable, the classes for a creature…), a palette
 category and a name, then opens the new blueprint's properties.
 
 ## The editors
 
 Each blueprint opens as a tab with Aurora's pages. Every change takes
-effect as you make it and is one undoable step; there is no OK or Cancel.
+effect at once and is one undoable step; there is no OK or Cancel.
 Fields Moonglow does not show are kept as they are.
 
 Shared parts:
@@ -89,17 +86,17 @@ Shared parts:
 - **Scripts**: event scripts, picked from the module's and the game's
   (**Edit** opens one).
 - **Variables…**: local variables the object starts with. **Save Set…**
-  keeps them under a name, and **Add Set** adds a saved set to any
-  object's or blueprint's variables, in any module; one of the same name
+  keeps them under a name. **Add Set** adds a saved set to any object's
+  or blueprint's variables, in any module; a variable of the same name
   takes the set's value. Sets are small JSON files in Moonglow's data
   folder (`variable-sets`), easy to share.
 - **Comments**: notes for the builder, not seen in the game.
 - **Advanced**: the palette category, and **Update Instances** (every
-  type but waypoints; see below).
+  type but waypoints; see above).
 - **Visuals** (creatures, items, placeables, doors; triggers have the
-  last part only): what Enhanced Edition's scripts can change about how
-  an object looks, set from the start. Aurora has no fields for these;
-  the game reads them when it loads the object.
+  last part only): what Enhanced Edition's scripts can change about an
+  object's look, set from the start. Aurora has no fields for these; the
+  game reads them when it loads the object.
   - **Texture replacements**: a texture of the object's model drawn with
     another (not PLT textures, which keep their colors). The area view
     and the model viewer show them.
@@ -127,20 +124,20 @@ every change, as Aurora does on OK.
 
 The game reads a familiar only when one of the creature's classes has
 one (an arcane class whose `MinAssociateLevel` in `classes.2da` isn't
-255: Wizard, Sorcerer), and an animal companion likewise for a divine
-class (Druid, Ranger, at any level). The Classes page says when it won't.
+255: Wizard, Sorcerer), and an animal companion only for a divine class
+(Druid, Ranger, at any level). The Classes page says when it won't.
 A domain or school left **Not set** is the game's to choose.
 
-- On the **Spells** page, a warning names the first problem a class has:
+- On the **Spells** page, a warning names a class's first problem:
   spells of a level the class cannot cast yet, a casting ability too low
   for the spell level, or more spells than the class allows.
-- In the **Inventory**, equip items into the equipment slots and put
-  others in the backpack, from the item palette. Equipping an item the
+- In the **Inventory**, equip items from the item palette into the
+  equipment slots, or put them in the backpack. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
   asks whether to give it the feat. Items can be marked droppable,
   pickpocketable and infinite (merchants).
 - The **Creature Wizard** makes a creature from a race, classes and levels,
-  gender, appearance, portrait, faction and name, levelled as the game's
+  gender, appearance, portrait, faction and name, leveled as the game's
   packages level it.
 - **Portraits…** chooses the portrait from the game's, by race and
   gender.
@@ -153,9 +150,9 @@ base item: a model, three weapon parts, or the armor's parts and colors,
 with the inventory icon as the game shows it), **Properties** (the item
 properties its base item allows, with their parameters), Visuals,
 Description, Comments. Moonglow recomputes the item's cost with every
-change, as the game computes it. A stack can be larger than its base
-item's limit (Aurora stops there; the game keeps the stack whole), and
-charges go up to 250, the most the game reads.
+change, as the game computes it. A stack can exceed its base item's
+limit (Aurora stops there; the game keeps the stack whole). Charges go up
+to 250, the most the game reads.
 
 ### Placeables and doors
 
@@ -163,8 +160,8 @@ Basic (name, appearance, initial state, hit points, saves, plot, static,
 usable, has inventory), **Lock** (locked, key, DCs), **Trap**, **Area
 Transition** (doors: to a door or waypoint in another area), Scripts,
 Advanced, Visuals, Description, Comments. A placeable with an inventory
-has an **Inventory** page. A placeable can have an inventory without being
-usable: players can't open it, but scripts can reach what it holds.
+has an **Inventory** page. It can have one without being usable: players
+can't open it, but scripts can reach what it holds.
 
 ### Triggers and encounters
 
@@ -200,13 +197,13 @@ pitch and volume variation), Comments.
 
 Basic (name, tag, appearance, map note), Advanced, Description, Comments.
 
-Right-click a blueprint in a palette and choose **Find References** to see
-where the module places it or names it.
+Right-click a blueprint in a palette › **Find References** to see where
+the module places or names it.
 
 ## Instances
 
-An object placed in an area has the same pages as its blueprint (open
-them with a double click, or right-click › **Properties**). Changing an
-instance does not change its blueprint, nor other instances; **Add to
-Palette** turns an instance into a new custom blueprint, and **Update
-Instances** on a blueprint replaces its instances with it again.
+An object placed in an area has the same pages as its blueprint
+(double-click it, or right-click › **Properties**). Changing an instance
+changes neither its blueprint nor other instances. **Add to Palette**
+turns an instance into a new custom blueprint, and **Update Instances**
+on a blueprint remakes its instances from it.

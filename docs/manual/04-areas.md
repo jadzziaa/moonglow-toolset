@@ -1,18 +1,18 @@
 # Areas
 
 Double-click an area in the module tree (or right-click it › **View
-Area**) to open it in the **area viewer**: its tiles and objects drawn
-with the area's lighting, fog and sky, by day or night. Areas open looking
-straight down at their middle, north up, as in Aurora.
+Area**) to open it in the **area viewer**, which draws its tiles and
+objects with the area's lighting, fog and sky, by day or night. Areas open
+looking straight down at their middle, north up, as in Aurora.
 
 ## The toolbar
 
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
   object and the start location marker; **All** and **None**.
 - **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
-  the tile grid. The fog is the game's as its camera (at most 20 m from the
-  player) would see it from where the view looks, so a view from farther
-  off isn't lost in it.
+  the tile grid. The fog is drawn as the game's camera (at most 20 m from
+  the player) would see it from where the view looks, so a view from
+  farther off isn't lost in it.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
 - **Walkmesh**: the ground's walkmesh over the area (Aurora's Render AABB
@@ -32,19 +32,19 @@ the area's map as a PNG, as the game's map draws it: each tile's picture
 (the tileset's `ImageMap2D`) turned as the tile is, north up, unsaved
 tiles included. A tile without a picture is black, as in the game. `mg
 minimap` does the same from the command line. Each picture keeps its own
-size unless asked (`--size`); the game's are mostly 16 pixels.
+size unless `--size` sets one; the game's are mostly 16 pixels.
 
 ## The camera
 
-Aurora's bindings, plus a few of Moonglow's (the keys can be changed in
-Tools › Options › Keyboard):
+Aurora's bindings, plus a few of Moonglow's (change the keys in Tools ›
+Options › Keyboard):
 
 | Do | To |
 | --- | --- |
 | Ctrl + drag | move the camera over the area |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
 | Shift + middle drag | move the camera |
-| Wheel | zoom (with Shift or Ctrl: slowly; painting tiles, Shift is the brush's) |
+| Wheel | zoom (slowly with Shift or Ctrl; when painting tiles, Shift is the brush's) |
 | Arrow keys, W A S D, or numpad 4, 6, 8, 2 | move the camera |
 | Numpad 7, 9 | turn |
 | Numpad 1, 3 | tilt |
@@ -68,8 +68,8 @@ Tools › Options › Keyboard):
 | Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another) |
 | Double-click | the object's Properties |
 
-Every move, turn and deletion is one undoable step. The pointer's
-position in the area shows in the view's corner, to the centimeter.
+Every move, turn and deletion is one undoable step. The view's corner
+shows the pointer's position in the area, to the centimeter.
 
 **Snapping** (the toolbar's **Snap** and **Turn**):
 - **Snap** moves objects to a grid of 0.25 to 5 m as you drag, place or
@@ -125,14 +125,14 @@ places and turns around it.
 
 Choose a blueprint in the palette and click in the area to place it, or
 drag it onto the area from the palette or the module tree. Until it is
-placed, a see-through copy in a blue box follows the pointer where it would
-go (on the snapping grid, a door on the nearest hook). **Q** and **E** turn
-it as they turn a selection (Shift + Q and E by 90°), and it is placed
-facing that way; a door faces as its hook does. Shift + click places
-it and keeps it chosen for another; a right click or Escape lets it go. Doors go on a
-tile's door hook when you click near one. Triggers and encounters are
-drawn point by point: click each corner, double-click to close the
-outline.
+placed, a see-through copy in a blue box follows the pointer where it
+would go (on the snapping grid; a door on the nearest hook). **Q** and
+**E** turn it as they turn a selection (Shift + Q and E by 90°), and it is
+placed facing that way; a door faces as its hook does. Shift + click
+places it and keeps it chosen for another; a right click or Escape lets
+it go. Doors go on a tile's door hook when you click near one. Triggers
+and encounters are drawn point by point: click each corner, double-click
+to close the outline.
 
 **Edit › Find Instance…** lists the placed objects across the module by
 kind, area, blueprint and tag; double-click one to go to it.
@@ -141,7 +141,7 @@ kind, area, blueprint and tag; double-click one to go to it.
 Prefab…** on the selection), such as a camp, a market stall or a furnished
 room.
 - **Placing one:** choose it under **Edit › Prefabs**. It follows the
-  pointer like a paste, and a click places it, with the objects in their
+  pointer like a paste. A click places it, with the objects in their
   places around each other and at their heights above the ground.
 - **Any area, any module:** prefabs are kept in Moonglow's data folder, in
   `prefabs` (see [Troubleshooting](13-troubleshooting.md)). Copy the
@@ -155,38 +155,39 @@ Choose **Tiles** in the palette pane to paint the area with its tileset,
 as Aurora's Terrain tab does:
 
 - **Terrain brushes** (grass, water, cliffs… whatever the tileset has)
-  and **Raise/Lower** act on the tile corner nearest the pointer; the right
-  button lowers. Drag to mark every corner the pointer passes (yellow;
-  running the drag back lets them go), or hold Shift while dragging to mark
-  the whole rectangle from where the drag began; letting go paints them
-  all, and one undo takes the whole drag back. The cursor shows the four tiles a stroke
-  changes, and turns red where the tileset does not allow it.
+  and **Raise/Lower** act on the tile corner nearest the pointer; the
+  right button lowers. Drag to mark every corner the pointer passes
+  (yellow; running the drag back unmarks them), or Shift + drag to mark
+  the whole rectangle from where the drag began. Letting go paints them
+  all, and one undo takes the whole drag back. The cursor shows the four
+  tiles a stroke changes.
 - **Crossers** (roads, streams, walls) are dragged: they follow the
   pointer through the tiles it passes. A drag straight across a tile may
-  wander up to 2.5 m off its middle; to turn within a tile, head for the
-  side you want it to leave by. Running the drag back over its path lets
-  go of what it passed. Hold Shift while dragging to lay it round the
-  outline of the rectangle from the tile where the drag began (straight
-  along a rectangle one tile wide).
+  wander up to 2.5 m off its middle. To turn within a tile, head for the
+  side it should leave by. Running the drag back over its path lets go of
+  what it passed. Shift + drag lays it round the outline of the rectangle
+  from the tile where the drag began (straight along a rectangle one tile
+  wide).
 - **Groups** (buildings, big features) are placed whole; right-click to
   turn one before placing it. It stays chosen, to place another.
-- The **Eraser** takes the crossers off a tile; with Shift + click it
-  steps the tile through the other tiles that fit there.
+- The **Eraser** takes the crossers off a tile; Shift + click steps the
+  tile through the other tiles that fit there.
 - **Refine Tile** (Moonglow's own) steps the tile you click through the
   other tiles that fit there, whatever it holds, and never paints.
 - The Eraser, Refine Tile and Raise/Lower head the Terrain list, whatever
   the tileset's order.
 
-Under the pointer, the area shows the tiles a click would make in place of
-those they replace, slightly see-through: a feature or group, a terrain's
-or a raised corner's tiles, the Eraser's or Refine Tile's choice; while
-you drag a terrain or a crosser, what letting go now would paint. The click
-or the drag puts down those very tiles (among the tiles that fit, the one
-shown).
+Under the pointer, the area shows the tiles a click would make, slightly
+see-through, in place of those they replace: a feature or group, a
+terrain's or a raised corner's tiles, the Eraser's or Refine Tile's
+choice. While you drag a terrain or a crosser, it shows what letting go
+now would paint. The click or drag puts down exactly the tiles shown:
+where several fit, the one shown.
+
 The cursor is green where a click paints and red where the tileset
-refuses it. It is blue where a click only chooses tiles again: a crosser over
-a quarter it already crosses, the Eraser with Shift, Refine Tile, and a
-corner of the brush's own terrain (with Shift, the next tiles that fit).
+refuses it. It is blue where a click only chooses tiles again: a crosser
+over a quarter it already crosses, the Eraser with Shift, Refine Tile, and
+a corner of the brush's own terrain (with Shift, the next tiles that fit).
 
 Each stroke is one undoable step. Moonglow paints as Aurora does: the
 same strokes give the same tiles, heights and crossers.
@@ -196,12 +197,15 @@ same strokes give the same tiles, heights and crossers.
 With **Select Tiles** on, a click selects a tile, Ctrl + click adds one,
 and a drag selects a box of them. **Delete** takes the selected tiles'
 crossers away. **Shift + right click** steps the tile under the pointer
-through the tiles that fit; a right click opens the tile menu with **Tile
-Properties**: the tiles' main and source light colors and their
-animation loops, as the tile's model has them (**Defaults** puts back the
-lighting scheme's), and the **Replacement Texture**: what a texture named
-`replace_tex` in the tile's model is drawn with (a `replacetexture.2da`
-row; the game keeps it, though Aurora has no field for it). Ctrl+C and Ctrl+V copy and paste tiles.
+through the tiles that fit. Ctrl+C and Ctrl+V copy and paste tiles.
+
+A right click opens the tile menu with **Tile Properties**:
+- the tiles' main and source light colors and their animation loops, as
+  the tile's model has them (**Defaults** puts back the lighting
+  scheme's);
+- the **Replacement Texture**: what a texture named `replace_tex` in the
+  tile's model is drawn with (a `replacetexture.2da` row; the game keeps
+  it, though Aurora has no field for it).
 
 **Edit › Resize Area…** grows or shrinks the area at its north and east
 edges; **Edit › Rotate Area…** turns it by 90° steps, objects and all.
@@ -228,18 +232,18 @@ Properties** on the viewer's toolbar:
 
 With **🔊 Sounds** on, the placed sound objects play as you move around:
 full volume within a sound's minimum distance, fading to nothing at its
-maximum, each repeating, looping or playing once as it is set. **Ambient**
-and **Music** play the area's ambient sound and music (by day or night, as
-the view shows). Options › Sounds sets which play when an area opens, and
-the music's volume.
+maximum, each repeating, looping or playing once as set. **Ambient** and
+**Music** play the area's ambient sound and music (by day or night, as the
+view shows). Options › Sounds sets which play when an area opens, and the
+music's volume.
 
 ## Making tilesets
 
 **Tools › Tilesets** edits a tileset's `.set` file: **New Tileset…**
 starts one, **Open Tileset…** opens one (a copy of a game tileset, or one
 being made beside its models). An edit changes only the lines it is
-about, so comments, order and spacing stay; **Undo**, **Redo** and
-**Save** are in the editor's toolbar, and saving the module saves open
+about, so comments, order and spacing stay. **Undo**, **Redo** and
+**Save** are in the editor's toolbar; saving the module saves open
 tilesets too.
 - **General:** the name, the name players see, the height step, the
   border, default and floor terrains, interior, height transitions, and
@@ -247,15 +251,15 @@ tilesets too.
 - **Terrains and Crossers:** the lists, and **Add Terrain** and **Add
   Crosser** by name.
 - **Tiles:** every tile with its corners and edges; **Find** by model or
-  terrain. A tile's model, walkmesh, minimap picture, path node,
+  terrain. Per tile: model, walkmesh, minimap picture, path node,
   orientation, corner terrains and heights, edge crossers, lights and
-  animation loops. **Add Tile** and **Duplicate Tile** add at the end and
+  animation loops. **Add Tile** and **Duplicate Tile** add at the end, and
   **Remove Last Tile** takes the last away: areas store tiles by number,
   so tiles in the middle stay where they are. **Preview** shows the
   model when the game data has it.
 - **Groups:** each group's name, size and tiles, the bottom row first.
 
-The toolbar also:
+The toolbar also has:
 - **Make Palette** writes `<tileset>palstd.itp` beside the `.set`, the
   palette the painter offers: one-tile groups as Features, the others as
   Groups, the terrains and crossers, the eraser and (with height
@@ -269,7 +273,5 @@ The toolbar also:
   `mi_<model>`) beside the `.set`. Models and textures beside the `.set`
   are used before the game's.
 
-Put the `.set`, palette, models, walkmeshes, textures and minimap
-pictures in a hak (Tools › Haks › Build Hak from Folder…) to use the
-tileset.
-
+To use the tileset, put the `.set`, palette, models, walkmeshes, textures
+and minimap pictures in a hak (Tools › Haks › Build Hak from Folder…).

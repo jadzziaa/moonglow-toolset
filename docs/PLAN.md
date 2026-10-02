@@ -29,11 +29,11 @@ Decisions taken (2026-09-30):
 | 5 Application shell | In progress: undoable module workspace (`mg-edit`), the app (`mg-ui`, `apps/moonglow`): menus and shortcuts, module tree, docked tabs, module properties, script editor (highlighting, compile), generic GFF editor, message log, New Module and Area wizards with Aurora's defaults, unsaved-changes prompt, settings and recent modules, options, import/export, resource browser; UI flows tested with `egui_kittest`. Exit met: a module made from nothing runs in the engine |
 | 6 Text-and-tree editors | Done: String Edit, Variables, resource pickers; Module Properties with Aurora's tabs; Faction, Journal and Conversation editors and the script editor's tools, each checked against Aurora's files (captured under Wine) and in the engine; parity checklists in `docs/parity/checklists.md` |
 | 7 Renderer and model viewer | Done: textures (every TGA, DDS and PLT in the game decodes; a sample matches Pillow pixel for pixel), TXI and MTR; models (all 32,832 in the game read, binary and ASCII; the two readers agree through nwnmdlcomp on a sample of 176); the wgpu renderer with the game's lighting (its uniforms read back from the client and matched; reference scenes within 1/255 of the client per region), material maps, environment and cube maps, animations with supermodels, GPU skinning, animated and dangly meshes, emitters (fountain, explosion, point-to-point, lightning, chunks; gravity, bounce and tinting measured in the client); blueprint previews (`mg-preview`, also by appearance alone); the model viewer (Resources: open any model or preview a blueprint). Since then, for the Moonglow Viewer: what the game's compiler writes (materialname, renderhint, tangents, Bézier keys, the emitters' three-stop IDs) read back; walkmesh files (WOK, PWK, DWK) under their object's root; ASCII source maps; normal maps on the model's own tangents; the depth buffer kept after a frame; animations played once and blended; resource layers changed in place |
-| 8 Blueprints and palettes | In progress: standard and custom palettes (custom ones rebuilt like Aurora's), the palette pane (edit, edit copy, delete, preview), and editors for every blueprint type (waypoint, sound, trigger, encounter, store, door, placeable, item with item properties, creature with statistics, classes, skills, feats, spells, special abilities and inventory); item costs as the engine computes them (every base-game item agrees with `nwserver`); every blueprint type, edited and written by Moonglow, spawned or placed in the engine; blueprint wizards matching Aurora's. Still to do: the creature CR calculation (needs more Aurora probes), the Creature and Levelup Wizards and creature templates, colour pickers and icons |
-| 9 Area editor, objects | Exit met: every shipped area (1,462) opens and renders (tiles with lights and animation loops, objects, fog measured in the client); the area viewer with Aurora's camera and selection bindings, filters, grid, placing from the palette (doors on door hooks), moving, turning, raising, deleting, copy and paste, polygons, Adjust Location with visual transforms, Find Instance, Area Properties, Properties of placed objects (alone or several together, with their inventories), the context menu's commands (Add to Palette, Create Waypoint and Set, initial states, spawn points, …), the Preview window. What placing writes, Add to Palette, Create Waypoint and Adjust Location are identical to Aurora's (three captures); edits round-trip and load in the engine. Since then: skyboxes as the client draws them (around the camera with the horizon fade in the fog's colour; checked against the client); grass is not drawn (Aurora does not, and the client's does not show at editor distances). Add Popup Text, Setup Store and the Levelup Wizard came with Phase 11 |
+| 8 Blueprints and palettes | In progress: standard and custom palettes (custom ones rebuilt like Aurora's), the palette pane (edit, edit copy, delete, preview), and editors for every blueprint type (waypoint, sound, trigger, encounter, store, door, placeable, item with item properties, creature with statistics, classes, skills, feats, spells, special abilities and inventory); item costs as the engine computes them (every base-game item agrees with `nwserver`); every blueprint type, edited and written by Moonglow, spawned or placed in the engine; blueprint wizards matching Aurora's. Still to do: the creature CR calculation (needs more Aurora probes), the Creature and Levelup Wizards and creature templates, color pickers and icons |
+| 9 Area editor, objects | Exit met: every shipped area (1,462) opens and renders (tiles with lights and animation loops, objects, fog measured in the client); the area viewer with Aurora's camera and selection bindings, filters, grid, placing from the palette (doors on door hooks), moving, turning, raising, deleting, copy and paste, polygons, Adjust Location with visual transforms, Find Instance, Area Properties, Properties of placed objects (alone or several together, with their inventories), the context menu's commands (Add to Palette, Create Waypoint and Set, initial states, spawn points, …), the Preview window. What placing writes, Add to Palette, Create Waypoint and Adjust Location are identical to Aurora's (three captures); edits round-trip and load in the engine. Since then: skyboxes as the client draws them (around the camera with the horizon fade in the fog's color; checked against the client); grass is not drawn (Aurora does not, and the client's does not show at editor distances). Add Popup Text, Setup Store and the Levelup Wizard came with Phase 11 |
 | 10 Area editor, terrain | Exit met: painting as Aurora paints, worked out from scripted Aurora sessions (no source) and replayed: 62 recorded steps in four tilesets (terrain brushes with the primary rules on all eight neighbours in relative heights, raise and lower with neighbours settling within a step, crossers on the quarter-cells a drag passes, the eraser clearing crossers outward, refused strokes, tile groups turned and placed, the doors their hooks bring) give Aurora's corners, heights and crossers at every step; Resize Area and Rotate Area give Aurora's tiles and doors; painted areas load in the engine with the ground where the strokes put it. The area viewer's terrain mode (the tileset palette, brushes with a cursor that turns red where a stroke would be refused, groups with right-click turning), tile selection with Delete and next variant, Tile Properties (lights, animation loops), the walkmesh overlay and Area Statistics, copying and pasting tiles, Shift + click stepping tiles through their variants |
-| 11 Build, verify, test | Exit met: no row of the parity checklist is missing (✗); each is done (✅), deliberately different (—), or partly done (◐, its gap named). Build Module with Aurora's options, layout and results (compile scripts, creature challenge ratings, encounters, palettes; missing and unused resources), the challenge rating calculation read from Aurora and matching its ratings for 4,204 probe creatures, Test Module (F9), Verify, Area Statistics, the Area Wizard's after-steps, Update Instances, script sets and class spell lists, all Options pages but Spell Checking (EE ships no lexicon), Setup Store and Add Popup Text, the Levelup and Creature Wizards (matching Aurora's levellings and creatures), creature spell and inventory warnings (31 probe creatures), the Conversation Editor's options (Input Text popup, link directions, drag, backups), sound playback (every game sound decodes; previews, area ambience, music and placed sounds), Select Portrait, item icons and colour swatches, Print. Partly: drag and drop in inventories, the Scrap tab, a few unchecked Aurora details |
-| 12 Hardening and release | In progress: crash safety (recovery copies of unsaved work every 5 minutes in Moonglow's data folder, offered back at the next start; crash reports; saves already write through a temporary file and keep a `.bak`); performance budgets on the three largest campaigns (`crates/mg-ui/tests/campaign_perf.rs`; Tyrants of the Moonsea, 5,295 resources: opens in 0.05 s, its largest area, 784 tiles, in 0.3 s and draws in 13 ms, verify 0.7 s, all 1,433 scripts compile in 0.7 s, the module writes in 0.02 s; budgets 3 s, 5 s, 50 ms, 10 s, 120 s and 5 s); campaign talk tables are found in the install's `data/tlk/`; packaging (`packaging/`: the icon, an AppImage, a Flatpak manifest, an Inno Setup installer with the C runtime built in, a universal macOS app and disk image, third-party licence notices, a release workflow; the AppImage (11.7 MB) and the Flatpak (7.6 MB bundle on the Freedesktop 25.08 runtime) are built and run here, the Windows and macOS packages are left to CI); the user manual (`docs/manual/`, 13 chapters, also in the app under Help › User Manual, with About). Still to do: build the packages on CI and try each on its system |
+| 11 Build, verify, test | Exit met: no row of the parity checklist is missing (✗); each is done (✅), deliberately different (—), or partly done (◐, its gap named). Build Module with Aurora's options, layout and results (compile scripts, creature challenge ratings, encounters, palettes; missing and unused resources), the challenge rating calculation read from Aurora and matching its ratings for 4,204 probe creatures, Test Module (F9), Verify, Area Statistics, the Area Wizard's after-steps, Update Instances, script sets and class spell lists, all Options pages but Spell Checking (EE ships no lexicon), Setup Store and Add Popup Text, the Levelup and Creature Wizards (matching Aurora's levelings and creatures), creature spell and inventory warnings (31 probe creatures), the Conversation Editor's options (Input Text popup, link directions, drag, backups), sound playback (every game sound decodes; previews, area ambience, music and placed sounds), Select Portrait, item icons and color swatches, Print. Partly: drag and drop in inventories, the Scrap tab, a few unchecked Aurora details |
+| 12 Hardening and release | In progress: crash safety (recovery copies of unsaved work every 5 minutes in Moonglow's data folder, offered back at the next start; crash reports; saves already write through a temporary file and keep a `.bak`); performance budgets on the three largest campaigns (`crates/mg-ui/tests/campaign_perf.rs`; Tyrants of the Moonsea, 5,295 resources: opens in 0.05 s, its largest area, 784 tiles, in 0.3 s and draws in 13 ms, verify 0.7 s, all 1,433 scripts compile in 0.7 s, the module writes in 0.02 s; budgets 3 s, 5 s, 50 ms, 10 s, 120 s and 5 s); campaign talk tables are found in the install's `data/tlk/`; packaging (`packaging/`: the icon, an AppImage, a Flatpak manifest, an Inno Setup installer with the C runtime built in, a universal macOS app and disk image, third-party license notices, a release workflow; the AppImage (11.7 MB) and the Flatpak (7.6 MB bundle on the Freedesktop 25.08 runtime) are built and run here, the Windows and macOS packages are left to CI); the user manual (`docs/manual/`, 13 chapters, also in the app under Help › User Manual, with About). Still to do: build the packages on CI and try each on its system |
 
 What the tests establish so far (all run in a few seconds, in release mode):
 
@@ -46,10 +46,10 @@ What the tests establish so far (all run in a few seconds, in release mode):
   engine proves `nwn_twoda` wrong (below).
 - All 10 installed talk tables (every language, masculine and feminine)
   round-trip.
-- For ~600 resources, placed so that every precedence boundary is crossed
-  (development over haks, user haks over install haks, haks over the module,
-  the module over override, override over the keys), Moonglow's resman picks
-  the same source as the engine's `ResManGetAliasFor`.
+- For ~600 resources placed to cross every precedence boundary (development
+  over haks, user haks over install haks, haks over the module, the module
+  over override, override over the keys), Moonglow's resman picks the same
+  source as the engine's `ResManGetAliasFor`.
 - Every shipped module (28), with every GFF rewritten by Moonglow and saved
   as an archive and as a folder, reopens identical; run in `nwserver`, the
   rewritten modules present exactly the same world as the originals (every
@@ -190,7 +190,7 @@ in this list. ✅ = exists.
 | `mg-module` ✅ | module workspace: open/save, working copy, palettes, reference graph, verify, build, import/export, haks/TLK |
 | `mg-edit` | editor core: documents, commands, undo/redo, selection, tools (no UI) |
 | `mg-render` (partial) | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles (done); picking, gizmos |
-| `mg-preview` ✅ | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colours; items; placeables; doors |
+| `mg-preview` ✅ | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colors; items; placeables; doors |
 | `mg-area` (partial) | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area |
 | `mg-ui` | egui widgets and editors |
 | `apps/mg` ✅ | CLI: `ls`, `pack`, `unpack`, `gff`, `which`, `cat`, `layers`, `tlk` so far; later build, verify, compile, diff, render |
@@ -220,7 +220,7 @@ engine's own table): portraits 91/90, `development/` 71, NWSync 40, haks 31
 `override/` 12, ambient/music 9–6, keys 1 (`nwn_retail*` over `nwn_base*`,
 `_loc` keys from `lang/<xx>/data` over their base). So haks beat the module,
 the module beats `override/`, and a hak in the user's folder beats an install
-hak listed before it; the `engine_resman` test crosses every one of these
+hak listed before it; the `engine_resman` test crosses each of these
 boundaries and matches `ResManGetAliasFor`. Textures follow the engine's
 exception: DDS beats TGA within a class (directories, NWSync, ERFs, keys)
 before a lower class counts. The install's `ovr/` is not searched (EE keeps
@@ -243,8 +243,8 @@ GPL-3.0) produces the NCS; Moonglow does not write its own code generator.
 `mg-script` builds the compiler's C++ sources with the `cc` crate and calls its
 small C API (`compilerapi.h`: new compiler, deliver source through a callback,
 compile, receive NCS/NDB) in process, so no external binary is needed on any
-platform. Optimisation flags are set to 1 (dead code only), as the game and
-Aurora use; it reports the first error only, as Aurora does. `nwn_script_comp`
+platform. Optimization flags are 1 (dead code only), as in the game and
+Aurora; only the first error is reported, as in Aurora. `nwn_script_comp`
 stays the test oracle. Editor features (highlighting, outline, completion,
 go-to-definition, signature help, diagnostics) come from Moonglow's own
 NWScript front end in `mg-script`, fed by `nwscript.nss` from the resman.
@@ -252,30 +252,28 @@ NWScript front end in `mg-script`, fed by `nwscript.nss` from the resman.
 ### 5.5 Renderer
 
 One wgpu renderer serves the area editor, blueprint previews and the model
-viewer. Aurora shows none of EE's lighting, so the goal is not bit-exact parity
-with the game but a close match to what the game client shows: Moonglow's own
-WGSL shaders implement EE's lighting model as the research brief derives it
-from the stock shaders (`docs/research/ee_tech_brief.md` §6,
-`notes_shaders.md`): linear lighting with gamma correction, per-fragment
-lighting from area sun/moon ambient and diffuse, tile main and source lights
-(`lightcolor.2da`), placeable and model lights (top 32 per object by priority
-and distance), GGX specular, MTR materials with normal, specular, roughness,
-height and self-illumination maps, environment maps, fog, skyboxes; later grass,
-stencil shadows, emitters and water. Editor overlays (grid, gizmos, selection,
-trigger polygons, walkmesh, AABB) render in a separate pass, and toggles like
-Aurora's "use area lighting" and day/night stay. The renderer also runs
-offscreen for image tests (L5): reference scenes are compared with screenshots
-of the same area, camera and time of day taken in the real client (`nwmain`
-with a test user directory), within a tolerance.
+viewer. Aurora shows none of EE's lighting, so the goal is a close match to the
+game client, not bit-exact parity. Moonglow's own WGSL shaders implement EE's
+lighting model as the research brief derives it from the stock shaders
+(`docs/research/ee_tech_brief.md` §6, `notes_shaders.md`): linear lighting with
+gamma correction; per-fragment lighting from area sun/moon ambient and diffuse,
+tile main and source lights (`lightcolor.2da`), and placeable and model lights
+(top 32 per object by priority and distance); GGX specular; MTR materials with
+normal, specular, roughness, height and self-illumination maps; environment
+maps, fog, skyboxes; later grass, stencil shadows, emitters and water. Editor
+overlays (grid, gizmos, selection, trigger polygons, walkmesh, AABB) render in
+a separate pass. Toggles like Aurora's "use area lighting" and day/night stay.
+The renderer also runs offscreen for image tests (L5): reference scenes are
+compared, within a tolerance, with screenshots of the same area, camera and
+time of day taken in the real client (`nwmain` with a test user directory).
 
-Running the game's own shaders is kept open as a later option: a spike
-(2026-09-30) showed the stock `vslit`/`fslit` pair, assembled with the engine
-preamble and verbatim `#include` splicing (`tools/shaders/assemble.py`),
-compiles to Vulkan SPIR-V with glslang's relaxed rules, and naga accepts it
-after SPIRV-Tools splits the combined image samplers and the resource bindings
-are rewritten. That would bring hak custom shaders and MTR
-`customshaderVS/FS` along, at the cost of native glslang/SPIRV-Tools
-dependencies.
+Running the game's own shaders stays open as a later option. A spike
+(2026-09-30) showed that the stock `vslit`/`fslit` pair, assembled with the
+engine preamble and verbatim `#include` splicing (`tools/shaders/assemble.py`),
+compiles to Vulkan SPIR-V under glslang's relaxed rules, and naga accepts it once
+SPIRV-Tools splits the combined image samplers and the resource bindings are
+rewritten. This would bring hak custom shaders and MTR `customshaderVS/FS`
+along, at the cost of native glslang/SPIRV-Tools dependencies.
 
 ### 5.6 Tile painting
 
@@ -299,7 +297,7 @@ Workspace, lint/format config, CI matrix, corpus locator, test tiers, project
 
 ### Phase 1: Core formats
 ✅ GFF, ERF, KEY/BIF, 2DA, TLK with corpus and differential tests; first CLI.
-To do: SSF, SET, ITP, TXI, MTR (each with corpus tests).
+✅ SSF, SET, ITP, TXI, MTR, each with corpus tests.
 
 ### Phase 2: Resource manager and rules data ✅
 `mg-resman` and `mg-rules` (cached 2DAs, talk tables incl. custom TLK,
@@ -362,7 +360,7 @@ off-screen display (`tools/aurora/headless.sh`, `xdrive.py`,
 palettes derived from the game's palette skeletons (categories sorted with
 Windows' word sort, engine-only categories dropped), and for areas the
 `areag.ini` defaults, `environment.2da` lighting and weather, and tiles
-fitted to `Default` terrain with a `Floor` patch at the centre (group tiles
+fitted to `Default` terrain with a `Floor` patch at the center (group tiles
 excluded, variants, orientations and lights at random as Aurora does). All
 44 captured areas (every tileset, sizes 2 to 8, rectangles) match Aurora's
 field for field except the random choices, which are checked to be among
@@ -378,8 +376,7 @@ resources of the load order with their layer; read-only GFF, 2DA, script and
 text views; copy into the module, save to a file). The off-screen display
 also runs Moonglow itself for visual checks.
 The script editor spike is done (see §9: egui's editor is fast enough on
-the game's largest script), and a toolbar gives the common commands. Next:
-Phase 6.
+the game's largest script), and a toolbar gives the common commands.
 
 ### Phase 6: Text-and-tree editors
 Localized string editor, variables, pickers; script editor (highlighting,
@@ -398,7 +395,7 @@ the Conversation Editor (`mg_module::dialog`: Aurora's conversation as an
 outline; conditions with EE parameters and actions run in the engine), and
 the script editor's tools (symbol lists with help, compiler messages that
 go to their line, find/replace and find in files, bookmarks, completion,
-templates, new script and save as, numbered bookmarks, colour options),
+templates, new script and save as, numbered bookmarks, color options),
 and the Script Wizard
 (`mg_module::script_wizard`: Aurora's captured scripts byte for byte, except
 where Aurora's output does not compile or work in EE). Conversation spell
@@ -408,7 +405,7 @@ is needed for parity.
 ### Phase 7: Renderer and model viewer ✅
 wgpu renderer with EE-style lighting (§5.5), textures (TGA/DDS/PLT/TXI), MTR
 materials, MDL (ASCII and binary, all node types), animation, skinning, dangly
-meshes, emitters, offscreen snapshots; previews for part-based creatures (armour parts, PLT colours), items,
+meshes, emitters, offscreen snapshots; previews for part-based creatures (armor parts, PLT colors), items,
 placeables, doors.
 **Exit:** reference scenes look like in-game screenshots of the same scene
 (within a tolerance set from the first comparisons).
@@ -622,7 +619,7 @@ game assets are loaded from the user's install and never redistributed.
 
 | Risk | Mitigation |
 | --- | --- |
-| Tile painting behaviour is undocumented | SET rules plus recorded Aurora scenarios (L4) from early on |
+| Tile painting behavior is undocumented | SET rules plus recorded Aurora scenarios (L4) from early on |
 | EE lighting looks off | Model derived from the stock shaders; compared with client screenshots (L5); stock-shader translation as a fallback (§5.5) |
 | egui text editing on large scripts | Resolved (Phase 5 spike): with the laid-out text cached between frames, `nwscript.nss` (13,869 lines) costs 0.4 ms per idle frame and ~10 ms per keystroke (190 ms to open, 140 ms for the first edit); `crates/mg-ui/tests/editor_perf.rs` |
 | Building the C++ compiler on all platforms | Plain C++ with no dependencies; CI builds it on all three; `nwn_script_comp` as a fallback |

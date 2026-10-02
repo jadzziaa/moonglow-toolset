@@ -8,22 +8,22 @@ it differs, it is on purpose:
   unlimited** (Aurora's area undo has a set number of levels).
 - **Tabs and windows, not dialogs**: every editor is a tab or a window
   that stays open beside the others; areas stay in the main pane.
-- **The Welcome tab** is the start page, rather than a dialog at start.
+- **The Welcome tab** is the start page, not a dialog at start.
 - **Module folders** and archives open the same way; there is no "always
   open module directories" option.
-- **Recovery copies** of unsaved work, offered back after a crash, are
-  Moonglow's own (Aurora has none).
-- **Sounds** fade with the distance from where the area view looks;
-  there is no 3D panning, so Aurora's 2D/3D bias, listener and 3D
-  provider options are not there.
+- **Recovery copies** of unsaved work are offered back after a crash
+  (Aurora has none).
+- **Sounds** fade with distance from where the area view looks. There is
+  no 3D panning, so Aurora's 2D/3D bias, listener and 3D provider options
+  are not there.
 - **Spell Checking**: Enhanced Edition ships no dictionary, so Aurora's
   spell check finds nothing; Moonglow leaves it out.
 - **Environment maps** on creatures and items are always drawn, as the
   game draws them.
 - **Grass** is not drawn in the area viewer, as in Aurora (the game's
   grass does not show at the distances the editor views from).
-- **Waypoints and merchants** are yellow arrows along their facing, sounds
-  boxes.
+- **Waypoints and merchants** are yellow arrows along their facing;
+  sounds are boxes.
 - **Locked objects** carry a field of Moonglow's (`MG_Locked`), which the
   game ignores and Aurora drops when it saves.
 - **Blueprint previews** in the door and placeable windows are a
@@ -33,9 +33,9 @@ it differs, it is on purpose:
 - **The Creature Template tab** is not shown (Aurora 1.89 hides it too),
   nor the Item Wizard's Magical, Item Level and Quality (disabled in
   Aurora).
-- **The renderer** is Moonglow's own: it approximates the game's lighting
-  closely (checked against the game's screenshots) but is not the game's
-  shaders.
+- **The renderer** is Moonglow's own: it closely approximates the game's
+  lighting (checked against the game's screenshots) but does not use the
+  game's shaders.
 
 Not done yet: dragging items between inventories (use the palette and
 Remove), the Conversation Editor's Scrap tab (the clipboard holds one

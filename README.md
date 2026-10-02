@@ -29,8 +29,8 @@
 Moonglow is a reimplementation of BioWare's Aurora Toolset, written in Rust
 with an [egui](https://github.com/emilk/egui) interface and a
 [wgpu](https://wgpu.rs) renderer.
-- **It edits what Aurora edits and writes what Aurora writes.** Every module it
-  saves behaves the same in the game. Its behavior is checked against Aurora
+- **It edits what Aurora edits and writes what Aurora writes.** Modules it
+  saves behave the same in the game. Its behavior is checked against Aurora
   itself (run off-screen under Wine), the game's server and client, and
   neverwinter.nim's tools.
 - **It runs natively** on Linux, Windows and macOS: no Wine, no 32-bit memory
@@ -39,7 +39,7 @@ with an [egui](https://github.com/emilk/egui) interface and a
   are written back as they were, and unsaved work is kept in recovery copies.
 
 Moonglow contains no game data. It reads the game's files from your
-installation, so you need a copy of Neverwinter Nights: Enhanced Edition.
+installation, so you need Neverwinter Nights: Enhanced Edition.
 
 ## Everything Aurora does
 
@@ -47,8 +47,8 @@ Every row of the [parity checklist](docs/parity/checklists.md) is done,
 deliberately different, or partly done with the gap named:
 
 - **Areas:** the area view, drawn with the game's lighting, fog and skyboxes
-  and checked against the game's own screenshots. Placing, moving, turning
-  and raising objects, triggers and encounters drawn point by point, Find
+  and checked against the game's screenshots. Placing, moving, turning and
+  raising objects; triggers and encounters drawn point by point; Find
   Instance and Adjust Location.
 - **Terrain:** painting with a tileset's terrains, crossers and groups, raise
   and lower, tile properties, and resizing and rotating areas. The same
@@ -58,7 +58,7 @@ deliberately different, or partly done with the gap named:
   challenge ratings come out as the game computes them.
 - **Conversations, scripts, journal and factions:** the Conversation Editor
   with the Script Wizard, and a script editor with Beamdog's own NWScript
-  compiler built in. Its output is byte for byte `nwn_script_comp`'s on
+  compiler built in. Its output matches `nwn_script_comp`'s byte for byte on
   33,196 scripts.
 - **Build, verify and test:** Build Module, Verify, and Test Module (F9) in
   the game.
@@ -87,8 +87,8 @@ Moonglow's later work follows what builders have long asked of Aurora
   errors as you type, also in VS Code, Neovim and other editors through
   `mg lsp`.
 - **Custom content that doesn't crash:** Verify names, by file and row, what
-  makes Aurora fail with an access violation, and changed haks and 2DAs
-  reload as you work.
+  makes Aurora fail with an access violation; changed haks and 2DAs reload
+  as you work.
 - **Faster building:** snapping, Q and E to turn and G to drop to the
   ground, prefabs, editing many blueprints together, Update Instances, and
   palettes that search by tag and remember favorites.
@@ -199,9 +199,10 @@ A Cargo workspace, layered bottom-up:
 
 Moonglow is free software under the [GNU General Public License, version 3](LICENSE).
 It includes Beamdog's NWScript compiler (GPL-3.0), as published in
-neverwinter.nim, and the Ubuntu Bold font (Ubuntu Font Licence 1.0). Game assets, including Beamdog's shaders, are only ever read
-from your installation and never distributed. The screenshots show the game's
-original campaign as Moonglow draws it.
+neverwinter.nim, and the Ubuntu Bold font (Ubuntu Font Licence 1.0). Game
+assets, including Beamdog's shaders, are only read from your installation,
+never distributed. The screenshots show the game's original campaign as
+Moonglow draws it.
 
 Neverwinter Nights is a trademark of its owners. Moonglow is not affiliated
 with Beamdog or Wizards of the Coast.

@@ -16,7 +16,7 @@ lists:
 - **Templates**: code templates, the game's and those in your Code
   Templates Directory (Options › Script Editor). Double-click to insert.
 
-Below the text, the **Compiler** messages: click one to go to its line.
+Below the text are the **Compiler** messages: click one to go to its line.
 
 | Keys | Do |
 | --- | --- |
@@ -35,8 +35,8 @@ Below the text, the **Compiler** messages: click one to go to its line.
 **Find In Files** searches (and replaces in) every script in the module.
 **Used By** (on the toolbar) lists where the module runs or includes the
 script: objects' and areas' events, conversation lines, the module's
-events, `#include` lines. It also lists the strings in scripts that spell
-its name (`ExecuteScript("name", …)`).
+events, `#include` lines, and strings in scripts that spell its name
+(`ExecuteScript("name", …)`).
 
 ## Finding your way in code
 
@@ -46,44 +46,44 @@ Moonglow knows what each name in a script stands for:
 - one from its includes (in the order the compiler reads them);
 - one from `nwscript.nss`, the engine's own.
 
-On that:
+With that:
 - **Definition** (F12, or Ctrl+click a name): opens where the name is
-  declared, at the line. For a function, that's its body if it has one.
-  A game script or `nwscript.nss` opens read-only, with the declaration's
+  declared, at the line; for a function, its body if it has one. A game
+  script or `nwscript.nss` opens read-only, with the declaration's
   comment in Help.
 - **References** (Shift+F12): every use of the name in the module's
-  scripts, listed in **Search Results**. Click one to go there. A local's
+  scripts, listed in **Search Results**; click one to go there. A local's
   uses are only in its own block; a function's, only in scripts that
   include the file it's in.
 - **Rename Symbol…** (Ctrl+Shift+R): renames a function, variable,
-  constant, struct, local or parameter everywhere it's used, as one step
-  Undo takes back. A name already taken, or one of the engine's, is
+  constant, struct, local or parameter everywhere it's used, as one
+  undoable step. A name already taken, or one of the engine's, is
   refused. Compiled scripts stay valid, since names aren't in them.
 
 **Errors as you type**: half a second after you stop typing, Moonglow
 compiles the script (an include file needs no `main`). The first error
 shows under the toolbar and its line is underlined.
 
-Struct members (`p.nX`) aren't followed. The same features are in other
-editors through `mg lsp` (see [Command-line tools](11-command-line.md)).
+Struct members (`p.nX`) aren't followed. Other editors get the same
+features through `mg lsp` (see [Command-line tools](11-command-line.md)).
 
 The buttons:
 
-- **Save**: put the text into the module (the module itself is written
-  with File › Save). A script tab with text not yet saved into the module
-  says so; Moonglow's recovery copies keep that text too.
+- **Save**: put the text into the module (File › Save writes the module
+  itself). A script tab with text not yet saved into the module says so;
+  Moonglow's recovery copies keep that text too.
 - **Compile**: save and compile this script; errors go to the Compiler
   messages and the log. With **Automatically Compile Scripts on Save**
   (Options › Script Editor), Save compiles too.
-- **Save As…**: the script under another name.
-- **Print…**: the script, highlighted, in your browser, to print from
-  there.
+- **Save As…**: save the script under another name.
+- **Print…**: open the script, highlighted, in your browser to print it
+  from there.
 - **External Editor**: open the script in the editor set in Options ›
   Script Editor; what you save there comes back into Moonglow's editor.
 
 ## The compiler
 
-Moonglow has Beamdog's own NWScript compiler built in: the one the game
+Moonglow has Beamdog's own NWScript compiler built in, the one the game
 and Aurora use, so a script compiles in Moonglow exactly as it does there.
 `#include` files come from the module, its haks and the game, in the
 game's order.

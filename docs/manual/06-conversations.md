@@ -6,15 +6,15 @@ as Aurora's.
 
 ## The tree
 
-The conversation is a tree under **Root**: the lines the NPC says (red,
-headed `[OWNER]` or the speaker's tag) and the player's replies (blue).
-A line shown in gray is a **link**: it stands for a line elsewhere in the
-tree, so branches can join and loop without copying text. Select a line
-to edit it below the tree: its **Speaker** (NPC lines: the conversation's
-owner, or a creature in the module by tag) and its **Text** (the **…**
-button edits every language) A line whose text is a talk-table string
-(as all the original campaign's are) shows that string, in the tree and
-under the empty field; text typed in the field is said instead.
+The conversation is a tree under **Root**: the NPC's lines (red, headed
+`[OWNER]` or the speaker's tag) and the player's replies (blue). A gray
+line is a **link**: it stands for a line elsewhere in the tree, so
+branches can join and loop without copying text. Select a line to edit it
+below the tree: its **Speaker** (NPC lines: the conversation's owner, or
+a creature in the module by tag) and its **Text** (the **…** button edits
+every language). A line whose text is a talk-table string (as all the
+original campaign's are) shows that string in the tree and under the
+empty field; text typed in the field is said instead.
 
 With the pointer over the editor, Ctrl+A adds a line, Delete deletes the
 selected one, and Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, as in
@@ -40,20 +40,20 @@ Actions Taken), `journal q_rats 20` and `sound vs_hello`.
 macOS) links it instead. Lines move only where they fit (an NPC line under
 a player line or Root, and the reverse). Options › Conversation Editor
 sets which way Paste As Link and Ctrl + drag link, and whether a new line
-asks for its text in a popup first.
+first asks for its text in a popup.
 
 **Search** finds text in this conversation or every conversation in the
 module (match case, whole words, replace); **Bookmarks** remember lines to
 go back to.
 
 **Test** plays the conversation as the game does: the NPC says the first
-of its lines whose condition passes, and the player is offered (numbered)
-the replies whose conditions pass.
-- **Conditions:** Moonglow can't run the scripts, so each one is taken to
-  return TRUE until you click it to switch it to FALSE. Lines passed over
-  are shown as not said or hidden.
+of its lines whose condition passes, and the player is offered the
+replies whose conditions pass, numbered.
+- **Conditions:** Moonglow can't run the scripts, so each counts as TRUE
+  until you click it to make it FALSE. Lines passed over show as not said
+  or hidden.
 - **What happens:** each line's actions and journal updates are listed.
-  A transcript keeps what was said, and **Back** goes back a turn.
+  A transcript keeps what was said; **Back** goes back a turn.
 
 (Aurora's Test shows every line, whatever its condition.)
 
@@ -80,14 +80,14 @@ the replies whose conditions pass.
 - **Plain text**: a readable script, for proofreading or review.
 - **CSV**: one row per line (`E3` an NPC line, `R5` a reply) with its
   speaker, text, condition, action and comment. Edit the text in a
-  spreadsheet or have it translated, then **Import Lines…** reads back
+  spreadsheet or have it translated; **Import Lines…** then reads back
   the speakers, text and comments of the lines it names, as one undoable
   step. Lines whose text comes from the game's talk table show empty.
 - **Twine** (Twee 3, for Twine 2 or Tweego) and **Ink** (for Inky): the
   conversation as a branching story.
 
 **File › Import Conversation…** reads a Twine (`.twee`) or Ink (`.ink`)
-story as a new conversation, named after the file. So dialogue can be
+story as a new conversation named after the file, so dialogue can be
 written in those tools and brought in. The mapping:
 - **NPC lines** are passages (Twine) or knots (Ink). Tags give a line's
   speaker, action, journal update and sound: `speaker:TAG`,
@@ -117,19 +117,19 @@ subset (stitches, gathers, logic) is refused with its line number.
 ## The Script Wizard
 
 From Text Appears When… or Actions Taken, **Script Wizard…** writes a
-script without typing one: tick what to test (items the player carries, skill
+script without typing. Tick what to test (items the player carries, skill
 checks, local variables, class and level, race, gender, alignment,
 abilities, feats, skills, a random chance) or what to do (give or take
 items, gold and experience, set local variables, change a faction, open a
-store…), fill a page for each, and name the script. **Finish**
-writes the source, compiles it and sets it on the line, as one undoable
-step. The script is the module's like any other: open it in the script
-editor to change it later.
+store…), fill in a page for each, and name the script. **Finish** writes
+the source, compiles it and sets it on the line, as one undoable step.
+The script is the module's like any other: open it in the script editor
+to change it later.
 
 ## Backups
 
 While a conversation with unsaved changes is open, Moonglow backs it up
 as `<name>.bak` every 5 minutes, as Aurora does (Options › Conversation
 Editor), in a `moonglow-backups/<module>` folder in the system's temporary
-folder. Moonglow's recovery copies (see [Modules](03-modules.md)) keep the
-whole module safe as well.
+folder. Moonglow's recovery copies (see [Modules](03-modules.md)) also
+keep the whole module safe.

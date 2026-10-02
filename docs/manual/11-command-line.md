@@ -6,7 +6,7 @@ Moonglow package:
 
 | Package | Running `mg` |
 | --- | --- |
-| AppImage | Make a link to the AppImage named `mg`; started through it, the AppImage runs `mg` instead of the GUI: `ln -s ~/Applications/Moonglow-*.AppImage ~/.local/bin/mg` |
+| AppImage | Link to the AppImage under the name `mg`; started through the link, it runs `mg` instead of the GUI: `ln -s ~/Applications/Moonglow-*.AppImage ~/.local/bin/mg` |
 | Flatpak | `flatpak run --command=mg io.github.moonglow_toolset.Moonglow …` |
 | Windows | `mg.exe` in the install folder (for an install for your user, `%LOCALAPPDATA%\Programs\Moonglow Toolset`) |
 | macOS | `/Applications/Moonglow Toolset.app/Contents/MacOS/mg` |
@@ -27,7 +27,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg tileset-palette SET [-o OUT]` | make a tileset's palette (`<tileset>palstd.itp`) from its `.set`: groups, features, terrains and crossers |
 | `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav` |
 | `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
-| `mg pack DIR ARCHIVE` | pack a folder into an archive (its type from the extension); warns when files would start past 2 GiB, where the game stops reading |
+| `mg pack DIR ARCHIVE` | pack a folder into an archive (type from the extension); warns when files would start past 2 GiB, where the game stops reading |
 | `mg gff INPUT [-o OUTPUT]` | a GFF file to JSON (the format of neverwinter.nim and nasher), or JSON back to GFF |
 
 ## The game's resources
@@ -43,7 +43,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 
 | Command | Does |
 | --- | --- |
-| `mg info MODULE` | what the module is: its name, tag, entry area, areas, haks, talk table, game version and resources by type |
+| `mg info MODULE` | the module's name, tag, entry area, areas, haks, talk table, game version and resources by type |
 | `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed |
 | `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops |
 | `mg haks MODULE` | what the module's haks provide, where they conflict and which game resources they override |
@@ -55,7 +55,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |
 | `mg refs MODULE NAME.EXT` | where a resource is used, and script strings that spell it (`--tag` for a tag) |
 | `mg rename MODULE NAME.EXT NEW` | rename a script, area, conversation or blueprint everywhere and save (`--strings` changes script strings too) |
-| `mg update-instances MODULE [NAME.EXT…]` | make the objects placed from blueprints (all of the module's if none are named) again from them, and save (`--area AREA` for one area) |
+| `mg update-instances MODULE [NAME.EXT…]` | remake placed objects from their blueprints (all of the module's if none are named) and save (`--area AREA` for one area) |
 | `mg dialog-export MODULE NAME.dlg OUT` | write a conversation as plain text, CSV, Twine or Ink, by `OUT`'s extension (`.txt`, `.csv`, `.twee`, `.ink`) |
 | `mg dialog-import MODULE FILE [--name NAME]` | read a Twine or Ink story into the module as a conversation (replacing one of that name), or a CSV export's text back into its conversation, and save |
 | `mg replace MODULE FIND WITH` | replace text in the module's names, descriptions, conversations and journal and save (`--match-case`, `--whole-word`, `--only names,journal,…`, `--dry-run` to list the strings only) |
@@ -73,17 +73,17 @@ mg find mymodule.mod --type utc --placed --area keep --tag 'GUARD*' --where Scri
 
 ## JSON output
 
-With `--json`, every command prints one JSON object on standard output,
+With `--json`, every command prints one JSON object on standard output
 and nothing on standard error, for scripts, build pipelines and tools
-(an AI assistant's included):
+(including an AI assistant's):
 - **The result:** a command's result as fields: `mg find` a `found` list
   (each with `kind`, `type`, `resref`, `tag`, `name`, and for placed
   objects `area`, `index` and `position`); `mg verify` its `errors`,
   `warnings`, `missing`, `findings` and `unused`; `mg refs` its `uses`
   and `script_strings`; `mg compile` its `scripts`, `failed` and
   `errors` (each with `script`, `line` and `message`); and so on.
-- **Notes:** warnings and summaries, which otherwise go to standard
-  error, are in `notes`.
+- **Notes:** warnings and summaries, otherwise sent to standard error,
+  are in `notes`.
 - **Errors:** a command that fails prints `{"error": "…"}` and exits with
   an error. `mg verify` prints its result and exits with an error when it
   found errors.
@@ -112,7 +112,7 @@ It needs the game for `nwscript.nss` and the includes (`--root` or
 
 ## NWScript in other editors
 
-`mg lsp` is an NWScript language server: it gives VS Code, Neovim, Emacs,
+`mg lsp` is an NWScript language server. It gives VS Code, Neovim, Emacs,
 Helix and other editors that speak the Language Server Protocol the same
 help as Moonglow's script editor:
 - errors as you type, from the game's own compiler;
@@ -128,7 +128,7 @@ It finds scripts in this order:
 3. the game's scripts.
 
 It finds the game as `mg` does (`--root`, `NWN_ROOT` or Steam's). Without
-the game it still works, but doesn't know `nwscript.nss` or the game's
+the game it still works, but without `nwscript.nss` or the game's
 includes. Definitions in game scripts open read-only copies kept in your
 cache folder.
 
@@ -155,7 +155,7 @@ To use it, tell your editor to run `mg lsp` for `.nss` files:
   language-servers = ["mg"]
   ```
 
-- **VS Code**: with an extension that starts a language server for a
-  file type, such as a generic "LSP client" extension, set its command to
-  `mg lsp` for `.nss`.
+- **VS Code**: in an extension that starts a language server for a file
+  type, such as a generic "LSP client" extension, set the command for
+  `.nss` to `mg lsp`.
 

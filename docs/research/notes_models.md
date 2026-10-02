@@ -189,7 +189,7 @@ Face vertex vs UV indices are separate lists -> renderer must de-index (split ve
 
 ## B. Binary MDL layout (derived from nwnmdlcomp source, verified on all 25,597 binaries)
 
-Source: sub-research on Neverblender + vendored nwnmdlcomp (`/home/august/Projects/neverblender/build/third_party/nwn-tools`); "§N" below = B.N. Status tags: **[V]** verified against game data, **[S]** source only, **[U]** unverified.
+Source: sub-research on Neverblender + vendored nwnmdlcomp (Neverblender's build tree (`build/third_party/nwn-tools`)); "§N" below = B.N. Status tags: **[V]** verified against game data, **[S]** source only, **[U]** unverified.
 
 ### B.0 Provenance
 
@@ -201,7 +201,7 @@ Source: sub-research on Neverblender + vendored nwnmdlcomp (`/home/august/Projec
   in `neverblender/*.py`.
 - The binary layout below comes from the decompiler that the pipeline uses:
   Torlack's **nwnmdlcomp** (niv/nwn-tools @ d979787, 2018), vendored read-only at
-  `/home/august/Projects/neverblender/build/third_party/nwn-tools` and built into
+  Neverblender's build tree (`build/third_party/nwn-tools`) and built into
   `tools/bin/nwnmdlcomp` (`tools/nwnmdlcomp-decompile.sh`). Key files, all under
   `.../nwn-tools/_NwnLib/` unless noted:
   - `NwnModel.h:84-89` file header; `NwnArray.h:65-188` CNwnPointer (null=0),
@@ -244,7 +244,7 @@ The binaries are grouped by the geometry-header function pointer pair at file of
 | `0x00050630, 0x00050850` | unknown (`pnl_lightning`) | 1 | small values |
 
 The current EE client (37-17 `compilemodel`) writes a **64-bit runtime pointer** in routines[0..1]
-(seen in `/home/august/Projects/neverblender/build/e2e/compiled/zz_nvbtest.mdl`: `70 10 32 b3 ff 7f 00 00`).
+(seen in Neverblender's test build (`build/e2e/compiled/zz_nvbtest.mdl`): `70 10 32 b3 ff 7f 00 00`).
 **Never use routine pointers to detect a format or node type. Use node `flags` (+0x6C).** There is no PC-vs-Mac variant anywhere in the base data.
 
 Samples (sizes): `a_ba.mdl` 5,990,990 B (bio); `plc_a01` 59,000 (bio); `tcn01_a01_01` 60,508 (bio);
@@ -2084,8 +2084,8 @@ From `lang/en/docs/CHANGELOG.md` and `Neverwinter Nights Enhanced Edition (v74..
 
 ### H.3 Non-wiki sources
 - Game install `$HOME/.local/share/Steam/steamapps/common/Neverwinter Nights`: `lang/en/docs/CHANGELOG.md`, `lang/en/docs/patchnotes/*.md`, `lang/en/docs/Neverwinter Nights Enhanced Edition (v74..v79).txt` (v74 is cp1252), `data/*.bif` via `nwn_base.key`; stock shaders in `base_shaders.bif`/`ovr.bif`; `bin/win32/nwtoolset.exe` and `bin/linux-x86/nwmain-linux` string tables.
-- nwnmdlcomp source (Torlack; niv/nwn-tools @ d979787) vendored at `/home/august/Projects/neverblender/build/third_party/nwn-tools/_NwnLib/` (`NwnModel.h`, `NwnMdlGeometry.h`, `NwnMdlNodes.h`, `NwnMdlR2A.cpp`, `NwnMdlDecomp.cpp`, `_NmcLib/NmcController.cpp`, `NmcAttribute.cpp`, `NmcMesh.cpp`, `NmcGeometry.cpp`).
-- Neverblender add-on `/home/august/Projects/neverblender/neverblender/` (`nvb_mdl.py`, `nvb_node.py`, `nvb_anim.py`, `nvb_animnode.py`, `nvb_def.py`, `nvb_utils.py`, `nvb_material.py`); it has no binary reader (shells out to nwnmdlcomp).
+- nwnmdlcomp source (Torlack; niv/nwn-tools @ d979787) vendored at Neverblender's vendored copy (`build/third_party/nwn-tools/_NwnLib/` in its build tree) (`NwnModel.h`, `NwnMdlGeometry.h`, `NwnMdlNodes.h`, `NwnMdlR2A.cpp`, `NwnMdlDecomp.cpp`, `_NmcLib/NmcController.cpp`, `NmcAttribute.cpp`, `NmcMesh.cpp`, `NmcGeometry.cpp`).
+- Neverblender add-on `neverblender/` in its repository (`nvb_mdl.py`, `nvb_node.py`, `nvb_anim.py`, `nvb_animnode.py`, `nvb_def.py`, `nvb_utils.py`, `nvb_material.py`); it has no binary reader (shells out to nwnmdlcomp).
 - BioWare Aurora GFF PDFs (Door/Placeable, Area) via nwn.wiki attachments (text copies `$SP/research/door.txt`, `$SP/research/bioware_are.txt`).
 - NWN Lexicon via local `nwscript-docs` (GetItemAppearance, SetCreatureBodyPart); nwscript.nss constants.
 - nwn.py (`~/.local/opt/neverwinter/venv`) resman used for all scans; neverwinter.nim CLI (`nwn_resman_grep/extract`, `nwn_twoda`).

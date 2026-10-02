@@ -26,10 +26,9 @@
   Start menu entry and, if you tick it, opens `.mod` files with Moonglow.
 - **macOS**: open the disk image and drag **Moonglow Toolset** into
   Applications. The app is not notarized by Apple, so macOS refuses to
-  open it the first time: then open **System Settings › Privacy &
-  Security** and choose **Open Anyway** beside the message about Moonglow
-  Toolset (on macOS 14 and older, right-click the app and choose
-  **Open**).
+  open it the first time. Open **System Settings › Privacy & Security**
+  and choose **Open Anyway** beside the message about Moonglow Toolset (on
+  macOS 14 and older, right-click the app and choose **Open**).
 
 ## The first start
 
@@ -43,7 +42,7 @@ user folder (where your modules, haks, talk tables and override live):
 | macOS | `~/Library/Application Support/Steam/steamapps/common/Neverwinter Nights` | `~/Documents/Neverwinter Nights` |
 
 The log at the bottom of the window says where it found the game ("Game
-data loaded from …"), and the status bar shows the folder. If the game is
+data loaded from …"); the status bar shows the folder. If the game is
 somewhere else (another Steam library, GOG, Beamdog's client), choose
 **Tools › Options… › Folders** and set **Neverwinter Nights installation**
 (the folder with `data/` and `bin/` in it) and, if needed, the **NWN user
@@ -66,4 +65,4 @@ also lists your recent modules.
 5. **Build › Test Module** (F9) saves the module and starts the game on it,
    with your first local character at the start location.
 
-The chapters that follow describe each part in detail.
+The following chapters cover each part in detail.

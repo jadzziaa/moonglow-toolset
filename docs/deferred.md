@@ -1,9 +1,8 @@
 # Deferred: what was left out, for a decision later
 
-Things each piece of the post-parity work (`PLAN.md`, "After parity")
-left undone, collected in one place. Once the map's current items are
-worked through, each gets a verdict: fix, add, or drop. New gaps are
-added here as work finishes.
+What the post-parity work (`PLAN.md`, "After parity") left undone, in
+one place. Once the map's current items are worked through, each gets a
+verdict: fix, add, or drop. New gaps are added as work finishes.
 
 Size: S (an hour or two), M (a day or so), L (several days).
 
@@ -13,10 +12,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
   follow `p.nX` to the struct's declaration. (M)
 - **Incremental compiles:** Compile All recompiles everything. It could
   compile only what changed and the scripts that include it, as Arelith's
-  ARE_Compile does. At 4,000 scripts a full compile is 1.4 s, so this
+  ARE_Compile does. A full compile of 4,000 scripts takes 1.4 s, so this
   matters less than expected. (M)
-- **Editor setups:** the manual's Neovim and Helix snippets haven't been
-  tried in those editors. On Windows, `mg lsp` is checked only by CI's
+- **Editor setups:** the manual's Neovim and Helix snippets are untried
+  in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S)
 - **A VS Code extension:** today VS Code needs a generic language-server
   extension pointed at `mg lsp`. A small Moonglow extension would make
@@ -26,10 +25,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **NWNT projects:** projects using NWNT instead of JSON for GFF files
   are refused with a message. (M)
-- **Compiled scripts without source:** a module whose scripts exist
-  only as `.ncs` loses them when it becomes a project, as with nasher.
-  Moonglow names them. It could keep such `.ncs` files in the project
-  instead. (S)
+- **Compiled scripts without source:** scripts that exist only as `.ncs`
+  are lost when a module becomes a project, as with nasher; Moonglow
+  names them. It could keep such `.ncs` files in the project instead. (S)
 
 ## Content doctor
 
@@ -41,12 +39,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
 ## Test loop
 
 - **Choose Character:** Test Module, Choose Character uses the game's
-  `+LoadNewModule`, taken from nwn.wiki. It hasn't been run in the game
-  client. (S)
+  `+LoadNewModule` (from nwn.wiki), never run in the game client. (S)
 - **Aurora's F9 problems:** laggy combat, AI timing errors and damaged
-  modules after a crash. Moonglow launches the game the way the wiki
-  recommends to avoid them, but nothing has checked that they're
-  gone. (S–M)
+  modules after a crash. Moonglow launches the game as the wiki recommends
+  to avoid them; nothing has checked that they're gone. (S–M)
 
 ## Persistent-world scale
 
@@ -56,12 +52,12 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Other machines:** budgets were measured only on the development
   machine (Ryzen 7 5800X3D, Radeon RX 9070). (S, needs other hardware)
 - **Inventory lists:** a store page or inventory lays out every row and
-  builds every item icon the first time it's shown. 449 icons take
+  builds every item icon when first shown. 449 icons take
   0.68 s; a page of thousands would take seconds. Laying out only the
   rows on screen would fix it. (S–M)
 - **Where-used at scale:** one Find References takes 0.8 s in the
-  persistent world, since it scans the module each time. An index kept
-  up to date would make it instant. (M)
+  persistent world: it scans the module each time. An index kept up to
+  date would make it instant. (M)
 
 ## EE fields Aurora hides
 
@@ -81,7 +77,7 @@ Size: S (an hour or two), M (a day or so), L (several days).
   item properties); those are edited one blueprint at a time. Adding the
   same item or feat to each would need its own design. (M)
 - **The multi-object editor's list pages:** with several placed objects
-  selected, those pages still change the first object only, as before.
+  selected, those pages still change only the first object.
   Edit Together's guard (leave the pages out, drop changes that reach only
   the first) could apply there too, once Aurora's multi-editor is checked
   for what it allows. (S, plus an Aurora capture)
@@ -96,8 +92,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **Spell checking** in the conversation editor (and text fields). The
   game ships no dictionary, so it means the system's:
-  - Linux: hunspell dictionaries, read by a pure-Rust crate (`spellbook`).
-    That's a new dependency to download.
+  - Linux: hunspell dictionaries, read by a pure-Rust crate (`spellbook`),
+    a new dependency to download.
   - Windows: the Windows Spell Checking API (Windows 8 and later).
   - macOS: NSSpellChecker.
 
@@ -138,17 +134,17 @@ Size: S (an hour or two), M (a day or so), L (several days).
   blueprints and conversations that name a talk-table line. (M)
 - **Ctrl+Z in the talk table** undoes the module, not the table (its own
   Undo is in its toolbar). (S)
-- **Inserting or removing lines in the middle** isn't offered, since it
-  renumbers every line after; renumbering their users along with them
-  would need where-used first. (M)
+- **Inserting or removing lines in the middle** isn't offered: it
+  renumbers every later line, and renumbering their users too would
+  need where-used first. (M)
 - **The client and custom talk tables:** the engine test runs the server;
   whether the client also reads a table from the module (not only from
   haks and the `tlk` folder) for 2DA text isn't tested. (S)
 
 ## Haks in the GUI
 
-- **No viewing inside the hak editor:** a resource is extracted to look at
-  it, or seen in the resource browser once the module uses the hak. (S)
+- **No viewing inside the hak editor:** to look at a resource, extract it, or
+  see it in the resource browser once the module uses the hak. (S)
 - **Build Hak from Folder doesn't remember the folder:** rebuilding after
   changing the folder is Build again (or `mg pack`). A remembered folder
   could update the hak in one click. (S)
@@ -216,8 +212,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
   doesn't; whether the client would use one isn't known. (S)
 - **No pruning** of old manifests' data (`nwn_nwsync_prune` does it), and
   no upload: the folder is copied to the web server by hand. (S)
-- **Compression:** zstd's fastest level (all the encoder Moonglow has
-  offers), so the data is about a quarter bigger than
+- **Compression:** Moonglow's encoder offers only zstd's fastest level,
+  so the data is about a quarter bigger than
   `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to
   upload and download. A stronger encoder would be a new dependency. (S)
 - **Portraits, music and ambient sound** in folders (not haks) aren't
@@ -230,8 +226,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
   the file has them (edit the text for now). (M)
 - **Renaming a terrain or crosser** isn't offered: every tile naming it
   would change with it. (S)
-- **Minimap pictures** are Moonglow's renderer's look (lit models, as in
-  the area view), not the painted look of the game's; and models must be
+- **Minimap pictures** have Moonglow's renderer's look (lit models, as in
+  the area view), not the game's painted look; and models must be
   readable (beside the `.set` or in the game data). (S–M)
 - **Making models** (Neverblender's job) and **testing a tileset** by
   painting an area with it straight from its folder (it has to be in a hak
