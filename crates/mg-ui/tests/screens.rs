@@ -889,6 +889,51 @@ fn area_fog() {
 
 #[test]
 #[ignore]
+fn city_tile_selection() {
+    // Medieval City 2 builds its ground above its tiles' heights: the
+    // selection lies on it, not under it.
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module, tilesets};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let city = tilesets(&game).into_iter().find(|t| t.name == "Medieval City 2").unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Tiles", &mut rng).unwrap();
+    let spec = AreaSpec { name: "City".into(), tileset: city.resref, width: 8, height: 8 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let path = dir.join("city-tiles.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.tile_mode = true;
+        view.tile_selection = (1..7).flat_map(|x| [(x, 2), (x, 3)]).collect();
+        if let Some(o) = &mut view.orbit {
+            o.pitch = 12f32.to_radians();
+            o.distance = 70.0;
+        }
+    }
+    h.run_steps(5);
+    shoot(&mut h, &dir, "city-tile-selection");
+}
+
+#[test]
+#[ignore]
 fn area_ghost() {
     // A placeable chosen in the palette: see-through under the pointer.
     mg_testkit::gpu::hold();

@@ -585,16 +585,9 @@ fn cursor_shapes(
     let z = |x: u32, y: u32| g.lattice.corner(x, y).height as f32 * step;
     let point =
         |x: f32, y: f32, z: f32| Vec3::new(x * mg_area::TILE_SIZE, y * mg_area::TILE_SIZE, z);
-    // On the ground (some tilesets build theirs above the tiles' heights,
-    // and slopes and cliffs are not at a corner's): each point's height
-    // taken a little inside the shape, so a cliff's edge takes this side's.
+    // On the ground the pointer picks.
     let polygon = |points: &[Vec3], color: Color32| {
-        let middle = points.iter().copied().sum::<Vec3>() / points.len().max(1) as f32;
-        let on_ground = points
-            .iter()
-            .map(|p| p.truncate().extend(view.ground_height(p.lerp(middle, 0.02)) + 0.05))
-            .collect();
-        shapes.borrow_mut().push((on_ground, color));
+        shapes.borrow_mut().push((view.on_ground(points), color));
     };
     let quarter = |(cx, cy): (u32, u32), edge: usize, color: Color32| {
         let (x, y) = (cx as f32, cy as f32);

@@ -586,12 +586,15 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
     let Some(model) = view.model.as_ref() else { return };
     let painter = ui.painter_at(view.rect);
     let blue = Color32::from_rgb(70, 130, 255);
+    // On the ground the pointer picks (some tilesets build theirs above the
+    // tiles' heights).
     for &(x, y) in &view.tile_selection {
         let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
-        let z = t.position.z + 0.05;
+        let z = t.position.z;
         let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(dx, dy)| {
             Vec3::new((x as f32 + dx) * mg_area::TILE_SIZE, (y as f32 + dy) * mg_area::TILE_SIZE, z)
         });
+        let corners = view.on_ground(&corners);
         let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
         if screen.len() == 4 {
             painter.add(egui::Shape::closed_line(screen, egui::Stroke::new(2.0, blue)));
@@ -606,8 +609,9 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
         for ((dx, dy), _, _) in &clip.tiles {
             let (x, y) = (at.0 as f32 + *dx as f32, at.1 as f32 + *dy as f32);
             let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(ex, ey)| {
-                Vec3::new((x + ex) * mg_area::TILE_SIZE, (y + ey) * mg_area::TILE_SIZE, 0.05)
+                Vec3::new((x + ex) * mg_area::TILE_SIZE, (y + ey) * mg_area::TILE_SIZE, 0.0)
             });
+            let corners = view.on_ground(&corners);
             let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
             if screen.len() == 4 {
                 painter.add(egui::Shape::closed_line(screen, egui::Stroke::new(2.0, gold)));

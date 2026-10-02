@@ -324,6 +324,19 @@ impl AreaView {
         g.height(p.truncate(), near).unwrap_or(near)
     }
 
+    /// A shape's corners laid on the ground ([`ground_height`](Self::ground_height),
+    /// a little above it): each corner's height taken a little inside the
+    /// shape, so that at a cliff's edge it takes this side's. Some
+    /// tilesets build their ground above the tiles' heights, and slopes and
+    /// cliffs are not at a corner's.
+    pub(crate) fn on_ground(&self, points: &[Vec3]) -> Vec<Vec3> {
+        let middle = points.iter().copied().sum::<Vec3>() / points.len().max(1) as f32;
+        points
+            .iter()
+            .map(|p| p.truncate().extend(self.ground_height(p.lerp(middle, 0.02)) + 0.05))
+            .collect()
+    }
+
     /// Where an object moved by `offset` stands: at the same height above
     /// the ground as before (on it, for most; creatures always on it).
     /// Outlines keep their height.
