@@ -57,7 +57,7 @@ installation, so it needs a copy of Neverwinter Nights: Enhanced Edition.
 - [Packaging](packaging/README.md): building the AppImage, Flatpak, Windows
   installer and macOS app.
 - [Research notes](docs/research/): EE file formats, rendering, tilesets,
-  models, shaders, prior art.
+  models, shaders, prior art, and what builders want changed in Aurora.
 
 ## Building from source
 

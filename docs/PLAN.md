@@ -454,9 +454,35 @@ Performance budgets on the largest campaigns, crash safety (autosave, recovery),
 packaging (AppImage/Flatpak, Windows installer, macOS app bundle), user manual.
 
 ### After parity
-Candidates, once the baseline is done: git-friendly project folders (nasher
-layout), an NWScript language server, NWSync publishing, multi-module projects,
-batch refactoring (rename a resref everywhere), live game preview.
+Ordered by what builders report about Aurora (`docs/research/community_pain_points.md`,
+surveyed after 0.2.0):
+
+1. Tier 1, reasons to switch:
+   - git-native modules (open and save a nasher JSON tree in place, with no
+     spurious diffs);
+   - where-used and rename everywhere;
+   - a content doctor (Verify that names the bad 2DA row, SET section or
+     MTR, with CI output);
+   - a test loop builders trust (choose the character, test from here,
+     reload haks and 2DAs without a restart);
+   - placement tools (drop to ground, rotation keys, snapping, locking,
+     prefabs);
+   - a "Coming from Aurora" chapter.
+2. Tier 2, depth:
+   - script intelligence and `mg lsp`;
+   - budgets at persistent-world scale;
+   - the EE fields Aurora hides;
+   - bulk editing;
+   - conversation authoring (node markers, import and export, play-through);
+   - palette search.
+3. Tier 3, later:
+   - 2DA and TLK editing;
+   - haks in the GUI;
+   - PWK and AABB toggles, and minimap export;
+   - remappable keys;
+   - automation and a plugin API;
+   - NWSync publishing;
+   - tileset authoring.
 
 ## 7. Testing strategy
 

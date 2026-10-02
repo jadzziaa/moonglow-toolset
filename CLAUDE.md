@@ -38,7 +38,7 @@ tools, engine runner) and `mg-corpus-tests` (tests only). Binaries:
 `docs/manual/` is the user manual, also built into the app (Help › User
 Manual). `tools/aurora/` holds the Aurora oracle
 harness and the form (DFM) decoder; `docs/research/` the research briefs
-(EE formats, rendering, tilesets, models, shaders, prior art).
+(EE formats, rendering, tilesets, models, shaders, prior art, builders' pain points).
 
 To drive Aurora (capture what it writes), run it on the off-screen display,
 never on the user's desktop: `D=$(tools/aurora/headless.sh start)`, then
