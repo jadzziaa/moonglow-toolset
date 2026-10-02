@@ -509,8 +509,9 @@ fn terrain_drag(
 }
 
 /// A crosser drag reaching spot `q`: its quarter joins the path when it is
-/// a new one. Near a tile's centre, where the quarters meet, the drag stays
-/// in its quarter, or enters by the edge it came across; within a tile it
+/// a new one, and back in the one before, the last is let go (a drag run
+/// back). Near a tile's centre, where the quarters meet, the drag stays in
+/// its quarter, or enters by the edge it came across; within a tile it
 /// turns into a side quarter only near that side's edge ([`SIDE_REACH`]).
 fn pass(path: &mut Vec<((u32, u32), usize)>, q: Spot) {
     let Some(&(last, last_edge)) = path.last() else { return };
@@ -533,7 +534,11 @@ fn pass(path: &mut Vec<((u32, u32), usize)>, q: Spot) {
     } else {
         (q.cell, q.edge)
     };
-    if path.last() != Some(&quarter) {
+    // Back into the quarter it came from: the drag is run back, and the
+    // quarter it leaves is let go.
+    if path.len() >= 2 && path[path.len() - 2] == quarter {
+        path.pop();
+    } else if path.last() != Some(&quarter) {
         path.push(quarter);
     }
 }
@@ -822,6 +827,16 @@ mod tests {
         let near_east = spot(Vec3::new(19.0, 15.0, 0.0), 10, 10).unwrap();
         assert_eq!(next_quarter(&path, near_east), ((1, 1), EAST));
         assert_eq!(next_quarter(&[], over_east), ((1, 1), EAST), "before a drag");
+        // Run back, a drag lets go of what it passed.
+        assert_eq!(drag(&[(15.0, 10.5), (15.0, 19.5), (15.0, 10.5)]), [((1, 1), SOUTH)]);
+        assert_eq!(
+            drag(&[(15.0, 10.5), (15.0, 15.0), (29.5, 15.0), (21.0, 15.0)]),
+            [((1, 1), SOUTH), ((1, 1), EAST), ((2, 1), WEST)]
+        );
+        assert_eq!(
+            drag(&[(15.0, 10.5), (15.0, 15.0), (29.5, 15.0), (15.0, 15.0), (15.0, 10.5)]),
+            [((1, 1), SOUTH)]
+        );
         // And on into the next tile, by its west quarter.
         assert_eq!(
             drag(&[(15.0, 10.5), (15.0, 15.0), (29.5, 15.0)]),
