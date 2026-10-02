@@ -38,6 +38,9 @@ pub struct TileProps {
     pub has_loops: [bool; 3],
     /// The light whose colour is being chosen: 0, 1 main, 2, 3 source.
     pub picking: Option<usize>,
+    /// `Tile_ReplaceTex`: the `replacetexture.2da` row the model's
+    /// `replace_tex` is drawn with (`None`: the field is left out).
+    pub replace: Option<u8>,
 }
 
 /// Copied tiles: each at its offset from the block's south-west corner,
@@ -309,8 +312,14 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
             }
         }
     }
+    let replace = app.ws.as_mut().and_then(|ws| {
+        let are = ws.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
+        let t = are.root.list("Tile_List")?.get(*tiles.first()?)?;
+        t.integer("Tile_ReplaceTex").and_then(|v| u8::try_from(v).ok())
+    });
     app.tile_props = Some(TileProps {
         area: view.area,
+        replace,
         tiles,
         main: first.main_lights,
         source: first.source_lights,
@@ -357,6 +366,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut props) = app.tile_props.take() else { return };
     let colors = light_colors(app);
     let color = |i: usize| colors.get(i).copied().unwrap_or(Color32::BLACK);
+    let replacements: Vec<String> = app
+        .game
+        .as_ref()
+        .and_then(|g| g.table("replacetexture").ok())
+        .map(|t| (0..t.len()).map(|r| t.get(r, "TEXTURENAME").unwrap_or("").to_string()).collect())
+        .unwrap_or_default();
     let mut open = true;
     let mut cancel = false;
     let mut done = None;
@@ -411,6 +426,28 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                     ui.end_row();
                 }
+            });
+            // The tile's replacement texture (EE keeps it; Aurora has no
+            // field): for tile models with a texture named replace_tex.
+            ui.horizontal(|ui| {
+                ui.label("Replacement Texture").on_hover_text(
+                    "What a texture named replace_tex in the tile's model is drawn with \
+                     (replacetexture.2da)",
+                );
+                let name = |r: u8| {
+                    let t = replacements.get(usize::from(r)).map_or("?", String::as_str);
+                    format!("{r}: {t}")
+                };
+                let shown = props.replace.map_or_else(|| "None".to_string(), name);
+                egui::ComboBox::from_id_salt("tile_replace").selected_text(shown).show_ui(
+                    ui,
+                    |ui| {
+                        ui.selectable_value(&mut props.replace, None, "None");
+                        for r in 0..replacements.len().min(256) {
+                            ui.selectable_value(&mut props.replace, Some(r as u8), name(r as u8));
+                        }
+                    },
+                );
             });
             ui.separator();
             ui.horizontal(|ui| {
@@ -525,6 +562,15 @@ fn apply(app: &mut Moonglow, props: &TileProps) {
                 Value::Byte(u8::from(props.loops[k])),
                 props.has_loops[k],
             );
+        }
+        let replace = props.replace.map(Value::Byte);
+        if current.get("Tile_ReplaceTex") != replace.as_ref() {
+            edits.push(Edit::SetField {
+                key,
+                path: path.clone(),
+                label: "Tile_ReplaceTex".into(),
+                value: replace,
+            });
         }
     }
     if !edits.is_empty() {

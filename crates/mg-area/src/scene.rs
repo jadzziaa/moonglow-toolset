@@ -327,9 +327,14 @@ impl AreaScene {
             let s = anim::mesh_state_layers(&loaded.gpu, &layers, view.time);
             Arc::new(s)
         });
+        // The model's `replace_tex`, drawn with the tile's replacement.
+        let textures = tile.replace_texture.as_ref().map(|t| {
+            Arc::new(std::collections::HashMap::from([("replace_tex".to_string(), t.clone())]))
+        });
         instances.push(Instance {
             pose: (!layers.is_empty()).then(|| Arc::new(pose)),
             state,
+            textures,
             ..Instance::new(loaded.gpu.clone(), transform)
         });
     }

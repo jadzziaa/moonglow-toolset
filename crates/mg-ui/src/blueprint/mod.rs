@@ -32,6 +32,7 @@ mod situated;
 mod sound;
 mod store;
 mod trigger;
+mod visuals;
 mod waypoint;
 
 /// Whether a blueprint type has its own editor.
@@ -164,6 +165,20 @@ impl Form<'_> {
                 path: path.clone(),
                 label: label.to_string(),
                 value: Some(value.clone()),
+            })
+            .collect();
+        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+    }
+
+    /// Sets a field, or removes it (`None`).
+    pub(crate) fn set_opt(&mut self, what: &str, label: &str, value: Option<Value>) {
+        let edits = self
+            .paths()
+            .map(|path| Edit::SetField {
+                key: self.key,
+                path: path.clone(),
+                label: label.to_string(),
+                value: value.clone(),
             })
             .collect();
         self.app.actions.push(Action::Apply(Command::new(what, edits)));

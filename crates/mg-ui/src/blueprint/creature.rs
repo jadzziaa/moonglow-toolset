@@ -21,7 +21,7 @@ use super::{Form, creature_lists, situated};
 use crate::widgets::commit_number;
 use crate::{Action, Moonglow, Tab};
 
-pub(super) const PAGES: [&str; 12] = [
+pub(super) const PAGES: [&str; 13] = [
     "Basic",
     "Statistics",
     "Appearance",
@@ -33,6 +33,7 @@ pub(super) const PAGES: [&str; 12] = [
     "Inventory",
     "Scripts",
     "Advanced",
+    "Visuals",
     "Comments",
 ];
 
@@ -67,6 +68,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
             ],
         ),
         "Advanced" => advanced(f, ui),
+        "Visuals" => super::visuals::page(f, ui, true),
         _ => f.memo(ui, "Comments", "Comment"),
     }
 }
@@ -483,6 +485,14 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     let all = choices(f, "classes", "Name", "Label");
     let packages = choices(f, "packages", "Name", "Label");
     let list: Vec<Struct> = f.root.list("ClassList").unwrap_or(&[]).to_vec();
+    let domains = choices(f, "domains", "Name", "Label");
+    let schools = choices(f, "spellschools", "StringRef", "Label");
+    // What classes.2da says a class picks or has.
+    let classes_2da = f.app.game.as_ref().and_then(|g| g.table("classes").ok());
+    let class_int = |class: i64, column: &str| {
+        let t = classes_2da.as_ref()?;
+        t.get_int(usize::try_from(class).ok()?, column).map(i64::from)
+    };
     // Alignment: a preset, and the two axes.
     let (ge, lc) = (f.int("GoodEvil"), f.int("LawfulChaotic"));
     ui.horizontal(|ui| {
@@ -512,7 +522,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     });
     ui.separator();
     let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
-    egui::Grid::new(("utc-classes", key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
+    egui::Grid::new(("utc-classes", key)).num_columns(5).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, c) in list.iter().enumerate() {
             let path = base.clone().item("ClassList", i);
             ui.label(format!("Class {}", i + 1));
@@ -538,6 +548,32 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                     }],
                 ));
             }
+            // A cleric's domains, a wizard's school (classes.2da PickDomains,
+            // PickSchool); the game reads them (engine_ee_fields.rs).
+            ui.horizontal(|ui| {
+                if class_int(class, "PickDomains") == Some(1) {
+                    for (n, label) in ["Domain1", "Domain2"].into_iter().enumerate() {
+                        let name = format!("class{i}-domain{n}");
+                        if let Some(v) = optional_pick(ui, key, &name, &domains, c.integer(label)) {
+                            edits.push((
+                                "Domain",
+                                vec![set(key, &path, label, Value::Byte(v as u8))],
+                            ));
+                        }
+                    }
+                } else if class_int(class, "PickSchool") == Some(1) {
+                    ui.label("School");
+                    let current = c.integer("School");
+                    if let Some(v) =
+                        optional_pick(ui, key, &format!("class{i}-school"), &schools, current)
+                    {
+                        edits.push((
+                            "School",
+                            vec![set(key, &path, "School", Value::Byte(v as u8))],
+                        ));
+                    }
+                }
+            });
             ui.end_row();
         }
     });
@@ -567,12 +603,102 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
         crate::levelup_view::open(f.app, key, base.clone());
     }
     ui.separator();
+    associates(f, ui, &list, &class_int);
+    ui.separator();
     ui.horizontal(|ui| {
         ui.label("Default Package for Autolevelup");
         f.choice(ui, "Package", "StartingPackage", &packages, FieldType::Byte);
     });
     for (what, e) in edits {
         f.app.actions.push(Action::Apply(Command::new(what, e)));
+    }
+}
+
+/// A 2DA row picked for a field that may be left out (`None`: the game
+/// decides, as it does for a cleric without domains); the row picked.
+fn optional_pick(
+    ui: &mut Ui,
+    key: ResKey,
+    name: &str,
+    choices: &[Choice],
+    current: Option<i64>,
+) -> Option<i64> {
+    let shown = match current {
+        None => "Not set".to_string(),
+        Some(v) => choices
+            .iter()
+            .find(|c| c.row as i64 == v)
+            .map_or_else(|| format!("({v})"), |c| c.text.clone()),
+    };
+    let mut pick = None;
+    egui::ComboBox::from_id_salt(("pick", key, name)).selected_text(shown).width(100.0).show_ui(
+        ui,
+        |ui| {
+            for c in choices {
+                if ui.selectable_label(Some(c.row as i64) == current, &c.text).clicked() {
+                    pick = Some(c.row as i64);
+                }
+            }
+        },
+    );
+    pick.filter(|&v| Some(v) != current)
+}
+
+/// The familiar and animal companion (`FamiliarType`, `FamiliarName`,
+/// `CompanionType`, `CompanionName`). The game reads a familiar only when a
+/// class has one (classes.2da: arcane, MinAssociateLevel not 255) and a
+/// companion likewise for a divine class, at any level
+/// (`engine_ee_fields.rs`).
+fn associates(
+    f: &mut Form<'_>,
+    ui: &mut Ui,
+    list: &[Struct],
+    class_int: &dyn Fn(i64, &str) -> Option<i64>,
+) {
+    let has = |arcane: i64| {
+        list.iter().filter_map(|c| c.integer("Class")).any(|class| {
+            class_int(class, "Arcane") == Some(arcane)
+                && class_int(class, "MinAssociateLevel").is_some_and(|l| l != 255)
+        })
+    };
+    let familiars = choices(f, "hen_familiar", "STRREF", "NAME");
+    let companions = choices(f, "hen_companion", "STRREF", "NAME");
+    let mut notes = Vec::new();
+    egui::Grid::new(("utc-associates", f.key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
+        for (title, kinds, type_label, name_label, arcane, who) in [
+            (
+                "Familiar",
+                &familiars,
+                "FamiliarType",
+                "FamiliarName",
+                1,
+                "a familiar only for a creature with an arcane class that has one (Wizard, Sorcerer)",
+            ),
+            (
+                "Animal Companion",
+                &companions,
+                "CompanionType",
+                "CompanionName",
+                0,
+                "an animal companion only for a creature with a divine class that has one \
+                 (Druid, Ranger)",
+            ),
+        ] {
+            ui.label(title);
+            let current = f.root.integer(type_label);
+            if let Some(v) = optional_pick(ui, f.key, type_label, kinds, current) {
+                f.set_int(title, type_label, v, FieldType::Int);
+            }
+            ui.label("Name");
+            f.text(ui, title, name_label, 64);
+            ui.end_row();
+            if !has(arcane) {
+                notes.push(format!("The game reads {who}."));
+            }
+        }
+    });
+    for n in notes {
+        ui.weak(n);
     }
 }
 

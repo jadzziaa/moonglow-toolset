@@ -137,7 +137,7 @@ fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
         ResType::UTD => mg_preview::door(game, &object),
         t => return Err(format!("{source}: no preview for {t:?}")),
     };
-    preview.map_err(|e| format!("{source}: {e}"))
+    preview.map(|p| mg_preview::replaced(p, &object)).map_err(|e| format!("{source}: {e}"))
 }
 
 /// Whether the viewer can show a resource type.

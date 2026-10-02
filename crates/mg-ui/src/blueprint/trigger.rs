@@ -9,8 +9,8 @@ use mg_rules::{Choice, ChoiceColumns};
 
 use super::{Form, situated};
 
-pub(super) const PAGES: [&str; 6] =
-    ["Basic", "Area Transition", "Trap", "Scripts", "Advanced", "Comments"];
+pub(super) const PAGES: [&str; 7] =
+    ["Basic", "Area Transition", "Trap", "Scripts", "Advanced", "Visuals", "Comments"];
 
 /// Trigger types (`Type`).
 const TYPES: [(i64, &str); 3] = [(0, "Generic"), (1, "Area Transition"), (2, "Trap")];
@@ -38,6 +38,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
             ],
         ),
         "Advanced" => advanced(f, ui),
+        "Visuals" => super::visuals::page(f, ui, false),
         _ => f.memo(ui, "Comments", "Comment"),
     }
 }

@@ -82,6 +82,9 @@ pub struct AreaTile {
     pub source_lights: [u8; 2],
     /// Whether animation loops `animloop01`..`03` play.
     pub anim_loops: [bool; 3],
+    /// The texture the model's `replace_tex` is drawn with
+    /// (`Tile_ReplaceTex`, a `replacetexture.2da` row; lower case).
+    pub replace_texture: Option<String>,
     /// The centre of the tile's floor.
     pub position: Vec3,
 }
@@ -322,7 +325,7 @@ impl AreaObject {
             _ => None,
         };
         let (preview, problem) = match preview {
-            Some(Ok(p)) => (Some(p), None),
+            Some(Ok(p)) => (Some(mg_preview::replaced(p, s)), None),
             Some(Err(e)) => (None, Some(e.to_string())),
             None => (None, None),
         };
@@ -536,6 +539,7 @@ impl AreaModel {
                 .push(format!("Tile_List has {} tiles for a {width} by {height} area", list.len()));
         }
         let mut unknown = 0;
+        let replacements = game.table("replacetexture").ok();
         let tiles: Vec<AreaTile> = list
             .iter()
             .enumerate()
@@ -564,6 +568,13 @@ impl AreaModel {
                     main_lights: [byte("Tile_MainLight1"), byte("Tile_MainLight2")],
                     source_lights: [byte("Tile_SrcLight1"), byte("Tile_SrcLight2")],
                     anim_loops: [1, 2, 3].map(|n| int(&format!("Tile_AnimLoop{n}")) != 0),
+                    replace_texture: t
+                        .integer("Tile_ReplaceTex")
+                        .and_then(|row| {
+                            let t = replacements.as_ref()?;
+                            t.get(usize::try_from(row).ok()?, "TEXTURENAME")
+                        })
+                        .map(str::to_ascii_lowercase),
                     position: Vec3::new(
                         (column as f32 + 0.5) * TILE_SIZE,
                         (row as f32 + 0.5) * TILE_SIZE,
@@ -722,5 +733,26 @@ mod tests {
         let one = &area.tiles[1];
         let x = one.transform().transform_vector3(Vec3::X);
         assert!(close(x.x, 0.0) && close(x.y, 1.0));
+    }
+
+    #[test]
+    fn tiles_take_their_replacement_texture() {
+        let mut rm = mg_resman::ResMan::new();
+        let mut c = mg_resman::MemContainer::new();
+        c.insert(
+            mg_resman::ResKey::parse("replacetexture", mg_core::ResType::TWODA).unwrap(),
+            b"2DA V2.0\n\n   TEXTURENAME\n0  T_Flag02\n1  T_Flag03\n".to_vec(),
+        );
+        rm.add(mg_resman::priority::KEY, "game", mg_resman::LayerClass::Key, c);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let mut are = Struct::new(0);
+        are.set("Width", Value::Int(2));
+        are.set("Height", Value::Int(1));
+        let mut replaced = Struct::new(1);
+        replaced.set("Tile_ReplaceTex", Value::Byte(1));
+        are.set("Tile_List", Value::List(vec![replaced, Struct::new(1)]));
+        let area = AreaModel::read(&game, &are, &Struct::new(0xFFFF_FFFF), None);
+        assert_eq!(area.tiles[0].replace_texture.as_deref(), Some("t_flag03"));
+        assert_eq!(area.tiles[1].replace_texture, None);
     }
 }

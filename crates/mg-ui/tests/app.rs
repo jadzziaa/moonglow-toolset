@@ -1625,6 +1625,96 @@ fn placeable_editor_fills_its_inventory() {
 }
 
 #[test]
+fn visuals_page_sets_replacements_and_misc_visuals() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_visuals", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Visuals").click();
+    h.run();
+    // A texture replacement, added from the empty row.
+    type_into_hint(&mut h, "Texture", "plc_chest1");
+    type_into_hint(&mut h, "Drawn as", "mg_gold");
+    h.get_all_by_label("Add").next().unwrap().click();
+    h.run();
+    let tex = |h: &mut Harness<'_, Moonglow>| -> Vec<(String, String)> {
+        let root = field(h, &key);
+        let list = root.child("TextureReplace").and_then(|s| s.list("TextureReplaceLi"));
+        list.unwrap_or(&[])
+            .iter()
+            .map(|e| {
+                let r = |l: &str| e.resref(l).unwrap().to_string();
+                (r("OldTexture"), r("NewTexture"))
+            })
+            .collect()
+    };
+    assert_eq!(tex(&mut h), [("plc_chest1".to_string(), "mg_gold".to_string())]);
+    assert_eq!(field(&mut h, &key).child("TextureReplace").unwrap().id, 9, "the game's struct id");
+    // The area view and model viewer draw it.
+    let chest = field(&mut h, &key);
+    let game = h.state().game.as_ref().unwrap();
+    let preview = mg_preview::replaced(mg_preview::placeable(game, &chest).unwrap(), &chest);
+    assert_eq!(preview.base.textures.get("plc_chest1").map(String::as_str), Some("mg_gold"));
+    // Removed: the field goes.
+    h.get_all_by_label("Remove").next().unwrap().click();
+    h.run();
+    assert!(field(&mut h, &key).get("TextureReplace").is_none());
+    // MiscVisuals: what shows, set apart from the game's choice; the other
+    // fields are left to the game.
+    h.get_by_label("As the game decides").click();
+    h.run();
+    h.get_by_label("Name with Tab").click();
+    h.run();
+    let misc = field(&mut h, &key).child("MiscVisuals").cloned().unwrap();
+    assert_eq!(misc.integer("UiDiscoverMask"), Some(15 & !8));
+    assert_eq!(misc.id, 8);
+    assert!(misc.get("VisibleDistance").is_none());
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(
+        field(&mut h, &key).child("MiscVisuals").unwrap().integer("UiDiscoverMask"),
+        Some(15)
+    );
+}
+
+#[test]
+fn classes_page_sets_domains_and_associates() {
+    let Some((mut h, key)) = blueprint_harness("nw_mumcleric", "cleric_copy", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Classes").click();
+    h.run();
+    let cleric = |h: &mut Harness<'_, Moonglow>| -> mg_gff::Struct {
+        let root = field(h, &key);
+        root.list("ClassList")
+            .unwrap()
+            .iter()
+            .find(|c| c.integer("Class") == Some(2))
+            .unwrap()
+            .clone()
+    };
+    // The cleric's first domain, from domains.2da (the blueprint has none:
+    // the game decides).
+    assert_eq!(cleric(&mut h).integer("Domain1"), None);
+    let animal = {
+        let game = h.state().game.as_ref().unwrap();
+        let t = game.table("domains").unwrap();
+        game.string(mg_core::StrRef(t.get_int(1, "Name").unwrap() as u32)).unwrap()
+    };
+    let current = "Not set";
+    h.get_all_by_value(current).next().expect("the domain picker").click();
+    h.run();
+    h.get_by_label(&animal).click();
+    h.run();
+    assert_eq!(cleric(&mut h).integer("Domain1"), Some(1));
+    // A cleric has neither a familiar nor a companion: the game ignores
+    // them, and the page says so.
+    assert!(h.query_by_label_contains("a familiar only for a creature with an arcane").is_some());
+    assert!(h.query_by_label_contains("companion only for a creature with a divine").is_some());
+}
+
+#[test]
 fn item_editor_adds_properties_and_keeps_the_cost() {
     let Some((mut h, key)) = blueprint_harness("nw_wswls001", "sword_copy", ResType::UTI) else {
         return;
@@ -2212,6 +2302,11 @@ fn area_properties_edit_the_area() {
     h.key_press(egui::Key::Tab);
     h.run_steps(2);
     assert_eq!(are(&mut h).string("Tag"), Some(&b"FIELD_TAG"[..]));
+    // A shader flag past the three, the three kept.
+    let flags = are(&mut h).integer("Flags").unwrap();
+    h.get_by_label("8").click();
+    h.run_steps(2);
+    assert_eq!(are(&mut h).integer("Flags"), Some(flags | 8));
 
     // Visual: a lighting scheme sets the lighting and the tiles' lights in
     // one command.
@@ -2913,10 +3008,15 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
     // Main light 1 to colour 9, through the colour picker.
     h.state_mut().tile_props.as_mut().unwrap().main[0] = 9;
     h.state_mut().tile_props.as_mut().unwrap().loops = [false, false, false];
+    // The replacement texture: replacetexture.2da row 1.
+    h.state_mut().tile_props.as_mut().unwrap().replace = Some(1);
     h.run_steps(1);
     h.get_by_label("OK").click();
     h.run_steps(2);
     let t = tile(&mut h, 5);
+    assert_eq!(t.integer("Tile_ReplaceTex"), Some(1));
+    let model = h.state().area_views[&area].model.as_ref().unwrap();
+    assert_eq!(model.tiles[5].replace_texture.as_deref(), Some("t_flag02"));
     if props.has_main[0] {
         assert_eq!(t.integer("Tile_MainLight1"), Some(9));
     }

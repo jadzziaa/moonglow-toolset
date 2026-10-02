@@ -155,7 +155,9 @@ crossers away. **Shift + right click** steps the tile under the pointer
 through the tiles that fit; a right click opens the tile menu with **Tile
 Properties**: the tiles' main and source light colors and their
 animation loops, as the tile's model has them (**Defaults** puts back the
-lighting scheme's). Ctrl+C and Ctrl+V copy and paste tiles.
+lighting scheme's), and the **Replacement Texture**: what a texture named
+`replace_tex` in the tile's model is drawn with (a `replacetexture.2da`
+row; the game keeps it, though Aurora has no field for it). Ctrl+C and Ctrl+V copy and paste tiles.
 
 **Edit › Resize Area…** grows or shrinks the area at its north and east
 edges; **Edit › Rotate Area…** turns it by 90° steps, objects and all.
@@ -175,7 +177,8 @@ Properties** on the viewer's toolbar:
 - **Audio**: day and night ambient sounds and their volumes, music, battle
   music, the environment's sound effects.
 - **Events**, **Advanced** (flags such as interior, underground, natural,
-  no rest, PvP), **Comments**.
+  no rest, PvP; **Shader Flags**, the area flags past those three, which
+  custom shaders read from their `areaFlags` uniform), **Comments**.
 
 ## Area sounds
 

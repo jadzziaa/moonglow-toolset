@@ -122,7 +122,7 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 | The round trip between toolset and source tree loses work when run at the wrong moment | ●● | Amia, Ages and The Frozen North READMEs; Dark Sun onboarding ("45 minutes" one-on-one) | ✗ (§3, item 1) |
 | Every branch that adds an area conflicts on `module.ifo`'s area list | ● | Ages' merge bot (`ifoupdate.py`) | ✗ |
 | Code-page damage (windows-1250 vs 1252, color tokens) on the way through text | ● | nasher #119; Ages README | ◐ text stays bytes in its code page in Moonglow; JSON trees not yet supported |
-| Saves drop EE fields Aurora doesn't know (texture, animation and shader replacements), turn StrRefs into embedded strings, and clobbered the module ID | ●● | nwn-issues #528, #370; release notes 8193.36; nwn.wiki's area-flags and creature JSON pages | ✅ lossless by design: untouched fields round-trip byte for byte. ✗ no UI for those EE fields (§3, item 9). |
+| Saves drop EE fields Aurora doesn't know (texture, animation and shader replacements), turn StrRefs into embedded strings, and clobbered the module ID | ●● | nwn-issues #528, #370; release notes 8193.36; nwn.wiki's area-flags and creature JSON pages | ✅ lossless by design: untouched fields round-trip byte for byte, and the EE fields have fields: an editor's Visuals page, Shader Flags, a tile's replacement texture (`notes_ee_fields.md`) |
 
 ### 2.4 Finding things, references and validation
 
@@ -163,7 +163,7 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 | Update Instances works on one blueprint at a time; no mass edit of blueprints | ●● | Beamdog 78962 (Winter's LOTR), 82940; SWLOR's store-sync script; Radoub #1318 | ◐ Update Instances per blueprint, as in Aurora |
 | No variable sets or templates | ● | Beamdog 69624 p2, 82940 | ✗ |
 | The item editor won't load DDS icons; PLT-layered icon bugs; MinRange ≥ 100 breaks appearance pickers | ●● | nwn-issues #455, #456, #658 | ◐ DDS icons load; MinRange ≥ 100 not checked |
-| The creature editor can't set familiars, companions, domains or the wizard school, and strips some of them | ● | nwn.wiki Creature and Creature JSON pages; nwn-issues #566, #816 | ◐ Deity is editable and other fields are kept; no UI for the rest |
+| The creature editor can't set familiars, companions, domains or the wizard school, and strips some of them | ● | nwn.wiki Creature and Creature JSON pages; nwn-issues #566, #816 | ✅ domains, school, familiar and companion on the Classes page, with the rule for when the game reads them (`notes_ee_fields.md`) |
 
 ### 2.8 Scripts and conversations
 

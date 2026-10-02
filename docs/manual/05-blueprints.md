@@ -49,19 +49,40 @@ Shared parts:
 - **Advanced**: the palette category, and **Update Instances** (every
   type but waypoints): every object placed from this blueprint, in every
   area, made again from it, where it stands and facing as it faces.
+- **Visuals** (creatures, items, placeables, doors; triggers have the
+  last part only): what Enhanced Edition's scripts can change about how
+  an object looks, set from the start. Aurora has no fields for these;
+  the game reads them when it loads the object.
+  - **Texture replacements**: a texture of the object's model drawn with
+    another (not PLT textures, which keep their colors). The area view
+    and the model viewer show them.
+  - **Animation replacements**: an animation played as another.
+  - **Shader parameters**: an integer or four numbers a material's shader
+    reads, for custom shaders.
+  - The highlight color, the mouse cursor over the object, its text
+    bubble (its name, or text that replaces it or goes before or after
+    it), whether it is highlighted and named on mouse-over and with Tab,
+    and how far away it can be seen (45 m unless set).
 
 ### Creatures
 
 Basic (name, race, gender, portrait, appearance, faction, conversation),
 **Statistics** (abilities, saves, armor class, hit points, speed),
 **Appearance** (body parts, colors, wings, tail, the phenotype), **Classes**
-(classes and levels; **Levelup Wizard…** levels the creature up by the
-classes' packages), **Skills**, **Feats**, **Spells** (known or prepared by
+(classes and levels, a cleric's domains and a wizard's school, the
+familiar and animal companion; **Levelup Wizard…** levels the creature up
+by the classes' packages), **Skills**, **Feats**, **Spells** (known or prepared by
 class and level), **Special Abilities**, **Inventory**, Scripts,
 Advanced, Comments.
 
 Moonglow recomputes the creature's hit points and challenge rating with
 every change, as Aurora does on OK.
+
+The game reads a familiar only when one of the creature's classes has
+one (an arcane class whose `MinAssociateLevel` in `classes.2da` isn't
+255: Wizard, Sorcerer), and an animal companion likewise for a divine
+class (Druid, Ranger, at any level). The Classes page says when it won't.
+A domain or school left **Not set** is the game's to choose.
 
 - On the **Spells** page, a warning names the first problem a class has:
   spells of a level the class cannot cast yet, a casting ability too low
@@ -83,22 +104,25 @@ every change, as Aurora does on OK.
 cursed, identified; the base item's statistics), **Appearance** (by the
 base item: a model, three weapon parts, or the armor's parts and colors,
 with the inventory icon as the game shows it), **Properties** (the item
-properties its base item allows, with their parameters), Description,
-Comments. Moonglow recomputes the item's cost with every change, as the
-game computes it.
+properties its base item allows, with their parameters), Visuals,
+Description, Comments. Moonglow recomputes the item's cost with every
+change, as the game computes it. A stack can be larger than its base
+item's limit (Aurora stops there; the game keeps the stack whole), and
+charges go up to 250, the most the game reads.
 
 ### Placeables and doors
 
 Basic (name, appearance, initial state, hit points, saves, plot, static,
 usable, has inventory), **Lock** (locked, key, DCs), **Trap**, **Area
 Transition** (doors: to a door or waypoint in another area), Scripts,
-Advanced, Description, Comments. A placeable with an inventory has an
-**Inventory** page.
+Advanced, Visuals, Description, Comments. A placeable with an inventory
+has an **Inventory** page. A placeable can have an inventory without being
+usable: players can't open it, but scripts can reach what it holds.
 
 ### Triggers and encounters
 
 Triggers: Basic (generic, area transition or trap), Area Transition, Trap,
-Scripts, Advanced, Comments. Encounters: Basic (difficulty, spawn option,
+Scripts, Advanced, Visuals, Comments. Encounters: Basic (difficulty, spawn option,
 respawns), **Creature List** (from the creature palette, with unique
 creatures marked), Scripts, Advanced, Comments.
 

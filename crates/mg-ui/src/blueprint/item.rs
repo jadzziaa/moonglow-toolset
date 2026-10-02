@@ -21,14 +21,15 @@ use super::Form;
 use crate::widgets::commit_number;
 use crate::{Action, Moonglow};
 
-pub(super) const PAGES: [&str; 5] =
-    ["General", "Appearance", "Properties", "Description", "Comments"];
+pub(super) const PAGES: [&str; 6] =
+    ["General", "Appearance", "Properties", "Visuals", "Description", "Comments"];
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {
         "General" => general(f, ui),
         "Appearance" => with_game(f, |f, game| appearance(f, ui, game)),
         "Properties" => with_game(f, |f, game| properties(f, ui, game)),
+        "Visuals" => super::visuals::page(f, ui, true),
         "Description" => description(f, ui),
         _ => f.memo(ui, "Comments", "Comment"),
     }
@@ -178,9 +179,18 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
                     ui.label("Category");
                     f.category(ui, BlueprintKind::Item);
                     ui.end_row();
+                    // Past the base item's stack size, as Aurora doesn't
+                    // allow: the game keeps the stack whole
+                    // (engine_ee_fields.rs).
                     ui.label("Stack Size");
-                    f.number(ui, "Stack size", "StackSize", 1..=i64::from(stacking));
+                    ui.horizontal(|ui| {
+                        f.number(ui, "Stack size", "StackSize", 1..=65_535);
+                        if f.int("StackSize") > i64::from(stacking) {
+                            ui.weak(format!("more than the base item's {stacking}"));
+                        }
+                    });
                     ui.end_row();
+                    // The game reads at most 250 (engine_ee_fields.rs).
                     ui.label("Charges");
                     f.number(ui, "Charges", "Charges", 0..=250);
                     ui.end_row();

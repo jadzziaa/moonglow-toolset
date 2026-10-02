@@ -338,6 +338,26 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             });
             ui.end_row();
         }
+        // The flags past the three, for custom shaders (their `areaFlags`
+        // uniform): kept by the game (`engine_ee_fields.rs`).
+        ui.label("Shader Flags").on_hover_text(
+            "Area flags past the three above, for custom shaders: a shader reads them \
+             from its areaFlags uniform",
+        );
+        ui.horizontal_wrapped(|ui| {
+            for bit in (3..16).map(|b| 1u32 << b) {
+                let mut on = flags & bit != 0;
+                if ui.checkbox(&mut on, bit.to_string()).changed() {
+                    let v = if on { flags | bit } else { flags & !bit };
+                    f.set_int("Shader flags", "Flags", i64::from(v), FieldType::Dword);
+                }
+            }
+            let higher = flags & !0xFFFF;
+            if higher != 0 {
+                ui.weak(format!("and {higher:#x}"));
+            }
+        });
+        ui.end_row();
         ui.label("Variables");
         f.variables(ui);
         ui.end_row();

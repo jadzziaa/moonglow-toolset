@@ -11,8 +11,17 @@ use mg_rules::ChoiceColumns;
 use super::{Form, inventory, situated};
 use crate::Action;
 
-pub(super) const PAGES: [&str; 8] =
-    ["Basic", "Inventory", "Lock", "Trap", "Scripts", "Advanced", "Description", "Comments"];
+pub(super) const PAGES: [&str; 9] = [
+    "Basic",
+    "Inventory",
+    "Lock",
+    "Trap",
+    "Scripts",
+    "Advanced",
+    "Visuals",
+    "Description",
+    "Comments",
+];
 
 /// A placeable's initial states (`AnimationState`).
 const STATES: [(i64, &str); 6] = [
@@ -50,6 +59,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
             ],
         ),
         "Advanced" => situated::advanced(f, ui, &STATES, treasure),
+        "Visuals" => super::visuals::page(f, ui, true),
         "Description" => f.locstring_memo(ui, "Description", "Description"),
         _ => f.memo(ui, "Comments", "Comment"),
     }
@@ -95,6 +105,11 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                 .clicked()
             {
                 f.app.blueprint_pages.insert((f.key, f.path.clone()), "Inventory");
+            }
+            // The game keeps an inventory on a placeable players can't use
+            // (engine_ee_fields.rs): scripts reach it, players don't.
+            if has && !fixed && f.int("Useable") == 0 {
+                ui.weak("not Useable: only scripts reach it");
             }
         });
         ui.end_row();

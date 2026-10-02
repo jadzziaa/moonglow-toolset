@@ -104,6 +104,44 @@ impl Preview {
     }
 }
 
+/// An object's texture and animation replacements (EE's
+/// `ReplaceObjectTexture` and `ReplaceObjectAnimation`, saved as
+/// `TextureReplace` and `AnimationReplace`) applied to its preview: each
+/// model's texture of an old name drawn with the new one (PLT textures,
+/// which the game doesn't replace, keep their colouring), and the idle
+/// animation replaced. `mg-corpus-tests/tests/engine_ee_fields.rs` checks
+/// the engine reads them.
+pub fn replaced(mut p: Preview, object: &Struct) -> Preview {
+    let pairs = |outer: &str, list: &str, old: &str, new: &str| -> Vec<(String, String)> {
+        let Some(items) = object.child(outer).and_then(|s| s.list(list)) else { return Vec::new() };
+        items
+            .iter()
+            .filter_map(|e| {
+                let (o, n) = (e.resref(old)?, e.resref(new)?);
+                (!o.is_empty())
+                    .then(|| (o.to_lowercase().to_string(), n.to_lowercase().to_string()))
+            })
+            .collect()
+    };
+    let textures = pairs("TextureReplace", "TextureReplaceLi", "OldTexture", "NewTexture");
+    for part in std::iter::once(&mut p.base).chain(p.parts.iter_mut()) {
+        for (old, new) in &textures {
+            // An empty new name restores the original.
+            if !new.is_empty() {
+                part.textures.entry(old.clone()).or_insert_with(|| new.clone());
+            }
+        }
+    }
+    let animations = pairs("AnimationReplace", "AnimationReplace", "OldAnimation", "NewAnimation");
+    if let Some(idle) = &p.idle
+        && let Some((_, new)) = animations.iter().find(|(old, _)| old.eq_ignore_ascii_case(idle))
+        && !new.is_empty()
+    {
+        p.idle = Some(new.clone());
+    }
+    p
+}
+
 /// PLT layers.
 const SKIN: usize = 0;
 const HAIR: usize = 1;
@@ -191,5 +229,45 @@ impl Lookup<'_> {
         out.sort();
         out.dedup();
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mg_gff::Value;
+
+    use super::*;
+
+    fn pair(old: &str, new: &str, labels: (&str, &str)) -> Struct {
+        let mut e = Struct::new(0);
+        e.set(labels.0, Value::resref(ResRef::from_str(old).unwrap()));
+        e.set(labels.1, Value::resref(ResRef::from_str(new).unwrap()));
+        e
+    }
+
+    #[test]
+    fn replacements_reach_the_preview() {
+        let mut o = Struct::new(0);
+        let mut t = Struct::new(9);
+        t.set(
+            "TextureReplaceLi",
+            Value::List(vec![
+                pair("PLC_Chest1", "MG_New", ("OldTexture", "NewTexture")),
+                pair("restored", "", ("OldTexture", "NewTexture")),
+            ]),
+        );
+        o.set("TextureReplace", Value::Struct(t));
+        let mut a = Struct::new(11);
+        let e = pair("pause1", "mg_idle", ("OldAnimation", "NewAnimation"));
+        a.set("AnimationReplace", Value::List(vec![e]));
+        o.set("AnimationReplace", Value::Struct(a));
+        let mut p = Preview::model("plc_chest1");
+        p.idle = Some("pause1".into());
+        // A PLT's fallback stays.
+        p.base.textures.insert("restored".into(), "fallback".into());
+        let p = replaced(p, &o);
+        assert_eq!(p.base.textures.get("plc_chest1").map(String::as_str), Some("mg_new"));
+        assert_eq!(p.base.textures.get("restored").map(String::as_str), Some("fallback"));
+        assert_eq!(p.idle.as_deref(), Some("mg_idle"));
     }
 }

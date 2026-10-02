@@ -499,7 +499,12 @@ surveyed after 0.2.0):
      the game reads nothing that starts past 2 GiB into a hak, nor does
      Moonglow now, and the content doctor names it (`engine_big_hak.rs`);
      Find opens palette and tree categories seen closed;
-   - the EE fields Aurora hides;
+   - the EE fields Aurora hides — done: texture, animation and shader
+     replacements and `MiscVisuals` (a Visuals page; the area view draws
+     replaced textures), shader area flags, a tile's replacement texture
+     (drawn), domains, school, familiar and companion, stacks past the
+     base item's limit; each read back by the engine
+     (`engine_ee_fields.rs`, `docs/research/notes_ee_fields.md`);
    - bulk editing;
    - conversation authoring (node markers, import and export, play-through);
    - palette search.

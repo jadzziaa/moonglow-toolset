@@ -8,8 +8,17 @@ use mg_rules::{Choice, ChoiceColumns};
 
 use super::{Form, situated};
 
-pub(super) const PAGES: [&str; 8] =
-    ["Basic", "Lock", "Trap", "Area Transition", "Scripts", "Advanced", "Description", "Comments"];
+pub(super) const PAGES: [&str; 9] = [
+    "Basic",
+    "Lock",
+    "Trap",
+    "Area Transition",
+    "Scripts",
+    "Advanced",
+    "Visuals",
+    "Description",
+    "Comments",
+];
 
 /// A door's initial states (`AnimationState`).
 const STATES: [(i64, &str); 2] = [(0, "Closed"), (1, "Open")];
@@ -39,6 +48,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
             ],
         ),
         "Advanced" => situated::advanced(f, ui, &STATES, |_, _| {}),
+        "Visuals" => super::visuals::page(f, ui, true),
         "Description" => f.locstring_memo(ui, "Description", "Description"),
         _ => f.memo(ui, "Comments", "Comment"),
     }
