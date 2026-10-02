@@ -24,7 +24,7 @@ mod value;
 mod write;
 
 pub use diff::{diff, diff_structs};
-pub use json::{JsonError, from_json, to_json};
+pub use json::{JsonError, TextStyle, from_json, to_json, to_json_text};
 pub use read::ReadError;
 pub use value::{Field, FieldType, Label, LabelError, Struct, Value};
 pub use write::WriteError;

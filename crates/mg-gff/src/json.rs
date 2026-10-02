@@ -46,7 +46,8 @@ pub fn to_json(gff: &Gff, codepage: Codepage) -> Result<Json, JsonError> {
 fn struct_to_json(s: &Struct, cp: Codepage, path: &str) -> Result<Map<String, Json>, JsonError> {
     let mut obj = Map::new();
     if s.id != ROOT_STRUCT_ID {
-        obj.insert("__struct_id".into(), json!(s.id));
+        // nwn_gff keeps struct ids as signed 32-bit numbers.
+        obj.insert("__struct_id".into(), json!(s.id as i32));
     }
     for f in &s.fields {
         let label = f.label.to_string_lossy();
@@ -84,7 +85,7 @@ fn struct_to_json(s: &Struct, cp: Codepage, path: &str) -> Result<Map<String, Js
             }
             Value::Void(v) => _ = field.insert("value64".into(), json!(BASE64.encode(v))),
             Value::Struct(child) => {
-                field.insert("__struct_id".into(), json!(child.id));
+                field.insert("__struct_id".into(), json!(child.id as i32));
                 field.insert("value".into(), Json::Object(struct_to_json(child, cp, &fpath)?));
             }
             Value::List(items) => {
@@ -123,9 +124,11 @@ fn struct_from_json(
 ) -> Result<Struct, JsonError> {
     let id = match obj.get("__struct_id") {
         None => ROOT_STRUCT_ID,
-        Some(v) => {
-            as_int(v, path)?.try_into().or_else(|_| err(path, "__struct_id out of range"))?
-        }
+        // Signed, as nwn_gff writes them, or unsigned.
+        Some(v) => match as_int(v, path)? {
+            id @ -0x8000_0000..0 => id as i32 as u32,
+            id => id.try_into().or_else(|_| err(path, "__struct_id out of range"))?,
+        },
     };
     let mut s = Struct::new(id);
     for (label, field) in obj {
@@ -209,7 +212,7 @@ fn struct_from_json(
                 let mut child = struct_from_json(o, cp, &fpath)?;
                 if !o.contains_key("__struct_id") {
                     child.id = match field.get("__struct_id") {
-                        Some(v) => as_int(v, &fpath)? as u32,
+                        Some(v) => as_int(v, &fpath)? as i64 as u32,
                         None => 0,
                     };
                 }
@@ -235,6 +238,240 @@ fn struct_from_json(
         s.fields.push(Field { label, value: v });
     }
     Ok(s)
+}
+
+/// How [`to_json_text`] lays JSON out.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TextStyle {
+    /// Sorts object keys, ignoring ASCII case and keeping the order of keys
+    /// that differ only in case, as nasher does (`nwn_gff` keeps the file's
+    /// field order).
+    pub sort_keys: bool,
+    /// Rounds floats to this many decimal places, as nasher's
+    /// `truncateFloats` does (default 4); under a `Bearing` or `Orientation`
+    /// key, -π rounded becomes +π.
+    pub float_places: Option<u8>,
+    /// Prints floats with 16 significant digits (C's `%.16g`, then `.0` if
+    /// nothing marks the number as a float), as nasher's build of Nim does,
+    /// rather than with the shortest digits that read back exactly, as
+    /// `nwn_gff` does.
+    pub g16_floats: bool,
+}
+
+impl TextStyle {
+    /// nasher's default: sorted keys, floats to 4 places, printed `%.16g`.
+    pub const NASHER: TextStyle =
+        TextStyle { sort_keys: true, float_places: Some(4), g16_floats: true };
+}
+
+/// JSON as text, laid out as neverwinter.nim (Nim's `pretty`) writes it: two
+/// spaces of indent, `"key": value`, Nim's string escapes and float
+/// notation, and a final newline. With [`TextStyle::NASHER`] the text is what
+/// nasher writes into a source tree.
+pub fn to_json_text(json: &Json, style: TextStyle) -> String {
+    let mut out = String::new();
+    write_pretty(&mut out, json, style, 0, false);
+    out.push('\n');
+    out
+}
+
+fn write_pretty(out: &mut String, v: &Json, style: TextStyle, indent: usize, bearing: bool) {
+    let pad = |out: &mut String, n: usize| out.extend(std::iter::repeat_n(' ', n));
+    match v {
+        Json::Object(map) if !map.is_empty() => {
+            let mut entries: Vec<(&String, &Json)> = map.iter().collect();
+            if style.sort_keys {
+                // Stable, so keys equal but for case keep their order.
+                entries.sort_by(|a, b| {
+                    a.0.bytes()
+                        .map(|c| c.to_ascii_lowercase())
+                        .cmp(b.0.bytes().map(|c| c.to_ascii_lowercase()))
+                });
+            }
+            out.push_str("{\n");
+            for (i, (k, child)) in entries.into_iter().enumerate() {
+                if i > 0 {
+                    out.push_str(",\n");
+                }
+                pad(out, indent + 2);
+                escape_nim(out, k);
+                out.push_str(": ");
+                let bearing = bearing || k == "Bearing" || k == "Orientation";
+                write_pretty(out, child, style, indent + 2, bearing);
+            }
+            out.push('\n');
+            pad(out, indent);
+            out.push('}');
+        }
+        Json::Object(_) => out.push_str("{}"),
+        Json::Array(items) if !items.is_empty() => {
+            out.push_str("[\n");
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push_str(",\n");
+                }
+                pad(out, indent + 2);
+                write_pretty(out, item, style, indent + 2, bearing);
+            }
+            out.push('\n');
+            pad(out, indent);
+            out.push(']');
+        }
+        Json::Array(_) => out.push_str("[]"),
+        Json::String(s) => escape_nim(out, s),
+        Json::Number(n) => match (n.as_i64(), n.as_u64()) {
+            (Some(i), _) if !n.is_f64() => out.push_str(&i.to_string()),
+            (_, Some(u)) if !n.is_f64() => out.push_str(&u.to_string()),
+            _ => {
+                let f = n.as_f64().unwrap_or_default();
+                let f = match style.float_places {
+                    Some(places) => truncate_float(f, places, bearing),
+                    None => f,
+                };
+                out.push_str(&if style.g16_floats { g16_float(f) } else { nim_float(f) });
+            }
+        },
+        Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Json::Null => out.push_str("null"),
+    }
+}
+
+/// nasher's `truncateFloats`: the float printed with `places` decimals,
+/// trailing zeros trimmed, read back; -π becomes π under a bearing.
+fn truncate_float(f: f64, places: u8, bearing: bool) -> f64 {
+    let places = usize::from(places);
+    let s = format!("{f:.places$}");
+    let mut trimmed = s.as_str();
+    if trimmed.contains('.') {
+        trimmed = trimmed.trim_end_matches('0');
+    }
+    let v: f64 = trimmed.trim_end_matches('.').parse().unwrap_or(f);
+    if bearing && trimmed == format!("{:.places$}", -std::f64::consts::PI) { v.abs() } else { v }
+}
+
+/// A float as Nim's `addFloat` writes it: the shortest digits that read back
+/// to it, fixed when the decimal point falls within -6 to 17 places of them
+/// (with `.0` for whole numbers), else scientific (`1.5e+17`, `1e-8`).
+fn nim_float(f: f64) -> String {
+    if !f.is_finite() {
+        return if f.is_nan() {
+            "nan".into()
+        } else if f > 0.0 {
+            "inf".into()
+        } else {
+            "-inf".into()
+        };
+    }
+    let sci = format!("{:e}", f.abs()); // shortest digits: "1.2345e-9"
+    let (mantissa, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    let exp: i32 = exp.parse().unwrap_or(0);
+    // The decimal point's position after the first digit's.
+    let point = exp + 1;
+    let mut out = String::new();
+    if f.is_sign_negative() {
+        out.push('-');
+    }
+    let n = digits.len() as i32;
+    if f == 0.0 {
+        out.push_str("0.0");
+    } else if (-6..=17).contains(&point) {
+        if point <= 0 {
+            out.push_str("0.");
+            out.extend(std::iter::repeat_n('0', (-point) as usize));
+            out.push_str(&digits);
+        } else if point < n {
+            out.push_str(&digits[..point as usize]);
+            out.push('.');
+            out.push_str(&digits[point as usize..]);
+        } else {
+            out.push_str(&digits);
+            out.extend(std::iter::repeat_n('0', (point - n) as usize));
+            out.push_str(".0");
+        }
+    } else {
+        out.push_str(&digits[..1]);
+        if n > 1 {
+            out.push('.');
+            out.push_str(&digits[1..]);
+        }
+        out.push('e');
+        out.push(if exp < 0 { '-' } else { '+' });
+        out.push_str(&exp.abs().to_string());
+    }
+    out
+}
+
+/// A float as Nim 1 wrote it: C's `%.16g` (16 significant digits, trailing
+/// zeros dropped, scientific below 1e-4 and from 1e16, with a two-digit
+/// exponent at least), then `.0` if that left neither a point nor an
+/// exponent.
+fn g16_float(f: f64) -> String {
+    if !f.is_finite() {
+        return if f.is_nan() {
+            "nan".into()
+        } else if f > 0.0 {
+            "inf".into()
+        } else {
+            "-inf".into()
+        };
+    }
+    let mut out = String::new();
+    if f.is_sign_negative() {
+        out.push('-');
+    }
+    if f == 0.0 {
+        out.push_str("0.0");
+        return out;
+    }
+    let sci = format!("{:.15e}", f.abs()); // "d.ddddddddddddddde-X", correctly rounded
+    let (mantissa, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let digits: String = mantissa.chars().filter(|c| *c != '.').collect();
+    let trim = |s: &str| -> String {
+        if s.contains('.') {
+            s.trim_end_matches('0').trim_end_matches('.').to_string()
+        } else {
+            s.into()
+        }
+    };
+    if !(-4..16).contains(&exp) {
+        out.push_str(&trim(&format!("{}.{}", &digits[..1], &digits[1..])));
+        out.push_str(&format!("e{}{:02}", if exp < 0 { '-' } else { '+' }, exp.abs()));
+        return out;
+    }
+    let fixed = if exp < 0 {
+        format!("0.{}{}", "0".repeat((-exp - 1) as usize), digits)
+    } else {
+        let point = (exp + 1) as usize;
+        format!("{}.{}", &digits[..point], &digits[point..])
+    };
+    let fixed = trim(&fixed);
+    out.push_str(&fixed);
+    if !fixed.contains('.') {
+        out.push_str(".0");
+    }
+    out
+}
+
+/// A string as Nim's `escapeJson` writes it.
+fn escape_nim(out: &mut String, s: &str) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\u{8}' => out.push_str("\\b"),
+            '\u{c}' => out.push_str("\\f"),
+            '\t' => out.push_str("\\t"),
+            '\u{b}' => out.push_str("\\u000b"),
+            '\r' => out.push_str("\\r"),
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
 }
 
 fn as_int(v: &Json, path: &str) -> Result<i128, JsonError> {
@@ -295,5 +532,127 @@ mod tests {
         assert!(from_json(&bad, Codepage::default()).is_err());
         let bad = json!({"__data_type": "GFF ", "B": {"type": "wat", "value": 1}});
         assert!(from_json(&bad, Codepage::default()).is_err());
+    }
+
+    /// Measured from nasher (`unpack --truncateFloats:32`, which leaves
+    /// these values as they are).
+    #[test]
+    fn floats_print_as_nasher_prints_them() {
+        for (v, text) in [
+            (1.5707942247390747, "1.570794224739075"),
+            (95.9779, "95.97790000000001"),
+            (0.1, "0.1"),
+            (1e20, "1e+20"),
+            (1e-5, "1e-05"),
+            (1e16, "1e+16"),
+            (1e17, "1e+17"),
+            (3.0, "3.0"),
+            (0.07, "0.07000000000000001"),
+            (123456789012345678.0, "1.234567890123457e+17"),
+            (1e-8, "1e-08"),
+            (2.5e-7, "2.5e-07"),
+            (0.0001, "0.0001"),
+            (-0.0, "-0.0"),
+            (12345678.0, "12345678.0"),
+            (1e15, "1000000000000000.0"),
+            (9.999999999999998e16, "9.999999999999998e+16"),
+            (100.0, "100.0"),
+            (0.3, "0.3"),
+        ] {
+            assert_eq!(g16_float(v), text, "{v:e}");
+        }
+    }
+
+    /// Measured from `nwn_gff -l json -k json -p` (Nim's float notation).
+    #[test]
+    fn floats_print_as_nim_prints_them() {
+        for (v, text) in [
+            (1e20, "1e+20"),
+            (1e16, "10000000000000000.0"),
+            (1e17, "1e+17"),
+            (1.5e17, "1.5e+17"),
+            (123456789012345678.0, "1.2345678901234568e+17"),
+            (9.999999999999998e16, "99999999999999980.0"),
+            (1e-5, "0.00001"),
+            (1e-7, "0.0000001"),
+            (2.5e-7, "0.00000025"),
+            (1e-8, "1e-8"),
+            (1.2345e-9, "1.2345e-9"),
+            (-1e-8, "-1e-8"),
+            (1.17549435e-38, "1.17549435e-38"),
+            (5e-324, "5e-324"),
+            (-0.0, "-0.0"),
+            (0.0, "0.0"),
+            (3.0, "3.0"),
+            (-123.5, "-123.5"),
+            (12345678.0, "12345678.0"),
+            (1.5707942247390747, "1.5707942247390747"),
+        ] {
+            assert_eq!(nim_float(v), text, "{v:e}");
+        }
+    }
+
+    #[test]
+    fn nasher_style_text() {
+        let j = json!({
+            "__data_type": "ARE ",
+            "b": {"type": "float", "value": 1.5707942247390747},
+            "A": {"type": "cexostring", "value": "a\u{1}\u{b}\u{e}\u{1b}\"\\/\n\té"},
+            "Bearing": {"type": "float", "value": -3.1415812969207764},
+            "L": {"type": "list", "value": []},
+            "E": {"type": "struct", "__struct_id": 0, "value": {}},
+            "W": {"type": "float", "value": -3.1415812969207764},
+            "I": {"type": "int", "value": -2},
+        });
+        let text = to_json_text(&j, TextStyle::NASHER);
+        assert_eq!(
+            text,
+            r#"{
+  "__data_type": "ARE ",
+  "A": {
+    "type": "cexostring",
+    "value": "a\u0001\u000b\u000E\u001B\"\\/\n\té"
+  },
+  "b": {
+    "type": "float",
+    "value": 1.5708
+  },
+  "Bearing": {
+    "type": "float",
+    "value": 3.1416
+  },
+  "E": {
+    "__struct_id": 0,
+    "type": "struct",
+    "value": {}
+  },
+  "I": {
+    "type": "int",
+    "value": -2
+  },
+  "L": {
+    "type": "list",
+    "value": []
+  },
+  "W": {
+    "type": "float",
+    "value": -3.1416
+  }
+}
+"#
+        );
+        // Unsorted and untruncated, as nwn_gff writes it.
+        let plain = to_json_text(&j, TextStyle::default());
+        assert!(plain.starts_with("{\n  \"__data_type\": \"ARE \",\n  \"b\": {"));
+        assert!(plain.contains("1.5707942247390747"));
+    }
+
+    #[test]
+    fn struct_ids_are_signed_as_in_nwn_gff() {
+        let mut g = Gff::new(*b"GFF ");
+        g.root.set("L", Value::List(vec![Struct::new(0xFFFF_FFFE)]));
+        let j = to_json(&g, Codepage::default()).unwrap();
+        assert_eq!(j["L"]["value"][0]["__struct_id"], -2);
+        assert_eq!(from_json(&j, Codepage::default()).unwrap(), g);
     }
 }

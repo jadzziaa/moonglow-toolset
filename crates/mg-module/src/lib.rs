@@ -14,6 +14,7 @@ pub mod factions;
 pub mod haks;
 pub mod instances;
 pub mod journal;
+pub mod nasher;
 pub mod new;
 pub mod palette;
 pub mod palette_add;
@@ -48,6 +49,8 @@ pub enum ModuleError {
     BadInfo(String),
     #[error("{0} is not a valid resource file name")]
     BadName(String),
+    #[error("{name}: {message}")]
+    Source { name: String, message: String },
 }
 
 fn io(path: &Path) -> impl FnOnce(std::io::Error) -> ModuleError + '_ {
