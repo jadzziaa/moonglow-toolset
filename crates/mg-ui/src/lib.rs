@@ -21,6 +21,7 @@ pub mod dialogs;
 pub mod faction_view;
 mod gff_view;
 pub mod hak_view;
+mod icons;
 mod images;
 pub mod journal_view;
 pub mod keys;
@@ -1254,6 +1255,8 @@ impl Moonglow {
         self.ws = Some(Workspace::new(m));
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
         self.open_palette = true;
+        // On the area's tiles: what a new module needs first.
+        self.palette.tiles = true;
         self.custom_tlk = None;
         self.load_custom_tlk();
         self.load_order_changed();

@@ -168,6 +168,11 @@ as Aurora's Terrain tab does:
 - The **Eraser** takes the crossers off a tile; with Shift + click it
   steps the tile through the other tiles that fit there.
 
+The cursor is green where a click paints and red where the tileset
+refuses it. It is blue where a click only chooses tiles again: a crosser
+clicked rather than dragged, the Eraser with Shift, and Shift + click on a
+corner of the brush's own terrain.
+
 Each stroke is one undoable step. Moonglow paints as Aurora does: the
 same strokes give the same tiles, heights and crossers.
 

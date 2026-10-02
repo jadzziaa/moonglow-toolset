@@ -534,11 +534,18 @@ fn next_quarter(path: &[((u32, u32), usize)], q: Spot) -> ((u32, u32), usize) {
     next.last().copied().unwrap_or((q.cell, q.edge))
 }
 
+/// The cursor's colour where a click chooses tiles again (steps through
+/// the tiles that fit) rather than paints: the blue of a blueprint about
+/// to be placed.
+pub const CYCLE: Color32 = Color32::from_rgb(120, 230, 255);
+
 /// The brush's cursor over the view: the square of tiles around the corner
 /// (red where the stroke would be refused), the tile for the Eraser, the
-/// quarters a crosser drag has passed.
+/// quarters a crosser drag has passed; blue ([`CYCLE`]) where a click
+/// chooses tiles again rather than paints.
 pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
-    let shapes = cursor(app, view);
+    let shift = ui.input(|i| i.modifiers.shift);
+    let shapes = cursor(app, view, shift);
     let painter = ui.painter_at(view.rect);
     for (points, color) in &shapes {
         let screen: Vec<Pos2> = points.iter().filter_map(|p| view.screen_pos(*p)).collect();
@@ -546,19 +553,21 @@ pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             painter.add(egui::Shape::closed_line(screen, Line::new(2.0, *color)));
         }
     }
-    view.brush_cursor = shapes.into_iter().map(|(points, _)| points).collect();
+    view.brush_cursor = shapes;
 }
 
-/// The brush's cursor ([`overlay`]): its outlines, on the ground.
-fn cursor(app: &mut Moonglow, view: &AreaView) -> Vec<(Vec<Vec3>, Color32)> {
+/// The brush's cursor ([`overlay`]), with Shift held or not: its outlines,
+/// on the ground, and their colours.
+fn cursor(app: &mut Moonglow, view: &AreaView, shift: bool) -> Vec<(Vec<Vec3>, Color32)> {
     let shapes = std::cell::RefCell::new(Vec::new());
-    cursor_shapes(app, view, &shapes);
+    cursor_shapes(app, view, shift, &shapes);
     shapes.into_inner()
 }
 
 fn cursor_shapes(
     app: &mut Moonglow,
     view: &AreaView,
+    shift: bool,
     shapes: &std::cell::RefCell<Vec<(Vec<Vec3>, Color32)>>,
 ) {
     let Some(brush) = active(app, view) else { return };
@@ -609,8 +618,10 @@ fn cursor_shapes(
     let Some(s) = view.spot else { return };
     match brush.brush {
         Brush::Crosser(_) => {
+            // Not dragged, a click chooses the tile again.
+            let color = if view.crossing.is_empty() { CYCLE } else { ok };
             let (cell, edge) = next_quarter(&view.crossing, s);
-            quarter(cell, edge, ok);
+            quarter(cell, edge, color);
         }
         Brush::Group(gi) => {
             let (st, _) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
@@ -650,10 +661,16 @@ fn cursor_shapes(
                 point(x + 1.0, y + 1.0, h),
                 point(x, y + 1.0, h),
             ];
-            polygon(&square, ok);
+            // Shift + click steps the tile through those that fit.
+            polygon(&square, if shift { CYCLE } else { ok });
         }
         _ => {
-            let (st, _) = stroke(tools, &g, &brush, s, false, false, 0);
+            // Shift + click on a corner of the brush's terrain steps the
+            // tiles around it through those that fit.
+            let cycle = shift
+                && matches!(brush.brush, Brush::Terrain(t)
+                    if g.lattice.corner(s.corner.0, s.corner.1).terrain == t);
+            let (st, _) = stroke(tools, &g, &brush, s, false, cycle, 0);
             let (x, y) = (s.corner.0 as f32, s.corner.1 as f32);
             let h = z(s.corner.0, s.corner.1) + 0.05;
             let square = [
@@ -662,7 +679,12 @@ fn cursor_shapes(
                 point(x + 0.5, y + 0.5, h),
                 point(x - 0.5, y + 0.5, h),
             ];
-            polygon(&square, if st.is_some() { ok } else { refused });
+            let color = match (st.is_some(), cycle) {
+                (false, _) => refused,
+                (true, true) => CYCLE,
+                (true, false) => ok,
+            };
+            polygon(&square, color);
         }
     }
 }

@@ -133,6 +133,7 @@ fn palette_hover_preview() {
     app.set_render_state(rs.clone());
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    app.palette.tiles = false;
     app.palette.filter = "plc_chest1".into();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
@@ -806,7 +807,7 @@ fn crosser_cursor() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    h.get_by_label("Tiles").click();
+    h.get_by_label("🗻 Tiles").click();
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: tile (1, 1) slopes up to its
     // west.
@@ -918,6 +919,7 @@ fn readme_screenshots() {
     h.run_steps(3);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    h.state_mut().palette.tiles = false;
     h.run_steps(5);
     {
         let view = h.state_mut().area_views.get_mut(&area).unwrap();

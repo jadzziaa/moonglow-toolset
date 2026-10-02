@@ -265,11 +265,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
     let mut view = std::mem::take(&mut app.palette);
     ui.horizontal_wrapped(|ui| {
-        if ui.selectable_label(view.tiles, "Tiles").on_hover_text("The area's tileset").clicked() {
+        use crate::icons::{TILES, blueprint, labelled};
+        let tiles = labelled(TILES, "Tiles");
+        if ui.selectable_label(view.tiles, tiles).on_hover_text("The area's tileset").clicked() {
             view.tiles = true;
         }
         for kind in BlueprintKind::ALL {
-            if ui.selectable_label(!view.tiles && view.kind == kind, kind.label()).clicked() {
+            let label = labelled(blueprint(kind), kind.label());
+            if ui.selectable_label(!view.tiles && view.kind == kind, label).clicked() {
                 view.kind = kind;
                 view.tiles = false;
             }

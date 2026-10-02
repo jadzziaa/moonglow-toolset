@@ -134,7 +134,7 @@ fn resources_open_in_their_editors() {
     h.run();
     // The area viewer, with its object filters.
     assert!(h.state().dock.find_tab(&Tab::Area(area.resref)).is_some());
-    h.get_by_label("Placeables");
+    h.get_by_label("⛲ Placeables");
 }
 
 #[test]
@@ -924,7 +924,7 @@ fn minimap_exported_and_object_walkmeshes_shown() {
     let area = ResRef::from_str("chess").unwrap();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     h.run();
-    h.get_by_label("Object Walkmeshes").click();
+    h.get_by_label("👣 Object Walkmeshes").click();
     h.run();
     assert!(h.state().area_views[&area].object_walkmesh);
 }
@@ -1693,6 +1693,7 @@ fn palette_edit_copy_and_delete() {
     // The standard waypoints: the "Tavern" waypoint (nw_wp_tavern).
     let tavern = app.game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    app.palette.tiles = false;
     app.palette.filter = "nw_wp_tavern".into();
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
@@ -1737,6 +1738,7 @@ fn finding_in_a_palette_opens_its_categories() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    app.palette.tiles = false;
     let tavern = app.game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
@@ -1781,6 +1783,7 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    app.palette.tiles = false;
     app.palette.custom = true;
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
@@ -2884,7 +2887,7 @@ fn area_properties_edit_the_area() {
         let ws = h.state_mut().ws.as_mut().unwrap();
         ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.clone()
     };
-    h.get_by_label("Area Properties").click();
+    h.get_by_label("ℹ Area Properties").click();
     h.run_steps(2);
     assert!(h.state().dock.find_tab(&Tab::AreaProperties(area)).is_some());
 
@@ -3398,7 +3401,7 @@ fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
     let Some((mut h, area)) = area_harness("crosser-cursor") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("Tiles").click();
+    h.get_by_label("🗻 Tiles").click();
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: ground well above the tiles'
     // own corners nearby.
@@ -3425,7 +3428,8 @@ fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
             h.hover_at(at);
             h.run_steps(3);
             let view = &h.state().area_views[&area];
-            let (Some(pointer), [triangle]) = (view.pointer, view.brush_cursor.as_slice()) else {
+            let (Some(pointer), [(triangle, _)]) = (view.pointer, view.brush_cursor.as_slice())
+            else {
                 continue;
             };
             if pointer.z < 4.0 {
@@ -3473,7 +3477,7 @@ fn area_viewer_paints_terrain() {
     // The Tiles palette: the area's tileset, its Terrain branch open.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("Tiles").click();
+    h.get_by_label("🗻 Tiles").click();
     h.run_steps(2);
     h.get_by_label("Water").click();
     h.run_steps(2);
@@ -3635,7 +3639,7 @@ fn area_viewer_selects_tiles_and_sets_their_properties() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap()[i].clone()
     };
-    h.get_by_label("Select Tiles").click();
+    h.get_by_label("⛶ Select Tiles").click();
     h.run_steps(2);
     // The room in the middle: tile (1, 1), index 5.
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
@@ -3737,7 +3741,7 @@ fn resize_and_rotate_area_from_the_edit_menu() {
 #[test]
 fn walkmesh_overlay_and_area_statistics() {
     let Some((mut h, area)) = area_harness("stats") else { return };
-    h.get_by_label("Walkmesh").click();
+    h.get_by_label("👣 Walkmesh").click();
     h.run_steps(3);
     assert!(h.state().area_views[&area].walkmesh);
     h.get_by_label("Build").click();
@@ -3767,7 +3771,7 @@ fn tiles_copy_and_paste() {
         let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
         are.root.list("Tile_List").unwrap()[i].clone()
     };
-    h.get_by_label("Select Tiles").click();
+    h.get_by_label("⛶ Select Tiles").click();
     h.run_steps(2);
     let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
         let at = screen(h, area, p);
@@ -3906,6 +3910,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Trigger;
+    app.palette.tiles = false;
     app.palette.custom = true;
     app.palette.filter = "mg_trig".into();
     let mut h = Harness::builder()
@@ -4010,6 +4015,7 @@ fn several_blueprints_are_edited_together() {
     app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    app.palette.tiles = false;
     app.palette.custom = true;
     app.palette.filter = "mg_box".into();
     let mut h = Harness::builder()
@@ -6157,6 +6163,7 @@ fn blueprints_drag_from_the_palette_into_the_area() {
     // The standard Tavern waypoint, in the palette beside the area.
     let tavern = h.state().game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    h.state_mut().palette.tiles = false;
     h.state_mut().palette.filter = "nw_wp_tavern".into();
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
@@ -6337,7 +6344,7 @@ fn the_start_location_shows_on_raised_ground() {
         (r.read(&ifo::MOD_ENTRY_AREA), r.read(&ifo::MOD_ENTRY_Z))
     };
     assert_eq!(stored(&mut h), (area, 0.0));
-    h.get_by_label("Go to Start Location").click();
+    h.get_by_label("🏃 Go to Start Location").click();
     h.run_steps(2);
     let target = h.state().area_views[&area].orbit.unwrap().target;
     assert!((target.z - 5.0).abs() < 0.5, "looks at the ground, not under it: {target}");
@@ -6702,6 +6709,8 @@ fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
     // The tree's default width, 240 points (give or take the separators).
     let w = palette_width(&h);
     assert!((w - 240.0).abs() <= 12.0, "the palette is {w} points wide");
+    // On the area's tiles.
+    assert!(h.state().palette.tiles);
     // With every tab closed, the palette comes back as the only pane.
     close_tab(h.state_mut(), &Tab::ModuleProperties);
     close_tab(h.state_mut(), &Tab::Palette);
@@ -6777,7 +6786,7 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("Tiles").click();
+    h.get_by_label("🗻 Tiles").click();
     h.run_steps(2);
     h.get_by_label("Water").click();
     h.run_steps(2);
@@ -6808,4 +6817,46 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
     assert_eq!(lattice(&mut h), before);
+}
+
+#[test]
+fn cursors_that_only_choose_tiles_again_are_blue() {
+    use glam::Vec3;
+    use mg_ui::terrain_mode::CYCLE;
+    let Some((mut h, area)) = area_harness("cycle-cursor") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    let colors = |h: &Harness<'_, Moonglow>| -> Vec<egui::Color32> {
+        h.state().area_views[&area].brush_cursor.iter().map(|(_, c)| *c).collect()
+    };
+    // A crosser's click chooses the tile again: blue; dragged, it paints.
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    let at = screen(&h, area, Vec3::new(13.0, 15.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(3);
+    assert_eq!(colors(&h), [CYCLE]);
+    press(&h, at, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for x in [16.0, 19.0, 22.0] {
+        h.hover_at(screen(&h, area, Vec3::new(x, 15.0, 0.0)));
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    assert!(!colors(&h).contains(&CYCLE), "{:?}", colors(&h));
+    let to = screen(&h, area, Vec3::new(22.0, 15.0, 0.0));
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    // The Eraser erases, and with Shift steps the tile through those that
+    // fit: blue then.
+    h.get_by_label("Eraser").click();
+    h.run_steps(2);
+    h.hover_at(at);
+    h.run_steps(3);
+    assert!(!colors(&h).contains(&CYCLE), "{:?}", colors(&h));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    h.run_steps(3);
+    assert_eq!(colors(&h), [CYCLE]);
 }
