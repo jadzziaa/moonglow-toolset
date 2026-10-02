@@ -179,6 +179,12 @@ only buy), Comments, and the **Inventory** in its store pages (Armor,
 Weapons, Potions & Scrolls, Rings & Amulets, Miscellaneous), each item
 optionally infinite.
 
+Wherever items are added from the item palette (a merchant's or a
+placeable's inventory, a creature's backpack), the item chosen in the
+palette is shown beside it before you add it: its icon, base item, cost,
+weight, damage or armor class, the level and Lore it needs, and its
+properties.
+
 ### Sounds
 
 Basic (the sounds, volume, **Play** and **Stop** to hear them),

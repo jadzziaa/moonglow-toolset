@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
 use mg_core::ResType;
 use mg_edit::GffPath;
 use mg_module::script_wizard::{ClassLevel, Lists, Perform};
@@ -236,6 +237,47 @@ fn blueprint_editors() {
             shoot(&mut h, &dir, &format!("{name}-{page_name}"));
         }
     }
+}
+
+#[test]
+#[ignore]
+fn store_chosen_item() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let (name, t) = ("nw_storebar01", ResType::UTM);
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    let game = app.game.as_ref().unwrap();
+    let data = game.resman.get_named(name, t).unwrap().into_owned();
+    // A magic armor: statistics and properties.
+    let armor = game.resman.get_named("nw_maarcl002", ResType::UTI).unwrap();
+    let armor = mg_gff::Gff::read(&armor).unwrap().root;
+    let armor = game.locstring(armor.locstring("LocalizedName").unwrap()).unwrap();
+    let mut m = mg_module::Module::new();
+    m.set(ResKey::parse(name, t).unwrap(), data);
+    let path = dir.join(format!("{name}-chosen.mod"));
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    app.open_module(&path);
+    let key = ResKey::parse(name, t).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().blueprint_pages.insert((key, GffPath::root()), "Inventory");
+    h.run_steps(3);
+    place(&mut h, &mg_ui::Tab::Blueprint(key), (20.0, 60.0), (1150.0, 800.0));
+    h.run_steps(3);
+    let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Find");
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
+    h.run_steps(2);
+    h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text("nw_maarcl002");
+    h.run_steps(3);
+    let row = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::Button && n.label().as_deref() == Some(armor.as_str())
+    };
+    h.get(egui_kittest::kittest::by().predicate(row)).click();
+    shoot(&mut h, &dir, "store-chosen-item");
 }
 
 #[test]

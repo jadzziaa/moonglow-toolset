@@ -78,11 +78,10 @@ fn strref(game: &GameData, v: Option<i32>) -> Option<String> {
 }
 
 /// The base item's statistics as Aurora shows them: (label, value).
-fn statistics(f: &Form<'_>) -> Vec<(&'static str, String)> {
-    let Some(game) = f.app.game.as_ref() else { return Vec::new() };
+pub(super) fn statistics(game: &GameData, item: &Struct) -> Vec<(&'static str, String)> {
     let Ok(t) = game.table("baseitems") else { return Vec::new() };
-    let row = base_row(f);
-    let value = ItemValue::from_gff(&f.root);
+    let row = item.integer("BaseItem").unwrap_or(0).max(0) as usize;
+    let value = ItemValue::from_gff(item);
     let cost = game.item_cost(&value);
     let mut out = vec![("Total Cost", cost.to_string())];
     let armor = game.is_armor(value.base_item);
@@ -212,7 +211,9 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
             egui::Grid::new(("uti-stats", f.key)).num_columns(2).spacing([12.0, 4.0]).show(
                 ui,
                 |ui| {
-                    for (label, value) in statistics(f) {
+                    for (label, value) in
+                        f.app.game.as_ref().map(|g| statistics(g, &f.root)).unwrap_or_default()
+                    {
                         ui.label(label);
                         ui.strong(value);
                         ui.end_row();

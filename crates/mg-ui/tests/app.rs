@@ -2056,6 +2056,11 @@ fn store_editor_stocks_prices_and_restricts() {
     };
     h.get(egui_kittest::kittest::by().predicate(sword)).click();
     h.run();
+    // The chosen item's statistics show before it is added.
+    h.get_by_label("Chosen in the palette");
+    h.get_by_label("Damage");
+    h.get_by_label("1d8");
+    h.get_by_label("19-20 / x2");
     h.get_by_label("Add Item").click();
     h.run();
     let after = weapons(&field(&mut h, &key));

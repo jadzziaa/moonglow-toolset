@@ -56,6 +56,92 @@ impl Form<'_> {
         own.or_else(|| names.get(&r).cloned()).unwrap_or_else(|| r.to_string())
     }
 
+    /// The item palette picker (see [`Form::palette_picker`]) with the chosen
+    /// item beside it ([`Form::chosen_item`]), or below it in a narrow column.
+    pub(super) fn item_picker(&mut self, ui: &mut Ui, add: &str) -> Option<ResRef> {
+        const TREE: f32 = 240.0;
+        if ui.available_width() < 2.0 * TREE {
+            let taken = self.palette_picker(ui, BlueprintKind::Item, add);
+            self.chosen_item(ui);
+            return taken;
+        }
+        ui.horizontal_top(|ui| {
+            let taken = ui
+                .vertical(|ui| {
+                    ui.set_width(TREE);
+                    self.palette_picker(ui, BlueprintKind::Item, add)
+                })
+                .inner;
+            ui.vertical(|ui| self.chosen_item(ui));
+            taken
+        })
+        .inner
+    }
+
+    /// The item chosen in the palette picker, for a look before adding it:
+    /// its icon, name, base item and statistics, and its properties.
+    pub(super) fn chosen_item(&mut self, ui: &mut Ui) {
+        let Some(resref) = self.palette_chosen(ui, BlueprintKind::Item) else { return };
+        let Some(item) = self.blueprint(BlueprintKind::Item, resref) else { return };
+        let icon = self.app.item_icon(ui.ctx(), &item);
+        let Some(game) = self.app.game.as_ref() else { return };
+        let name = item
+            .locstring("LocalizedName")
+            .and_then(|ls| game.locstring(ls))
+            .filter(|n| !n.is_empty())
+            .unwrap_or_else(|| resref.to_string());
+        let base = item.integer("BaseItem").unwrap_or(0).max(0) as usize;
+        let base_name = game
+            .table("baseitems")
+            .ok()
+            .and_then(|t| t.get_int(base, "Name"))
+            .and_then(|s| game.string(mg_core::StrRef(s as u32)))
+            .unwrap_or_default();
+        let stats = super::item::statistics(game, &item);
+        let properties: Vec<String> = item
+            .list("PropertiesList")
+            .unwrap_or(&[])
+            .iter()
+            .map(|p| game.property_text(&mg_rules::items::ItemProperty::from_gff(p)))
+            .collect();
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.weak("Chosen in the palette");
+            ui.horizontal_top(|ui| {
+                crate::images::icon_box(ui, &icon, ICON, &name);
+                ui.vertical(|ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.strong(&name);
+                        ui.weak(format!("{base_name} · {resref}"));
+                    });
+                    // Two statistics to a row where they fit.
+                    let per_row = if ui.available_width() >= 420.0 { 2 } else { 1 };
+                    egui::Grid::new(("chosen-item", self.key))
+                        .num_columns(4)
+                        .spacing([12.0, 2.0])
+                        .show(ui, |ui| {
+                            for pair in stats.chunks(per_row) {
+                                for (label, value) in pair {
+                                    ui.label(*label);
+                                    ui.strong(value);
+                                }
+                                ui.end_row();
+                            }
+                        });
+                });
+            });
+            if !properties.is_empty() {
+                ui.label("Properties");
+                for p in &properties {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add_space(8.0);
+                        ui.strong(p);
+                    });
+                }
+            }
+        });
+    }
+
     /// Where an inventory entry fits (a whole item's own base item, else
     /// its blueprint's).
     fn entry_fit(&mut self, entry: &Struct) -> ItemFit {

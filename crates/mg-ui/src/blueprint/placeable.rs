@@ -151,7 +151,7 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let mut edits = Vec::new();
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
-            add = f.palette_picker(ui, BlueprintKind::Item, "Add Item");
+            add = f.item_picker(ui, "Add Item");
             return;
         }
         let ctx = ui.ctx().clone();

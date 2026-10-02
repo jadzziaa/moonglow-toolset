@@ -557,6 +557,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             ui.set_width(240.0);
             add = f.palette_picker(ui, BlueprintKind::Item, "Add to Backpack");
             chosen = f.palette_chosen(ui, BlueprintKind::Item);
+            f.chosen_item(ui);
         });
         ui.separator();
         super::side_panel(ui, egui::Id::new(("utc-inventory", key)), |ui| {
