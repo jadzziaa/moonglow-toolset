@@ -167,3 +167,27 @@ fn textures_match_pillow() {
     assert!(count > 300);
     assert!(text.contains(&format!("compared {count} bad 0")), "{text}");
 }
+
+#[test]
+fn coloured_parts_take_the_plt_over_a_grey_tga_of_the_same_name() {
+    use mg_render::{Assets, colored_name};
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    // A dwarf's head is both a PLT and a plain grey TGA (or DDS).
+    let head = mg_core::ResRef::from_str("pmd0_head001").unwrap();
+    assert!(rm.get(&ResKey::new(head, ResType::PLT)).is_ok());
+    let (t, data) = rm.texture(head).expect("the plain texture is there too");
+    let grey = mg_image::read(t, &data).unwrap().to_rgba();
+    let skin = |c: u8| {
+        let mut colors = [0u8; 10];
+        colors[0] = c;
+        let t = Assets::texture(&rm, &colored_name("pmd0_head001", colors)).unwrap();
+        t.texture.to_rgba()
+    };
+    // In colours: the PLT, so the skin colour changes the head.
+    assert_ne!(skin(0).data, skin(10).data);
+    assert_ne!(skin(0).data, grey.data);
+    // Without colours, the plain texture as before.
+    let plain = Assets::texture(&rm, "pmd0_head001").unwrap().texture.to_rgba();
+    assert_eq!(plain.data, grey.data);
+}

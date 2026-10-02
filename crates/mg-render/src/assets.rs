@@ -63,12 +63,22 @@ impl Assets for ResMan {
         };
         let txi =
             self.get(&ResKey::new(image, ResType::TXI)).map(|d| Txi::parse(&d)).unwrap_or_default();
-        let texture = match self.texture(image) {
-            Some((t, data)) => mg_image::read(t, &data).ok()?,
-            None => {
-                let data = self.get(&ResKey::new(image, ResType::PLT)).ok()?;
-                plt_colored(self, &Plt::read(&data).ok()?, colors.unwrap_or([0; 10]))?
-            }
+        let plt = || {
+            let data = self.get(&ResKey::new(image, ResType::PLT)).ok()?;
+            plt_colored(self, &Plt::read(&data).ok()?, colors.unwrap_or([0; 10]))
+        };
+        let plain = || {
+            let (t, data) = self.texture(image)?;
+            mg_image::read(t, &data).ok()
+        };
+        // Asked for in colours (a creature's or an item's part), the PLT,
+        // as the game colours it: some parts have a plain grey TGA of the
+        // same name too (a dwarf's head, pmd0_head001). Otherwise, and
+        // through an MTR, the DDS or TGA first.
+        let texture = if colors.is_some() && mtr.is_none() {
+            plt().or_else(plain)?
+        } else {
+            plain().or_else(plt)?
         };
         Some(LoadedTexture { texture, txi, mtr })
     }
