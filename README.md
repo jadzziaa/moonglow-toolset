@@ -136,6 +136,10 @@ See [Command-line tools](docs/manual/11-command-line.md).
   licensing.
 - [Packaging](packaging/README.md): building the AppImage, Flatpak, Windows
   installer and macOS app.
+- [Findings](docs/findings.md): what building Moonglow taught us about
+  NWN:EE that wasn't documented (item values, challenge ratings, the
+  game's fog and lights, Aurora's terrain painting…), each checked against
+  the game, Aurora or tools, for other developers to use.
 - [Research notes](docs/research/): EE file formats, rendering, tilesets,
   models, shaders, prior art, and what builders want changed in Aurora.
 

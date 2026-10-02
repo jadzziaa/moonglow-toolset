@@ -97,7 +97,8 @@ game's. It stays.
 ## Not done
 
 - **Item costs:** `AddCost` past Aurora's limit wasn't changed. The game
-  uses the stored `Cost`, which Moonglow computes (`engine_item_cost.rs`).
+  prices a created item itself, as Moonglow computes the stored `Cost`
+  (`engine_item_cost.rs`).
 - **Custom shader effects:** custom shaders reading the shader parameters
   or area flags aren't drawn. Moonglow's renderer doesn't run custom
   shaders.

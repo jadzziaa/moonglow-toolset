@@ -64,9 +64,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Custom shader effects:** shader parameters and the extra area flags
   are saved and the game reads them. Moonglow's renderer doesn't run
   custom shaders, so they don't change what the area view shows. (L)
-- **Item costs:** Additional Cost keeps Aurora's limit. The game uses the
-  stored Cost, which Moonglow computes, so nothing seemed to need it. (S
-  to check)
+- **Item costs:** Additional Cost keeps Aurora's limit. The game prices a
+  created item itself, as Moonglow computes the stored Cost (see
+  [Findings](findings.md#created-items-are-priced-anew)), so nothing seemed
+  to need it. (S to check)
 - **The Classes page in a narrow window:** the second domain picker
   sits at the window's edge. (S)
 
