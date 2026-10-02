@@ -7197,3 +7197,60 @@ fn a_store_s_preview_lists_what_it_sells() {
     h.get_by_label("Blueprint ResRef");
     h.get_by_label_contains("Rings & Amulets (");
 }
+
+#[test]
+fn a_drag_previews_the_tiles_letting_go_paints() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("drag-preview") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    // Dragged along `path` (metres): before it is let go, the preview; let
+    // go, those very tiles.
+    let check = |h: &mut Harness<'_, Moonglow>, path: &[Vec3]| {
+        let before = grid(h);
+        let from = screen(h, area, path[0]);
+        h.hover_at(from);
+        press(h, from, true, egui::Modifiers::NONE);
+        h.run_steps(1);
+        for p in &path[1..] {
+            h.hover_at(screen(h, area, *p));
+            h.run_steps(1);
+        }
+        h.run_steps(2);
+        let shown = h.state().area_views[&area].tile_preview.clone();
+        assert!(!shown.is_empty(), "a preview while dragging");
+        assert_eq!(grid(h).tiles, before.tiles, "nothing painted yet");
+        let to = screen(h, area, *path.last().unwrap());
+        press(h, to, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+        let g = grid(h);
+        for t in &shown {
+            let placed = g.tile(t.column, t.row);
+            assert_eq!(
+                (i64::from(placed.tile), placed.orientation, placed.height),
+                (t.id, t.orientation, t.height),
+                "tile ({}, {})",
+                t.column,
+                t.row
+            );
+        }
+    };
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    check(&mut h, &[10.0, 15.0, 20.0, 25.0, 30.0].map(|x| Vec3::new(x, 20.0, 0.0)));
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    check(&mut h, &[7.0, 12.0, 18.0, 24.0, 25.0].map(|x| Vec3::new(x, 5.0, 0.0)));
+}

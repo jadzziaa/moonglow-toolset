@@ -224,6 +224,9 @@ fn next_tile(tools: &Tools, grid: &Grid, spot: Spot) -> Option<Stroke> {
     })
 }
 
+/// Cells a stroke changed, and their new tiles.
+type Changes = Vec<((u32, u32), Placement)>;
+
 /// Puts a stroke into the ARE as one command; `pick` chooses each cell's
 /// tile (at random among those that fit, if `None`).
 fn commit(
@@ -256,7 +259,7 @@ fn changes(
     stroke: Stroke,
     pick: Option<Placement>,
     seed: u64,
-) -> Vec<((u32, u32), Placement)> {
+) -> Changes {
     match pick {
         Some(p) => {
             let cell = stroke.cells[0];
@@ -306,23 +309,30 @@ fn click(
 }
 
 /// What a click would make of the tiles under the pointer (Shift held or
-/// not), to show before it: the changed tiles, as the area's with their new
-/// tile, and their indices. Nothing while a drag goes on, or for a click
-/// that changes nothing.
+/// not), or a drag going on if let go now, to show before it: the changed
+/// tiles, as the area's with their new tile, and their indices. Nothing
+/// for a stroke that changes nothing.
 pub(crate) fn preview(
     app: &mut Moonglow,
     view: &AreaView,
     shift: bool,
 ) -> Option<(Vec<mg_area::AreaTile>, Vec<usize>)> {
     let brush = active(app, view)?;
-    if !view.crossing.is_empty() || view.terrain_drag.is_some() {
-        return None;
-    }
-    let s = view.spot?;
     let mut g = current_grid(app, view)?;
     let (model, tools) = (view.model.as_ref()?, view.terrain.as_ref()?);
-    let (st, _, pick) = click(tools, &g, &brush, s, shift, false, view.group_turns);
-    let changed = changes(tools, &mut g, st?, pick, view.preview_seed);
+    let seed = view.preview_seed;
+    let changed = if let Some(drag) = &view.terrain_drag {
+        // A drag: what letting go now would paint.
+        let size = (model.width, model.height);
+        paint_corners(tools, &mut g, &brush, &drag.marked(), size, seed).0
+    } else if let (false, Brush::Crosser(c)) = (view.crossing.is_empty(), brush.brush) {
+        let st = crosser_stroke(tools, &g, crossing_shown(view), c);
+        changes(tools, &mut g, st?, None, seed)
+    } else {
+        let s = view.spot?;
+        let (st, _, pick) = click(tools, &g, &brush, s, shift, false, view.group_turns);
+        changes(tools, &mut g, st?, pick, seed)
+    };
     let (mut tiles, mut hidden) = (Vec::new(), Vec::new());
     for ((x, y), p) in changed {
         let i = (y * model.width + x) as usize;
@@ -473,17 +483,12 @@ pub(crate) fn input(
             }
             if response.drag_stopped() && !view.crossing.is_empty() {
                 view.crossing_at = None;
-                let mut edges = crossing_shown(view);
+                let edges = crossing_shown(view);
                 view.crossing.clear();
                 view.crossing_outline = None;
-                edges.dedup();
                 if let Some(g) = current_grid(app, view) {
                     let tools = view.terrain.as_ref().expect("checked");
-                    let s = if edges.len() > 1 {
-                        g.draw_crosser(&tools.index, &edges, &[], c)
-                    } else {
-                        g.draw_crosser(&tools.index, &[], &[edges[0].0], c)
-                    };
+                    let s = crosser_stroke(tools, &g, edges, c);
                     commit(app, view, g, s, &format!("Paint {}", brush.label), None);
                 }
             } else if response.clicked()
@@ -566,17 +571,54 @@ fn terrain_drag(
         return true;
     };
     let before = g.clone();
-    let mut rng = fastrand::Rng::new();
+    // The tiles the drag's preview showed; the next chooses anew.
+    let (changes, label, refused) =
+        paint_corners(tools, &mut g, brush, &drag.marked(), (w, h), view.preview_seed);
+    view.preview_seed = fastrand::u64(..);
+    tile_command(app, view, &before, &changes, &label);
+    view.notice = (refused > 0).then(|| format!("{label}: no tile fits at {refused} corners"));
+    true
+}
+
+/// A crosser drag's stroke along `edges` (its quarters), or for one
+/// quarter alone, the tile chosen again.
+fn crosser_stroke(
+    tools: &Tools,
+    g: &Grid,
+    mut edges: Vec<((u32, u32), usize)>,
+    c: mg_tiles::Crosser,
+) -> Option<Stroke> {
+    edges.dedup();
+    match edges.as_slice() {
+        [] => None,
+        [(cell, _)] => g.draw_crosser(&tools.index, &[], &[*cell], c),
+        _ => g.draw_crosser(&tools.index, &edges, &[], c),
+    }
+}
+
+/// A terrain drag's strokes, corner by corner in order, each on the tiles
+/// the last left, choosing among those that fit by `seed`: the cells
+/// changed and their new tiles, the command's label, and how many corners
+/// no tile fitted.
+fn paint_corners(
+    tools: &Tools,
+    g: &mut Grid,
+    brush: &TileBrush,
+    corners: &[(u32, u32)],
+    (w, h): (u32, u32),
+    seed: u64,
+) -> (Changes, String, usize) {
+    let mut rng = fastrand::Rng::with_seed(seed);
     let mut changed: Vec<(u32, u32)> = Vec::new();
     let (mut label, mut refused) = (format!("Paint {}", brush.label), 0);
-    for corner in drag.marked() {
+    for &corner in corners {
         let at = Vec3::new(
             corner.0 as f32 * mg_area::TILE_SIZE,
             corner.1 as f32 * mg_area::TILE_SIZE,
             0.0,
         );
         let Some(s) = spot(at, w, h) else { continue };
-        let (st, l) = stroke(tools, &g, brush, Spot { corner, ..s }, false, false, 0);
+        let (st, l) = stroke(tools, g, brush, Spot { corner, ..s }, false, false, 0);
         match st {
             Some(st) => {
                 label = l;
@@ -589,10 +631,8 @@ fn terrain_drag(
             None => refused += 1,
         }
     }
-    let changes: Vec<_> = changed.iter().map(|&(x, y)| ((x, y), g.tile(x, y))).collect();
-    tile_command(app, view, &before, &changes, &label);
-    view.notice = (refused > 0).then(|| format!("{label}: no tile fits at {refused} corners"));
-    true
+    let changes = changed.iter().map(|&(x, y)| ((x, y), g.tile(x, y))).collect();
+    (changes, label, refused)
 }
 
 /// The quarters a crosser drag has marked: its path, or with Shift the
