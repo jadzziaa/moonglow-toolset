@@ -18,8 +18,11 @@ Each is something Aurora does, then what Moonglow does instead.
 - **Windows only.** On Linux and macOS, Aurora runs through Wine, Proton
   or CrossOver, which an update can break. Moonglow runs natively on
   Linux, Windows and macOS.
-- **32-bit.** Aurora can run out of memory on big modules and areas.
-  Moonglow is 64-bit.
+- **32-bit.** Aurora can run out of memory on big modules and areas, and
+  doesn't read haks past 2 GB. Moonglow is 64-bit, and stays quick with
+  hundreds of areas, thousands of blueprints and dozens of haks. The game
+  itself doesn't read anything past 2 GiB into a hak, so Verify names what
+  a hak that size holds past the mark.
 - **Graphics crashes.** Aurora's area view uses OpenGL, which some graphics
   drivers and overlays crash. Moonglow's uses Vulkan, Metal or Direct3D 12.
   If the graphics card can't draw, only the area view and previews are

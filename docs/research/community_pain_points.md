@@ -110,8 +110,8 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 
 | Pain point | Signal | Evidence | Moonglow 0.2.0 |
 | --- | --- | --- | --- |
-| A 32-bit toolset: out of memory on big areas, a crash at the 152nd area, no haks over 2 GB | ●● | Beamdog 89094, 90400, 67054; nwn.wiki *Resource Limits* | ◐ 64-bit, but not yet tested with haks over 2 GB |
-| Inventories take 20–30 s to open with 2,500–8,000 item blueprints. Area Properties freezes with 200+ areas. | ●● | nwn-issues #368, #374 (both open); #438 | ◐ budgets are measured only on the official campaigns, not on persistent-world sizes |
+| A 32-bit toolset: out of memory on big areas, a crash at the 152nd area, no haks over 2 GB | ●● | Beamdog 89094, 90400, 67054; nwn.wiki *Resource Limits* | ✅ 64-bit; 300 areas tested. Over 2 GiB, the game itself can't read what a hak holds past the mark (`notes_scale.md`): Moonglow reads it as the game does, and the content doctor names it |
+| Inventories take 20–30 s to open with 2,500–8,000 item blueprints. Area Properties freezes with 200+ areas. | ●● | nwn-issues #368, #374 (both open); #438 | ✅ budgets on a synthetic persistent world (`notes_scale.md`): a store of 1,000 items opens in 0.7 s, Area Properties with 300 areas in 8 ms |
 | Build Module and saving are slow on large projects | ● | Beamdog 75035 p4; release notes 8186 and 8192 | ✅ Tyrants of the Moonsea compiles in 0.7 s and writes in 0.02 s |
 
 ### 2.3 Team work and version control
@@ -354,7 +354,8 @@ days, M is a week or two, L is longer.
   - the 152-area limit;
   - haks over 2 GB.
 
-  Moonglow should measure these (item 8), not assume them.
+  Moonglow should measure these (item 8), not assume them. Done:
+  `notes_scale.md`. The 2 GB limit turned out to be the game's too.
 - **Several Aurora bugs need a check in Moonglow before it claims to avoid
   them:**
   - MinRange ≥ 100 in the item appearance pickers (#658);

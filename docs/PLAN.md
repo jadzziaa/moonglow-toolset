@@ -493,7 +493,12 @@ surveyed after 0.2.0):
      (locals checked against the compiler's NDB for all 2,854,819
      compiled functions of the game's and shipped modules' scripts);
      incremental compiles not yet;
-   - budgets at persistent-world scale;
+   - budgets at persistent-world scale — done: a synthetic world of 300
+     areas, 8,000 item blueprints and 54 haks (`world_perf.rs`,
+     `docs/research/notes_scale.md`), every step well within budget;
+     the game reads nothing that starts past 2 GiB into a hak, nor does
+     Moonglow now, and the content doctor names it (`engine_big_hak.rs`);
+     Find opens palette and tree categories seen closed;
    - the EE fields Aurora hides;
    - bulk editing;
    - conversation authoring (node markers, import and export, play-through);
@@ -531,7 +536,10 @@ BioWare's own palettes contain.
 
 Performance budgets (checked in CI on Linux): index the base install, open the
 largest official campaign module, open and render its largest area, save it.
-Budgets are set from the first measurements and only tightened.
+Budgets are set from the first measurements and only tightened. Two
+ignored tests, run by hand, need the game and a GPU: `campaign_perf.rs`
+(the three largest campaigns) and `world_perf.rs` (a synthetic persistent
+world).
 
 ## 8. Licensing
 
