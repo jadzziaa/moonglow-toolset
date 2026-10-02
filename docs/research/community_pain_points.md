@@ -158,7 +158,7 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 
 | Pain point | Signal | Evidence | Moonglow 0.2.0 |
 | --- | --- | --- | --- |
-| No palette search; messy categories (CEP's long lists) | ●● | Steam "Toolset Search" (2021); Vault 7150, 7936; Radoub #2566 | ◐ Find filters by name and resref; no tag, fuzzy search or hover preview |
+| No palette search; messy categories (CEP's long lists) | ●● | Steam "Toolset Search" (2021); Vault 7150, 7936; Radoub #2566 | ✅ Find by name, resref and tag, close matches, a picture on hover, Favorites and Recent, dragging between categories |
 | Changed haks leave palettes blank or stale ("Refresh Palette" confusion) | ●● | nwn-issues #346; Vault 7765 | ◐ palettes are rebuilt from the module; no reload of changed haks |
 | Update Instances works on one blueprint at a time; no mass edit of blueprints | ●● | Beamdog 78962 (Winter's LOTR), 82940; SWLOR's store-sync script; Radoub #1318 | ✅ Update Instances for a selection or a whole palette category, editing several blueprints together, Find and Replace across the module's text |
 | No variable sets or templates | ● | Beamdog 69624 p2, 82940 | ✅ variable sets (Save Set, Add Set); blueprints are the templates |

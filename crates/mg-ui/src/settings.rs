@@ -105,6 +105,10 @@ pub struct Settings {
     /// The conversation editor's Scripts toggle off: lines don't show the
     /// names of their conditions, actions, journal updates and sounds.
     pub dialog_hide_scripts: bool,
+    /// The palettes' favorites (`utp:plc_chest1`), in the order added.
+    pub palette_favorites: Vec<String>,
+    /// The blueprints placed most recently, the last first.
+    pub palette_recent: Vec<String>,
     /// Options > Conversation Editor: NPC and player text colours (sRGB);
     /// `None`: Moonglow's red and blue.
     pub dialog_npc_color: Option<[u8; 3]>,

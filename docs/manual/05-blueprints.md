@@ -15,7 +15,23 @@ The palette pane (right) shows the blueprints by type:
 - **Custom**: the module's own blueprints, in the categories you give
   them.
 
-Choose a blueprint to place it in an area. The palette's buttons:
+Choose a blueprint to place it in an area, or drag it there. Hover over
+one to see its resref, tag and, for creatures, doors, items and
+placeables, a picture of it.
+
+**Find** (the box above the palette) shows the blueprints that have every
+word you type in their name, resref or tag, in any order (`chest secret`).
+When nothing has them all, it shows close matches instead, letters in
+order (`lngswd` finds Longsword).
+
+**Favorites** and **Recent** sit at the top of each palette: right-click a
+blueprint › **Add to Favorites**, and the last dozen you placed are
+remembered. Both are kept between sessions.
+
+Drag a custom blueprint onto another category of the custom palette to
+move it there.
+
+The palette's buttons:
 
 - **Edit**: open a custom blueprint in its editor (a double click does
   the same).

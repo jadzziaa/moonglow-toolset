@@ -1396,6 +1396,9 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
     }
 }
 
+/// How many blueprints the palette's Recent keeps.
+const RECENT: usize = 12;
+
 /// The palette's chosen blueprint, if it is one to place.
 fn brush(app: &Moonglow) -> Option<ResKey> {
     app.palette.selected.filter(|k| ObjectKind::from_restype(k.restype).is_some())
@@ -1454,6 +1457,12 @@ fn place(
     };
     app.actions.push(Action::Apply(Command::new(format!("Place {}", key.resref), vec![edit])));
     view.selection = vec![(kind, index)];
+    // Remembered in the palette's Recent, the last first.
+    let recent = &mut app.settings.palette_recent;
+    let r = crate::palette_view::remembered(key);
+    recent.retain(|x| *x != r);
+    recent.insert(0, r);
+    recent.truncate(RECENT);
 }
 
 /// Moves the camera's target along the ground: `by.x` to the right of the

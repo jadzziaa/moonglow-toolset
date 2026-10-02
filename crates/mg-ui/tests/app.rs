@@ -1236,6 +1236,93 @@ fn finding_in_a_palette_opens_its_categories() {
     h.get_by_label(&tavern);
 }
 
+#[test]
+fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
+    use mg_edit::{Command, Edit};
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette-more");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let game = app.game.as_ref().unwrap();
+    let base = Gff::read(&game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    // Gate A (tag MG_SECRET_GATE) in Waypoints, Gate B in Custom 1.
+    let keys: Vec<ResKey> = ["mg_gate_a", "mg_gate_b"]
+        .iter()
+        .map(|n| ResKey::parse(n, ResType::UTW).unwrap())
+        .collect();
+    let edits = keys
+        .iter()
+        .zip([("Gate A", "MG_SECRET_GATE", 5u8), ("Gate B", "MG_PLAIN", 0)])
+        .map(|(k, (name, tag, cat))| {
+            let mut g = base.clone();
+            g.root.set("TemplateResRef", mg_gff::Value::resref(k.resref));
+            let ls = LocString::from_text(Language::ENGLISH, Gender::Male, name);
+            g.root.set("LocalizedName", mg_gff::Value::LocString(ls));
+            g.root.set("Tag", mg_gff::Value::String(tag.as_bytes().to_vec()));
+            g.root.set("PaletteID", mg_gff::Value::Byte(cat));
+            Edit::SetResource { key: *k, data: Some(g.to_bytes().unwrap()) }
+        })
+        .collect();
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+    app.palette.custom = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Found by its tag, a word at a time.
+    h.state_mut().palette.filter = "secret gate".into();
+    h.run();
+    h.get_by_label("Gate A");
+    assert!(h.query_by_label("Gate B").is_none());
+    // Letters in order, when nothing has the words.
+    h.state_mut().palette.filter = "gtb".into();
+    h.run();
+    h.get_by_label("No exact matches: close ones");
+    h.get_by_label("Gate B");
+    assert!(h.query_by_label("Gate A").is_none());
+    // A favorite, shown first.
+    h.state_mut().palette.filter.clear();
+    h.run();
+    h.get_by_label("Gate A").click_secondary();
+    h.run();
+    h.get_by_label("Add to Favorites").click();
+    h.run();
+    assert_eq!(h.state().settings.palette_favorites, ["utw:mg_gate_a"]);
+    h.get_by_label("Favorites (1)");
+    // Dragged onto Custom 1, it moves there (one undoable step).
+    // (Finding opened the categories; they stay open.)
+    if h.query_by_label("Custom 1 (1)").is_none() {
+        h.get_by_label("Special").click();
+        h.run();
+    }
+    let from = h.get_all_by_label("★ Gate A").last().unwrap().rect().center();
+    let to = h.get_by_label("Custom 1 (1)").rect().center();
+    h.hover_at(from);
+    h.run();
+    h.drag_at(from);
+    h.run();
+    h.hover_at(from + egui::vec2(10.0, 4.0));
+    h.run();
+    h.hover_at(to);
+    h.run();
+    h.drop_at(to);
+    h.run();
+    h.run();
+    let category = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&keys[0]).unwrap().root.integer("PaletteID")
+    };
+    assert_eq!(category(&mut h), Some(0));
+    h.get_by_label("Custom 1 (2)");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(category(&mut h), Some(5));
+}
+
 /// A module with an edit copy of a standard blueprint, open in its editor
 /// (`None` without the game).
 fn blueprint_harness(
@@ -5412,6 +5499,11 @@ fn blueprints_drag_from_the_palette_into_the_area() {
     press(&h, to, false, modifiers);
     h.run_steps(3);
     assert_eq!(count(&mut h), 3, "{:?}", h.state().log.entries);
+    // Remembered in the palette's Recent.
+    assert_eq!(
+        h.state().settings.palette_recent.first().map(String::as_str),
+        Some("utw:nw_wp_tavern")
+    );
     let (x, y, _) = waypoint(&mut h, area, 2).unwrap();
     assert!((x - 25.0).abs() < 0.5 && (y - 25.0).abs() < 0.5, "dropped at {x}, {y}");
     // What was dropped moves at once, like anything else: dragged, not

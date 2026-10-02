@@ -22,6 +22,9 @@ use crate::{Action, Moonglow, Tab};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Dragged(pub(crate) ResKey);
 
+/// Blueprints' tags, by resref.
+type Tags = Arc<HashMap<ResRef, String>>;
+
 /// The palette pane's state.
 #[derive(Debug)]
 pub struct PaletteView {
@@ -34,6 +37,18 @@ pub struct PaletteView {
     /// Custom palettes, each built for a workspace revision.
     custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
     pub selected: Option<ResKey>,
+    /// The hovered blueprint's thumbnail, once rendered.
+    thumb: Option<(ResKey, Option<egui::TextureId>)>,
+    /// The last search's finds: (palette, search, revision), blueprints,
+    /// and how found.
+    #[allow(clippy::type_complexity)]
+    found: Option<(
+        (BlueprintKind, bool, String, Option<u64>),
+        Arc<std::collections::HashSet<ResRef>>,
+        Find,
+    )>,
+    /// Blueprints' tags, for Find: by palette (and module revision).
+    tags: HashMap<(BlueprintKind, bool), (Option<u64>, Tags)>,
     /// More custom blueprints chosen with Ctrl+click, for bulk edits (with
     /// `selected`).
     pub chosen: Vec<ResKey>,
@@ -64,6 +79,9 @@ impl Default for PaletteView {
             standard: HashMap::new(),
             custom_cache: HashMap::new(),
             selected: None,
+            thumb: None,
+            found: None,
+            tags: HashMap::new(),
             chosen: Vec::new(),
             tiles: false,
             tile_brush: None,
@@ -153,6 +171,79 @@ pub(crate) fn palette(
     view.custom_cache.get(&kind).map(|(_, p)| p.clone())
 }
 
+/// What a search finds in a palette, kept until the search, the palette
+/// or the module changes: the blueprints, and how (by words, or by letters
+/// in order when nothing has every word).
+fn found(
+    app: &mut Moonglow,
+    palette: &Palette,
+    kind: BlueprintKind,
+    custom: bool,
+    tags: &HashMap<ResRef, String>,
+) -> (Arc<std::collections::HashSet<ResRef>>, Find) {
+    let revision = app.ws.as_ref().map(|w| w.revision());
+    let key = (kind, custom, app.palette.filter.clone(), revision);
+    if let Some((k, f, find)) = &app.palette.found
+        && *k == key
+    {
+        return (f.clone(), find.clone());
+    }
+    let Some(game) = app.game.as_ref() else { return Default::default() };
+    let fields: Vec<(ResRef, [String; 3])> = palette
+        .blueprints()
+        .into_iter()
+        .map(|(_, b)| {
+            let tag = tags.get(&b.resref).map(|t| t.to_lowercase()).unwrap_or_default();
+            (b.resref, [b.name.text(game).to_lowercase(), b.resref.to_string(), tag])
+        })
+        .collect();
+    let mut find = Find::new(&app.palette.filter);
+    let search = |find: &Find| -> std::collections::HashSet<ResRef> {
+        fields.iter().filter(|(_, f)| find.hit(&[&f[0], &f[1], &f[2]])).map(|(r, _)| *r).collect()
+    };
+    let mut hits = search(&find);
+    if hits.is_empty() {
+        find.fuzzy = true;
+        hits = search(&find);
+    }
+    let hits = Arc::new(hits);
+    app.palette.found = Some((key, hits.clone(), find.clone()));
+    (hits, find)
+}
+
+/// The tags of a palette's blueprints (read from each once; for a custom
+/// palette, again after the module changes).
+fn tags(
+    app: &mut Moonglow,
+    palette: &Palette,
+    kind: BlueprintKind,
+    custom: bool,
+) -> Arc<HashMap<ResRef, String>> {
+    let revision = if custom { app.ws.as_ref().map(|w| w.revision()) } else { None };
+    if let Some((r, t)) = app.palette.tags.get(&(kind, custom))
+        && *r == revision
+    {
+        return t.clone();
+    }
+    let (Some(game), ws) = (app.game.as_ref(), app.ws.as_ref()) else { return Arc::default() };
+    let read = |r: ResRef| -> Option<String> {
+        let k = ResKey::new(r, kind.restype());
+        let data = ws
+            .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
+            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
+        let g = Gff::read(&data).ok()?;
+        Some(String::from_utf8_lossy(g.root.string("Tag")?).into_owned())
+    };
+    let tags: HashMap<ResRef, String> = palette
+        .blueprints()
+        .into_iter()
+        .filter_map(|(_, b)| Some((b.resref, read(b.resref)?)))
+        .collect();
+    let tags = Arc::new(tags);
+    app.palette.tags.insert((kind, custom), (revision, tags.clone()));
+    tags
+}
+
 enum Pick {
     Edit(ResKey),
     EditCopy(ResKey),
@@ -161,6 +252,10 @@ enum Pick {
     References(ResKey),
     UpdateInstances(Vec<ResKey>),
     EditTogether(Vec<ResKey>),
+    /// Into a custom category (its palette id).
+    MoveTo(ResKey, u8),
+    /// Added to (true) or removed from Favorites.
+    Favorite(ResKey, bool),
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
@@ -214,29 +309,72 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let kind = view.kind;
     app.palette = view;
     let shown = palette(app, kind, app.palette.custom);
-    let mut view = std::mem::take(&mut app.palette);
+    let view = std::mem::take(&mut app.palette);
     let Some(palette) = shown else {
         ui.label("No module open.");
         app.palette = view;
         return;
     };
-    let game = app.game.as_ref().expect("checked");
-
-    let filter = view.filter.to_lowercase();
     let custom = view.custom;
-    let mut picks = Vec::new();
-    let mut sel = Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) };
+    // Tags are read once a palette is searched (and shown on hover then).
+    let searching = !view.filter.trim().is_empty();
+    // (The caches are the palette state's: put back while they're used.)
+    app.palette = view;
+    let tags = if searching { tags(app, &palette, kind, custom) } else { Arc::default() };
+    let (found, find) = if searching {
+        let (f, find) = found(app, &palette, kind, custom, &tags);
+        (Some(f), find)
+    } else {
+        (None, Find::default())
+    };
+    let mut view = std::mem::take(&mut app.palette);
+    let game = app.game.as_ref().expect("checked");
+    let favorites = app.settings.palette_favorites.clone();
+    let recent = app.settings.palette_recent.clone();
+    let ext = kind.restype().extension().unwrap_or_default();
+    let mut tree = Tree {
+        game,
+        kind,
+        custom,
+        find: find.clone(),
+        found: found.as_deref(),
+        tags: &tags,
+        favorites: favorites
+            .iter()
+            .filter_map(|f| ResRef::from_str(f.strip_prefix(&format!("{ext}:"))?).ok())
+            .collect(),
+        thumb: view.thumb,
+        sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
+        picks: Vec::new(),
+        hovered: None,
+    };
+    if find.fuzzy {
+        ui.weak("No exact matches: close ones");
+    }
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        if find.is_empty() {
+            tree.remembered(ui, "Favorites", &favorites, &palette);
+            tree.remembered(ui, "Recent", &recent, &palette);
+        }
         for (i, node) in palette.nodes.iter().enumerate() {
-            show_node(ui, game, node, &filter, kind, custom, &mut sel, &mut picks, &[i]);
+            tree.node(ui, node, &[i]);
         }
     });
+    let (sel, picks, hovered) = (tree.sel, tree.picks, tree.hovered);
     if sel.selected.is_some() && sel.selected != view.selected {
         view.tile_brush = None;
     }
     view.selected = sel.selected;
     view.chosen = sel.chosen;
     app.palette = view;
+    // The hovered blueprint's picture, for its tooltip next frame.
+    if let Some(key) = hovered
+        && app.palette.thumb.is_none_or(|(k, _)| k != key)
+    {
+        let id = crate::model_view::thumbnail(app, key);
+        app.palette.thumb = Some((key, id));
+        ui.ctx().request_repaint();
+    }
 
     for pick in picks {
         match pick {
@@ -269,6 +407,32 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             Pick::References(key) => app.actions.push(Action::FindReferences(key)),
             Pick::UpdateInstances(keys) => app.update_instances_of(keys),
             Pick::EditTogether(keys) => app.actions.push(Action::OpenTab(Tab::Blueprints(keys))),
+            Pick::MoveTo(key, id) => {
+                let field = kind.palette_field();
+                let current = app
+                    .ws
+                    .as_mut()
+                    .and_then(|ws| ws.doc(&key).ok())
+                    .and_then(|g| g.root.integer(field));
+                if current.is_some_and(|c| c != i64::from(id)) {
+                    app.actions.push(Action::Apply(Command::new(
+                        format!("Move {} to another category", key.resref),
+                        vec![Edit::SetField {
+                            key,
+                            path: mg_edit::GffPath::root(),
+                            label: field.into(),
+                            value: Some(Value::Byte(id)),
+                        }],
+                    )));
+                }
+            }
+            Pick::Favorite(key, on) => {
+                let list = &mut app.settings.palette_favorites;
+                list.retain(|r| *r != remembered(key));
+                if on {
+                    list.push(remembered(key));
+                }
+            }
         }
     }
 }
@@ -306,148 +470,112 @@ fn all_under(node: &PaletteNode, kind: BlueprintKind, out: &mut Vec<ResKey>) {
     }
 }
 
-/// Whether a blueprint passes the filter.
-fn shown(b: &PaletteBlueprint, name: &str, filter: &str) -> bool {
-    filter.is_empty()
-        || name.to_lowercase().contains(filter)
-        || b.resref.to_string().contains(filter)
+/// A palette search: words, each found in a blueprint's name, resref or
+/// tag; or, when nothing has every word, letters in order (`lngswd` finds
+/// Longsword).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct Find {
+    words: Vec<String>,
+    pub(crate) fuzzy: bool,
 }
 
-/// Whether a node or anything under it passes the filter.
-fn any_shown(game: &mg_rules::GameData, node: &PaletteNode, filter: &str) -> bool {
-    filter.is_empty()
-        || node.blueprints.iter().any(|b| shown(b, &b.name.text(game), filter))
-        || node.children.iter().any(|c| any_shown(game, c, filter))
+impl Find {
+    fn new(filter: &str) -> Find {
+        Find { words: filter.split_whitespace().map(str::to_lowercase).collect(), fuzzy: false }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.words.is_empty()
+    }
+
+    /// Whether a blueprint with these (lower-case) fields matches.
+    fn hit(&self, fields: &[&str]) -> bool {
+        self.words.iter().all(|w| {
+            fields.iter().any(|f| if self.fuzzy { in_order(f, w) } else { f.contains(w.as_str()) })
+        })
+    }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn show_node(
-    ui: &mut egui::Ui,
-    game: &mg_rules::GameData,
-    node: &PaletteNode,
-    filter: &str,
+/// Whether `word`'s letters are in `text` in order.
+fn in_order(text: &str, word: &str) -> bool {
+    let mut t = text.chars();
+    word.chars().all(|c| t.any(|x| x == c))
+}
+
+/// What the palette tree is drawn with.
+struct Tree<'a> {
+    game: &'a mg_rules::GameData,
     kind: BlueprintKind,
     custom: bool,
-    sel: &mut Selection,
-    picks: &mut Vec<Pick>,
-    path: &[usize],
-) {
-    if !any_shown(game, node, filter) {
-        return;
+    find: Find,
+    /// The blueprints the search finds (`None`: no search).
+    found: Option<&'a std::collections::HashSet<ResRef>>,
+    tags: &'a HashMap<ResRef, String>,
+    /// This palette's favorites.
+    favorites: std::collections::HashSet<ResRef>,
+    /// The thumbnail ready for the blueprint hovered last frame.
+    thumb: Option<(ResKey, Option<egui::TextureId>)>,
+    sel: Selection,
+    picks: Vec<Pick>,
+    /// The blueprint hovered now.
+    hovered: Option<ResKey>,
+}
+
+/// A blueprint as Favorites and Recent remember it: `utp:plc_chest1`.
+pub(crate) fn remembered(key: ResKey) -> String {
+    format!("{}:{}", key.restype.extension().unwrap_or_default(), key.resref)
+}
+
+impl Tree<'_> {
+    fn shown(&self, b: &PaletteBlueprint) -> bool {
+        self.found.is_none_or(|f| f.contains(&b.resref))
     }
-    let count = node.blueprints.len();
-    let title = if count > 0 {
-        format!("{} ({count})", node.name.text(game))
-    } else {
-        node.name.text(game)
-    };
-    // Finding opens every category with a match, whatever was open before.
-    let shown = egui::CollapsingHeader::new(title)
-        .id_salt(("palette", kind, custom, path))
-        .open((!filter.is_empty()).then_some(true))
-        .show(ui, |ui| {
-            for (i, child) in node.children.iter().enumerate() {
-                let mut p = path.to_vec();
-                p.push(i);
-                show_node(ui, game, child, filter, kind, custom, sel, picks, &p);
-            }
-            for b in &node.blueprints {
-                let name = b.name.text(game);
-                if !shown(b, &name, filter) {
-                    continue;
+
+    /// Whether a node or anything under it passes the search.
+    fn any_shown(&self, node: &PaletteNode) -> bool {
+        self.found.is_none()
+            || node.blueprints.iter().any(|b| self.shown(b))
+            || node.children.iter().any(|c| self.any_shown(c))
+    }
+
+    fn node(&mut self, ui: &mut egui::Ui, node: &PaletteNode, path: &[usize]) {
+        if !self.any_shown(node) {
+            return;
+        }
+        let (game, kind, custom) = (self.game, self.kind, self.custom);
+        let count = node.blueprints.len();
+        let title = if count > 0 {
+            format!("{} ({count})", node.name.text(game))
+        } else {
+            node.name.text(game)
+        };
+        // Finding opens every category with a match, whatever was open before.
+        let shown = egui::CollapsingHeader::new(title)
+            .id_salt(("palette", kind, custom, path))
+            .open((!self.find.is_empty()).then_some(true))
+            .show(ui, |ui| {
+                for (i, child) in node.children.iter().enumerate() {
+                    let mut p = path.to_vec();
+                    p.push(i);
+                    self.node(ui, child, &p);
                 }
-                let key = ResKey::new(b.resref, kind.restype());
-                let label = match b.cr {
-                    Some(cr) => format!("{name}  (CR {cr})"),
-                    None => name,
-                };
-                // Dragged into an area view, it is placed where it is dropped.
-                let r = ui
-                    .add(
-                        egui::Button::selectable(sel.has(key), label)
-                            .sense(egui::Sense::click_and_drag()),
-                    )
-                    .on_hover_text(b.resref.to_string());
-                if r.clicked() {
-                    // Ctrl+click chooses several custom blueprints.
-                    if custom && ui.input(|i| i.modifiers.command) {
-                        if let Some(at) = sel.chosen.iter().position(|k| *k == key) {
-                            sel.chosen.remove(at);
-                        } else if sel.selected != Some(key) {
-                            sel.chosen.push(key);
-                        }
-                    } else {
-                        sel.selected = Some(key);
-                        sel.chosen.clear();
+                for b in &node.blueprints {
+                    if self.shown(b) {
+                        self.row(ui, b);
                     }
                 }
-                if r.drag_started() {
-                    r.dnd_set_drag_payload(Dragged(key));
-                }
-                if r.double_clicked() {
-                    picks.push(if custom { Pick::Edit(key) } else { Pick::Preview(key) });
-                }
-                r.context_menu(|ui| {
-                    if custom && ui.button("Edit").clicked() {
-                        picks.push(Pick::Edit(key));
-                        ui.close();
-                    }
-                    let keys = sel.bulk(key);
-                    if custom
-                        && keys.len() > 1
-                        && ui
-                            .button(format!("Edit {} Together", keys.len()))
-                            .on_hover_text("One editor: what you change is set on each")
-                            .clicked()
-                    {
-                        picks.push(Pick::EditTogether(keys));
-                        ui.close();
-                    }
-                    if ui
-                        .button("Edit Copy")
-                        .on_hover_text("Copy into the module's custom palette")
-                        .clicked()
-                    {
-                        picks.push(Pick::EditCopy(key));
-                        ui.close();
-                    }
-                    if crate::model_view::previewable(key.restype) && ui.button("Preview").clicked()
-                    {
-                        picks.push(Pick::Preview(key));
-                        ui.close();
-                    }
-                    if ui
-                        .button("Find References")
-                        .on_hover_text("Where the module places or names this blueprint")
-                        .clicked()
-                    {
-                        picks.push(Pick::References(key));
-                        ui.close();
-                    }
-                    if custom {
-                        let keys = sel.bulk(key);
-                        let text = match keys.len() {
-                            1 => "Update Instances".to_string(),
-                            n => format!("Update Instances of {n}"),
-                        };
-                        if ui
-                            .button(text)
-                            .on_hover_text("Make the objects placed from it again from it")
-                            .clicked()
-                        {
-                            picks.push(Pick::UpdateInstances(keys));
-                            ui.close();
-                        }
-                    }
-                    if custom && ui.button("Delete").clicked() {
-                        picks.push(Pick::Delete(key));
-                        ui.close();
-                    }
-                });
-            }
-        });
-    // A custom category: Update Instances of everything in it.
-    if custom {
+            });
+        if !custom {
+            return;
+        }
+        // A custom blueprint dropped on a category moves into it.
+        if let Some(id) = node.id
+            && let Some(d) = shown.header_response.dnd_release_payload::<Dragged>()
+            && d.0.restype == kind.restype()
+        {
+            self.picks.push(Pick::MoveTo(d.0, id));
+        }
+        // A custom category: Update Instances of everything in it.
         shown.header_response.context_menu(|ui| {
             let mut keys = Vec::new();
             all_under(node, kind, &mut keys);
@@ -456,16 +584,176 @@ fn show_node(
                 .on_hover_text("Every blueprint in this category")
                 .clicked()
             {
-                picks.push(Pick::UpdateInstances(keys));
+                self.picks.push(Pick::UpdateInstances(keys));
                 ui.close();
             }
         });
+    }
+
+    fn row(&mut self, ui: &mut egui::Ui, b: &PaletteBlueprint) {
+        // Rows out of sight take their room only (a palette may list
+        // thousands).
+        let height = ui.spacing().interact_size.y;
+        let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
+        if !ui.is_rect_visible(room) {
+            ui.allocate_space(egui::vec2(1.0, height));
+            return;
+        }
+        let (kind, custom) = (self.kind, self.custom);
+        let name = b.name.text(self.game);
+        let key = ResKey::new(b.resref, kind.restype());
+        let favorite = self.favorites.contains(&b.resref);
+        let label = match b.cr {
+            Some(cr) => format!("{name}  (CR {cr})"),
+            None => name.clone(),
+        };
+        let label = if favorite { format!("★ {label}") } else { label };
+        // Dragged into an area view, it is placed where it is dropped; onto
+        // a custom category, it moves there.
+        let r = ui.add(
+            egui::Button::selectable(self.sel.has(key), label).sense(egui::Sense::click_and_drag()),
+        );
+        if r.hovered() {
+            self.hovered = Some(key);
+        }
+        let thumb = self.thumb.filter(|(k, _)| *k == key).and_then(|(_, t)| t);
+        let tags = self.tags;
+        let r = r.on_hover_ui(|ui| {
+            ui.strong(&name);
+            ui.label(format!("ResRef {}", b.resref));
+            if let Some(t) = tags.get(&b.resref).filter(|t| !t.is_empty()) {
+                ui.label(format!("Tag {t}"));
+            }
+            if let Some(id) = thumb {
+                let size = crate::model_view::THUMBNAIL as f32;
+                ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
+            }
+        });
+        if r.clicked() {
+            // Ctrl+click chooses several custom blueprints.
+            let sel = &mut self.sel;
+            if custom && ui.input(|i| i.modifiers.command) {
+                if let Some(at) = sel.chosen.iter().position(|k| *k == key) {
+                    sel.chosen.remove(at);
+                } else if sel.selected != Some(key) {
+                    sel.chosen.push(key);
+                }
+            } else {
+                sel.selected = Some(key);
+                sel.chosen.clear();
+            }
+        }
+        if r.drag_started() {
+            r.dnd_set_drag_payload(Dragged(key));
+        }
+        if r.double_clicked() {
+            self.picks.push(if custom { Pick::Edit(key) } else { Pick::Preview(key) });
+        }
+        let (sel, picks) = (&self.sel, &mut self.picks);
+        r.context_menu(|ui| {
+            if custom && ui.button("Edit").clicked() {
+                picks.push(Pick::Edit(key));
+                ui.close();
+            }
+            let keys = sel.bulk(key);
+            if custom
+                && keys.len() > 1
+                && ui
+                    .button(format!("Edit {} Together", keys.len()))
+                    .on_hover_text("One editor: what you change is set on each")
+                    .clicked()
+            {
+                picks.push(Pick::EditTogether(keys));
+                ui.close();
+            }
+            if ui
+                .button("Edit Copy")
+                .on_hover_text("Copy into the module's custom palette")
+                .clicked()
+            {
+                picks.push(Pick::EditCopy(key));
+                ui.close();
+            }
+            if crate::model_view::previewable(key.restype) && ui.button("Preview").clicked() {
+                picks.push(Pick::Preview(key));
+                ui.close();
+            }
+            let text = if favorite { "Remove from Favorites" } else { "Add to Favorites" };
+            if ui.button(text).clicked() {
+                picks.push(Pick::Favorite(key, !favorite));
+                ui.close();
+            }
+            if ui
+                .button("Find References")
+                .on_hover_text("Where the module places or names this blueprint")
+                .clicked()
+            {
+                picks.push(Pick::References(key));
+                ui.close();
+            }
+            if custom {
+                let keys = sel.bulk(key);
+                let text = match keys.len() {
+                    1 => "Update Instances".to_string(),
+                    n => format!("Update Instances of {n}"),
+                };
+                if ui
+                    .button(text)
+                    .on_hover_text("Make the objects placed from it again from it")
+                    .clicked()
+                {
+                    picks.push(Pick::UpdateInstances(keys));
+                    ui.close();
+                }
+            }
+            if custom && ui.button("Delete").clicked() {
+                picks.push(Pick::Delete(key));
+                ui.close();
+            }
+        });
+    }
+
+    /// Favorites or Recent: the remembered blueprints this palette has, in
+    /// order.
+    fn remembered(&mut self, ui: &mut egui::Ui, title: &str, list: &[String], palette: &Palette) {
+        let ext = self.kind.restype().extension().unwrap_or_default();
+        let all = palette.blueprints();
+        let here: Vec<&PaletteBlueprint> = list
+            .iter()
+            .filter_map(|r| r.strip_prefix(&format!("{ext}:")))
+            .filter_map(|r| all.iter().find(|(_, b)| b.resref.to_string() == r).map(|(_, b)| *b))
+            .collect();
+        if here.is_empty() {
+            return;
+        }
+        egui::CollapsingHeader::new(format!("{title} ({})", here.len()))
+            .id_salt(("palette-remembered", title, self.kind, self.custom))
+            .default_open(true)
+            .show(ui, |ui| {
+                for b in here {
+                    self.row(ui, b);
+                }
+            });
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finds_words_anywhere_or_letters_in_order() {
+        let f = Find::new("Long  SWORD");
+        assert!(f.hit(&["longsword +1", "nw_wswls001", ""]));
+        assert!(f.hit(&["blade", "longsword", "sword_tag"]));
+        assert!(!f.hit(&["short sword", "nw_wswss001", ""]));
+        let mut f = Find::new("lngswd");
+        assert!(!f.hit(&["longsword", "", ""]));
+        f.fuzzy = true;
+        assert!(f.hit(&["longsword", "", ""]));
+        assert!(!f.hit(&["swordlong", "", ""]));
+        assert!(Find::new("  ").is_empty());
+    }
 
     #[test]
     fn copies_take_the_next_free_number() {

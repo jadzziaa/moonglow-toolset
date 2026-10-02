@@ -110,6 +110,35 @@ fn model_viewer() {
 
 #[test]
 #[ignore]
+fn palette_hover_preview() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-hover");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    app.palette.filter = "plc_chest1".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let chest = h.state().game.as_ref().unwrap().string(mg_core::StrRef(5348)).unwrap();
+    let at = h.get_all_by_label(&chest).next().unwrap().rect().center();
+    h.hover_at(at);
+    h.run_steps(30);
+    shoot(&mut h, &dir, "palette-hover");
+}
+
+#[test]
+#[ignore]
 fn blueprint_preview() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();

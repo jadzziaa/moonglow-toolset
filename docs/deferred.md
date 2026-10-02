@@ -59,9 +59,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   builds every item icon the first time it's shown. 449 icons take
   0.68 s; a page of thousands would take seconds. Laying out only the
   rows on screen would fix it. (S–M)
-- **Big palettes, all shown:** with 8,000–10,000 blueprints shown at once
-  a palette frame takes 13–16 ms. That's within budget, but skipping
-  off-screen rows would make it about 1 ms. (S)
 - **Where-used at scale:** one Find References takes 0.8 s in the
   persistent world, since it scans the module each time. An index kept
   up to date would make it instant. (M)
@@ -112,6 +109,17 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Articy:draft** isn't read; its JSON export could map like Twine. (M)
 - **Ink beyond the subset** (stitches, gathers, inline logic) is refused,
   not converted. (M)
+
+## Palettes
+
+- **Pictures for the rest:** sounds, triggers, encounters, stores and
+  waypoints have no picture on hover (they have no model); an icon or a
+  summary could stand in. (S)
+- **Favorites and Recent** are Moonglow's, not the module's: a custom
+  blueprint's favorite shows only in the module that has it. Per-module
+  lists could live beside the module. (S)
+- **Standard palette categories** can't be changed (the game's); only
+  custom blueprints move between categories, as in Aurora. (—)
 
 ## Release and packaging (v0.1.0)
 

@@ -521,7 +521,10 @@ surveyed after 0.2.0). What each item left undone is collected in
      and of Twine and Ink stories as new conversations, `mg dialog-export`
      and `mg dialog-import`; all 2,854 shipped conversations survive a round
      trip (`dialog_formats.rs`); spell checking deferred;
-   - palette search.
+   - palette search — done: words in name, resref or tag, letters in order
+     when nothing matches; a picture and the tag on hover (rendered once
+     each); Favorites and Recent; custom blueprints dragged between
+     categories; rows out of sight skipped (10,000 shown: 2.5 ms a frame).
 3. Tier 3, later:
    - 2DA and TLK editing;
    - haks in the GUI;

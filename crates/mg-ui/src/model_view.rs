@@ -524,3 +524,94 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
     }
     app.model_views.insert(key, view);
 }
+
+/// Pictures of blueprints as they look (the palette's hover preview),
+/// rendered once each and kept until the module changes.
+#[derive(Default)]
+pub struct Thumbnails {
+    revision: Option<u64>,
+    made: HashMap<ResKey, Option<(Targets, egui::TextureId)>>,
+}
+
+impl std::fmt::Debug for Thumbnails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Thumbnails").field("made", &self.made.len()).finish()
+    }
+}
+
+/// How large thumbnails are drawn, in pixels.
+pub(crate) const THUMBNAIL: u32 = 160;
+
+/// At most this many kept; past it, the oldest are let go.
+const THUMBNAILS_KEPT: usize = 96;
+
+/// A blueprint's thumbnail (`None`: no GPU, or nothing to draw).
+pub(crate) fn thumbnail(app: &mut Moonglow, key: ResKey) -> Option<egui::TextureId> {
+    let revision = app.ws.as_ref().map(Workspace::revision);
+    if app.thumbnails.revision != revision || app.thumbnails.made.len() > THUMBNAILS_KEPT {
+        let old = std::mem::take(&mut app.thumbnails.made);
+        if let Some(vp) = &app.viewport {
+            let mut r = vp.render_state.renderer.write();
+            for (_, id) in old.into_values().flatten() {
+                r.free_texture(&id);
+            }
+        }
+        app.thumbnails.revision = revision;
+    }
+    if let Some(made) = app.thumbnails.made.get(&key) {
+        return made.as_ref().map(|(_, id)| *id);
+    }
+    let made = render_thumbnail(app, key);
+    let id = made.as_ref().map(|(_, id)| *id);
+    app.thumbnails.made.insert(key, made);
+    id
+}
+
+fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::TextureId)> {
+    if !matches!(key.restype, ResType::UTC | ResType::UTD | ResType::UTI | ResType::UTP) {
+        return None;
+    }
+    if let Some(ws) = app.ws.as_mut() {
+        let _ = ws.flush();
+    }
+    let source = Source::Resource(key);
+    let preview = preview_of(app, &source).ok()?;
+    let composed = compose(app, &source, &preview).ok()?;
+    let vp = app.viewport.as_mut()?;
+    // As the viewer frames it: from the front, a little to the side.
+    let (min, max) = composed.bounds();
+    let target = (min + max) * 0.5;
+    let radius = ((max - min).length() * 0.5).max(0.1);
+    let distance = radius / 20f32.to_radians().sin() * 1.1;
+    let camera = Camera::orbit(target, distance, 60f32.to_radians(), 20f32.to_radians());
+    let scene = Scene {
+        instances: composed.instances(composed.idle.as_deref(), 0.0, Mat4::IDENTITY),
+        lights: composed.point_lights(Mat4::IDENTITY),
+        area: AreaLight::default(),
+        background: [0.16, 0.18, 0.21],
+        ..Default::default()
+    };
+    let size = THUMBNAIL;
+    let targets = Targets::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, size, size);
+    let resman = app.game.as_ref().map(|g| &g.resman);
+    let assets: &dyn mg_render::Assets = match resman {
+        Some(rm) => rm,
+        None => &mg_render::NoAssets,
+    };
+    vp.renderer.render(
+        &vp.gpu,
+        assets,
+        &scene,
+        &camera,
+        targets.render_view(),
+        targets.resolve_view(),
+        &targets.depth,
+        (size, size),
+    );
+    let id = vp.render_state.renderer.write().register_native_texture(
+        &vp.gpu.device,
+        &targets.color_view,
+        wgpu::FilterMode::Linear,
+    );
+    Some((targets, id))
+}

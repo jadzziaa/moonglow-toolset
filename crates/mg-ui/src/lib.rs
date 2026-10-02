@@ -217,6 +217,8 @@ pub struct Moonglow {
     pub script_wizard: Option<script_wizard::ScriptWizard>,
     /// The GPU for 3D views (from the window), if there is one.
     pub viewport: Option<model_view::Viewport3d>,
+    /// The palette's hover previews.
+    pub(crate) thumbnails: model_view::Thumbnails,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
@@ -364,6 +366,7 @@ impl Moonglow {
             new_script: None,
             script_wizard: None,
             viewport: None,
+            thumbnails: Default::default(),
             model_views: HashMap::new(),
             area_views: HashMap::new(),
             adjust: None,

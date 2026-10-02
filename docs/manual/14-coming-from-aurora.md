@@ -114,8 +114,10 @@ Moonglow's own.
   in all of them, including scripts with unsaved edits.
 - **Compiler messages**: click one to go to its line, also when the line
   is in an include.
-- **Palette search**: the **Find** box above a palette filters it by name
-  or resref.
+- **Palette search**: the **Find** box above a palette finds blueprints by
+  name, resref or tag, and close matches when nothing matches exactly;
+  hover for a picture; Favorites and Recent at the top; drag custom
+  blueprints between categories.
 - **Edit › Find Instance…** lists the objects placed across the whole
   module. Double-click one to go to it.
 - **Tile variants**: Shift + right click steps the tile under the pointer
