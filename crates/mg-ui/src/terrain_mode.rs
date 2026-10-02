@@ -430,20 +430,47 @@ fn pass(path: &mut Vec<((u32, u32), usize)>, q: Spot) {
 /// The brush's cursor over the view: the square of tiles around the corner
 /// (red where the stroke would be refused), the tile for the Eraser, the
 /// quarters a crosser drag has passed.
-pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView) {
+pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
+    let shapes = cursor(app, view);
+    let painter = ui.painter_at(view.rect);
+    for (points, color) in &shapes {
+        let screen: Vec<Pos2> = points.iter().filter_map(|p| view.screen_pos(*p)).collect();
+        if screen.len() == points.len() {
+            painter.add(egui::Shape::closed_line(screen, Line::new(2.0, *color)));
+        }
+    }
+    view.brush_cursor = shapes.into_iter().map(|(points, _)| points).collect();
+}
+
+/// The brush's cursor ([`overlay`]): its outlines, on the ground.
+fn cursor(app: &mut Moonglow, view: &AreaView) -> Vec<(Vec<Vec3>, Color32)> {
+    let shapes = std::cell::RefCell::new(Vec::new());
+    cursor_shapes(app, view, &shapes);
+    shapes.into_inner()
+}
+
+fn cursor_shapes(
+    app: &mut Moonglow,
+    view: &AreaView,
+    shapes: &std::cell::RefCell<Vec<(Vec<Vec3>, Color32)>>,
+) {
     let Some(brush) = active(app, view) else { return };
     let (Some(model), Some(tools)) = (view.model.as_ref(), view.terrain.as_ref()) else { return };
-    let painter = ui.painter_at(view.rect);
     let step = model.height_step;
     let Some(g) = grid_of(app, view) else { return };
     let z = |x: u32, y: u32| g.lattice.corner(x, y).height as f32 * step;
     let point =
         |x: f32, y: f32, z: f32| Vec3::new(x * mg_area::TILE_SIZE, y * mg_area::TILE_SIZE, z);
+    // On the ground (some tilesets build theirs above the tiles' heights,
+    // and slopes and cliffs are not at a corner's): each point's height
+    // taken a little inside the shape, so a cliff's edge takes this side's.
     let polygon = |points: &[Vec3], color: Color32| {
-        let screen: Vec<Pos2> = points.iter().filter_map(|p| view.screen_pos(*p)).collect();
-        if screen.len() == points.len() {
-            painter.add(egui::Shape::closed_line(screen, Line::new(2.0, color)));
-        }
+        let middle = points.iter().copied().sum::<Vec3>() / points.len().max(1) as f32;
+        let on_ground = points
+            .iter()
+            .map(|p| p.truncate().extend(view.ground_height(p.lerp(middle, 0.02)) + 0.05))
+            .collect();
+        shapes.borrow_mut().push((on_ground, color));
     };
     let quarter = |(cx, cy): (u32, u32), edge: usize, color: Color32| {
         let (x, y) = (cx as f32, cy as f32);

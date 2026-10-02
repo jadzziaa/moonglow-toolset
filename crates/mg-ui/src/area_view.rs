@@ -173,7 +173,10 @@ pub struct AreaView {
     /// degrees.
     snap: (Option<f32>, Option<f32>),
     /// The ground point under the pointer, shown in the corner.
-    pointer: Option<Vec3>,
+    pub pointer: Option<Vec3>,
+    /// The tileset brush's cursor as the last frame drew it: its shapes'
+    /// points on the ground.
+    pub brush_cursor: Vec<Vec<Vec3>>,
     /// A trigger or encounter whose outline is being drawn anew.
     pub redraw: Option<(ObjectKind, usize)>,
     /// The Create Set window's name, while it is open.
@@ -240,6 +243,7 @@ impl AreaView {
             menu_at: None,
             snap: (None, None),
             pointer: None,
+            brush_cursor: Vec::new(),
             redraw: None,
             set_name: None,
             targets: None,
@@ -301,6 +305,20 @@ impl AreaView {
     pub(crate) fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
         let ray = self.ray(pos)?;
         self.ground.as_ref().and_then(|g| g.hit(&ray)).or_else(|| ray.at_height(z))
+    }
+
+    /// The ground's height at `p` (on its walkmesh, nearest the level of
+    /// the tile `p` is in), else `p`'s own: where the brushes' cursors are
+    /// drawn, so that they lie on the ground the pointer picks.
+    pub(crate) fn ground_height(&self, p: Vec3) -> f32 {
+        let Some(g) = &self.ground else { return p.z };
+        let index = self.model.as_ref().and_then(|m| {
+            let (x, y) = ((p.x / TILE_SIZE).floor(), (p.y / TILE_SIZE).floor());
+            let inside = x >= 0.0 && y >= 0.0 && (x as u32) < m.width && (y as u32) < m.height;
+            inside.then(|| (y as u32 * m.width + x as u32) as usize)
+        });
+        let near = index.and_then(|i| g.tile_level(i)).unwrap_or(p.z);
+        g.height(p.truncate(), near).unwrap_or(near)
     }
 
     /// Where an object moved by `offset` stands: at the same height above

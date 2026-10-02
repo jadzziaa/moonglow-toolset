@@ -3388,6 +3388,58 @@ fn placed_chest_holds_whole_items() {
 }
 
 #[test]
+fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("crosser-cursor") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("Tiles").click();
+    h.run_steps(2);
+    // Corners (1, 1) and (1, 2) raised twice: ground well above the tiles'
+    // own corners nearby.
+    h.get_by_label("Raise/Lower").click();
+    h.run_steps(2);
+    for corner in [(10.0, 10.0), (10.0, 20.0)] {
+        for _ in 0..2 {
+            let at = screen(&h, area, Vec3::new(corner.0, corner.1, 0.0));
+            h.hover_at(at);
+            press(&h, at, true, egui::Modifiers::NONE);
+            press(&h, at, false, egui::Modifiers::NONE);
+            h.run_steps(3);
+        }
+    }
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    // Wherever the pointer rests on raised ground, the quarter drawn for it
+    // lies on that ground.
+    let rect = h.state().area_views[&area].rect;
+    let mut checked = 0;
+    for i in 1..12 {
+        for j in 1..12 {
+            let at = rect.min + rect.size() * egui::vec2(i as f32 / 12.0, j as f32 / 12.0);
+            h.hover_at(at);
+            h.run_steps(3);
+            let view = &h.state().area_views[&area];
+            let (Some(pointer), [triangle]) = (view.pointer, view.brush_cursor.as_slice()) else {
+                continue;
+            };
+            if pointer.z < 4.0 {
+                continue;
+            }
+            // (Its corners may stand lower or higher on a slope or a cliff;
+            // drawn at the tile corners' lattice heights, it was 10 m off.)
+            let mean = triangle.iter().map(|p| p.z).sum::<f32>() / 3.0;
+            assert!(
+                (mean - pointer.z).abs() < 5.0,
+                "the pointer at {at:?} is on the ground at {pointer}, the cursor at {triangle:?}"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "no point on raised ground was found");
+}
+
+#[test]
 fn area_viewer_paints_terrain() {
     use glam::Vec3;
     use mg_tiles::TileIndex;
