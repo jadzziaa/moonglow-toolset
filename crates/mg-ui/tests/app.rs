@@ -6831,13 +6831,14 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     let colors = |h: &Harness<'_, Moonglow>| -> Vec<egui::Color32> {
         h.state().area_views[&area].brush_cursor.iter().map(|(_, c)| *c).collect()
     };
-    // A crosser's click chooses the tile again: blue; dragged, it paints.
+    // A crosser over grass: a drag from there lays it, green.
+    let green = egui::Color32::from_rgb(80, 220, 80);
     h.get_by_label("Road").click();
     h.run_steps(2);
     let at = screen(&h, area, Vec3::new(13.0, 15.0, 0.0));
     h.hover_at(at);
     h.run_steps(3);
-    assert_eq!(colors(&h), [CYCLE]);
+    assert_eq!(colors(&h), [green]);
     press(&h, at, true, egui::Modifiers::NONE);
     h.run_steps(1);
     for x in [16.0, 19.0, 22.0] {
@@ -6849,6 +6850,10 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     let to = screen(&h, area, Vec3::new(22.0, 15.0, 0.0));
     press(&h, to, false, egui::Modifiers::NONE);
     h.run_steps(3);
+    // Over the road it laid, a click only chooses the tile again: blue.
+    h.hover_at(screen(&h, area, Vec3::new(19.0, 15.0, 0.0)));
+    h.run_steps(3);
+    assert_eq!(colors(&h), [CYCLE]);
     // The Eraser erases, and with Shift steps the tile through those that
     // fit: blue then.
     h.get_by_label("🗑 Eraser").click();

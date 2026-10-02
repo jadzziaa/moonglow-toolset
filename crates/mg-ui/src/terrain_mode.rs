@@ -840,12 +840,15 @@ fn cursor_shapes(
     }
     let Some(s) = view.spot else { return };
     match brush.brush {
-        Brush::Crosser(_) => {
-            // Not dragged, a click chooses the tile again.
+        Brush::Crosser(c) => {
             // (With Shift, the outline is the drag's.)
             if view.crossing_outline.is_none() {
-                let color = if view.crossing.is_empty() { CYCLE } else { ok };
                 let (cell, edge) = next_quarter(&view.crossing, s);
+                // Before a drag, over a quarter the crosser already crosses,
+                // a click only chooses the tile again; elsewhere a drag from
+                // here lays it.
+                let there = g.lattice.cell(cell.0, cell.1).edges[edge] == Some(c);
+                let color = if view.crossing.is_empty() && there { CYCLE } else { ok };
                 quarter(cell, edge, color);
             }
         }
