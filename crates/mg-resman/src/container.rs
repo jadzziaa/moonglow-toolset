@@ -32,6 +32,21 @@ pub trait Container: Send + Sync + fmt::Debug {
     fn rescan(&mut self) -> Result<(), ResError> {
         Ok(())
     }
+    /// A number that changes when what the container reads changes on
+    /// disk (an archive written again; files added, removed or changed in
+    /// a folder); 0 for containers that don't change.
+    fn fingerprint(&self) -> u64 {
+        0
+    }
+}
+
+/// Hashes a file's size and modification time into `h`.
+fn hash_file(h: &mut impl std::hash::Hasher, meta: &std::fs::Metadata) {
+    use std::hash::Hash;
+    meta.len().hash(h);
+    if let Ok(t) = meta.modified() {
+        t.hash(h);
+    }
 }
 
 #[allow(unsafe_code)]
@@ -148,6 +163,14 @@ impl Container for ErfContainer {
         *self = ErfContainer::open(&self.path)?;
         Ok(())
     }
+
+    fn fingerprint(&self) -> u64 {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        if let Ok(meta) = std::fs::metadata(&self.path) {
+            hash_file(&mut h, &meta);
+        }
+        std::hash::Hasher::finish(&h).max(1)
+    }
 }
 
 /// A directory of loose files named `resref.ext` (override, development,
@@ -209,6 +232,21 @@ impl Container for DirContainer {
     fn rescan(&mut self) -> Result<(), ResError> {
         DirContainer::rescan(self);
         Ok(())
+    }
+
+    fn fingerprint(&self) -> u64 {
+        use std::hash::Hash;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        if let Ok(rd) = std::fs::read_dir(&self.path) {
+            let mut files: Vec<(std::ffi::OsString, std::fs::Metadata)> =
+                rd.flatten().filter_map(|e| Some((e.file_name(), e.metadata().ok()?))).collect();
+            files.sort_by(|a, b| a.0.cmp(&b.0));
+            for (name, meta) in files {
+                name.hash(&mut h);
+                hash_file(&mut h, &meta);
+            }
+        }
+        std::hash::Hasher::finish(&h).max(1)
     }
 }
 

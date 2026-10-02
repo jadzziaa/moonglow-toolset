@@ -125,6 +125,8 @@ pub struct Layer {
     pub priority: u32,
     pub class: LayerClass,
     pub container: Box<dyn Container>,
+    /// The container's [`Container::fingerprint`] when it was last read.
+    pub fingerprint: u64,
 }
 
 /// A stack of layers, highest priority first.
@@ -154,8 +156,11 @@ impl ResMan {
     ) {
         let at =
             self.layers.iter().position(|l| l.priority < priority).unwrap_or(self.layers.len());
-        self.layers
-            .insert(at, Layer { label: label.into(), priority, class, container: Box::new(c) });
+        let fingerprint = c.fingerprint();
+        self.layers.insert(
+            at,
+            Layer { label: label.into(), priority, class, container: Box::new(c), fingerprint },
+        );
     }
 
     /// Removes and returns the layer with this label.
@@ -178,6 +183,7 @@ impl ResMan {
         c: impl Container + 'static,
     ) -> Option<Box<dyn Container>> {
         let layer = self.layer_mut(label)?;
+        layer.fingerprint = c.fingerprint();
         Some(std::mem::replace(&mut layer.container, Box::new(c)))
     }
 
@@ -186,9 +192,38 @@ impl ResMan {
     /// `Ok(false)`: no layer has this label.
     pub fn rescan(&mut self, label: &str) -> Result<bool, ResError> {
         match self.layer_mut(label) {
-            Some(l) => l.container.rescan().map(|()| true),
+            Some(l) => {
+                l.container.rescan()?;
+                l.fingerprint = l.container.fingerprint();
+                Ok(true)
+            }
             None => Ok(false),
         }
+    }
+
+    /// The layers whose files changed on disk since they were read: haks
+    /// written again, files added, removed or changed in a folder.
+    pub fn changed_layers(&self, which: impl Fn(&Layer) -> bool) -> Vec<String> {
+        self.layers
+            .iter()
+            .filter(|l| {
+                which(l) && l.fingerprint != 0 && l.container.fingerprint() != l.fingerprint
+            })
+            .map(|l| l.label.clone())
+            .collect()
+    }
+
+    /// Reads the [`changed_layers`](Self::changed_layers) among `which`
+    /// again; returns their labels.
+    pub fn reload_changed(
+        &mut self,
+        which: impl Fn(&Layer) -> bool,
+    ) -> Result<Vec<String>, ResError> {
+        let changed = self.changed_layers(which);
+        for label in &changed {
+            self.rescan(label)?;
+        }
+        Ok(changed)
     }
 
     /// The index of the layer that provides a resource.
@@ -404,5 +439,44 @@ mod tests {
         assert_eq!(ResKey::from_filename("readme"), None);
         assert_eq!(ResKey::from_filename("x.unknownext"), None);
         assert_eq!(ResKey::from_filename("waytoolongname_abcdef.utc"), None);
+    }
+
+    #[test]
+    fn changed_folders_and_archives_are_reloaded() {
+        let dir = std::env::temp_dir().join(format!("mg-resman-reload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let folder = dir.join("override");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("a.2da"), "2DA V2.0\n").unwrap();
+        let hak = dir.join("x.hak");
+        let write_hak = |n: usize| {
+            let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+            for i in 0..n {
+                w.add(ResRef::from_str(&format!("r{i}")).unwrap(), ResType::TWODA, b"x".to_vec())
+                    .unwrap();
+            }
+            std::fs::write(&hak, w.to_bytes().unwrap()).unwrap();
+        };
+        write_hak(1);
+        let mut rm = ResMan::new();
+        rm.add(priority::OVERRIDE, "override", LayerClass::Directory, DirContainer::open(&folder));
+        rm.add(priority::HAK_USER, "hak:x", LayerClass::Erf, ErfContainer::open(&hak).unwrap());
+        rm.add(priority::KEY, "mem", LayerClass::Key, MemContainer::new());
+        assert!(rm.changed_layers(|_| true).is_empty());
+
+        std::fs::write(folder.join("b.2da"), "2DA V2.0\n").unwrap();
+        write_hak(2);
+        let mut changed = rm.changed_layers(|_| true);
+        changed.sort();
+        assert_eq!(changed, ["hak:x", "override"]);
+        assert!(!rm.contains(&ResKey::parse("b", ResType::TWODA).unwrap()));
+        rm.reload_changed(|_| true).unwrap();
+        assert!(rm.contains(&ResKey::parse("b", ResType::TWODA).unwrap()));
+        assert!(rm.contains(&ResKey::parse("r1", ResType::TWODA).unwrap()));
+        assert!(rm.changed_layers(|_| true).is_empty());
+        std::fs::remove_file(folder.join("a.2da")).unwrap();
+        assert_eq!(rm.changed_layers(|_| true), ["override"]);
+        assert!(rm.changed_layers(|l| l.label != "override").is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

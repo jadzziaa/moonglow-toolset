@@ -476,7 +476,11 @@ surveyed after 0.2.0):
      and their haks, the shadowed-row verdicts checked in the engine
      (`docs/research/notes_doctor.md`);
    - a test loop builders trust (choose the character, test from here,
-     reload haks and 2DAs without a restart);
+     reload haks and 2DAs without a restart) — done: Test Module, Choose
+     Character (`+LoadNewModule`), Test From Here (the module as it is,
+     its start moved; checked in the engine, `engine_test_start.rs`),
+     Reload Resources (haks and folders by fingerprint, automatic every
+     few seconds);
    - placement tools (drop to ground, rotation keys, snapping, locking,
      prefabs);
    - a "Coming from Aurora" chapter.

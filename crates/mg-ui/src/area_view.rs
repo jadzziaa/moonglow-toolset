@@ -165,6 +165,17 @@ pub struct AreaView {
 }
 
 impl AreaView {
+    /// Reads the area's tiles and objects again from the game data (after
+    /// Reload Resources), keeping the camera.
+    pub(crate) fn reload(&mut self) {
+        self.revision = None;
+        self.tileset = None;
+        self.terrain = None;
+        self.scene = None;
+        self.ground = None;
+        self.walkable = None;
+    }
+
     fn new(area: ResRef) -> AreaView {
         AreaView {
             area,
@@ -1640,6 +1651,19 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     ui.separator();
     if ui.add_enabled(any, egui::Button::new("Delete")).clicked() {
         delete(app, view);
+        ui.close();
+    }
+    ui.separator();
+    // Test the module as it is now, starting here, facing the way the
+    // camera looks.
+    if let Some(at) = view.menu_at
+        && ui
+            .button("Test From Here")
+            .on_hover_text("Start the game here, with the module as it is now (not saved)")
+            .clicked()
+    {
+        let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
+        app.actions.push(Action::TestFromHere { area: view.area, at: at.to_array(), facing });
         ui.close();
     }
 }

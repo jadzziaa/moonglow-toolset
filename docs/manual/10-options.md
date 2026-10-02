@@ -23,6 +23,9 @@
 - **Build module on save**: run Build Module (with its defaults) before
   each save.
 - **Minimize Toolset on test module**.
+- **Reload haks, override and development when they change**: on by
+  default. Moonglow looks every few seconds and reads again what changed
+  (see [Build, verify and test](09-build-and-test.md)).
 - **Keep a recovery copy of unsaved work every … minutes** (5 by
   default; see [Modules](03-modules.md)).
 - Warnings: **Show reserved Blueprint ResRef namespace warning** (a

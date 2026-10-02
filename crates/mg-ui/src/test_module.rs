@@ -39,15 +39,23 @@ pub fn module_name(user_dir: &Path, module: &Path) -> Option<String> {
     Some(name.to_string_lossy().into_owned())
 }
 
-/// The command Test Module runs: the client, from its own folder.
-pub fn command(client: &Path, user_dir: &Path, module: &str) -> Command {
+/// The command Test Module runs: the client, from its own folder. The game
+/// starts the module with the first character of the list
+/// (`+TestNewModule`, as Aurora's F9 does), or, with `choose`, shows its
+/// character selection for the module (`+LoadNewModule`).
+pub fn command(client: &Path, user_dir: &Path, module: &str, choose: bool) -> Command {
     let mut c = Command::new(client);
     if let Some(dir) = client.parent() {
         c.current_dir(dir);
     }
-    c.arg("-userdirectory").arg(user_dir).arg("+TestNewModule").arg(module);
+    let how = if choose { "+LoadNewModule" } else { "+TestNewModule" };
+    c.arg("-userdirectory").arg(user_dir).arg(how).arg(module);
     c
 }
+
+/// The module Test From Here writes into the modules folder (and replaces
+/// each time).
+pub const FROM_HERE: &str = "moonglow-test";
 
 #[cfg(test)]
 mod tests {
@@ -65,7 +73,7 @@ mod tests {
             Some("Folder Module")
         );
         assert_eq!(module_name(&dir, &dir.join("elsewhere.mod")), None);
-        let c = command(Path::new("/game/bin/linux-x86/nwmain-linux"), &dir, "My Module");
+        let c = command(Path::new("/game/bin/linux-x86/nwmain-linux"), &dir, "My Module", false);
         let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
         assert_eq!(
             args,
@@ -77,6 +85,8 @@ mod tests {
             ]
         );
         assert_eq!(c.get_current_dir(), Some(Path::new("/game/bin/linux-x86")));
+        let c = command(Path::new("/game/bin/linux-x86/nwmain-linux"), &dir, "My Module", true);
+        assert_eq!(c.get_args().nth(2).unwrap(), "+LoadNewModule");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

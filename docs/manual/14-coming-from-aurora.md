@@ -57,6 +57,11 @@ Each is something Aurora does, then what Moonglow does instead.
 - **Small text and icons** on high-resolution screens, and no dark mode.
   Moonglow follows the system's display scaling and its light or dark
   theme; Ctrl + plus and Ctrl + minus make everything larger or smaller.
+- **Testing.** Aurora's F9 has problems the wiki warns about, always
+  picks the first character, and needs a restart to see a changed hak.
+  Moonglow starts the game the way the wiki recommends, offers **Test Module, Choose
+  Character** (Shift+F9) and **Test From Here** (an area's right-click
+  menu), and reloads changed haks and 2DAs as you work.
 - **Outside editors.** Scripts edited in another editor have to be copied
   into `temp0`. Moonglow's **External Editor** opens the script in your
   editor, and its saves come straight back into the module.

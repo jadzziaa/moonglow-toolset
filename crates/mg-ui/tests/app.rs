@@ -352,6 +352,55 @@ fn find_references_then_rename_everywhere() {
 }
 
 #[test]
+fn test_from_here_plays_the_module_as_it_is_now() {
+    let dir = mg_testkit::scratch_dir("ui-test-from-here");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    set_tag(&mut app, "UNSAVED");
+    for a in std::mem::take(&mut app.actions) {
+        app.run(a);
+    }
+    let start = ResRef::from_str("start").unwrap();
+    let bytes =
+        app.test_from_here_archive(start, [5.0, 6.5, 0.25], std::f32::consts::FRAC_PI_2).unwrap();
+    let erf = mg_erf::Erf::read(&bytes).unwrap();
+    let e = erf.entries.iter().find(|e| e.restype == ResType::IFO).unwrap();
+    let info = Gff::read(&erf.data(e).unwrap()).unwrap();
+    assert_eq!(info.root.read(&ifo::MOD_TAG).as_bytes(), b"UNSAVED");
+    assert_eq!(info.root.read(&ifo::MOD_ENTRY_AREA), start);
+    assert_eq!((info.root.read(&ifo::MOD_ENTRY_X), info.root.read(&ifo::MOD_ENTRY_Y)), (5.0, 6.5));
+    assert!((info.root.read(&ifo::MOD_ENTRY_DIR_Y) - 1.0).abs() < 1e-6);
+    // Nothing was saved.
+    assert!(app.ws.as_ref().unwrap().is_modified());
+    assert_eq!(
+        Module::open(&path).unwrap().info().unwrap().root.read(&ifo::MOD_TAG).as_bytes(),
+        b"SAMPLE"
+    );
+}
+
+#[test]
+fn reload_resources_picks_up_new_files_in_override() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-reload");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let key = ResKey::parse("mg_reload_test", ResType::TWODA).unwrap();
+    assert!(!app.game.as_ref().unwrap().resman.contains(&key));
+    std::fs::write(user.join("override/mg_reload_test.2da"), "2DA V2.0\n\n   Label\n0  x\n")
+        .unwrap();
+    app.run(mg_ui::Action::ReloadResources);
+    assert!(app.game.as_ref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
+    assert!(app.log.entries.iter().any(|(_, m)| m == "Reloaded override"), "{:?}", app.log.entries);
+    app.run(mg_ui::Action::ReloadResources);
+    assert!(app.log.entries.iter().any(|(_, m)| m == "Reload Resources: nothing changed"));
+}
+
+#[test]
 fn new_module_and_area_through_the_wizards() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-new-module");

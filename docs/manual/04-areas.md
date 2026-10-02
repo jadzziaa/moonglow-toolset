@@ -66,6 +66,9 @@ Every move, turn and deletion is one undoable step.
 - **Conversation**, **Inventory** (creatures, placeables with an
   inventory, merchants), **Variables…**.
 - **Add to Palette**: the instance as a new custom blueprint.
+- **Test From Here**: starts the game at the point you right-clicked,
+  facing the way the camera looks, with the module as it is now (see
+  [Build, verify and test](09-build-and-test.md)).
 - **Create Waypoint**: a waypoint where the object stands. **Create Set…**
   (waypoints): name the selected waypoints `<name>_01`, `<name>_02`…
 - **Levelup Wizard…** (creatures), **Setup Store…** (a creature or

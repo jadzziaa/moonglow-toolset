@@ -255,6 +255,24 @@ impl Module {
         self.set_gff(Self::info_key(), info).map_err(|e| ModuleError::BadInfo(e.to_string()))
     }
 
+    /// Moves where players start: an area, a point in it and the way they
+    /// face (radians, counter-clockwise from east), as Test From Here uses.
+    pub fn set_start(
+        &mut self,
+        area: ResRef,
+        at: [f32; 3],
+        facing: f32,
+    ) -> Result<(), ModuleError> {
+        let mut info = self.info()?;
+        info.root.write(&ifo::MOD_ENTRY_AREA, area);
+        info.root.write(&ifo::MOD_ENTRY_X, at[0]);
+        info.root.write(&ifo::MOD_ENTRY_Y, at[1]);
+        info.root.write(&ifo::MOD_ENTRY_Z, at[2]);
+        info.root.write(&ifo::MOD_ENTRY_DIR_X, facing.cos());
+        info.root.write(&ifo::MOD_ENTRY_DIR_Y, facing.sin());
+        self.set_info(&info)
+    }
+
     /// The module's areas, in `Mod_Area_list` order.
     pub fn areas(&self) -> Result<Vec<ResRef>, ModuleError> {
         let info = self.info()?;

@@ -35,6 +35,7 @@ pub struct OptionsDraft {
     pub script_style: ScriptStyle,
     pub build_on_save: bool,
     pub minimize_on_test: bool,
+    pub auto_reload: bool,
     pub backups: bool,
     pub autosave: bool,
     pub autosave_minutes: u32,
@@ -85,6 +86,7 @@ impl OptionsDraft {
             script_style: s.script_style.clone(),
             build_on_save: s.build_on_save,
             minimize_on_test: s.minimize_on_test,
+            auto_reload: !s.no_auto_reload,
             backups: !s.no_backups,
             autosave: !s.no_autosave,
             autosave_minutes: s.autosave_minutes.unwrap_or(5),
@@ -125,6 +127,7 @@ impl OptionsDraft {
             script_style: self.script_style.clone(),
             build_on_save: self.build_on_save,
             minimize_on_test: self.minimize_on_test,
+            no_auto_reload: !self.auto_reload,
             no_backups: !self.backups,
             no_autosave: !self.autosave,
             autosave_minutes: (self.autosave_minutes != 5)
@@ -256,6 +259,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         ui.checkbox(&mut draft.build_on_save, "Build module on save")
                             .on_hover_text("Run Build Module (with its defaults) before saving");
                         ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
+                        ui.checkbox(
+                            &mut draft.auto_reload,
+                            "Reload haks, override and development when they change",
+                        )
+                        .on_hover_text(
+                            "Changed haks, 2DAs, models and textures show without a restart",
+                        );
                         ui.horizontal(|ui| {
                             ui.checkbox(
                                 &mut draft.autosave,

@@ -104,6 +104,18 @@ pub enum Action {
     Apply(Command),
     OpenTab(Tab),
     /// Renames a blueprint (and points its editor at the new name).
+    /// Build › Test Module, Choose Character: the game's character
+    /// selection for the module.
+    TestModuleChoose,
+    /// Test From Here: the module as it is now (saved or not), starting in
+    /// `area` at `at`, facing `facing` (radians from east).
+    TestFromHere {
+        area: mg_core::ResRef,
+        at: [f32; 3],
+        facing: f32,
+    },
+    /// Tools › Reload Resources: haks and folders that changed on disk.
+    ReloadResources,
     /// Edit › Find References: where a resource is used.
     FindReferences(ResKey),
     /// Where a tag is used.
@@ -239,6 +251,10 @@ pub struct Moonglow {
     pub references: references::References,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
+    /// When changed haks and folders were last looked for.
+    reload_checked: Option<std::time::Instant>,
+    /// The custom talk table's file and its time when loaded.
+    tlk_stamp: Option<(PathBuf, std::time::SystemTime)>,
     /// The blueprint palettes pane.
     pub palette: palette_view::PaletteView,
     /// The hak conflict report being shown.
@@ -336,6 +352,8 @@ impl Moonglow {
             area_focus: None,
             references: Default::default(),
             rename: None,
+            reload_checked: None,
+            tlk_stamp: None,
             object_clip: None,
             tile_clip: None,
             after_new_area: (false, false),
@@ -439,6 +457,7 @@ impl Moonglow {
         });
         self.backup_timer(ui);
         self.autosave_timer(ui);
+        self.reload_timer(ui);
         recovery::window(self, ui);
         manual::about_window(self, ui.ctx());
         // The area view's sounds go on between frames.
@@ -557,6 +576,9 @@ impl Moonglow {
         }
         if pressed(ui, Modifiers::NONE, Key::F9) && self.ws.is_some() {
             self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
+        }
+        if pressed(ui, Modifiers::SHIFT, Key::F9) && self.ws.is_some() {
+            self.actions.push(Action::SaveThen(Box::new(Action::TestModuleChoose)));
         }
         if pressed(ui, Modifiers::NONE, Key::F1) {
             self.actions.push(Action::OpenTab(Tab::Manual));
@@ -701,6 +723,15 @@ impl Moonglow {
                 if ui.button("Resource Browser").clicked() {
                     self.actions.push(Action::OpenTab(Tab::Resources));
                 }
+                if ui
+                    .button("Reload Resources")
+                    .on_hover_text(
+                        "Read again the haks, override and development folders that changed",
+                    )
+                    .clicked()
+                {
+                    self.actions.push(Action::ReloadResources);
+                }
                 if ui.button("Options…").clicked() {
                     self.actions.push(Action::OptionsDialog);
                 }
@@ -717,6 +748,16 @@ impl Moonglow {
                 }
                 if ui.add_enabled(open, egui::Button::new("Test Module (F9)")).clicked() {
                     self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
+                }
+                if ui
+                    .add_enabled(
+                        open,
+                        egui::Button::new("Test Module, Choose Character (Shift+F9)"),
+                    )
+                    .on_hover_text("The game asks which character to play")
+                    .clicked()
+                {
+                    self.actions.push(Action::SaveThen(Box::new(Action::TestModuleChoose)));
                 }
                 let target = self.ws.as_ref().and_then(|ws| ws.module.project.as_ref()).map(|p| {
                     let file = p.target().file.clone();
@@ -904,11 +945,19 @@ impl Moonglow {
             game.set_custom_tlk(None);
             return;
         };
+        let mut stamp = None;
         let data =
             game.resman.get_named(&name, ResType::TLK).map(|d| d.into_owned()).ok().or_else(|| {
                 let dirs = self.install.as_ref().map(|i| i.tlk_dirs()).unwrap_or_default();
-                dirs.iter().find_map(|d| std::fs::read(d.join(format!("{name}.tlk"))).ok())
+                dirs.iter().find_map(|d| {
+                    let path = d.join(format!("{name}.tlk"));
+                    let data = std::fs::read(&path).ok()?;
+                    stamp =
+                        std::fs::metadata(&path).and_then(|m| m.modified()).ok().map(|t| (path, t));
+                    Some(data)
+                })
             });
+        self.tlk_stamp = stamp;
         match data.map(|d| mg_tlk::Tlk::read(&d)) {
             Some(Ok(tlk)) => {
                 game.set_custom_tlk(Some(tlk));
@@ -1263,7 +1312,10 @@ impl Moonglow {
             Action::RenameDialog(k) => self.rename_dialog(k),
             Action::CompileScripts => self.compile_scripts(),
             Action::Verify => self.verify(),
-            Action::TestModule => self.test_module(),
+            Action::TestModule => self.test_module(false),
+            Action::TestModuleChoose => self.test_module(true),
+            Action::TestFromHere { area, at, facing } => self.test_from_here(area, at, facing),
+            Action::ReloadResources => self.reload_resources(true),
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
                 self.forget_recovery();
@@ -1527,7 +1579,7 @@ impl Moonglow {
     }
 
     /// Starts the game on the saved module (Test Module).
-    fn test_module(&mut self) {
+    fn test_module(&mut self, choose: bool) {
         let Some(install) = self.install.clone() else {
             self.log.error("Test Module needs the game");
             return;
@@ -1558,7 +1610,7 @@ impl Moonglow {
             }
             self.log.info(format!("Installed {}", dest.display()));
             let name = packed.file_stem().unwrap_or_default().to_string_lossy().into_owned();
-            self.launch_test(&client, user, &name);
+            self.launch_test(&client, user, &name, choose);
             return;
         }
         let Some(path) = self.module_path() else {
@@ -1572,11 +1624,144 @@ impl Moonglow {
             ));
             return;
         };
-        self.launch_test(&client, user, &name);
+        self.launch_test(&client, user, &name, choose);
     }
 
-    fn launch_test(&mut self, client: &std::path::Path, user: &std::path::Path, name: &str) {
-        match test_module::command(client, user, name).spawn() {
+    /// Test From Here: the module as it is now, not saved, written to the
+    /// modules folder as [`test_module::FROM_HERE`] with its start moved,
+    /// and the game started on it.
+    fn test_from_here(&mut self, area: mg_core::ResRef, at: [f32; 3], facing: f32) {
+        let Some(install) = self.install.clone() else {
+            self.log.error("Test From Here needs the game");
+            return;
+        };
+        let (Some(client), Some(user)) =
+            (test_module::client_binary(install.root.as_path()), install.user_dir.clone())
+        else {
+            self.log.error("Test From Here: no game client, or no user folder (Options › Folders)");
+            return;
+        };
+        let bytes = self.test_from_here_archive(area, at, facing);
+        let dest = user.join("modules").join(format!("{}.mod", test_module::FROM_HERE));
+        let written = bytes.and_then(|b| {
+            std::fs::create_dir_all(user.join("modules"))
+                .and_then(|()| std::fs::write(&dest, b))
+                .map_err(|e| format!("{}: {e}", dest.display()))
+        });
+        match written {
+            Ok(()) => {
+                self.log.info(format!(
+                    "Testing from {area} ({:.1}, {:.1}): {} has the module as it is now",
+                    at[0],
+                    at[1],
+                    dest.display()
+                ));
+                self.launch_test(&client, &user, test_module::FROM_HERE, false);
+            }
+            Err(e) => self.log.error(format!("Test From Here: {e}")),
+        }
+    }
+
+    /// The module Test From Here plays: as it is now (script editors' text
+    /// and uncompiled scripts compiled, nothing saved), its start moved; a
+    /// nasher project's packed as its target.
+    pub fn test_from_here_archive(
+        &mut self,
+        area: mg_core::ResRef,
+        at: [f32; 3],
+        facing: f32,
+    ) -> Result<Vec<u8>, String> {
+        self.store_script_text();
+        self.compile_uncompiled();
+        let ws = self.ws.as_mut().ok_or("no module")?;
+        ws.flush().map_err(|e| e.to_string())?;
+        let mut m = ws.module.clone();
+        m.set_start(area, at, facing).map_err(|e| e.to_string())?;
+        match m.target_archive().map_err(|e| e.to_string())? {
+            Some((_, bytes)) => Ok(bytes),
+            None => m.to_archive_bytes().map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Reads again the haks and the override, development and portrait
+    /// folders that changed on disk (and the custom talk table), and
+    /// refreshes what was shown from them. Asked for (Tools › Reload
+    /// Resources), it says when nothing changed.
+    pub fn reload_resources(&mut self, asked: bool) {
+        use mg_resman::priority as p;
+        let Some(game) = &mut self.game else { return };
+        // The user's content; the install's own folders don't change.
+        let user = |l: &mg_resman::Layer| {
+            matches!(
+                l.priority,
+                p::HAK
+                    | p::HAK_USER
+                    | p::OVERRIDE
+                    | p::DEVELOPMENT
+                    | p::DEVELOPMENT_USER
+                    | p::PORTRAITS_USER
+            )
+        };
+        let mut changed = match game.resman.reload_changed(user) {
+            Ok(c) => c,
+            Err(e) => {
+                self.log.error(format!("Reload Resources: {e}"));
+                return;
+            }
+        };
+        let tlk_now = self.tlk_stamp.as_ref().and_then(|(path, _)| {
+            Some((path.clone(), std::fs::metadata(path).ok()?.modified().ok()?))
+        });
+        if tlk_now.is_some() && tlk_now != self.tlk_stamp {
+            changed.push("custom talk table".into());
+            self.custom_tlk = None;
+            self.load_custom_tlk();
+        }
+        if changed.is_empty() {
+            if asked {
+                self.log.info("Reload Resources: nothing changed");
+            }
+            return;
+        }
+        if let Some(game) = &mut self.game {
+            game.invalidate();
+        }
+        self.pictures = Default::default();
+        self.palettes = Default::default();
+        self.palette.forget_game_data();
+        self.model_views.clear();
+        for view in self.area_views.values_mut() {
+            view.reload();
+        }
+        self.load_order_changed();
+        self.log.info(format!("Reloaded {}", changed.join(", ")));
+    }
+
+    /// Every few seconds, with Options › General's reloading on: the haks
+    /// and folders that changed.
+    fn reload_timer(&mut self, ui: &egui::Ui) {
+        if self.settings.no_auto_reload || self.game.is_none() {
+            return;
+        }
+        let every = std::time::Duration::from_secs(3);
+        let now = std::time::Instant::now();
+        if self.reload_checked.is_some_and(|t| now.duration_since(t) < every) {
+            ui.ctx().request_repaint_after(every);
+            return;
+        }
+        self.reload_checked = Some(now);
+        self.reload_resources(false);
+        ui.ctx().request_repaint_after(every);
+    }
+
+    fn launch_test(
+        &mut self,
+        client: &std::path::Path,
+        user: &std::path::Path,
+        name: &str,
+        choose: bool,
+    ) {
+        match test_module::command(client, user, name, choose).spawn() {
             Ok(_) => {
                 self.log.info(format!("Testing {name}"));
                 // Options > General: Minimize Toolset on test module.

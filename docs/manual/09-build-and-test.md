@@ -71,6 +71,35 @@ folder, so the module must be saved there (File › Save As…). With
 **Minimize Toolset on test module** (Options › General), Moonglow's window
 gets out of the way.
 
+- **Test Module, Choose Character** (Shift+F9) opens the game's
+  character selection for the module instead, so you can test with any
+  of your characters. You no longer need to rename one to sort it first.
+- **Test From Here** (an area's right-click menu) starts the game at the
+  point you clicked, facing the way the camera looks. It uses the module
+  as it is now, without saving it. The module is written to `modules` as
+  `moonglow-test.mod`, which is replaced each time, so your module and its
+  start location are left as they are.
+
+Moonglow starts the game as a program of its own (`nwmain +TestNewModule`),
+which is how nwn.wiki recommends testing to avoid the problems it lists
+for Aurora's F9: combat that lags, AI that overflows its time, and
+modules damaged when the game crashes. The module is always saved before
+the game starts, and Test From Here plays a copy.
+
+## Reloading haks and 2DAs
+
+While you work on custom content in another program, Moonglow picks up
+changes without a restart:
+- a hak written again;
+- 2DAs, models, textures and talk tables added, changed or removed in
+  `override` or `development`;
+- the module's custom talk table.
+
+It looks every few seconds (Options › General, on by default), or when you
+choose **Tools › Reload Resources**. Palettes, previews and open areas are
+redrawn from the new files, keeping the camera, and the log says what
+was reloaded.
+
 ## Area Statistics
 
 **Build › Area Statistics** shows, for the area shown last, its tiles,

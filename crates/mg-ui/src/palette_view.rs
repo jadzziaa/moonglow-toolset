@@ -43,6 +43,15 @@ pub struct PaletteView {
     pub(crate) tile_palettes: HashMap<ResRef, Arc<mg_area::terrain::TilesetPalette>>,
 }
 
+impl PaletteView {
+    /// Forgets palettes built from the game data (after Reload Resources).
+    pub(crate) fn forget_game_data(&mut self) {
+        self.standard.clear();
+        self.custom_cache.clear();
+        self.tile_palettes.clear();
+    }
+}
+
 impl Default for PaletteView {
     fn default() -> PaletteView {
         PaletteView {

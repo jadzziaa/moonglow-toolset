@@ -53,6 +53,10 @@ pub struct Settings {
     pub no_autosave: bool,
     /// Every so many minutes (`None`: 5).
     pub autosave_minutes: Option<u32>,
+    /// Options > General: Reload haks, override and development when they
+    /// change, off (on by default; Moonglow's).
+    #[serde(default)]
+    pub no_auto_reload: bool,
     /// Options > General: Show reserved Blueprint ResRef namespace warning,
     /// off.
     pub no_namespace_warning: bool,

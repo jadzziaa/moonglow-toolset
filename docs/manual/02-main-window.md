@@ -12,8 +12,8 @@ there are unsaved changes, and the game's folder).
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Close, Exit |
 | Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Find References… |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
-| Tools | New Conversation…, Faction Editor, Journal Editor, New Script…, Palettes, Resource Browser, Options… |
-| Build | Compile All Scripts, Build Module…, Verify Module, Test Module, Pack *file* (nasher projects), Area Statistics |
+| Tools | New Conversation…, Faction Editor, Journal Editor, New Script…, Palettes, Resource Browser, Reload Resources, Options… |
+| Build | Compile All Scripts, Build Module…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Help | User Manual, About Moonglow Toolset |
 
 ## Keyboard shortcuts
@@ -32,6 +32,7 @@ On macOS, Cmd takes the place of Ctrl.
 | Ctrl+Alt+J | Journal Editor |
 | F7 | Compile all scripts |
 | F9 | Save and test the module in the game |
+| Shift+F9 | Save and test it, choosing the character in the game |
 | F1 | User Manual |
 
 The area viewer and the editors have their own keys; their chapters list
