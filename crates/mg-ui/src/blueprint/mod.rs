@@ -248,7 +248,7 @@ impl Form<'_> {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
         ui.horizontal(|ui| {
             let language = crate::text::edit_language().name().unwrap_or("?");
-            ui.label(format!("{what} ({language})"));
+            crate::widgets::field_label(ui, format!("{what} ({language})"));
             if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }

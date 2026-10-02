@@ -1121,7 +1121,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             &ctx,
             |ui| {
                 egui::Grid::new("find-grid").num_columns(2).show(ui, |ui| {
-                    ui.label("Find What");
+                    crate::widgets::field_label(ui, "Find What");
                     let field = ui.text_edit_singleline(&mut s.find);
                     crate::widgets::autofocus(ui, &field);
                     ui.end_row();

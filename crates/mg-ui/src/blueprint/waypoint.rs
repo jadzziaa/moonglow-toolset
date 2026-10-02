@@ -28,16 +28,16 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         })
         .unwrap_or_default();
     egui::Grid::new(("utw-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocalizedName");
         ui.end_row();
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("Category");
+        crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Waypoint);
         ui.end_row();
-        ui.label("Appearance Type");
+        crate::widgets::field_label(ui, "Appearance Type");
         f.choice(ui, "Appearance", "Appearance", &appearances, mg_gff::FieldType::Byte);
         ui.end_row();
     });
@@ -48,16 +48,16 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     ui.add_enabled_ui(has_note, |ui| {
         f.check(ui, "Map Note Enabled", "MapNoteEnabled");
         ui.horizontal(|ui| {
-            ui.label("Map Note Text");
+            crate::widgets::field_label(ui, "Map Note Text");
             f.locstring(ui, "Map note", "MapNote");
         });
     });
     ui.separator();
     egui::Grid::new(("utw-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Blueprint ResRef");
+        crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);
         ui.end_row();
-        ui.label("Variables");
+        crate::widgets::field_label(ui, "Variables");
         f.variables(ui);
         ui.end_row();
     });

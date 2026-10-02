@@ -204,7 +204,7 @@ fn pairs(f: &mut Form<'_>, ui: &mut Ui, p: Pairs) {
     egui::Grid::new(f.id(p.field)).num_columns(3).min_col_width(140.0).spacing([12.0, 4.0]).show(
         ui,
         |ui| {
-            ui.label(p.titles.0);
+            crate::widgets::field_label(ui, p.titles.0);
             ui.label(p.titles.1);
             ui.end_row();
             for (i, e) in items.iter().enumerate() {
@@ -370,7 +370,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
     let rgb = ["HiliteColorR", "HiliteColorG", "HiliteColorB"].map(|l| s.float(l).unwrap_or(-1.0));
     egui::Grid::new(f.id("MiscVisuals")).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         // The highlight color: -1 each for the game's.
-        ui.label("Highlight Color");
+        crate::widgets::field_label(ui, "Highlight Color");
         ui.horizontal(|ui| {
             let custom = rgb.iter().all(|c| *c >= 0.0);
             let mut on = custom;
@@ -402,7 +402,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         });
         ui.end_row();
 
-        ui.label("Mouse Cursor");
+        crate::widgets::field_label(ui, "Mouse Cursor");
         let current = int("MouseCursor", -1);
         let mut pick = current;
         egui::ComboBox::from_id_salt(f.id("MouseCursor"))
@@ -421,7 +421,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         }
         ui.end_row();
 
-        ui.label("Text Bubble");
+        crate::widgets::field_label(ui, "Text Bubble");
         ui.horizontal(|ui| {
             let mode = int("TextBubbleType", 0);
             let mut pick = mode;
@@ -447,7 +447,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
 
         // What shows on mouse-over and Tab: -1 for the game's choice.
-        ui.label("Shown");
+        crate::widgets::field_label(ui, "Shown");
         ui.vertical(|ui| {
             let mask = int("UiDiscoverMask", -1);
             let mut default = mask < 0;
@@ -469,7 +469,7 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         });
         ui.end_row();
 
-        ui.label("Visible Distance");
+        crate::widgets::field_label(ui, "Visible Distance");
         ui.horizontal(|ui| {
             let v = s.float("VisibleDistance").unwrap_or(DEFAULT_DISTANCE);
             let mut n = v;

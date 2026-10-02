@@ -331,12 +331,12 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
                  language they're written in (not the game's talk table).",
             );
             egui::Grid::new("text-replace").num_columns(2).show(ui, |ui| {
-                ui.label("Find what");
+                crate::widgets::field_label(ui, "Find what");
                 let r = ui.add(egui::TextEdit::singleline(&mut draft.find).desired_width(320.0));
                 crate::widgets::autofocus(ui, &r);
                 find = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.end_row();
-                ui.label("Replace with");
+                crate::widgets::field_label(ui, "Replace with");
                 ui.add(egui::TextEdit::singleline(&mut draft.with).desired_width(320.0));
                 ui.end_row();
             });

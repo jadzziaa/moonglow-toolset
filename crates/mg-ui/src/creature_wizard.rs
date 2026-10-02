@@ -327,7 +327,7 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
         3 => {
             ui.label("Please choose an Appearance and Portrait for this creature.");
             egui::Grid::new("cw-look").num_columns(2).show(ui, |ui| {
-                ui.label("Gender");
+                crate::widgets::field_label(ui, "Gender");
                 let before = w.gender;
                 egui::ComboBox::from_id_salt("cw-gender")
                     .selected_text(if w.gender == 1 { "Female" } else { "Male" })
@@ -339,7 +339,7 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                     w.portrait = None;
                 }
                 ui.end_row();
-                ui.label("Appearance");
+                crate::widgets::field_label(ui, "Appearance");
                 let appearances = choices(game, "appearance", "STRING_REF", "LABEL");
                 let shown = appearances
                     .iter()
@@ -443,7 +443,7 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
             }
             ui.label("Please enter a name for this new Creature.");
             egui::Grid::new("cw-name").num_columns(2).show(ui, |ui| {
-                ui.label("Name");
+                crate::widgets::field_label(ui, "Name");
                 ui.end_row();
                 let field = ui.text_edit_singleline(&mut w.first_name);
                 crate::widgets::autofocus(ui, &field);
@@ -453,7 +453,7 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                     w.first_name = n;
                 }
                 ui.end_row();
-                ui.label("Last Name:");
+                crate::widgets::field_label(ui, "Last Name:");
                 ui.end_row();
                 ui.text_edit_singleline(&mut w.last_name);
                 if ui.button("Random").clicked()

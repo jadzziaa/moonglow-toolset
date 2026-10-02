@@ -86,18 +86,18 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         })
         .unwrap_or_default();
     egui::Grid::new(("utd-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocName");
         ui.end_row();
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("Appearance Type");
+        crate::widgets::field_label(ui, "Appearance Type");
         f.choice(ui, "Appearance", "Appearance", &types, FieldType::Dword);
         ui.end_row();
         // The generic door's model (EE: GenericType_New; the old byte field
         // follows it where the blueprint has one).
-        ui.label("Generic Appearance");
+        crate::widgets::field_label(ui, "Generic Appearance");
         let current =
             f.root.integer("GenericType_New").or(f.root.integer("GenericType")).unwrap_or(0);
         ui.add_enabled_ui(f.int("Appearance") == 0, |ui| {
@@ -110,7 +110,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             }
         });
         ui.end_row();
-        ui.label("Category");
+        crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Door);
         ui.end_row();
         situated::durability(f, ui);

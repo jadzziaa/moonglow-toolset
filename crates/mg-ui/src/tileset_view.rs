@@ -359,10 +359,10 @@ fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         ui.label("Name's talk-table string");
         int_key(ui, d, "GENERAL", "DisplayName", -1..=i32::MAX);
         ui.end_row();
-        ui.label("Height step (m)");
+        crate::widgets::field_label(ui, "Height step (m)");
         text_key(app, ui, d, "GENERAL", "Transition", 80.0);
         ui.end_row();
-        ui.label("Selector height (m)");
+        crate::widgets::field_label(ui, "Selector height (m)");
         text_key(app, ui, d, "GENERAL", "SelectorHeight", 80.0);
         ui.end_row();
         for (key, label) in [

@@ -50,13 +50,13 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         Choice { row: 1, text: "Single Shot".into() },
     ];
     egui::Grid::new(("ute-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocalizedName");
         ui.end_row();
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("Difficulty");
+        crate::widgets::field_label(ui, "Difficulty");
         // The index, and the difficulty value it stands for.
         let current = f.int("DifficultyIndex");
         let shown = difficulties
@@ -82,16 +82,16 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             );
         }
         ui.end_row();
-        ui.label("Spawn Option");
+        crate::widgets::field_label(ui, "Spawn Option");
         f.choice(ui, "Spawn option", "SpawnOption", &spawn, FieldType::Int);
         ui.end_row();
-        ui.label("Minimum Creatures");
+        crate::widgets::field_label(ui, "Minimum Creatures");
         f.number(ui, "Minimum creatures", "RecCreatures", 1..=100);
         ui.end_row();
-        ui.label("Maximum Creatures");
+        crate::widgets::field_label(ui, "Maximum Creatures");
         f.number(ui, "Maximum creatures", "MaxCreatures", 1..=100);
         ui.end_row();
-        ui.label("Category");
+        crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Encounter);
         ui.end_row();
     });
@@ -215,19 +215,19 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(("ute-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Blueprint ResRef");
+        crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         f.check(ui, "Active", "Active");
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         f.check(ui, "Player Triggered Only", "PlayerOnly");
         ui.end_row();
-        ui.label("Faction");
+        crate::widgets::field_label(ui, "Faction");
         situated::faction(f, ui, "Faction", "Faction");
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         let respawns = f.check(ui, "Encounter Respawns", "Reset");
         ui.end_row();
         ui.add_enabled_ui(respawns, |ui| ui.label("Respawn Time (seconds)"));
@@ -251,10 +251,10 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             });
         });
         ui.end_row();
-        ui.label("Variables");
+        crate::widgets::field_label(ui, "Variables");
         f.variables(ui);
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         f.update_instances(ui);
         ui.end_row();
     });

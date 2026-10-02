@@ -1082,7 +1082,7 @@ fn other_tab(
     egui::Grid::new(("dlg-other", key, kind, index)).num_columns(2).spacing([10.0, 6.0]).show(
         ui,
         |ui| {
-            ui.label("Play Animation");
+            crate::widgets::field_label(ui, "Play Animation");
             let anim = n.dword("Animation").unwrap_or(0);
             let shown = ANIMATIONS
                 .iter()
@@ -1105,7 +1105,7 @@ fn other_tab(
                 });
             ui.end_row();
 
-            ui.label("Play Sound");
+            crate::widgets::field_label(ui, "Play Sound");
             let sound = n.resref("Sound").unwrap_or(ResRef::EMPTY);
             let id = egui::Id::new(("dlg-sound", key, kind, index));
             ui.horizontal(|ui| {
@@ -1296,11 +1296,11 @@ fn search_pane(
 ) {
     let s = &mut view.search;
     egui::Grid::new(("dlg-search", key)).num_columns(2).show(ui, |ui| {
-        ui.label("Find What");
+        crate::widgets::field_label(ui, "Find What");
         let field = ui.text_edit_singleline(&mut s.find);
         crate::widgets::autofocus(ui, &field);
         ui.end_row();
-        ui.label("Replace With");
+        crate::widgets::field_label(ui, "Replace With");
         ui.text_edit_singleline(&mut s.replace);
         ui.end_row();
     });

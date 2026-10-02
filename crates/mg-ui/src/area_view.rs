@@ -2507,7 +2507,7 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.label("Tiles");
                     ui.label(format!("{} ({} by {})", m.tiles.len(), m.width, m.height));
                     ui.end_row();
-                    ui.label("Objects");
+                    crate::widgets::field_label(ui, "Objects");
                     ui.label(m.objects.len().to_string());
                     ui.end_row();
                 }

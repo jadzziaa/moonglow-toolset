@@ -49,11 +49,11 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
         |ui| {
             ui.horizontal(|ui| {
                 egui::Grid::new("resize").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-                    ui.label("Rows");
+                    crate::widgets::field_label(ui, "Rows");
                     ui.add(egui::DragValue::new(&mut d.rows).range(2..=32))
                         .on_hover_text("Number of rows in the area");
                     ui.end_row();
-                    ui.label("Columns");
+                    crate::widgets::field_label(ui, "Columns");
                     ui.add(egui::DragValue::new(&mut d.columns).range(2..=32))
                         .on_hover_text("Number of columns in the area");
                     ui.end_row();

@@ -638,6 +638,13 @@ pub(crate) fn autofocus(ui: &egui::Ui, field: &egui::Response) {
         field.request_focus();
     }
 }
+/// A form's field label (the first column of an editor's grid: "Tag",
+/// "Name"…): in the strong text colour, to stand apart from the values
+/// beside it.
+pub(crate) fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+    ui.label(egui::RichText::new(text).strong())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

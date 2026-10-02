@@ -160,7 +160,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             ("First Name", "First name", "FirstName", false),
             ("Last Name", "Last name", "LastName", true),
         ] {
-            ui.label(text);
+            crate::widgets::field_label(ui, text);
             ui.horizontal(|ui| {
                 f.locstring(ui, what, label);
                 // A random name from the race's letter tables.
@@ -183,43 +183,43 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             });
             ui.end_row();
         }
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("Race");
+        crate::widgets::field_label(ui, "Race");
         f.choice(ui, "Race", "Race", &races, FieldType::Byte);
         ui.end_row();
-        ui.label("Appearance");
+        crate::widgets::field_label(ui, "Appearance");
         f.choice(ui, "Appearance", "Appearance_Type", &appearances, FieldType::Word);
         ui.end_row();
-        ui.label("Phenotype");
+        crate::widgets::field_label(ui, "Phenotype");
         f.choice(ui, "Phenotype", "Phenotype", &phenotypes, FieldType::Int);
         ui.end_row();
-        ui.label("Gender");
+        crate::widgets::field_label(ui, "Gender");
         f.choice(ui, "Gender", "Gender", &genders, FieldType::Byte);
         ui.end_row();
-        ui.label("Challenge Rating");
+        crate::widgets::field_label(ui, "Challenge Rating");
         let r = ui.label(&cr);
         if let Some(d) = &cr_detail {
             r.on_hover_text(d);
         }
         ui.end_row();
-        ui.label("Category");
+        crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Creature);
         ui.end_row();
-        ui.label("Portrait");
+        crate::widgets::field_label(ui, "Portrait");
         situated::portrait(f, ui);
         ui.end_row();
-        ui.label("Conversation");
+        crate::widgets::field_label(ui, "Conversation");
         f.conversation(ui);
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         let mut no_interrupt = f.root.integer("Interruptable").unwrap_or(1) == 0;
         if ui.checkbox(&mut no_interrupt, "No Interrupt").changed() {
             f.set_int("No interrupt", "Interruptable", i64::from(!no_interrupt), FieldType::Byte);
         }
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         situated::preview_button(f, ui);
         ui.end_row();
     });
@@ -260,7 +260,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
         if col == 0 {
             ui.strong("Armor Class");
             egui::Grid::new(("utc-ac", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-                ui.label("Natural AC");
+                crate::widgets::field_label(ui, "Natural AC");
                 f.number(ui, "Natural AC", "NaturalAC", 0..=100);
                 ui.end_row();
                 for (label, v) in [
@@ -277,7 +277,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
             ui.separator();
             ui.strong("Hit Points");
             egui::Grid::new(("utc-hp", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
-                ui.label("Base Hit Points");
+                crate::widgets::field_label(ui, "Base Hit Points");
                 // The current hit points follow the base.
                 if let Some(v) = commit_number(ui, f.int("HitPoints"), 1..=10_000) {
                     f.set_many(
@@ -289,16 +289,16 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                     );
                 }
                 ui.end_row();
-                ui.label("Hit Point Bonuses");
+                crate::widgets::field_label(ui, "Hit Point Bonuses");
                 ui.label(signed(stats.hp_bonus));
                 ui.end_row();
-                ui.label("Total Hit Points");
+                crate::widgets::field_label(ui, "Total Hit Points");
                 ui.label(stats.max_hit_points.to_string());
                 ui.end_row();
             });
             ui.separator();
             ui.horizontal(|ui| {
-                ui.label("Movement Rate");
+                crate::widgets::field_label(ui, "Movement Rate");
                 f.choice(ui, "Movement rate", "WalkRate", &speeds, FieldType::Int);
             });
         } else {
@@ -440,10 +440,10 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui) {
             egui::Grid::new(("utc-extras", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
                 ui,
                 |ui| {
-                    ui.label("Wings");
+                    crate::widgets::field_label(ui, "Wings");
                     f.choice(ui, "Wings", "Wings_New", &wings, FieldType::Dword);
                     ui.end_row();
-                    ui.label("Tail");
+                    crate::widgets::field_label(ui, "Tail");
                     f.choice(ui, "Tail", "Tail_New", &tails, FieldType::Dword);
                     ui.end_row();
                     for (text, label, palette) in [
@@ -496,7 +496,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     // Alignment: a preset, and the two axes.
     let (ge, lc) = (f.int("GoodEvil"), f.int("LawfulChaotic"));
     ui.horizontal(|ui| {
-        ui.label("Alignment");
+        crate::widgets::field_label(ui, "Alignment");
         let shown = ALIGNMENTS
             .iter()
             .find(|(_, g, l)| *g == ge && *l == lc)
@@ -515,9 +515,9 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                 &[("GoodEvil", g, FieldType::Byte), ("LawfulChaotic", l, FieldType::Byte)],
             );
         }
-        ui.label("Good–Evil");
+        crate::widgets::field_label(ui, "Good–Evil");
         f.number(ui, "Good-evil", "GoodEvil", 0..=100);
-        ui.label("Lawful–Chaotic");
+        crate::widgets::field_label(ui, "Lawful–Chaotic");
         f.number(ui, "Lawful-chaotic", "LawfulChaotic", 0..=100);
     });
     ui.separator();
@@ -562,7 +562,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
                         }
                     }
                 } else if class_int(class, "PickSchool") == Some(1) {
-                    ui.label("School");
+                    crate::widgets::field_label(ui, "School");
                     let current = c.integer("School");
                     if let Some(v) =
                         optional_pick(ui, key, &format!("class{i}-school"), &schools, current)
@@ -606,7 +606,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     associates(f, ui, &list, &class_int);
     ui.separator();
     ui.horizontal(|ui| {
-        ui.label("Default Package for Autolevelup");
+        crate::widgets::field_label(ui, "Default Package for Autolevelup");
         f.choice(ui, "Package", "StartingPackage", &packages, FieldType::Byte);
     });
     for (what, e) in edits {
@@ -684,12 +684,12 @@ fn associates(
                  (Druid, Ranger)",
             ),
         ] {
-            ui.label(title);
+            crate::widgets::field_label(ui, title);
             let current = f.root.integer(type_label);
             if let Some(v) = optional_pick(ui, f.key, type_label, kinds, current) {
                 f.set_int(title, type_label, v, FieldType::Int);
             }
-            ui.label("Name");
+            crate::widgets::field_label(ui, "Name");
             f.text(ui, title, name_label, 64);
             ui.end_row();
             if !has(arcane) {
@@ -761,10 +761,10 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             egui::Grid::new(("utc-adv", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
                 ui,
                 |ui| {
-                    ui.label("Blueprint ResRef");
+                    crate::widgets::field_label(ui, "Blueprint ResRef");
                     f.blueprint_resref(ui);
                     ui.end_row();
-                    ui.label("Faction");
+                    crate::widgets::field_label(ui, "Faction");
                     ui.horizontal(|ui| {
                         situated::faction(f, ui, "Faction", "FactionID");
                         if ui.small_button("Edit Factions").clicked() {
@@ -772,16 +772,16 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                         }
                     });
                     ui.end_row();
-                    ui.label("Treasure Model");
+                    crate::widgets::field_label(ui, "Treasure Model");
                     f.choice(ui, "Treasure model", "BodyBag", &bags, FieldType::Byte);
                     ui.end_row();
-                    ui.label("Corpse Decay Time (s)");
+                    crate::widgets::field_label(ui, "Corpse Decay Time (s)");
                     f.millis(ui, "Decay time", "DecayTime", 0.0..=32767.0);
                     ui.end_row();
-                    ui.label("Perception Range");
+                    crate::widgets::field_label(ui, "Perception Range");
                     f.choice(ui, "Perception range", "PerceptionRange", &ranges, FieldType::Byte);
                     ui.end_row();
-                    ui.label("Sound Set");
+                    crate::widgets::field_label(ui, "Sound Set");
                     ui.horizontal(|ui| {
                         // Aurora's filters: gender and soundsettype.2da type.
                         let id = egui::Id::new(("utc-soundset-filter", f.key));
@@ -844,16 +844,16 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                         }
                     });
                     ui.end_row();
-                    ui.label("Subrace");
+                    crate::widgets::field_label(ui, "Subrace");
                     f.text(ui, "Subrace", "Subrace", 32);
                     ui.end_row();
-                    ui.label("Deity");
+                    crate::widgets::field_label(ui, "Deity");
                     f.text(ui, "Deity", "Deity", 32);
                     ui.end_row();
-                    ui.label("Variables");
+                    crate::widgets::field_label(ui, "Variables");
                     f.variables(ui);
                     ui.end_row();
-                    ui.label("");
+                    crate::widgets::field_label(ui, "");
                     f.update_instances(ui);
                     ui.end_row();
                 },
@@ -871,7 +871,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ui.separator();
             ui.strong("Challenge Rating");
             egui::Grid::new(("utc-cr", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
-                ui.label("Adjustment");
+                crate::widgets::field_label(ui, "Adjustment");
                 // The rating is recalculated with it (`refresh_hit_points`).
                 let adjust = f.int("CRAdjust");
                 if let Some(v) = commit_number(ui, adjust, -100..=100) {
@@ -879,7 +879,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                     f.set_fields("CR adjustment", vec![("CRAdjust", adjust_value)]);
                 }
                 ui.end_row();
-                ui.label("Challenge Rating");
+                crate::widgets::field_label(ui, "Challenge Rating");
                 let r = ui.label(&cr);
                 if let Some(d) = &cr_detail {
                     r.on_hover_text(d);

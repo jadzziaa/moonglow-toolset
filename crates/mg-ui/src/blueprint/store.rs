@@ -68,16 +68,16 @@ fn optional_price(
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(("utm-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocName");
         ui.end_row();
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("Category");
+        crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Store);
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         if ui.button("Inventory…").on_hover_text("Edit inventory contents").clicked() {
             f.app.blueprint_pages.insert((f.key, f.path.clone()), "Inventory");
         }
@@ -86,13 +86,13 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     ui.separator();
     ui.strong("Pricing");
     egui::Grid::new(("utm-pricing", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Sell Mark Up (%)");
+        crate::widgets::field_label(ui, "Sell Mark Up (%)");
         f.number(ui, "Sell mark up", "MarkUp", 1..=1000);
         ui.end_row();
-        ui.label("Buy Mark Down (%)");
+        crate::widgets::field_label(ui, "Buy Mark Down (%)");
         f.number(ui, "Buy mark down", "MarkDown", 0..=100);
         ui.end_row();
-        ui.label("Identify Price");
+        crate::widgets::field_label(ui, "Identify Price");
         optional_price(f, ui, "Will Identify Items", "IdentifyPrice", "Identify price", 100, 100);
         ui.end_row();
     });
@@ -101,17 +101,17 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let black_market = f.check(ui, "Buy Stolen Goods", "BlackMarket");
     ui.horizontal(|ui| {
         ui.add_enabled_ui(black_market, |ui| {
-            ui.label("Buy Mark Down (%)");
+            crate::widgets::field_label(ui, "Buy Mark Down (%)");
             f.number(ui, "Stolen goods mark down", "BM_MarkDown", 0..=100);
         });
     });
     ui.separator();
     ui.strong("Restrictions");
     egui::Grid::new(("utm-limits", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Max Buy Price");
+        crate::widgets::field_label(ui, "Max Buy Price");
         optional_price(f, ui, "Has Maximum Buy Price", "MaxBuyPrice", "Max buy price", -1, 100);
         ui.end_row();
-        ui.label("Gold Amount");
+        crate::widgets::field_label(ui, "Gold Amount");
         optional_price(f, ui, "Has Limited Gold", "StoreGold", "Store gold", -1, 1000);
         ui.end_row();
     });
@@ -119,10 +119,10 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(("utm-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Blueprint ResRef");
+        crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);
         ui.end_row();
-        ui.label("Variables");
+        crate::widgets::field_label(ui, "Variables");
         f.variables(ui);
         ui.end_row();
     });

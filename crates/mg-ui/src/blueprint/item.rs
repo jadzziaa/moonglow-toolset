@@ -163,25 +163,25 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
             egui::Grid::new(("uti-general", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
                 ui,
                 |ui| {
-                    ui.label("Item Name");
+                    crate::widgets::field_label(ui, "Item Name");
                     f.locstring(ui, "Name", "LocalizedName");
                     ui.end_row();
-                    ui.label("Tag");
+                    crate::widgets::field_label(ui, "Tag");
                     f.text(ui, "Tag", "Tag", 32);
                     ui.end_row();
-                    ui.label("Blueprint ResRef");
+                    crate::widgets::field_label(ui, "Blueprint ResRef");
                     f.blueprint_resref(ui);
                     ui.end_row();
-                    ui.label("Base Type Name");
+                    crate::widgets::field_label(ui, "Base Type Name");
                     ui.label(&base_name);
                     ui.end_row();
-                    ui.label("Category");
+                    crate::widgets::field_label(ui, "Category");
                     f.category(ui, BlueprintKind::Item);
                     ui.end_row();
                     // Past the base item's stack size, as Aurora doesn't
                     // allow: the game keeps the stack whole
                     // (engine_ee_fields.rs).
-                    ui.label("Stack Size");
+                    crate::widgets::field_label(ui, "Stack Size");
                     ui.horizontal(|ui| {
                         f.number(ui, "Stack size", "StackSize", 1..=65_535);
                         if f.int("StackSize") > i64::from(stacking) {
@@ -190,19 +190,19 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
                     });
                     ui.end_row();
                     // The game reads at most 250 (engine_ee_fields.rs).
-                    ui.label("Charges");
+                    crate::widgets::field_label(ui, "Charges");
                     f.number(ui, "Charges", "Charges", 0..=250);
                     ui.end_row();
-                    ui.label("Additional Cost");
+                    crate::widgets::field_label(ui, "Additional Cost");
                     f.number(ui, "Additional cost", "AddCost", 0..=999_999_999);
                     ui.end_row();
-                    ui.label("");
+                    crate::widgets::field_label(ui, "");
                     ui.horizontal(|ui| {
                         f.check(ui, "Plot Item", "Plot");
                         f.check(ui, "Stolen", "Stolen");
                     });
                     ui.end_row();
-                    ui.label("");
+                    crate::widgets::field_label(ui, "");
                     super::situated::preview_button(f, ui);
                     ui.end_row();
                 },
@@ -518,7 +518,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
         kind => {
             let prefix = if class == "cloak" { String::new() } else { format!("{class}_") };
             ui.horizontal(|ui| {
-                ui.label("Appearance");
+                crate::widgets::field_label(ui, "Appearance");
                 if prefix.is_empty() {
                     // Cloaks: cloakmodel.2da rows.
                     let rows: Vec<u16> = game
@@ -716,12 +716,12 @@ fn property_editor(
     egui::Grid::new(("uti-prop", f.key, index)).num_columns(2).spacing([12.0, 6.0]).show(
         ui,
         |ui| {
-            ui.label("Item Property");
+            crate::widgets::field_label(ui, "Item Property");
             ui.strong(&t.name);
             ui.end_row();
             let subtypes = game.property_subtypes(&t, base);
             if !subtypes.is_empty() {
-                ui.label("Sub-Property");
+                crate::widgets::field_label(ui, "Sub-Property");
                 if let Some(v) =
                     super::situated::pick(ui, f.key, "prop-sub", &subtypes, i64::from(p.subtype))
                 {
@@ -739,7 +739,7 @@ fn property_editor(
             }
             let costs = game.property_costs(p.cost_table, base);
             if !costs.is_empty() {
-                ui.label("Cost Parameter");
+                crate::widgets::field_label(ui, "Cost Parameter");
                 if let Some(v) =
                     super::situated::pick(ui, f.key, "prop-cost", &costs, i64::from(p.cost_value))
                 {
@@ -749,7 +749,7 @@ fn property_editor(
             }
             if p.param1 != 255 {
                 let params = game.property_params(p.param1);
-                ui.label("Parameter 1");
+                crate::widgets::field_label(ui, "Parameter 1");
                 if let Some(v) = super::situated::pick(
                     ui,
                     f.key,
@@ -761,7 +761,7 @@ fn property_editor(
                 }
                 ui.end_row();
             }
-            ui.label("Chance of Appearing (%)");
+            crate::widgets::field_label(ui, "Chance of Appearing (%)");
             if let Some(v) = commit_number(ui, i64::from(p.chance), 0..=100) {
                 changes.push(("ChanceAppear", Value::Byte(v as u8)));
             }
@@ -794,10 +794,10 @@ fn description(f: &mut Form<'_>, ui: &mut Ui) {
             .ok()
             .and_then(|t| strref(game, t.get_int(row, "Description")))
             .unwrap_or_default();
-        ui.label("Item Type Description");
+        crate::widgets::field_label(ui, "Item Type Description");
         ui.weak(text);
         ui.separator();
-        ui.label("Item Statistics");
+        crate::widgets::field_label(ui, "Item Statistics");
         for s in f.root.list("PropertiesList").unwrap_or(&[]) {
             ui.weak(game.property_text(&ItemProperty::from_gff(s)));
         }

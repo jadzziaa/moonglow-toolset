@@ -24,16 +24,16 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(("uts-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocName");
         ui.end_row();
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("Category");
+        crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Sound);
         ui.end_row();
-        ui.label("Volume");
+        crate::widgets::field_label(ui, "Volume");
         f.slider(ui, "Volume", "Volume", 0..=127);
         ui.end_row();
     });
@@ -193,7 +193,7 @@ fn positioning(f: &mut Form<'_>, ui: &mut Ui) {
             f.float(ui, "North-south random range", "RandomRangeY", 0.0..=32000.0, 0.5)
         });
         ui.end_row();
-        ui.label("Height (m)");
+        crate::widgets::field_label(ui, "Height (m)");
         f.float(ui, "Height", "Elevation", -10.0..=10.0, 0.1);
         ui.end_row();
     });
@@ -207,19 +207,19 @@ const HOURS: [&str; 24] = [
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(("uts-adv", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Blueprint ResRef");
+        crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);
         ui.end_row();
-        ui.label("Active");
+        crate::widgets::field_label(ui, "Active");
         f.check(ui, "", "Active");
         ui.end_row();
-        ui.label("Pitch Variation (octaves)");
+        crate::widgets::field_label(ui, "Pitch Variation (octaves)");
         f.float(ui, "Pitch variation", "PitchVariation", 0.0..=1.0, 0.01);
         ui.end_row();
-        ui.label("Volume Variation");
+        crate::widgets::field_label(ui, "Volume Variation");
         f.slider(ui, "Volume variation", "VolumeVrtn", 0..=127);
         ui.end_row();
-        ui.label("Variables");
+        crate::widgets::field_label(ui, "Variables");
         f.variables(ui);
         ui.end_row();
     });
@@ -297,10 +297,10 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         egui::Grid::new(("uts-interval", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
             ui,
             |ui| {
-                ui.label("Interval between playing sounds (seconds)");
+                crate::widgets::field_label(ui, "Interval between playing sounds (seconds)");
                 f.millis(ui, "Interval", "Interval", 0.0..=100.0);
                 ui.end_row();
-                ui.label("Interval Variation (seconds)");
+                crate::widgets::field_label(ui, "Interval Variation (seconds)");
                 f.millis(ui, "Interval variation", "IntervalVrtn", 0.0..=100.0);
                 ui.end_row();
             },

@@ -247,7 +247,7 @@ fn category_fields(
             egui::Grid::new(("jrl-cat-grid", c)).num_columns(2).spacing([10.0, 6.0]).show(
                 ui,
                 |ui| {
-                    ui.label("Name");
+                    crate::widgets::field_label(ui, "Name");
                     let name = cat.read(&f::NAME);
                     ui.horizontal(|ui| {
                         if let Some(v) =
@@ -273,7 +273,7 @@ fn category_fields(
                         }
                     });
                     ui.end_row();
-                    ui.label("Tag");
+                    crate::widgets::field_label(ui, "Tag");
                     let tag = decode(cat.read(&f::TAG).as_bytes());
                     if let Some(v) = commit_text(app, ui, id("tag"), &tag, false, 200.0) {
                         let v: String = v.chars().take(32).collect();
@@ -285,7 +285,7 @@ fn category_fields(
                         ));
                     }
                     ui.end_row();
-                    ui.label("Priority");
+                    crate::widgets::field_label(ui, "Priority");
                     let prio = cat.read(&f::PRIORITY);
                     egui::ComboBox::from_id_salt(("jrl-prio", c))
                         .selected_text(PRIORITIES.get(prio as usize).copied().unwrap_or("?"))
@@ -304,7 +304,7 @@ fn category_fields(
                             }
                         });
                     ui.end_row();
-                    ui.label("XP");
+                    crate::widgets::field_label(ui, "XP");
                     if let Some(v) = commit_number(ui, cat.read(&f::XP), 0..=u32::MAX) {
                         actions.push(set_field(
                             "Category XP",
@@ -317,7 +317,7 @@ fn category_fields(
                 },
             );
         } else {
-            ui.label("Comments");
+            crate::widgets::field_label(ui, "Comments");
             let comment = decode(cat.read(&f::COMMENT).as_bytes());
             if let Some(v) = commit_text(app, ui, id("comment"), &comment, true, f32::INFINITY) {
                 actions.push(set_field(
@@ -347,7 +347,7 @@ fn entry_fields(
             egui::Grid::new(("jrl-entry-grid", c, e)).num_columns(2).spacing([10.0, 6.0]).show(
                 ui,
                 |ui| {
-                    ui.label("ID");
+                    crate::widgets::field_label(ui, "ID");
                     if let Some(v) = commit_number(ui, entry.read(&f::ID), 0..=u32::MAX) {
                         actions.push(set_field(
                             "Entry ID",
@@ -372,7 +372,7 @@ fn entry_fields(
         } else {
             let text = entry.read(&f::TEXT);
             ui.horizontal(|ui| {
-                ui.label("Text");
+                crate::widgets::field_label(ui, "Text");
                 if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked()
                 {
                     app.loc_edit = Some(LocStringEdit::new(

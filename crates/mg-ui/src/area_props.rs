@@ -78,13 +78,13 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         .unwrap_or_else(|| tileset.to_string());
     let (w, h) = (f.int("Width"), f.int("Height"));
     egui::Grid::new(("are-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Area name", "Name");
         ui.end_row();
-        ui.label("Tileset");
+        crate::widgets::field_label(ui, "Tileset");
         ui.label(format!("{tileset_name} ({tileset})"));
         ui.end_row();
-        ui.label("Size");
+        crate::widgets::field_label(ui, "Size");
         ui.label(format!("{w} by {h} tiles")).on_hover_text("Resize Area changes it");
         ui.end_row();
     });
@@ -113,7 +113,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     ui.strong("Environment");
     let skyboxes = choices(f.app, "skyboxes", "STRING_REF", "LABEL");
     egui::Grid::new(("are-env", f.key)).num_columns(3).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         ui.strong("Sun");
         ui.strong("Moon");
         ui.end_row();
@@ -127,11 +127,11 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
             f.color(ui, &format!("Moon {what}"), moon);
             ui.end_row();
         }
-        ui.label("Fog Amount");
+        crate::widgets::field_label(ui, "Fog Amount");
         f.number(ui, "Sun fog amount", "SunFogAmount", 0..=200);
         f.number(ui, "Moon fog amount", "MoonFogAmount", 0..=200);
         ui.end_row();
-        ui.label("Shadows");
+        crate::widgets::field_label(ui, "Shadows");
         f.check(ui, "", "SunShadows");
         f.check(ui, "", "MoonShadows");
         ui.end_row();
@@ -163,25 +163,25 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         }
     });
     egui::Grid::new(("are-env2", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Shadow Opacity");
+        crate::widgets::field_label(ui, "Shadow Opacity");
         f.number(ui, "Shadow opacity", "ShadowOpacity", 0..=100);
         ui.end_row();
-        ui.label("Fog Clip Distance (m)");
+        crate::widgets::field_label(ui, "Fog Clip Distance (m)");
         f.float(ui, "Fog clip distance", "FogClipDist", 25.0..=999.0, 1.0);
         ui.end_row();
-        ui.label("Sky Box");
+        crate::widgets::field_label(ui, "Sky Box");
         f.choice(ui, "Sky box", "SkyBox", &skyboxes, FieldType::Byte);
         ui.end_row();
-        ui.label("% Rain");
+        crate::widgets::field_label(ui, "% Rain");
         f.number(ui, "Chance of rain", "ChanceRain", 0..=100);
         ui.end_row();
-        ui.label("% Snow");
+        crate::widgets::field_label(ui, "% Snow");
         f.number(ui, "Chance of snow", "ChanceSnow", 0..=100);
         ui.end_row();
-        ui.label("% Lightning");
+        crate::widgets::field_label(ui, "% Lightning");
         f.number(ui, "Chance of lightning", "ChanceLightning", 0..=100);
         ui.end_row();
-        ui.label("Wind Power");
+        crate::widgets::field_label(ui, "Wind Power");
         let winds = ["None", "Weak", "Strong"];
         let wind = f.int("WindPower").clamp(0, 2);
         ui.horizontal(|ui| {
@@ -259,10 +259,10 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef) {
             f.choice(ui, text, label, list, FieldType::Int);
             ui.end_row();
         }
-        ui.label("Ambient Sound, Day Volume");
+        crate::widgets::field_label(ui, "Ambient Sound, Day Volume");
         f.slider(ui, "Day volume", "AmbientSndDayVol", 0..=127);
         ui.end_row();
-        ui.label("Ambient Sound, Night Volume");
+        crate::widgets::field_label(ui, "Ambient Sound, Night Volume");
         f.slider(ui, "Night volume", "AmbientSndNitVol", 0..=127);
         ui.end_row();
         for (text, label) in [
@@ -274,10 +274,10 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef) {
             f.choice(ui, text, label, &music, FieldType::Int);
             ui.end_row();
         }
-        ui.label("Music, Playing Delay");
+        crate::widgets::field_label(ui, "Music, Playing Delay");
         f.number(ui, "Music delay", "MusicDelay", -99..=99);
         ui.end_row();
-        ui.label("Environmental Audio Effects");
+        crate::widgets::field_label(ui, "Environmental Audio Effects");
         f.choice(ui, "Environmental audio", "EnvAudio", &eax, FieldType::Int);
         ui.end_row();
     });
@@ -300,25 +300,25 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let screens = choices(f.app, "loadscreens", "StrRef", "Label");
     let flags = f.int("Flags") as u32;
     egui::Grid::new(("are-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("ResRef");
+        crate::widgets::field_label(ui, "ResRef");
         ui.label(f.key.resref.to_string());
         ui.end_row();
-        ui.label("Check Modifier - Listen");
+        crate::widgets::field_label(ui, "Check Modifier - Listen");
         f.number(ui, "Listen check modifier", "ModListenCheck", -99..=99);
         ui.end_row();
-        ui.label("Check Modifier - Spot");
+        crate::widgets::field_label(ui, "Check Modifier - Spot");
         f.number(ui, "Spot check modifier", "ModSpotCheck", -99..=99);
         ui.end_row();
-        ui.label("Player Vs. Player");
+        crate::widgets::field_label(ui, "Player Vs. Player");
         f.choice(ui, "Player vs. player", "PlayerVsPlayer", &pvp, FieldType::Byte);
         ui.end_row();
-        ui.label("Loading Screen");
+        crate::widgets::field_label(ui, "Loading Screen");
         f.choice(ui, "Loading screen", "LoadScreenID", &screens, FieldType::Word);
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         f.check(ui, "No Rest", "NoRest");
         ui.end_row();
         for (bit, off, on) in [
@@ -340,7 +340,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         }
         // The flags past the three, for custom shaders (their `areaFlags`
         // uniform): kept by the game (`engine_ee_fields.rs`).
-        ui.label("Shader Flags").on_hover_text(
+        crate::widgets::field_label(ui, "Shader Flags").on_hover_text(
             "Area flags past the three above, for custom shaders: a shader reads them \
              from its areaFlags uniform",
         );
@@ -365,7 +365,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             }
         });
         ui.end_row();
-        ui.label("Variables");
+        crate::widgets::field_label(ui, "Variables");
         f.variables(ui);
         ui.end_row();
     });

@@ -49,16 +49,16 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         .map(|(row, text)| Choice { row: *row as usize, text: (*text).into() })
         .collect();
     egui::Grid::new(("utt-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocalizedName");
         ui.end_row();
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("Trigger Type");
+        crate::widgets::field_label(ui, "Trigger Type");
         f.choice(ui, "Trigger type", "Type", &types, FieldType::Int);
         ui.end_row();
-        ui.label("Category");
+        crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Trigger);
         ui.end_row();
     });
@@ -80,31 +80,31 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         .and_then(|g| g.choices("cursors", ChoiceColumns { name: None, label: Some("Label") }).ok())
         .unwrap_or_default();
     egui::Grid::new(("utt-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Blueprint ResRef");
+        crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);
         ui.end_row();
-        ui.label("Faction");
+        crate::widgets::field_label(ui, "Faction");
         situated::faction(f, ui, "Faction", "Faction");
         ui.end_row();
-        ui.label("Key Tag");
+        crate::widgets::field_label(ui, "Key Tag");
         f.text(ui, "Key tag", "KeyName", 32);
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         f.check(ui, "Auto Remove Key", "AutoRemoveKey");
         ui.end_row();
-        ui.label("Cursor");
+        crate::widgets::field_label(ui, "Cursor");
         f.choice(ui, "Cursor", "Cursor", &cursors, FieldType::Byte);
         ui.end_row();
-        ui.label("Portrait");
+        crate::widgets::field_label(ui, "Portrait");
         situated::portrait(f, ui);
         ui.end_row();
-        ui.label("Highlight Height");
+        crate::widgets::field_label(ui, "Highlight Height");
         f.float(ui, "Highlight height", "HighlightHeight", 0.0..=100.0, 0.1);
         ui.end_row();
-        ui.label("Variables");
+        crate::widgets::field_label(ui, "Variables");
         f.variables(ui);
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         f.update_instances(ui);
         ui.end_row();
     });

@@ -270,10 +270,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             Step::WaypointTag => {
                 ui.heading("Waypoint Wizard");
                 egui::Grid::new("wizard-waypoint").num_columns(2).show(ui, |ui| {
-                    ui.label("Tag");
+                    crate::widgets::field_label(ui, "Tag");
                     ui.text_edit_singleline(&mut w.name);
                     ui.end_row();
-                    ui.label("Appearance");
+                    crate::widgets::field_label(ui, "Appearance");
                     let looks = app
                         .game
                         .as_ref()

@@ -119,7 +119,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 // Rows: who regards (PC's own feelings are not stored);
                 // columns: whom.
                 egui::Grid::new("faction-grid").spacing([4.0, 4.0]).show(ui, |ui| {
-                    ui.label("");
+                    crate::widgets::field_label(ui, "");
                     for t in &f.factions {
                         ui.strong(&t.name);
                     }

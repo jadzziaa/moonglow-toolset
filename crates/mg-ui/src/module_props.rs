@@ -162,7 +162,7 @@ fn english(ls: &LocString) -> String {
 
 fn basic(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     egui::Grid::new("ifo-basic").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         let name: LocString = root.read(&ifo::MOD_NAME);
         ui.horizontal(|ui| {
             if let Some(v) = text_field(app, ui, "name", &english(&name)) {
@@ -179,7 +179,7 @@ fn basic(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         });
         ui.end_row();
 
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         let tag = decode(root.read(&ifo::MOD_TAG).as_bytes());
         if let Some(v) = text_field(app, ui, "tag", &tag) {
             app.actions.push(set("Module tag", &ifo::MOD_TAG, ExoString(encode(&v))));
@@ -187,10 +187,10 @@ fn basic(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         ui.end_row();
 
         // Set by placing the start location in an area, as in Aurora.
-        ui.label("Start area");
+        crate::widgets::field_label(ui, "Start area");
         ui.label(root.read(&ifo::MOD_ENTRY_AREA).to_string());
         ui.end_row();
-        ui.label("Start location");
+        crate::widgets::field_label(ui, "Start location");
         ui.label(format!(
             "{:.2}, {:.2}, {:.2}",
             root.read(&ifo::MOD_ENTRY_X),
@@ -242,7 +242,7 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             number(app, ui, label, f, root.read(f), range);
             ui.end_row();
         }
-        ui.label("Starting year");
+        crate::widgets::field_label(ui, "Starting year");
         number(
             app,
             ui,
@@ -253,7 +253,7 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         );
         ui.end_row();
 
-        ui.label("XP scale");
+        crate::widgets::field_label(ui, "XP scale");
         let mut xp = root.read(&ifo::MOD_XP_SCALE);
         let r = ui.add(egui::Slider::new(&mut xp, 0..=200).clamping(egui::SliderClamping::Edits));
         if r.drag_stopped() || (r.changed() && !r.dragged()) {
@@ -261,7 +261,7 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         }
         ui.end_row();
 
-        ui.label("Starting movie");
+        crate::widgets::field_label(ui, "Starting movie");
         let movie = root.read(&ifo::MOD_START_MOVIE);
         let movies = app
             .install
@@ -284,7 +284,7 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
         });
         ui.end_row();
 
-        ui.label("Variables");
+        crate::widgets::field_label(ui, "Variables");
         variables_button(app, ui, target(ifo::VAR_TABLE.label), root.items(&ifo::VAR_TABLE));
         ui.end_row();
     });
@@ -294,7 +294,7 @@ fn description(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     let desc: LocString = root.read(&ifo::MOD_DESCRIPTION);
     ui.horizontal(|ui| {
         let language = crate::text::edit_language().name().unwrap_or("?");
-        ui.label(format!("Description ({language})"));
+        crate::widgets::field_label(ui, format!("Description ({language})"));
         if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
             let t = target(ifo::MOD_DESCRIPTION.label);
             app.loc_edit = Some(LocStringEdit::new(t, "Module description", &desc));
@@ -379,7 +379,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
 
     ui.add_space(10.0);
     ui.horizontal(|ui| {
-        ui.label("Custom TLK");
+        crate::widgets::field_label(ui, "Custom TLK");
         let tlk = decode(root.read(&ifo::MOD_CUSTOM_TLK).as_bytes());
         // The game reads talk tables from haks and the module too.
         let mut tlks = app

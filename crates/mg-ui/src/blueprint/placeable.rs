@@ -76,26 +76,26 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         })
         .unwrap_or_default();
     egui::Grid::new(("utp-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocName");
         ui.end_row();
-        ui.label("Tag");
+        crate::widgets::field_label(ui, "Tag");
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
-        ui.label("Appearance Type");
+        crate::widgets::field_label(ui, "Appearance Type");
         f.choice(ui, "Appearance", "Appearance", &appearances, FieldType::Dword);
         ui.end_row();
-        ui.label("Category");
+        crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Placeable);
         ui.end_row();
         // A static placeable is scenery: it cannot be used or hold items.
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         let fixed = f.check(ui, "Static", "Static");
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Useable", "Useable"));
         ui.end_row();
-        ui.label("");
+        crate::widgets::field_label(ui, "");
         ui.horizontal(|ui| {
             let has =
                 ui.add_enabled_ui(!fixed, |ui| f.check(ui, "Has Inventory", "HasInventory")).inner;

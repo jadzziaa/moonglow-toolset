@@ -84,7 +84,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
             ui.separator();
             ui.strong("Visual Transforms");
             egui::Grid::new("adjust-visual").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
-                ui.label("Scale");
+                crate::widgets::field_label(ui, "Scale");
                 let mut scale = a.visual.scale.x;
                 let r = ui.add(
                     egui::DragValue::new(&mut scale)
@@ -256,7 +256,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
             }
         });
         egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            ui.label("In Area");
+            crate::widgets::field_label(ui, "In Area");
             let shown = f.area.map_or_else(|| "(all areas)".to_string(), |a| a.to_string());
             egui::ComboBox::from_id_salt("find-area").selected_text(shown).show_ui(ui, |ui| {
                 ui.selectable_value(&mut f.area, None, "(all areas)");
@@ -265,12 +265,12 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                 }
             });
             ui.end_row();
-            ui.label("From Blueprint");
+            crate::widgets::field_label(ui, "From Blueprint");
             let field =
                 ui.add(egui::TextEdit::singleline(&mut f.template).hint_text("blueprint resref"));
             crate::widgets::autofocus(ui, &field);
             ui.end_row();
-            ui.label("With Tag");
+            crate::widgets::field_label(ui, "With Tag");
             ui.add(egui::TextEdit::singleline(&mut f.tag).hint_text("tag"));
             ui.end_row();
         });
