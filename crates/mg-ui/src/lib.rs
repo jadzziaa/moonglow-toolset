@@ -30,6 +30,7 @@ pub mod palette_view;
 pub mod prefabs;
 pub mod recovery;
 pub mod references;
+pub mod script_nav;
 pub mod script_tools;
 mod script_view;
 pub mod script_wizard;
@@ -254,6 +255,8 @@ pub struct Moonglow {
     pub references: references::References,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
+    /// The script editor's code navigation and errors as you type.
+    pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
     /// Where prefabs are kept (the app sets Moonglow's data folder's
@@ -360,6 +363,7 @@ impl Moonglow {
             area_focus: None,
             references: Default::default(),
             rename: None,
+            script_nav: Default::default(),
             prefab_save: None,
             prefab_dir: None,
             reload_checked: None,
@@ -493,6 +497,7 @@ impl Moonglow {
         store_wizard::window(self, ui.ctx());
         store_wizard::popup_window(self, ui.ctx());
         references::rename_window(self, ui.ctx());
+        script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());

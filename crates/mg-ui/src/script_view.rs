@@ -42,7 +42,26 @@ pub(crate) struct LaidOut {
     text: String,
     wrap: f32,
     palette: Palette,
+    /// The line underlined as an error.
+    error_line: Option<usize>,
     galley: std::sync::Arc<egui::Galley>,
+}
+
+/// Underlines (wavy red, as editors mark errors) what is on a 0-based line.
+fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) {
+    let start = if line == 0 {
+        0
+    } else {
+        text.match_indices('\n').nth(line - 1).map_or(text.len(), |(i, _)| i + 1)
+    };
+    let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
+    for s in &mut job.sections {
+        let (a, b) = (usize::from(s.byte_range.start), usize::from(s.byte_range.end));
+        let overlaps = a < end && b > start;
+        if overlaps && !text[a..b].trim().is_empty() {
+            s.format.underline = egui::Stroke::new(1.5, color);
+        }
+    }
 }
 
 impl ScriptBuffer {
@@ -299,6 +318,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut complete = false;
     let mut set_numbered = None;
     let mut go_numbered = None;
+    let (mut definition, mut references, mut rename) = (false, false, false);
     if focused {
         use egui::{Key, KeyboardShortcut, Modifiers};
         let pressed = |m, k| ui.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
@@ -307,6 +327,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         find_next = pressed(Modifiers::NONE, Key::F3);
         toggle_bookmark = pressed(Modifiers::NONE, Key::F5);
         complete = pressed(Modifiers::NONE, Key::F2) || pressed(Modifiers::COMMAND, Key::Space);
+        definition = pressed(Modifiers::NONE, Key::F12);
+        references = pressed(Modifiers::SHIFT, Key::F12);
+        rename = pressed(Modifiers::COMMAND | Modifiers::SHIFT, Key::R);
         const DIGITS: [Key; 9] = [
             Key::Num1,
             Key::Num2,
@@ -372,8 +395,23 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             .button("Bookmark")
             .on_hover_text("Toggle a bookmark on the cursor's line (F5)")
             .clicked();
-        if ui
+        ui.separator();
+        definition |= ui
+            .button("Definition")
+            .on_hover_text("Go to the definition of the name at the cursor (F12, or Ctrl+click)")
+            .clicked();
+        references |= ui
             .button("References")
+            .on_hover_text(
+                "Where the name at the cursor is used in the module's scripts (Shift+F12)",
+            )
+            .clicked();
+        rename |= ui
+            .button("Rename Symbol…")
+            .on_hover_text("Rename the name at the cursor everywhere it's used (Ctrl+Shift+R)")
+            .clicked();
+        if ui
+            .button("Used By")
             .on_hover_text("Where the module runs or includes this script")
             .clicked()
         {
@@ -383,7 +421,27 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             ui.weak("modified");
         }
     });
+    // The error the latest check found, under the toolbar.
+    app.live_check(key, &ctx);
+    if let Some((line, text)) = app.live_error(key) {
+        let at = line.map_or_else(|| "in an include".to_string(), |l| format!("line {}", l + 1));
+        ui.colored_label(ui.visuals().error_fg_color, format!("⚠ {at}: {text}"))
+            .on_hover_text("Found as you type (the script is compiled when typing pauses)");
+    }
     ui.separator();
+
+    if definition || references || rename {
+        let at = cursor(&ctx, key).map_or(0, |c| c.0);
+        match app.declaration_at(key, at) {
+            Some(d) if definition => app.go_to_declaration(&d),
+            Some(d) if references => app.show_references(&d),
+            Some(d) => {
+                let name = d.name.clone();
+                app.script_nav.rename = Some((d, name));
+            }
+            None => app.log.info("No declaration for the name at the cursor"),
+        }
+    }
 
     let tools_state = &mut app.script_tools;
     if open_find || open_replace {
@@ -621,6 +679,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
     // The editor with line numbers.
     let palette = Palette::for_ui(&app.settings.script_style, ui);
+    let error_line = app.live_error(key).and_then(|e| e.0);
+    let error_color = ui.visuals().error_fg_color;
+    let mut ctrl_click = None;
     let Moonglow { scripts, laid_out, script_tools, .. } = app;
     let buf = scripts.get_mut(&key).expect("open");
     if let Some(text) = insert_text {
@@ -683,21 +744,27 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     let cached = laid_out.entry(key).or_insert(None);
     let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap: f32| {
-        if let Some(c) = cached
-            .as_ref()
-            .filter(|c| c.wrap == wrap && c.palette == palette && c.text == text.as_str())
-        {
+        if let Some(c) = cached.as_ref().filter(|c| {
+            c.wrap == wrap
+                && c.palette == palette
+                && c.error_line == error_line
+                && c.text == text.as_str()
+        }) {
             return c.galley.clone();
         }
         // Code does not wrap (the editor scrolls sideways), which also
         // keeps the line numbers beside their lines.
         let mut job = highlight(text.as_str(), &palette);
         job.wrap.max_width = f32::INFINITY;
+        if let Some(line) = error_line {
+            underline_line(&mut job, text.as_str(), line, error_color);
+        }
         let galley = ui.fonts_mut(|f| f.layout_job(job));
         *cached = Some(LaidOut {
             text: text.as_str().to_string(),
             wrap,
             palette,
+            error_line,
             galley: galley.clone(),
         });
         galley
@@ -747,6 +814,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     }
                     if out.response.response.changed() {
                         script_tools.completion = None;
+                    }
+                    // Ctrl+click goes to the definition.
+                    if out.response.response.clicked() && ctx.input(|i| i.modifiers.command) {
+                        ctrl_click = Some(usize::from(r.primary.index));
                     }
                 }
             });
@@ -812,6 +883,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             Some(k) => app.actions.push(Action::OpenTab(Tab::Resource(k))),
             None => {}
         }
+    }
+
+    if let Some(at) = ctrl_click
+        && let Some(d) = app.declaration_at(key, at)
+    {
+        app.go_to_declaration(&d);
     }
 
     if save_as {

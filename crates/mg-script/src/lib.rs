@@ -1,6 +1,7 @@
 //! NWScript: the official compiler, built in ([`compiler`]), and the
 //! script tooling built on it.
 
+pub mod analysis;
 pub mod compiler;
 pub mod lex;
 pub mod outline;

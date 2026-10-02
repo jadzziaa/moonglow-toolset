@@ -5287,3 +5287,72 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     assert!((x, y) != (20.0, 20.0), "it moved");
     assert!((x - x.round()).abs() < 1e-4 && (y - y.round()).abs() < 1e-4, "on the grid: {x}, {y}");
 }
+
+#[test]
+fn script_navigation_definition_references_rename_and_live_errors() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let dir = mg_testkit::scratch_dir("ui-script-nav");
+    let mut m = Module::new();
+    let mut info = Gff::new(*b"IFO ");
+    info.root.write(&ifo::MOD_TAG, ExoString::from("NAV"));
+    m.set_info(&info).unwrap();
+    let inc = ResKey::parse("inc_util", ResType::NSS).unwrap();
+    let main = ResKey::parse("main_a", ResType::NSS).unwrap();
+    m.set(inc, b"// Doubles a number.\nint Twice(int n) { return n * 2; }\n".to_vec());
+    m.set(main, b"#include \"inc_util\"\nvoid main()\n{\n    int x = Twice(2);\n}\n".to_vec());
+    let path = dir.join("nav.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(main)));
+    h.run_steps(3);
+
+    // Definition: Twice is in the include.
+    let text = "#include \"inc_util\"\nvoid main()\n{\n    int x = Twice(2);\n}\n";
+    let at = text.find("Twice").unwrap() + 2;
+    let d = h.state_mut().declaration_at(main, at).expect("a declaration");
+    assert_eq!((d.at.file.as_str(), d.doc.as_str()), ("inc_util", "Doubles a number."));
+    h.state_mut().go_to_declaration(&d);
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&Tab::Script(inc)).is_some(), "the include opens");
+
+    // References: its definition and its use.
+    h.state_mut().show_references(&d);
+    let results: Vec<String> = h
+        .state()
+        .script_tools
+        .search
+        .results
+        .iter()
+        .map(|(k, l, _)| format!("{}:{l}", k.resref))
+        .collect();
+    assert_eq!(results, ["inc_util:1", "main_a:3"]);
+
+    // Rename: both scripts, one undoable step.
+    h.state_mut().rename_symbol(&d, "Double");
+    h.run_steps(3);
+    let text_of = |h: &Harness<'_, Moonglow>, k: ResKey| {
+        String::from_utf8(h.state().ws.as_ref().unwrap().module.get(&k).unwrap().to_vec()).unwrap()
+    };
+    assert!(text_of(&h, inc).contains("int Double(int n)"));
+    assert!(text_of(&h, main).contains("int x = Double(2);"));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Rename Twice to Double"));
+
+    // Errors as you type: checked once typing pauses, the line shown.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(main)));
+    h.run_steps(3);
+    h.state_mut().scripts_mut_for_test(
+        main,
+        "#include \"inc_util\"\nvoid main()\n{\n    int x = Double(2) +;\n}\n",
+    );
+    h.run_steps(1);
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    h.run_steps(2);
+    let error = h.state().script_error_for_test(main);
+    assert_eq!(error.as_ref().map(|e| e.0), Some(Some(3)), "{error:?}");
+    h.get_by_label_contains("⚠ line 4:");
+}
