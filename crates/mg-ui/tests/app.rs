@@ -6976,3 +6976,62 @@ fn a_terrain_drag_with_shift_fills_its_rectangle() {
     h.run_steps(3);
     assert_eq!(lattice(&mut h), before);
 }
+
+#[test]
+fn a_crosser_drag_with_shift_follows_its_rectangle_s_outline() {
+    use glam::Vec3;
+    use mg_tiles::{EAST, NORTH, SOUTH, TileIndex, WEST};
+    let Some((mut h, area)) = area_harness("crosser-outline") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let road = index.crosser("Road").unwrap();
+    let lattice = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap().lattice
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    let before = lattice(&mut h);
+    // Tile (0, 0) diagonally to tile (2, 2), Shift held.
+    let from = screen(&h, area, Vec3::new(5.0, 5.0, 0.0));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    for t in [0.25, 0.5, 0.75, 1.0] {
+        let p = Vec3::new(5.0, 5.0, 0.0).lerp(Vec3::new(25.0, 25.0, 0.0), t);
+        h.hover_at(screen(&h, area, p));
+        h.run_steps(1);
+    }
+    let to = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+    press(&h, to, false, egui::Modifiers::SHIFT);
+    h.run_steps(1);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(3);
+    let l = lattice(&mut h);
+    let edges = |x, y| l.cell(x, y).edges;
+    let on = |list: &[usize]| {
+        let mut e = [None; 4];
+        for &i in list {
+            e[i] = Some(road);
+        }
+        e
+    };
+    assert_eq!(edges(0, 0), on(&[EAST, NORTH]), "{:?}", h.state().log.entries);
+    assert_eq!(edges(1, 0), on(&[EAST, WEST]));
+    assert_eq!(edges(2, 0), on(&[WEST, NORTH]));
+    assert_eq!(edges(2, 1), on(&[SOUTH, NORTH]));
+    assert_eq!(edges(2, 2), on(&[SOUTH, WEST]));
+    assert_eq!(edges(1, 2), on(&[EAST, WEST]));
+    assert_eq!(edges(0, 2), on(&[EAST, SOUTH]));
+    assert_eq!(edges(0, 1), on(&[NORTH, SOUTH]));
+    assert_eq!(edges(1, 1), [None; 4], "nothing inside");
+    assert_eq!(edges(3, 3), before.cell(3, 3).edges);
+}

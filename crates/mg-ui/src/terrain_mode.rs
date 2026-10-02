@@ -346,6 +346,7 @@ pub(crate) fn input(
     let Some(brush) = active(app, view) else {
         view.crossing.clear();
         view.crossing_at = None;
+        view.crossing_outline = None;
         view.terrain_drag = None;
         return false;
     };
@@ -357,6 +358,7 @@ pub(crate) fn input(
     if response.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         app.palette.tile_brush = None;
         view.crossing.clear();
+        view.crossing_outline = None;
         view.terrain_drag = None;
         return true;
     }
@@ -382,10 +384,13 @@ pub(crate) fn input(
                     }
                 }
                 view.crossing_at = Some(s.point);
+                view.crossing_outline = shift.then_some(s.cell);
             }
             if response.drag_stopped() && !view.crossing.is_empty() {
                 view.crossing_at = None;
-                let mut edges = std::mem::take(&mut view.crossing);
+                let mut edges = crossing_shown(view);
+                view.crossing.clear();
+                view.crossing_outline = None;
                 edges.dedup();
                 if let Some(g) = current_grid(app, view) {
                     let tools = view.terrain.as_ref().expect("checked");
@@ -518,6 +523,43 @@ fn terrain_drag(
     true
 }
 
+/// The quarters a crosser drag has marked: its path, or with Shift the
+/// outline of the rectangle from its first tile to the pointer's.
+fn crossing_shown(view: &AreaView) -> Vec<((u32, u32), usize)> {
+    match (view.crossing.first(), view.crossing_outline) {
+        (Some(&(from, _)), Some(to)) => outline(from, to),
+        _ => view.crossing.clone(),
+    }
+}
+
+/// The quarters (both sides of each edge crossed) of a crosser along the
+/// outline of the rectangle of tiles from `a` to `b`: round its ring of
+/// tiles, or straight along a rectangle one tile wide; the tile alone when
+/// they are one.
+fn outline(a: (u32, u32), b: (u32, u32)) -> Vec<((u32, u32), usize)> {
+    let (x0, x1, y0, y1) = (a.0.min(b.0), a.0.max(b.0), a.1.min(b.1), a.1.max(b.1));
+    let cells: Vec<(u32, u32)> = if x0 == x1 || y0 == y1 {
+        (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).collect()
+    } else {
+        let mut ring: Vec<(u32, u32)> = (x0..=x1).map(|x| (x, y0)).collect();
+        ring.extend((y0 + 1..=y1).map(|y| (x1, y)));
+        ring.extend((x0..x1).rev().map(|x| (x, y1)));
+        ring.extend((y0..y1).rev().map(|y| (x0, y)));
+        ring
+    };
+    if cells.len() == 1 {
+        return vec![(cells[0], mg_tiles::SOUTH)];
+    }
+    cells
+        .windows(2)
+        .flat_map(|w| {
+            let there = mg_tiles::paint::path_edges(&[w[0], w[1]]).unwrap_or_default();
+            let back = mg_tiles::paint::path_edges(&[w[1], w[0]]).unwrap_or_default();
+            there.into_iter().chain(back)
+        })
+        .collect()
+}
+
 /// A crosser drag reaching spot `q`: its quarter joins the path when it is
 /// a new one, and back in the one before, the last is let go (a drag run
 /// back). Near a tile's centre, where the quarters meet, the drag stays in
@@ -621,7 +663,7 @@ fn cursor_shapes(
     };
     let ok = Color32::from_rgb(80, 220, 80);
     let refused = Color32::from_rgb(230, 60, 60);
-    for &(cell, edge) in &view.crossing {
+    for (cell, edge) in crossing_shown(view) {
         quarter(cell, edge, Color32::from_rgb(240, 200, 60));
     }
     // A terrain drag's marked corners.
@@ -640,9 +682,12 @@ fn cursor_shapes(
     match brush.brush {
         Brush::Crosser(_) => {
             // Not dragged, a click chooses the tile again.
-            let color = if view.crossing.is_empty() { CYCLE } else { ok };
-            let (cell, edge) = next_quarter(&view.crossing, s);
-            quarter(cell, edge, color);
+            // (With Shift, the outline is the drag's.)
+            if view.crossing_outline.is_none() {
+                let color = if view.crossing.is_empty() { CYCLE } else { ok };
+                let (cell, edge) = next_quarter(&view.crossing, s);
+                quarter(cell, edge, color);
+            }
         }
         Brush::Group(gi) => {
             let (st, _) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
@@ -843,6 +888,26 @@ mod tests {
         let s = spot(Vec3::new(100.0, 99.0, 0.0), 10, 10).unwrap();
         assert_eq!((s.corner, s.cell), ((10, 10), (9, 9)));
         assert!(spot(Vec3::new(-20.0, 5.0, 0.0), 10, 10).is_none());
+    }
+
+    #[test]
+    fn an_outline_rings_the_rectangle() {
+        use mg_tiles::{EAST, NORTH, SOUTH, WEST};
+        let ring = outline((2, 2), (0, 0));
+        // Eight tiles round, each crossing marked on both sides.
+        assert_eq!(ring.len(), 16);
+        let has = |cell, edge| ring.contains(&(cell, edge));
+        assert!(has((0, 0), EAST) && has((0, 0), NORTH));
+        assert!(has((1, 0), WEST) && has((1, 0), EAST) && !has((1, 0), NORTH));
+        assert!(has((2, 2), SOUTH) && has((2, 2), WEST));
+        assert!(!ring.iter().any(|(c, _)| *c == (1, 1)), "nothing inside");
+        // One tile high: a straight run.
+        let run = outline((0, 1), (3, 1));
+        assert_eq!(run.len(), 6);
+        assert!(run.contains(&((0, 1), EAST)) && run.contains(&((3, 1), WEST)));
+        assert!(!run.iter().any(|(_, e)| *e == NORTH || *e == SOUTH));
+        // One tile: itself.
+        assert_eq!(outline((1, 1), (1, 1)).len(), 1);
     }
 
     /// The quarters a crosser drag through `points` (metres) takes, as the

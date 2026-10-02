@@ -165,7 +165,9 @@ as Aurora's Terrain tab does:
   pointer through the tiles it passes. A drag straight across a tile may
   wander up to 2.5 m off its middle; to turn within a tile, head for the
   side you want it to leave by. Running the drag back over its path lets
-  go of what it passed.
+  go of what it passed. Hold Shift while dragging to lay it round the
+  outline of the rectangle from the tile where the drag began (straight
+  along a rectangle one tile wide).
 - **Groups** (buildings, big features) are placed whole; right-click to
   turn one before placing it.
 - The **Eraser** takes the crossers off a tile; with Shift + click it

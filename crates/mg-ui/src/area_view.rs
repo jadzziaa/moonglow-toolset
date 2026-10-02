@@ -116,6 +116,9 @@ pub struct AreaView {
     pub(crate) crossing: Vec<((u32, u32), usize)>,
     /// Where the crosser drag's pointer was last (on the ground).
     pub(crate) crossing_at: Option<Vec3>,
+    /// Shift is held in a crosser drag: the tile under the pointer, the
+    /// far corner of the rectangle whose outline the crosser follows.
+    pub(crate) crossing_outline: Option<(u32, u32)>,
     /// The walkmesh is drawn over the view (Aurora's Render AABB Nodes).
     pub walkmesh: bool,
     /// surfacemat.2da's `Walk` by row, read once.
@@ -215,6 +218,7 @@ impl AreaView {
             spot: None,
             crossing: Vec::new(),
             crossing_at: None,
+            crossing_outline: None,
             walkmesh: false,
             walkable: None,
             object_walkmesh: false,
