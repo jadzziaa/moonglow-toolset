@@ -53,7 +53,8 @@ Placeables, Sounds, Triggers, Waypoints) and the journal and factions;
 **Module Properties** is at the top. **Filter** narrows every group to the
 names containing the text.
 
-A double click opens a resource in its editor. A right click on an area
+A double click opens a resource in its editor; a blueprint dragged onto an
+area's view is placed there, as from the palette. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields
 of its `.are` and `.git` files; on a script, area, conversation or
 blueprint, **Find References** and **Rename…** (see

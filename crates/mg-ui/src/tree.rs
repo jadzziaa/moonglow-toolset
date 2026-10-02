@@ -54,7 +54,17 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                         ResType::ARE | ResType::DLG | ResType::NSS => k.resref.to_string(),
                         _ => k.to_string(),
                     };
-                    let r = ui.selectable_label(false, label);
+                    // Blueprints drag into an area, as from the palette.
+                    let blueprint = mg_area::ObjectKind::from_restype(k.restype).is_some();
+                    let sense = if blueprint {
+                        egui::Sense::click_and_drag()
+                    } else {
+                        egui::Sense::click()
+                    };
+                    let r = ui.add(egui::Button::selectable(false, label).sense(sense));
+                    if blueprint && r.drag_started() {
+                        r.dnd_set_drag_payload(crate::palette_view::Dragged(k));
+                    }
                     if r.double_clicked() {
                         open = Some(k);
                     }

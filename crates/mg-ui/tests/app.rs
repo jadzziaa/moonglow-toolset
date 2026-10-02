@@ -5976,6 +5976,41 @@ fn a_preview_follows_its_blueprint_s_editor() {
 }
 
 #[test]
+fn blueprints_drag_from_the_module_tree_into_the_area() {
+    let Some((mut h, area)) = area_harness("drag-tree") else { return };
+    // A waypoint blueprint of the module's own (the game's Tavern's copy).
+    let key = ResKey::parse("mg_tree_wp", ResType::UTW).unwrap();
+    let tavern = ResKey::parse("nw_wp_tavern", ResType::UTW).unwrap();
+    let data = h.state().game.as_ref().unwrap().resman.get(&tavern).unwrap().into_owned();
+    h.state_mut().ws.as_mut().unwrap().module.set(key, data);
+    h.run_steps(2);
+    let count = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("WaypointList").map_or(0, <[mg_gff::Struct]>::len)
+    };
+    let before = count(&mut h);
+    h.get_by_label_contains("Waypoints (").click();
+    h.run_steps(2);
+    let from = h.get_by_label("mg_tree_wp.utw").rect().center();
+    let to = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.0));
+    let modifiers = egui::Modifiers::NONE;
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    press(&h, from, true, modifiers);
+    h.run_steps(1);
+    for t in [0.1, 0.4, 0.7, 1.0] {
+        h.event(egui::Event::PointerMoved(from + (to - from) * t));
+        h.run_steps(1);
+    }
+    press(&h, to, false, modifiers);
+    h.run_steps(3);
+    assert_eq!(count(&mut h), before + 1, "{:?}", h.state().log.entries);
+    let (x, y, _) = waypoint(&mut h, area, before).unwrap();
+    assert!((x - 25.0).abs() < 0.5 && (y - 25.0).abs() < 0.5, "dropped at {x}, {y}");
+}
+
+#[test]
 fn blueprints_drag_from_the_palette_into_the_area() {
     let Some((mut h, area)) = area_harness("drag-place") else { return };
     // The standard Tavern waypoint, in the palette beside the area.
