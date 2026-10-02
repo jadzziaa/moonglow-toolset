@@ -344,14 +344,21 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             "Area flags past the three above, for custom shaders: a shader reads them \
              from its areaFlags uniform",
         );
-        ui.horizontal_wrapped(|ui| {
-            for bit in (3..16).map(|b| 1u32 << b) {
-                let mut on = flags & bit != 0;
-                if ui.checkbox(&mut on, bit.to_string()).changed() {
-                    let v = if on { flags | bit } else { flags & !bit };
-                    f.set_int("Shader flags", "Flags", i64::from(v), FieldType::Dword);
+        // Rows of their own (a wrapped row would run over the next one: the
+        // form's grid sizes its rows before the wrap).
+        ui.vertical(|ui| {
+            egui::Grid::new("area-shader-flags").num_columns(7).show(ui, |ui| {
+                for (k, bit) in (3..16).map(|b| 1u32 << b).enumerate() {
+                    let mut on = flags & bit != 0;
+                    if ui.checkbox(&mut on, bit.to_string()).changed() {
+                        let v = if on { flags | bit } else { flags & !bit };
+                        f.set_int("Shader flags", "Flags", i64::from(v), FieldType::Dword);
+                    }
+                    if k % 7 == 6 {
+                        ui.end_row();
+                    }
                 }
-            }
+            });
             let higher = flags & !0xFFFF;
             if higher != 0 {
                 ui.weak(format!("and {higher:#x}"));
