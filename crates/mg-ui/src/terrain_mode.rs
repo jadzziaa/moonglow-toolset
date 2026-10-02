@@ -64,8 +64,16 @@ pub struct Spot {
     /// Near the tile's centre, where the quarters meet: a drag passing
     /// there stays in the quarter it was in.
     pub centre: bool,
+    /// How far in from that edge (tiles: 0 on it, 0.5 at the centre).
+    pub depth: f32,
     pub point: Vec3,
 }
+
+/// How near a side's edge (in tiles) a crosser drag must come, within a
+/// tile, to turn into that side's quarter: the quarters are triangles
+/// meeting at the centre, so a drag straight across a tile that is a little
+/// off its middle would otherwise clip a side one.
+const SIDE_REACH: f32 = 0.25;
 
 /// The spot at ground point `p` of a `width` × `height` area.
 pub fn spot(p: Vec3, width: u32, height: u32) -> Option<Spot> {
@@ -87,7 +95,7 @@ pub fn spot(p: Vec3, width: u32, height: u32) -> Option<Spot> {
     let distances = [fv, 1.0 - fu, 1.0 - fv, fu];
     let edge = (0..4).min_by(|&a, &b| distances[a].total_cmp(&distances[b])).unwrap_or(0);
     let centre = (fu - 0.5).abs().max((fv - 0.5).abs()) < 0.1;
-    Some(Spot { corner, cell, edge, centre, point: p })
+    Some(Spot { corner, cell, edge, centre, depth: distances[edge], point: p })
 }
 
 /// The brush that applies to `view`'s area, if one is chosen for its
@@ -391,9 +399,14 @@ pub(crate) fn input(
 
 /// A crosser drag reaching spot `q`: its quarter joins the path when it is
 /// a new one. Near a tile's centre, where the quarters meet, the drag stays
-/// in its quarter, or enters by the edge it came across.
+/// in its quarter, or enters by the edge it came across; within a tile it
+/// turns into a side quarter only near that side's edge ([`SIDE_REACH`]).
 fn pass(path: &mut Vec<((u32, u32), usize)>, q: Spot) {
-    let Some(&(last, _)) = path.last() else { return };
+    let Some(&(last, last_edge)) = path.last() else { return };
+    let side = last == q.cell && (last_edge + q.edge) % 2 == 1;
+    if side && !q.centre && q.depth > SIDE_REACH {
+        return;
+    }
     let quarter = if q.centre {
         if last == q.cell {
             return;
@@ -613,5 +626,47 @@ mod tests {
         let s = spot(Vec3::new(100.0, 99.0, 0.0), 10, 10).unwrap();
         assert_eq!((s.corner, s.cell), ((10, 10), (9, 9)));
         assert!(spot(Vec3::new(-20.0, 5.0, 0.0), 10, 10).is_none());
+    }
+
+    /// The quarters a crosser drag through `points` (metres) takes, as the
+    /// view steps it.
+    fn drag(points: &[(f32, f32)]) -> Vec<((u32, u32), usize)> {
+        let at = |&(x, y): &(f32, f32)| Vec3::new(x, y, 0.0);
+        let first = spot(at(&points[0]), 10, 10).unwrap();
+        let mut path = vec![(first.cell, first.edge)];
+        for w in points.windows(2) {
+            let (from, to) = (at(&w[0]), at(&w[1]));
+            let steps = ((to - from).length() * 4.0).ceil() as u32;
+            for k in 1..=steps {
+                pass(&mut path, spot(from.lerp(to, k as f32 / steps as f32), 10, 10).unwrap());
+            }
+        }
+        path
+    }
+
+    #[test]
+    fn a_crosser_drag_across_a_tile_need_not_keep_to_its_middle() {
+        use mg_tiles::{EAST, NORTH, SOUTH, WEST};
+        // South to north through tile (1, 1), 1.5 m and 2.2 m off its middle,
+        // and wandering: no side quarter.
+        for x in [16.5, 12.8] {
+            assert_eq!(drag(&[(x, 10.5), (x, 19.5)]), [((1, 1), SOUTH), ((1, 1), NORTH)]);
+        }
+        assert_eq!(
+            drag(&[(15.5, 10.5), (17.0, 13.0), (13.5, 16.0), (15.0, 19.5)]),
+            [((1, 1), SOUTH), ((1, 1), NORTH)]
+        );
+        // West to east, the same.
+        assert_eq!(drag(&[(10.5, 13.5), (19.5, 13.5)]), [((1, 1), WEST), ((1, 1), EAST)]);
+        // A turn still turns: in from the south, out by the east edge.
+        assert_eq!(
+            drag(&[(15.0, 10.5), (15.0, 15.0), (19.5, 15.0)]),
+            [((1, 1), SOUTH), ((1, 1), EAST)]
+        );
+        // And on into the next tile, by its west quarter.
+        assert_eq!(
+            drag(&[(15.0, 10.5), (15.0, 15.0), (29.5, 15.0)]),
+            [((1, 1), SOUTH), ((1, 1), EAST), ((2, 1), WEST), ((2, 1), EAST)]
+        );
     }
 }

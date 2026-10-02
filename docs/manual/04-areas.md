@@ -157,7 +157,9 @@ as Aurora's Terrain tab does:
   button lowers. The cursor shows the four tiles a stroke changes, and turns
   red where the tileset does not allow it.
 - **Crossers** (roads, streams, walls) are dragged: they follow the
-  pointer through the tiles it passes.
+  pointer through the tiles it passes. A drag straight across a tile may
+  wander up to 2.5 m off its middle; to turn within a tile, head for the
+  side you want it to leave by.
 - **Groups** (buildings, big features) are placed whole; right-click to
   turn one before placing it.
 - The **Eraser** takes the crossers off a tile; with Shift + click it
