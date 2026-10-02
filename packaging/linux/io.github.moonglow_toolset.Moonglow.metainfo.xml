@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.6.0" date="2026-10-02">
+      <description>
+        <p>Painting terrain shows the tiles a click or a drag will make before
+        it is made; drags fill a rectangle or follow its outline with Shift and
+        let go of what they pass when run back; a Refine Tile tool steps a tile
+        through those that fit. Blueprints show where they will be placed and
+        turn with Q and E; merchants preview what they sell; tabs rename what
+        they show; and the editors use the whole window, with bold labels.</p>
+      </description>
+    </release>
     <release version="0.5.0" date="2026-10-02">
       <description>
         <p>JSON output from every command-line tool, and mg find and mg info for
