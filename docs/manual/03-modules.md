@@ -3,10 +3,12 @@
 ## Opening and saving
 
 Moonglow opens modules as `.mod` archives, as folders (a module unpacked
-into a directory) and the game's campaign files (`.nwm`, read as modules).
+into a directory), as nasher projects (see below) and the game's campaign
+files (`.nwm`, read as modules).
 
-- **File › Open Module…** (Ctrl+O), or **File › Recent Modules**, or a
-  module named on the command line (`moonglow path/to/module.mod`).
+- **File › Open Module…** (Ctrl+O), **File › Open Folder…** (a module
+  folder or a nasher project), **File › Recent Modules**, or a module named
+  on the command line (`moonglow path/to/module.mod`).
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
   archive or a folder. **Save As…** writes it as a `.mod` somewhere else;
   a new module is offered as `<name>.mod` in the user folder's `modules`,
@@ -22,6 +24,54 @@ into a directory) and the game's campaign files (`.nwm`, read as modules).
 Moonglow keeps everything in a module it does not understand: fields it
 has no editor for, resources it does not know, unusual orderings. An
 untouched module saves as it was.
+
+## nasher projects (version control)
+
+A `.mod` is one binary file, so version control (git) can't show what
+changed in it or merge two people's work. Many teams therefore keep their
+module as a [nasher](https://github.com/squattingmonk/nasher) project: a
+folder of text files, one per resource (`module.ifo.json`,
+`area001.git.json`, `my_script.nss`), with a `nasher.cfg` describing it.
+Moonglow opens such a project and saves into it directly, so there is no
+unpacking or packing between the toolset and git.
+
+- **Open a project:** **File › Open Folder…** and choose the project's
+  folder (the one with `nasher.cfg`). Moonglow edits the target that packs
+  a module (the default target if it does).
+- **Save** writes only the files of the resources you changed, exactly as
+  `nasher unpack` would write them, so `git diff` shows your changes and
+  nothing else:
+  - new resources go where the project's rules put them;
+  - deleted ones lose their files;
+  - other files in the folder are left alone.
+- **Changes made elsewhere are never overwritten.** If a file Moonglow
+  would replace or delete changed on disk since Moonglow read it (after
+  a `git pull`, say), the save writes nothing and the log names the
+  files. Reopen the project to load them.
+- **Areas added on another branch** are added to the module's area list
+  when you open the project.
+- **Start a project from any module** with **File › Save As nasher
+  Project…**, choosing an empty folder. Moonglow writes a `nasher.cfg` like
+  `nasher init` does, with everything under `src/`.
+- **Build › Pack** *file* writes the module the project builds, as `nasher
+  pack` does. **Test Module** (F9) packs it into the game's `modules`
+  folder and starts the game on it.
+- **Compiled scripts are build output.** A project keeps scripts as `.nss`
+  only, and Moonglow compiles them when it packs. A compiled script
+  without its source can't be kept in a project; Moonglow names any it
+  leaves out.
+
+nasher rounds the module's numbers to 4 decimal places (its
+`truncateFloats` setting), so objects in a project may sit up to a
+ten-thousandth of a meter from where they were in a `.mod`. In the game
+that can show as a turn of up to a degree. Moonglow uses the project's
+own settings (`.nasher/user.cfg`): the number of places, the codepage and
+whether the area list is kept up to date. It reads projects that keep
+resources as JSON, nasher's default. Projects in NWNT format aren't
+supported yet.
+
+`mg init` and `mg build` do the same from a terminal or a build pipeline
+(see [Command-line tools](11-command-line.md)).
 
 ## Recovering unsaved work
 

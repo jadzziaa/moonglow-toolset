@@ -459,7 +459,12 @@ surveyed after 0.2.0):
 
 1. Tier 1, reasons to switch:
    - git-native modules (open and save a nasher JSON tree in place, with no
-     spurious diffs);
+     spurious diffs) — done: File › Open Folder… and Save As nasher
+     Project…, `mg init` and `mg build`. nasher's own unpack of all 28
+     shipped modules is, byte for byte, what Moonglow writes; edited
+     projects save to what nasher unpacks from the edited module; packed
+     modules present the same world in the engine
+     (`docs/research/notes_nasher.md`);
    - where-used and rename everywhere;
    - a content doctor (Verify that names the bad 2DA row, SET section or
      MTR, with CI output);

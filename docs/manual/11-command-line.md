@@ -48,6 +48,21 @@ command.
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`) |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |
 
-A module is a `.mod` archive or a module folder. `mg compile` and `mg
-import` write the module in place; an archive's previous version is kept
-beside it (`mymodule.mod.bak`).
+A module is a `.mod` archive, a module folder or a nasher project. `mg
+compile` and `mg import` write the module in place; an archive's previous
+version is kept beside it (`mymodule.mod.bak`).
+
+## nasher projects
+
+| Command | Does |
+| --- | --- |
+| `mg init MODULE DIR` | put a module into a nasher project in `DIR`: its resources as source files, with a `nasher.cfg` like `nasher init` writes |
+| `mg build DIR` | compile the project's scripts and pack the module, as `nasher pack` does (`--target`, `-o OUT`) |
+
+`mg build` fails if a script doesn't compile, which suits a build pipeline:
+- `--keep-going` packs the module anyway.
+- `--target` picks another target from `nasher.cfg`.
+- `-o` writes somewhere other than the target's file.
+
+It needs the game for `nwscript.nss` and the includes (`--root` or
+`NWN_ROOT`).

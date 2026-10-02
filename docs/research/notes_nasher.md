@@ -111,6 +111,29 @@ The format is Nim's parsecfg, not TOML: keys may repeat (`include` twice).
   `gffFlags`, `truncateFloats`, `removeUnusedAreas`, `onMultipleSources`,
   `installDir`.
 
+## What Moonglow does differently
+
+- **The area list:** on opening a project, Moonglow adds to `module.ifo`'s
+  area list the areas the tree has but the list misses (after a merge, say),
+  as nasher's pack would.
+  - It keeps listed areas the tree lacks, which nasher's pack drops. They
+    may be in a hak: Kingmaker, ShadowGuard and Witch's Wake keep all their
+    areas in haks.
+  - The change is counted as read, so `module.ifo.json` is rewritten only
+    with other changes to it.
+- **Conflicts:** a save never replaces or deletes a file that changed on
+  disk since it was read. It writes nothing and names those files.
+- **Settings:** `gffFormat = nwnt` isn't read yet.
+
+## In the engine
+
+nasher's rounding is visible in the game. The shipped modules, packed from
+their nasher trees, present the same areas and objects as the originals
+(6,389 objects in eight modules, `engine_modules.rs`), but objects may sit
+a hundredth of a meter away. They may also face a degree differently:
+`GetFacing` reports whole degrees, and a bearing just below 0 that rounds
+to -0 reads as 360. A larger `truncateFloats` keeps more precision.
+
 ## Packing
 
 - GFF JSON goes back through `nwn_gff`, and scripts are compiled, skipping

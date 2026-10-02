@@ -105,6 +105,9 @@ Moonglow's own.
 - **The resource browser** (Tools › Resource Browser) shows any resource
   in the game, the haks or the module, and where it comes from; models
   open in the model viewer.
+- **Version control**: **File › Save As nasher Project…** keeps the
+  module as text files for git; Moonglow opens and saves them in place
+  (see [Modules](03-modules.md)).
 - **Command line**: `mg` packs, unpacks, verifies and compiles from a
   terminal or a build pipeline (see [Command-line tools](11-command-line.md)).
 

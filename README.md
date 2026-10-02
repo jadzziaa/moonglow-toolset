@@ -40,6 +40,9 @@ What's there:
   33,196 scripts.
 - **Build, verify and test**: Build Module, Verify, missing and unused
   resources, and Test Module (F9) in the game.
+- **Version control**: modules kept as [nasher](https://github.com/squattingmonk/nasher)
+  projects (text files for git) open and save in place, writing exactly
+  what nasher writes; `mg build` packs them in a build pipeline.
 - **Everything else**: haks and custom talk tables, import and export, sound
   playback, unlimited undo, recovery copies of unsaved work, and a
   command-line tool (`mg`) for archives, GFF and JSON, the game's resources,
