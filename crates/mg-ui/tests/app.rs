@@ -7102,7 +7102,7 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
     h.get_by_label("🗻 Tiles").click();
     h.run_steps(2);
     // What the preview shows is what the click puts down.
-    let mut check = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
+    let check = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
         let pos = screen(h, area, at);
         h.hover_at(pos);
         h.run_steps(3);
