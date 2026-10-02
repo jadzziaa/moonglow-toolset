@@ -3218,7 +3218,7 @@ fn update_instances_remakes_placed_sounds() {
 
 #[test]
 fn palette_updates_the_instances_of_a_selection_and_a_category() {
-    use mg_edit::{Command, Edit, GffPath};
+    use mg_edit::{Command, Edit};
     use mg_module::instances::{Placement, Placing, instance};
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-bulk-update");
@@ -3276,9 +3276,9 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
         )
         .unwrap();
         let palette = mg_module::palette::Palette::read(&gff);
-        fn find<'p>(
-            nodes: &'p [mg_module::palette::PaletteNode],
-        ) -> Option<&'p mg_module::palette::PaletteNode> {
+        fn find(
+            nodes: &[mg_module::palette::PaletteNode],
+        ) -> Option<&mg_module::palette::PaletteNode> {
             nodes.iter().find_map(|n| {
                 if n.blueprints.iter().any(|b| b.resref.to_string() == "mg_trig_a") {
                     Some(n)
