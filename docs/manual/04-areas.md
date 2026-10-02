@@ -13,11 +13,24 @@ straight down at their middle, north up, as in Aurora.
   the tile grid.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
-- **Walkmesh**: the ground's walkmesh over the area (walkable faces green).
+- **Walkmesh**: the ground's walkmesh over the area (Aurora's Render AABB
+  Nodes): walkable faces green, the others red.
+- **Object Walkmeshes**: where placeables (their `.pwk`, orange) and doors
+  (their `.dwk`, blue, for the state they're placed in: closed or open)
+  keep creatures out. The selection's are brighter.
 - **Select Tiles**: select tiles rather than objects (Aurora's Select
   Terrain).
 - **Area Properties**, **Reorient Camera** (north up again), **Go to Start
   Location**.
+
+## Minimaps
+
+**Export Minimap…** (an area's right-click menu in the module tree) saves
+the area's map as a PNG, as the game's map draws it: each tile's picture
+(the tileset's `ImageMap2D`) turned as the tile is, north up, unsaved
+tiles included. A tile without a picture is black, as in the game. `mg
+minimap` does the same from the command line. Each picture keeps its own
+size unless asked (`--size`); the game's are mostly 16 pixels.
 
 ## The camera
 

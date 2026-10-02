@@ -120,6 +120,13 @@ pub struct AreaView {
     pub walkmesh: bool,
     /// surfacemat.2da's `Walk` by row, read once.
     walkable: Option<Vec<bool>>,
+    /// Placeables' and doors' walkmeshes (`.pwk`, `.dwk`) are drawn over
+    /// the view.
+    pub object_walkmesh: bool,
+    object_walks: mg_area::walk::ObjectWalkmeshes,
+    /// Their faces in the area, with each one's object; read again when the
+    /// area is.
+    object_faces: Option<Vec<([Vec3; 3], usize)>>,
     /// Tiles are selected rather than objects (Aurora's Select Terrain).
     pub tile_mode: bool,
     /// The selected tiles (column, row).
@@ -179,6 +186,8 @@ impl AreaView {
         self.scene = None;
         self.ground = None;
         self.walkable = None;
+        self.object_walks = Default::default();
+        self.object_faces = None;
     }
 
     fn new(area: ResRef) -> AreaView {
@@ -194,6 +203,9 @@ impl AreaView {
             crossing_at: None,
             walkmesh: false,
             walkable: None,
+            object_walkmesh: false,
+            object_walks: Default::default(),
+            object_faces: None,
             tile_mode: false,
             tile_selection: Vec::new(),
             tile_box: None,
@@ -377,6 +389,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     }
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref());
     let model = AreaModel::read(game, &are.root, &git.root, tileset);
+    view.object_faces = None;
     match &mut view.ground {
         Some(g) => g.update(game, &model),
         None => view.ground = Some(Ground::new(game, &model)),
@@ -520,6 +533,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             .on_hover_text("Turned objects snap to this angle; Q and E turn by it (15° when free)");
         ui.toggle_value(&mut view.walkmesh, "Walkmesh")
             .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
+        ui.toggle_value(&mut view.object_walkmesh, "Object Walkmeshes").on_hover_text(
+            "Where placeables (.pwk) and doors (.dwk) keep creatures out: placeables orange, \
+             doors blue (in their open or closed state)",
+        );
         if ui
             .toggle_value(&mut view.tile_mode, "Select Tiles")
             .on_hover_text("Select tiles rather than objects (Aurora's Select Terrain)")
@@ -711,6 +728,7 @@ fn viewport(
         painter.galley(at - egui::vec2(0.0, galley.size().y), galley, Color32::WHITE);
     }
     walkmesh_overlay(app, ui, view);
+    object_walkmesh_overlay(app, ui, view);
     crate::terrain_mode::overlay(app, ui, view);
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
     // Tiles animate: keep drawing while the view is on screen.
@@ -754,6 +772,47 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         mesh.add_triangle(first, first + 1, first + 2);
     }
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
+}
+
+/// Placeables' and doors' walkmeshes over the view: placeables orange,
+/// doors blue, the selection's brighter.
+fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
+    if !view.object_walkmesh {
+        return;
+    }
+    let (Some(game), Some(model)) = (app.game.as_ref(), view.model.as_ref()) else { return };
+    if view.object_faces.is_none() {
+        view.object_faces = Some(view.object_walks.faces(game, model));
+    }
+    let Some(faces) = view.object_faces.as_ref() else { return };
+    let mut mesh = egui::Mesh::default();
+    let mut edges = Vec::new();
+    for (corners, object) in faces {
+        let Some(o) = model.objects.get(*object) else { continue };
+        if !view.show[o.kind.index()] {
+            continue;
+        }
+        let lifted = corners.map(|c| c + Vec3::Z * 0.05);
+        let Some(points) =
+            lifted.iter().map(|c| view.screen_pos(*c)).collect::<Option<Vec<Pos2>>>()
+        else {
+            continue;
+        };
+        let (r, g, b) = if o.kind == ObjectKind::Door { (70, 140, 255) } else { (255, 150, 40) };
+        let alpha = if view.selected(*object) { 150 } else { 80 };
+        let color = egui::Color32::from_rgba_unmultiplied(r, g, b, alpha);
+        let first = mesh.vertices.len() as u32;
+        for p in &points {
+            mesh.colored_vertex(*p, color);
+        }
+        mesh.add_triangle(first, first + 1, first + 2);
+        edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 200)));
+    }
+    let painter = ui.painter_at(view.rect);
+    painter.add(egui::Shape::mesh(mesh));
+    for (p, color) in edges {
+        painter.add(egui::Shape::closed_line(p, Stroke::new(1.0, color)));
+    }
 }
 
 /// Aurora's spawn point markers: Height 12 and Width 4 (tenths of a metre).

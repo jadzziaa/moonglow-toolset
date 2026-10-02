@@ -27,6 +27,7 @@ regex-lite.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 mg-tlk.workspace = true
+png.workspace = true
 
 [dev-dependencies]
 mg-testkit.workspace = true

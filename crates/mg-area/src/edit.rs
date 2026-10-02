@@ -202,6 +202,7 @@ mod tests {
             conversation: None,
             spawn_points: Vec::new(),
             locked: false,
+            state: 0,
         }
     }
 

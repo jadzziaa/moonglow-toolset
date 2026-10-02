@@ -466,3 +466,46 @@ fn hak_editor_and_attach() {
     h.run();
     shoot(&mut h, &dir, "attach");
 }
+
+#[test]
+#[ignore]
+fn object_walkmeshes() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-walkmesh");
+    let path = dir.join("contest.mod");
+    std::fs::copy(root.join("data/mod/Contest Of Champions 0492.mod"), &path).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    // The area with the most placeables and doors.
+    let ws = app.ws.as_mut().unwrap();
+    let areas = ws.module.areas().unwrap();
+    let count = |ws: &mut mg_edit::Workspace, a: mg_core::ResRef| {
+        let git = ws.doc(&ResKey::new(a, ResType::GIT)).unwrap();
+        ["Placeable List", "Door List"]
+            .iter()
+            .map(|l| match git.root.get(l) {
+                Some(mg_gff::Value::List(v)) => v.len(),
+                _ => 0,
+            })
+            .sum::<usize>()
+    };
+    let area = *areas.iter().max_by_key(|a| count(ws, **a)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.walkmesh = true;
+    view.object_walkmesh = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "object-walkmeshes");
+}

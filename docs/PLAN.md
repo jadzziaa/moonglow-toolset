@@ -545,7 +545,13 @@ surveyed after 0.2.0). What each item left undone is collected in
      Add Haks and Talk Table… (and `mg attach`) copies content into the
      user folder and attaches it in one step; the hak list takes effect
      without reopening the module;
-   - PWK and AABB toggles, and minimap export;
+   - PWK and AABB toggles, and minimap export — done: Object Walkmeshes
+     beside Walkmesh (Aurora's Render AABB Nodes) draws placeables' `.pwk`
+     and doors' `.dwk` in their placed state (every shipped placed one
+     found, `object_walkmeshes.rs`); Export Minimap… and `mg minimap` lay
+     out tile pictures as the game client's map does, TGA and DDS alike
+     (`client_minimap.rs`: the client screenshotted with colored test
+     pictures); every shipped area's minimap composes (`minimaps.rs`);
    - remappable keys;
    - automation and a plugin API;
    - NWSync publishing;

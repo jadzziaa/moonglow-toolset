@@ -210,6 +210,18 @@ enum Cmd {
         #[arg(long)]
         replace: bool,
     },
+    /// Write an area's minimap as a PNG: each tile's picture, turned as the
+    /// tile is, as the game's map shows it.
+    Minimap {
+        module: PathBuf,
+        /// The area's resref.
+        area: String,
+        /// The PNG to write.
+        out: PathBuf,
+        /// Pixels a tile (default: the pictures' size).
+        #[arg(long)]
+        size: Option<u32>,
+    },
     /// Import an ERF into a module and save it.
     Import {
         module: PathBuf,
@@ -677,6 +689,19 @@ fn run(cli: Cli) -> Result<()> {
                 "copied {copied} file(s); the module has {} hak(s) attached",
                 m.haks()?.len()
             );
+        }
+        Cmd::Minimap { module, area, out, size } => {
+            let m = Module::open(module)?;
+            let gi = install(&cli)?;
+            let rm = module_resman(&gi, &m)?;
+            let key = ResKey::parse(area, ResType::ARE).context("not an area name")?;
+            let data = rm.get(&key).with_context(|| format!("{area}.are"))?;
+            let are = mg_gff::Gff::read(&data)?;
+            let set = mg_module::minimap::tileset(&rm, &are.root).map_err(anyhow::Error::msg)?;
+            let image = mg_module::minimap::minimap(&rm, &are.root, &set, *size)
+                .map_err(anyhow::Error::msg)?;
+            std::fs::write(out, mg_module::minimap::png(&image).map_err(anyhow::Error::msg)?)?;
+            eprintln!("{}×{} pixels", image.width, image.height);
         }
         Cmd::Tlk { strrefs } => {
             let gi = install(&cli)?;

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use glam::{Mat4, Vec2, Vec3};
 use mg_core::ResType;
+use mg_mdl::walkmesh::{DoorState, WalkmeshKind};
 use mg_mdl::{MeshExtra, Model, NodeKind};
 use mg_rules::GameData;
 
@@ -34,11 +35,31 @@ pub struct Walkmesh {
 impl Walkmesh {
     /// The walkmesh nodes (`aabb`) of a model, placed by its rest pose.
     pub fn from_model(model: &Model) -> Option<Walkmesh> {
+        Walkmesh::from_nodes(model, |_, mesh| matches!(mesh.extra, MeshExtra::Aabb(_)))
+    }
+
+    /// A placeable's walkmesh (`<model>.pwk`) or a door's (`<model>.dwk`,
+    /// the surfaces of its state), in the object's space: where it keeps
+    /// creatures out.
+    pub fn of_object(game: &GameData, model: &str, door: Option<DoorState>) -> Option<Walkmesh> {
+        let (restype, kind) = match door {
+            Some(_) => (ResType::DWK, WalkmeshKind::Door),
+            None => (ResType::PWK, WalkmeshKind::Placeable),
+        };
+        let data = game.resman.get_named(model, restype).ok()?;
+        let w = mg_mdl::walkmesh::Walkmesh::read(&data, kind).ok()?;
+        let nodes: Vec<usize> = w.surfaces_for(door).map(|s| s.node).collect();
+        Walkmesh::from_nodes(&w.model, |i, _| nodes.contains(&i))
+    }
+
+    /// The faces of a model's meshes that `keep` keeps, placed by its rest
+    /// pose.
+    fn from_nodes(model: &Model, keep: impl Fn(usize, &mg_mdl::Mesh) -> bool) -> Option<Walkmesh> {
         let pose = mg_render::rest_pose(model);
         let mut faces = Vec::new();
         for (i, n) in model.nodes.iter().enumerate() {
             let NodeKind::Mesh(mesh) = &n.kind else { continue };
-            if !matches!(mesh.extra, MeshExtra::Aabb(_)) {
+            if !keep(i, mesh) {
                 continue;
             }
             let to = pose[i];
@@ -331,5 +352,42 @@ mod tests {
         let down = Ray { origin: Vec3::new(12.5, 5.0, 50.0), dir: Vec3::NEG_Z };
         let hit = g.hit(&down).unwrap();
         assert!((hit - Vec3::new(12.5, 5.0, 5.75)).length() < 1e-4, "{hit}");
+    }
+}
+
+/// The walkmeshes of an area's placeables and doors (`.pwk`, `.dwk`), each
+/// read once per model and door state.
+#[derive(Debug, Default)]
+pub struct ObjectWalkmeshes {
+    cache: HashMap<(String, Option<DoorState>), Option<Arc<Walkmesh>>>,
+}
+
+impl ObjectWalkmeshes {
+    /// Every face of the placed placeables' and doors' walkmeshes, in the
+    /// area's space, with the object's index in `area.objects`. Doors use
+    /// their state's surfaces; visual transforms don't move walkmeshes.
+    pub fn faces(&mut self, game: &GameData, area: &AreaModel) -> Vec<([Vec3; 3], usize)> {
+        let mut out = Vec::new();
+        for (i, o) in area.objects.iter().enumerate() {
+            let door = match o.kind {
+                crate::ObjectKind::Door => Some(match o.state {
+                    1 => DoorState::Open1,
+                    2 => DoorState::Open2,
+                    _ => DoorState::Closed,
+                }),
+                crate::ObjectKind::Placeable => None,
+                _ => continue,
+            };
+            let Some(model) = o.preview.as_ref().map(|p| p.base.model.clone()) else { continue };
+            let w = self
+                .cache
+                .entry((model.clone(), door))
+                .or_insert_with(|| Walkmesh::of_object(game, &model, door).map(Arc::new))
+                .clone();
+            let Some(w) = w else { continue };
+            let to = o.transform();
+            out.extend(w.faces.iter().map(|f| (f.corners.map(|c| to.transform_point3(c)), i)));
+        }
+        out
     }
 }

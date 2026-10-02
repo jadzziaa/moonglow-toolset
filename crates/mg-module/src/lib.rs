@@ -18,6 +18,7 @@ pub mod hak_edit;
 pub mod haks;
 pub mod instances;
 pub mod journal;
+pub mod minimap;
 pub mod nasher;
 pub mod new;
 pub mod palette;

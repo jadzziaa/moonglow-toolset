@@ -893,6 +893,37 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
 }
 
 #[test]
+fn minimap_exported_and_object_walkmeshes_shown() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-minimap");
+    let path = dir.join("chess.mod");
+    std::fs::copy(root.join("data/mod/Neverwinter Chess.mod"), &path).unwrap();
+    let png = dir.join("map.png");
+    let dialogs = NoDialogs { save: vec![png.clone()], ..Default::default() };
+    let mut app =
+        Moonglow::new(Some(mg_resman::GameInstall::new(&root, None, "en")), Box::new(dialogs));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("CHESS").click_secondary();
+    h.run();
+    h.get_by_label("Export Minimap…").click();
+    h.run();
+    let data = std::fs::read(&png).expect("the minimap is saved");
+    assert_eq!(&data[1..4], b"PNG");
+
+    // The area view draws placeables' and doors' walkmeshes when asked.
+    let area = ResRef::from_str("chess").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    h.run();
+    h.get_by_label("Object Walkmeshes").click();
+    h.run();
+    assert!(h.state().area_views[&area].object_walkmesh);
+}
+
+#[test]
 fn faction_editor_adds_and_removes_factions() {
     let dir = mg_testkit::scratch_dir("ui-factions");
     let path = sample_module(&dir);

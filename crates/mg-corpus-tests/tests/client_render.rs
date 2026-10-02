@@ -29,10 +29,8 @@
 //! `DISPLAY=:1 cargo test -p mg-corpus-tests --test client_render -- --ignored --nocapture`.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use glam::{Mat4, Quat, Vec3};
 use mg_core::{ResRef, ResType};
@@ -48,7 +46,7 @@ use mg_schema::{StructExt, ifo};
 use mg_testkit::{corpus, oracle_tool, scratch_dir};
 
 mod common;
-use common::compile;
+use common::{SETTINGS, client_screenshot, compile, save_png};
 
 /// The scripted camera: facing (degrees anticlockwise from east).
 const FACING: f32 = 90.0;
@@ -81,51 +79,6 @@ void main()
 }
 "#;
 
-/// Settings for a controlled comparison (merged into the client's defaults),
-/// with Moonglow's texture filtering (8× anisotropic).
-const SETTINGS: &str = r#"[graphics]
-	[graphics.fbo]
-		[graphics.fbo.hdr-bloom]
-			enabled = false
-		[graphics.fbo.high-contrast]
-			enabled = false
-		[graphics.fbo.sharpen]
-			enabled = false
-		[graphics.fbo.ssao]
-			enabled = false
-		[graphics.fbo.vibrance]
-			enabled = false
-	[graphics.general]
-		shader-quality = "High Quality"
-	[graphics.grass]
-		mode = 0
-	[graphics.hilite]
-		enabled = false
-	[graphics.intro]
-		[graphics.intro.splash]
-			enabled = false
-	[graphics.keyholing]
-		enabled = false
-	[graphics.lod]
-		enabled = false
-	[graphics.movies]
-		enabled = false
-		[graphics.movies.intro]
-			enabled = false
-	[graphics.shadows]
-		[graphics.shadows.creatures]
-			mode = 0
-		[graphics.shadows.environment]
-			enabled = false
-	[graphics.skyboxes]
-		enabled = false
-	[graphics.tile-borders]
-		enabled = false
-	[graphics.video]
-		[graphics.video.anisotropic-filtering]
-			mode = 8
-"#;
-
 /// Regions compared (fractions of the image, top-left origin), clear of the
 /// game's GUI, with the largest mean difference allowed per channel. Most
 /// match within 1; the far floor, which borders a dark wall, within 5 (the
@@ -148,70 +101,6 @@ struct Lighting {
     main_light: u8,
     /// Only this tile's main light (index in Tile_List), if given.
     only_tile: Option<usize>,
-}
-
-fn repo() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
-}
-
-/// Runs the client until the scene is ready and screenshots its window.
-/// One client at a time: the screenshot finds the window by its title.
-fn client_screenshot(dir: &Path, module: &str) -> Option<Rgba> {
-    static ONE_CLIENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _only = ONE_CLIENT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    // In single player the game's server logs to the client's log.
-    let log = dir.join("user/logs/nwclientLog1.txt");
-    let _ = std::fs::remove_file(&log);
-    let mut child = Command::new(repo().join("tools/nwclient/run-client.sh"))
-        .arg(dir)
-        .args(["+TestNewModule", module])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    let start = Instant::now();
-    let mut ready = false;
-    while start.elapsed() < Duration::from_secs(180) {
-        if std::fs::read_to_string(&log).is_ok_and(|l| l.contains("MG_READY")) {
-            ready = true;
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(500));
-    }
-    std::thread::sleep(Duration::from_secs(3));
-    let shot = dir.join("client.png");
-    let ok = ready
-        && Command::new("python3")
-            .arg(repo().join("tools/aurora/xdrive.py"))
-            .args(["winshot", "Neverwinter Nights: Enhanced Edition"])
-            .arg(&shot)
-            .status()
-            .is_ok_and(|s| s.success());
-    let _ = child.kill();
-    let _ = child.wait();
-    ok.then(|| read_png(&shot))
-}
-
-fn read_png(path: &Path) -> Rgba {
-    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
-    let mut reader = decoder.read_info().unwrap();
-    let mut buf = vec![0; reader.output_buffer_size().unwrap()];
-    let info = reader.next_frame(&mut buf).unwrap();
-    let data = &buf[..info.buffer_size()];
-    let rgba: Vec<u8> = match info.color_type {
-        png::ColorType::Rgb => {
-            data.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect()
-        }
-        _ => data.to_vec(),
-    };
-    Rgba { width: info.width, height: info.height, data: rgba }
-}
-
-fn save_png(img: &Rgba, path: &Path) {
-    let file = std::fs::File::create(path).unwrap();
-    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), img.width, img.height);
-    enc.set_color(png::ColorType::Rgba);
-    enc.write_header().unwrap().write_image_data(&img.data).unwrap();
 }
 
 /// The mean colour of a rectangle (fractions of the image, top-left origin).

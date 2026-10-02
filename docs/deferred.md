@@ -163,6 +163,21 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **ERF version:** haks are saved as `V1.0`; EE's compressed `E1.0` is
   read but not written. (S–M)
 
+## Area visibility
+
+- **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
+  added). (S–M)
+- **A walkmesh's own node position:** one shipped placeable
+  (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
+  itself. Moonglow draws it there; whether the engine does isn't tested.
+  (S)
+- **Minimap pictures for tilesets without them:** Moonglow exports the
+  pictures the tileset has; rendering tiles from above to make them
+  (NeverBlender's minimap tool) isn't offered. (M)
+- **The minimap in Moonglow:** the area view has no map panel of its own,
+  and Area Transition setup picks its target from a list rather than a
+  map. (S–M)
+
 ## Release and packaging (v0.1.0)
 
 - **macOS:** the app and disk image are built by CI but have never been

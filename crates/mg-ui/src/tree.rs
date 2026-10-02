@@ -66,6 +66,13 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                             if ui.button("Properties").clicked() {
                                 app.actions.push(Action::OpenTab(Tab::AreaProperties(k.resref)));
                             }
+                            if ui
+                                .button("Export Minimap…")
+                                .on_hover_text("The area's map as the game shows it, as a PNG")
+                                .clicked()
+                            {
+                                app.actions.push(Action::ExportMinimap(k.resref));
+                            }
                             for t in [ResType::ARE, ResType::GIT] {
                                 let g = ResKey::new(k.resref, t);
                                 if ui.button(format!("Fields of {g}")).clicked() {

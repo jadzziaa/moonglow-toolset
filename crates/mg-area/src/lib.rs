@@ -285,6 +285,9 @@ pub struct AreaObject {
     pub spawn_points: Vec<Vec3>,
     /// Locked in the area editor ([`LOCKED`]): not picked by clicks or boxes.
     pub locked: bool,
+    /// A door's or placeable's `AnimationState` (a door: 0 closed, 1 and 2
+    /// open one way or the other).
+    pub state: u8,
 }
 
 /// The field Moonglow marks a locked object with: a byte the game and
@@ -351,6 +354,7 @@ impl AreaObject {
             },
             conversation: s.resref("Conversation").filter(|r| !r.is_empty()),
             locked: s.integer(LOCKED).is_some_and(|v| v != 0),
+            state: s.integer("AnimationState").and_then(|v| u8::try_from(v).ok()).unwrap_or(0),
             spawn_points: if kind == ObjectKind::Encounter {
                 s.list("SpawnPointList")
                     .unwrap_or(&[])

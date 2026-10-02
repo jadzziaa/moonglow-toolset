@@ -149,7 +149,7 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 | Visual transforms and Static fight: scale lost, not kept on paste, not stored in blueprints | ●● | Vault 2939; nwn-issues #567, #465 | ◐ transforms kept on paste; blueprints follow the engine |
 | Rotating or resizing areas crashes Aurora | ●● | nwn-issues #766, #324 | ✅ Resize and Rotate Area match Aurora's results |
 | Bugs in EE's multi-area tabs: lost property changes, the start location breaking | ●● | nwn-issues #688, #365, #709, #639; Beamdog 79051 | ✅ tabs are native; the start location is drawn on the ground |
-| No walkmesh, AABB, PWK or skybox display; no walkmesh cutters | ● | Beamdog 69624, 75035 p2 | ◐ walkmesh overlay and skyboxes; no PWK or AABB toggles |
+| No walkmesh, AABB, PWK or skybox display; no walkmesh cutters | ● | Beamdog 69624, 75035 p2 | ◐ walkmesh (AABB) and object walkmesh (PWK, DWK) overlays, skyboxes, minimap export; no walkmesh cutters |
 | Tile painting feels random; no control over variants | ● | Beamdog 69624 p2, 67054 | ◐ Aurora's rules, with Shift + click stepping variants and a "next variant" command |
 | The mouse wheel zooms the area while scrolling a palette | ● | nwn-issues #458, #626 | ✅ egui routes the wheel to what's under the pointer |
 | Camera: WASD, right drag, arrow keys too fast | ●● | Beamdog 89838, 69624; nwn.wiki | ✅ in 0.2.0 |
