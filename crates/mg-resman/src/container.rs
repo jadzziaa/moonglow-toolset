@@ -38,7 +38,19 @@ pub trait Container: Send + Sync + fmt::Debug {
     fn fingerprint(&self) -> u64 {
         0
     }
+    /// Resources the container lists but the game can't read (an
+    /// archive's past [`ERF_READ_LIMIT`]); reading them fails.
+    fn unreadable(&self) -> Vec<ResKey> {
+        Vec::new()
+    }
 }
+
+/// The game reads no resource that starts this far or further into an
+/// archive (a signed 32-bit offset): it finds the resource, fails to read
+/// it, and doesn't look in the archives below
+/// (`mg-corpus-tests/tests/engine_big_hak.rs`). One that starts before
+/// the mark is read whole.
+pub const ERF_READ_LIMIT: u64 = 1 << 31;
 
 /// Hashes a file's size and modification time into `h`.
 fn hash_file(h: &mut impl std::hash::Hasher, meta: &std::fs::Metadata) {
@@ -173,6 +185,12 @@ impl Container for ErfContainer {
 
     fn read(&self, key: &ResKey) -> Result<Cow<'_, [u8]>, ResError> {
         let e = self.entries.get(key).ok_or(ResError::NotFound(*key))?;
+        if u64::from(e.offset) >= ERF_READ_LIMIT {
+            return Err(ResError::Container {
+                path: self.path.clone(),
+                message: format!("{key} starts past 2 GiB, where the game stops reading"),
+            });
+        }
         let mut raw = vec![0; e.disk_size as usize];
         read_exact_at(&self.file, &mut raw, u64::from(e.offset))
             .map_err(|err| ResError::io(&self.path, err))?;
@@ -194,6 +212,17 @@ impl Container for ErfContainer {
     fn rescan(&mut self) -> Result<(), ResError> {
         *self = ErfContainer::open(&self.path)?;
         Ok(())
+    }
+
+    fn unreadable(&self) -> Vec<ResKey> {
+        let mut keys: Vec<ResKey> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| u64::from(e.offset) >= ERF_READ_LIMIT)
+            .map(|(k, _)| *k)
+            .collect();
+        keys.sort();
+        keys
     }
 
     fn fingerprint(&self) -> u64 {

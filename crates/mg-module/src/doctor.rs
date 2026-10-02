@@ -140,6 +140,9 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
             }
         }
     }
+    for layer in layers.iter().filter(|l| is_custom(l)) {
+        past_read_limit(&mut d, layer);
+    }
     for (key, &layer) in &custom {
         let source = layers[layer].label.clone();
         match key.restype {
@@ -154,6 +157,31 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
         (a.severity, &a.source, a.resource).cmp(&(b.severity, &b.source, b.resource))
     });
     d.out
+}
+
+/// An archive's resources that start past 2 GiB: the game finds them and
+/// can't read them (an empty 2DA, a script that doesn't run, a missing
+/// model), whatever the archives below hold. One finding per archive.
+fn past_read_limit(d: &mut Doctor, layer: &Layer) {
+    let keys = layer.container.unreadable();
+    let Some(first) = keys.first() else { return };
+    let mut names: Vec<String> = keys.iter().take(5).map(ResKey::to_string).collect();
+    if keys.len() > names.len() {
+        names.push(format!("and {} more", keys.len() - names.len()));
+    }
+    d.push(
+        Severity::Error,
+        "erf-size",
+        &layer.label,
+        *first,
+        "",
+        format!(
+            "{} resource(s) start past 2 GiB into the archive, which the game can't read: {}. \
+             Move them to another hak.",
+            keys.len(),
+            names.join(", ")
+        ),
+    );
 }
 
 /// Tilesets: section counts, models, groups, doors (Aurora's "Range Check
@@ -710,6 +738,44 @@ mod tests {
         let f = examine(&m, &rm, TalkTables { base: 100, custom: Some(1) });
         let object = f.iter().find(|x| x.check == "object-row").unwrap();
         assert!(object.message.contains("model plc_stool"), "{}", object.message);
+    }
+
+    /// An archive whose last resources sit past 2 GiB.
+    #[derive(Debug)]
+    struct Big(MemContainer, Vec<ResKey>);
+
+    impl mg_resman::Container for Big {
+        fn contains(&self, key: &ResKey) -> bool {
+            self.0.contains(key)
+        }
+        fn read(&self, key: &ResKey) -> Result<std::borrow::Cow<'_, [u8]>, mg_resman::ResError> {
+            self.0.read(key)
+        }
+        fn keys(&self) -> Box<dyn Iterator<Item = ResKey> + '_> {
+            self.0.keys()
+        }
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+        fn unreadable(&self) -> Vec<ResKey> {
+            self.1.clone()
+        }
+    }
+
+    #[test]
+    fn resources_past_2_gib_are_named() {
+        let mut rm = resman(&[]);
+        let far: Vec<ResKey> = (0..7).map(|i| key(&format!("tex{i}"), ResType::DDS)).collect();
+        rm.add(priority::HAK_USER, "big.hak", LayerClass::Erf, Big(MemContainer::new(), far));
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        assert_eq!(checks(&f), [("erf-size", String::new())]);
+        assert_eq!((f[0].severity, f[0].source.as_str()), (Severity::Error, "big.hak"));
+        assert!(
+            f[0].message.starts_with("7 resource(s) start past 2 GiB")
+                && f[0].message.contains("tex4.dds, and 2 more"),
+            "{}",
+            f[0].message
+        );
     }
 
     #[test]

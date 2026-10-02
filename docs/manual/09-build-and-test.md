@@ -52,6 +52,10 @@ that crash Aurora with an access violation that names nothing:
 | A hak's 2DA hiding another hak's longer copy | the rows past it are lost (an older copy?) |
 | A creature, placeable, door or item naming a 2DA row that doesn't exist or whose model is missing | Aurora's area view crashes on it; in the game it has no appearance, or the game crashes (a creature with a class that doesn't exist) |
 | A tile model with over 10,000 faces | can crash Aurora when painting |
+| A hak over 2 GiB with files starting past that mark | the game can't read those files and doesn't look for them in lower haks (a 2DA reads as empty, a script doesn't run); nor do Aurora and nwsync |
+
+Moonglow reads a hak over 2 GiB the way the game does: what starts past
+the mark is listed but can't be opened. Move those files to another hak.
 
 A blueprint's problems are warnings, since they matter once it's placed;
 a placed object's are errors. A hak that hides the game's own longer

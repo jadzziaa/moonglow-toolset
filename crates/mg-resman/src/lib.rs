@@ -22,7 +22,9 @@ use std::path::{Path, PathBuf};
 use mg_core::{ResRef, ResType};
 use thiserror::Error;
 
-pub use container::{Container, DirContainer, ErfContainer, KeyContainer, MemContainer};
+pub use container::{
+    Container, DirContainer, ERF_READ_LIMIT, ErfContainer, KeyContainer, MemContainer,
+};
 pub use install::GameInstall;
 
 /// A resource name and type.

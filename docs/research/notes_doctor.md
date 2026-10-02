@@ -27,6 +27,7 @@ summarized in `community_pain_points.md`. Each check names the source
 | `2da-limit` | `baseitems.2da` over 256 rows, `lightcolor.2da` over 32 (Aurora only) | warning |
 | `2da-strref` | a StrRef past the end of `dialog.tlk` or the custom TLK, in a changed or added row of a known column | error |
 | `2da-shadow` | a hak's 2DA hiding another custom layer's longer copy | warning |
+| `erf-size` | resources starting 2 GiB or more into a hak, which the game can't read (`notes_scale.md`) | error |
 | `object-row` | a creature (appearance, classes), placeable, door or item naming a 2DA row that doesn't exist, a reserved row (`USER`), or a row whose model doesn't exist | error placed, warning in a blueprint |
 
 ## Calibration on shipped content

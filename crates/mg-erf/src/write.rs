@@ -73,13 +73,36 @@ impl<'a> ErfWriter<'a> {
         self.entries.is_empty()
     }
 
+    fn strings_size(&self) -> usize {
+        self.description.strings.iter().map(|(_, s)| 8 + s.len()).sum()
+    }
+
+    /// Where the resources' data starts.
+    fn data_offset(&self) -> usize {
+        HEADER_SIZE + self.strings_size() + self.entries.len() * (24 + 8)
+    }
+
+    /// The resources that would start 2 GiB or further into the archive,
+    /// which the game can't read (`mg_resman::ERF_READ_LIMIT`).
+    pub fn past_read_limit(&self) -> Vec<(ResRef, ResType)> {
+        let mut at = self.data_offset() as u64;
+        let mut out = Vec::new();
+        for (resref, restype, data) in &self.entries {
+            if at >= 1 << 31 {
+                out.push((*resref, *restype));
+            }
+            at += data.len() as u64;
+        }
+        out
+    }
+
     /// Writes the archive.
     pub fn write_to(&self, w: &mut impl Write) -> Result<(), WriteError> {
         let n = self.entries.len();
-        let strings_size: usize = self.description.strings.iter().map(|(_, s)| 8 + s.len()).sum();
+        let strings_size = self.strings_size();
         let keys_offset = HEADER_SIZE + strings_size;
         let resources_offset = keys_offset + n * 24;
-        let data_offset = resources_offset + n * 8;
+        let data_offset = self.data_offset();
         let total = data_offset + self.entries.iter().map(|(_, _, d)| d.len()).sum::<usize>();
         if u32::try_from(total).is_err() {
             return Err(WriteError::TooLarge);
@@ -137,6 +160,22 @@ mod tests {
 
     use super::*;
     use crate::{Erf, ErfVersion};
+
+    #[test]
+    fn resources_past_2_gib_are_named() {
+        // Borrowed zeros: nothing is allocated.
+        let big = vec![0u8; 1 << 20];
+        let mut w = ErfWriter::new(*b"HAK ");
+        let name = |i: usize| ResRef::from_str(&format!("r{i}")).unwrap();
+        for i in 0..2048 {
+            w.add(name(i), ResType::TGA, &big[..]).unwrap();
+        }
+        // The last starts just under the mark (the header's size under it)
+        // and ends past it.
+        assert!(w.past_read_limit().is_empty());
+        w.add(name(2048), ResType::TGA, &big[..1]).unwrap();
+        assert_eq!(w.past_read_limit(), [(name(2048), ResType::TGA)]);
+    }
 
     fn rr(s: &str) -> ResRef {
         ResRef::from_str(s).unwrap()

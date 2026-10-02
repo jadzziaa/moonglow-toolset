@@ -231,8 +231,21 @@ fn run(cli: Cli) -> Result<()> {
                 let key = resource_key(name)?;
                 w.add(key.resref, key.restype, std::fs::read(p)?)?;
             }
-            std::fs::write(archive, w.to_bytes()?)?;
+            // Streamed: a hak can be gigabytes.
+            let mut out = io::BufWriter::new(std::fs::File::create(archive)?);
+            w.write_to(&mut out)?;
+            out.flush()?;
             eprintln!("packed {} files", w.len());
+            let past = w.past_read_limit();
+            if let Some(first) = past.first() {
+                eprintln!(
+                    "warning: {} file(s) from {}.{} on start past 2 GiB into the archive, \
+                     which the game can't read; split it into two",
+                    past.len(),
+                    first.0,
+                    first.1
+                );
+            }
         }
         Cmd::Gff { input, output } => gff(input, output.as_deref())?,
         Cmd::Which { resource } => {

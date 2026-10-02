@@ -26,7 +26,7 @@ command.
 | --- | --- |
 | `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav` |
 | `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
-| `mg pack DIR ARCHIVE` | pack a folder into an archive (its type from the extension) |
+| `mg pack DIR ARCHIVE` | pack a folder into an archive (its type from the extension); warns when files would start past 2 GiB, where the game stops reading |
 | `mg gff INPUT [-o OUTPUT]` | a GFF file to JSON (the format of neverwinter.nim and nasher), or JSON back to GFF |
 
 ## The game's resources
