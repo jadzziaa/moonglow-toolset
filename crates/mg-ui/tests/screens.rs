@@ -1082,6 +1082,9 @@ fn readme_screenshots() {
         );
         app.set_render_state(rs.clone());
         app.open_module(&chapter);
+        // (The area's shot opens the palette beside it; the others are
+        // windows alone.)
+        app.open_palette = false;
         let mut h = Harness::builder()
             .with_size(egui::vec2(1600.0, 960.0))
             .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))

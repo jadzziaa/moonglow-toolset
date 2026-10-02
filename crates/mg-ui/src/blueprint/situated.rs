@@ -167,31 +167,38 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     let filter_id = egui::Id::new(("portrait-filter", f.key));
     let pick_id = egui::Id::new(("portrait-pick", f.key));
     let mut pick = None;
-    ui.horizontal(|ui| {
-        if let Some(b) = current.and_then(base) {
-            portrait_image(f, ui, &b.to_lowercase(), 'm', 32.0, egui::Sense::hover());
-        }
-        egui::ComboBox::from_id_salt(("portrait", f.key))
-            .selected_text(shown)
-            .width(200.0)
-            .show_ui(ui, |ui| {
-                let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-                ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
-                ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-                let filter = filter.to_lowercase();
-                for (row, b) in choices.iter().filter(|(_, b)| b.to_lowercase().contains(&filter)) {
-                    if ui.selectable_label(current == Some(*row), *b).clicked() {
-                        pick = Some(*row);
+    // A little room below, so the picture doesn't sit on the next row.
+    ui.vertical(|ui| {
+        ui.horizontal(|ui| {
+            if let Some(b) = current.and_then(base) {
+                portrait_image(f, ui, &b.to_lowercase(), 'm', 32.0, egui::Sense::hover());
+            }
+            egui::ComboBox::from_id_salt(("portrait", f.key))
+                .selected_text(shown)
+                .width(200.0)
+                .show_ui(ui, |ui| {
+                    let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
+                    ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
+                    let filter = filter.to_lowercase();
+                    for (row, b) in
+                        choices.iter().filter(|(_, b)| b.to_lowercase().contains(&filter))
+                    {
+                        if ui.selectable_label(current == Some(*row), *b).clicked() {
+                            pick = Some(*row);
+                        }
                     }
-                }
-            });
-        if ui.button("Portraits…").on_hover_text("Select Portrait").clicked() {
-            // Placeables and doors start on their own portraits.
-            let inanimate = f.root.get("Appearance_Type").is_none();
-            let mode = if inanimate { 1 } else { 0 };
-            let state = PortraitPick { open: true, mode, chosen: current, ..Default::default() };
-            ui.data_mut(|d| d.insert_temp(pick_id, state));
-        }
+                });
+            if ui.button("Portraits…").on_hover_text("Select Portrait").clicked() {
+                // Placeables and doors start on their own portraits.
+                let inanimate = f.root.get("Appearance_Type").is_none();
+                let mode = if inanimate { 1 } else { 0 };
+                let state =
+                    PortraitPick { open: true, mode, chosen: current, ..Default::default() };
+                ui.data_mut(|d| d.insert_temp(pick_id, state));
+            }
+        });
+        ui.add_space(6.0);
     });
     let mut state: PortraitPick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
     if state.open {
