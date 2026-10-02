@@ -6924,3 +6924,55 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     h.run_steps(3);
     assert_eq!(grid(&mut h).tile(1, 1), before.tile(1, 1));
 }
+
+#[test]
+fn a_terrain_drag_with_shift_fills_its_rectangle() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("terrain-fill") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let water = index.terrain("Water").unwrap();
+    let lattice = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap().lattice
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    let before = lattice(&mut h);
+    // Corner (1, 1) diagonally to (3, 2), Shift held.
+    let from = screen(&h, area, Vec3::new(10.0, 10.0, 0.0));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+    for t in [0.2, 0.4, 0.6, 0.8, 1.0] {
+        let p = Vec3::new(10.0, 10.0, 0.0).lerp(Vec3::new(30.0, 20.0, 0.0), t);
+        h.hover_at(screen(&h, area, p));
+        h.run_steps(1);
+    }
+    let to = screen(&h, area, Vec3::new(30.0, 20.0, 0.0));
+    press(&h, to, false, egui::Modifiers::SHIFT);
+    h.run_steps(1);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(3);
+    let after = lattice(&mut h);
+    for y in 1..=2 {
+        for x in 1..=3 {
+            assert_eq!(after.corner(x, y).terrain, water, "corner ({x}, {y})");
+        }
+    }
+    for (x, y) in [(0, 1), (4, 2), (2, 0), (2, 3)] {
+        assert_eq!(after.corner(x, y).terrain, before.corner(x, y).terrain, "({x}, {y})");
+    }
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(lattice(&mut h), before);
+}

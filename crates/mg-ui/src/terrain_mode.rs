@@ -4,8 +4,9 @@
 //! - A terrain brush or Raise/Lower acts on the lattice corner nearest the
 //!   pointer (the right button lowers); the cursor is the square of the four
 //!   tiles around it, red where Aurora would refuse the stroke. Dragged, it
-//!   marks the corners the pointer passes (run back, it lets them go) and
-//!   paints them all, as one command, when the button is let go.
+//!   marks the corners the pointer passes (run back, it lets them go; with
+//!   Shift, the rectangle from the first to the pointer's) and paints them
+//!   all, as one command, when the button is let go.
 //! - A crosser brush is dragged: the crosser goes on the edge of every
 //!   quarter of a tile the pointer passes through (the quarter nearest that
 //!   edge), as Aurora draws it. A click chooses the tile again.
@@ -86,10 +87,27 @@ const REFINE: &str = "Refine Tile";
 pub(crate) struct TerrainDrag {
     /// Where the pointer was last seen.
     at: Option<Vec3>,
+    /// The corners passed (the path).
     corners: Vec<(u32, u32)>,
+    /// The corner under the pointer.
+    here: Option<(u32, u32)>,
+    /// Shift is held: the drag marks the rectangle from its first corner
+    /// to the one under the pointer, not its path.
+    fill: bool,
 }
 
 impl TerrainDrag {
+    /// The corners to paint, in order: the path, or with Shift the
+    /// rectangle from the first corner to the pointer's, row by row.
+    fn marked(&self) -> Vec<(u32, u32)> {
+        match (self.fill, self.corners.first(), self.here) {
+            (true, Some(&(x0, y0)), Some((x1, y1))) => (y0.min(y1)..=y0.max(y1))
+                .flat_map(|y| (x0.min(x1)..=x0.max(x1)).map(move |x| (x, y)))
+                .collect(),
+            _ => self.corners.clone(),
+        }
+    }
+
     /// The pointer reaching corner `c`: marked if new; back at the corner
     /// before the last, the last is let go (the drag run back).
     fn reach(&mut self, c: (u32, u32)) {
@@ -459,8 +477,10 @@ fn terrain_drag(
             }
         }
         drag.at = Some(to);
+        drag.here = view.spot.map(|s| s.corner);
     }
     if response.dragged_by(egui::PointerButton::Primary) {
+        drag.fill = response.ctx.input(|i| i.modifiers.shift);
         view.terrain_drag = Some(drag);
         return true;
     }
@@ -472,7 +492,7 @@ fn terrain_drag(
     let mut rng = fastrand::Rng::new();
     let mut changed: Vec<(u32, u32)> = Vec::new();
     let (mut label, mut refused) = (format!("Paint {}", brush.label), 0);
-    for &corner in &drag.corners {
+    for corner in drag.marked() {
         let at = Vec3::new(
             corner.0 as f32 * mg_area::TILE_SIZE,
             corner.1 as f32 * mg_area::TILE_SIZE,
@@ -605,7 +625,7 @@ fn cursor_shapes(
         quarter(cell, edge, Color32::from_rgb(240, 200, 60));
     }
     // A terrain drag's marked corners.
-    for &(x, y) in view.terrain_drag.iter().flat_map(|d| &d.corners) {
+    for (x, y) in view.terrain_drag.iter().flat_map(TerrainDrag::marked) {
         let (fx, fy) = (x as f32, y as f32);
         let h = z(x, y) + 0.05;
         let square = [

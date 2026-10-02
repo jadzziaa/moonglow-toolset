@@ -157,8 +157,9 @@ as Aurora's Terrain tab does:
 - **Terrain brushes** (grass, water, cliffs… whatever the tileset has)
   and **Raise/Lower** act on the tile corner nearest the pointer; the right
   button lowers. Drag to mark every corner the pointer passes (yellow;
-  running the drag back lets them go); letting go paints them all, and one
-  undo takes the whole drag back. The cursor shows the four tiles a stroke
+  running the drag back lets them go), or hold Shift while dragging to mark
+  the whole rectangle from where the drag began; letting go paints them
+  all, and one undo takes the whole drag back. The cursor shows the four tiles a stroke
   changes, and turns red where the tileset does not allow it.
 - **Crossers** (roads, streams, walls) are dragged: they follow the
   pointer through the tiles it passes. A drag straight across a tile may
