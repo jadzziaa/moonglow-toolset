@@ -196,7 +196,8 @@ Signal: ●●● many independent reports or a lot of tool-building; ●● sev
 - Encounter design (spawn radius, schedules, per-creature chances; Beamdog
   68067) is limited by what the engine reads from an encounter.
 - NWSync publishing exists as tools (`nwsync`, neverwinter.nim, a GitHub
-  Actions template). Nobody asked for it inside the toolset.
+  Actions template). Nobody asked for it inside the toolset. (Moonglow now
+  has it: Build › Publish to NWSync…, `mg nwsync`.)
 - No NWN1 complaints about missing undo turned up; the "no undo" posts
   are about NWN2.
 

@@ -207,6 +207,22 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **A JSON schema** for each command's output: the fields are described
   in the manual, not in a machine-readable schema. (S)
 
+## NWSync publishing
+
+- **No download tested:** the repository matches neverwinter.nim's, but a
+  game client fetching it from a server isn't run (the test sandbox has
+  no network). (M)
+- **The feminine talk table** isn't published, as `nwn_nwsync_write`
+  doesn't; whether the client would use one isn't known. (S)
+- **No pruning** of old manifests' data (`nwn_nwsync_prune` does it), and
+  no upload: the folder is copied to the web server by hand. (S)
+- **Compression:** zstd's fastest level (all the encoder Moonglow has
+  offers), so the data is about a quarter bigger than
+  `nwn_nwsync_write`'s (9.8 MB against 7.7 MB in `nwsync.rs`): more to
+  upload and download. A stronger encoder would be a new dependency. (S)
+- **Portraits, music and ambient sound** in folders (not haks) aren't
+  gathered; they go in a hak first, as with `nwn_nwsync_write`. (S)
+
 ## Release and packaging (v0.1.0)
 
 - **macOS:** the app and disk image are built by CI but have never been

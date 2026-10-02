@@ -20,6 +20,29 @@ Compile and Missing Resources are on by default, Unused off. The
 about, and **Export…** saves the list as text. With **Build module on
 save** (Options › General), every save builds first.
 
+## Publish to NWSync
+
+A server's players download its haks and talk table through NWSync: the
+game fetches them from a web server that nwserver names
+(`-nwsyncurl ADDRESS`) before it joins. **Build › Publish to NWSync…**
+writes what that web server serves into a folder, as neverwinter.nim's
+`nwn_nwsync_write` does (the same manifest, byte for byte):
+- **What goes in:** the module's haks (the first-listed hak's copy where
+  several have one) and its talk table, but not scripts' source or debug
+  files or area comments, which players don't need. Files over 15 MB are
+  refused, as `nwn_nwsync_write` refuses them.
+- **With the module itself:** for a single-player module players download
+  whole (not for a persistent world): its own resources too, under the
+  haks', with a name and description players see.
+- **Group ID:** for servers sharing one repository.
+- **Latest:** **Make it the latest** points the repository's `latest` at
+  it, which nwserver serves unless given `-nwsynchash`.
+
+Publishing again writes only the files that changed. It runs in the
+background; the window shows how far it is, then the manifest's hash
+(**Copy** copies it, for `-nwsynchash`). Upload the folder to the web
+server. `mg nwsync` does the same from the command line.
+
 ## Verify Module
 
 **Build › Verify Module** writes to the log what is missing and what is

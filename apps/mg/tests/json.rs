@@ -91,6 +91,9 @@ fn every_command_answers_in_json() {
     assert_eq!(ok(&["attach", c, hak.to_str().unwrap()])["haks"][0], "mg_json");
     let map = ok(&["minimap", c, "chess", &at("map.png")]);
     assert!(map["width"].as_u64().unwrap() > 0);
+    let synced = ok(&["nwsync", c, &at("repo"), "--with-module"]);
+    assert_eq!(synced["sha1"].as_str().unwrap().len(), 40);
+    assert!(synced["files"].as_u64().unwrap() > 100);
 
     // A failure.
     let (success, json) = run(&root, &user, &["which", "nothing_at_all.2da"]);

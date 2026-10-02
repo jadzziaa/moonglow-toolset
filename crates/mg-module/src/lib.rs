@@ -21,6 +21,7 @@ pub mod journal;
 pub mod minimap;
 pub mod nasher;
 pub mod new;
+pub mod nwsync;
 pub mod palette;
 pub mod palette_add;
 pub mod query;

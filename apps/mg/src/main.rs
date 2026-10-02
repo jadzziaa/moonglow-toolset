@@ -257,6 +257,45 @@ enum Cmd {
     /// What a module is: its name, tag, areas, haks, talk table and
     /// resources by type.
     Info { module: PathBuf },
+    /// Publish a module's haks and talk table for NWSync: write a manifest
+    /// and its data into a repository folder, for a web server to serve and
+    /// nwserver to name (-nwsyncurl), as nwn_nwsync_write does.
+    Nwsync {
+        module: PathBuf,
+        /// The repository folder (made if missing).
+        repository: PathBuf,
+        /// The module's own resources too, for single-player distribution
+        /// (not for persistent worlds).
+        #[arg(long)]
+        with_module: bool,
+        /// The module's UUID, with --with-module (default: its own, or a
+        /// new one).
+        #[arg(long)]
+        uuid: Option<String>,
+        /// The name players see (default with --with-module: the module's).
+        #[arg(long)]
+        name: Option<String>,
+        /// The description players see (default with --with-module: the
+        /// module's).
+        #[arg(long)]
+        description: Option<String>,
+        /// For servers sharing a repository: the game removes a group's
+        /// older downloads.
+        #[arg(long, default_value_t = 0)]
+        group_id: u32,
+        /// Don't point `latest` at the new manifest.
+        #[arg(long)]
+        no_latest: bool,
+        /// The largest file allowed, in megabytes (0: no limit).
+        #[arg(long, default_value_t = 15)]
+        limit_file_size: u64,
+        /// Write data files that are there already again.
+        #[arg(long)]
+        force: bool,
+        /// Work it out; write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Import an ERF into a module and save it.
     Import {
         module: PathBuf,
@@ -1022,6 +1061,80 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
             }
             out.note(format!("{} found", found.len()));
+            out
+        }
+        Cmd::Nwsync {
+            module,
+            repository,
+            with_module,
+            uuid,
+            name,
+            description,
+            group_id,
+            no_latest,
+            limit_file_size,
+            force,
+            dry_run,
+        } => {
+            let m = Module::open(module)?;
+            let gi = install(cli)?;
+            let mut out = Output::default();
+            let rm = module_resman(&gi, &m, &mut out)?;
+            let info = mg_module::query::info(&m)?;
+            let own_uuid = m
+                .info()?
+                .root
+                .string("Mod_UUID")
+                .map(|u| String::from_utf8_lossy(u).into_owned())
+                .filter(|u| !u.is_empty());
+            let uuid = with_module
+                .then(|| uuid.clone().or(own_uuid).unwrap_or_else(mg_module::nwsync::new_uuid));
+            let (contents, missing) =
+                mg_module::nwsync::module_contents(&m, &gi, &rm, *with_module, uuid.as_deref())
+                    .map_err(anyhow::Error::msg)?;
+            if !missing.is_empty() {
+                bail!("haks not found: {}", missing.join(", "));
+            }
+            let o = mg_module::nwsync::Options {
+                with_module: *with_module,
+                name: name.clone().unwrap_or(if *with_module { info.name } else { String::new() }),
+                description: description.clone().unwrap_or(if *with_module {
+                    info.description
+                } else {
+                    String::new()
+                }),
+                uuid,
+                group_id: *group_id,
+                latest: !no_latest,
+                limit: (*limit_file_size > 0).then(|| limit_file_size * 1024 * 1024),
+                force: *force,
+                dry_run: *dry_run,
+            };
+            let w = mg_module::nwsync::write(repository, &contents, &o, &mut |_, _| {})
+                .map_err(anyhow::Error::msg)?;
+            out.json = json!({
+                "repository": path_text(repository),
+                "sha1": w.sha1,
+                "files": w.files,
+                "bytes": w.bytes,
+                "on_disk_bytes": w.on_disk,
+                "new_files": w.new_files,
+                "dry_run": *dry_run,
+            });
+            out.line(w.sha1.clone());
+            out.note(format!(
+                "manifest {}: {} files, {:.1} MB ({:.1} MB compressed, {} data files new){}",
+                w.sha1,
+                w.files,
+                w.bytes as f64 / 1048576.0,
+                w.on_disk as f64 / 1048576.0,
+                w.new_files,
+                if *dry_run { "; nothing written" } else { "" }
+            ));
+            out.note(format!(
+                "serve {} on a web server, and start nwserver with -nwsyncurl <its address>",
+                repository.display()
+            ));
             out
         }
         Cmd::Info { module } => {

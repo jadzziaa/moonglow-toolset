@@ -112,6 +112,8 @@ pub struct Settings {
     /// Options › Keyboard: the keys chosen for commands, by command id
     /// ([`crate::keys::Cmd::id`]), where they aren't Moonglow's.
     pub key_bindings: std::collections::BTreeMap<String, Vec<String>>,
+    /// Build › Publish to NWSync: the repository folder last written.
+    pub nwsync_repository: Option<PathBuf>,
     /// Options > Conversation Editor: NPC and player text colours (sRGB);
     /// `None`: Moonglow's red and blue.
     pub dialog_npc_color: Option<[u8; 3]>,

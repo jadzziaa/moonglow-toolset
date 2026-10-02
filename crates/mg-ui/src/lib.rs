@@ -28,6 +28,7 @@ pub mod levelup_view;
 mod manual;
 pub mod model_view;
 pub mod module_props;
+pub mod nwsync_view;
 mod options;
 pub mod palette_view;
 pub mod prefabs;
@@ -244,6 +245,8 @@ pub struct Moonglow {
     pub(crate) suggested_hak: Option<std::path::PathBuf>,
     /// Add Haks and Talk Table: what goes where, before it's done.
     pub attach: Option<module_props::AttachDraft>,
+    /// Build › Publish to NWSync.
+    pub publish: Option<nwsync_view::Publish>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
@@ -402,6 +405,7 @@ impl Moonglow {
             hak_closing: None,
             suggested_hak: None,
             attach: None,
+            publish: None,
             model_views: HashMap::new(),
             area_views: HashMap::new(),
             adjust: None,
@@ -551,6 +555,7 @@ impl Moonglow {
         bulk::update_window(self, ui.ctx());
         hak_view::closing_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
+        nwsync_view::window(self, ui.ctx());
         bulk::text_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
@@ -972,6 +977,15 @@ impl Moonglow {
                 }
                 if ui.add_enabled(open, egui::Button::new("Build Module…")).clicked() {
                     self.build.get_or_insert_with(Default::default);
+                }
+                if ui
+                    .add_enabled(open, egui::Button::new("Publish to NWSync…"))
+                    .on_hover_text(
+                        "The module's haks and talk table, for players' games to download",
+                    )
+                    .clicked()
+                {
+                    nwsync_view::open(self);
                 }
                 if ui.add_enabled(open, egui::Button::new("Verify Module")).clicked() {
                     self.actions.push(Action::Verify);

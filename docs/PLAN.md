@@ -563,7 +563,14 @@ surveyed after 0.2.0). What each item left undone is collected in
      `apps/mg/tests/json.rs` runs them all), `mg find` (blueprints and
      placed objects by type, tag, name, resref, area and field values)
      and `mg info`; a plugin or scripting API deferred;
-   - NWSync publishing;
+   - NWSync publishing — done: Build › Publish to NWSync… and `mg nwsync`
+     write the repository (manifest, zstd data, .json, `latest`); for a
+     module with two of the game's haks and a premium talk table, the
+     manifest is nwn_nwsync_write's byte for byte, the data the same
+     unpacked, and neverwinter.nim reads Moonglow's; with the module, the
+     same resources and `module.ifo` (`nwsync.rs`). SHA-1 is Moonglow's
+     own; ruzstd's frames are given their content size, which the
+     reference zstd's one-shot decoder needs;
    - tileset authoring.
 
 ## 7. Testing strategy

@@ -998,6 +998,58 @@ fn keys_remapped_in_options_and_used() {
 }
 
 #[test]
+fn published_to_nwsync_from_the_build_menu() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-nwsync");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+    let table = b"2DA V2.0\n\n   Label\n0  synced\n".to_vec();
+    w.add(ResRef::from_str("mg_synced").unwrap(), ResType::TWODA, table.clone()).unwrap();
+    std::fs::write(user.join("hak/mg_sync.hak"), w.to_bytes().unwrap()).unwrap();
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_HakList", mg_module::attach::hak_list(&info.root, &["mg_sync".into()]));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("Publish to NWSync…").click();
+    h.run();
+    let repo = dir.join("repo");
+    h.state_mut().publish.as_mut().unwrap().folder = repo.display().to_string();
+    h.run();
+    h.get_by_label("Publish").click();
+    // It runs in the background.
+    for _ in 0..200 {
+        h.run_steps(2);
+        if h.state().publish.as_ref().is_some_and(|p| p.written.is_some() || p.error.is_some()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let p = h.state().publish.as_ref().unwrap();
+    assert_eq!(p.error, None);
+    let written = p.written.clone().expect("published");
+    assert_eq!(written.files, 1);
+    assert_eq!(std::fs::read_to_string(repo.join("latest")).unwrap(), written.sha1);
+    let manifest = std::fs::read(repo.join("manifests").join(&written.sha1)).unwrap();
+    let entries = mg_module::nwsync::read_manifest(&manifest).unwrap();
+    assert_eq!(entries[0].0.to_string(), "mg_synced.2da");
+    assert_eq!(entries[0].1, mg_core::sha1::sha1(&table));
+    assert!(h.get_all_by_label_contains(&written.sha1).count() >= 1);
+    assert_eq!(h.state().settings.nwsync_repository.as_deref(), Some(repo.as_path()));
+}
+
+#[test]
 fn faction_editor_adds_and_removes_factions() {
     let dir = mg_testkit::scratch_dir("ui-factions");
     let path = sample_module(&dir);
