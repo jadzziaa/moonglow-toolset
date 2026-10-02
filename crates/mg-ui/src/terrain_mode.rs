@@ -427,6 +427,15 @@ fn pass(path: &mut Vec<((u32, u32), usize)>, q: Spot) {
     }
 }
 
+/// The quarter a crosser drag along `path` takes at spot `q` (the cursor
+/// shows it): the one [`pass`] would add, else the drag's last; before a
+/// drag, the quarter under the pointer.
+fn next_quarter(path: &[((u32, u32), usize)], q: Spot) -> ((u32, u32), usize) {
+    let mut next = path.to_vec();
+    pass(&mut next, q);
+    next.last().copied().unwrap_or((q.cell, q.edge))
+}
+
 /// The brush's cursor over the view: the square of tiles around the corner
 /// (red where the stroke would be refused), the tile for the Eraser, the
 /// quarters a crosser drag has passed.
@@ -489,7 +498,10 @@ fn cursor_shapes(
     }
     let Some(s) = view.spot else { return };
     match brush.brush {
-        Brush::Crosser(_) => quarter(s.cell, s.edge, ok),
+        Brush::Crosser(_) => {
+            let (cell, edge) = next_quarter(&view.crossing, s);
+            quarter(cell, edge, ok);
+        }
         Brush::Group(gi) => {
             let (st, _) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
             let color = if st.is_some() { ok } else { refused };
@@ -690,6 +702,15 @@ mod tests {
             drag(&[(15.0, 10.5), (15.0, 15.0), (19.5, 15.0)]),
             [((1, 1), SOUTH), ((1, 1), EAST)]
         );
+        // The cursor shows the quarter the drag keeps, not a side one it
+        // passes over.
+        let path = [((1, 1), SOUTH)];
+        let over_east = spot(Vec3::new(16.5, 15.0, 0.0), 10, 10).unwrap();
+        assert_eq!(over_east.edge, EAST);
+        assert_eq!(next_quarter(&path, over_east), ((1, 1), SOUTH));
+        let near_east = spot(Vec3::new(19.0, 15.0, 0.0), 10, 10).unwrap();
+        assert_eq!(next_quarter(&path, near_east), ((1, 1), EAST));
+        assert_eq!(next_quarter(&[], over_east), ((1, 1), EAST), "before a drag");
         // And on into the next tile, by its west quarter.
         assert_eq!(
             drag(&[(15.0, 10.5), (15.0, 15.0), (29.5, 15.0)]),
