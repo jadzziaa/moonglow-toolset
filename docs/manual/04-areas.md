@@ -185,8 +185,8 @@ or the drag puts down those very tiles (among the tiles that fit, the one
 shown).
 The cursor is green where a click paints and red where the tileset
 refuses it. It is blue where a click only chooses tiles again: a crosser
-clicked rather than dragged, the Eraser with Shift, and Shift + click on a
-corner of the brush's own terrain.
+clicked rather than dragged, the Eraser with Shift, Refine Tile, and a
+corner of the brush's own terrain (with Shift, the next tiles that fit).
 
 Each stroke is one undoable step. Moonglow paints as Aurora does: the
 same strokes give the same tiles, heights and crossers.

@@ -6859,6 +6859,23 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
     h.run_steps(3);
     assert_eq!(colors(&h), [CYCLE]);
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(1);
+    // A terrain brush on a corner of its own terrain adds none, it chooses
+    // the tiles again: blue; elsewhere it paints. (Corner (3, 3), clear of
+    // the road.)
+    h.get_by_label("Water").click();
+    h.run_steps(2);
+    let corner = screen(&h, area, Vec3::new(30.0, 30.0, 0.0));
+    h.hover_at(corner);
+    h.run_steps(3);
+    assert_eq!(colors(&h), [egui::Color32::from_rgb(80, 220, 80)], "grass: it paints");
+    for pressed in [true, false] {
+        let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+        h.event(egui::Event::PointerButton { pos: corner, button, pressed, modifiers });
+    }
+    h.run_steps(3);
+    assert_eq!(colors(&h), [CYCLE], "water on water");
 }
 
 #[test]

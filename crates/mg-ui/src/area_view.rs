@@ -99,6 +99,9 @@ enum Drag {
     Box { from: Pos2, to: Pos2 },
 }
 
+/// A brush cursor's outlines (their points on the ground) and colours.
+pub type CursorShapes = Vec<(Vec<Vec3>, Color32)>;
+
 /// An open area's view.
 #[derive(Debug)]
 pub struct AreaView {
@@ -179,13 +182,18 @@ pub struct AreaView {
     pub pointer: Option<Vec3>,
     /// The tileset brush's cursor as the last frame drew it: its shapes'
     /// points on the ground, and their colours.
-    pub brush_cursor: Vec<(Vec<Vec3>, Color32)>,
+    pub brush_cursor: CursorShapes,
     /// The tiles a tile brush's click would make, as the last frame showed
     /// them under the pointer.
     pub tile_preview: Vec<mg_area::AreaTile>,
     /// Chooses among the tiles that fit for the preview, and so for the
     /// click it shows (then anew).
     pub(crate) preview_seed: u64,
+    /// The last tile preview worked out, and what it was worked out for.
+    pub(crate) preview_cache:
+        Option<(crate::terrain_mode::PreviewKey, Option<crate::terrain_mode::Preview>)>,
+    /// The brush's cursor last worked out, and what for.
+    pub(crate) cursor_cache: Option<(crate::terrain_mode::PreviewKey, CursorShapes)>,
     /// A terrain brush's drag: the corners it is painting.
     pub(crate) terrain_drag: Option<crate::terrain_mode::TerrainDrag>,
     /// A trigger or encounter whose outline is being drawn anew.
@@ -259,6 +267,8 @@ impl AreaView {
             terrain_drag: None,
             tile_preview: Vec::new(),
             preview_seed: fastrand::u64(..),
+            preview_cache: None,
+            cursor_cache: None,
             redraw: None,
             set_name: None,
             targets: None,

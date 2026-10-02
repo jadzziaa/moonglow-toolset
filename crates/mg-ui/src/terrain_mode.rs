@@ -312,11 +312,53 @@ fn click(
 /// not), or a drag going on if let go now, to show before it: the changed
 /// tiles, as the area's with their new tile, and their indices. Nothing
 /// for a stroke that changes nothing.
-pub(crate) fn preview(
-    app: &mut Moonglow,
-    view: &AreaView,
+pub(crate) fn preview(app: &mut Moonglow, view: &mut AreaView, shift: bool) -> Option<Preview> {
+    // Worked out anew only when what it depends on changes, not every frame.
+    let key = preview_key(app, view, shift);
+    if let Some((k, p)) = &view.preview_cache
+        && *k == key
+    {
+        return p.clone();
+    }
+    let p = work_out_preview(app, view, shift);
+    view.preview_cache = Some((key, p.clone()));
+    p
+}
+
+/// What a tile preview shows: the changed tiles, and the indices of those
+/// they replace.
+pub(crate) type Preview = (Vec<mg_area::AreaTile>, Vec<usize>);
+
+/// What a tile preview (and the brush's cursor) depends on, with Shift
+/// held or not.
+fn preview_key(app: &Moonglow, view: &AreaView, shift: bool) -> PreviewKey {
+    PreviewKey {
+        brush: active(app, view),
+        // (Where in it the pointer is, to the millimetre, changes nothing.)
+        spot: view.spot.map(|s| Spot { point: Vec3::ZERO, ..s }),
+        shift,
+        turns: view.group_turns,
+        seed: view.preview_seed,
+        revision: app.ws.as_ref().map(|ws| ws.revision()),
+        marked: view.terrain_drag.as_ref().map(TerrainDrag::marked),
+        crossing: crossing_shown(view),
+    }
+}
+
+/// What a tile preview depends on.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PreviewKey {
+    brush: Option<TileBrush>,
+    spot: Option<Spot>,
     shift: bool,
-) -> Option<(Vec<mg_area::AreaTile>, Vec<usize>)> {
+    turns: u8,
+    seed: u64,
+    revision: Option<u64>,
+    marked: Option<Vec<(u32, u32)>>,
+    crossing: Vec<((u32, u32), usize)>,
+}
+
+fn work_out_preview(app: &mut Moonglow, view: &AreaView, shift: bool) -> Option<Preview> {
     let brush = active(app, view)?;
     let mut g = current_grid(app, view)?;
     let (model, tools) = (view.model.as_ref()?, view.terrain.as_ref()?);
@@ -727,7 +769,13 @@ pub const CYCLE: Color32 = Color32::from_rgb(120, 230, 255);
 /// chooses tiles again rather than paints.
 pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let shift = ui.input(|i| i.modifiers.shift);
-    let shapes = cursor(app, view, shift);
+    // Worked out anew only when what it depends on changes.
+    let key = preview_key(app, view, shift);
+    let shapes = match view.cursor_cache.take() {
+        Some((k, shapes)) if k == key => shapes,
+        _ => cursor(app, view, shift),
+    };
+    view.cursor_cache = Some((key, shapes.clone()));
     let painter = ui.painter_at(view.rect);
     for (points, color) in &shapes {
         let screen: Vec<Pos2> = points.iter().filter_map(|p| view.screen_pos(*p)).collect();
@@ -845,12 +893,13 @@ fn cursor_shapes(
             polygon(&square, if cycle { CYCLE } else { ok });
         }
         _ => {
-            // Shift + click on a corner of the brush's terrain steps the
-            // tiles around it through those that fit.
-            let cycle = shift
-                && matches!(brush.brush, Brush::Terrain(t)
-                    if g.lattice.corner(s.corner.0, s.corner.1).terrain == t);
-            let (st, _) = stroke(tools, &g, &brush, s, false, cycle, 0);
+            // A click on a corner of the brush's own terrain adds none: it
+            // chooses the tiles around it again (with Shift, the next that
+            // fit).
+            let own = matches!(brush.brush, Brush::Terrain(t)
+                if g.lattice.corner(s.corner.0, s.corner.1).terrain == t);
+            let (st, _) = stroke(tools, &g, &brush, s, false, shift && own, 0);
+            let cycle = own;
             let (x, y) = (s.corner.0 as f32, s.corner.1 as f32);
             let h = z(s.corner.0, s.corner.1) + 0.05;
             let square = [
