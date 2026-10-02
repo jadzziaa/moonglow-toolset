@@ -1998,11 +1998,14 @@ name = "mg-module"
 version = "0.2.0"
 dependencies = [
  "fastrand",
+ "glam",
  "indexmap",
  "mg-2da",
  "mg-core",
  "mg-erf",
  "mg-gff",
+ "mg-image",
+ "mg-mdl",
  "mg-resman",
  "mg-rules",
  "mg-schema",
