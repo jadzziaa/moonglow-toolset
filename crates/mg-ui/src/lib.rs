@@ -349,6 +349,14 @@ pub struct Moonglow {
     pub about: bool,
     /// The window's content area at the last frame (where new windows go).
     screen: Option<egui::Rect>,
+    /// The widths of the module tree and of the panes beside it at the last
+    /// frame (the Palettes pane opens as wide as the tree).
+    tree_width: Option<f32>,
+    dock_width: Option<f32>,
+    /// A module was opened: the Palettes pane opens once the module tree
+    /// shows (and has a width to match). Tests of other windows turn it
+    /// off.
+    pub open_palette: bool,
 }
 
 impl std::fmt::Debug for Moonglow {
@@ -464,6 +472,9 @@ impl Moonglow {
             manual: Default::default(),
             about: false,
             screen: None,
+            tree_width: None,
+            dock_width: None,
+            open_palette: false,
         }
     }
 
@@ -518,12 +529,19 @@ impl Moonglow {
             .min_size(line + 6.0)
             .show(ui, |ui| self.log_ui(ui));
         if self.ws.is_some() {
-            egui::Panel::left("tree").resizable(true).default_size(240.0).show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| tree::module_tree(self, ui));
-            });
+            let tree =
+                egui::Panel::left("tree").resizable(true).default_size(240.0).show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| tree::module_tree(self, ui));
+                });
+            self.tree_width = Some(tree.response.rect.width());
+            // The palette beside a newly opened module, as in Aurora.
+            if std::mem::take(&mut self.open_palette) && self.game.is_some() {
+                self.actions.push(Action::OpenTab(Tab::Palette));
+            }
         }
         self.heard = None;
         egui::CentralPanel::default().show(ui, |ui| {
+            self.dock_width = Some(ui.available_width());
             let mut dock = std::mem::replace(&mut self.dock, DockState::new(Vec::new()));
             {
                 let mut viewer = tabs::Viewer { app: self };
@@ -585,6 +603,16 @@ impl Moonglow {
             self.run_actions();
             // Show the result now, not at the next input event.
             ui.ctx().request_repaint();
+        }
+    }
+
+    /// Where the main panes split for the Palettes pane on the right: the
+    /// left side's share, leaving the palette as wide as the module tree.
+    /// (egui_dock's split fraction is always the left side's.)
+    fn palette_split(&self) -> f32 {
+        match (self.tree_width, self.dock_width) {
+            (Some(tree), Some(dock)) if dock > 0.0 => (1.0 - tree / dock).clamp(0.5, 0.9),
+            _ => 0.72,
         }
     }
 
@@ -1225,6 +1253,7 @@ impl Moonglow {
         }
         self.ws = Some(Workspace::new(m));
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
+        self.open_palette = true;
         self.custom_tlk = None;
         self.load_custom_tlk();
         self.load_order_changed();
@@ -1573,12 +1602,19 @@ impl Moonglow {
                 }
                 if self.dock.find_tab(&tab).is_none() {
                     if tab == Tab::Palette {
-                        // Its own pane on the right, as in Aurora.
-                        self.dock.main_surface_mut().split_right(
-                            egui_dock::NodeIndex::root(),
-                            0.72,
-                            vec![tab.clone()],
-                        );
+                        // Its own pane on the right, as in Aurora (the only
+                        // one when every other tab was closed).
+                        let fraction = self.palette_split();
+                        let main = self.dock.main_surface_mut();
+                        if main.root_node().is_none_or(|n| n.is_empty()) {
+                            *main = egui_dock::Tree::new(vec![tab.clone()]);
+                        } else {
+                            main.split_right(
+                                egui_dock::NodeIndex::root(),
+                                fraction,
+                                vec![tab.clone()],
+                            );
+                        }
                     } else if !tab.docks() {
                         self.open_window(tab.clone());
                     } else {
@@ -1605,9 +1641,10 @@ impl Moonglow {
                             }
                             // The palette's is the only pane: a new one on its left.
                             (None, Some((_, node))) => {
+                                let fraction = self.palette_split();
                                 self.dock.main_surface_mut().split_left(
                                     node,
-                                    0.72,
+                                    fraction,
                                     vec![tab.clone()],
                                 );
                             }

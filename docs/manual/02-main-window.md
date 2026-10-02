@@ -4,6 +4,8 @@ From top to bottom: the **menus**, the **toolbar**, then the module tree
 on the left, the **tabs** in the middle and the **palette** on the right,
 the **log**, and the **status bar** (the module's file, "(modified)" while
 there are unsaved changes, and the game's folder).
+The palette opens with each module, as wide as the module tree; **Palettes**
+on the toolbar brings it back after it is closed.
 
 ## Menus
 

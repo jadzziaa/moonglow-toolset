@@ -676,6 +676,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
+    app.open_palette = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 800.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -1069,6 +1070,7 @@ fn tileset_made_edited_saved_with_its_palette() {
     let mut app =
         Moonglow::new(Some(mg_resman::GameInstall::new(&root, None, "en")), Box::new(dialogs));
     app.open_module(&sample_module(&dir));
+    app.open_palette = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1300.0, 900.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -1854,8 +1856,9 @@ fn blueprint_harness(
     )));
     app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
     // The editor alone on screen (Module Properties, docked when the module
-    // opened, would show beside its window).
+    // opened, and the palette would show beside its window).
     close_tab(&mut app, &Tab::ModuleProperties);
+    app.open_palette = false;
     let h = Harness::builder()
         .with_size(egui::vec2(1000.0, 800.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -3351,6 +3354,9 @@ fn placed_chest_holds_whole_items() {
     h.run_steps(3);
     h.get_by_label("Inventory…").click();
     h.run_steps(2);
+    // The chest's item palette, not the Palettes pane's.
+    close_tab(h.state_mut(), &Tab::Palette);
+    h.run_steps(2);
     type_into_hint(&mut h, "Find", "nw_it_torch001");
     let torch = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
         n.role() == egui::accesskit::Role::Button && n.label().is_some_and(|l| l == "Torch")
@@ -4362,6 +4368,7 @@ fn setup_store_makes_the_conversation_script_and_store() {
 
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
+    app.open_palette = false;
     mg_ui::store_wizard::open(&mut app, area, "Creature List", 0);
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 800.0))
@@ -4564,6 +4571,7 @@ fn the_creature_wizard_makes_aurora_s_creature() {
         Box::new(NoDialogs::default()),
     );
     app.open_module(&path);
+    app.open_palette = false;
     let mut h = Harness::builder()
         .with_size(egui::vec2(1000.0, 900.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -6539,4 +6547,38 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     let error = h.state().script_error_for_test(main);
     assert_eq!(error.as_ref().map(|e| e.0), Some(Some(3)), "{error:?}");
     h.get_by_label_contains("⚠ line 4:");
+}
+
+#[test]
+fn the_palette_opens_with_a_module_as_wide_as_the_tree() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-palette-opens");
+    let path = sample_module(&dir);
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let palette_width = |h: &Harness<'_, Moonglow>| {
+        let path = h.state().dock.find_tab(&Tab::Palette).expect("the palette is open");
+        let pane = h.state().dock.iter_leaves().find(|(p, _)| p.node == path.node).unwrap().1;
+        pane.rect.width()
+    };
+    // The tree's default width, 240 points (give or take the separators).
+    let w = palette_width(&h);
+    assert!((w - 240.0).abs() <= 12.0, "the palette is {w} points wide");
+    // With every tab closed, the palette comes back as the only pane.
+    close_tab(h.state_mut(), &Tab::ModuleProperties);
+    close_tab(h.state_mut(), &Tab::Palette);
+    h.run();
+    h.get_by_label("📦 Palettes").click();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Palette).is_some());
 }
