@@ -199,7 +199,7 @@ A Cargo workspace, layered bottom-up:
 
 Moonglow is free software under the [GNU General Public License, version 3](LICENSE).
 It includes Beamdog's NWScript compiler (GPL-3.0), as published in
-neverwinter.nim. Game assets, including Beamdog's shaders, are only ever read
+neverwinter.nim, and the Ubuntu Bold font (Ubuntu Font Licence 1.0). Game assets, including Beamdog's shaders, are only ever read
 from your installation and never distributed. The screenshots show the game's
 original campaign as Moonglow draws it.
 

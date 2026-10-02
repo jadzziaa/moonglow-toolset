@@ -638,11 +638,44 @@ pub(crate) fn autofocus(ui: &egui::Ui, field: &egui::Response) {
         field.request_focus();
     }
 }
+/// The bold font family (Ubuntu Bold, the bold of egui's own Ubuntu), for
+/// field labels.
+const BOLD: &str = "bold";
+
+/// Adds the bold font family to `ctx`'s fonts (once a context; it is there
+/// from the next frame): Ubuntu Bold, then egui's emoji fonts for the
+/// glyphs it lacks.
+pub(crate) fn install_fonts(ctx: &egui::Context) {
+    let done = egui::Id::new("moonglow-fonts");
+    if ctx.data(|d| d.get_temp::<bool>(done)).is_some() {
+        return;
+    }
+    ctx.data_mut(|d| d.insert_temp(done, true));
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "Ubuntu-Bold".into(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../fonts/Ubuntu-Bold.ttf"
+        ))),
+    );
+    let fallbacks = fonts.families.get(&egui::FontFamily::Proportional).cloned();
+    let mut bold = vec!["Ubuntu-Bold".to_string()];
+    bold.extend(fallbacks.unwrap_or_default().into_iter().skip(1));
+    fonts.families.insert(egui::FontFamily::Name(BOLD.into()), bold);
+    ctx.set_fonts(fonts);
+}
+
 /// A form's field label (the first column of an editor's grid: "Tag",
-/// "Name"…): in the strong text colour, to stand apart from the values
-/// beside it.
+/// "Name"…): bold, in the strong text colour, to stand apart from the
+/// values beside it.
 pub(crate) fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
-    ui.label(egui::RichText::new(text).strong())
+    let bold = egui::FontFamily::Name(BOLD.into());
+    let mut text = egui::RichText::new(text).strong();
+    // (Until the fonts are in, the first frame, the strong colour alone.)
+    if ui.fonts(|f| f.families().contains(&bold)) {
+        text = text.family(bold);
+    }
+    ui.label(text)
 }
 
 #[cfg(test)]

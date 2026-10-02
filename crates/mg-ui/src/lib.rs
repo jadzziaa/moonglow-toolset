@@ -512,6 +512,7 @@ impl Moonglow {
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        widgets::install_fonts(ui.ctx());
         self.screen = Some(ui.ctx().content_rect());
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));

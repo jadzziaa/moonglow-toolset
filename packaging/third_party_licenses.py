@@ -71,8 +71,9 @@ def main():
     out.write("Moonglow Toolset is licensed under the GNU General Public License,\n"
               "version 3 (LICENSE). It includes Beamdog's NWScript compiler (GPL-3.0)\n"
               "with neverwinter.nim's C API over it (MIT, copyright the neverwinter.nim\n"
-              "authors, https://github.com/niv/neverwinter.nim). It is built from these\n"
-              f"crates, under their own licenses (target {target}):\n\n")
+              "authors, https://github.com/niv/neverwinter.nim), and Ubuntu Bold\n"
+              "(Ubuntu Font Licence 1.0, copyright Canonical Ltd) for its labels. It is\n"
+              f"built from these crates, under their own licenses (target {target}):\n\n")
     for p in crates:
         out.write(f"  {p['name']} {p['version']}: {p['license'] or p.get('license_file') or '?'}\n")
     texts = {}
@@ -97,6 +98,18 @@ def main():
             except OSError:
                 continue
             texts.setdefault(text, []).append(f"{p['name']} {p['version']} ({f.name})")
+    # What Moonglow's own crates bundle (fonts, ...).
+    for i in sorted(seen & workspace, key=lambda i: packages[i]["name"]):
+        p = packages[i]
+        root = pathlib.Path(p["manifest_path"]).parent
+        for b in BUNDLED:
+            d = root / b
+            if not d.is_dir():
+                continue
+            for f in sorted(d.iterdir()):
+                if f.is_file() and f.name.lower().endswith(".txt"):
+                    text = f.read_text(encoding="utf-8", errors="replace").strip()
+                    texts.setdefault(text, []).append(f"{p['name']} ({b}/{f.name})")
     for text, users in texts.items():
         out.write("\n" + "=" * 78 + "\n")
         out.write("".join(f"{u}\n" for u in users))
