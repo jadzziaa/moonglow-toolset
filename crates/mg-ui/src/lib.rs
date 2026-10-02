@@ -86,6 +86,13 @@ pub enum Action {
     ApplyOptions(OptionsDraft),
     Save,
     SaveAsDialog,
+    /// File › Save As nasher Project…: the module into a nasher project
+    /// (made in the folder chosen if it has none).
+    SaveAsProjectDialog,
+    /// File › Open Folder…: a module folder or a nasher project.
+    OpenFolderDialog,
+    /// Build › Pack Target: a nasher project's module file, as nasher packs it.
+    PackTarget,
     /// Saves, then runs the action if the module was saved.
     SaveThen(Box<Action>),
     /// Runs an action that would discard unsaved changes, without asking.
@@ -552,6 +559,13 @@ impl Moonglow {
                 if ui.button("Open Module…").clicked() {
                     self.actions.push(Action::OpenModuleDialog);
                 }
+                if ui
+                    .button("Open Folder…")
+                    .on_hover_text("A module folder, or a nasher project")
+                    .clicked()
+                {
+                    self.actions.push(Action::OpenFolderDialog);
+                }
                 let recent = self.settings.recent.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
                     ui.menu_button("Recent Modules", |ui| {
@@ -567,6 +581,13 @@ impl Moonglow {
                 }
                 if ui.add_enabled(open, egui::Button::new("Save As…")).clicked() {
                     self.actions.push(Action::SaveAsDialog);
+                }
+                if ui
+                    .add_enabled(open, egui::Button::new("Save As nasher Project…"))
+                    .on_hover_text("Keep the module as text files for version control")
+                    .clicked()
+                {
+                    self.actions.push(Action::SaveAsProjectDialog);
                 }
                 ui.separator();
                 if ui.add_enabled(open, egui::Button::new("Import…")).clicked() {
@@ -675,6 +696,18 @@ impl Moonglow {
                 }
                 if ui.add_enabled(open, egui::Button::new("Test Module (F9)")).clicked() {
                     self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
+                }
+                let target = self.ws.as_ref().and_then(|ws| ws.module.project.as_ref()).map(|p| {
+                    let file = p.target().file.clone();
+                    format!("Pack {file}")
+                });
+                if let Some(label) = target
+                    && ui
+                        .button(label)
+                        .on_hover_text("Write the nasher project's module file, as nasher packs it")
+                        .clicked()
+                {
+                    self.actions.push(Action::PackTarget);
                 }
                 ui.separator();
                 let area = self.palette.area.filter(|a| self.area_views.contains_key(a));
@@ -786,9 +819,21 @@ impl Moonglow {
     pub fn open_module(&mut self, path: &std::path::Path) {
         match Module::open(path) {
             Ok(m) => {
-                self.log.info(format!("Opened {} ({} resources)", path.display(), m.len()));
+                match &m.project {
+                    Some(p) => self.log.info(format!(
+                        "Opened nasher project {}, target {} ({} resources)",
+                        p.root().display(),
+                        p.target,
+                        m.len()
+                    )),
+                    None => {
+                        self.log.info(format!("Opened {} ({} resources)", path.display(), m.len()))
+                    }
+                }
+                let remembered = m.location.as_ref().map(|l| l.path().to_path_buf());
                 self.use_module(m);
-                self.settings.remember(path);
+                self.take_project_warnings();
+                self.settings.remember(remembered.as_deref().unwrap_or(path));
             }
             Err(e) => self.log.error(format!("Could not open {}: {e}", path.display())),
         }
@@ -1031,6 +1076,31 @@ impl Moonglow {
                 }
             }
             Action::OpenModule(p) => self.open_module(&p),
+            Action::OpenFolderDialog => {
+                if let Some(p) =
+                    self.dialogs.pick_folder("Open Module Folder or nasher Project", None)
+                {
+                    self.open_module(&p);
+                }
+            }
+            Action::SaveAsProjectDialog => {
+                if let Some(root) = self
+                    .dialogs
+                    .pick_folder("Save As nasher Project", self.module_path().as_deref())
+                {
+                    let target = match &self.ws {
+                        Some(ws) => match &ws.module.location {
+                            Some(ModuleLocation::Project { root: r, target }) if *r == root => {
+                                target.clone()
+                            }
+                            _ => "default".into(),
+                        },
+                        None => return,
+                    };
+                    self.save(Some(ModuleLocation::Project { root, target }));
+                }
+            }
+            Action::PackTarget => _ = self.pack_target(),
             Action::ExportDialog(keys) => {
                 if self.ws.is_some() {
                     self.export = Some(ExportDraft {
@@ -1065,7 +1135,12 @@ impl Moonglow {
                     Some(dir.join(format!("{name}.mod")))
                 });
                 if let Some(p) = self.dialogs.save_file(FileKind::Module, suggested.as_deref()) {
-                    self.save(Some(p));
+                    let loc = if p.extension().is_some() {
+                        ModuleLocation::Archive(p)
+                    } else {
+                        ModuleLocation::Folder(p)
+                    };
+                    self.save(Some(loc));
                 }
             }
             Action::Close => self.close(),
@@ -1226,7 +1301,7 @@ impl Moonglow {
         }
     }
 
-    fn save(&mut self, to: Option<PathBuf>) {
+    fn save(&mut self, to: Option<ModuleLocation>) {
         // Options > General: Build module on save.
         if self.settings.build_on_save && self.ws.is_some() {
             build_view::build_on_save(self);
@@ -1262,7 +1337,7 @@ impl Moonglow {
         // Options › General: the module as it was, kept as
         // `<name>.BackupMod` (Aurora's name) before it is overwritten.
         let target = match &to {
-            Some(p) if p.extension().is_some() => Some(p.clone()),
+            Some(ModuleLocation::Archive(p)) => Some(p.clone()),
             Some(_) => None,
             None => match &ws.module.location {
                 Some(ModuleLocation::Archive(p)) => Some(p.clone()),
@@ -1278,14 +1353,7 @@ impl Moonglow {
             }
         }
         let result = match to {
-            Some(p) => {
-                let loc = if p.extension().is_some() {
-                    ModuleLocation::Archive(p)
-                } else {
-                    ModuleLocation::Folder(p)
-                };
-                ws.save_as(&loc).map_err(|e| e.to_string())
-            }
+            Some(loc) => ws.save_as(&loc).map_err(|e| e.to_string()),
             None if ws.module.location.is_none() => {
                 self.run_now(Action::SaveAsDialog);
                 return;
@@ -1299,9 +1367,83 @@ impl Moonglow {
                 self.settings.remember(&path);
                 self.forget_recovery();
             }
-            Err(e) => self.log.error(format!("Save failed: {e}")),
+            Err(e) => {
+                self.log.error(format!("Save failed: {e}"));
+                if e.contains("changed on disk") {
+                    self.log.warn(
+                        "Nothing was written. Reopen the project to load those files, \
+                         or save into another folder",
+                    );
+                }
+            }
         }
+        self.take_project_warnings();
         self.refresh_module_layer();
+    }
+
+    /// Logs (and clears) what the open nasher project has to say.
+    fn take_project_warnings(&mut self) {
+        let Some(ws) = &mut self.ws else { return };
+        let Some(project) = ws.module.project.as_mut() else { return };
+        for w in std::mem::take(&mut project.warnings) {
+            self.log.warn(w);
+        }
+    }
+
+    /// Build › Pack Target: writes a nasher project's module file (its
+    /// target's `file`), scripts compiled, as `nasher pack` would. Returns
+    /// where it went.
+    fn pack_target(&mut self) -> Option<PathBuf> {
+        self.compile_uncompiled();
+        let ws = self.ws.as_mut()?;
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return None;
+        }
+        match ws.module.target_archive() {
+            Ok(Some((path, bytes))) => {
+                let written = path
+                    .parent()
+                    .map_or(Ok(()), std::fs::create_dir_all)
+                    .and_then(|()| std::fs::write(&path, bytes));
+                match written {
+                    Ok(()) => {
+                        self.log.info(format!("Packed {}", path.display()));
+                        Some(path)
+                    }
+                    Err(e) => {
+                        self.log.error(format!("{}: {e}", path.display()));
+                        None
+                    }
+                }
+            }
+            Ok(None) => {
+                self.log.error("Pack Target: the module isn't in a nasher project");
+                None
+            }
+            Err(e) => {
+                self.log.error(format!("Pack Target: {e}"));
+                None
+            }
+        }
+    }
+
+    /// Compiles the scripts that have no compiled version (a project's tree
+    /// holds none).
+    fn compile_uncompiled(&mut self) {
+        let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
+        if ws.flush().is_err() {
+            return;
+        }
+        let results = mg_module::build::compile_scripts(
+            &mut ws.module,
+            &game.resman,
+            mg_module::build::ScriptSelection::Uncompiled,
+        );
+        let failed = results.iter().filter(|r| r.result.is_err()).count();
+        if failed > 0 {
+            self.log.warn(format!("{failed} script(s) didn't compile; see Build › Compile"));
+        }
     }
 
     fn compile_scripts(&mut self) {
@@ -1362,7 +1504,29 @@ impl Moonglow {
             ));
             return;
         };
-        let (Some(path), Some(user)) = (self.module_path(), install.user_dir.as_deref()) else {
+        let Some(user) = install.user_dir.clone() else {
+            self.log.error("Test Module needs the game's user folder (Options › Folders)");
+            return;
+        };
+        let user = user.as_path();
+        // A nasher project is packed into the modules folder, as nasher's
+        // install does.
+        if self.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) {
+            let Some(packed) = self.pack_target() else { return };
+            let Some(file) = packed.file_name() else { return };
+            let dest = user.join("modules").join(file);
+            let copied = std::fs::create_dir_all(user.join("modules"))
+                .and_then(|()| std::fs::copy(&packed, &dest).map(|_| ()));
+            if let Err(e) = copied {
+                self.log.error(format!("Test Module: {}: {e}", dest.display()));
+                return;
+            }
+            self.log.info(format!("Installed {}", dest.display()));
+            let name = packed.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+            self.launch_test(&client, user, &name);
+            return;
+        }
+        let Some(path) = self.module_path() else {
             self.log.error("Test Module: save the module in the game's modules folder first");
             return;
         };
@@ -1373,7 +1537,11 @@ impl Moonglow {
             ));
             return;
         };
-        match test_module::command(&client, user, &name).spawn() {
+        self.launch_test(&client, user, &name);
+    }
+
+    fn launch_test(&mut self, client: &std::path::Path, user: &std::path::Path, name: &str) {
+        match test_module::command(client, user, name).spawn() {
             Ok(_) => {
                 self.log.info(format!("Testing {name}"));
                 // Options > General: Minimize Toolset on test module.

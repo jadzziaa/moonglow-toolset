@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use mg_core::{Codepage, ResType, StrRef};
 use mg_erf::{Erf, ErfWriter};
 use mg_gff::Gff;
-use mg_module::Module;
+use mg_module::{Module, ModuleLocation};
 use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
 
 #[derive(Parser)]
@@ -87,6 +87,31 @@ enum Cmd {
         /// Only scripts without a compiled version.
         #[arg(long)]
         uncompiled: bool,
+    },
+    /// Build a nasher project's module: compile its scripts and pack its
+    /// target as nasher does (filters, modName and the rest). Fails if a
+    /// script doesn't compile, unless --keep-going.
+    Build {
+        /// The project's folder (with its nasher.cfg).
+        project: PathBuf,
+        /// The target to pack (default: the target that packs a module).
+        #[arg(long)]
+        target: Option<String>,
+        /// Where to write it (default: the target's file in the project).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Pack even if scripts fail to compile (as nasher does by default).
+        #[arg(long)]
+        keep_going: bool,
+    },
+    /// Put a module into a nasher project: its resources as source files
+    /// (GFF as JSON), with a nasher.cfg like `nasher init` writes unless the
+    /// folder has one.
+    Init {
+        /// A module archive or folder.
+        module: PathBuf,
+        /// The project's folder.
+        project: PathBuf,
     },
     /// Import an ERF into a module and save it.
     Import {
@@ -236,6 +261,57 @@ fn run(cli: Cli) -> Result<()> {
             }
             m.save()?;
             eprintln!("compiled {} scripts, {} failed", results.len() - failed.len(), failed.len());
+        }
+        Cmd::Build { project, target, output, keep_going } => {
+            let mut m = Module::open_project(project, target.as_deref())?;
+            if let Some(p) = &m.project {
+                for w in &p.warnings {
+                    eprintln!("warning: {w}");
+                }
+            }
+            let rm = module_resman(&install(&cli)?, &m)?;
+            let results = mg_module::build::compile_scripts(
+                &mut m,
+                &rm,
+                mg_module::build::ScriptSelection::All,
+            );
+            let failed: Vec<_> = results.iter().filter_map(|r| r.result.as_ref().err()).collect();
+            for e in &failed {
+                println!("{}", e.message);
+            }
+            if !failed.is_empty() && !keep_going {
+                bail!("{} of {} scripts failed to compile", failed.len(), results.len());
+            }
+            let (path, bytes) = m.target_archive()?.context("not a nasher project")?;
+            let path = output.clone().unwrap_or(path);
+            if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+                std::fs::create_dir_all(dir)?;
+            }
+            std::fs::write(&path, bytes)?;
+            eprintln!(
+                "compiled {} of {} scripts; packed {}",
+                results.len() - failed.len(),
+                results.len(),
+                path.display()
+            );
+        }
+        Cmd::Init { module, project } => {
+            let mut m = Module::open(module)?;
+            m.save_as(&ModuleLocation::Project {
+                root: project.clone(),
+                target: "default".into(),
+            })?;
+            let p = m.project.as_ref().context("no project")?;
+            for w in &p.warnings {
+                eprintln!("warning: {w}");
+            }
+            eprintln!(
+                "{} resources in {} (target {}, packs {})",
+                m.len(),
+                project.display(),
+                p.target,
+                p.target().file
+            );
         }
         Cmd::Import { module, erf, overwrite } => {
             let mut m = Module::open(module)?;

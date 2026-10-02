@@ -41,6 +41,10 @@ pub struct Note {
     pub module: Option<PathBuf>,
     /// Whether it lives in a folder (else an archive).
     pub folder: bool,
+    /// The target, when the module lives in a nasher project (`module` is
+    /// the project's folder).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_target: Option<String>,
     pub name: String,
     /// When the copy was made (seconds since 1970).
     pub time: u64,
@@ -151,12 +155,19 @@ impl Moonglow {
         let ws = self.ws.as_ref()?;
         let module = ws.module.location.as_ref().map(|l| l.path().to_path_buf());
         let folder = matches!(ws.module.location, Some(ModuleLocation::Folder(_)));
+        let project_target = match &ws.module.location {
+            Some(ModuleLocation::Project { target, .. }) => Some(target.clone()),
+            _ => None,
+        };
         let name = module
             .as_deref()
             .and_then(|p| p.file_stem())
             .map_or_else(|| "untitled".to_string(), |s| s.to_string_lossy().into_owned());
         let stem = file_stem(module.as_deref(), &name);
-        Some((dir.join(format!("{stem}.mod")), Note { module, folder, name, time: now() }))
+        Some((
+            dir.join(format!("{stem}.mod")),
+            Note { module, folder, project_target, name, time: now() },
+        ))
     }
 
     /// The copy of the module as it is now: edits, and script editors'
@@ -242,9 +253,32 @@ impl Moonglow {
                 return;
             }
         };
-        m.location = copy.note.module.clone().map(|p| {
-            if copy.note.folder { ModuleLocation::Folder(p) } else { ModuleLocation::Archive(p) }
-        });
+        match (&copy.note.module, &copy.note.project_target) {
+            // The project as it is on disk now, with the recovered resources:
+            // saving writes what differs.
+            (Some(root), Some(target)) => match Module::open_project(root, Some(target)) {
+                Ok(mut project) => {
+                    project.adopt_resources(m);
+                    m = project;
+                }
+                Err(e) => {
+                    self.log.error(format!(
+                        "Could not reopen the project {}: {e}; the recovered module is unsaved",
+                        root.display()
+                    ));
+                    m.location = None;
+                }
+            },
+            _ => {
+                m.location = copy.note.module.clone().map(|p| {
+                    if copy.note.folder {
+                        ModuleLocation::Folder(p)
+                    } else {
+                        ModuleLocation::Archive(p)
+                    }
+                });
+            }
+        }
         self.use_module(m);
         if let Some(ws) = &mut self.ws {
             ws.mark_modified();

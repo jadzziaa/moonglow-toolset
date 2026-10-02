@@ -53,9 +53,11 @@ fn io(path: &Path) -> impl FnOnce(std::io::Error) -> ModuleError + '_ {
     move |source| ModuleError::Io { path: path.into(), source }
 }
 
-/// The name of a resource's source file.
+/// The name of a resource's source file (lowercase, as nasher's unpack
+/// names files).
 fn source_name(key: &ResKey, json: bool) -> String {
-    if json { format!("{key}.json") } else { key.to_string() }
+    let name = key.to_string().to_ascii_lowercase();
+    if json { format!("{name}.json") } else { name }
 }
 
 /// The resource a source file name stands for, and whether the file is
@@ -297,7 +299,7 @@ impl Project {
                 None if key.restype == ResType::NCS => {}
                 None => {
                     let json = is_json_type(key.restype);
-                    let folder = self.target().rule_folder(&key.to_string());
+                    let folder = self.target().rule_folder(&key.to_string().to_ascii_lowercase());
                     let folder = match folder.as_deref() {
                         Some("/dev/null") => continue,
                         Some(f) => f.to_string(),

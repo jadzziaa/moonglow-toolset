@@ -36,12 +36,17 @@ pub fn compile_scripts(
     resman: &ResMan,
     selection: ScriptSelection,
 ) -> Vec<ScriptResult> {
+    // A nasher project's target may leave some scripts uncompiled.
+    let skipped = |k: &ResKey| {
+        module.project.as_ref().is_some_and(|p| p.target().skips_compiling(&k.to_string()))
+    };
     let names: Vec<ResKey> = module
         .keys_of(ResType::NSS)
         .filter(|k| match selection {
             ScriptSelection::All => true,
             ScriptSelection::Uncompiled => !module.contains(&ResKey::new(k.resref, ResType::NCS)),
         })
+        .filter(|k| !skipped(k))
         .copied()
         .collect();
     if names.is_empty() {

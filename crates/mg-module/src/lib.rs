@@ -177,6 +177,13 @@ impl Module {
         Ok(m)
     }
 
+    /// Takes another module's resources (a recovered copy's, say), keeping
+    /// this one's location and project.
+    pub fn adopt_resources(&mut self, other: Module) {
+        self.resources = other.resources;
+        self.dirty = true;
+    }
+
     /// Whether anything changed since opening or the last save.
     pub fn is_dirty(&self) -> bool {
         self.dirty
@@ -322,7 +329,21 @@ impl Module {
                     .is_some_and(|p| p.root() == root.as_path() && &p.target == target);
                 if !same {
                     let file = format!("{}.mod", self.project_file_stem(root));
-                    self.project = Some(Box::new(nasher::Project::create(root, &file)?));
+                    let mut project = nasher::Project::create(root, &file)?;
+                    // A project keeps scripts as source; compiled scripts
+                    // without one are lost, as with nasher.
+                    let orphans: Vec<String> = self
+                        .keys_of(ResType::NCS)
+                        .filter(|k| !self.contains(&ResKey::new(k.resref, ResType::NSS)))
+                        .map(|k| k.to_string())
+                        .collect();
+                    if !orphans.is_empty() {
+                        project.warnings.push(format!(
+                            "compiled scripts without source aren't kept in the project: {}",
+                            orphans.join(", ")
+                        ));
+                    }
+                    self.project = Some(Box::new(project));
                 }
                 let project = self.project.as_mut().expect("just made");
                 project.save(&self.resources)?;

@@ -210,6 +210,77 @@ fn closing_with_unsaved_changes_asks_first() {
 }
 
 #[test]
+fn nasher_projects_save_in_place_and_never_overwrite_other_changes() {
+    let dir = mg_testkit::scratch_dir("ui-nasher");
+    let path = sample_module(&dir);
+    let project = dir.join("project");
+    let app = Moonglow::new(
+        None,
+        Box::new(NoDialogs {
+            folders: vec![project.clone(), project.clone()],
+            ..Default::default()
+        }),
+    );
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().open_module(&path);
+    h.run();
+
+    // File › Save As nasher Project… makes the project.
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Save As nasher Project…").click();
+    h.run();
+    let ifo_json = project.join("src/module.ifo.json");
+    let script = project.join("src/hello.nss");
+    assert!(project.join("nasher.cfg").is_file(), "{:?}", h.state().log.entries);
+    assert!(ifo_json.is_file() && script.is_file());
+    assert!(matches!(
+        h.state().ws.as_ref().unwrap().module.location,
+        Some(ModuleLocation::Project { .. })
+    ));
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("Pack sample.mod");
+    h.key_press(egui::Key::Escape);
+    h.run();
+
+    // Saving writes the changed resource's file alone.
+    let script_before = std::fs::read(&script).unwrap();
+    set_tag(h.state_mut(), "EDITED");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(std::fs::read_to_string(&ifo_json).unwrap().contains("\"EDITED\""));
+    assert_eq!(std::fs::read(&script).unwrap(), script_before);
+
+    // A file changed elsewhere (a git pull, say) is never overwritten.
+    std::fs::write(
+        &ifo_json,
+        std::fs::read_to_string(&ifo_json).unwrap().replace("EDITED", "PULLED"),
+    )
+    .unwrap();
+    set_tag(h.state_mut(), "MINE");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(std::fs::read_to_string(&ifo_json).unwrap().contains("\"PULLED\""));
+    assert!(
+        h.state().log.entries.iter().any(|(_, m)| m.contains("changed on disk")),
+        "{:?}",
+        h.state().log.entries
+    );
+
+    // File › Open Folder… opens the project as it is on disk.
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    h.get_by_label("Don't Save").click();
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenFolderDialog);
+    h.run();
+    let ws = h.state().ws.as_ref().expect("the project opens");
+    assert_eq!(ws.module.info().unwrap().root.read(&ifo::MOD_TAG).as_bytes(), b"PULLED");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Opened nasher project")));
+}
+
+#[test]
 fn new_module_and_area_through_the_wizards() {
     let root = mg_testkit::corpus!();
     let dir = mg_testkit::scratch_dir("ui-new-module");

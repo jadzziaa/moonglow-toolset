@@ -18,5 +18,8 @@ mg-resman.workspace = true
 mg-tlk.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+mg-testkit.workspace = true
+
 [lints]
 workspace = true
