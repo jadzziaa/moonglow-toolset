@@ -1,56 +1,131 @@
-# Moonglow Toolset
+<p align="center">
+  <img src="packaging/icons/moonglow.svg" width="128" height="128" alt="Moonglow Toolset">
+</p>
 
-A module toolset for **Neverwinter Nights: Enhanced Edition**, rebuilt from
-scratch: a reimplementation of BioWare's Aurora Toolset that runs natively on
-Linux, Windows and macOS. Written in Rust, with an [egui](https://github.com/emilk/egui)
-interface and a [wgpu](https://wgpu.rs) renderer.
+<h1 align="center">Moonglow Toolset</h1>
 
-The first goal is **functional parity with Aurora**. Moonglow edits what Aurora
-edits and writes what Aurora writes, and every module it saves behaves the
-same in the game. Byte-identical output isn't a goal; regressions in behavior
-are never allowed.
+<p align="center">
+  A module toolset for <strong>Neverwinter Nights: Enhanced Edition</strong>, rebuilt from scratch.<br>
+  Everything Aurora does, natively on Linux, Windows and macOS, and a good deal it doesn't.
+</p>
 
-## Status
+<p align="center">
+  <a href="https://github.com/jadzziaa/moonglow-toolset/releases/latest"><img src="https://img.shields.io/github/v/release/jadzziaa/moonglow-toolset?label=release" alt="Latest release"></a>
+  <a href="https://github.com/jadzziaa/moonglow-toolset/actions/workflows/ci.yml"><img src="https://github.com/jadzziaa/moonglow-toolset/actions/workflows/ci.yml/badge.svg?branch=develop" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-blue" alt="License: GPL-3.0"></a>
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20Windows%20%7C%20macOS-555" alt="Linux, Windows, macOS">
+</p>
 
-Aurora parity is done. Every row of the [parity checklist](docs/parity/checklists.md)
-is done, deliberately different, or partly done with the gap named. The
-project is now in its hardening and release phase: crash safety, performance
-budgets, packaging and the user manual are in place, and the packages are
-being tried on each system. See [the plan](docs/PLAN.md) for the phases and
-what each one established.
+<p align="center">
+  <a href="https://github.com/jadzziaa/moonglow-toolset/releases/latest"><strong>Download</strong></a> ·
+  <a href="docs/manual/README.md"><strong>User manual</strong></a> ·
+  <a href="docs/manual/14-coming-from-aurora.md"><strong>Coming from Aurora</strong></a>
+</p>
 
-What's there:
+![The area view: a district of Neverwinter from the original campaign, with the placeable palette beside it](docs/images/area.jpg)
 
-- **Areas**: the area viewer with Aurora's camera and selection bindings,
-  drawn with the game's lighting, fog and skyboxes (checked against the game's
-  own screenshots). Placing, moving, turning and raising objects, copy and
-  paste, triggers and encounters drawn point by point, Find Instance, Adjust
-  Location, and the context menu's commands.
-- **Terrain**: painting with a tileset's terrain, crosser and group brushes,
-  raise and lower, the eraser, tile properties, and resizing and rotating
-  areas. Aurora's painting rules were worked out from scripted Aurora sessions;
-  the same strokes give the same tiles.
-- **Blueprints**: standard and custom palettes, and editors for every
-  blueprint type with Aurora's pages. Item costs and creature challenge ratings
-  are computed as the game and Aurora compute them. The blueprint, Creature and
-  Levelup wizards are included.
-- **Conversations, scripts, journal and factions**: the Conversation Editor
-  with the Script Wizard, and the script editor with Beamdog's own NWScript
-  compiler built in. Its output is byte-identical to `nwn_script_comp` on
-  33,196 scripts. Go to definition, references, symbol rename and errors as
-  you type, also in VS Code, Neovim and other editors through `mg lsp`.
-- **Build, verify and test**: Build Module, Verify, missing and unused
-  resources, and Test Module (F9) in the game.
-- **Version control**: modules kept as [nasher](https://github.com/squattingmonk/nasher)
-  projects (text files for git) open and save in place, writing exactly
-  what nasher writes; `mg build` packs them in a build pipeline.
-- **Everything else**: haks and custom talk tables, import and export, sound
-  playback, unlimited undo, recovery copies of unsaved work, and a
-  command-line tool (`mg`) for archives, GFF and JSON, the game's resources,
-  and building modules.
+## What it is
 
-Moonglow contains no game data: it reads the game's files from your
-installation, so it needs a copy of Neverwinter Nights: Enhanced Edition.
+Moonglow is a reimplementation of BioWare's Aurora Toolset, written in Rust
+with an [egui](https://github.com/emilk/egui) interface and a
+[wgpu](https://wgpu.rs) renderer.
+- **It edits what Aurora edits and writes what Aurora writes.** Every module it
+  saves behaves the same in the game. Its behavior is checked against Aurora
+  itself (run off-screen under Wine), the game's server and client, and
+  neverwinter.nim's tools.
+- **It runs natively** on Linux, Windows and macOS: no Wine, no 32-bit memory
+  limits, no `temp0` folder.
+- **It never loses data.** Fields Aurora doesn't know are kept, untouched files
+  are written back as they were, and unsaved work is kept in recovery copies.
+
+Moonglow contains no game data. It reads the game's files from your
+installation, so you need a copy of Neverwinter Nights: Enhanced Edition.
+
+## Everything Aurora does
+
+Every row of the [parity checklist](docs/parity/checklists.md) is done,
+deliberately different, or partly done with the gap named:
+
+- **Areas:** the area view, drawn with the game's lighting, fog and skyboxes
+  and checked against the game's own screenshots. Placing, moving, turning
+  and raising objects, triggers and encounters drawn point by point, Find
+  Instance and Adjust Location.
+- **Terrain:** painting with a tileset's terrains, crossers and groups, raise
+  and lower, tile properties, and resizing and rotating areas. The same
+  strokes give the same tiles as in Aurora.
+- **Blueprints:** standard and custom palettes, an editor for every blueprint
+  type, and the blueprint, Creature and Levelup wizards. Item costs and
+  challenge ratings come out as the game computes them.
+- **Conversations, scripts, journal and factions:** the Conversation Editor
+  with the Script Wizard, and a script editor with Beamdog's own NWScript
+  compiler built in. Its output is byte for byte `nwn_script_comp`'s on
+  33,196 scripts.
+- **Build, verify and test:** Build Module, Verify, and Test Module (F9) in
+  the game.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/conversation.png" alt="The Conversation Editor with Aribeth's conversation, each line naming its conditions, actions and sounds"></td>
+    <td width="50%"><img src="docs/images/creature.jpg" alt="A creature's editor beside its model in the 3D viewer"></td>
+  </tr>
+  <tr>
+    <td align="center">Conversations, with each line's scripts named</td>
+    <td align="center">Blueprint editors, and models in 3D</td>
+  </tr>
+</table>
+
+## And what it doesn't
+
+Moonglow's later work follows what builders have long asked of Aurora
+([the survey](docs/research/community_pain_points.md)):
+- **Modules in git:** [nasher](https://github.com/squattingmonk/nasher)
+  projects open and save in place, writing exactly what nasher writes.
+- **Where things are used:** Find References for any script, area,
+  conversation, blueprint or tag, Rename everywhere in one step, and Find and
+  Replace across a module's text.
+- **Scripts like code:** go to definition, references, symbol rename and
+  errors as you type, also in VS Code, Neovim and other editors through
+  `mg lsp`.
+- **Custom content that doesn't crash:** Verify names, by file and row, what
+  makes Aurora fail with an access violation, and changed haks and 2DAs
+  reload as you work.
+- **Faster building:** snapping, Q and E to turn and G to drop to the
+  ground, prefabs, editing many blueprints together, Update Instances, and
+  palettes that search by tag and remember favorites.
+- **Conversations out and back:** plain text, CSV (for translators), Twine
+  and Ink.
+- **Custom content tools:** a talk-table editor, a hak editor, a tileset
+  editor that makes palettes and minimap pictures, and 2DAs shown with the
+  hak each row comes from.
+- **Publishing:** NWSync repositories for persistent worlds, and minimaps
+  exported as the game draws them.
+- **Keys you can change**, and Aurora's own as the defaults.
+
+![The script editor with a script from the original campaign](docs/images/script.png)
+
+## Download
+
+Packages for each system are on the
+[releases page](https://github.com/jadzziaa/moonglow-toolset/releases/latest):
+
+| System | Package |
+| --- | --- |
+| Linux (x86-64) | `Moonglow-<version>-x86_64.AppImage`: make it executable and run it (glibc 2.35 or newer) |
+| Windows 10 and 11 | `Moonglow-<version>-windows-x64-setup.exe` |
+| macOS 11 and later | `Moonglow-<version>-macos.dmg` |
+
+Moonglow finds the game where Steam installs it; otherwise choose its folder
+in Tools › Options › Folders. The packages aren't signed yet: Windows'
+SmartScreen and macOS' Gatekeeper ask before the first run (the release notes
+say how to allow it).
+
+### The command line
+
+Every package includes `mg`, the command-line tools, for build pipelines and
+scripts: pack and unpack archives, convert GFF files to JSON and back, verify
+and build modules, find what a module holds, rename and replace across it,
+publish to NWSync, and more. Every command can answer in JSON (`--json`).
+See [Command-line tools](docs/manual/11-command-line.md).
 
 ## Documentation
 
@@ -67,7 +142,7 @@ installation, so it needs a copy of Neverwinter Nights: Enhanced Edition.
 ## Building from source
 
 You need a stable Rust toolchain (1.98 or newer; `rust-toolchain.toml`
-selects it with rustup) and a C++ compiler for the bundled script compiler:
+selects it with rustup) and a C++ compiler for the built-in script compiler:
 
 - **Linux**: a C++ compiler, `pkg-config` and the ALSA headers
   (`libasound2-dev` on Debian and Ubuntu, `alsa-lib` on Arch and Fedora).
@@ -78,9 +153,6 @@ selects it with rustup) and a C++ compiler for the bundled script compiler:
 cargo run --release -p moonglow          # the GUI
 cargo run --release -p mg -- --help      # the command-line tools
 ```
-
-Moonglow finds the game where Steam installs it; otherwise set its folder in
-Tools › Options › Folders, or `NWN_ROOT` for the command line.
 
 ## Testing
 
@@ -110,7 +182,7 @@ A Cargo workspace, layered bottom-up:
 
 | Folder | What |
 | --- | --- |
-| `crates/mg-core` | ResRef, resource types, languages, localized strings, bounds-checked binary reading |
+| `crates/mg-core` | ResRef, resource types, languages, localized strings, bounds-checked binary reading, SHA-1 |
 | `crates/mg-gff`, `mg-erf`, `mg-key`, `mg-2da`, `mg-tlk`, `mg-set`, `mg-ssf` | the game's file formats, lossless |
 | `crates/mg-audio`, `mg-image`, `mg-mdl` | sounds, textures and models |
 | `crates/mg-resman`, `mg-rules` | the game's load order, and its rules from its 2DA tables and talk tables |
@@ -128,7 +200,8 @@ A Cargo workspace, layered bottom-up:
 Moonglow is free software under the [GNU General Public License, version 3](LICENSE).
 It includes Beamdog's NWScript compiler (GPL-3.0), as published in
 neverwinter.nim. Game assets, including Beamdog's shaders, are only ever read
-from your installation and never distributed.
+from your installation and never distributed. The screenshots show the game's
+original campaign as Moonglow draws it.
 
 Neverwinter Nights is a trademark of its owners. Moonglow is not affiliated
 with Beamdog or Wizards of the Coast.

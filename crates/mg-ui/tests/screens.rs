@@ -631,3 +631,160 @@ fn tileset_minimap_pictures() {
     assert!(judged >= 20 && best_as_is * 10 >= judged * 8, "{best_as_is} of {judged}");
     std::fs::write(dir.join("minimaps.png"), mg_module::minimap::png(&sheet).unwrap()).unwrap();
 }
+
+/// Candidate areas for the README: the first outdoor areas of a campaign
+/// module, from a three-quarter view. `MG_README_MODULE` picks the module
+/// (default Chapter 1).
+#[test]
+#[ignore]
+fn readme_area_candidates() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("readme-candidates");
+    let module = std::env::var("MG_README_MODULE").unwrap_or("Chapter1.nwm".into());
+    let path = root.join("data/nwm").join(&module);
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    let areas: Vec<_> = {
+        let ws = app.ws.as_mut().unwrap();
+        let all = ws.module.areas().unwrap();
+        all.into_iter()
+            .filter(|a| {
+                let are = ws.doc(&ResKey::new(*a, ResType::ARE)).unwrap();
+                let interior = are.root.integer("Flags").unwrap_or(0) & 1 != 0;
+                !interior
+            })
+            .take(10)
+            .collect()
+    };
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1600.0, 960.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    for area in areas {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+        h.run_steps(5);
+        if let Some(view) = h.state_mut().area_views.get_mut(&area)
+            && let Some(o) = &mut view.orbit
+        {
+            o.pitch = 38f32.to_radians();
+            o.yaw = -60f32.to_radians();
+            o.distance *= 0.55;
+        }
+        h.run_steps(8);
+        shoot(&mut h, &dir, &format!("{area}"));
+    }
+}
+
+/// The README's screenshots, of the original campaign's first chapter,
+/// into `target/test-output/readme/`. They're cropped above the log pane
+/// (which shows the install's path) when copied to `docs/images`.
+#[test]
+#[ignore]
+fn readme_screenshots() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("readme");
+    let chapter = root.join("data/nwm/Chapter1.nwm");
+    let harness = || {
+        let rs = egui_kittest::wgpu::create_render_state(
+            egui_kittest::wgpu::default_wgpu_setup(),
+            egui_wgpu::RendererOptions::PREDICTABLE,
+        );
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.open_module(&chapter);
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1600.0, 960.0))
+            .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run_steps(3);
+        h
+    };
+    let key = |name: &str, t: ResType| ResKey::parse(name, t).unwrap();
+
+    // The area view, with the palette beside it.
+    let mut h = harness();
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Palette));
+    h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Placeable;
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        for k in [
+            mg_area::ObjectKind::Trigger,
+            mg_area::ObjectKind::Encounter,
+            mg_area::ObjectKind::Sound,
+            mg_area::ObjectKind::Waypoint,
+        ] {
+            view.show[k.index()] = false;
+        }
+        view.show_start = false;
+        view.grid = false;
+        if let Some(o) = &mut view.orbit {
+            o.pitch = 34f32.to_radians();
+            o.yaw = -55f32.to_radians();
+            o.distance *= 0.42;
+            o.target.x -= 8.0;
+        }
+    }
+    h.run_steps(10);
+    shoot(&mut h, &dir, "area");
+
+    // Aribeth's conversation.
+    let mut h = harness();
+    let dlg = mg_ui::Tab::Dialog(key("m1q1faribeth", ResType::DLG));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(dlg.clone()));
+    h.run_steps(3);
+    place(&mut h, &dlg, (250.0, 70.0), (1320.0, 725.0));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "conversation");
+
+    // Aribeth: her blueprint beside her model.
+    let mut h = harness();
+    let utc = key("m1q1faribeth", ResType::UTC);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(utc)));
+    h.run_steps(3);
+    for (tab, x) in [(mg_ui::Tab::Blueprint(utc), 250.0), (mg_ui::Tab::Model(utc), 960.0)] {
+        let path = h.state().dock.find_tab(&tab).unwrap();
+        if let Some(w) = h.state_mut().dock.get_window_state_mut(path.surface) {
+            w.set_position(egui::pos2(x, 70.0))
+                .set_size(egui::vec2(if x < 500.0 { 700.0 } else { 600.0 }, 725.0));
+        }
+    }
+    h.run_steps(20);
+    shoot(&mut h, &dir, "creature");
+
+    // A script.
+    let mut h = harness();
+    let script = mg_ui::Tab::Script(key("m1q3_formosa_9", ResType::NSS));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script.clone()));
+    h.run_steps(3);
+    place(&mut h, &script, (250.0, 70.0), (1320.0, 725.0));
+    h.run_steps(5);
+    let _ = h.query_by_label("Compile");
+    shoot(&mut h, &dir, "script");
+}
+
+/// Moves and sizes a tab's window.
+fn place(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab, at: (f32, f32), size: (f32, f32)) {
+    let path = h.state().dock.find_tab(tab).unwrap();
+    if let Some(w) = h.state_mut().dock.get_window_state_mut(path.surface) {
+        w.set_position(egui::pos2(at.0, at.1)).set_size(egui::vec2(size.0, size.1));
+    }
+}
