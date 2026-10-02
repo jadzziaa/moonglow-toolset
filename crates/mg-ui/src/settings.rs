@@ -113,6 +113,12 @@ pub struct Settings {
     pub ambient_sound: bool,
     /// Options > Sounds: Play ambient music in area (Aurora's default: off).
     pub ambient_music: bool,
+    /// The area view's snapping: moved and placed objects to this grid
+    /// (centimeters), turned objects to this angle (degrees).
+    #[serde(default)]
+    pub snap_grid: Option<u16>,
+    #[serde(default)]
+    pub snap_angle: Option<u16>,
     /// Options > Sounds: Ambient music volume, of 127 (`None`: Aurora's 92).
     pub music_volume: Option<u8>,
     /// Options > Conversation Editor: Show popup when creating a new text

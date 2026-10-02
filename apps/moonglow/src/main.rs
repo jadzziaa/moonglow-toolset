@@ -155,6 +155,7 @@ fn main() -> eframe::Result<()> {
             // Recovery copies of unsaved work go to Moonglow's data folder;
             // those a crashed session left are offered back.
             moonglow.recovery_dir = mg_ui::recovery::data_dir().map(|d| d.join("recovery"));
+            moonglow.prefab_dir = mg_ui::prefabs::dir();
             moonglow.find_recoveries();
             // Sounds play when there is an output device.
             if let Some(s) = speakers::Speakers::open() {

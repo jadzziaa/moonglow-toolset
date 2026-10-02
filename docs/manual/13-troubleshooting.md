@@ -49,7 +49,7 @@ Work**. Please include the crash report when you report the problem.
 | What | Linux | Windows | macOS |
 | --- | --- | --- | --- |
 | Settings | `~/.local/share/moonglowtoolset` | `%APPDATA%\Moonglow Toolset\data` | `~/Library/Application Support/Moonglow-Toolset` |
-| Recovery copies, crash reports | `~/.local/share/moonglow` | `%APPDATA%\Moonglow` | `~/Library/Application Support/Moonglow` |
+| Recovery copies, crash reports, prefabs (`prefabs`) | `~/.local/share/moonglow` | `%APPDATA%\Moonglow` | `~/Library/Application Support/Moonglow` |
 | Conversation backups | `/tmp/moonglow-backups` | `%TEMP%\moonglow-backups` | `$TMPDIR/moonglow-backups` |
 
 On Linux, `$XDG_DATA_HOME` takes the place of `~/.local/share` when set

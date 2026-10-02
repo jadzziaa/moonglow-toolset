@@ -24,6 +24,8 @@ it differs, it is on purpose:
   grass does not show at the distances the editor views from).
 - **Waypoints and merchants** are yellow arrows along their facing, sounds
   boxes.
+- **Locked objects** carry a field of Moonglow's (`MG_Locked`), which the
+  game ignores and Aurora drops when it saves.
 - **Blueprint previews** in the door and placeable windows are a
   **Preview** button that opens the model viewer.
 - **Renaming custom blueprints in the palette** is done in the blueprint's

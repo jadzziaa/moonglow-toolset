@@ -44,12 +44,23 @@ Aurora's bindings, plus a few of Moonglow's:
 | Drag on the ground | select the objects in the box |
 | Drag the selection | move it over the ground |
 | Shift + right drag | turn the selected objects |
+| Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
+| G | drop them to the ground |
 | Alt + drag | raise or lower them (not creatures, which stand on the ground) |
 | Delete | delete them |
 | Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another) |
 | Double-click | the object's Properties |
 
-Every move, turn and deletion is one undoable step.
+Every move, turn and deletion is one undoable step. The pointer's
+position in the area shows in the view's corner, to the centimeter.
+
+**Snapping** (the toolbar's **Snap** and **Turn**):
+- **Snap** moves objects to a grid of 0.25 to 5 m as you drag, place or
+  paste them.
+- **Turn** turns them in steps of 5° to 90°.
+
+With several selected, the first selected snaps and the others keep their
+places and turns around it.
 
 **Right-click** the selection for its menu:
 
@@ -59,6 +70,23 @@ Every move, turn and deletion is one undoable step.
   changes in all of them.
 - **Adjust Location…**: an exact position and bearing, and the visual
   transform (scale and offset) that EE added.
+- **Drop to Ground** (G): puts raised objects back on the ground under
+  them.
+- **Arrange** (several selected; the first selected leads):
+  - **Line Up West–East** or **South–North**: on a line through the first.
+  - **Space Evenly**: evenly spaced between the two farthest apart.
+  - **Face Alike**: facing as the first does.
+  - **Mirror West–East** or **South–North**: mirrored about the
+    selection's middle, facings too.
+
+  Objects keep their height above the ground.
+- **Lock**: locked objects can't be selected by a click or a box, so you
+  can work around them. **Unlock All** (on any part of the area) frees
+  them. Moonglow marks a locked object with a field of its own
+  (`MG_Locked`), which the game ignores. Aurora drops it when it saves,
+  unlocking the object.
+- **Save as Prefab…**: the selected objects, kept under a name to place
+  again (see below).
 - Doors: **Reverse Door**, **Initial State** (open or closed, locked).
   Placeables: **Initial State** (open, active…). Sounds: **Mute** or
   **Turn On**. Triggers and encounters: **Redraw Polygon**; encounters:
@@ -87,6 +115,18 @@ outline.
 
 **Edit › Find Instance…** lists the placed objects across the module by
 kind, area, blueprint and tag; double-click one to go to it.
+
+**Prefabs** are groups of placed objects saved under a name (**Save as
+Prefab…** on the selection), such as a camp, a market stall or a furnished
+room.
+- **Placing one:** choose it under **Edit › Prefabs**. It follows the
+  pointer like a paste, and a click places it, with the objects in their
+  places around each other and at their heights above the ground.
+- **Any area, any module:** prefabs are kept in Moonglow's data folder, in
+  `prefabs` (see [Troubleshooting](13-troubleshooting.md)). Copy the
+  `.prefab.json` files to share them.
+- **Blueprints:** an object keeps everything it had when it was saved,
+  and works without the blueprint it came from.
 
 ## Painting terrain
 

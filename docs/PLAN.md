@@ -482,7 +482,10 @@ surveyed after 0.2.0):
      Reload Resources (haks and folders by fingerprint, automatic every
      few seconds);
    - placement tools (drop to ground, rotation keys, snapping, locking,
-     prefabs);
+     prefabs) — done: also lining up, spacing out, mirroring and the
+     pointer's position to the centimeter; locks are an `MG_Locked` byte
+     on the object (the engine shows the same world with every object
+     locked, `engine_locked.rs`);
    - a "Coming from Aurora" chapter.
 2. Tier 2, depth:
    - script intelligence and `mg lsp`;

@@ -27,6 +27,7 @@ pub mod model_view;
 pub mod module_props;
 mod options;
 pub mod palette_view;
+pub mod prefabs;
 pub mod recovery;
 pub mod references;
 pub mod script_tools;
@@ -116,6 +117,8 @@ pub enum Action {
     },
     /// Tools › Reload Resources: haks and folders that changed on disk.
     ReloadResources,
+    /// Edit › Prefabs › a prefab: placed with a click in the area shown.
+    PlacePrefab(String),
     /// Edit › Find References: where a resource is used.
     FindReferences(ResKey),
     /// Where a tag is used.
@@ -251,6 +254,11 @@ pub struct Moonglow {
     pub references: references::References,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
+    /// The Save as Prefab window: the name being typed and the objects.
+    pub prefab_save: Option<(String, area_view::ObjectClip)>,
+    /// Where prefabs are kept (the app sets Moonglow's data folder's
+    /// `prefabs`; none: prefabs can't be saved).
+    pub prefab_dir: Option<PathBuf>,
     /// When changed haks and folders were last looked for.
     reload_checked: Option<std::time::Instant>,
     /// The custom talk table's file and its time when loaded.
@@ -352,6 +360,8 @@ impl Moonglow {
             area_focus: None,
             references: Default::default(),
             rename: None,
+            prefab_save: None,
+            prefab_dir: None,
             reload_checked: None,
             tlk_stamp: None,
             object_clip: None,
@@ -483,6 +493,7 @@ impl Moonglow {
         store_wizard::window(self, ui.ctx());
         store_wizard::popup_window(self, ui.ctx());
         references::rename_window(self, ui.ctx());
+        prefabs::save_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
@@ -680,6 +691,19 @@ impl Moonglow {
                 if ui.add_enabled(open, egui::Button::new("Find Instance…")).clicked() {
                     self.find_instance.get_or_insert_with(Default::default);
                 }
+                let names = prefabs::list(self.prefab_dir.as_deref());
+                ui.add_enabled_ui(open && !names.is_empty(), |ui| {
+                    ui.menu_button("Prefabs", |ui| {
+                        for n in names {
+                            if ui.button(&n).on_hover_text("Place it in the area shown").clicked() {
+                                self.actions.push(Action::PlacePrefab(n));
+                                ui.close();
+                            }
+                        }
+                    })
+                    .response
+                    .on_disabled_hover_text("Save objects as a prefab from an area's menu first");
+                });
                 if ui
                     .add_enabled(open, egui::Button::new("Find References…"))
                     .on_hover_text("Where a script, area, conversation, blueprint or tag is used")
@@ -1316,6 +1340,7 @@ impl Moonglow {
             Action::TestModuleChoose => self.test_module(true),
             Action::TestFromHere { area, at, facing } => self.test_from_here(area, at, facing),
             Action::ReloadResources => self.reload_resources(true),
+            Action::PlacePrefab(name) => self.place_prefab(&name),
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
                 self.forget_recovery();

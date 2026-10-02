@@ -114,6 +114,11 @@ Moonglow's own.
 - **The resource browser** (Tools › Resource Browser) shows any resource
   in the game, the haks or the module, and where it comes from; models
   open in the model viewer.
+- **Placing and arranging**: snapping to a grid and to angles; Q and E
+  to turn, G to drop to the ground; lining up, spacing out and mirroring;
+  locking objects out of the way; prefabs (an area's right-click menu,
+  and Edit › Prefabs); the pointer's position to the centimeter (see
+  [Areas](04-areas.md)).
 - **Find References and Rename** (the module tree's right-click menu):
   where a script, area, conversation, blueprint or tag is used, and
   renaming a resource everywhere in one step (see [Modules](03-modules.md)).

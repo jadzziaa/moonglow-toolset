@@ -24,6 +24,7 @@ use mg_resman::ResKey;
 use mg_rules::GameData;
 use mg_set::Tileset;
 
+pub mod arrange;
 pub mod edit;
 pub mod pick;
 pub mod reshape;
@@ -279,7 +280,13 @@ pub struct AreaObject {
     pub conversation: Option<ResRef>,
     /// An encounter's spawn points (`SpawnPointList`), world space.
     pub spawn_points: Vec<Vec3>,
+    /// Locked in the area editor ([`LOCKED`]): not picked by clicks or boxes.
+    pub locked: bool,
 }
+
+/// The field Moonglow marks a locked object with: a byte the game and
+/// Aurora don't read (Aurora drops it when it saves).
+pub const LOCKED: &str = "MG_Locked";
 
 impl AreaObject {
     /// Reads the object `index` of the GIT list of `kind`.
@@ -340,6 +347,7 @@ impl AreaObject {
                 0
             },
             conversation: s.resref("Conversation").filter(|r| !r.is_empty()),
+            locked: s.integer(LOCKED).is_some_and(|v| v != 0),
             spawn_points: if kind == ObjectKind::Encounter {
                 s.list("SpawnPointList")
                     .unwrap_or(&[])

@@ -4680,6 +4680,10 @@ fn views_draw_nothing_over_anything_else() {
         h.state_mut().actions.push(mg_ui::Action::RenameDialog(hello));
         look(&mut h, "Rename");
         h.state_mut().rename = None;
+        let clip = mg_ui::area_view::ObjectClip { objects: Vec::new(), anchor: glam::Vec3::ZERO };
+        h.state_mut().prefab_save = Some(("Gate".into(), clip));
+        look(&mut h, "Save as Prefab");
+        h.state_mut().prefab_save = None;
         h.state_mut().actions.push(mg_ui::Action::AreaWizard);
         look(&mut h, "Area Wizard");
         h.state_mut().wizard = None;
@@ -5147,4 +5151,139 @@ fn a_right_drag_turns_the_camera_and_w_a_s_d_fly_while_held() {
     h.run_steps(2);
     assert!(selection(&h).is_empty(), "nothing selected or turned");
     assert!(h.query_by_label("Properties").is_none(), "no context menu after a drag");
+}
+
+#[test]
+fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Waypoint;
+    let Some((mut h, area)) = area_harness("placement") else { return };
+    let prefabs = mg_testkit::scratch_dir("ui-prefabs");
+    h.state_mut().prefab_dir = Some(prefabs.clone());
+    h.run_steps(3);
+    let waypoints = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&ResKey::new(area, ResType::GIT))
+            .unwrap()
+            .root
+            .list("WaypointList")
+            .unwrap()
+            .to_vec()
+    };
+    let facing = |s: &mg_gff::Struct| {
+        s.float("YOrientation").unwrap().atan2(s.float("XOrientation").unwrap())
+    };
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    let a = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    let both = vec![(Waypoint, 0), (Waypoint, 1)];
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = both.clone();
+    h.hover_at(a);
+    h.run_steps(1);
+
+    // Q turns the selection 15° to the left, Shift+E 90° to the right.
+    let before: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
+    h.key_press(egui::Key::Q);
+    h.run_steps(2);
+    let after: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
+    for (b, a) in before.iter().zip(&after) {
+        assert!((a - b - 15f32.to_radians()).abs() < 1e-4, "{b} → {a}");
+    }
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
+    h.run_steps(2);
+    let turned: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
+    assert!((after[0] - turned[0] - 90f32.to_radians()).abs() < 1e-4);
+
+    // G drops a raised object to the ground.
+    let git = ResKey::new(area, ResType::GIT);
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Raise",
+        vec![mg_edit::Edit::SetField {
+            key: git,
+            path: mg_edit::GffPath::root().item("WaypointList", 0),
+            label: "ZPosition".into(),
+            value: Some(mg_gff::Value::Float(3.0)),
+        }],
+    )));
+    h.run_steps(2);
+    h.key_press(egui::Key::G);
+    h.run_steps(2);
+    let ground = waypoints(&mut h)[0].float("ZPosition").unwrap();
+    assert!(ground.abs() < 1.0, "on the ground: {ground}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Drop to Ground"));
+
+    // Arrange › Mirror West–East swaps them.
+    right_click(&mut h, a);
+    h.get_by_label_contains("Arrange").click();
+    h.run_steps(2);
+    h.get_by_label("Mirror West–East").click();
+    h.run_steps(3);
+    let xs: Vec<f32> = waypoints(&mut h).iter().map(|s| s.float("XPosition").unwrap()).collect();
+    assert!((xs[0] - 30.0).abs() < 1e-3 && (xs[1] - 20.0).abs() < 1e-3, "{xs:?}");
+
+    // Save as Prefab, then place it again elsewhere.
+    let b = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
+    right_click(&mut h, b);
+    h.get_by_label("Save as Prefab…").click();
+    h.run_steps(3);
+    // The name field has the focus; Enter saves.
+    h.event(egui::Event::Text("Two Posts".into()));
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(2);
+    assert!(prefabs.join("Two Posts.prefab.json").is_file(), "{:?}", h.state().log.entries);
+    h.state_mut().actions.push(mg_ui::Action::PlacePrefab("Two Posts".into()));
+    h.run_steps(2);
+    assert!(h.state().area_views[&area].pasting);
+    let c = screen(&h, area, Vec3::new(25.0, 32.0, 0.02));
+    h.hover_at(c);
+    h.run_steps(2);
+    press(&h, c, true, egui::Modifiers::NONE);
+    press(&h, c, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(waypoints(&mut h).len(), 4, "{:?}", h.state().log.entries);
+
+    // Lock: clicks pass locked objects by; Unlock All frees them.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = both;
+    right_click(&mut h, b);
+    h.get_by_label("Lock").click();
+    h.run_steps(3);
+    let locked = waypoints(&mut h);
+    assert!(locked[..2].iter().all(|s| s.byte(mg_area::LOCKED) == Some(1)));
+    press(&h, b, true, egui::Modifiers::NONE);
+    press(&h, b, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].selection.is_empty(), "a locked object isn't picked");
+    let empty = screen(&h, area, Vec3::new(10.0, 35.0, 0.0));
+    right_click(&mut h, empty);
+    h.get_by_label("Unlock All (2)").click();
+    h.run_steps(3);
+    assert!(waypoints(&mut h).iter().all(|s| s.get(mg_area::LOCKED).is_none()));
+
+    // With a 1 m grid, a dragged object lands on whole meters.
+    h.state_mut().settings.snap_grid = Some(100);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 1)];
+    let from = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    let to = from + egui::vec2(37.0, 23.0);
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=4 {
+        h.hover_at(from + (to - from) * (k as f32 / 4.0));
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let moved = &waypoints(&mut h)[1];
+    let (x, y) = (moved.float("XPosition").unwrap(), moved.float("YPosition").unwrap());
+    assert!((x, y) != (20.0, 20.0), "it moved");
+    assert!((x - x.round()).abs() < 1e-4 && (y - y.round()).abs() < 1e-4, "on the grid: {x}, {y}");
 }

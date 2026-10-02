@@ -153,6 +153,11 @@ pub struct AreaView {
     pub pasting: bool,
     /// Where the context menu was opened (on the ground).
     menu_at: Option<Vec3>,
+    /// Snapping (the settings', copied each frame): grid in meters, angle in
+    /// degrees.
+    snap: (Option<f32>, Option<f32>),
+    /// The ground point under the pointer, shown in the corner.
+    pointer: Option<Vec3>,
     /// A trigger or encounter whose outline is being drawn anew.
     pub redraw: Option<(ObjectKind, usize)>,
     /// The Create Set window's name, while it is open.
@@ -209,6 +214,8 @@ impl AreaView {
             outline: Vec::new(),
             pasting: false,
             menu_at: None,
+            snap: (None, None),
+            pointer: None,
             redraw: None,
             set_name: None,
             targets: None,
@@ -260,7 +267,9 @@ impl AreaView {
     /// The object under the pointer.
     fn pick(&self, pos: Pos2) -> Option<usize> {
         let (model, scene, ray) = (self.model.as_ref()?, self.scene.as_ref()?, self.ray(pos)?);
-        pick(model, &ray, &|i| scene.bounds(model, i), &|k| self.show[k.index()])
+        let found = pick(model, &ray, &|i| scene.bounds(model, i), &|k| self.show[k.index()])?;
+        // Locked objects can't be picked.
+        (!model.objects[found].locked).then_some(found)
     }
 
     /// The ground point under the pointer: on the walkmesh, else on the
@@ -286,12 +295,38 @@ impl AreaView {
         g.height(to, near).map_or(to.extend(o.position.z), |z| to.extend(z + lift))
     }
 
+    /// A point snapped to the grid, on the ground there.
+    fn snapped(&self, at: Vec3) -> Vec3 {
+        if self.snap.0.is_none() {
+            return at;
+        }
+        let xy = mg_area::arrange::snap_point(at.truncate(), self.snap.0);
+        let z = self.ground.as_ref().and_then(|g| g.height(xy, at.z)).unwrap_or(at.z);
+        xy.extend(z)
+    }
+
     /// Where each selected object stands and turns with the drag applied.
     fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
         let Some(model) = &self.model else { return Vec::new() };
-        let Some(drag) = self.drag.filter(|d| !matches!(d, Drag::Box { .. })) else {
+        let Some(mut drag) = self.drag.filter(|d| !matches!(d, Drag::Box { .. })) else {
             return Vec::new();
         };
+        // Snapping moves and turns the first selected object to the grid or
+        // angle; the others keep their places and turns relative to it.
+        let first = self.selection.first().and_then(|&(k, i)| self.object_at(k, i));
+        if let Some(o) = first.map(|i| &model.objects[i]) {
+            use mg_area::arrange::{snap_point, snap_rotation};
+            match &mut drag {
+                Drag::Move { offset, .. } if self.snap.0.is_some() => {
+                    let to = snap_point(o.position.truncate() + *offset, self.snap.0);
+                    *offset = to - o.position.truncate();
+                }
+                Drag::Turn { angle } if self.snap.1.is_some() => {
+                    *angle = snap_rotation(o.rotation + *angle, self.snap.1) - o.rotation;
+                }
+                _ => {}
+            }
+        }
         self.selection
             .iter()
             .filter_map(|&(k, i)| self.object_at(k, i))
@@ -388,6 +423,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     let mut view = app.area_views.remove(&area).unwrap_or_else(|| AreaView::new(area));
     refresh(app, &mut view);
     app.palette.area = Some(area);
+    view.snap = (
+        app.settings.snap_grid.map(|cm| f32::from(cm) / 100.0),
+        app.settings.snap_angle.map(f32::from),
+    );
     // An object to go to (from Find Instance).
     if let Some((a, kind, index)) = app.area_focus
         && a == area
@@ -456,6 +495,29 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             .on_hover_text("Play ambient sound in area");
         ui.toggle_value(&mut app.settings.ambient_music, "Music")
             .on_hover_text("Play ambient music in area");
+        ui.separator();
+        let grid = |v: Option<u16>| {
+            v.map_or("Snap: off".to_string(), |cm| format!("Snap: {} m", f32::from(cm) / 100.0))
+        };
+        egui::ComboBox::from_id_salt("snap-grid")
+            .selected_text(grid(app.settings.snap_grid))
+            .show_ui(ui, |ui| {
+                for g in [None, Some(25), Some(50), Some(100), Some(250), Some(500)] {
+                    ui.selectable_value(&mut app.settings.snap_grid, g, grid(g));
+                }
+            })
+            .response
+            .on_hover_text("Moved and placed objects snap to this grid");
+        let angle = |v: Option<u16>| v.map_or("Turn: free".to_string(), |a| format!("Turn: {a}°"));
+        egui::ComboBox::from_id_salt("snap-angle")
+            .selected_text(angle(app.settings.snap_angle))
+            .show_ui(ui, |ui| {
+                for a in [None, Some(5), Some(15), Some(45), Some(90)] {
+                    ui.selectable_value(&mut app.settings.snap_angle, a, angle(a));
+                }
+            })
+            .response
+            .on_hover_text("Turned objects snap to this angle; Q and E turn by it (15° when free)");
         ui.toggle_value(&mut view.walkmesh, "Walkmesh")
             .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
         if ui
@@ -629,6 +691,25 @@ fn viewport(
         door_arrows: !app.settings.no_door_arrows,
     };
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
+    // Where the pointer is, to the centimeter (Aurora shows whole meters).
+    view.pointer = ui
+        .ctx()
+        .pointer_hover_pos()
+        .filter(|p| view.rect.contains(*p))
+        .and_then(|p| view.ground_at(p, 0.0));
+    if let Some(p) = view.pointer {
+        let painter = ui.painter_at(view.rect);
+        let text = format!("{:.2}, {:.2}, {:.2}", p.x, p.y, p.z);
+        let font = egui::FontId::monospace(12.0);
+        let at = view.rect.left_bottom() + egui::vec2(8.0, -8.0);
+        let galley = painter.layout_no_wrap(text, font, Color32::WHITE);
+        let bg = Rect::from_min_size(
+            at - egui::vec2(3.0, galley.size().y + 2.0),
+            galley.size() + egui::vec2(6.0, 4.0),
+        );
+        painter.rect_filled(bg, 3.0, Color32::from_black_alpha(140));
+        painter.galley(at - egui::vec2(0.0, galley.size().y), galley, Color32::WHITE);
+    }
     walkmesh_overlay(app, ui, view);
     crate::terrain_mode::overlay(app, ui, view);
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
@@ -821,7 +902,9 @@ fn overlays(
         && let Some(at) = ui.ctx().pointer_hover_pos().and_then(|p| view.ground_at(p, 0.0))
     {
         let stroke = Stroke::new(1.5, Color32::from_rgb(120, 230, 255));
-        for ((o, _, _), p) in clip.objects.iter().zip(pasted_positions(view, clip, at)) {
+        for ((o, _, _), p) in
+            clip.objects.iter().zip(pasted_positions(view, clip, view.snapped(at)))
+        {
             let (min, max) = match (&view.scene, o.kind.has_outline()) {
                 (_, true) => {
                     let d = p - o.position;
@@ -1166,6 +1249,23 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             None => {}
         }
     }
+    // Q and E turn the selection by the snapping angle (15° when free;
+    // Shift: 90°), G drops it to the ground.
+    if hovered && !typing && !command && !view.selection.is_empty() {
+        let (q, e, g) = ui.input(|i| {
+            (i.key_pressed(egui::Key::Q), i.key_pressed(egui::Key::E), i.key_pressed(egui::Key::G))
+        });
+        let step = if shift { 90.0 } else { view.snap.1.unwrap_or(15.0) }.to_radians();
+        if q {
+            rotate_selection(app, view, step);
+        }
+        if e {
+            rotate_selection(app, view, -step);
+        }
+        if g {
+            drop_to_ground(app, view);
+        }
+    }
     if hovered && !view.selection.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
         delete(app, view);
     }
@@ -1254,7 +1354,7 @@ fn boxed(view: &AreaView, rect: Rect) -> Vec<(ObjectKind, usize)> {
     model
         .objects
         .iter()
-        .filter(|o| view.show[o.kind.index()])
+        .filter(|o| view.show[o.kind.index()] && !o.locked)
         .filter(|o| {
             let at = if o.kind.has_outline() && !o.outline.is_empty() {
                 o.outline.iter().copied().sum::<Vec3>() / o.outline.len() as f32
@@ -1314,6 +1414,8 @@ fn place(
     use mg_module::instances::{OUTLINE_LIFT, Placement, Placing, instance};
     let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return };
     let Some(kind) = ObjectKind::from_restype(key.restype) else { return };
+    // On the grid (doors go on their hooks; outlines are drawn point by point).
+    let at = if kind == ObjectKind::Door || kind.has_outline() { at } else { view.snapped(at) };
     // A custom blueprint (or item) as its editor has it, not as last saved.
     let _ = ws.flush();
     let read = |k: ResKey| -> Option<mg_gff::Struct> {
@@ -1444,6 +1546,7 @@ fn pasted_positions(view: &AreaView, clip: &ObjectClip, at: Vec3) -> Vec<Vec3> {
 /// command), and selects them.
 fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
     let Some(clip) = app.object_clip.clone() else { return };
+    let at = view.snapped(at);
     let git = view.git();
     let Some(ws) = app.ws.as_mut() else { return };
     let Ok(doc) = ws.doc(&git) else { return };
@@ -1468,6 +1571,107 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Paste", edits)));
         view.selection = selection;
+    }
+}
+
+/// Whether an object of this kind turns (outlines and sounds don't).
+fn turns(kind: ObjectKind) -> bool {
+    !kind.has_outline() && kind != ObjectKind::Sound
+}
+
+/// Turns each selected object in place by `by` radians (one command).
+fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
+    let Some(model) = &view.model else { return };
+    let moved: Vec<(usize, Vec3, f32)> = view
+        .selection
+        .iter()
+        .filter_map(|&(k, i)| view.object_at(k, i))
+        .filter(|&i| turns(model.objects[i].kind))
+        .map(|i| {
+            let o = &model.objects[i];
+            let r = mg_area::arrange::snap_rotation(o.rotation + by, view.snap.1);
+            (i, o.position, r)
+        })
+        .collect();
+    commit_moves(app, view, &moved, "Rotate");
+}
+
+/// Puts the selected objects on the ground under them (creatures and
+/// outlines are there already).
+fn drop_to_ground(app: &mut Moonglow, view: &AreaView) {
+    let (Some(model), Some(ground)) = (&view.model, &view.ground) else { return };
+    let moved: Vec<(usize, Vec3, f32)> = view
+        .selection
+        .iter()
+        .filter_map(|&(k, i)| view.object_at(k, i))
+        .filter_map(|i| {
+            let o = &model.objects[i];
+            if o.kind == ObjectKind::Creature || o.kind.has_outline() {
+                return None;
+            }
+            // The ground below it, else the nearest.
+            let xy = o.position.truncate();
+            let z = ground
+                .height(xy, o.position.z - 0.01)
+                .or_else(|| ground.height(xy, o.position.z))?;
+            ((z - o.position.z).abs() > 1e-4).then_some((i, xy.extend(z), o.rotation))
+        })
+        .collect();
+    commit_moves(app, view, &moved, "Drop to Ground");
+}
+
+/// Arranges the selection (lined up, spaced out, facing alike, mirrored),
+/// keeping each object's height above the ground.
+fn arrange_selection(
+    app: &mut Moonglow,
+    view: &AreaView,
+    how: mg_area::arrange::Arrange,
+    label: &str,
+) {
+    let Some(model) = &view.model else { return };
+    let chosen: Vec<usize> =
+        view.selection.iter().filter_map(|&(k, i)| view.object_at(k, i)).collect();
+    let before: Vec<(Vec2, f32)> = chosen
+        .iter()
+        .map(|&i| (model.objects[i].position.truncate(), model.objects[i].rotation))
+        .collect();
+    let after = mg_area::arrange::arrange(how, &before);
+    let moved: Vec<(usize, Vec3, f32)> = chosen
+        .iter()
+        .zip(after)
+        .map(|(&i, (xy, r))| {
+            let o = &model.objects[i];
+            let position = view.moved(o, xy - o.position.truncate());
+            (i, position, if turns(o.kind) { r } else { o.rotation })
+        })
+        .collect();
+    commit_moves(app, view, &moved, label);
+}
+
+/// Locks the selected objects (or, with `false`, unlocks them) so clicks
+/// and boxes pass them by.
+fn set_locked(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    objects: &[(ObjectKind, usize)],
+    lock: bool,
+) {
+    let git = view.git();
+    let edits: Vec<mg_edit::Edit> = objects
+        .iter()
+        .map(|&(kind, index)| mg_edit::Edit::SetField {
+            key: git,
+            path: mg_edit::GffPath::root().item(kind.list(), index),
+            label: mg_area::LOCKED.into(),
+            value: lock.then_some(Value::Byte(1)),
+        })
+        .collect();
+    if lock {
+        view.selection.clear();
+    }
+    if !edits.is_empty() {
+        let label = if lock { "Lock" } else { "Unlock" };
+        app.actions.push(Action::Apply(Command::new(label, edits)));
     }
 }
 
@@ -1497,6 +1701,73 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     let any = !view.selection.is_empty();
     if ui.add_enabled(any, egui::Button::new("Adjust Location…")).clicked() {
         app.adjust = crate::area_tools::adjust(view);
+        ui.close();
+    }
+    if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
+        drop_to_ground(app, view);
+        ui.close();
+    }
+    ui.add_enabled_ui(view.selection.len() > 1, |ui| {
+        ui.menu_button("Arrange", |ui| {
+            use mg_area::arrange::Arrange;
+            let items = [
+                (
+                    Arrange::LineUpWestEast,
+                    "Line Up West–East",
+                    "On a west–east line through the first selected",
+                ),
+                (
+                    Arrange::LineUpSouthNorth,
+                    "Line Up South–North",
+                    "On a south–north line through the first selected",
+                ),
+                (
+                    Arrange::Distribute,
+                    "Space Evenly",
+                    "Evenly spaced between the two farthest apart",
+                ),
+                (Arrange::SameFacing, "Face Alike", "Facing as the first selected does"),
+                (
+                    Arrange::MirrorWestEast,
+                    "Mirror West–East",
+                    "Mirrored about the selection's middle",
+                ),
+                (
+                    Arrange::MirrorSouthNorth,
+                    "Mirror South–North",
+                    "Mirrored about the selection's middle",
+                ),
+            ];
+            for (how, text, hint) in items {
+                if ui.button(text).on_hover_text(hint).clicked() {
+                    arrange_selection(app, view, how, text);
+                    ui.close();
+                }
+            }
+        });
+    });
+    if ui
+        .add_enabled(any, egui::Button::new("Lock"))
+        .on_hover_text(
+            "Clicks and boxes pass locked objects by (Unlock All, on the area, frees them)",
+        )
+        .clicked()
+    {
+        let chosen = view.selection.clone();
+        set_locked(app, view, &chosen, true);
+        ui.close();
+    }
+    let locked: Vec<(ObjectKind, usize)> = view
+        .model
+        .as_ref()
+        .map(|m| m.objects.iter().filter(|o| o.locked).map(|o| (o.kind, o.index)).collect())
+        .unwrap_or_default();
+    if !locked.is_empty() && ui.button(format!("Unlock All ({})", locked.len())).clicked() {
+        set_locked(app, view, &locked, false);
+        ui.close();
+    }
+    if ui.add_enabled(any, egui::Button::new("Save as Prefab…")).clicked() {
+        app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
         ui.close();
     }
     let kinds: Vec<ObjectKind> = view.selection.iter().map(|(k, _)| *k).collect();
