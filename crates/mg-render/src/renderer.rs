@@ -166,6 +166,8 @@ pub struct Renderer {
     particle_frame_layout: wgpu::BindGroupLayout,
     particle_pipelines: HashMap<ParticleBlend, wgpu::RenderPipeline>,
     particle_buffer: wgpu::Buffer,
+    line_pipeline: wgpu::RenderPipeline,
+    line_buffer: wgpu::Buffer,
     /// Animated and dangly meshes' vertices, rewritten every frame.
     dynamic_buffer: wgpu::Buffer,
     frame_buffer: wgpu::Buffer,
@@ -180,6 +182,23 @@ pub struct Renderer {
     materials: HashMap<MaterialKey, wgpu::BindGroup>,
     samplers: HashMap<(bool, bool), wgpu::Sampler>,
     env_sampler: wgpu::Sampler,
+}
+
+/// A line's end ([`crate::Line`]), in world space.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct LineVertex {
+    pos: [f32; 3],
+    /// Gamma-space colour and alpha.
+    color: [f32; 4],
+}
+
+impl LineVertex {
+    const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
+        array_stride: std::mem::size_of::<LineVertex>() as u64,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
+    };
 }
 
 /// A gamma-space colour in linear space.
@@ -412,6 +431,50 @@ impl Renderer {
             });
             particle_pipelines.insert(blend, pipeline);
         }
+        // Lines.
+        let line_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("lines"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("line.wgsl").into()),
+        });
+        let line_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("lines"),
+            bind_group_layouts: &[Some(&particle_frame_layout)],
+            immediate_size: 0,
+        });
+        let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("lines"),
+            layout: Some(&line_layout),
+            vertex: wgpu::VertexState {
+                module: &line_shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(LineVertex::LAYOUT)],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: wgpu::MultisampleState { count: sample_count, ..Default::default() },
+            fragment: Some(wgpu::FragmentState {
+                module: &line_shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: color_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let buffer = |label, size, usage| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(label),
@@ -442,6 +505,8 @@ impl Renderer {
             particle_frame_layout,
             particle_pipelines,
             particle_buffer: buffer("particles", 1 << 16, wgpu::BufferUsages::VERTEX),
+            line_pipeline,
+            line_buffer: buffer("lines", 1 << 16, wgpu::BufferUsages::VERTEX),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
             frame_buffer: buffer(
                 "frame",
@@ -1024,6 +1089,23 @@ impl Renderer {
                 bytemuck::cast_slice(&particle_vertices),
             );
         }
+        let line_vertices: Vec<LineVertex> = scene
+            .lines
+            .iter()
+            .flat_map(|l| [l.from, l.to].map(|p| LineVertex { pos: p.to_array(), color: l.color }))
+            .collect();
+        let line_bytes = std::mem::size_of_val(line_vertices.as_slice());
+        if (self.line_buffer.size() as usize) < line_bytes {
+            self.line_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("lines"),
+                size: line_bytes.next_power_of_two() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if line_bytes > 0 {
+            gpu.queue.write_buffer(&self.line_buffer, 0, bytemuck::cast_slice(&line_vertices));
+        }
         let particle_frame = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("particle frame"),
             layout: &self.particle_frame_layout,
@@ -1092,6 +1174,12 @@ impl Renderer {
                     pass.set_bind_group(1, &self.materials[key], &[]);
                     pass.draw(range.clone(), 0..1);
                 }
+            }
+            if !line_vertices.is_empty() {
+                pass.set_pipeline(&self.line_pipeline);
+                pass.set_bind_group(0, &particle_frame, &[]);
+                pass.set_vertex_buffer(0, self.line_buffer.slice(..));
+                pass.draw(0..line_vertices.len() as u32, 0..1);
             }
         }
         gpu.queue.submit([encoder.finish()]);

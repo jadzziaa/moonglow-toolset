@@ -171,6 +171,18 @@ pub struct Scene {
     /// lays over it (gamma: the area's fog colour) as much as its texture
     /// is white.
     pub sky_fade: Option<(Instance, Vec3)>,
+    /// Lines drawn after the meshes, hidden behind them (the area's tile
+    /// grid), a pixel wide.
+    pub lines: Vec<Line>,
+}
+
+/// A line in the scene ([`Scene::lines`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Line {
+    pub from: Vec3,
+    pub to: Vec3,
+    /// Gamma-space colour and alpha.
+    pub color: [f32; 4],
 }
 
 /// A perspective camera.

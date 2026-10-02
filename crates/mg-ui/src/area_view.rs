@@ -630,6 +630,25 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     ui.add(egui::Label::new(egui::RichText::new(&status).weak()).truncate()).on_hover_text(status);
 }
 
+/// The tiles' outlines (Display Grid), drawn in the scene so that what
+/// stands on the ground hides them.
+fn grid_lines(view: &AreaView, shown: &AreaModel) -> Vec<mg_render::Line> {
+    let color = [1.0, 1.0, 1.0, 40.0 / 255.0];
+    let mut out = Vec::new();
+    for (i, t) in shown.tiles.iter().enumerate() {
+        // At the tile's ground, which some tilesets build above the tile's
+        // height.
+        let level = view.ground.as_ref().and_then(|g| g.tile_level(i));
+        let c = t.position.truncate().extend(level.unwrap_or(t.position.z));
+        let h = TILE_SIZE / 2.0;
+        let corners = [(-h, -h), (h, -h), (h, h), (-h, h)].map(|(x, y)| c + Vec3::new(x, y, 0.0));
+        for k in 0..4 {
+            out.push(mg_render::Line { from: corners[k], to: corners[(k + 1) % 4], color });
+        }
+    }
+    out
+}
+
 fn viewport(
     app: &mut Moonglow,
     ui: &mut egui::Ui,
@@ -662,6 +681,9 @@ fn viewport(
     }
     let settings = View { time: view.time, night: view.night, fog: view.fog, show: view.show };
     let mut frame = scene.scene(&shown, &settings);
+    if view.grid {
+        frame.lines = grid_lines(view, &shown);
+    }
     // Options › Area: the background colour, if chosen (gamma space).
     if let Some([r, g, b]) = app.settings.area_background {
         frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
@@ -849,21 +871,6 @@ fn overlays(
             painter.line_segment([a, b], stroke);
         }
     };
-    if view.grid {
-        let stroke = Stroke::new(1.0, Color32::from_white_alpha(40));
-        for (i, t) in shown.tiles.iter().enumerate() {
-            // At the tile's ground, which some tilesets build above the
-            // tile's height.
-            let level = view.ground.as_ref().and_then(|g| g.tile_level(i));
-            let c = t.position.truncate().extend(level.unwrap_or(t.position.z));
-            let h = TILE_SIZE / 2.0;
-            let corners =
-                [(-h, -h), (h, -h), (h, h), (-h, h)].map(|(x, y)| c + Vec3::new(x, y, 0.0));
-            for k in 0..4 {
-                line(corners[k], corners[(k + 1) % 4], stroke);
-            }
-        }
-    }
     let scene = view.scene.as_ref();
     for (i, o) in shown.objects.iter().enumerate() {
         if !view.show[o.kind.index()] {

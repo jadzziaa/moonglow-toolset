@@ -265,6 +265,7 @@ impl AreaScene {
                 .as_ref()
                 .and(self.sky_fade.clone())
                 .map(|m| (Instance::new(m, glam::Mat4::IDENTITY), self::fog(l, view.night).color)),
+            lines: Vec::new(),
         }
     }
 

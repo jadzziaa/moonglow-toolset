@@ -862,3 +862,49 @@ fn depth_is_kept_for_drawing_after_the_scene() {
     assert_ne!(px(size / 2, size / 2), red, "the quad hides what is behind it");
     assert_eq!(px(1, 1), red, "the background does not");
 }
+
+#[test]
+fn lines_hide_behind_meshes_but_not_under_the_ground_they_lie_on() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    // The ground, 6 m across, and a 2 m board 1 m above its middle.
+    let ground = Instance::new(model.clone(), Mat4::from_scale(Vec3::new(3.0, 3.0, 1.0)));
+    let board = Instance::new(model, Mat4::from_translation(Vec3::Z));
+    let area = AreaLight { ambient: Vec3::splat(0.3), ..Default::default() };
+    // A red line along the ground, under the board.
+    let line = mg_render::Line {
+        from: Vec3::new(-2.5, 0.0, 0.0),
+        to: Vec3::new(2.5, 0.0, 0.0),
+        color: [1.0, 0.0, 0.0, 1.0],
+    };
+    let scene =
+        Scene { instances: vec![ground, board], area, lines: vec![line], ..Default::default() };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -4.0, 6.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let (w, h) = (128, 128);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, w, h);
+    save(&img, &mg_testkit::scratch_dir("render").join("lines.png"));
+    let clip = camera.projection(1.0) * camera.view();
+    let red_near = |p: Vec3| {
+        let ndc = clip.project_point3(p);
+        let x = ((ndc.x + 1.0) / 2.0 * w as f32) as i32;
+        let y = ((1.0 - ndc.y) / 2.0 * h as f32) as i32;
+        (-2..=2).any(|dy| {
+            (-2..=2).any(|dx| {
+                let [r, g, _, _] = img.pixel((x + dx) as u32, (y + dy) as u32);
+                r > g.saturating_add(100)
+            })
+        })
+    };
+    // On the open ground: shown.
+    assert!(red_near(Vec3::new(-2.0, 0.0, 0.0)));
+    assert!(red_near(Vec3::new(2.0, 0.0, 0.0)));
+    // Under the board: hidden.
+    assert!(!red_near(Vec3::new(0.0, 0.0, 0.0)));
+}

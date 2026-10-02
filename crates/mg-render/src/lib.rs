@@ -18,4 +18,6 @@ pub use model::{GpuModel, rest_pose};
 pub use renderer::{
     DEPTH_FORMAT, DebugView, MAX_LIGHTS, Renderer, Targets, attenuation_params, tint_light,
 };
-pub use scene::{AreaLight, Camera, Fog, Instance, MeshOverride, MeshState, PointLight, Scene};
+pub use scene::{
+    AreaLight, Camera, Fog, Instance, Line, MeshOverride, MeshState, PointLight, Scene,
+};
