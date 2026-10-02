@@ -218,3 +218,187 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
         app.update_draft = Some(draft);
     }
 }
+
+/// The Find and Replace Text window (Edit › Find and Replace Text…): the
+/// module's player-facing strings (`mg_module::text`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextReplace {
+    pub find: String,
+    pub with: String,
+    pub options: mg_module::text::Options,
+    pub kinds: Vec<mg_module::text::TextKind>,
+    /// The strings found for `searched`, each ticked to be replaced.
+    pub hits: Vec<(mg_module::text::Hit, bool)>,
+    /// What the hits were found for (the text and how).
+    pub searched: Option<(String, mg_module::text::Options)>,
+    /// Find again next frame (after a replace is applied).
+    refind: bool,
+}
+
+impl Default for TextReplace {
+    fn default() -> TextReplace {
+        TextReplace {
+            find: String::new(),
+            with: String::new(),
+            options: Default::default(),
+            kinds: mg_module::text::TextKind::ALL.to_vec(),
+            hits: Vec::new(),
+            searched: None,
+            refind: false,
+        }
+    }
+}
+
+impl Moonglow {
+    /// Finds the window's text in the module (its unsaved edits included).
+    pub fn find_text(&mut self, draft: &mut TextReplace) {
+        let Some(ws) = self.ws.as_mut() else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
+        let hits = mg_module::text::find(&ws.module, &draft.find, draft.options, &draft.kinds);
+        draft.hits = hits.into_iter().map(|h| (h, true)).collect();
+        draft.searched = Some((draft.find.clone(), draft.options));
+    }
+
+    /// Replaces the found text in the ticked strings, as one command; how
+    /// many times.
+    pub fn replace_text(&mut self, draft: &TextReplace) -> usize {
+        let Some((find, options)) = draft.searched.clone() else { return 0 };
+        let Some(ws) = self.ws.as_mut() else { return 0 };
+        let mut edits = Vec::new();
+        let mut total = 0;
+        let mut errors = Vec::new();
+        for (hit, _) in draft.hits.iter().filter(|(_, on)| *on) {
+            let path = GffPath(
+                hit.path
+                    .iter()
+                    .map(|s| match s {
+                        mg_module::text::Step::Field(l) => mg_edit::Step::Field(l.clone()),
+                        mg_module::text::Step::Item(l, i) => mg_edit::Step::Item(l.clone(), *i),
+                    })
+                    .collect(),
+            );
+            let Ok(doc) = ws.doc(&hit.key) else { continue };
+            let Some(ls) = path.get(&doc.root).and_then(|s| s.locstring(&hit.label)).cloned()
+            else {
+                continue;
+            };
+            match mg_module::text::replace_locstring(&ls, &find, &draft.with, options) {
+                Ok(new) if new != ls => {
+                    total += hit.count;
+                    edits.push(Edit::SetField {
+                        key: hit.key,
+                        path,
+                        label: hit.label.clone(),
+                        value: Some(mg_gff::Value::LocString(new)),
+                    });
+                }
+                Ok(_) => {}
+                Err(e) => errors.push(format!("{}: {e}", hit.place)),
+            }
+        }
+        for e in errors {
+            self.log.error(format!("Replace: {e}"));
+        }
+        if !edits.is_empty() {
+            let what = format!("Replace {find:?} with {:?}", draft.with);
+            self.actions.push(Action::Apply(Command::new(what, edits)));
+            self.log.info(format!("Replaced {find:?} {total} time(s)"));
+        }
+        total
+    }
+}
+
+/// The Find and Replace Text window.
+pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
+    use mg_module::text::TextKind;
+    let Some(mut draft) = app.text_replace.take() else { return };
+    if std::mem::take(&mut draft.refind) {
+        app.find_text(&mut draft);
+    }
+    let mut open = true;
+    let (mut find, mut replace, mut go) = (false, false, None);
+    egui::Window::new("Find and Replace Text")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .default_width(560.0)
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.weak(
+                "The module's names, descriptions, conversation lines and journal, in every \
+                 language they're written in (not the game's talk table).",
+            );
+            egui::Grid::new("text-replace").num_columns(2).show(ui, |ui| {
+                ui.label("Find what");
+                let r = ui.add(egui::TextEdit::singleline(&mut draft.find).desired_width(320.0));
+                crate::widgets::autofocus(ui, &r);
+                find = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                ui.end_row();
+                ui.label("Replace with");
+                ui.add(egui::TextEdit::singleline(&mut draft.with).desired_width(320.0));
+                ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut draft.options.match_case, "Match case");
+                ui.checkbox(&mut draft.options.whole_word, "Whole words");
+            });
+            ui.horizontal_wrapped(|ui| {
+                for k in TextKind::ALL {
+                    let mut on = draft.kinds.contains(&k);
+                    if ui.checkbox(&mut on, k.label()).changed() {
+                        draft.kinds.retain(|x| *x != k);
+                        if on {
+                            draft.kinds.push(k);
+                        }
+                    }
+                }
+            });
+            find |= ui.add_enabled(!draft.find.is_empty(), egui::Button::new("Find")).clicked();
+            // What was found, if it's still what's asked for.
+            let current = draft.searched.as_ref() == Some(&(draft.find.clone(), draft.options));
+            if current {
+                let times: usize = draft.hits.iter().filter(|h| h.1).map(|h| h.0.count).sum();
+                ui.label(format!("{} string(s), {times} time(s)", draft.hits.len()));
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    for (i, (hit, on)) in draft.hits.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.checkbox(on, "");
+                            if ui.link(&hit.place).on_hover_text("Open it").clicked() {
+                                go = Some(i);
+                            }
+                        });
+                        let text: String = hit.text.chars().take(120).collect();
+                        ui.indent(("hit", i), |ui| ui.weak(text));
+                    }
+                });
+                let n = draft.hits.iter().filter(|h| h.1).count();
+                replace =
+                    ui.add_enabled(n > 0, egui::Button::new(format!("Replace in {n}"))).clicked();
+            } else if draft.searched.is_some() {
+                ui.weak("Find again for what's asked now.");
+            }
+        });
+    if find && !draft.find.is_empty() {
+        app.find_text(&mut draft);
+    }
+    if replace {
+        app.replace_text(&draft);
+        // Found again once applied: what's left.
+        draft.refind = true;
+        ctx.request_repaint();
+    }
+    if let Some(i) = go {
+        let hit = &draft.hits[i].0;
+        let usage = mg_module::rename::Usage {
+            from: hit.key,
+            path: hit.path_text(),
+            place: hit.place.clone(),
+        };
+        app.go_to_usage(&usage);
+    }
+    if open {
+        app.text_replace = Some(draft);
+    }
+}

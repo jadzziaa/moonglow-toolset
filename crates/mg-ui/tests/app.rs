@@ -3454,6 +3454,60 @@ fn variable_sets_are_saved_and_added_elsewhere() {
 }
 
 #[test]
+fn find_and_replace_text_across_the_module() {
+    use mg_edit::{Command, Edit};
+    let dir = mg_testkit::scratch_dir("ui-replace-text");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let keys: Vec<ResKey> =
+        ["camp_a", "camp_b"].iter().map(|n| ResKey::parse(n, ResType::UTW).unwrap()).collect();
+    let edits = keys
+        .iter()
+        .map(|k| {
+            let mut g = Gff::new(*b"UTW ");
+            let name = LocString::from_text(Language::ENGLISH, Gender::Male, "Orc camp");
+            g.root.set("LocalizedName", mg_gff::Value::LocString(name));
+            Edit::SetResource { key: *k, data: Some(g.to_bytes().unwrap()) }
+        })
+        .collect();
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::H);
+    h.run();
+    assert!(h.state().text_replace.is_some(), "Ctrl+H opens it");
+    {
+        let d = h.state_mut().text_replace.as_mut().unwrap();
+        d.find = "orc".into();
+        d.with = "Goblin".into();
+        d.options.whole_word = true;
+    }
+    h.run();
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("2 string(s), 2 time(s)");
+    // The second unticked: one replaced.
+    h.state_mut().text_replace.as_mut().unwrap().hits[1].1 = false;
+    h.run();
+    h.get_by_label("Replace in 1").click();
+    h.run();
+    let name = |h: &mut Harness<'_, Moonglow>, k: &ResKey| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let g = ws.doc(k).unwrap();
+        let ls = g.root.locstring("LocalizedName").unwrap();
+        ls.text(Language::ENGLISH, Gender::Male).unwrap().into_owned()
+    };
+    assert_eq!(name(&mut h, &keys[0]), "Goblin camp");
+    assert_eq!(name(&mut h, &keys[1]), "Orc camp");
+    // Found again: what's left.
+    h.get_by_label("1 string(s), 1 time(s)");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    assert_eq!(name(&mut h, &keys[0]), "Orc camp");
+}
+
+#[test]
 fn build_module_compiles_and_reports() {
     use mg_edit::{Command, Edit, GffPath};
     let Some((mut h, area)) = area_harness("build") else { return };

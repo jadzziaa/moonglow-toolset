@@ -241,7 +241,7 @@ impl Moonglow {
     }
 
     /// Opens what a usage names, at the place.
-    fn go_to_usage(&mut self, u: &Usage) {
+    pub(crate) fn go_to_usage(&mut self, u: &Usage) {
         if let Some((list, index)) = u.instance() {
             let kind = mg_area::ObjectKind::ALL.into_iter().find(|k| k.list() == list);
             if let Some(kind) = kind {

@@ -122,6 +122,26 @@ enum Cmd {
         #[arg(long)]
         strings: bool,
     },
+    /// Replace text in a module's names, descriptions, conversation lines
+    /// and journal (every language they're written in) and save; prints
+    /// each string changed.
+    Replace {
+        module: PathBuf,
+        find: String,
+        with: String,
+        #[arg(long)]
+        match_case: bool,
+        /// Only where it isn't part of a longer word.
+        #[arg(long)]
+        whole_word: bool,
+        /// Only these kinds: names, descriptions, conversations, journal,
+        /// other (comma-separated).
+        #[arg(long, value_delimiter = ',')]
+        only: Vec<String>,
+        /// List what would change; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Make the objects placed from blueprints again from them, where they
     /// stand (Aurora's Update Instances), and save: their tags, names,
     /// scripts and variables become the blueprints'.
@@ -390,6 +410,42 @@ fn run(cli: Cli) -> Result<()> {
                 report.in_scripts,
                 report.recompile.len()
             );
+        }
+        Cmd::Replace { module, find, with, match_case, whole_word, only, dry_run } => {
+            use mg_module::text::{Options, TextKind};
+            let kinds: Vec<TextKind> = if only.is_empty() {
+                TextKind::ALL.to_vec()
+            } else {
+                only.iter()
+                    .map(|o| {
+                        TextKind::ALL
+                            .into_iter()
+                            .find(|k| k.label().to_lowercase().starts_with(&o.to_lowercase()))
+                            .with_context(|| {
+                                format!(
+                                    "{o}: not names, descriptions, conversations, journal or other"
+                                )
+                            })
+                    })
+                    .collect::<Result<_>>()?
+            };
+            let o = Options { match_case: *match_case, whole_word: *whole_word };
+            let mut m = Module::open(module)?;
+            let hits = mg_module::text::find(&m, find, o, &kinds);
+            for h in &hits {
+                println!("{}\t{}", h.place, h.text);
+            }
+            let times: usize = hits.iter().map(|h| h.count).sum();
+            if *dry_run || hits.is_empty() {
+                eprintln!("{} strings, {times} times", hits.len());
+            } else {
+                let (n, errors) = mg_module::text::replace(&mut m, &hits, find, with, o);
+                for e in &errors {
+                    eprintln!("warning: {e}");
+                }
+                m.save()?;
+                eprintln!("replaced {n} times in {} strings", hits.len() - errors.len());
+            }
         }
         Cmd::UpdateInstances { module, blueprints, area } => {
             let mut m = Module::open(module)?;

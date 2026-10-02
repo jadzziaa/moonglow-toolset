@@ -263,6 +263,8 @@ pub struct Moonglow {
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
     /// The Update Instances window.
     pub update_draft: Option<bulk::UpdateDraft>,
+    /// The Find and Replace Text window.
+    pub text_replace: Option<bulk::TextReplace>,
     /// Where prefabs are kept (the app sets Moonglow's data folder's
     /// `prefabs`; none: prefabs can't be saved).
     pub prefab_dir: Option<PathBuf>,
@@ -372,6 +374,7 @@ impl Moonglow {
             script_nav: Default::default(),
             prefab_save: None,
             update_draft: None,
+            text_replace: None,
             prefab_dir: None,
             var_set_dir: None,
             reload_checked: None,
@@ -508,6 +511,7 @@ impl Moonglow {
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
         bulk::update_window(self, ui.ctx());
+        bulk::text_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
         if let Some(report) = &self.hak_report {
@@ -572,6 +576,9 @@ impl Moonglow {
         };
         if pressed(ui, Modifiers::COMMAND, Key::N) {
             self.actions.push(Action::NewModuleDialog);
+        }
+        if self.ws.is_some() && pressed(ui, Modifiers::COMMAND, Key::H) {
+            self.text_replace.get_or_insert_with(Default::default);
         }
         if pressed(ui, Modifiers::COMMAND | Modifiers::ALT, Key::A) {
             self.actions.push(Action::AreaWizard);
@@ -718,6 +725,13 @@ impl Moonglow {
                     .response
                     .on_disabled_hover_text("Save objects as a prefab from an area's menu first");
                 });
+                if ui
+                    .add_enabled(open, egui::Button::new("Find and Replace Text…"))
+                    .on_hover_text("In names, descriptions, conversations and the journal (Ctrl+H)")
+                    .clicked()
+                {
+                    self.text_replace.get_or_insert_with(Default::default);
+                }
                 if ui
                     .add_enabled(open, egui::Button::new("Find References…"))
                     .on_hover_text("Where a script, area, conversation, blueprint or tag is used")

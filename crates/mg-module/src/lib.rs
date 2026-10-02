@@ -24,6 +24,7 @@ pub mod rename;
 pub mod script_set;
 pub mod script_wizard;
 pub mod store_setup;
+pub mod text;
 pub mod transfer;
 pub mod verify;
 
