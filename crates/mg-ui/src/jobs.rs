@@ -394,12 +394,6 @@ mod tests {
         h.get_by_label("Count Resources");
         h.get_by_label("hello.nss");
         h.get_by_label("3 of 12");
-        // (A look at it: `target/test-output/ui-job-window-look/job.png`.)
-        mg_testkit::gpu::hold();
-        if let Ok(img) = h.render() {
-            let _ = img.save(mg_testkit::scratch_dir("ui-job-window-look").join("job.png"));
-        }
-        mg_testkit::gpu::release();
         // Undo's key does nothing now.
         h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
         h.run_steps(2);
