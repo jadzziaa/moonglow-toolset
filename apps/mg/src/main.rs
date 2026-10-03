@@ -5,6 +5,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod edits;
 mod lsp;
 
 use anyhow::{Context, Result, bail};
@@ -313,6 +314,35 @@ enum Cmd {
         #[arg(long)]
         overwrite: bool,
     },
+    /// Set fields of one of a module's resources and save: each
+    /// `FIELD=VALUE`, the field a path from the resource's root (`Tag`,
+    /// `/ClassList[0]/ClassLevel`). A field keeps its type; one the
+    /// resource lacks takes the game's for it, or the one given
+    /// (`FIELD:TYPE=VALUE`).
+    Set {
+        module: PathBuf,
+        /// `name.ext`, e.g. `guard.utc`.
+        resource: String,
+        /// `FIELD=VALUE`, or `FIELD:TYPE=VALUE`.
+        fields: Vec<String>,
+        /// Remove this field.
+        #[arg(long)]
+        remove: Vec<String>,
+        /// Check the change and print it; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Apply a file of edits (JSON: fields set and removed, list items
+    /// inserted and removed, resources written and removed) to a module and
+    /// save: all of them, or none if one does not apply. `-` reads standard
+    /// input.
+    Apply {
+        module: PathBuf,
+        edits: PathBuf,
+        /// Check that the edits apply; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 /// What a command produced: its result as JSON, and the same for people
@@ -505,6 +535,10 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
+        Cmd::Set { module, resource, fields, remove, dry_run } => {
+            edits::set(module, resource, fields, remove, *dry_run)?
+        }
+        Cmd::Apply { module, edits, dry_run } => edits::apply(module, edits, *dry_run)?,
         Cmd::Which { resource } => {
             let rm = ResMan::for_game(&install(cli)?)?;
             let key = resource_key(resource)?;

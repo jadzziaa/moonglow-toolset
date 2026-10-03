@@ -204,8 +204,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
   conversation lines, scripts' text and 2DA rows have `mg replace
   --dry-run`, the script editor's Find in Files and the resource browser.
   (S–M)
-- **Editing fields from the command line** (`mg set MODULE NAME.EXT
-  Label=Value`): `mg gff` round trips through JSON instead. (S)
 - **A JSON schema** for each command's output: the fields are described
   in the manual, not in a machine-readable schema. (S)
 

@@ -331,11 +331,13 @@ plugins.
    Today's gain: every menu command can be given a key (a
    [deferred](deferred.md) item), and a command palette becomes
    possible.
-2. **Edits on the wire (M).** `Command` and `Edit` are plain data but
-   cannot be written out or read back: no serialization for resource
-   keys, field paths (they print as `/List[3]/Field` but nothing parses
-   that), values or edits. Today's gain: `mg apply EDITS.json`, `mg set`
-   (a deferred item), and a `--dry-run` for every changing command.
+2. **Edits on the wire (M). Done.** A command is written as JSON and
+   read back (`mg_edit::wire`): six kinds of edit, values as nwn-lib
+   JSON, field paths that parse as they print. `mg apply EDITS.json` and
+   `mg set` use it, each with `--dry-run`
+   ([manual](manual/11-command-line.md)); what is read is treated as
+   untrusted and property-tested. Left: `--dry-run` on the other
+   commands that change a module.
 3. **One way to apply a change (M).** Nine places apply commands
    directly and skip what the main path does afterward (item costs, hak
    and talk-table syncing, the shadowing warning); two change the module

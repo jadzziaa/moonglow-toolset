@@ -80,6 +80,13 @@ fn every_command_answers_in_json() {
     assert_eq!(imported["conversation"], "mg_talk.dlg");
     let replaced = ok(&["replace", c, "Pawn", "Footman", "--dry-run"]);
     assert!(replaced["times"].as_u64().unwrap() > 0);
+    let set = ok(&["set", c, "module.ifo", "Mod_Tag=CHESS", "--dry-run"]);
+    assert_eq!(set["command"]["edits"][0]["field"], "/Mod_Tag");
+    std::fs::write(at("edits.json"), set["command"].to_string()).unwrap();
+    assert_eq!(
+        ok(&["apply", c, &at("edits.json")])["resources"],
+        serde_json::json!(["module.ifo"])
+    );
     assert!(ok(&["update-instances", c])["updated"].is_number());
     let init = ok(&["init", c, &at("project")]);
     assert_eq!(init["target"], "default");
