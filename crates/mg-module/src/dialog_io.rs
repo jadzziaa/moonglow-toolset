@@ -80,6 +80,46 @@ impl Format {
             Format::Ink => to_ink(g),
         }
     }
+
+    /// What reading a file in this format gives.
+    pub fn reads(self) -> Reads {
+        match self {
+            Format::Text => Reads::Nothing,
+            Format::Csv => Reads::Text,
+            Format::Twine | Format::Ink => Reads::Conversation,
+        }
+    }
+
+    /// A conversation read from a story in this format; `None` for a
+    /// format that does not hold a whole one ([`Format::reads`]).
+    pub fn read(self, text: &str) -> Option<Result<Gff, String>> {
+        match self {
+            Format::Twine => Some(from_twee(text)),
+            Format::Ink => Some(from_ink(text)),
+            Format::Text | Format::Csv => None,
+        }
+    }
+
+    /// A conversation's text read back from what was written from it in
+    /// this format: how many lines changed; `None` for a format that is not
+    /// read that way.
+    pub fn update(self, g: &mut Gff, text: &str) -> Option<Result<usize, String>> {
+        match self {
+            Format::Csv => Some(update_from_csv(g, text)),
+            Format::Text | Format::Twine | Format::Ink => None,
+        }
+    }
+}
+
+/// What a conversation format can be read as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reads {
+    /// It is only written.
+    Nothing,
+    /// A whole conversation: a new one, or one replaced.
+    Conversation,
+    /// The text of the conversation it was written from, back into it.
+    Text,
 }
 
 fn resref(s: &Struct, label: &str) -> Option<String> {
@@ -1102,6 +1142,21 @@ mod tests {
         add_node(&mut g, Parent::Node(Kind::Entry, again), "Yes.");
         crate::dialog::recount(&mut g);
         g
+    }
+
+    /// What a format says it reads is what it reads.
+    #[test]
+    fn formats_read_what_they_say() {
+        for f in Format::ALL {
+            let mut g = Gff::new(*b"DLG ");
+            let (read, update) = (f.read("").is_some(), f.update(&mut g, "").is_some());
+            let expected = match f.reads() {
+                Reads::Nothing => (false, false),
+                Reads::Conversation => (true, false),
+                Reads::Text => (false, true),
+            };
+            assert_eq!((read, update), expected, "{}", f.name());
+        }
     }
 
     #[test]

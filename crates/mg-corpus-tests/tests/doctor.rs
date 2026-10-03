@@ -69,7 +69,7 @@ fn shipped_modules_have_only_known_findings() {
         let label = path.file_stem().unwrap().to_string_lossy().to_string();
         let mut counts: std::collections::BTreeMap<(&str, &str), usize> = Default::default();
         for f in &found {
-            *counts.entry((f.check, f.source.as_str())).or_default() += 1;
+            *counts.entry((f.check.as_ref(), f.source.as_str())).or_default() += 1;
         }
         for ((check, source), n) in &counts {
             let known =

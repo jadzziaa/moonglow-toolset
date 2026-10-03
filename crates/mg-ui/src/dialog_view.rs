@@ -1400,7 +1400,7 @@ impl Moonglow {
     /// Reads a Twine or Ink story as a new conversation of the module,
     /// named after the file (made unique), and opens it; its name.
     pub fn import_conversation(&mut self, path: &std::path::Path) -> Option<ResKey> {
-        use mg_module::dialog_io::{Format, from_ink, from_twee};
+        use mg_module::dialog_io::Format;
         let source = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) => {
@@ -1408,11 +1408,9 @@ impl Moonglow {
                 return None;
             }
         };
-        let read = match Format::of(path) {
-            Some(Format::Twine) => from_twee(&source),
-            Some(Format::Ink) => from_ink(&source),
-            _ => Err("not a Twine (.twee) or Ink (.ink) story".to_string()),
-        };
+        let read = Format::of(path)
+            .and_then(|f| f.read(&source))
+            .unwrap_or_else(|| Err("not a Twine (.twee) or Ink (.ink) story".to_string()));
         let g = match read {
             Ok(g) => g,
             Err(e) => {

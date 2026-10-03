@@ -58,6 +58,8 @@ fn every_command_answers_in_json() {
 
     // Modules.
     assert_eq!(ok(&["verify", c])["errors"], 0);
+    let checks = ok(&["checks"]);
+    assert!(checks["checks"].as_array().unwrap().iter().any(|c| c["id"] == "set-model"));
     assert!(ok(&["haks", c])["haks"].as_array().unwrap().is_empty());
     let exported = ok(&["export", c, "pawn_w.utc", "-o", &at("pawn.erf")]);
     assert!(exported["resources"].as_array().unwrap().iter().any(|r| r == "pawn_w.utc"));

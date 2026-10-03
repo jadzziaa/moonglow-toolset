@@ -353,10 +353,16 @@ plugins.
    NWSync publishing reports progress. A job runner (a thread, progress,
    Cancel, a result, reads from a snapshot) serves those and plugins
    alike.
-5. **Open lists for checks and formats (S–M each).** The content
-   doctor's checks are private functions in one match with fixed ids;
-   conversation formats are an enum matched in two places. Each becomes
-   a table that plugins can add to.
+5. **Open lists for checks and formats (S–M each). Done, as far as it
+   goes before there is a plugin host.** The doctor's checks are a
+   catalog (`doctor::Check`: an id and what each holds to be true; `mg
+   checks` lists them) and a finding's check id is its own string, so
+   findings from elsewhere sit beside the doctor's. A conversation format
+   says in one place what it reads (`Format::reads`, `read`, `update`),
+   where the window and `mg` each matched on formats before. Left for
+   Phase 1, when the host gives them their shape: the registries
+   themselves (a plugin's checks run with Verify; its formats offered in
+   Export and Import).
 6. **Forms from a description (M).** A form given as data (fields,
    types, choices), drawn with the editors' own widgets. The wizards can
    use it too.

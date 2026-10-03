@@ -9,6 +9,7 @@
 //! folder, `override`, `development` and NWSync content; the game's own data
 //! and the haks it ships are taken as they are.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use mg_2da::{TwoDa, overlong_rows};
@@ -28,12 +29,111 @@ pub enum Severity {
     Warning,
 }
 
+/// The doctor's checks: each has an id that its findings carry (and `mg
+/// verify --json` prints), and what it holds to be true.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Check {
+    CustomTlk,
+    ErfSize,
+    SetRead,
+    SetCount,
+    SetModel,
+    SetDoor,
+    SetGroup,
+    SetTransition,
+    SetData,
+    TileFaces,
+    MdlRead,
+    MtrName,
+    TwoDaRow,
+    TwoDaRead,
+    TwoDaLimit,
+    TwoDaShadow,
+    TwoDaStrRef,
+    ObjectRow,
+}
+
+impl Check {
+    pub const ALL: [Check; 18] = [
+        Check::CustomTlk,
+        Check::ErfSize,
+        Check::SetRead,
+        Check::SetCount,
+        Check::SetModel,
+        Check::SetDoor,
+        Check::SetGroup,
+        Check::SetTransition,
+        Check::SetData,
+        Check::TileFaces,
+        Check::MdlRead,
+        Check::MtrName,
+        Check::TwoDaRow,
+        Check::TwoDaRead,
+        Check::TwoDaLimit,
+        Check::TwoDaShadow,
+        Check::TwoDaStrRef,
+        Check::ObjectRow,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Check::CustomTlk => "custom-tlk",
+            Check::ErfSize => "erf-size",
+            Check::SetRead => "set-read",
+            Check::SetCount => "set-count",
+            Check::SetModel => "set-model",
+            Check::SetDoor => "set-door",
+            Check::SetGroup => "set-group",
+            Check::SetTransition => "set-transition",
+            Check::SetData => "set-data",
+            Check::TileFaces => "tile-faces",
+            Check::MdlRead => "mdl-read",
+            Check::MtrName => "mtr-name",
+            Check::TwoDaRow => "2da-row",
+            Check::TwoDaRead => "2da-read",
+            Check::TwoDaLimit => "2da-limit",
+            Check::TwoDaShadow => "2da-shadow",
+            Check::TwoDaStrRef => "2da-strref",
+            Check::ObjectRow => "object-row",
+        }
+    }
+
+    /// What the check holds to be true (a finding says where it is not).
+    pub fn about(self) -> &'static str {
+        match self {
+            Check::CustomTlk => "the module's custom talk table is where the game looks for it",
+            Check::ErfSize => "an archive's resources start within the 2 GiB the game can read",
+            Check::SetRead => "a tileset can be read",
+            Check::SetCount => "a tileset's tile and group counts match its sections",
+            Check::SetModel => "each tile's model is in the haks or the game",
+            Check::SetDoor => "a tile's door types are doortypes.2da rows with a model",
+            Check::SetGroup => {
+                "a tileset's groups have a size, a first tile of their own and tiles that exist"
+            }
+            Check::SetTransition => "a tileset with groups has a height transition",
+            Check::SetData => {
+                "a tileset's tiles, terrains, crossers and rules agree with each other"
+            }
+            Check::TileFaces => "a tile model has no more faces than Aurora can paint",
+            Check::MdlRead => "a tile's model can be read",
+            Check::MtrName => "a material's texture names fit a resource name",
+            Check::TwoDaRow => "a 2DA row has no more cells than the table has columns",
+            Check::TwoDaRead => "a 2DA can be read",
+            Check::TwoDaLimit => "a 2DA has no more rows than the game or Aurora takes",
+            Check::TwoDaShadow => "a 2DA does not hide a longer copy in another hak",
+            Check::TwoDaStrRef => "a 2DA's changed rows name talk-table strings that exist",
+            Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
+        }
+    }
+}
+
 /// One problem, where it is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Finding {
     pub severity: Severity,
-    /// A short name for the check (`set-model`, `2da-row`, ...).
-    pub check: &'static str,
+    /// The check's id: one of the doctor's ([`Check::id`]: `set-model`,
+    /// `2da-row`, ...), or another's that adds its findings to these.
+    pub check: Cow<'static, str>,
     /// Where the resource comes from: `module`, a hak's name, `override`.
     pub source: String,
     pub resource: ResKey,
@@ -78,7 +178,7 @@ impl<'a> Doctor<'a> {
     fn push(
         &mut self,
         severity: Severity,
-        check: &'static str,
+        check: Check,
         source: &str,
         resource: ResKey,
         at: impl Into<String>,
@@ -86,7 +186,7 @@ impl<'a> Doctor<'a> {
     ) {
         self.out.push(Finding {
             severity,
-            check,
+            check: Cow::Borrowed(check.id()),
             source: source.to_string(),
             resource,
             at: at.into(),
@@ -173,7 +273,7 @@ fn custom_tlk(d: &mut Doctor, module: &Module) {
     let hint = crate::talk::name_hint(&name).map(|h| format!(" ({h})")).unwrap_or_default();
     d.push(
         Severity::Error,
-        "custom-tlk",
+        Check::CustomTlk,
         "module",
         ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO),
         "Custom Tlk",
@@ -196,7 +296,7 @@ fn past_read_limit(d: &mut Doctor, layer: &Layer) {
     }
     d.push(
         Severity::Error,
-        "erf-size",
+        Check::ErfSize,
         &layer.label,
         *first,
         "",
@@ -231,7 +331,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     let set = match Tileset::parse(data, Codepage::default()) {
         Ok(s) => s,
         Err(e) => {
-            d.push(Error, "set-read", source, key, "", format!("can't be read: {e}"));
+            d.push(Error, Check::SetRead, source, key, "", format!("can't be read: {e}"));
             return;
         }
     };
@@ -252,7 +352,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
         if let Some(first) = extra.iter().min() {
             d.push(
                 Error,
-                "set-count",
+                Check::SetCount,
                 source,
                 key,
                 format!("[{list}] Count"),
@@ -270,7 +370,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
         if !d.model_exists(&tile.model) {
             d.push(
                 Error,
-                "set-model",
+                Check::SetModel,
                 source,
                 key,
                 format!("[TILE{i}] Model"),
@@ -299,7 +399,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             }
             d.push(
                 Warning,
-                "set-door",
+                Check::SetDoor,
                 source,
                 key,
                 format!("door Type={door_type}"),
@@ -318,7 +418,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
         if group.tiles.is_empty() {
             d.push(
                 Error,
-                "set-group",
+                Check::SetGroup,
                 source,
                 key,
                 &at,
@@ -329,7 +429,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
         match group.tiles[0] {
             None => d.push(
                 Error,
-                "set-group",
+                Check::SetGroup,
                 source,
                 key,
                 format!("{at} Tile0"),
@@ -342,7 +442,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
                 if let Some((other, name)) = first_tiles.insert(t, (g, group.name.clone())) {
                     d.push(
                         Error,
-                        "set-group",
+                        Check::SetGroup,
                         source,
                         key,
                         format!("{at} Tile0"),
@@ -360,7 +460,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
             {
                 d.push(
                     Error,
-                    "set-group",
+                    Check::SetGroup,
                     source,
                     key,
                     format!("{at} Tile{cell}"),
@@ -376,7 +476,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     if set.general.transition == 0.0 && !set.groups.is_empty() {
         d.push(
             Warning,
-            "set-transition",
+            Check::SetTransition,
             source,
             key,
             "[GENERAL] Transition",
@@ -387,7 +487,7 @@ fn tileset_data(d: &mut Doctor, source: &str, key: ResKey, data: &[u8]) {
     for w in
         set.warnings.iter().filter(|w| !(w.starts_with("group ") && w.ends_with("does not exist")))
     {
-        d.push(Warning, "set-data", source, key, "", w.clone());
+        d.push(Warning, Check::SetData, source, key, "", w.clone());
     }
 }
 
@@ -406,7 +506,7 @@ fn tile_model(d: &mut Doctor, name: &str) {
     let model = match mg_mdl::Model::read(&data) {
         Ok(m) => m,
         Err(e) => {
-            d.push(Error, "mdl-read", &source, key, "", format!("can't be read: {e}"));
+            d.push(Error, Check::MdlRead, &source, key, "", format!("can't be read: {e}"));
             return;
         }
     };
@@ -417,7 +517,7 @@ fn tile_model(d: &mut Doctor, name: &str) {
     if faces > 10_000 {
         d.push(
             Warning,
-            "tile-faces",
+            Check::TileFaces,
             &source,
             key,
             "",
@@ -437,7 +537,7 @@ fn material(d: &mut Doctor, source: &str, key: ResKey) {
         {
             d.push(
                 Severity::Error,
-                "mtr-name",
+                Check::MtrName,
                 source,
                 key,
                 format!("texture{slot}"),
@@ -486,7 +586,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
     {
         d.push(
             Error,
-            "2da-row",
+            Check::TwoDaRow,
             source,
             key,
             format!("row {row}"),
@@ -494,14 +594,14 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
         );
     }
     let Ok(table) = TwoDa::parse(&data, Codepage::default()) else {
-        d.push(Error, "2da-read", source, key, "", "can't be read");
+        d.push(Error, Check::TwoDaRead, source, key, "", "can't be read");
         return;
     };
     for (t, limit, why) in AURORA_ROW_LIMITS {
         if name == t && table.len() > limit {
             d.push(
                 Warning,
-                "2da-limit",
+                Check::TwoDaLimit,
                 source,
                 key,
                 format!("row {limit}"),
@@ -529,7 +629,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
     {
         d.push(
             Warning,
-            "2da-shadow",
+            Check::TwoDaShadow,
             source,
             key,
             "",
@@ -574,7 +674,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
             if let Some(p) = problem {
                 d.push(
                     Error,
-                    "2da-strref",
+                    Check::TwoDaStrRef,
                     source,
                     key,
                     format!("row {row}, {column}"),
@@ -618,7 +718,7 @@ fn objects(d: &mut Doctor, module: &Module) {
             if key.restype == ResType::GIT { Severity::Error } else { Severity::Warning };
         for (path, message) in found {
             let place = crate::rename::describe(key, Some(&gff), &path);
-            d.push(severity, "object-row", "module", key, place, message);
+            d.push(severity, Check::ObjectRow, "module", key, place, message);
         }
     }
 }
@@ -754,8 +854,15 @@ mod tests {
         rm
     }
 
-    fn checks(f: &[Finding]) -> Vec<(&'static str, String)> {
-        f.iter().map(|f| (f.check, f.at.clone())).collect()
+    fn checks(f: &[Finding]) -> Vec<(&str, String)> {
+        f.iter().map(|f| (f.check.as_ref(), f.at.clone())).collect()
+    }
+
+    #[test]
+    fn each_check_has_an_id_of_its_own() {
+        let ids: HashSet<&str> = Check::ALL.iter().map(|c| c.id()).collect();
+        assert_eq!(ids.len(), Check::ALL.len());
+        assert!(Check::ALL.iter().all(|c| !c.about().is_empty()));
     }
 
     #[test]

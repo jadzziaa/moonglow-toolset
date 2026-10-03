@@ -90,7 +90,9 @@ reported instead.
 
 `mg verify` does the same from a terminal, and can write its results as
 JSON for a build pipeline (`mg --json verify`; see [Command-line
-tools](11-command-line.md)).
+tools](11-command-line.md)). There each problem carries the id of the
+check that found it (`set-model`, `2da-row`…); `mg checks` lists the
+checks.
 
 ## Test Module
 

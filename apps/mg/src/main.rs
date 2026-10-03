@@ -72,6 +72,9 @@ enum Cmd {
         #[arg(long)]
         unused: bool,
     },
+    /// List the checks `verify` makes of custom content: each one's id (a
+    /// finding's "check" with --json) and what it holds to be true.
+    Checks,
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
     Haks { module: PathBuf },
@@ -591,6 +594,19 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Verify { module, unused } => verify(&install(cli)?, module, *unused)?,
+        Cmd::Checks => {
+            use mg_module::doctor::Check;
+            let mut out = Output::new(json!({
+                "checks": Check::ALL
+                    .iter()
+                    .map(|c| json!({ "id": c.id(), "about": c.about() }))
+                    .collect::<Vec<_>>(),
+            }));
+            for c in Check::ALL {
+                out.line(format!("{}\t{}", c.id(), c.about()));
+            }
+            out
+        }
         Cmd::Haks { module } => {
             let m = Module::open(module)?;
             let report = mg_module::haks::hak_report(&install(cli)?, &m.haks()?)?;
@@ -743,7 +759,7 @@ fn run(cli: &Cli) -> Result<Output> {
             )
         }
         Cmd::DialogImport { module, file, name } => {
-            use mg_module::dialog_io::{Format, from_ink, from_twee, update_from_csv};
+            use mg_module::dialog_io::Format;
             let mut m = Module::open(module)?;
             let stem = file.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
             let name = name.clone().or(stem).context("name the conversation with --name")?;
@@ -752,18 +768,25 @@ fn run(cli: &Cli) -> Result<Output> {
             let source = std::fs::read_to_string(file)?;
             let mut out = Output::default();
             let mut changed = None;
-            let g = match Format::of(file) {
-                Some(Format::Twine) => from_twee(&source).map_err(|e| anyhow::anyhow!("{e}"))?,
-                Some(Format::Ink) => from_ink(&source).map_err(|e| anyhow::anyhow!("{e}"))?,
-                Some(Format::Csv) => {
-                    let mut g =
-                        m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
-                    let n = update_from_csv(&mut g, &source).map_err(|e| anyhow::anyhow!("{e}"))?;
-                    out.note(format!("{n} lines changed"));
-                    changed = Some(n);
-                    g
-                }
-                _ => bail!("{}: not a .twee, .ink or .csv file", file.display()),
+            // A story is a conversation of its own; a text export goes
+            // back into the conversation it came from.
+            let format = Format::of(file);
+            let g = if let Some(read) = format.and_then(|f| f.read(&source)) {
+                read.map_err(|e| anyhow::anyhow!("{e}"))?
+            } else if let Some(format) =
+                format.filter(|f| f.reads() == mg_module::dialog_io::Reads::Text)
+            {
+                let mut g =
+                    m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
+                let n = format
+                    .update(&mut g, &source)
+                    .expect("it reads text")
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                out.note(format!("{n} lines changed"));
+                changed = Some(n);
+                g
+            } else {
+                bail!("{}: not a .twee, .ink or .csv file", file.display())
             };
             m.set_gff(key, &g)?;
             m.save()?;
