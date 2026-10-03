@@ -334,6 +334,12 @@ pub struct Mesh {
     /// Vertex colours (RGBA), when the model has them.
     pub colors: Vec<[u8; 4]>,
     pub faces: Vec<Face>,
+    /// The triangles the game draws, where a compiled model's index list
+    /// has more than its faces (empty otherwise: the faces are drawn). The
+    /// game's compiler leaves such lists in many EE tiles (most of the
+    /// Forest - Facelift's cliffs): the faces are the first triangles of
+    /// the list, and only the list reaches every vertex.
+    pub drawn: Vec<[u32; 3]>,
     /// Each render vertex's vertex in the source list (ASCII) or itself
     /// (binary); per-vertex data such as weights is indexed by it.
     pub source: Vec<u32>,
@@ -341,6 +347,15 @@ pub struct Mesh {
     /// (ASCII) or itself (binary); animated UVs are indexed by it.
     pub source_uv: Vec<u32>,
     pub extra: MeshExtra,
+}
+
+impl Mesh {
+    /// The triangles the game draws: [`drawn`](Self::drawn), else the
+    /// faces.
+    pub fn triangles(&self) -> impl Iterator<Item = [u32; 3]> + '_ {
+        let faces = if self.drawn.is_empty() { self.faces.as_slice() } else { &[] };
+        self.drawn.iter().copied().chain(faces.iter().map(|f| f.vertices))
+    }
 }
 
 /// What a mesh adds.

@@ -112,11 +112,12 @@ impl GpuModel {
         let mut meshes = Vec::new();
         for (i, node) in model.nodes.iter().enumerate() {
             let NodeKind::Mesh(m) = &node.kind else { continue };
-            if !m.render || m.faces.is_empty() || matches!(m.extra, MeshExtra::Aabb(_)) {
+            if !m.render || m.triangles().next().is_none() || matches!(m.extra, MeshExtra::Aabb(_))
+            {
                 continue;
             }
             let vertices = mesh_vertices(m);
-            let indices: Vec<u32> = m.faces.iter().flat_map(|f| f.vertices).collect();
+            let indices: Vec<u32> = m.triangles().flatten().collect();
             let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
             for p in &m.vertices {
                 min = min.min(Vec3::from(*p));

@@ -125,6 +125,27 @@ fn every_model_reads() {
     assert!(failed.is_empty());
 }
 
+/// The game draws a mesh's index list, which in many tiles its compiler
+/// wrote has more triangles than the face list: a tree's roots in the
+/// Forest - Facelift tileset (57 faces, 159 triangles), where drawing the
+/// faces alone leaves holes. With the list, every vertex is drawn.
+#[test]
+fn index_lists_longer_than_the_faces_are_drawn() {
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let model = Model::read(&rm.get_named("ttf02_p02_01", ResType::MDL).unwrap()).unwrap();
+    let roots = model.nodes[model.node("bark02b_16").unwrap()].mesh().unwrap();
+    assert_eq!((roots.faces.len(), roots.triangles().count()), (57, 159));
+    let mut drawn: Vec<u32> = roots.triangles().flatten().collect();
+    drawn.sort_unstable();
+    drawn.dedup();
+    assert_eq!(drawn.len(), roots.vertices.len());
+    // A mesh whose list repeats its faces draws its faces.
+    let ground = model.nodes[model.node("floor01_123").unwrap()].mesh().unwrap();
+    assert!(ground.drawn.is_empty());
+    assert_eq!(ground.triangles().count(), ground.faces.len());
+}
+
 /// Every walkmesh reads with its nodes under the object's root, and the
 /// points sit where the object puts them.
 #[test]

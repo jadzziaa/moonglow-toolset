@@ -250,6 +250,7 @@ impl<'a> Bin<'a> {
                 Ok(Face { vertices: v.map(u32::from), material: self.u32(f + 0x10)? })
             })
             .collect::<Result<_, MdlError>>()?;
+        m.drawn = self.drawn(n, count, &m.faces);
         m.source = (0..count as u32).collect();
         m.source_uv = m.source.clone();
         m.extra = if node_flags & flags::SKIN != 0 {
@@ -270,6 +271,34 @@ impl<'a> Bin<'a> {
             MeshExtra::None
         };
         Ok(m)
+    }
+
+    /// The mesh's index list (what the game draws), when it has more
+    /// triangles than the faces and is sound (whole triangles of the mesh's
+    /// vertices, the faces first); else nothing, and the faces are drawn. Most files' lists
+    /// repeat their faces; EE files also have empty ones, and counts that
+    /// are an allocated size.
+    fn drawn(&self, n: usize, count: usize, faces: &[Face]) -> Vec<[u32; 3]> {
+        let list = || -> Option<Vec<[u32; 3]>> {
+            let (counts, k) = self.array(n + 0x204, 4).ok()?;
+            let (lists, l) = self.array(n + 0x210, 4).ok()?;
+            if k != 1 || l != 1 {
+                return None;
+            }
+            let indices = self.u32(counts).ok()? as usize;
+            if !indices.is_multiple_of(3) || indices / 3 <= faces.len() {
+                return None;
+            }
+            let at = self.raw(lists).ok()??;
+            let b = self.bytes(at, indices.checked_mul(2)?).ok()?;
+            let all: Vec<u32> =
+                b.as_chunks::<2>().0.iter().map(|c| u32::from(u16::from_le_bytes(*c))).collect();
+            let drawn = all.as_chunks::<3>().0;
+            let sound = all.iter().all(|&i| (i as usize) < count)
+                && faces.iter().zip(drawn).all(|(f, d)| f.vertices == *d);
+            sound.then(|| drawn.to_vec())
+        };
+        list().unwrap_or_default()
     }
 
     fn skin(&self, n: usize, count: usize) -> Result<Skin, MdlError> {
@@ -656,11 +685,48 @@ mod tests {
         assert_eq!(key.handles, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
     }
 
+    /// [`compiled_by_the_game`] with an index list of `indices` on its mesh.
+    fn with_index_list(indices: &[u16]) -> Vec<u8> {
+        let mut file = Out(compiled_by_the_game());
+        let raw = file.0.len() - 12 - u32::from_le_bytes(file.0[4..8].try_into().unwrap()) as usize;
+        let n = 12 + 0x200;
+        file.u32(n + 0x204, 0x4C0);
+        file.u32(n + 0x208, 1);
+        file.u32(12 + 0x4C0, indices.len() as u32);
+        file.u32(n + 0x210, 0x4C8);
+        file.u32(n + 0x214, 1);
+        file.u32(12 + 0x4C8, raw as u32);
+        let end = file.0.len();
+        for (i, v) in indices.iter().enumerate() {
+            file.u16(end + 2 * i, *v);
+        }
+        file.0
+    }
+
+    #[test]
+    fn an_index_list_longer_than_the_faces_is_what_is_drawn() {
+        let mesh = |file: &[u8]| read(file).unwrap().nodes[1].mesh().unwrap().clone();
+        // As most files have it: the faces again.
+        let m = mesh(&with_index_list(&[0, 1, 2]));
+        assert!(m.drawn.is_empty());
+        assert_eq!(m.triangles().collect::<Vec<_>>(), [[0, 1, 2]]);
+        // The game's compiler: more triangles than faces.
+        let m = mesh(&with_index_list(&[0, 1, 2, 2, 1, 0]));
+        assert_eq!(m.faces.len(), 1);
+        assert_eq!(m.triangles().collect::<Vec<_>>(), [[0, 1, 2], [2, 1, 0]]);
+        // Unsound lists are left alone: a vertex the mesh lacks, a list
+        // that doesn't start with the faces, part of a triangle.
+        for bad in [&[0, 1, 2, 2, 1, 3][..], &[2, 1, 0, 0, 1, 2], &[0, 1, 2, 2, 1]] {
+            assert!(mesh(&with_index_list(bad)).drawn.is_empty(), "{bad:?}");
+        }
+    }
+
     #[test]
     fn truncated_files_are_errors() {
-        let file = compiled_by_the_game();
-        for len in (0..file.len()).step_by(7) {
-            let _ = read(&file[..len]);
+        for file in [compiled_by_the_game(), with_index_list(&[0, 1, 2, 2, 1, 0])] {
+            for len in (0..file.len()).step_by(7) {
+                let _ = read(&file[..len]);
+            }
         }
     }
 }
