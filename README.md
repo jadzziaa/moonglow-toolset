@@ -121,15 +121,17 @@ say how to allow it).
 
 ### Nix
 
-On NixOS, or anywhere else with Nix and flakes, you can run Moonglow straight
-from this repository:
+On NixOS, you can run Moonglow straight from this repository:
 
 ```sh
-nix run github:jadzziaa/moonglow-toolset
+nix run github:jadzziaa/moonglow-toolset                 # the GUI
+nix shell github:jadzziaa/moonglow-toolset -c mg --help   # the command-line tools
 ```
 
 The flake builds from source, so you'll get the latest commit on `develop`
-rather than the last release. `mg` is in the same package.
+rather than the last release. With Nix on another Linux distribution, `mg`
+works as it is, but the GUI typically needs a wrapper such as
+[nixGL](https://github.com/nix-community/nixGL) to reach your graphics drivers.
 
 ### The command line
 
