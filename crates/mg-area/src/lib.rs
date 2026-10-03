@@ -26,6 +26,7 @@ use mg_set::Tileset;
 
 pub mod arrange;
 pub mod edit;
+pub mod marker;
 pub mod pick;
 pub mod reshape;
 mod scene;
@@ -190,6 +191,19 @@ impl ObjectKind {
         matches!(self, ObjectKind::Door | ObjectKind::Placeable)
     }
 
+    /// Whether its model is the toolset's marker for it, not something
+    /// the game shows: a waypoint's flag, a merchant's sign, a sound's
+    /// speaker.
+    pub fn is_marker(self) -> bool {
+        matches!(self, ObjectKind::Waypoint | ObjectKind::Store | ObjectKind::Sound)
+    }
+
+    /// Whether it is drawn as an arrow along its facing when it has no
+    /// marker model (or, a merchant, when arrows are preferred).
+    pub fn has_arrow(self) -> bool {
+        matches!(self, ObjectKind::Waypoint | ObjectKind::Store)
+    }
+
     /// Whether it has an outline (`Geometry`) around its position.
     pub fn has_outline(self) -> bool {
         matches!(self, ObjectKind::Trigger | ObjectKind::Encounter)
@@ -267,8 +281,8 @@ pub struct AreaObject {
     /// The blueprint it was made from (`TemplateResRef`; a store's
     /// `ResRef`).
     pub template: Option<ResRef>,
-    /// Its models: creatures, doors, items, placeables and waypoints (their
-    /// flags). `None` for the others (drawn as markers) and when its
+    /// Its models: creatures, doors, items, placeables, and the markers of
+    /// waypoints (their flags) and merchants. `None` for the others (drawn as markers) and when its
     /// appearance cannot be shown (see `problem`).
     pub preview: Option<Preview>,
     /// Why a creature, door, item or placeable has no preview.
@@ -328,6 +342,9 @@ impl AreaObject {
             // A waypoint without a flag (no appearance) is drawn as a
             // marker: nothing is wrong with it.
             ObjectKind::Waypoint => mg_preview::waypoint(game, s).ok().map(Ok),
+            // A merchant's marker; without the game's model, drawn as one.
+            ObjectKind::Store => mg_preview::store(game).ok().map(Ok),
+            ObjectKind::Sound => mg_preview::sound(game, s).ok().map(Ok),
             _ => None,
         };
         let (preview, problem) = match preview {

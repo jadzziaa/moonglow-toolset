@@ -189,6 +189,12 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Lighting off against Aurora:** the Lighting switch's working light
   (white, even, a little from the sun's side) is Moonglow's; how Aurora
   lights an area with its lighting off was not captured. (S)
+- **The start location's marker** is still drawn over the view, not
+  hidden by what is in front of it, as the selection's boxes and the
+  outlines of triggers and encounters are by design. (S)
+- **Marker models against Aurora:** merchants, sounds and waypoints use
+  the game's marker models in their materials' colors, unlit; that Aurora
+  draws them so was not captured. (S)
 - **Sound ranges:** level circles at the sound's height, not spheres; a
   sound's random position range (`RandomRangeX`, `RandomRangeY`) isn't
   drawn. (S)

@@ -29,8 +29,9 @@ pub struct Instance {
     /// How opaque the whole instance is (each mesh's alpha times this):
     /// below 1, see-through, as a blueprint about to be placed.
     pub opacity: f32,
-    /// Drawn in its own colours, whatever the scene's light: an editor's
-    /// marker (a waypoint's flag), which must tell apart in a dark area.
+    /// Drawn in its own colours (its texture's and its material's),
+    /// whatever the scene's light: an editor's marker (a waypoint's flag),
+    /// which must tell apart in a dark area.
     pub unlit: bool,
 }
 

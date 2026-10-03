@@ -859,6 +859,54 @@ fn areas_by_name_and_area_properties() {
 
 #[test]
 #[ignore]
+fn merchant_markers() {
+    // A merchant among what stands around it: its arrow, or the game's
+    // sign, is in the scene, hidden by what is in front of it.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let ws = app.ws.as_mut().unwrap();
+    let areas = ws.module.areas().unwrap();
+    let store = |ws: &mut mg_edit::Workspace, a: mg_core::ResRef| {
+        let git = ws.doc(&ResKey::new(a, ResType::GIT)).unwrap();
+        let s = git.root.list("StoreList")?.first()?;
+        Some(glam::Vec3::new(s.float("XPosition")?, s.float("YPosition")?, s.float("ZPosition")?))
+    };
+    let (area, at) = areas.iter().find_map(|a| store(ws, *a).map(|p| (*a, p))).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.lit = false;
+        if let Some(o) = &mut view.orbit {
+            o.target = at;
+            o.pitch = 50f32.to_radians();
+            o.yaw = -2.2;
+            o.distance = 6.0;
+        }
+    }
+    h.run_steps(5);
+    shoot(&mut h, &dir, "merchant-arrow");
+    // Options › Area: the game's $ sign.
+    h.state_mut().settings.merchant_signs = true;
+    h.run_steps(5);
+    shoot(&mut h, &dir, "merchant-sign");
+}
+
+#[test]
+#[ignore]
 fn crosser_cursor() {
     // The Road brush's quarter under a pointer resting on the ground of a
     // rural area.

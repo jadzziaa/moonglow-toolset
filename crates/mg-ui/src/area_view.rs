@@ -745,6 +745,9 @@ fn viewport(
     view: &mut AreaView,
     start: Option<(Vec3, f32)>,
 ) {
+    if let Some(scene) = view.scene.as_mut() {
+        scene.merchant_signs = app.settings.merchant_signs;
+    }
     // The blueprint about to be placed, see-through where it would go.
     let ghost = ghost(app, ui, view);
     view.ghost_shown.clone_from(&ghost);
@@ -1092,11 +1095,12 @@ fn overlays(
             line(tip, tip - ahead * 0.5 + side, stroke);
             line(tip, tip - ahead * 0.5 - side, stroke);
         }
-        // Merchants, and waypoints without a flag (the flag's model has
-        // its arrow): a yellow arrow along their facing, as Aurora draws
-        // them.
-        let flagged = o.preview.is_some() && scene.is_some();
-        if matches!(o.kind, ObjectKind::Waypoint | ObjectKind::Store) && !selected && !flagged {
+        // What the scene draws (models, marker models, the arrow) is hidden
+        // by what stands in front of it. Without a scene (no GPU), waypoints
+        // and merchants are a yellow arrow along their facing, over the
+        // view.
+        let in_scene = scene.is_some_and(|s| s.draws(shown, i));
+        if o.kind.has_arrow() && !selected && !in_scene {
             let ahead = Vec3::new(o.facing().cos(), o.facing().sin(), 0.0);
             let side = Vec3::new(-ahead.y, ahead.x, 0.0) * 0.6;
             let (tip, base) = (o.position + ahead * 1.0, o.position - ahead * 0.6);
@@ -1109,7 +1113,7 @@ fn overlays(
             }
             continue;
         }
-        let marker = o.preview.is_none() || scene.is_none();
+        let marker = !in_scene;
         if marker || selected {
             let (min, max) = match scene {
                 Some(s) => s.bounds(shown, i),

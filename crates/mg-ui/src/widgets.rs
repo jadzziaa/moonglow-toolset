@@ -232,6 +232,11 @@ impl Moonglow {
     }
 }
 
+/// The Variables window's name and value fields' widths: a name of 32
+/// characters shows whole.
+const VAR_NAME_WIDTH: f32 = 260.0;
+const VAR_VALUE_WIDTH: f32 = 220.0;
+
 fn window(title: &str) -> egui::Window<'_> {
     egui::Window::new(title)
         .collapsible(false)
@@ -374,7 +379,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.end_row();
                 let mut remove = None;
                 for (i, r) in edit.rows.iter_mut().enumerate() {
-                    ui.add(egui::TextEdit::singleline(&mut r.name).desired_width(160.0));
+                    // (A minimum: a new window offers the fields no width yet,
+                    // and they would keep to it.)
+                    let wide = |text, width| {
+                        egui::TextEdit::singleline(text)
+                            .desired_width(width)
+                            .min_size(egui::vec2(width, 0.0))
+                    };
+                    ui.add(wide(&mut r.name, VAR_NAME_WIDTH));
                     egui::ComboBox::from_id_salt(("var-type", i))
                         .selected_text(kind_name(r.kind))
                         .show_ui(ui, |ui| {
@@ -382,7 +394,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ui.selectable_value(&mut r.kind, k, kind_name(k));
                             }
                         });
-                    ui.add(egui::TextEdit::singleline(&mut r.value).desired_width(200.0));
+                    ui.add(wide(&mut r.value, VAR_VALUE_WIDTH));
                     if ui.small_button("Delete").clicked() {
                         remove = Some(i);
                     }

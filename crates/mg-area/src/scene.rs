@@ -109,6 +109,10 @@ pub struct AreaScene {
     colors: Vec<Vec3>,
     /// Models named by tiles or previews that could not be loaded.
     pub missing: Vec<String>,
+    /// Moonglow's arrow ([`crate::marker`]).
+    arrow: Option<Arc<GpuModel>>,
+    /// Merchants as the game's marker for one (a $) rather than as arrows.
+    pub merchant_signs: bool,
 }
 
 /// Loads models (and their supermodels) by name, each once.
@@ -165,7 +169,34 @@ impl AreaScene {
         }
     }
 
+    /// Whether `object` (its models `shown`, if any) is drawn as the
+    /// arrow: a waypoint or merchant without a marker model, and merchants
+    /// unless their signs are asked for.
+    fn as_arrow(&self, object: &AreaObject, shown: Option<&Arc<Shown>>) -> bool {
+        object.kind.has_arrow()
+            && self.arrow.is_some()
+            && (shown.is_none() || (object.kind == ObjectKind::Store && !self.merchant_signs))
+    }
+
+    /// The arrow standing for an object at `transform`.
+    fn arrow_instance(&self, transform: Mat4) -> Option<Instance> {
+        let arrow = self.arrow.clone()?;
+        Some(Instance { unlit: true, ..Instance::new(arrow, transform) })
+    }
+
+    /// Whether object `i` has something in the scene (its models, a marker
+    /// model or the arrow), rather than a marker drawn over the view.
+    pub fn draws(&self, area: &AreaModel, i: usize) -> bool {
+        match (area.objects.get(i), self.objects.get(i)) {
+            (Some(o), Some(shown)) => shown.is_some() || self.as_arrow(o, shown.as_ref()),
+            _ => false,
+        }
+    }
+
     pub fn update(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel) {
+        if self.arrow.is_none() {
+            self.arrow = Some(Arc::new(GpuModel::new(gpu, Arc::new(crate::marker::arrow()))));
+        }
         let models = Models { game, cache: RefCell::new(HashMap::new()) };
         // A skybox chosen anew (Area Properties).
         if self.sky_box.is_some() {
@@ -212,7 +243,7 @@ impl AreaScene {
     /// `object` (not in the area: a blueprint about to be placed) as
     /// see-through models, `opacity` opaque, and its box in its own space;
     /// no models and a marker's box for an object without models (a
-    /// sound, a store).
+    /// sound).
     pub fn ghost(
         &mut self,
         gpu: &Gpu,
@@ -224,14 +255,20 @@ impl AreaScene {
         let models = Models { game, cache: RefCell::new(HashMap::new()) };
         let load = |name: &str| models.load(name);
         let mut missing = Vec::new();
-        let Some(shown) = shown(gpu, &mut self.object_cache, object, &load, &mut missing) else {
+        let shown = shown(gpu, &mut self.object_cache, object, &load, &mut missing);
+        if self.as_arrow(object, shown.as_ref()) {
+            let arrow = self.arrow_instance(object.model_transform());
+            let out = arrow.into_iter().map(|i| Instance { opacity, ..i }).collect();
+            return (out, crate::marker::arrow_bounds());
+        }
+        let Some(shown) = shown else {
             return (Vec::new(), crate::pick::marker_bounds(object.kind));
         };
         let c = &shown.composed;
         let mut out = c.instances(c.idle.as_deref(), time, object.model_transform());
         for i in &mut out {
             i.opacity = opacity;
-            i.unlit = object.kind == ObjectKind::Waypoint;
+            i.unlit = object.kind.is_marker();
         }
         (out, shown.bounds)
     }
@@ -271,12 +308,14 @@ impl AreaScene {
         out
     }
 
-    /// Object `i`'s box in its own space: its models' (rest pose), or a
-    /// marker's.
+    /// Object `i`'s box in its own space: its models' (rest pose), the
+    /// arrow's, or a marker's.
     pub fn bounds(&self, area: &AreaModel, i: usize) -> (Vec3, Vec3) {
-        match self.objects.get(i) {
-            Some(Some(s)) => s.bounds,
-            _ => crate::pick::marker_bounds(area.objects[i].kind),
+        let shown = self.objects.get(i).and_then(Option::as_ref);
+        match shown {
+            _ if self.as_arrow(&area.objects[i], shown) => crate::marker::arrow_bounds(),
+            Some(s) => s.bounds,
+            None => crate::pick::marker_bounds(area.objects[i].kind),
         }
     }
 
@@ -296,11 +335,19 @@ impl AreaScene {
             self.tile(tile, loaded, view, &mut instances, &mut lights);
         }
         for (o, shown) in area.objects.iter().zip(&self.objects) {
-            let Some(shown) = shown.as_ref().filter(|_| view.shows(o.kind)) else { continue };
-            let c = &shown.composed;
+            if !view.shows(o.kind) {
+                continue;
+            }
             let transform = o.model_transform();
-            // A waypoint's flag is a marker: in its own colours, unlit.
-            let unlit = o.kind == ObjectKind::Waypoint;
+            if self.as_arrow(o, shown.as_ref()) {
+                instances.extend(self.arrow_instance(transform));
+                continue;
+            }
+            let Some(shown) = shown else { continue };
+            let c = &shown.composed;
+            // A waypoint's flag, a merchant's sign and a sound's speaker
+            // are markers: in their own colours, unlit.
+            let unlit = o.kind.is_marker();
             let drawn = c.instances(c.idle.as_deref(), view.time, transform);
             instances.extend(drawn.into_iter().map(|i| Instance { unlit, ..i }));
             lights.extend(c.point_lights(transform));
