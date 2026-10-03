@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.7.1" date="2026-10-03">
+      <description>
+        <p>Areas on custom tilesets whose door counts are no counts (values
+        left by the editor that wrote them) open again: Moonglow froze on
+        them, its memory growing. A tileset with a group missing loads; Area
+        Properties reads the tileset once, not on every frame.</p>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-10-03">
       <description>
         <p>An armor's parts take colors of their own (the game's per-part
