@@ -100,6 +100,9 @@ Moonglow's later work follows what builders have long asked of Aurora
 - **Publishing:** NWSync repositories for persistent worlds, and minimaps
   exported as the game draws them.
 - **Keys you can change**, and Aurora's own as the defaults.
+- **Plugins:** a team's own commands and checks, written in Luau and run
+  in a sandbox; their edits are one step of Undo, and their checks run
+  with Verify Module, in the window and in a build pipeline.
 
 ![The script editor with a script from the original campaign](docs/images/script.png)
 
@@ -146,6 +149,9 @@ See [Command-line tools](docs/manual/11-command-line.md).
 - [User manual](docs/manual/README.md), also in the app under Help › User
   Manual (F1). If you know Aurora, start with
   [Coming from Aurora](docs/manual/14-coming-from-aurora.md).
+- [Writing plugins](docs/manual/16-writing-plugins.md) and the
+  [plugin API reference](docs/manual/17-plugin-api.md), with
+  [examples](docs/plugins/README.md).
 - [The plan](docs/PLAN.md): goals, architecture, phases, testing strategy and
   licensing.
 - [Packaging](packaging/README.md): building the AppImage, Flatpak, Windows
@@ -218,7 +224,8 @@ A Cargo workspace, layered bottom-up:
 
 Moonglow is free software under the [GNU General Public License, version 3](LICENSE).
 It includes Beamdog's NWScript compiler (GPL-3.0), as published in
-neverwinter.nim, and the Ubuntu Bold font (Ubuntu Font Licence 1.0). Game
+neverwinter.nim, the Ubuntu Bold font (Ubuntu Font Licence 1.0) and, for
+plugins, Luau (MIT). Game
 assets, including Beamdog's shaders, are only read from your installation,
 never distributed. The screenshots show the game's original campaign as
 Moonglow draws it.
