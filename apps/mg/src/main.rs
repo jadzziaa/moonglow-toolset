@@ -386,6 +386,28 @@ enum PluginCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// Pack a plugin's folder into an archive to hand around (a zip that
+    /// Install Plugin from File and `mg plugin install` take). Hidden
+    /// files are left out; the plugin is checked first.
+    Pack {
+        /// The plugin's folder.
+        plugin: PathBuf,
+        /// The archive to write (default: ID-VERSION.zip, here).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Install a plugin from its archive into a folder of plugins, as
+    /// Install Plugin from File does: the archive is checked, and none of
+    /// the plugin runs.
+    Install {
+        /// The plugin's archive (a zip).
+        file: PathBuf,
+        /// The folder of plugins to install into.
+        folder: PathBuf,
+        /// Install over the same plugin installed from an archive before.
+        #[arg(long)]
+        replace: bool,
+    },
 }
 
 /// What a command produced: its result as JSON, and the same for people
@@ -644,6 +666,10 @@ fn run(cli: &Cli) -> Result<Output> {
                 // (A plugin that reads no game data needs no game.)
                 let gi = install(cli).ok();
                 plugins::run(gi.as_ref(), module, plugin, command, host, *dry_run)?
+            }
+            PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,
+            PluginCmd::Install { file, folder, replace } => {
+                plugins::install(file, folder, *replace)?
             }
         },
         Cmd::Checks => {

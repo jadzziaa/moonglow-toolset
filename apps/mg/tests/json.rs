@@ -66,6 +66,10 @@ fn every_command_answers_in_json() {
     assert_eq!(ok(&["plugin", "check", &plugin])["plugins"][0]["faults"], serde_json::json!([]));
     ok(&["plugin", "run", c, &plugin, "fix-tags", "--dry-run"]);
     assert_eq!(ok(&["verify", c, "--plugins", &plugin])["errors"], 0);
+    let packed = ok(&["plugin", "pack", &plugin, "-o", &at("tags.zip")]);
+    assert_eq!(packed["id"], "example.tag-conventions");
+    let installed = ok(&["plugin", "install", &at("tags.zip"), &at("plugins")]);
+    assert_eq!(installed["replaced"], Value::Null);
     let checks = ok(&["checks"]);
     assert!(checks["checks"].as_array().unwrap().iter().any(|c| c["id"] == "set-model"));
     assert!(ok(&["haks", c])["haks"].as_array().unwrap().is_empty());

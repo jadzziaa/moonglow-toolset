@@ -266,6 +266,65 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
     Ok(out)
 }
 
+/// `mg plugin pack`: a plugin's folder as an archive to hand around, which
+/// Install Plugin from File and `mg plugin install` take. Checked first,
+/// as `mg plugin check` does: an archive of a plugin that does not load is
+/// not written.
+pub(crate) fn pack(dir: &Path, output: Option<&Path>) -> Result<Output> {
+    let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
+    let faults = match mg_plugin::inspect(&plugin, Rc::new(CliHost::default())) {
+        Ok(faults) => faults,
+        Err(e) => vec![e.to_string()],
+    };
+    if let Some(fault) = faults.first() {
+        bail!("{}: {fault}", plugin.manifest.id);
+    }
+    let bytes = mg_plugin::pack(&plugin).map_err(|e| anyhow!("{e}"))?;
+    let m = &plugin.manifest;
+    let path = match output {
+        Some(path) => path.to_path_buf(),
+        None => PathBuf::from(format!("{}-{}.zip", m.id, m.version)),
+    };
+    std::fs::write(&path, &bytes).with_context(|| format!("writing {}", path.display()))?;
+    let package = mg_plugin::Package::read(&bytes).map_err(|e| anyhow!("{e}"))?;
+    let files: Vec<&str> = package.files().collect();
+    let mut out = Output::new(json!({
+        "id": m.id, "version": m.version, "file": path.display().to_string(),
+        "bytes": bytes.len(), "files": files,
+    }));
+    out.line(format!("{}\t{} {}\t{} files", path.display(), m.name, m.version, files.len()));
+    Ok(out)
+}
+
+/// `mg plugin install`: a plugin's archive unpacked into a plugins folder
+/// (as Install Plugin from File does: checked, none of it run), in a
+/// folder named by its id.
+pub(crate) fn install(file: &Path, plugins: &Path, replace: bool) -> Result<Output> {
+    let size = std::fs::metadata(file).with_context(|| file.display().to_string())?.len();
+    if size > mg_plugin::MAX_ARCHIVE {
+        bail!("{}: it is over {} MB", file.display(), mg_plugin::MAX_ARCHIVE >> 20);
+    }
+    let bytes = std::fs::read(file).with_context(|| file.display().to_string())?;
+    let package =
+        mg_plugin::Package::read(&bytes).map_err(|e| anyhow!("{}: {e}", file.display()))?;
+    let replaced = match package.existing(plugins) {
+        mg_plugin::Existing::Installed { version } if !replace => bail!(
+            "{} {version} is installed already (--replace installs over it)",
+            package.manifest.name
+        ),
+        mg_plugin::Existing::Installed { version } => Some(version),
+        _ => None,
+    };
+    let plugin = package.install(plugins, replace).map_err(|e| anyhow!("{e}"))?;
+    let m = &plugin.manifest;
+    let mut out = Output::new(json!({
+        "id": m.id, "version": m.version, "folder": plugin.dir.display().to_string(),
+        "replaced": replaced,
+    }));
+    out.line(format!("{}\t{} {}\t{}", m.id, m.name, m.version, plugin.dir.display()));
+    Ok(out)
+}
+
 /// `mg plugin run`: a plugin's command on a module, its edits applied as
 /// one command and saved (or, with `dry_run`, printed).
 pub(crate) fn run(

@@ -131,6 +131,56 @@ fn a_plugin_s_command_runs_on_a_module() {
     assert_eq!(tag(&path), "SGT_GATE_GUARD");
 }
 
+/// A plugin's folder is packed into an archive, and the archive installed
+/// into a folder of plugins: the plugin there is the one packed.
+#[test]
+fn a_plugin_is_packed_and_installed() {
+    let dir = mg_testkit::scratch_dir("mg-plugin-pack");
+    let path = module(&dir);
+    let source = fixtures().join("tag-conventions");
+    let archive = dir.join("tags.zip");
+    let plugins = dir.join("plugins");
+    let (zip, to) = (archive.to_str().unwrap(), plugins.to_str().unwrap());
+
+    let (ok, packed) = mg(&["plugin", "pack", source.to_str().unwrap(), "-o", zip]);
+    assert!(ok, "{packed}");
+    assert_eq!(packed["files"], json!(["main.luau", "plugin.cfg", "rules.luau"]));
+    assert_eq!(packed["bytes"], std::fs::metadata(&archive).unwrap().len());
+
+    let (ok, installed) = mg(&["plugin", "install", zip, to]);
+    assert!(ok, "{installed}");
+    let folder = plugins.join("example.tag-conventions");
+    assert_eq!(installed["folder"], folder.to_str().unwrap());
+    assert_eq!(installed["replaced"], Json::Null);
+    // It is listed there, and runs from there.
+    let (ok, listed) = mg(&["plugin", "list", to]);
+    assert!(ok, "{listed}");
+    assert_eq!(listed["plugins"][0]["id"], "example.tag-conventions");
+    let (ok, done) =
+        mg(&["plugin", "run", path.to_str().unwrap(), folder.to_str().unwrap(), "fix-tags"]);
+    assert!(ok, "{done}");
+    assert_eq!(tag(&path), "GATE_GUARD");
+
+    // Again: only over itself, and only when told to.
+    let (ok, again) = mg(&["plugin", "install", zip, to]);
+    assert!(!ok);
+    assert!(again["error"].as_str().unwrap().contains("1.0.0 is installed already (--replace"));
+    let (ok, again) = mg(&["plugin", "install", zip, to, "--replace"]);
+    assert!(ok, "{again}");
+    assert_eq!(again["replaced"], "1.0.0");
+
+    // A plugin whose code and manifest disagree is not packed; a file
+    // that is no archive is not installed.
+    let broken = fixtures().join("broken");
+    let (ok, failed) = mg(&["plugin", "pack", broken.to_str().unwrap(), "-o", zip]);
+    assert!(!ok, "{failed}");
+    let junk = dir.join("junk.zip");
+    std::fs::write(&junk, "junk").unwrap();
+    let (ok, failed) = mg(&["plugin", "install", junk.to_str().unwrap(), to]);
+    assert!(!ok);
+    assert!(failed["error"].as_str().unwrap().ends_with("junk.zip: it is not a zip archive"));
+}
+
 /// A plugin's checks run with the doctor's (where there is a game to
 /// verify against).
 #[test]
