@@ -45,6 +45,18 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.0.0" date="2026-10-03">
+      <description>
+        <p>Plugins (experimental): commands and checks of your own, written
+        in Luau and run in a sandbox, installed from a file and off until
+        enabled; their edits are one step of Undo, and their checks run with
+        Verify Module. The plugin API is at 0.1 and may still change. The
+        Command Palette (Ctrl+Shift+P) finds any command, and every menu
+        command can be given a key. Compile All Scripts, Build Module and
+        Verify Module run in the background, with progress and Cancel. mg
+        set and mg apply change a module's fields from the command line.</p>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-10-03">
       <description>
         <p>Several areas' properties are edited together: Edit Areas Together
