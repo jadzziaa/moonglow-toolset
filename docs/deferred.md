@@ -223,9 +223,16 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **Plugins, beyond API 0.1** (`plugin-proposal.md`; commands and checks
   in sandboxed Luau are built):
-  - **Install from File:** a plugin is installed by copying its folder
-    into the plugins folder; there is no command that takes a zip (it
-    needs a zip reader, a new dependency). (S)
+  - **Removing and updating:** a plugin is removed by deleting its
+    folder; there is no Remove button, and no list of plugins to
+    install or update from (the proposal has an index with API 1.0).
+    (S, the button; M, an index)
+  - **`mg plugin check` on an archive:** it checks a plugin's folder;
+    an archive is checked for what the installer needs (its layout, its
+    manifest), not that its code registers what the manifest declares,
+    until it is installed. `mg plugin pack` checks before it packs. (S)
+  - **Archives of several plugins** are refused: one plugin to an
+    archive. (S)
   - **A project's plugins:** `plugins/` beside a nasher project's
     `nasher.cfg`, with a prompt before they run, so that a team shares
     its checks through git. `mg verify --plugins DIR` covers a build

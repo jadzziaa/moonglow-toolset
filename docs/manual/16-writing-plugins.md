@@ -11,8 +11,9 @@ You need a text editor and Moonglow. Nothing is compiled or built.
 
 ## A first plugin
 
-Open **Plugins › Manage Plugins…** and press **Open** next to the folder.
-In it, make a folder `hello` with two files. The manifest, `plugin.cfg`:
+Open **Plugins › Manage Plugins…** and press **Open Folder**. In the
+plugins folder, make a folder `hello` with two files. The manifest,
+`plugin.cfg`:
 
 ```ini
 [plugin]
@@ -383,6 +384,8 @@ return rules
   command would make, as an edit file
   ([Command-line tools](11-command-line.md)), and changes nothing: run it
   on a copy of a module and compare with what you expect.
+- While you work on a plugin in the plugins folder, Install from File
+  leaves its folder alone: it only ever replaces what it installed.
 
 Try a new plugin on a copy of your module first.
 
@@ -423,6 +426,32 @@ Moonglow that is running.
 
 ## Sharing
 
-A plugin is shared as its folder (zipped). Say in its notes which
-Moonglow it needs. Keep `id` the same in every version, raise `version`,
-and choose a license others can use it under.
+A plugin is shared as an archive of its folder:
+
+```text
+mg plugin pack hello
+```
+
+writes `example.hello-0.1.0.zip` (the plugin's id and version; `-o FILE`
+names it otherwise). The plugin is checked first, as `mg plugin check`
+does, and hidden files (`.git`, `.luaurc`) are left out. Whoever gets
+the file installs it with **Plugins › Install Plugin from File…**.
+
+A zip made any other way installs too, if it has what the installer
+looks for:
+
+- `plugin.cfg` at the archive's top, or in the one folder at its top
+  (what zipping the folder gives, and a repository's download when the
+  plugin is at the repository's top). One plugin to an archive.
+- At most 500 files and 16 MB unpacked: a plugin is scripts and a little
+  data.
+- File names every system can have: no `:`, `*`, `?`, `"`, `<`, `>` or
+  `|`, none that end in a dot or a space, none of Windows's device names
+  (`aux.luau`), and no two that differ only in case.
+- No links, nothing encrypted, and compressed the usual way (deflate)
+  or not at all.
+
+The plugin is installed into a folder named by its `id`, so keep `id`
+the same in every version (a new version then replaces the old) and
+raise `version`. Say in the plugin's notes which Moonglow it needs, and
+choose a license others can use it under.

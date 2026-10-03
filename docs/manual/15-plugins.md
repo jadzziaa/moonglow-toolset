@@ -34,16 +34,33 @@ install plugins from people you'd trust with the module.
 
 ## Installing
 
-A plugin is installed by copying its folder (the one with `plugin.cfg` in
-it) into Moonglow's plugins folder:
+A plugin comes as an archive (a `.zip` file) or as a folder.
+
+**From an archive:** **Plugins › Install Plugin from File…** (also
+**Install from File…** in Manage Plugins) takes the archive and puts the
+plugin into Moonglow's plugins folder. Nothing of the plugin runs, and it
+is off until you enable it.
+
+- The archive is checked before anything is written: it must hold one
+  plugin whose manifest reads and that was written for this Moonglow's
+  plugin API. One that isn't a plugin, or whose files would land outside
+  the plugin's own folder, is refused, with the reason.
+- If the plugin is installed already, Moonglow asks before replacing it
+  (a newer version, say). Whether it is enabled stays as it was.
+- A plugin's folder that was copied in by hand is never replaced by an
+  install: remove that folder first.
+
+**From a folder:** copy the plugin's folder (the one with `plugin.cfg`
+in it) into the plugins folder and press **Reload**.
 
 | Linux | Windows | macOS |
 | --- | --- | --- |
 | `~/.local/share/moonglow/plugins` | `%APPDATA%\Moonglow\plugins` | `~/Library/Application Support/Moonglow/plugins` |
 
-**Plugins › Manage Plugins…** shows the folder; **Open** opens it (and
-makes it, the first time), and **Reload** reads it again after you copy a
-plugin in or change one. To remove a plugin, delete its folder.
+**Plugins › Manage Plugins…** shows where the folder is on your system;
+**Open Folder** opens it (and makes it, the first time), and **Reload**
+reads it again after you copy a plugin in or change one. To remove a
+plugin, delete its folder.
 
 ## Enabling
 
@@ -114,6 +131,7 @@ resource's fields are called (`return ctx.module:gff("guard.utc")`).
 mg plugin list ~/.local/share/moonglow/plugins
 mg plugin run mymodule.mod plugins/tag-conventions fix-tags --dry-run
 mg verify mymodule.mod --plugins plugins/tag-conventions
+mg plugin install tag-conventions-1.0.0.zip plugins
 ```
 
 `mg` has no list of enabled plugins: it runs the plugin you name. It
@@ -125,6 +143,9 @@ applies a command's edits as given (an item's cost is not recomputed).
   line. Nothing was changed.
 - **A plugin is not listed.** Its folder needs `plugin.cfg` directly in
   it (not a folder deeper); press **Reload**.
+- **An archive is not installed.** The log and Manage Plugins say why.
+  "It holds several plugins" means the archive is a collection: unpack
+  it and install each plugin's folder by copying.
 - **Moonglow misbehaves with a plugin enabled.** Start it with
   `--no-plugins`: no plugin is loaded, and Manage Plugins says so.
   A crash report names the enabled plugins; when you report a problem,

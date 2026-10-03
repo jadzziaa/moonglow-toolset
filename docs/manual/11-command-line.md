@@ -51,6 +51,8 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg plugin list DIR…` | the plugins in the folders and what each adds: its commands and checks |
 | `mg plugin check DIR…` | check plugins: the manifest reads, and the code registers what it declares; fails if not |
 | `mg plugin run MODULE PLUGIN COMMAND` | run a plugin's command on a module and save: its edits as one command, all or none. `--answer ID=VALUE` fills a form's field (the others take their defaults), `--yes` agrees where it asks; `--dry-run` prints the edits (a file `mg apply` reads) and changes nothing |
+| `mg plugin pack PLUGIN` | pack a plugin's folder into an archive to hand around (`ID-VERSION.zip`, or `-o FILE`): checked first, hidden files left out |
+| `mg plugin install FILE FOLDER` | install a plugin from its archive into a folder of plugins, as Plugins › Install Plugin from File… does: the archive is checked and nothing of it runs. `--replace` installs over the same plugin installed from an archive before |
 | `mg haks MODULE` | what the module's haks provide, where they conflict and which game resources they override |
 | `mg minimap MODULE AREA OUT.png [--size PX]` | an area's minimap as a PNG, laid out as the game's map draws it (`PX` pixels a tile) |
 | `mg nwsync MODULE REPOSITORY` | publish the module's haks and talk table for NWSync into a repository folder, as `nwn_nwsync_write` does: `--with-module` (with `--name`, `--description`, `--uuid`), `--group-id`, `--no-latest`, `--limit-file-size MB`, `--force`, `--dry-run`; prints the manifest's hash |

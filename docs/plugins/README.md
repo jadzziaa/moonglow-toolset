@@ -27,9 +27,11 @@ and the [Plugin API reference](../manual/17-plugin-api.md). The design,
 and what is planned beyond API 0.1, is in the
 [proposal](../plugin-proposal.md).
 
-To check a plugin and try a command without the window:
+To check a plugin, try a command without the window, and pack a plugin
+into the archive that Plugins › Install Plugin from File… takes:
 
 ```sh
 mg plugin check docs/plugins/examples
 mg plugin run mymodule.mod docs/plugins/examples/tag-conventions fix-tags --dry-run
+mg plugin pack docs/plugins/examples/tag-conventions
 ```

@@ -458,6 +458,12 @@ Phases 2 and 3 can swap if teams ask for Python first.
   until enabled, what each adds, the console), a plugin's questions in
   the job's window, its checks in Verify Module, `--no-plugins`, and the
   enabled plugins named in a crash report.
+- Install Plugin from File: a plugin's archive (a zip) checked as
+  untrusted input and unpacked into the plugins folder, off; one
+  installed before is replaced after a question, a folder put there by
+  hand never. `mg plugin pack` makes the archive, `mg plugin install`
+  unpacks one from the command line. (The `zip` crate reads it, with
+  the deflate code that was built in already.)
 - `mg plugin list`, `check` and `run` (`--dry-run`, `--answer`,
   `--yes`), and `mg verify --plugins`.
 - Documentation: the manual's Plugins, Writing plugins and Plugin API
@@ -471,7 +477,6 @@ Phases 2 and 3 can swap if teams ask for Python first.
 - Its "done when": nobody outside the project has written a plugin yet.
   The questions under [Decisions](#decisions) are still open, and the
   API should not grow before some of them are answered.
-- Install from File (a zip): plugins are installed by copying a folder.
 - The reference is written by hand and checked for completeness, not
   generated; a plugin's own tests (`mg plugin test`) are not built.
 - The type file was not tried in an editor with the Luau language
@@ -480,7 +485,8 @@ Phases 2 and 3 can swap if teams ask for Python first.
   screenshots, not by hand in the running application.
 
 Where the build differs from the text above: the window's commands are
-under a **Plugins** menu (Manage Plugins…), not Tools › Plugins; a
+under a **Plugins** menu (Manage Plugins…, Install Plugin from File…),
+not Tools › Plugins; a
 project's plugins and their prompt are Phase 2; the examples are four,
 with the cookbook's others to come with the things they would add.
 
