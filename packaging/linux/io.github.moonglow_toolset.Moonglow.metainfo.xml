@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.1.0" date="2026-10-03">
+      <description>
+        <p>Files out of the toolset: To Scratch in the script editor (the
+        script compiled, with its compiled script) and the area view copies
+        loose files into a folder of your choice, such as a server's
+        development folder; Export as Files and Copy to Scratch Folder in the
+        module tree; mg export --files from the command line.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-03">
       <description>
         <p>Plugins (experimental): commands and checks of your own, written
