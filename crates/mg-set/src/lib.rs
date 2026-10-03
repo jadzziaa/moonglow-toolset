@@ -7,6 +7,8 @@
 pub mod edit;
 pub mod ini;
 
+use std::collections::HashMap;
+
 use mg_core::{Codepage, StrRef};
 use thiserror::Error;
 
@@ -138,12 +140,52 @@ pub struct Tileset {
     pub warnings: Vec<String>,
 }
 
-fn section<'a>(ini: &'a Ini, name: &str) -> Result<&'a Section, SetError> {
-    ini.section(name).ok_or_else(|| SetError::MissingSection(name.to_string()))
+/// The most rows or columns a group may have: an area's (32 tiles a side).
+const GROUP_SIDE: u32 = 32;
+
+/// A file's sections by name (upper case; of two with a name, the first),
+/// and each tile's door sections (`[TILE<n>DOOR<d>]`) by door number: what
+/// is there, whatever the counts in the file say.
+struct Sections<'a> {
+    named: HashMap<String, &'a Section>,
+    doors: HashMap<usize, Vec<(usize, &'a Section)>>,
 }
 
-fn count(ini: &Ini, name: &str) -> usize {
-    ini.section(name).and_then(|s| s.int("Count")).unwrap_or(0).max(0) as usize
+impl<'a> Sections<'a> {
+    fn new(ini: &'a Ini) -> Sections<'a> {
+        let mut named = HashMap::new();
+        let mut doors: HashMap<usize, Vec<(usize, &Section)>> = HashMap::new();
+        for s in &ini.sections {
+            let name = s.name.to_ascii_uppercase();
+            if let Some((tile, door)) = name
+                .strip_prefix("TILE")
+                .and_then(|n| n.split_once("DOOR"))
+                .and_then(|(t, d)| Some((t.parse().ok()?, d.parse().ok()?)))
+            {
+                let of_tile = doors.entry(tile).or_default();
+                if !of_tile.iter().any(|(d, _)| *d == door) {
+                    of_tile.push((door, s));
+                }
+            }
+            named.entry(name).or_insert(s);
+        }
+        for of_tile in doors.values_mut() {
+            of_tile.sort_by_key(|(d, _)| *d);
+        }
+        Sections { named, doors }
+    }
+
+    fn find(&self, name: &str) -> Option<&'a Section> {
+        self.named.get(&name.to_ascii_uppercase()).copied()
+    }
+
+    fn get(&self, name: &str) -> Result<&'a Section, SetError> {
+        self.find(name).ok_or_else(|| SetError::MissingSection(name.to_string()))
+    }
+
+    fn count(&self, name: &str) -> usize {
+        self.find(name).and_then(|s| s.int("Count")).unwrap_or(0).max(0) as usize
+    }
 }
 
 fn strref(s: &Section, key: &str) -> StrRef {
@@ -162,7 +204,8 @@ impl Tileset {
     /// Parses a tileset; text is decoded with `codepage`.
     pub fn parse(data: &[u8], codepage: Codepage) -> Result<Tileset, SetError> {
         let ini = Ini::parse(&codepage.decode(data));
-        let g = section(&ini, "GENERAL")?;
+        let sections = Sections::new(&ini);
+        let g = sections.get("GENERAL")?;
         let general = General {
             name: g.get("Name").unwrap_or_default().to_string(),
             interior: flag(g, "Interior"),
@@ -176,7 +219,7 @@ impl Tileset {
             floor: g.get("Floor").unwrap_or_default().to_string(),
             selector_height: g.float("SelectorHeight"),
         };
-        let grass = ini.section("GRASS").map_or(Grass::default(), |s| {
+        let grass = sections.find("GRASS").map_or(Grass::default(), |s| {
             let rgb = |p: &str| {
                 ["Red", "Green", "Blue"].map(|c| s.float(&format!("{p}{c}")).unwrap_or(0.0))
             };
@@ -190,9 +233,9 @@ impl Tileset {
             }
         });
         let named = |list: &str, item: &str| -> Result<Vec<NamedType>, SetError> {
-            (0..count(&ini, list))
+            (0..sections.count(list))
                 .map(|i| {
-                    let s = section(&ini, &format!("{item}{i}"))?;
+                    let s = sections.get(&format!("{item}{i}"))?;
                     Ok(NamedType {
                         name: s.get("Name").unwrap_or_default().to_string(),
                         strref: strref(s, "StrRef"),
@@ -202,9 +245,9 @@ impl Tileset {
                 .collect()
         };
         let rules = |list: &str, item: &str| -> Result<Vec<Rule>, SetError> {
-            (0..count(&ini, list))
+            (0..sections.count(list))
                 .map(|i| {
-                    let s = section(&ini, &format!("{item}{i}"))?;
+                    let s = sections.get(&format!("{item}{i}"))?;
                     let t = |k: &str| s.get(k).unwrap_or_default().to_string();
                     let h = |k: &str| s.int(k).unwrap_or(0);
                     Ok(Rule {
@@ -219,28 +262,40 @@ impl Tileset {
                 .collect()
         };
         let mut warnings = Vec::new();
-        let tiles = (0..count(&ini, "TILES"))
+        let tiles = (0..sections.count("TILES"))
             .map(|i| {
                 let name = format!("TILE{i}");
-                let s = section(&ini, &name)?;
+                let s = sections.get(&name)?;
                 let model = s.text("Model").ok_or_else(|| SetError::MissingKey {
                     section: name.clone(),
                     key: "Model".into(),
                 })?;
-                let mut doors = Vec::new();
-                for d in 0..s.int("Doors").unwrap_or(0).max(0) {
-                    // Some shipped tiles declare doors without a section.
-                    let Some(ds) = ini.section(&format!("TILE{i}DOOR{d}")) else {
-                        warnings
-                            .push(format!("tile {i}: door {d} has no [TILE{i}DOOR{d}] section"));
-                        continue;
-                    };
-                    let f = |k: &str| ds.float(k).unwrap_or(0.0);
-                    doors.push(TileDoor {
-                        door_type: ds.int("Type").unwrap_or(0),
-                        position: [f("X"), f("Y"), f("Z")],
-                        orientation: f("Orientation"),
-                    });
+                // The door sections that are there, up to the count: some
+                // shipped tiles declare doors without a section, and custom
+                // tilesets have counts that are no counts at all (`Doors=`
+                // 1869573190: whatever was in their editor's memory).
+                let declared = s.int("Doors").unwrap_or(0).max(0) as usize;
+                let doors: Vec<TileDoor> = sections
+                    .doors
+                    .get(&i)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|(d, _)| *d < declared)
+                    .map(|(_, ds)| {
+                        let f = |k: &str| ds.float(k).unwrap_or(0.0);
+                        TileDoor {
+                            door_type: ds.int("Type").unwrap_or(0),
+                            position: [f("X"), f("Y"), f("Z")],
+                            orientation: f("Orientation"),
+                        }
+                    })
+                    .collect();
+                if doors.len() < declared {
+                    warnings.push(format!(
+                        "tile {i}: Doors={declared}, but {} [TILE{i}DOOR…] sections",
+                        doors.len()
+                    ));
                 }
                 Ok(Tile {
                     model: model.to_string(),
@@ -267,23 +322,28 @@ impl Tileset {
                 })
             })
             .collect::<Result<Vec<_>, SetError>>()?;
-        let groups = (0..count(&ini, "GROUPS"))
-            .map(|i| {
-                let s = section(&ini, &format!("GROUP{i}"))?;
-                let rows = s.int("Rows").unwrap_or(0).max(0) as u32;
-                let columns = s.int("Columns").unwrap_or(0).max(0) as u32;
-                let tiles = (0..rows * columns)
-                    .map(|t| s.int(&format!("Tile{t}")).and_then(|v| u32::try_from(v).ok()))
-                    .collect();
-                Ok(Group {
-                    name: s.get("Name").unwrap_or_default().to_string(),
-                    strref: strref(s, "StrRef"),
-                    rows,
-                    columns,
-                    tiles,
-                })
-            })
-            .collect::<Result<Vec<_>, SetError>>()?;
+        // A group whose section is missing is left out (custom tilesets
+        // have such holes, and work in the game).
+        let mut groups = Vec::new();
+        for i in 0..sections.count("GROUPS").min(ini.sections.len()) {
+            let Some(s) = sections.find(&format!("GROUP{i}")) else {
+                warnings.push(format!("group {i}: no [GROUP{i}] section"));
+                continue;
+            };
+            let name = s.get("Name").unwrap_or_default().to_string();
+            let mut rows = s.int("Rows").unwrap_or(0).max(0) as u32;
+            let mut columns = s.int("Columns").unwrap_or(0).max(0) as u32;
+            if rows > GROUP_SIDE || columns > GROUP_SIDE {
+                warnings.push(format!(
+                    "group {name:?}: {rows} rows by {columns} columns is no size (an area has at most {GROUP_SIDE})"
+                ));
+                (rows, columns) = (0, 0);
+            }
+            let tiles = (0..rows * columns)
+                .map(|t| s.int(&format!("Tile{t}")).and_then(|v| u32::try_from(v).ok()))
+                .collect();
+            groups.push(Group { name, strref: strref(s, "StrRef"), rows, columns, tiles });
+        }
         let mut t = Tileset {
             general,
             grass,
@@ -376,6 +436,44 @@ mod tests {
         assert_eq!(tile.doors[0].orientation, 180.0);
         assert_eq!(tile.orientation, 90);
         assert_eq!(t.groups[0].tiles, vec![Some(0), None]);
+    }
+
+    /// Custom tilesets have door counts that are no counts (uninitialised
+    /// values their editor wrote), sizes likewise, and holes among their
+    /// groups: read at once, for what is there.
+    #[test]
+    fn counts_that_are_no_counts_cost_nothing() {
+        let text = "[GENERAL]\nName=x\n[TILES]\nCount=2\n\
+[TILE0]\nModel=a\nDoors=1869573190\n[TILE0DOOR0]\nType=3\nX=1.5\n[TILE0DOOR2]\nType=4\n\
+[TILE1]\nModel=b\nDoors=2147483647\n\
+[GROUPS]\nCount=4\n[GROUP0]\nName=Big\nRows=1869573190\nColumns=1953393015\n\
+[GROUP1]\nName=Hut\nRows=1\nColumns=1\nTile0=1\n[GROUP3]\nName=Barn\nRows=1\nColumns=2\nTile0=0\nTile1=1\n";
+        let started = std::time::Instant::now();
+        let t = Tileset::parse(text.as_bytes(), Codepage::default()).unwrap();
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        // The doors that have sections.
+        let types: Vec<i32> = t.tiles[0].doors.iter().map(|d| d.door_type).collect();
+        assert_eq!(types, [3, 4]);
+        assert_eq!(t.tiles[0].doors[0].position, [1.5, 0.0, 0.0]);
+        assert!(t.tiles[1].doors.is_empty());
+        // A group of no size is empty; a missing one is left out.
+        let groups: Vec<(&str, usize)> =
+            t.groups.iter().map(|g| (g.name.as_str(), g.tiles.len())).collect();
+        assert_eq!(groups, [("Big", 0), ("Hut", 1), ("Barn", 2)]);
+        // One warning for each, not one per door.
+        let about = |what: &str| t.warnings.iter().filter(|w| w.contains(what)).count();
+        assert_eq!((about("Doors="), about("is no size"), about("no [GROUP2]")), (2, 1, 1));
+        assert!(t.warnings.len() < 20, "{:?}", t.warnings);
+
+        // The tileset editor, on the same file: a tile copied with the
+        // doors it has, and taken away with them.
+        let mut f = edit::SetFile::parse(text);
+        let started = std::time::Instant::now();
+        assert_eq!(edit::duplicate_tile(&mut f, 0), Some(2));
+        assert!(f.has_section("TILE2DOOR0") && f.has_section("TILE2DOOR2"));
+        assert!(edit::remove_last_tile(&mut f));
+        assert!(!f.has_section("TILE2DOOR0") && !f.has_section("TILE2DOOR2"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
     }
 
     #[test]

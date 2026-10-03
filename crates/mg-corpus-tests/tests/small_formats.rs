@@ -76,6 +76,46 @@ fn shipped_tilesets_parse_and_their_models_exist() {
     assert!(failures.is_empty(), "{} failures:\n{}", failures.len(), failures.join("\n"));
 }
 
+/// Custom tilesets have `Doors=` counts that are no counts (1869573190:
+/// whatever was in their editor's memory), which the game shrugs off. Every
+/// shipped tileset given such counts reads as fast, with the doors its
+/// sections describe.
+#[test]
+fn tilesets_with_door_counts_that_are_no_counts_read_the_same() {
+    let root = corpus!();
+    let sets = shipped(&root, ResType::SET);
+    let started = std::time::Instant::now();
+    let mut doors = 0;
+    for (name, bytes) in &sets {
+        let text = String::from_utf8_lossy(bytes);
+        let spoiled: String = text
+            .split_inclusive('\n')
+            .map(|l| {
+                if l.trim_start().to_ascii_lowercase().starts_with("doors=") {
+                    "Doors=1869573190\r\n"
+                } else {
+                    l
+                }
+            })
+            .collect();
+        let (Ok(plain), Ok(spoiled)) = (
+            Tileset::parse(bytes, Codepage::WINDOWS_1252),
+            Tileset::parse(spoiled.as_bytes(), Codepage::WINDOWS_1252),
+        ) else {
+            panic!("{name} does not parse");
+        };
+        for (i, (a, b)) in plain.tiles.iter().zip(&spoiled.tiles).enumerate() {
+            // (All of a tile's door sections: those within its count first.)
+            assert!(b.doors.starts_with(&a.doors), "{name}: tile {i}");
+            doors += b.doors.len();
+        }
+        assert!(spoiled.warnings.len() <= plain.warnings.len() + spoiled.tiles.len(), "{name}");
+    }
+    eprintln!("{} tilesets, {doors} doors, {:?}", sets.len(), started.elapsed());
+    assert!(doors > 1000);
+    assert!(started.elapsed() < std::time::Duration::from_secs(20));
+}
+
 /// Every shipped soundset parses and writes back byte for byte.
 #[test]
 fn shipped_soundsets_round_trip_exactly() {

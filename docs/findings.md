@@ -277,6 +277,25 @@ only on hooks with `Type` ≠ 0, using `doortypes.2da TemplateResRef` and
 - **Wiki:** "Adding Doors to a Tile" explains the offsets but not the
   rotation or the Type ≠ 0 rule.
 
+### Custom tilesets' counts are not to be trusted
+
+Custom tilesets in use on a persistent world carry `Doors=` values that
+are no counts. Of 65 tilesets in one server's content, 9 had such tiles
+(350 in all), beside tiles with true counts: `Doors=1869573190`,
+`1953393015`, `1634169902`, which as bytes read `Floo`, `wint`, `.tga`:
+whatever was in the memory of the editor that wrote them. One tileset
+had a hole among its groups (`[GROUPS] Count=270`, no `[GROUP266]`). A
+reader that loops up to a declared count never ends, and runs out of
+memory if it notes each missing section. Read the `[TILE<n>DOOR<d>]`
+sections that exist (numbered below the count), and leave a missing
+group out.
+
+- **Checked:** game data (65 tilesets served by a live server, so the
+  game takes them; not run in the engine here); `mg-set`'s
+  `counts_that_are_no_counts_cost_nothing`, `small_formats.rs`.
+- **Moonglow:** `crates/mg-set/src/lib.rs` (`Sections`).
+- **Wiki:** missing.
+
 ### Aurora's terrain painting
 
 - **Terrain brush:** sets one corner's terrain, keeping its height.

@@ -59,6 +59,9 @@ pub struct PaletteView {
     /// The area shown last: its tileset's palette is the one shown.
     pub area: Option<ResRef>,
     pub(crate) tile_palettes: HashMap<ResRef, Arc<mg_area::terrain::TilesetPalette>>,
+    /// Tilesets' names as Area Properties shows them, read once each (a
+    /// big tileset takes milliseconds to read: too long for every frame).
+    pub(crate) tileset_names: HashMap<ResRef, String>,
 }
 
 impl PaletteView {
@@ -67,6 +70,7 @@ impl PaletteView {
         self.standard.clear();
         self.custom_cache.clear();
         self.tile_palettes.clear();
+        self.tileset_names.clear();
     }
 }
 
@@ -87,6 +91,7 @@ impl Default for PaletteView {
             tile_brush: None,
             area: None,
             tile_palettes: HashMap::new(),
+            tileset_names: HashMap::new(),
         }
     }
 }

@@ -1407,6 +1407,8 @@ impl Moonglow {
         self.talk_view = Default::default();
         self.dock = DockState::new(vec![Tab::Welcome]);
         self.load_order_changed();
+        // (Another module's haks may have other tilesets of these names.)
+        self.palette.forget_game_data();
         if let Some(game) = &mut self.game {
             let module_layers: Vec<String> = game
                 .resman

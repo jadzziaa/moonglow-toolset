@@ -67,15 +67,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef) {
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let tileset = f.root.resref("Tileset").unwrap_or(ResRef::EMPTY);
-    let tileset_name = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            let set = mg_area::tileset(g, tileset).ok()?;
-            g.string(set.general.display_name).or(set.general.unlocalized_name)
-        })
-        .unwrap_or_else(|| tileset.to_string());
+    let tileset_name = match f.app.palette.tileset_names.get(&tileset) {
+        Some(name) => name.clone(),
+        None => {
+            let name = f
+                .app
+                .game
+                .as_ref()
+                .and_then(|g| {
+                    let set = mg_area::tileset(g, tileset).ok()?;
+                    g.string(set.general.display_name).or(set.general.unlocalized_name)
+                })
+                .unwrap_or_else(|| tileset.to_string());
+            f.app.palette.tileset_names.insert(tileset, name.clone());
+            name
+        }
+    };
     let (w, h) = (f.int("Width"), f.int("Height"));
     egui::Grid::new(("are-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Name");

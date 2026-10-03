@@ -88,6 +88,24 @@ impl SetFile {
         Some((start + 1, end))
     }
 
+    /// A tile's door sections (`[TILE<tile>DOOR<d>]`) that are there: each
+    /// door's number and its section's name, by number.
+    fn door_sections(&self, tile: usize) -> Vec<(usize, String)> {
+        let prefix = format!("TILE{tile}DOOR");
+        let mut doors: Vec<(usize, String)> = self
+            .lines
+            .iter()
+            .filter_map(|l| {
+                let name = header(l)?;
+                let d = name.to_ascii_uppercase().strip_prefix(&prefix)?.parse().ok()?;
+                Some((d, name.to_string()))
+            })
+            .collect();
+        doors.sort();
+        doors.dedup_by_key(|(d, _)| *d);
+        doors
+    }
+
     pub fn has_section(&self, section: &str) -> bool {
         self.body(section).is_some()
     }
@@ -228,11 +246,13 @@ pub fn duplicate_tile(f: &mut SetFile, from: usize) -> Option<usize> {
     }
     f.set("TILES", "Count", &(n + 1).to_string());
     f.add_section(&format!("TILE{n}"), &entries);
+    // The door sections that are there, up to the count (which in custom
+    // tilesets may be no count at all).
     let doors =
         f.get(&format!("TILE{from}"), "Doors").and_then(|d| d.parse::<usize>().ok()).unwrap_or(0);
-    for d in 0..doors {
-        let door = f.entries(&format!("TILE{from}DOOR{d}"));
-        if !door.is_empty() {
+    for (d, name) in f.door_sections(from) {
+        let door = f.entries(&name);
+        if d < doors && !door.is_empty() {
             f.add_section(&format!("TILE{n}DOOR{d}"), &door);
         }
     }
@@ -308,10 +328,8 @@ pub fn skeleton(name: &str) -> SetFile {
 pub fn remove_last_tile(f: &mut SetFile) -> bool {
     let n = f.count("TILES");
     let Some(last) = n.checked_sub(1) else { return false };
-    let doors =
-        f.get(&format!("TILE{last}"), "Doors").and_then(|d| d.parse::<usize>().ok()).unwrap_or(0);
-    for d in 0..doors {
-        f.remove_section(&format!("TILE{last}DOOR{d}"));
+    for (_, name) in f.door_sections(last) {
+        f.remove_section(&name);
     }
     f.remove_section(&format!("TILE{last}"));
     f.set("TILES", "Count", &last.to_string());
