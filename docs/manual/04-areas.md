@@ -13,8 +13,14 @@ looking straight down at their middle, north up, as in Aurora.
   the tile grid. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
   farther off isn't lost in it.
+- **💡 Lighting**: the area's lighting. Switched off, everything is evenly
+  lit, whatever the area's colors and lights: for working in a dark area.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
+- **◎ Sound Ranges**: two circles around each placed sound that is heard
+  from where it stands: at full volume inside the inner one (its minimum
+  distance), not at all outside the outer one (its maximum). The
+  selection's are brighter; a sound heard everywhere in the area has none.
 - **Walkmesh**: the ground's walkmesh over the area (Aurora's Render AABB
   Nodes): walkable faces green, the others red.
 - **Object Walkmeshes**: where placeables (their `.pwk`, orange) and doors
@@ -48,7 +54,9 @@ Options › Keyboard):
 | Arrow keys, W A S D, or numpad 4, 6, 8, 2 | move the camera |
 | Numpad 7, 9 | turn |
 | Numpad 1, 3 | tilt |
-| Numpad 5 | look straight down at the whole area |
+| Z, C | move the camera up, down |
+| Ctrl + Shift + wheel, or Ctrl + Shift + middle drag | move the camera up and down, finely |
+| Numpad 5 | look straight down at the whole area (and back to the ground) |
 | F10 | select tiles or objects (Aurora's) |
 | Double-click an object in Find Instance | go to it |
 

@@ -683,7 +683,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         let (mut yes, mut no) = (false, false);
         let modal = egui::Modal::new(ask.with("modal")).show(ui.ctx(), |ui| {
             ui.set_max_width(360.0);
-            ui.label(text);
+            crate::widgets::field_label(ui, text);
             ui.horizontal(|ui| {
                 yes = ui.button("Yes").clicked();
                 no = ui.button("No").clicked();

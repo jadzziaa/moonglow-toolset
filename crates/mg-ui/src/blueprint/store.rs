@@ -84,7 +84,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
     });
     ui.separator();
-    ui.strong("Pricing");
+    crate::widgets::section_heading(ui, "Pricing");
     egui::Grid::new(("utm-pricing", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Sell Mark Up (%)");
         f.number(ui, "Sell mark up", "MarkUp", 1..=1000);
@@ -97,7 +97,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
     });
     ui.separator();
-    ui.strong("Stolen Goods");
+    crate::widgets::section_heading(ui, "Stolen Goods");
     let black_market = f.check(ui, "Buy Stolen Goods", "BlackMarket");
     ui.horizontal(|ui| {
         ui.add_enabled_ui(black_market, |ui| {
@@ -106,7 +106,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         });
     });
     ui.separator();
-    ui.strong("Restrictions");
+    crate::widgets::section_heading(ui, "Restrictions");
     egui::Grid::new(("utm-limits", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Max Buy Price");
         optional_price(f, ui, "Has Maximum Buy Price", "MaxBuyPrice", "Max buy price", -1, 100);

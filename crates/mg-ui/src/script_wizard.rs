@@ -614,7 +614,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
             for (list, title, ids) in
                 [(&lists.player_races, "Player", [0u8, 1]), (&lists.other_races, "Other", [2, 3])]
             {
-                ui.label(title);
+                crate::widgets::field_label(ui, title);
                 let titles = ["Rejected", "Accepted"];
                 move_lists(
                     ui,
@@ -640,7 +640,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
         }
         5 => {
             ui.horizontal(|ui| {
-                ui.label("Filter");
+                crate::widgets::field_label(ui, "Filter");
                 ui.text_edit_singleline(&mut w.filter);
             });
             move_lists(
@@ -674,11 +674,11 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
             let mut remove = None;
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.label("Available Skills");
+                    crate::widgets::field_label(ui, "Available Skills");
                     pick_list(ui, "wiz-check-skills", &skills, 0, &mut w.selected, [180.0, 200.0]);
                 });
                 ui.vertical(|ui| {
-                    ui.label("Difficulty");
+                    crate::widgets::field_label(ui, "Difficulty");
                     ui.horizontal(|ui| {
                         for d in Difficulty::ALL {
                             ui.radio_value(&mut w.difficulty, d, d.label());
@@ -690,7 +690,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                     {
                         w.checks.push((w.difficulty, row));
                     }
-                    ui.label("Checks");
+                    crate::widgets::field_label(ui, "Checks");
                     let checks: Vec<String> = w
                         .checks
                         .iter()
@@ -737,7 +737,7 @@ fn condition_page(ui: &mut Ui, w: &mut ScriptWizard, page: usize) {
                 let d = &w.local;
                 w.locals.push(LocalCheck { ty: d.ty, name, compare: d.compare, value });
             }
-            ui.label("Local Expressions");
+            crate::widgets::field_label(ui, "Local Expressions");
             let mut exprs: Vec<(usize, String)> = w
                 .locals
                 .iter()
@@ -789,12 +789,12 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
         0 => {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.label("Give gold");
+                    crate::widgets::field_label(ui, "Give gold");
                     number(ui, &mut w.give_gold, "wiz-give-gold");
                     ui.checkbox(&mut w.gold_to_party, "To Party");
                 });
                 ui.vertical(|ui| {
-                    ui.label("Give XP");
+                    crate::widgets::field_label(ui, "Give XP");
                     number(ui, &mut w.give_xp, "wiz-give-xp");
                     ui.checkbox(&mut w.xp_to_party, "To Party");
                 });
@@ -803,7 +803,7 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                     if let Some(r) = app.take_pick(id) {
                         w.entry = r.to_string();
                     }
-                    ui.label("Give item (by resref)");
+                    crate::widgets::field_label(ui, "Give item (by resref)");
                     if add_list(
                         ui,
                         "wiz-give-items",
@@ -821,16 +821,16 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
         1 => {
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.label("Take gold");
+                    crate::widgets::field_label(ui, "Take gold");
                     number(ui, &mut w.take_gold, "wiz-take-gold");
                     ui.radio_value(&mut w.destroy_gold, true, "Destroy");
                     ui.radio_value(&mut w.destroy_gold, false, "Keep");
                     ui.add_space(12.0);
-                    ui.label("Take XP");
+                    crate::widgets::field_label(ui, "Take XP");
                     number(ui, &mut w.take_xp, "wiz-take-xp");
                 });
                 ui.vertical(|ui| {
-                    ui.label("Take item (by Tag)");
+                    crate::widgets::field_label(ui, "Take item (by Tag)");
                     add_list(
                         ui,
                         "wiz-take-items",
@@ -846,14 +846,14 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
             });
         }
         2 => {
-            ui.label("Set local variable");
+            crate::widgets::field_label(ui, "Set local variable");
             let draft = local_draft(ui, w, false);
             if ui.add_enabled(draft.is_some(), egui::Button::new("Add")).clicked()
                 && let Some((name, value)) = draft
             {
                 w.sets.push(LocalSet { ty: w.local.ty, name, value });
             }
-            ui.label("Local Expressions");
+            crate::widgets::field_label(ui, "Local Expressions");
             let mut shown: Vec<(usize, String)> = w
                 .sets
                 .iter()
@@ -882,7 +882,7 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                 ui.add_enabled_ui(store, |ui| {
                     ui.indent("wiz-store", |ui| {
                         ui.checkbox(&mut appraise, "Use appraise checks");
-                        ui.label("Script Tag");
+                        crate::widgets::field_label(ui, "Script Tag");
                         ui.add(egui::TextEdit::singleline(&mut tag).id_salt("wiz-store-tag"));
                     });
                 });
@@ -895,7 +895,7 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
             let mut faction = if attack { -100 } else { w.faction };
             ui.add_enabled_ui(!attack, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Modify Faction");
+                    crate::widgets::field_label(ui, "Modify Faction");
                     ui.spacing_mut().slider_width = 320.0;
                     ui.add(egui::Slider::new(&mut faction, -100..=100).step_by(10.0));
                 });

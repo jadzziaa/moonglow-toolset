@@ -174,7 +174,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             } else {
                                 format!("From {}", f.factions[p as usize].name)
                             };
-                            ui.label(label);
+                            crate::widgets::field_label(ui, label);
                             let mut rep = f.reputation(p, target).unwrap_or(mg_module::factions::DEFAULT_REPUTATION);
                             let before = rep;
                             let r = ui.add(egui::Slider::new(&mut rep, 0..=100).clamping(egui::SliderClamping::Edits).show_value(true));
@@ -195,7 +195,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
         // The faction list and its commands.
         let ui = &mut cols[1];
-        ui.strong("Factions");
+        crate::widgets::section_heading(ui, "Factions");
         for (i, fac) in f.factions.iter().enumerate() {
             let r = ui.selectable_label(view.selected == i as u32, &fac.name);
             if r.clicked() {

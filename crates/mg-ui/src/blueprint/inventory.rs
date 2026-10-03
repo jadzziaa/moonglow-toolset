@@ -122,7 +122,7 @@ impl Form<'_> {
                         .show(ui, |ui| {
                             for pair in stats.chunks(per_row) {
                                 for (label, value) in pair {
-                                    ui.label(*label);
+                                    crate::widgets::field_label(ui, *label);
                                     ui.strong(value);
                                 }
                                 ui.end_row();

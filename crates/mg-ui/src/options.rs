@@ -35,6 +35,7 @@ pub struct OptionsDraft {
     pub user_dir: String,
     pub script_style: ScriptStyle,
     pub build_on_save: bool,
+    pub area_names: bool,
     pub minimize_on_test: bool,
     pub auto_reload: bool,
     pub backups: bool,
@@ -91,6 +92,7 @@ impl OptionsDraft {
             user_dir: text(&s.user_dir),
             script_style: s.script_style.clone(),
             build_on_save: s.build_on_save,
+            area_names: s.area_names,
             minimize_on_test: s.minimize_on_test,
             auto_reload: !s.no_auto_reload,
             backups: !s.no_backups,
@@ -132,6 +134,7 @@ impl OptionsDraft {
             user_dir: path(&self.user_dir),
             script_style: self.script_style.clone(),
             build_on_save: self.build_on_save,
+            area_names: self.area_names,
             minimize_on_test: self.minimize_on_test,
             no_auto_reload: !self.auto_reload,
             no_backups: !self.backups,
@@ -178,6 +181,9 @@ impl OptionsDraft {
     }
 }
 
+/// The Options window's size when first opened.
+const WINDOW_SIZE: [f32; 2] = [780.0, 540.0];
+
 enum Browse {
     Game,
     User,
@@ -191,326 +197,365 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let detected = GameInstall::detect();
     let mut browse = None;
     let mut close = false;
+    // A window of a size of its own (the user's, once resized), whatever
+    // the page: the buttons along the bottom, the pages listed beside, and
+    // the page scrolling in what is left.
     egui::Window::new("Options")
         .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .resizable(true)
+        .default_size(WINDOW_SIZE)
+        .min_size([480.0, 300.0])
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .show(&ctx, |ui| {
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(110.0);
-                    for (page, name) in [
-                        (OptionsPage::Folders, "Folders"),
-                        (OptionsPage::Area, "Area"),
-                        (OptionsPage::General, "General"),
-                        (OptionsPage::ScriptEditor, "Script Editor"),
-                        (OptionsPage::ConversationEditor, "Conversation Editor"),
-                        (OptionsPage::Sounds, "Sounds"),
-                        (OptionsPage::Language, "Language"),
-                        (OptionsPage::Keyboard, "Keyboard"),
-                    ] {
-                        ui.selectable_value(&mut draft.page, page, name);
-                    }
-                });
-                ui.add_space(12.0);
-                ui.vertical(|ui| match draft.page {
-                    OptionsPage::Keyboard => keyboard(ui, draft),
-                    OptionsPage::Folders => {
-                        ui.label("Neverwinter Nights installation");
-                        ui.horizontal(|ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut draft.game_root)
-                                    .desired_width(300.0),
-                            );
-                            if ui.button("Browse…").clicked() {
-                                browse = Some(Browse::Game);
+            egui::Panel::bottom("options-buttons").frame(egui::Frame::NONE.inner_margin(6.0)).show(
+                ui,
+                |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("OK").clicked() || crate::widgets::enter(ui) {
+                            close = true;
+                            if draft.moves_game(&app.settings) {
+                                app.actions.push(Action::ApplyOptions(draft.clone()));
+                            } else {
+                                // Only looks: no reload.
+                                app.settings = draft.apply(&app.settings);
+                                crate::text::set_edit_language(mg_core::Language(
+                                    app.settings.edit_language.unwrap_or(0),
+                                ));
                             }
-                        });
-                        match path(&draft.game_root) {
-                            Some(p) if GameInstall::is_install(&p) => {
-                                ui.weak("A game installation.")
-                            }
-                            Some(_) => ui.colored_label(
-                                ui.visuals().error_fg_color,
-                                "Not a game installation (no data/nwn_base.key).",
-                            ),
-                            None => match &detected {
-                                Some(d) => ui.weak(format!("Empty: found at {}", d.root.display())),
-                                None => ui.colored_label(
-                                    ui.visuals().warn_fg_color,
-                                    "Empty, and none found.",
-                                ),
-                            },
-                        };
-                        ui.add_space(8.0);
-                        ui.label("NWN user folder (haks, override, modules)");
-                        ui.horizontal(|ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut draft.user_dir)
-                                    .desired_width(300.0),
-                            );
-                            if ui.button("Browse…").clicked() {
-                                browse = Some(Browse::User);
-                            }
-                        });
-                        if path(&draft.user_dir).is_none() {
-                            match detected.as_ref().and_then(|d| d.user_dir.as_ref()) {
-                                Some(u) => ui.weak(format!("Empty: {}", u.display())),
-                                None => ui.weak("Empty: none"),
-                            };
                         }
-                    }
-                    OptionsPage::General => {
-                        // Aurora's order and groups.
-                        ui.checkbox(&mut draft.backups, "Create backups of modules").on_hover_text(
-                            "Keep the module as it was as <name>.BackupMod at each save",
-                        );
-                        ui.checkbox(&mut draft.build_on_save, "Build module on save")
-                            .on_hover_text("Run Build Module (with its defaults) before saving");
-                        ui.checkbox(&mut draft.minimize_on_test, "Minimize Toolset on test module");
-                        ui.checkbox(
-                            &mut draft.auto_reload,
-                            "Reload haks, override and development when they change",
-                        )
-                        .on_hover_text(
-                            "Changed haks, 2DAs, models and textures show without a restart",
-                        );
-                        ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            close = true;
+                        }
+                    });
+                },
+            );
+            egui::Panel::left("options-pages")
+                .resizable(false)
+                .exact_size(160.0)
+                .frame(egui::Frame::NONE.inner_margin(6.0))
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        for (page, name) in [
+                            (OptionsPage::Folders, "Folders"),
+                            (OptionsPage::Area, "Area"),
+                            (OptionsPage::General, "General"),
+                            (OptionsPage::ScriptEditor, "Script Editor"),
+                            (OptionsPage::ConversationEditor, "Conversation Editor"),
+                            (OptionsPage::Sounds, "Sounds"),
+                            (OptionsPage::Language, "Language"),
+                            (OptionsPage::Keyboard, "Keyboard"),
+                        ] {
+                            ui.selectable_value(&mut draft.page, page, name);
+                        }
+                    });
+                });
+            egui::CentralPanel::default().frame(egui::Frame::NONE.inner_margin(6.0)).show(
+                ui,
+                |ui| {
+                    egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| match draft.page {
+                        OptionsPage::Keyboard => keyboard(ui, draft),
+                        OptionsPage::Folders => {
+                            crate::widgets::field_label(ui, "Neverwinter Nights installation");
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut draft.game_root)
+                                        .desired_width(300.0),
+                                );
+                                if ui.button("Browse…").clicked() {
+                                    browse = Some(Browse::Game);
+                                }
+                            });
+                            match path(&draft.game_root) {
+                                Some(p) if GameInstall::is_install(&p) => {
+                                    ui.weak("A game installation.")
+                                }
+                                Some(_) => ui.colored_label(
+                                    ui.visuals().error_fg_color,
+                                    "Not a game installation (no data/nwn_base.key).",
+                                ),
+                                None => match &detected {
+                                    Some(d) => {
+                                        ui.weak(format!("Empty: found at {}", d.root.display()))
+                                    }
+                                    None => ui.colored_label(
+                                        ui.visuals().warn_fg_color,
+                                        "Empty, and none found.",
+                                    ),
+                                },
+                            };
+                            ui.add_space(8.0);
+                            crate::widgets::field_label(
+                                ui,
+                                "NWN user folder (haks, override, modules)",
+                            );
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut draft.user_dir)
+                                        .desired_width(300.0),
+                                );
+                                if ui.button("Browse…").clicked() {
+                                    browse = Some(Browse::User);
+                                }
+                            });
+                            if path(&draft.user_dir).is_none() {
+                                match detected.as_ref().and_then(|d| d.user_dir.as_ref()) {
+                                    Some(u) => ui.weak(format!("Empty: {}", u.display())),
+                                    None => ui.weak("Empty: none"),
+                                };
+                            }
+                        }
+                        OptionsPage::General => {
+                            // Aurora's order and groups.
+                            ui.checkbox(&mut draft.backups, "Create backups of modules")
+                                .on_hover_text(
+                                    "Keep the module as it was as <name>.BackupMod at each save",
+                                );
+                            ui.checkbox(&mut draft.build_on_save, "Build module on save")
+                                .on_hover_text(
+                                    "Run Build Module (with its defaults) before saving",
+                                );
                             ui.checkbox(
-                                &mut draft.autosave,
-                                "Keep a recovery copy of unsaved work every",
+                                &mut draft.minimize_on_test,
+                                "Minimize Toolset on test module",
+                            );
+                            ui.checkbox(&mut draft.area_names, "Show areas by name").on_hover_text(
+                                "List areas (and title their tabs) by their names rather \
+                                     than their ResRefs; the ResRef shows on hover",
+                            );
+                            ui.checkbox(
+                                &mut draft.auto_reload,
+                                "Reload haks, override and development when they change",
                             )
                             .on_hover_text(
-                                "In Moonglow's data folder; offered back after a crash \
+                                "Changed haks, 2DAs, models and textures show without a restart",
+                            );
+                            ui.horizontal(|ui| {
+                                ui.checkbox(
+                                    &mut draft.autosave,
+                                    "Keep a recovery copy of unsaved work every",
+                                )
+                                .on_hover_text(
+                                    "In Moonglow's data folder; offered back after a crash \
                                      (Recover Unsaved Work)",
+                                );
+                                ui.add_enabled(
+                                    draft.autosave,
+                                    egui::DragValue::new(&mut draft.autosave_minutes)
+                                        .range(1..=120),
+                                );
+                                ui.label("minutes");
+                            });
+                            ui.add_space(8.0);
+                            ui.checkbox(
+                                &mut draft.namespace_warning,
+                                "Show reserved Blueprint ResRef namespace warning",
+                            )
+                            .on_hover_text(
+                                "Warn about a blueprint named like the game's (nw_, x0_ to x3_)",
                             );
-                            ui.add_enabled(
-                                draft.autosave,
-                                egui::DragValue::new(&mut draft.autosave_minutes).range(1..=120),
-                            );
-                            ui.label("minutes");
-                        });
-                        ui.add_space(8.0);
-                        ui.checkbox(
-                            &mut draft.namespace_warning,
-                            "Show reserved Blueprint ResRef namespace warning",
-                        )
-                        .on_hover_text(
-                            "Warn about a blueprint named like the game's (nw_, x0_ to x3_)",
-                        );
-                        ui.checkbox(
-                            &mut draft.standard_warning,
-                            "Show standard resource overwrite warning",
-                        )
-                        .on_hover_text("Warn when the module adds a resource the game has");
-                        ui.checkbox(&mut draft.hak_warning, "Show resource in Hak Pak warning")
+                            ui.checkbox(
+                                &mut draft.standard_warning,
+                                "Show standard resource overwrite warning",
+                            )
+                            .on_hover_text("Warn when the module adds a resource the game has");
+                            ui.checkbox(&mut draft.hak_warning, "Show resource in Hak Pak warning")
                             .on_hover_text(
                                 "Warn when a hak has a resource the module adds (the hak's wins)",
                             );
-                        ui.add_space(8.0);
-                        ui.checkbox(
-                            &mut draft.spell_warning,
-                            "Show invalid creature spell assignment warning",
-                        )
-                        .on_hover_text(
-                            "On a creature's Spells page: spells too high for its level or \
-                             ability, or more than it may have",
-                        );
-                        ui.checkbox(
-                            &mut draft.inventory_warning,
-                            "Show creature inventory warning",
-                        )
-                        .on_hover_text(
-                            "On a creature's Inventory page: the game may unequip what its \
-                                 feats or level do not allow",
-                        );
-                    }
-                    OptionsPage::Area => {
-                        ui.horizontal(|ui| {
-                            ui.label("Background Color");
-                            let mut custom = draft.area_background.is_some();
-                            if ui.checkbox(&mut custom, "Custom").changed() {
-                                draft.area_background = custom.then_some([192, 192, 192]);
-                            }
-                            if let Some(rgb) = &mut draft.area_background {
-                                ui.color_edit_button_srgb(rgb);
-                            } else {
-                                ui.weak("the area's fog");
-                            }
-                        });
-                        ui.checkbox(&mut draft.spawn_markers, "Show Encounter Spawnpoint Markers");
-                        ui.add_enabled_ui(draft.spawn_markers, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("Height");
-                                ui.add(
-                                    egui::DragValue::new(&mut draft.spawn_marker_size.0)
-                                        .range(0..=100),
-                                );
-                                ui.label("Width");
-                                ui.add(
-                                    egui::DragValue::new(&mut draft.spawn_marker_size.1)
-                                        .range(0..=100),
-                                );
-                                ui.weak("(tenths of a meter)");
-                            });
-                        });
-                        ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
-                    }
-                    OptionsPage::Language => {
-                        ui.label("The language text is shown and edited in:");
-                        let mut default = draft.edit_language.is_none();
-                        if ui
-                            .radio_value(&mut default, true, "Use Default Language: English")
-                            .clicked()
-                        {
-                            draft.edit_language = None;
-                        }
-                        if ui.radio_value(&mut default, false, "Specified Language:").clicked()
-                            && draft.edit_language.is_none()
-                        {
-                            draft.edit_language = Some(0);
-                        }
-                        ui.add_enabled_ui(!default, |ui| {
-                            for l in mg_core::Language::EE {
-                                let name = l.name().unwrap_or("?");
-                                if ui
-                                    .selectable_label(draft.edit_language == Some(l.0), name)
-                                    .clicked()
-                                {
-                                    draft.edit_language = Some(l.0);
-                                }
-                            }
-                        });
-                    }
-                    OptionsPage::ConversationEditor => {
-                        ui.checkbox(
-                            &mut draft.dialog_text_popup,
-                            "Show popup when creating a new text entry",
-                        );
-                        ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
-                        for (label, color, default) in [
-                            ("NPC Text Color", &mut draft.dialog_npc_color, [210, 70, 70]),
-                            ("Player Text Color", &mut draft.dialog_pc_color, [90, 140, 230]),
-                        ] {
-                            ui.horizontal(|ui| {
-                                ui.label(label);
-                                let mut rgb = color.unwrap_or(default);
-                                if ui.color_edit_button_srgb(&mut rgb).changed() {
-                                    *color = Some(rgb);
-                                }
-                                if color.is_some() && ui.small_button("Default").clicked() {
-                                    *color = None;
-                                }
-                            });
-                        }
-                        ui.add_space(6.0);
-                        ui.horizontal_top(|ui| {
-                            for (title, source_to_dest) in [
-                                ("Paste Link Options", &mut draft.dialog_paste_source_to_dest),
-                                ("Drag Link Options", &mut draft.dialog_drag_source_to_dest),
-                            ] {
-                                ui.group(|ui| {
-                                    ui.vertical(|ui| {
-                                        ui.strong(title);
-                                        ui.radio_value(
-                                            source_to_dest,
-                                            true,
-                                            "Link Source To Destination",
-                                        );
-                                        ui.radio_value(
-                                            source_to_dest,
-                                            false,
-                                            "Link Destination To Source",
-                                        );
-                                    });
-                                });
-                            }
-                        });
-                        ui.horizontal(|ui| {
+                            ui.add_space(8.0);
                             ui.checkbox(
-                                &mut draft.dialog_backup,
-                                "Automatically backup the conversation files",
+                                &mut draft.spell_warning,
+                                "Show invalid creature spell assignment warning",
                             )
                             .on_hover_text(
-                                "Every few minutes, a copy of each open conversation with \
+                                "On a creature's Spells page: spells too high for its level or \
+                             ability, or more than it may have",
+                            );
+                            ui.checkbox(
+                                &mut draft.inventory_warning,
+                                "Show creature inventory warning",
+                            )
+                            .on_hover_text(
+                                "On a creature's Inventory page: the game may unequip what its \
+                                 feats or level do not allow",
+                            );
+                        }
+                        OptionsPage::Area => {
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "Background Color");
+                                let mut custom = draft.area_background.is_some();
+                                if ui.checkbox(&mut custom, "Custom").changed() {
+                                    draft.area_background = custom.then_some([192, 192, 192]);
+                                }
+                                if let Some(rgb) = &mut draft.area_background {
+                                    ui.color_edit_button_srgb(rgb);
+                                } else {
+                                    ui.weak("the area's fog");
+                                }
+                            });
+                            ui.checkbox(
+                                &mut draft.spawn_markers,
+                                "Show Encounter Spawnpoint Markers",
+                            );
+                            ui.add_enabled_ui(draft.spawn_markers, |ui| {
+                                ui.horizontal(|ui| {
+                                    crate::widgets::field_label(ui, "Height");
+                                    ui.add(
+                                        egui::DragValue::new(&mut draft.spawn_marker_size.0)
+                                            .range(0..=100),
+                                    );
+                                    crate::widgets::field_label(ui, "Width");
+                                    ui.add(
+                                        egui::DragValue::new(&mut draft.spawn_marker_size.1)
+                                            .range(0..=100),
+                                    );
+                                    ui.weak("(tenths of a meter)");
+                                });
+                            });
+                            ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
+                        }
+                        OptionsPage::Language => {
+                            ui.label("The language text is shown and edited in:");
+                            let mut default = draft.edit_language.is_none();
+                            if ui
+                                .radio_value(&mut default, true, "Use Default Language: English")
+                                .clicked()
+                            {
+                                draft.edit_language = None;
+                            }
+                            if ui.radio_value(&mut default, false, "Specified Language:").clicked()
+                                && draft.edit_language.is_none()
+                            {
+                                draft.edit_language = Some(0);
+                            }
+                            ui.add_enabled_ui(!default, |ui| {
+                                for l in mg_core::Language::EE {
+                                    let name = l.name().unwrap_or("?");
+                                    if ui
+                                        .selectable_label(draft.edit_language == Some(l.0), name)
+                                        .clicked()
+                                    {
+                                        draft.edit_language = Some(l.0);
+                                    }
+                                }
+                            });
+                        }
+                        OptionsPage::ConversationEditor => {
+                            ui.checkbox(
+                                &mut draft.dialog_text_popup,
+                                "Show popup when creating a new text entry",
+                            );
+                            ui.checkbox(&mut draft.dialog_names, "Show speaker name before text");
+                            for (label, color, default) in [
+                                ("NPC Text Color", &mut draft.dialog_npc_color, [210, 70, 70]),
+                                ("Player Text Color", &mut draft.dialog_pc_color, [90, 140, 230]),
+                            ] {
+                                ui.horizontal(|ui| {
+                                    crate::widgets::field_label(ui, label);
+                                    let mut rgb = color.unwrap_or(default);
+                                    if ui.color_edit_button_srgb(&mut rgb).changed() {
+                                        *color = Some(rgb);
+                                    }
+                                    if color.is_some() && ui.small_button("Default").clicked() {
+                                        *color = None;
+                                    }
+                                });
+                            }
+                            ui.add_space(6.0);
+                            ui.horizontal_top(|ui| {
+                                for (title, source_to_dest) in [
+                                    ("Paste Link Options", &mut draft.dialog_paste_source_to_dest),
+                                    ("Drag Link Options", &mut draft.dialog_drag_source_to_dest),
+                                ] {
+                                    ui.group(|ui| {
+                                        ui.vertical(|ui| {
+                                            crate::widgets::section_heading(ui, title);
+                                            ui.radio_value(
+                                                source_to_dest,
+                                                true,
+                                                "Link Source To Destination",
+                                            );
+                                            ui.radio_value(
+                                                source_to_dest,
+                                                false,
+                                                "Link Destination To Source",
+                                            );
+                                        });
+                                    });
+                                }
+                            });
+                            ui.horizontal(|ui| {
+                                ui.checkbox(
+                                    &mut draft.dialog_backup,
+                                    "Automatically backup the conversation files",
+                                )
+                                .on_hover_text(
+                                    "Every few minutes, a copy of each open conversation with \
                                  unsaved changes, in the temporary folder's moonglow-backups",
+                                );
+                                ui.add_enabled(
+                                    draft.dialog_backup,
+                                    egui::DragValue::new(&mut draft.dialog_backup_minutes)
+                                        .range(1..=180),
+                                );
+                                ui.label("minutes");
+                            });
+                        }
+                        OptionsPage::Sounds => {
+                            ui.checkbox(
+                                &mut draft.placed_sounds,
+                                "Play placed sound objects in area",
                             );
-                            ui.add_enabled(
-                                draft.dialog_backup,
-                                egui::DragValue::new(&mut draft.dialog_backup_minutes)
-                                    .range(1..=180),
-                            );
-                            ui.label("minutes");
-                        });
-                    }
-                    OptionsPage::Sounds => {
-                        ui.checkbox(&mut draft.placed_sounds, "Play placed sound objects in area");
-                        ui.checkbox(&mut draft.ambient_sound, "Play ambient sound in area");
-                        ui.checkbox(&mut draft.ambient_music, "Play ambient music in area");
-                        ui.horizontal(|ui| {
-                            ui.label("Ambient music volume");
-                            ui.add(egui::Slider::new(&mut draft.music_volume, 0..=127));
-                        });
-                        ui.weak(
-                            "Placed sounds are heard from where the area view looks, at full \
+                            ui.checkbox(&mut draft.ambient_sound, "Play ambient sound in area");
+                            ui.checkbox(&mut draft.ambient_music, "Play ambient music in area");
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "Ambient music volume");
+                                ui.add(egui::Slider::new(&mut draft.music_volume, 0..=127));
+                            });
+                            ui.weak(
+                                "Placed sounds are heard from where the area view looks, at full \
                              volume within their Max Volume Distance and fading out at their \
                              Cutoff Distance.",
-                        );
-                    }
-                    OptionsPage::ScriptEditor => {
-                        ui.label("Code Templates Directory");
-                        ui.horizontal(|ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut draft.script_templates)
-                                    .desired_width(300.0),
                             );
-                            if ui.button("Browse…").clicked() {
-                                browse = Some(Browse::Templates);
-                            }
-                        });
-                        ui.weak("Listed with the game's (data/scr) and scripttemplates.");
-                        ui.checkbox(
-                            &mut draft.auto_compile,
-                            "Automatically Compile Scripts on Save",
-                        );
-                        ui.checkbox(
-                            &mut draft.debug_info,
-                            "Generate Debug Information When Compiling Scripts",
-                        )
-                        .on_hover_text("Store a .ndb with each compiled script, for debuggers");
-                        ui.label("External Script Editor");
-                        ui.horizontal(|ui| {
-                            ui.add(
-                                egui::TextEdit::singleline(&mut draft.external_editor)
-                                    .desired_width(300.0),
+                        }
+                        OptionsPage::ScriptEditor => {
+                            crate::widgets::field_label(ui, "Code Templates Directory");
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut draft.script_templates)
+                                        .desired_width(300.0),
+                                );
+                                if ui.button("Browse…").clicked() {
+                                    browse = Some(Browse::Templates);
+                                }
+                            });
+                            ui.weak("Listed with the game's (data/scr) and scripttemplates.");
+                            ui.checkbox(
+                                &mut draft.auto_compile,
+                                "Automatically Compile Scripts on Save",
                             );
-                            if ui.button("Browse…").clicked() {
-                                browse = Some(Browse::Editor);
-                            }
-                        });
-                        ui.add_space(6.0);
-                        script_style(ui, &mut draft.script_style);
-                    }
-                });
-            });
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("OK").clicked() || crate::widgets::enter(ui) {
-                    close = true;
-                    if draft.moves_game(&app.settings) {
-                        app.actions.push(Action::ApplyOptions(draft.clone()));
-                    } else {
-                        // Only looks: no reload.
-                        app.settings = draft.apply(&app.settings);
-                        crate::text::set_edit_language(mg_core::Language(
-                            app.settings.edit_language.unwrap_or(0),
-                        ));
-                    }
-                }
-                if ui.button("Cancel").clicked() {
-                    close = true;
-                }
-            });
+                            ui.checkbox(
+                                &mut draft.debug_info,
+                                "Generate Debug Information When Compiling Scripts",
+                            )
+                            .on_hover_text("Store a .ndb with each compiled script, for debuggers");
+                            crate::widgets::field_label(ui, "External Script Editor");
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut draft.external_editor)
+                                        .desired_width(300.0),
+                                );
+                                if ui.button("Browse…").clicked() {
+                                    browse = Some(Browse::Editor);
+                                }
+                            });
+                            ui.add_space(6.0);
+                            script_style(ui, &mut draft.script_style);
+                        }
+                    });
+                },
+            );
         });
     if let Some(Browse::Editor) = browse {
         if let Some(p) = app.dialogs.open_file(crate::dialogs::FileKind::Any, None) {
@@ -536,13 +581,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 /// theme's unless "Custom" is ticked), with a preview.
 fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
     ui.horizontal(|ui| {
-        ui.label("Font size");
+        crate::widgets::field_label(ui, "Font size");
         ui.add(egui::DragValue::new(&mut style.font_size).range(6..=48));
     });
     let defaults = Palette::defaults(ui.visuals().dark_mode, ui.visuals().text_color());
     egui::Grid::new("script-colors").num_columns(3).show(ui, |ui| {
         for (i, name) in SCRIPT_ELEMENTS.iter().enumerate() {
-            ui.label(*name);
+            crate::widgets::field_label(ui, *name);
             let mut custom = style.colors[i].is_some();
             if ui.checkbox(&mut custom, "Custom").changed() {
                 style.colors[i] = custom.then(|| {
@@ -620,7 +665,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
             for cmd in Cmd::ALL {
                 if group != Some(cmd.group()) {
                     group = Some(cmd.group());
-                    ui.strong(cmd.group().name());
+                    crate::widgets::section_heading(ui, cmd.group().name());
                     ui.end_row();
                 }
                 ui.label(cmd.name());
@@ -680,9 +725,11 @@ mod tests {
         let mut d = OptionsDraft::from_settings(&s);
         (d.build_on_save, d.minimize_on_test, d.auto_compile, d.debug_info) =
             (true, true, true, true);
+        d.area_names = true;
         d.script_templates = " /tmp/templates ".into();
         let t = d.apply(&s);
         assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
+        assert!(t.area_names && !s.area_names, "areas by ResRef unless asked");
         assert_eq!(t.script_templates, Some(PathBuf::from("/tmp/templates")));
         assert!(!d.moves_game(&s), "no reload for these");
         assert_eq!(OptionsDraft::from_settings(&t).script_templates, "/tmp/templates");

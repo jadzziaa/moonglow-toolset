@@ -80,6 +80,8 @@ pub enum Cmd {
     CameraTurnRight,
     CameraTiltUp,
     CameraTiltDown,
+    CameraUp,
+    CameraDown,
     Find,
     Replace,
     FindNext,
@@ -97,7 +99,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 43] = [
+    pub const ALL: [Cmd; 45] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -131,6 +133,8 @@ impl Cmd {
         Cmd::CameraTurnRight,
         Cmd::CameraTiltUp,
         Cmd::CameraTiltDown,
+        Cmd::CameraUp,
+        Cmd::CameraDown,
         Cmd::Find,
         Cmd::Replace,
         Cmd::FindNext,
@@ -180,6 +184,8 @@ impl Cmd {
             Cmd::CameraTurnRight => ("camera-turn-right", "Turn Camera Right", Area),
             Cmd::CameraTiltUp => ("camera-tilt-up", "Tilt Camera Up", Area),
             Cmd::CameraTiltDown => ("camera-tilt-down", "Tilt Camera Down", Area),
+            Cmd::CameraUp => ("camera-up", "Move Camera Up", Area),
+            Cmd::CameraDown => ("camera-down", "Move Camera Down", Area),
             Cmd::Find => ("find", "Find", Script),
             Cmd::Replace => ("replace", "Replace", Script),
             Cmd::FindNext => ("find-next", "Find Next", Script),
@@ -247,6 +253,8 @@ impl Cmd {
             Cmd::CameraTurnRight => vec![k(NONE, Key::Num9)],
             Cmd::CameraTiltUp => vec![k(NONE, Key::Num1)],
             Cmd::CameraTiltDown => vec![k(NONE, Key::Num3)],
+            Cmd::CameraUp => vec![k(NONE, Key::Z)],
+            Cmd::CameraDown => vec![k(NONE, Key::C)],
             Cmd::Find => vec![k(CTRL, Key::F)],
             Cmd::Replace => vec![k(CTRL, Key::R)],
             Cmd::FindNext => vec![k(NONE, Key::F3)],
@@ -272,6 +280,8 @@ impl Cmd {
                 | Cmd::CameraTurnRight
                 | Cmd::CameraTiltUp
                 | Cmd::CameraTiltDown
+                | Cmd::CameraUp
+                | Cmd::CameraDown
         )
     }
 

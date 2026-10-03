@@ -115,8 +115,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
 ## Palettes
 
 - **Pictures for the rest:** sounds, triggers, encounters, stores and
-  waypoints have no picture on hover (they have no model); an icon or a
-  summary could stand in. (S)
+  waypoints have no picture on hover (all but waypoints have no model;
+  a waypoint's flag, which the area view draws, could be its picture);
+  an icon or a summary could stand in. (S)
 - **Favorites and Recent** are Moonglow's, not the module's: a custom
   blueprint's favorite shows only in the module that has it. Per-module
   lists could live beside the module. (S)
@@ -165,6 +166,18 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **ERF version:** haks are saved as `V1.0`; EE's compressed `E1.0` is
   read but not written. (S–M)
 
+## Options and lists
+
+- **Areas by name elsewhere:** Show areas by name names areas in the
+  module tree and in tab titles; other lists of areas (Find Instance,
+  references, the transition pickers, the log) still show ResRefs. (S)
+- **The Options window as a tab:** it is a floating window of a fixed
+  size (resizable, the size kept while Moonglow runs), not a tab in the
+  dock. (S)
+- **Column headings** in forms' tables ("Base", "Total", "Sun", "Moon")
+  keep the plain strong style; only section headings were made larger.
+  (—)
+
 ## Area visibility
 
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
@@ -173,6 +186,14 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (`ptm_candle02.pwk`, Tyrants of the Moonsea) puts its mesh 72 m from
   itself. Moonglow draws it there; whether the engine does isn't tested.
   (S)
+- **Lighting off against Aurora:** the Lighting switch's working light
+  (white, even, a little from the sun's side) is Moonglow's; how Aurora
+  lights an area with its lighting off was not captured. (S)
+- **Sound ranges:** level circles at the sound's height, not spheres; a
+  sound's random position range (`RandomRangeX`, `RandomRangeY`) isn't
+  drawn. (S)
+- **Lighting, Sound Ranges and the camera's height** are each view's and
+  last until its tab closes; they aren't kept in the settings. (S)
 - **Minimap pictures for tilesets without them:** Moonglow exports the
   pictures the tileset has; rendering tiles from above to make them
   (NeverBlender's minimap tool) isn't offered. (M)
@@ -248,6 +269,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## From the research notes
 
+- **Index lists against the client:** that the game draws a compiled
+  mesh's index list where it has more triangles than the face list
+  (`Mesh::drawn`: most Forest - Facelift cliffs) is settled from the
+  files (the list reaches every vertex, the faces are its first
+  triangles, drawing it closes the holes), not by a client screenshot
+  (`client_render.rs`). (S)
+- **Waypoint flags against Aurora:** the flags are drawn unlit so their
+  colors tell apart in a dark area; how Aurora lights them was not
+  captured. (S)
 - **KTX textures:** `mg-image` doesn't read KTX yet (`PLAN.md` §4). (M)
 - **Tile Properties' Defaults:** not yet compared with Aurora for a
   lighting scheme whose colors aren't black

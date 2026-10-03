@@ -366,8 +366,8 @@ fn smooth_normals(m: &Mesh, out: &mut [Vertex]) {
         })
         .collect();
     let mut sum = vec![Vec3::ZERO; class.len()];
-    for f in &m.faces {
-        let [a, b, c] = f.vertices.map(|v| v as usize);
+    for t in m.triangles() {
+        let [a, b, c] = t.map(|v| v as usize);
         if a.max(b).max(c) >= out.len() {
             continue;
         }

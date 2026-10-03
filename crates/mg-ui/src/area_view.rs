@@ -12,7 +12,8 @@
 //! places it (Shift + click keeps it chosen; right click or Escape lets it
 //! go); triggers and encounters are drawn point by point, a double click
 //! closing the outline. Also: a middle drag turns the camera (Shift:
-//! moves it), the arrow keys move it, Ctrl + click adds to the selection
+//! moves it), the arrow keys move it, Z and C (or Ctrl + Shift + the wheel
+//! or a middle drag) move it up and down, Ctrl + click adds to the selection
 //! and Delete deletes it.
 
 use std::f32::consts::FRAC_PI_2;
@@ -155,6 +156,11 @@ pub struct AreaView {
     pub selection: Vec<(ObjectKind, usize)>,
     pub night: bool,
     pub fog: bool,
+    /// Lit by the area's lighting (off: an even working light).
+    pub lit: bool,
+    /// Circles where each placed sound is heard at full volume and where
+    /// it stops.
+    pub sound_ranges: bool,
     pub grid: bool,
     /// Which kinds of object are shown, by [`ObjectKind::index`].
     pub show: [bool; 9],
@@ -251,6 +257,8 @@ impl AreaView {
             selection: Vec::new(),
             night: false,
             fog: false,
+            lit: true,
+            sound_ranges: false,
             grid: true,
             show: [true; 9],
             show_start: true,
@@ -566,6 +574,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         ui.separator();
         ui.toggle_value(&mut view.night, labelled(icons::NIGHT, "Night"))
             .on_hover_text("Show the area at night");
+        ui.toggle_value(&mut view.lit, "💡 Lighting").on_hover_text(
+            "Use the area's lighting; off, everything is evenly lit (for working in dark areas)",
+        );
         ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
         ui.toggle_value(&mut view.grid, labelled(icons::GRID, "Grid"))
             .on_hover_text("Display Grid");
@@ -579,6 +590,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.no_placed_sounds = !placed;
         }
+        ui.toggle_value(&mut view.sound_ranges, "◎ Sound Ranges").on_hover_text(
+            "Where each placed sound is heard: at full volume inside the inner circle, not at \
+             all outside the outer one",
+        );
         ui.toggle_value(&mut app.settings.ambient_sound, labelled(icons::AMBIENT, "Ambient"))
             .on_hover_text("Play ambient sound in area");
         ui.toggle_value(&mut app.settings.ambient_music, labelled(icons::MUSIC, "Music"))
@@ -735,7 +750,8 @@ fn viewport(
     view.ghost_shown.clone_from(&ghost);
     // What a tile brush's click would make, under the pointer: the tiles in
     // place of those they replace.
-    let settings = View { time: view.time, night: view.night, fog: view.fog, show: view.show };
+    let settings =
+        View { time: view.time, night: view.night, fog: view.fog, lit: view.lit, show: view.show };
     let shift = ui.input(|i| i.modifiers.shift);
     let preview = crate::terrain_mode::preview(app, view, shift);
     let (preview_instances, hidden) =
@@ -845,6 +861,7 @@ fn viewport(
         ghost_box,
     };
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
+    sound_range_overlay(app, ui, view, &shown);
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
     view.pointer = ui
         .ctx()
@@ -909,6 +926,54 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         mesh.add_triangle(first, first + 1, first + 2);
     }
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
+}
+
+/// Where the placed sounds are heard (the Sound Ranges switch): around
+/// each positional sound, level at its height, a circle of its
+/// `MinDistance` (full volume inside) and one of its `MaxDistance` (silent
+/// outside); the selection's brighter. A sound heard everywhere in the
+/// area has none.
+fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown: &AreaModel) {
+    if !view.sound_ranges || !view.show[ObjectKind::Sound.index()] {
+        return;
+    }
+    let Some(ws) = app.ws.as_mut() else { return };
+    let Ok(doc) = ws.doc(&view.git()) else { return };
+    let Some(list) = doc.root.list(ObjectKind::Sound.list()) else { return };
+    let painter = ui.painter_at(view.rect);
+    for (i, o) in shown.objects.iter().enumerate().filter(|(_, o)| o.kind == ObjectKind::Sound) {
+        let Some(sound) = list.get(o.index).map(crate::area_audio::PlacedSound::from_git) else {
+            continue;
+        };
+        if !sound.positional {
+            continue;
+        }
+        let alpha = if view.selected(i) { 255 } else { 150 };
+        for (radius, width) in [(sound.min_distance, 2.0), (sound.max_distance, 1.0)] {
+            if radius <= 0.0 {
+                continue;
+            }
+            let stroke = Stroke::new(width, Color32::from_rgba_unmultiplied(240, 220, 80, alpha));
+            let points: Vec<Option<Pos2>> =
+                sound_circle(o.position, radius).into_iter().map(|p| view.screen_pos(p)).collect();
+            for k in 0..points.len() {
+                if let (Some(a), Some(b)) = (points[k], points[(k + 1) % points.len()]) {
+                    painter.line_segment([a, b], stroke);
+                }
+            }
+        }
+    }
+}
+
+/// The points of a level circle around `centre`.
+fn sound_circle(centre: Vec3, radius: f32) -> Vec<Vec3> {
+    const POINTS: usize = 64;
+    (0..POINTS)
+        .map(|k| {
+            let a = k as f32 / POINTS as f32 * std::f32::consts::TAU;
+            centre + Vec3::new(a.cos(), a.sin(), 0.0) * radius
+        })
+        .collect()
 }
 
 /// Placeables' and doors' walkmeshes over the view: placeables orange,
@@ -1027,9 +1092,11 @@ fn overlays(
             line(tip, tip - ahead * 0.5 + side, stroke);
             line(tip, tip - ahead * 0.5 - side, stroke);
         }
-        // Waypoints and merchants: a yellow arrow along their facing, as
-        // Aurora draws them.
-        if matches!(o.kind, ObjectKind::Waypoint | ObjectKind::Store) && !selected {
+        // Merchants, and waypoints without a flag (the flag's model has
+        // its arrow): a yellow arrow along their facing, as Aurora draws
+        // them.
+        let flagged = o.preview.is_some() && scene.is_some();
+        if matches!(o.kind, ObjectKind::Waypoint | ObjectKind::Store) && !selected && !flagged {
             let ahead = Vec3::new(o.facing().cos(), o.facing().sin(), 0.0);
             let side = Vec3::new(-ahead.y, ahead.x, 0.0) * 0.6;
             let (tip, base) = (o.position + ahead * 1.0, o.position - ahead * 0.6);
@@ -1455,7 +1522,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 }
 
 /// The camera: Ctrl + drag moves it, Ctrl + right or middle drag (or a
-/// middle drag) turns it, Shift + middle drag moves it, the wheel zooms;
+/// middle drag) turns it, Shift + middle drag moves it, the wheel zooms,
+/// Ctrl + Shift + the wheel or a middle drag moves it up and down;
 /// the keys of Options › Keyboard (WASD, the arrows and the number keys).
 fn camera_input(
     ui: &egui::Ui,
@@ -1479,23 +1547,36 @@ fn camera_input(
     // turns the selection, as in Aurora; a right click is still the menu).
     let turning = (response.dragged_by(egui::PointerButton::Middle) && !shift)
         || (!shift && response.dragged_by(egui::PointerButton::Secondary));
-    if turning {
+    // What a pixel is on the ground at the target.
+    let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan() / rect.height().max(1.0);
+    if command && shift && response.dragged_by(egui::PointerButton::Middle) {
+        // Ctrl + Shift + middle drag: up and down, the view following the
+        // pointer.
+        raise(o, d.y * per_pixel);
+    } else if turning {
         o.yaw -= d.x * 0.01;
         o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, MAX_PITCH);
     } else if (command && response.dragged_by(egui::PointerButton::Primary))
         || (shift && response.dragged_by(egui::PointerButton::Middle))
     {
         // The ground follows the pointer.
-        let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan() / rect.height().max(1.0);
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);
     }
     // (egui turns the wheel sideways with Shift held.)
+    // (And with Ctrl held it reports the wheel as a zoom, not a scroll.)
+    let zoom_speed = ui.ctx().options(|o| o.input_options.scroll_zoom_speed);
     let (scroll, slow) = ui.input(|i| {
         let d = i.smooth_scroll_delta;
-        let scroll = if i.modifiers.shift && d.y == 0.0 { d.x } else { d.y };
+        let mut scroll = if i.modifiers.shift && d.y == 0.0 { d.x } else { d.y };
+        if scroll == 0.0 && i.modifiers.command && zoom_speed > 0.0 {
+            scroll = i.zoom_delta().ln() / zoom_speed;
+        }
         (scroll, shift || i.modifiers.command)
     });
-    if scroll != 0.0 && response.hovered() {
+    if scroll != 0.0 && response.hovered() && command && shift {
+        // Ctrl + Shift + wheel: up and down, finer the nearer the view.
+        raise(o, scroll * 0.0006 * o.distance);
+    } else if scroll != 0.0 && response.hovered() {
         let rate = if slow { 0.001 } else { 0.002 };
         o.distance = (o.distance * (-scroll * rate).exp()).clamp(1.0, 2000.0);
     }
@@ -1518,14 +1599,18 @@ fn camera_input(
         axis(Cmd::CameraTurnRight, Cmd::CameraTurnLeft),
         axis(Cmd::CameraTiltUp, Cmd::CameraTiltDown),
     );
+    let rise = axis(Cmd::CameraUp, Cmd::CameraDown);
     if travel != Vec2::ZERO {
         pan(o, travel * o.distance * dt);
+    }
+    if rise != 0.0 {
+        raise(o, rise * o.distance * 0.25 * dt);
     }
     if turn != Vec2::ZERO {
         o.yaw -= turn.x * 1.5 * dt;
         o.pitch = (o.pitch + turn.y * 1.0 * dt).clamp(0.05, MAX_PITCH);
     }
-    if travel != Vec2::ZERO || turn != Vec2::ZERO {
+    if travel != Vec2::ZERO || turn != Vec2::ZERO || rise != 0.0 {
         ui.ctx().request_repaint();
     }
     // F10, as in Aurora: select tiles or objects.
@@ -1780,6 +1865,15 @@ fn pan(o: &mut Orbit, by: Vec2) {
     let ahead = Vec3::new(-o.yaw.cos(), -o.yaw.sin(), 0.0);
     let right = Vec3::new(ahead.y, -ahead.x, 0.0);
     o.target += right * by.x + ahead * by.y;
+}
+
+/// The lowest and highest the camera's target goes, metres: under the
+/// deepest pits and over the tallest tiles.
+const TARGET_HEIGHTS: (f32, f32) = (-50.0, 200.0);
+
+/// Moves the camera's target (and so the camera) up by `by` metres.
+fn raise(o: &mut Orbit, by: f32) {
+    o.target.z = (o.target.z + by).clamp(TARGET_HEIGHTS.0, TARGET_HEIGHTS.1);
 }
 
 /// One command that puts each object (by its position in the model) where
@@ -2537,7 +2631,7 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
                         ("Model memory", format!("{:.1} MB", u.buffer_bytes as f64 / 1048576.0)),
                         ("Textures", u.textures.to_string()),
                     ] {
-                        ui.label(label);
+                        crate::widgets::field_label(ui, label);
                         ui.label(value);
                         ui.end_row();
                     }
@@ -2554,6 +2648,28 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_camera_goes_up_and_down_within_its_heights() {
+        let mut o =
+            Orbit { target: Vec3::new(5.0, 5.0, 0.0), yaw: 0.0, pitch: 1.0, distance: 20.0 };
+        raise(&mut o, 2.5);
+        assert_eq!(o.target, Vec3::new(5.0, 5.0, 2.5));
+        // The camera goes up with its target.
+        assert!((o.camera().eye.z - (2.5 + 20.0 * 1f32.sin())).abs() < 1e-3);
+        raise(&mut o, -1000.0);
+        assert_eq!(o.target.z, TARGET_HEIGHTS.0);
+        raise(&mut o, 1e6);
+        assert_eq!(o.target.z, TARGET_HEIGHTS.1);
+    }
+
+    #[test]
+    fn a_sounds_circle_is_level_around_it() {
+        let centre = Vec3::new(10.0, 20.0, 1.5);
+        let circle = sound_circle(centre, 7.0);
+        assert!(circle.len() >= 32);
+        assert!(circle.iter().all(|p| p.z == 1.5 && ((*p - centre).length() - 7.0).abs() < 1e-4));
+    }
 
     #[test]
     fn the_fog_is_measured_from_a_game_camera_near_the_target() {

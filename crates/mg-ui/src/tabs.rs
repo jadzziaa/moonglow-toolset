@@ -152,9 +152,11 @@ impl TabViewer for Viewer<'_> {
             Tab::Dialog(k) => k.to_string().into(),
             Tab::Resource(k) => format!("{k} (read-only)").into(),
             Tab::Model(k) => k.to_string().into(),
-            Tab::Area(r) => r.to_string().into(),
+            Tab::Area(r) => area_label(self.app, *r).into(),
             Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),
-            Tab::AreaProperties(area) => format!("{area} (Area Properties)").into(),
+            Tab::AreaProperties(area) => {
+                format!("{} (Area Properties)", area_label(self.app, *area)).into()
+            }
             Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()).into(),
             Tab::Blueprints(keys) => {
                 let ext = keys[0].restype.extension().unwrap_or_default();
@@ -262,6 +264,13 @@ impl TabViewer for Viewer<'_> {
         let fits = matches!(tab, Tab::Script(_) | Tab::Manual);
         [!fits, !fits]
     }
+}
+
+/// An area in a tab's title: its ResRef, or its name (Options › General:
+/// Show areas by name).
+fn area_label(app: &mut Moonglow, area: mg_core::ResRef) -> String {
+    let Some(ws) = &app.ws else { return area.to_string() };
+    app.area_names.label(ws, app.game.as_ref(), area, app.settings.area_names)
 }
 
 /// A placed object's tab title: its tag and where it is.

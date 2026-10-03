@@ -267,9 +267,9 @@ pub struct AreaObject {
     /// The blueprint it was made from (`TemplateResRef`; a store's
     /// `ResRef`).
     pub template: Option<ResRef>,
-    /// Its models: creatures, doors, items and placeables. `None` for the
-    /// others (drawn as markers) and when its appearance cannot be shown
-    /// (see `problem`).
+    /// Its models: creatures, doors, items, placeables and waypoints (their
+    /// flags). `None` for the others (drawn as markers) and when its
+    /// appearance cannot be shown (see `problem`).
     pub preview: Option<Preview>,
     /// Why a creature, door, item or placeable has no preview.
     pub problem: Option<String>,
@@ -325,6 +325,9 @@ impl AreaObject {
             ObjectKind::Door => Some(mg_preview::door(game, s)),
             ObjectKind::Item => Some(mg_preview::item(game, s)),
             ObjectKind::Placeable => Some(mg_preview::placeable(game, s)),
+            // A waypoint without a flag (no appearance) is drawn as a
+            // marker: nothing is wrong with it.
+            ObjectKind::Waypoint => mg_preview::waypoint(game, s).ok().map(Ok),
             _ => None,
         };
         let (preview, problem) = match preview {

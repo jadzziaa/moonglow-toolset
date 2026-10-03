@@ -43,6 +43,10 @@ pub struct Settings {
     pub script_style: ScriptStyle,
     /// Options > General: Build module on save (Aurora's `Verify On Save`).
     pub build_on_save: bool,
+    /// Options > General: Show areas by name: the module tree lists areas
+    /// (and their tabs are titled) by their names rather than their
+    /// ResRefs.
+    pub area_names: bool,
     /// Options > General: Minimize Toolset on test module.
     pub minimize_on_test: bool,
     /// Options > General: Create backups of modules off (Aurora's default:

@@ -28,6 +28,9 @@ pub struct View {
     pub time: f32,
     pub night: bool,
     pub fog: bool,
+    /// Lit by the area's lighting and its lights; else by an even working
+    /// light, in which a dark area shows (Aurora's lighting switched off).
+    pub lit: bool,
     /// Which kinds of object are drawn, by [`ObjectKind::index`].
     pub show: [bool; 9],
 }
@@ -36,7 +39,13 @@ impl View {
     /// The area as the toolset first shows it (without fog, as Aurora's
     /// Scene › Fog starts unchecked).
     pub fn of(area: &AreaModel) -> View {
-        View { time: 0.0, night: area.lighting.night_by_default(), fog: false, show: [true; 9] }
+        View {
+            time: 0.0,
+            night: area.lighting.night_by_default(),
+            fog: false,
+            lit: true,
+            show: [true; 9],
+        }
     }
 
     pub fn shows(&self, kind: ObjectKind) -> bool {
@@ -203,7 +212,7 @@ impl AreaScene {
     /// `object` (not in the area: a blueprint about to be placed) as
     /// see-through models, `opacity` opaque, and its box in its own space;
     /// no models and a marker's box for an object without models (a
-    /// waypoint, a sound).
+    /// sound, a store).
     pub fn ghost(
         &mut self,
         gpu: &Gpu,
@@ -222,6 +231,7 @@ impl AreaScene {
         let mut out = c.instances(c.idle.as_deref(), time, object.model_transform());
         for i in &mut out {
             i.opacity = opacity;
+            i.unlit = object.kind == ObjectKind::Waypoint;
         }
         (out, shown.bounds)
     }
@@ -289,8 +299,14 @@ impl AreaScene {
             let Some(shown) = shown.as_ref().filter(|_| view.shows(o.kind)) else { continue };
             let c = &shown.composed;
             let transform = o.model_transform();
-            instances.extend(c.instances(c.idle.as_deref(), view.time, transform));
+            // A waypoint's flag is a marker: in its own colours, unlit.
+            let unlit = o.kind == ObjectKind::Waypoint;
+            let drawn = c.instances(c.idle.as_deref(), view.time, transform);
+            instances.extend(drawn.into_iter().map(|i| Instance { unlit, ..i }));
             lights.extend(c.point_lights(transform));
+        }
+        if !view.lit {
+            lights.clear();
         }
         let l = &area.lighting;
         let sky = l.sky(view.night);
@@ -299,7 +315,7 @@ impl AreaScene {
         Scene {
             instances,
             lights,
-            area: AreaLight::from_are(sky.ambient, sky.diffuse, sun_direction()),
+            area: area_light(sky, view.lit),
             fog,
             background,
             particles: Vec::new(),
@@ -476,6 +492,25 @@ fn light_colors(game: &GameData) -> Vec<Vec3> {
         .collect()
 }
 
+/// The sun's or moon's light, or with the lighting off the working light.
+fn area_light(sky: crate::Sky, lit: bool) -> AreaLight {
+    if lit {
+        AreaLight::from_are(sky.ambient, sky.diffuse, sun_direction())
+    } else {
+        working_light()
+    }
+}
+
+/// The light of a view with the area's lighting off: bright and white
+/// from everywhere, with enough from the sun's side to show shapes.
+fn working_light() -> AreaLight {
+    AreaLight {
+        ambient: Vec3::splat(0.75_f32.powf(2.2)),
+        diffuse: Vec3::splat(0.5_f32.powf(2.2)),
+        direction: sun_direction(),
+    }
+}
+
 /// The direction towards the sun and moon: the game's default (towards
 /// 4000, 4500, 7000).
 fn sun_direction() -> Vec3 {
@@ -501,4 +536,23 @@ pub fn overview(area: &AreaModel) -> mg_render::Camera {
     let centre = Vec3::new(w / 2.0, h / 2.0, 0.0);
     let span = w.max(h).max(TILE_SIZE);
     mg_render::Camera::orbit(centre, span * 1.2, -std::f32::consts::FRAC_PI_2, 55f32.to_radians())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn with_the_lighting_off_a_dark_area_is_evenly_lit() {
+        // A black night.
+        let night = crate::Sky::default();
+        let lit = area_light(night, true);
+        assert_eq!((lit.ambient, lit.diffuse), (Vec3::ZERO, Vec3::ZERO));
+        // Off: bright and white, whatever the area's colours.
+        let red = crate::Sky { ambient: 0x0000_00FF, diffuse: 0x0000_0040, ..night };
+        let off = area_light(night, false);
+        assert_eq!(off, area_light(red, false));
+        assert!(off.ambient.min_element() > 0.5 && off.ambient.x == off.ambient.z);
+        assert!(off.diffuse.min_element() > 0.0);
+    }
 }

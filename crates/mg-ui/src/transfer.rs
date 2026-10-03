@@ -175,7 +175,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         keys.sort_by_key(|k| (k.restype.extension().unwrap_or_default(), k.resref));
         window("Export Resources").show(&ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Filter");
+                crate::widgets::field_label(ui, "Filter");
                 let field = ui.text_edit_singleline(&mut draft.filter);
                 crate::widgets::autofocus(ui, &field);
             });
@@ -200,7 +200,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.checkbox(&mut draft.dependencies, "Include the resources they use");
             ui.checkbox(&mut draft.reset_factions, "Put creatures in the standard factions");
             ui.horizontal(|ui| {
-                ui.label("Description");
+                crate::widgets::field_label(ui, "Description");
                 ui.text_edit_singleline(&mut draft.comments);
             });
             ui.horizontal(|ui| {

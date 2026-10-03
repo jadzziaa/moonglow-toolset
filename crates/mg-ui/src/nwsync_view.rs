@@ -153,7 +153,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             );
             ui.add_enabled_ui(!p.running(), |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("Repository folder");
+                    crate::widgets::field_label(ui, "Repository folder");
                     ui.add(egui::TextEdit::singleline(&mut p.folder).desired_width(320.0));
                     browse = ui.button("Browse…").clicked();
                 });
@@ -162,10 +162,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 );
                 if p.with_module {
                     ui.horizontal(|ui| {
-                        ui.label("Name");
+                        crate::widgets::field_label(ui, "Name");
                         ui.text_edit_singleline(&mut p.name);
                     });
-                    ui.label("Description");
+                    crate::widgets::field_label(ui, "Description");
                     ui.add(
                         egui::TextEdit::multiline(&mut p.description)
                             .desired_rows(3)
@@ -173,7 +173,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     );
                 }
                 ui.horizontal(|ui| {
-                    ui.label("Group ID");
+                    crate::widgets::field_label(ui, "Group ID");
                     ui.add(egui::DragValue::new(&mut p.group_id));
                     ui.weak("for servers sharing a repository");
                 });
@@ -194,7 +194,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             if let Some(w) = &p.written {
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label("Manifest");
+                    crate::widgets::field_label(ui, "Manifest");
                     ui.monospace(&w.sha1);
                     if ui.small_button("Copy").clicked() {
                         ui.ctx().copy_text(w.sha1.clone());

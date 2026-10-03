@@ -1202,7 +1202,7 @@ fn other_tab(
 fn file_tab(app: &mut Moonglow, ui: &mut Ui, key: ResKey, g: &Gff, actions: &mut Vec<Action>) {
     egui::Grid::new(("dlg-file", key)).num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
         for (label, field) in [("Normal end", "EndConversation"), ("Aborted", "EndConverAbort")] {
-            ui.label(label);
+            crate::widgets::field_label(ui, label);
             let current = g.root.resref(field).unwrap_or(ResRef::EMPTY);
             let id = egui::Id::new(("dlg-end", key, field));
             if let Some(v) =

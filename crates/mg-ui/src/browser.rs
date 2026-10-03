@@ -90,7 +90,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 ui.selectable_value(&mut browser.restype, Some(*t), t.extension().unwrap_or("?"));
             }
         });
-        ui.label("Name");
+        crate::widgets::field_label(ui, "Name");
         ui.text_edit_singleline(&mut browser.filter);
         if ui.button("Refresh").clicked() {
             browser.stale = true;

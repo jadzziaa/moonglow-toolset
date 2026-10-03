@@ -412,7 +412,8 @@ fn tile_model(d: &mut Doctor, name: &str) {
     };
     // (Walkmeshes reaching past the tile were tried and left out: the
     // game's own tiles have them, out to 10 m.)
-    let faces: usize = model.nodes.iter().filter_map(|n| n.mesh()).map(|m| m.faces.len()).sum();
+    let faces: usize =
+        model.nodes.iter().filter_map(|n| n.mesh()).map(|m| m.triangles().count()).sum();
     if faces > 10_000 {
         d.push(
             Warning,

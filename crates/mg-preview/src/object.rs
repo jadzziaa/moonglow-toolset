@@ -49,6 +49,23 @@ pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError>
     Ok(Preview { base, parts: Vec::new(), idle: Some(idle.into()), lights })
 }
 
+/// A waypoint (UTW fields): the flag of its `Appearance`, waypoint.2da
+/// `RESREF` (blue, red, green, yellow).
+pub fn waypoint(game: &GameData, utw: &Struct) -> Result<Preview, PreviewError> {
+    let lk = Lookup { game };
+    let table = game.table("waypoint")?;
+    let row = utw.integer("Appearance").unwrap_or(0);
+    let model = usize::try_from(row)
+        .ok()
+        .and_then(|r| cell(&table, r, "RESREF"))
+        .map(str::to_ascii_lowercase)
+        .ok_or(PreviewError::NoRow { table: "waypoint", row })?;
+    if !lk.has_model(&model) {
+        return Err(PreviewError::NoModel(model));
+    }
+    Ok(Preview::model(&model))
+}
+
 /// A door blueprint (UTD fields): doortypes.2da `Model` for a tileset door
 /// (`Appearance` ≠ 0), else genericdoors.2da `ModelName` of its
 /// `GenericType_New` (or the older `GenericType`).

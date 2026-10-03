@@ -55,6 +55,12 @@ Placeables, Sounds, Triggers, Waypoints) and the journal and factions;
 **Module Properties** is at the top. **Filter** narrows every group to the
 names containing the text.
 
+Areas are listed by their ResRefs, as in Aurora. With **Tools › Options ›
+General › Show areas by name**, they are listed by their names instead
+(in the names' order; an area without a name keeps its ResRef), their
+tabs are titled by name, the filter finds either, and the ResRef shows
+when the pointer rests on an area.
+
 A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields

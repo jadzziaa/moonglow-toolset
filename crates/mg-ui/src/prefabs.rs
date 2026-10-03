@@ -145,7 +145,7 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
                 clip.objects.len()
             ));
             ui.horizontal(|ui| {
-                ui.label("Name");
+                crate::widgets::field_label(ui, "Name");
                 let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(220.0));
                 crate::widgets::autofocus(ui, &r);
             });

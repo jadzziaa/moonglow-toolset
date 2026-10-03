@@ -38,7 +38,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
     });
     ui.separator();
-    ui.label("List of Sounds to Play");
+    crate::widgets::field_label(ui, "List of Sounds to Play");
     sound_list(f, ui);
 }
 
@@ -172,23 +172,27 @@ fn positioning(f: &mut Form<'_>, ui: &mut Ui) {
     }
     ui.separator();
     egui::Grid::new(("uts-pos", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.add_enabled_ui(positional, |ui| ui.label("Cutoff distance (m)"));
+        ui.add_enabled_ui(positional, |ui| crate::widgets::field_label(ui, "Cutoff distance (m)"));
         ui.add_enabled_ui(positional, |ui| {
             f.float(ui, "Cutoff distance", "MaxDistance", 0.0..=32000.0, 0.5)
         });
         ui.end_row();
-        ui.add_enabled_ui(positional, |ui| ui.label("Max Volume Distance (m)"));
+        ui.add_enabled_ui(positional, |ui| {
+            crate::widgets::field_label(ui, "Max Volume Distance (m)")
+        });
         ui.add_enabled_ui(positional, |ui| {
             f.float(ui, "Max volume distance", "MinDistance", 0.0..=32000.0, 0.5)
         });
         ui.end_row();
         let rand = positional && random;
-        ui.add_enabled_ui(rand, |ui| ui.label("West-East Random Range (m)"));
+        ui.add_enabled_ui(rand, |ui| crate::widgets::field_label(ui, "West-East Random Range (m)"));
         ui.add_enabled_ui(rand, |ui| {
             f.float(ui, "West-east random range", "RandomRangeX", 0.0..=32000.0, 0.5)
         });
         ui.end_row();
-        ui.add_enabled_ui(rand, |ui| ui.label("North-South Random Range (m)"));
+        ui.add_enabled_ui(rand, |ui| {
+            crate::widgets::field_label(ui, "North-South Random Range (m)")
+        });
         ui.add_enabled_ui(rand, |ui| {
             f.float(ui, "North-south random range", "RandomRangeY", 0.0..=32000.0, 0.5)
         });
@@ -226,7 +230,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     f.update_instances(ui);
     ui.separator();
 
-    ui.label("When to play");
+    crate::widgets::field_label(ui, "When to play");
     let times = f.int("Times");
     ui.horizontal(|ui| {
         for (text, v) in [("Always", 3), ("Day", 1), ("Night", 2), ("Specific Hours", 0)] {
@@ -256,7 +260,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let continuous = f.int("Continuous") != 0;
     let positional = f.int("Positional") != 0;
     let single = f.root.list("Sounds").is_some_and(|l| l.len() == 1);
-    ui.label("Play Style");
+    crate::widgets::field_label(ui, "Play Style");
     ui.horizontal(|ui| {
         // (label, Looping, Continuous), as Aurora writes them; seamless
         // looping takes a single sound, played in order.
@@ -282,7 +286,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             }
         }
     });
-    ui.label("Play Order");
+    crate::widgets::field_label(ui, "Play Order");
     let random = f.int("Random") != 0;
     ui.add_enabled_ui(!looping, |ui| {
         ui.horizontal(|ui| {

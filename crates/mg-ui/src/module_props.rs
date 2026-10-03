@@ -208,7 +208,7 @@ fn events(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             if field == "Mod_OnModStart" && current.is_empty() {
                 continue;
             }
-            ui.label(label);
+            crate::widgets::field_label(ui, label);
             let id = egui::Id::new(("ifo-event", field));
             let types = [ResType::NSS, ResType::NCS];
             if let Some(v) = resref_field(app, ui, id, current, "Select a script", &types) {
@@ -238,7 +238,7 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             ("Dusk start hour", &ifo::MOD_DUSK_HOUR, 0..=23),
         ];
         for (label, f, range) in rows {
-            ui.label(label);
+            crate::widgets::field_label(ui, label);
             number(app, ui, label, f, root.read(f), range);
             ui.end_row();
         }

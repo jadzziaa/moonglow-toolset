@@ -78,7 +78,7 @@ pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
 pub(super) fn scripts(f: &mut Form<'_>, ui: &mut Ui, events: &[(&str, &str)]) {
     egui::Grid::new(("scripts", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         for (label, field) in events {
-            ui.label(*label);
+            crate::widgets::field_label(ui, *label);
             f.script(ui, label, field);
             ui.end_row();
         }

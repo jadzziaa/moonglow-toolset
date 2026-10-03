@@ -24,7 +24,7 @@ mod object;
 
 pub use creature::{CreatureLook, creature, creature_look};
 pub use item::item;
-pub use object::{door, placeable};
+pub use object::{door, placeable, waypoint};
 
 /// Why a preview could not be made.
 #[derive(Debug, thiserror::Error)]

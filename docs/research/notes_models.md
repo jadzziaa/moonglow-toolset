@@ -449,7 +449,7 @@ ASCII game animations also key emitter parameters that have **no known ID** (lig
 | 0x1EC | 492 | Array | vertex indices (strips) | count always 0 |
 | 0x1F8 | 504 | Array\<u32\> | left-over faces | count always 0 |
 | 0x204 | 516 | Array\<u32\> | vertex-indices count | 1 element = faces×3 (bio/nmc); EE: 0 or larger (allocated size) |
-| 0x210 | 528 | Array\<RPtr\> | raw vertex indices | 1 element: raw offset of u16[faces×3], equal to the face indices (bio/nmc 100%; EE 64 mismatches). **Use the faces instead** |
+| 0x210 | 528 | Array\<RPtr\> | raw vertex indices | 1 element: raw offset of u16[faces×3], equal to the face indices (bio/nmc 100%). The game draws this list. In tiles the EE compiler wrote (most of ttf02's cliffs, 1,264 rendered meshes over eight tilesets surveyed) it has more triangles than the face array, which is its first triangles: draw the list there (`Mesh::drawn`), the faces elsewhere |
 | 0x21C | 540 | u32 | "something3" offset | 0xFFFFFFFF always |
 | 0x220 | 544 | u32 | "something3" count | 0 always |
 | 0x224 | 548 | u8 | triangle mode | 3 (triangles); 0 when empty; ~40 bio files have garbage |

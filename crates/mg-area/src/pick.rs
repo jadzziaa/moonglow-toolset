@@ -99,8 +99,8 @@ pub fn project(camera: &Camera, aspect: f32, p: Vec3) -> Option<Vec2> {
     Some(Vec2::new((ndc.x + 1.0) * 0.5, (1.0 - ndc.y) * 0.5))
 }
 
-/// The box drawn and picked for an object without a model: waypoints,
-/// sounds and stores, and objects whose appearance cannot be shown.
+/// The box drawn and picked for an object without a model: sounds, stores,
+/// waypoints without a flag, and objects whose appearance cannot be shown.
 pub fn marker_bounds(kind: ObjectKind) -> (Vec3, Vec3) {
     match kind {
         ObjectKind::Waypoint => (Vec3::new(-0.3, -0.3, 0.0), Vec3::new(0.3, 0.3, 1.8)),

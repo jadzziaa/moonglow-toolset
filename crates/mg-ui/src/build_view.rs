@@ -99,7 +99,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
                         ui.add_enabled_ui(w.unused, |ui| {
-                            ui.label("Unused");
+                            crate::widgets::field_label(ui, "Unused");
                             ui.checkbox(&mut w.unused_scripts, "Scripts");
                             ui.checkbox(&mut w.unused_conversations, "Conversations");
                             ui.checkbox(&mut w.unused_blueprints, "Blueprints");
@@ -108,7 +108,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.separator();
                     ui.vertical(|ui| {
                         ui.add_enabled_ui(w.missing, |ui| {
-                            ui.label("Missing Resources");
+                            crate::widgets::field_label(ui, "Missing Resources");
                             for (c, on) in &mut w.missing_of {
                                 ui.checkbox(on, format!("{c:?}"));
                             }
@@ -117,7 +117,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.separator();
                     ui.vertical(|ui| {
                         ui.add_enabled_ui(w.compile, |ui| {
-                            ui.label("Compile");
+                            crate::widgets::field_label(ui, "Compile");
                             ui.checkbox(&mut w.compile_scripts, "Scripts");
                             ui.checkbox(&mut w.compile_cr, "Creature CR")
                                 .on_hover_text("Recalculate creature challenge ratings");
@@ -128,7 +128,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 });
             }
             ui.separator();
-            ui.label("Results");
+            crate::widgets::field_label(ui, "Results");
             egui::ScrollArea::vertical().max_height(260.0).auto_shrink([false, true]).show(
                 ui,
                 |ui| {

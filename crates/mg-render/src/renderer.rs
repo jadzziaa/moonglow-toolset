@@ -899,8 +899,8 @@ impl Renderer {
                             discard,
                             if env_mapped { 1.0 } else { 0.0 },
                             if tex.is_some() { 1.0 } else { 0.0 },
-                            // The sky is unlit too.
-                            if decal || is_sky { 1.0 } else { 0.0 },
+                            // The sky is unlit too, and markers.
+                            if decal || is_sky || inst.unlit { 1.0 } else { 0.0 },
                         ],
                         material: [
                             slots.specularity,
