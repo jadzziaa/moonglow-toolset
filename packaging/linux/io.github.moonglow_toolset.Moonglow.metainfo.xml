@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.7.0" date="2026-10-03">
+      <description>
+        <p>An armor's parts take colors of their own (the game's per-part
+        colors, which Aurora has no page for), edited on the item's Appearance
+        page and shown in previews; the Eraser drags as terrain brushes do; a
+        body part whose model names a missing texture is drawn with its
+        own.</p>
+      </description>
+    </release>
     <release version="0.6.0" date="2026-10-02">
       <description>
         <p>Painting terrain shows the tiles a click or a drag will make before
