@@ -938,6 +938,73 @@ fn minimap_exported_and_object_walkmeshes_shown() {
 }
 
 #[test]
+fn the_command_palette_finds_a_command_and_runs_it() {
+    let dir = mg_testkit::scratch_dir("ui-command-palette");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+        h.run();
+        assert!(h.state().command_palette.is_some(), "Ctrl+Shift+P opens it");
+    };
+    let hint = "Type a command's name";
+
+    // Every command is there until something is typed; then those whose
+    // name or menu has every word.
+    open(&mut h);
+    h.get_by_label("Verify Module");
+    type_into_hint(&mut h, hint, "mod build");
+    assert!(h.query_by_label("Open Module…").is_none());
+    // (By name first; then the Build menu's other commands with "mod".)
+    h.get_by_label("Build Module…");
+    h.get_by_label("Verify Module");
+    // Enter runs the one chosen, and the palette closes.
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().build.is_some() && h.state().command_palette.is_none());
+    h.state_mut().build = None;
+    h.run();
+
+    // The arrows choose among several: the second of the two editors.
+    open(&mut h);
+    type_into_hint(&mut h, hint, "editor");
+    h.get_by_label("Faction Editor");
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Journal).is_some());
+    assert!(h.state().dock.find_tab(&Tab::Factions).is_none());
+
+    // A command that can't be chosen now is listed, and Enter leaves it.
+    open(&mut h);
+    type_into_hint(&mut h, hint, "redo");
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().command_palette.is_some(), "nothing to redo: nothing done");
+    // A click runs one; Escape closes without running anything.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.state().command_palette.is_none());
+    open(&mut h);
+    type_into_hint(&mut h, hint, "about");
+    h.get_by_label("About Moonglow Toolset").click();
+    h.run();
+    assert!(h.state().command_palette.is_none());
+    h.get_by_label_contains("GNU General Public License");
+    // While it is open, keys are its own: Ctrl+N starts no module.
+    open(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
+    h.run();
+    assert!(h.state().command_palette.is_some() && h.state().ws.is_some());
+}
+
+#[test]
 fn keys_remapped_in_options_and_used() {
     use mg_ui::keys::Cmd;
     let dir = mg_testkit::scratch_dir("ui-keys");

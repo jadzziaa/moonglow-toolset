@@ -1254,3 +1254,24 @@ fn place(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab, at: (f32, f32), size: 
         w.set_position(egui::pos2(at.0, at.1)).set_size(egui::vec2(size.0, size.1));
     }
 }
+
+/// The Command Palette over the window, something typed
+/// (`target/test-output/screens/command-palette.png`).
+#[test]
+#[ignore]
+fn command_palette() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-command-palette");
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut finder = mg_ui::commands::Finder::default();
+    finder.filter = "mod".into();
+    app.command_palette = Some(finder);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    shoot(&mut h, &dir, "command-palette");
+}

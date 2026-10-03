@@ -62,6 +62,7 @@ pub enum Id {
     PackTarget,
     AreaStatistics,
     Manual,
+    CommandPalette,
     About,
     /// The toolbar's Preview: the window showing the palette's blueprint.
     PreviewWindow,
@@ -155,7 +156,7 @@ pub const MENUS: [(&str, &[Item]); 6] = [
             Do(Id::AreaStatistics),
         ],
     ),
-    ("Help", &[Do(Id::Manual), Do(Id::About)]),
+    ("Help", &[Do(Id::Manual), Do(Id::CommandPalette), Do(Id::About)]),
 ];
 
 /// The toolbar: each command with its button's text and its tip (`None`:
@@ -301,6 +302,9 @@ impl Id {
             ),
             Id::AreaStatistics => ("area-statistics", "Area Statistics", ""),
             Id::Manual => ("manual", "User Manual", ""),
+            Id::CommandPalette => {
+                ("command-palette", "Command Palette…", "Find a command by its name and run it")
+            }
             Id::About => ("about", "About Moonglow Toolset", ""),
             Id::PreviewWindow => ("preview-window", "Preview Window", ""),
             Id::FullScreen => ("full-screen", "Full Screen", ""),
@@ -335,6 +339,7 @@ impl Id {
             Id::TestModule => Cmd::TestModule,
             Id::TestChoose => Cmd::TestChoose,
             Id::Manual => Cmd::Manual,
+            Id::CommandPalette => Cmd::CommandPalette,
             Id::FullScreen => Cmd::FullScreen,
             _ => return None,
         })
@@ -398,6 +403,7 @@ impl Id {
             | Id::ReloadResources
             | Id::Options
             | Id::Manual
+            | Id::CommandPalette
             | Id::About
             | Id::PreviewWindow
             | Id::FullScreen => true,
@@ -521,6 +527,10 @@ impl Id {
                 app.area_stats = shown_area(app);
                 return;
             }
+            Id::CommandPalette => {
+                app.command_palette = Some(Finder::default());
+                return;
+            }
             Id::About => {
                 app.about = true;
                 return;
@@ -641,6 +651,130 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id) {
     }
     if r.clicked() {
         id.run(app, ui.ctx());
+    }
+}
+
+/// The Command Palette: the commands found by what is typed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Finder {
+    pub filter: String,
+    /// Which of those found Enter runs.
+    pub selected: usize,
+    /// Its field has taken the keyboard (once, when it opens).
+    focused: bool,
+}
+
+/// The menu a command is in.
+fn menu_of(id: Id) -> Option<&'static str> {
+    fn has(items: &[Item], id: Id) -> bool {
+        items.iter().any(|item| match item {
+            Do(other) => *other == id,
+            Sub(_, items) => has(items, id),
+            Item::Wizards => matches!(id, Id::Wizard(_)),
+            Separator | Item::Recent | Item::Prefabs => false,
+        })
+    }
+    MENUS.iter().find(|(_, items)| has(items, id)).map(|(name, _)| *name)
+}
+
+/// The commands the palette offers for what is typed: those whose name (as
+/// its menu shows it now) holds every word, in the menus' order, then
+/// those that need their menu's name for it (`build` finds Build Module,
+/// then the rest of the Build menu).
+pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Id> {
+    let words: Vec<String> = filter.split_whitespace().map(str::to_lowercase).collect();
+    let has_all = |text: &str| words.iter().all(|w| text.contains(w));
+    let mut found: Vec<(bool, Id)> = Id::all()
+        .into_iter()
+        .filter(|id| *id != Id::CommandPalette && id.shown(app))
+        .filter_map(|id| {
+            let name = id.label(app).to_lowercase();
+            let with_menu = format!("{} {name}", menu_of(id).unwrap_or_default().to_lowercase());
+            let by_name = has_all(&name);
+            (by_name || has_all(&with_menu)).then_some((!by_name, id))
+        })
+        .collect();
+    found.sort_by_key(|(by_menu, _)| *by_menu);
+    found.into_iter().map(|(_, id)| id).collect()
+}
+
+/// The Command Palette's window: type part of a command's name, choose
+/// with the arrows, Enter runs it; Escape or a click outside closes it.
+pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(mut finder) = app.command_palette.take() else { return };
+    let matches = found(app, &finder.filter);
+    finder.selected = finder.selected.min(matches.len().saturating_sub(1));
+    let mut run = None;
+    let modal = egui::Modal::new(egui::Id::new("command-palette")).show(ctx, |ui| {
+        ui.set_width(440.0);
+        // The arrows and Enter choose; the rest is the field's.
+        let none = egui::Modifiers::NONE;
+        let (up, down, enter) = ui.input_mut(|i| {
+            (
+                i.consume_key(none, egui::Key::ArrowUp),
+                i.consume_key(none, egui::Key::ArrowDown),
+                i.consume_key(none, egui::Key::Enter),
+            )
+        });
+        if !matches.is_empty() {
+            let n = matches.len();
+            finder.selected = (finder.selected + usize::from(down) + (n - usize::from(up))) % n;
+        }
+        let field = ui.add(
+            egui::TextEdit::singleline(&mut finder.filter)
+                .hint_text("Type a command's name")
+                .desired_width(f32::INFINITY),
+        );
+        if !std::mem::replace(&mut finder.focused, true) {
+            field.request_focus();
+        }
+        if field.changed() {
+            finder.selected = 0;
+        }
+        ui.separator();
+        if matches.is_empty() {
+            ui.weak("No command has that name.");
+        }
+        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                for (i, id) in matches.iter().enumerate() {
+                    // Its menu and its key, at the right.
+                    let key = app.keymap.label_of(&id.id(), ui.ctx());
+                    let beside = match (menu_of(*id), key.is_empty()) {
+                        (Some(menu), true) => menu.to_string(),
+                        (Some(menu), false) => format!("{menu}   {key}"),
+                        (None, _) => key,
+                    };
+                    let (label, enabled) = (id.label(app), id.enabled(app));
+                    let row = egui::Button::selectable(i == finder.selected, &label)
+                        .shortcut_text(beside);
+                    let row = ui.add_enabled(enabled, row);
+                    // (Named by the command alone, not with what is beside it.)
+                    row.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::Button,
+                            enabled,
+                            i == finder.selected,
+                            &label,
+                        )
+                    });
+                    if (up || down) && i == finder.selected {
+                        row.scroll_to_me(None);
+                    }
+                    if row.clicked() {
+                        run = Some(*id);
+                    }
+                }
+            });
+        });
+        if enter && let Some(id) = matches.get(finder.selected).filter(|id| id.enabled(app)) {
+            run = Some(*id);
+        }
+    });
+    match run {
+        Some(id) => id.run(app, ctx),
+        None if modal.should_close() => {}
+        None => app.command_palette = Some(finder),
     }
 }
 

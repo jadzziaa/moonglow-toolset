@@ -65,6 +65,7 @@ pub enum Cmd {
     CreatureWizard,
     ItemWizard,
     FullScreen,
+    CommandPalette,
     SelectTiles,
     TurnLeft,
     TurnRight,
@@ -99,7 +100,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 45] = [
+    pub const ALL: [Cmd; 46] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -118,6 +119,7 @@ impl Cmd {
         Cmd::CreatureWizard,
         Cmd::ItemWizard,
         Cmd::FullScreen,
+        Cmd::CommandPalette,
         Cmd::SelectTiles,
         Cmd::TurnLeft,
         Cmd::TurnRight,
@@ -169,6 +171,7 @@ impl Cmd {
             Cmd::CreatureWizard => ("creature-wizard", "Creature Wizard", General),
             Cmd::ItemWizard => ("item-wizard", "Item Wizard", General),
             Cmd::FullScreen => ("full-screen", "Full Screen", General),
+            Cmd::CommandPalette => ("command-palette", "Command Palette", General),
             Cmd::SelectTiles => ("select-tiles", "Select Tiles or Objects", Area),
             Cmd::TurnLeft => ("turn-left", "Turn Anticlockwise", Area),
             Cmd::TurnRight => ("turn-right", "Turn Clockwise", Area),
@@ -234,6 +237,7 @@ impl Cmd {
             Cmd::CreatureWizard => vec![k(CTRL | Modifiers::ALT, Key::C)],
             Cmd::ItemWizard => vec![k(CTRL | Modifiers::ALT, Key::I)],
             Cmd::FullScreen => vec![k(NONE, Key::F11)],
+            Cmd::CommandPalette => vec![k(CTRL | SHIFT, Key::P)],
             Cmd::SelectTiles => vec![k(NONE, Key::F10)],
             Cmd::TurnLeft => vec![k(NONE, Key::Q)],
             Cmd::TurnRight => vec![k(NONE, Key::E)],

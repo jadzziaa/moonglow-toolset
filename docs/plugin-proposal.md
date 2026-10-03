@@ -334,8 +334,8 @@ plugins.
    the context menus (the module tree's, a tab's, an object's, the
    palette's) are still written where they show, since their commands
    act on the thing clicked; a plugin's commands join them, and the
-   Plugins menu, with the host in Phase 1. A command palette is now a
-   small step.
+   Plugins menu, with the host in Phase 1. The Command Palette (Help,
+   Ctrl+Shift+P) is the table's fourth reader.
 2. **Edits on the wire (M). Done.** A command is written as JSON and
    read back (`mg_edit::wire`): six kinds of edit, values as nwn-lib
    JSON, field paths that parse as they print. `mg apply EDITS.json` and

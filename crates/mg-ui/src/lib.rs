@@ -366,6 +366,8 @@ pub struct Moonglow {
     /// shows (and has a width to match). Tests of other windows turn it
     /// off.
     pub open_palette: bool,
+    /// The Command Palette, while it is open.
+    pub command_palette: Option<commands::Finder>,
     /// The job under way, if one is (`jobs`).
     pub(crate) job: Option<jobs::Job>,
     /// Jobs run while the window keeps drawing (the application turns
@@ -490,6 +492,7 @@ impl Moonglow {
             tree_width: None,
             dock_width: None,
             open_palette: false,
+            command_palette: None,
             job: None,
             background_jobs: false,
         }
@@ -621,6 +624,7 @@ impl Moonglow {
                 self.hak_report = None;
             }
         }
+        commands::palette_window(self, ui.ctx());
         jobs::window(self, ui.ctx());
         if !self.actions.is_empty() {
             self.run_actions();
@@ -681,8 +685,11 @@ impl Moonglow {
             self.keymap = keys::Keymap::new(&self.settings.key_bindings);
             self.keymap_from = self.settings.key_bindings.clone();
         }
-        // Options › Keyboard takes the next key itself.
-        if self.options.as_ref().is_some_and(|o| o.recording.is_some()) {
+        // Options › Keyboard takes the next key itself, and the Command
+        // Palette what is typed into it.
+        if self.options.as_ref().is_some_and(|o| o.recording.is_some())
+            || self.command_palette.is_some()
+        {
             return;
         }
         commands::keys_pressed(self, ui);
