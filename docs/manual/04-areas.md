@@ -52,6 +52,10 @@ Options › Keyboard):
 | F10 | select tiles or objects (Aurora's) |
 | Double-click an object in Find Instance | go to it |
 
+The keys drive the area view the pointer was in last, also while the
+pointer is over the palette or the module tree (not while you type in a
+field).
+
 ## Selecting and arranging objects
 
 | Do | To |
@@ -168,8 +172,9 @@ as Aurora's Terrain tab does:
   what it passed. Shift + drag lays it round the outline of the rectangle
   from the tile where the drag began (straight along a rectangle one tile
   wide). Right-click a quarter the crosser already crosses (the
-  cursor is blue there) to erase that tile, as the Eraser would, without
-  changing brush.
+  cursor is blue there) to take that crosser off the tile, as the Eraser
+  would, leaving other crossers (a road goes, the stream it crosses
+  stays) and the brush chosen.
 - **Groups** (buildings, big features) are placed whole; right-click to
   turn one before placing it. It stays chosen, to place another.
 - The **Eraser** takes the crossers off a tile; Shift + click steps the

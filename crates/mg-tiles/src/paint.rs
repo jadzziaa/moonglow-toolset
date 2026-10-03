@@ -172,6 +172,18 @@ impl Grid {
     /// erased beside a bridge takes the stream with it), or else all of
     /// them, and so on outward. `None` when refused.
     pub fn erase(&self, index: &TileIndex, x: u32, y: u32) -> Option<Stroke> {
+        self.erase_only(index, x, y, None)
+    }
+
+    /// [`Grid::erase`] taking from cell (x, y) only crosser `only` (a road,
+    /// and not the stream it crosses), if one is given.
+    pub fn erase_only(
+        &self,
+        index: &TileIndex,
+        x: u32,
+        y: u32,
+        only: Option<Crosser>,
+    ) -> Option<Stroke> {
         let mut lattice = self.lattice.clone();
         let mut cells = vec![(x, y)];
         // Cells to fit again, with the crosser they lost.
@@ -190,7 +202,18 @@ impl Grid {
                 }
             }
         };
-        clear(&mut lattice, (x, y), None, &mut queue);
+        match only {
+            None => clear(&mut lattice, (x, y), None, &mut queue),
+            Some(only) => {
+                let cell = lattice.cell(x, y);
+                for edge in (0..4).filter(|&e| cell.edges[e] == Some(only)) {
+                    lattice.set_edge(x, y, edge, None);
+                    if let Some(n) = beside(&lattice, x, y, edge) {
+                        queue.push_back((n, only));
+                    }
+                }
+            }
+        }
         while let Some((n, lost)) = queue.pop_front() {
             if !cells.contains(&n) {
                 cells.push(n);

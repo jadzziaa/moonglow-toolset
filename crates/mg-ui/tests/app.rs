@@ -6502,6 +6502,13 @@ fn w_a_s_d_drive_the_camera_like_the_arrows() {
     let start = target(&h);
     hold(&mut h, egui::Key::W, egui::Modifiers::COMMAND);
     assert_eq!(target(&h), start);
+    // The pointer gone to the module tree: the keys still drive the view.
+    h.hover_at(egui::pos2(60.0, 300.0));
+    h.run_steps(2);
+    let start = target(&h);
+    hold(&mut h, egui::Key::W, none);
+    let off_view = target(&h) - start;
+    assert!((off_view - by_w).length() < 0.05 * by_w.length(), "{off_view} like {by_w}");
 }
 
 #[test]
@@ -7062,6 +7069,40 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
     assert_eq!(lattice(&mut h), road);
+
+    // A stream across the road (along the second row, the road turned up
+    // the second column): a right click with Road on their tile takes the
+    // road, and the stream stays.
+    let drag = |h: &mut Harness<'_, Moonglow>, path: &[Vec3]| {
+        let from = screen(h, area, path[0]);
+        h.hover_at(from);
+        press(h, from, true, egui::Modifiers::NONE);
+        h.run_steps(1);
+        for &p in &path[1..] {
+            h.hover_at(screen(h, area, p));
+            h.run_steps(1);
+        }
+        press(h, screen(h, area, path[path.len() - 1]), false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    };
+    right_click(&mut h, Vec3::new(18.0, 5.0, 0.0));
+    h.get_by_label("Stream").click();
+    h.run_steps(2);
+    let along: Vec<Vec3> =
+        [3.0, 8.0, 14.0, 20.0, 26.0, 32.0, 37.0].iter().map(|&x| Vec3::new(x, 15.0, 0.0)).collect();
+    drag(&mut h, &along);
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    let up: Vec<Vec3> =
+        [3.0, 8.0, 14.0, 20.0, 26.0, 32.0, 37.0].iter().map(|&y| Vec3::new(15.0, y, 0.0)).collect();
+    drag(&mut h, &up);
+    let (road_c, stream_c) = (index.crosser("Road").unwrap(), index.crosser("Stream").unwrap());
+    let has = |l: &mg_tiles::Lattice, c| l.cell(1, 1).edges.contains(&Some(c));
+    let crossing = lattice(&mut h);
+    assert!(has(&crossing, road_c) && has(&crossing, stream_c), "{:?}", crossing.cell(1, 1));
+    right_click(&mut h, Vec3::new(15.0, 18.0, 0.0));
+    let l = lattice(&mut h);
+    assert!(!has(&l, road_c) && has(&l, stream_c), "{:?}", l.cell(1, 1));
 }
 
 #[test]

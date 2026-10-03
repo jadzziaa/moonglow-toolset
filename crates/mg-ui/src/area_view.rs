@@ -1466,6 +1466,13 @@ fn camera_input(
     keys: &crate::keys::Keymap,
 ) {
     let rect = view.rect;
+    // The keys drive the area view the pointer was in last, wherever the
+    // pointer is now (over the palette, the module tree).
+    let last = egui::Id::new("area-view-camera-keys");
+    if response.hovered() {
+        ui.data_mut(|d| d.insert_temp(last, view.area));
+    }
+    let active = ui.data(|d| d.get_temp::<ResRef>(last)) == Some(view.area);
     let Some(o) = &mut view.orbit else { return };
     let d = response.drag_delta();
     // A right drag turns it too, as in most 3D views (Shift + right drag
@@ -1482,18 +1489,18 @@ fn camera_input(
         let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan() / rect.height().max(1.0);
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);
     }
-    if !response.hovered() {
-        return;
-    }
     // (egui turns the wheel sideways with Shift held.)
     let (scroll, slow) = ui.input(|i| {
         let d = i.smooth_scroll_delta;
         let scroll = if i.modifiers.shift && d.y == 0.0 { d.x } else { d.y };
         (scroll, shift || i.modifiers.command)
     });
-    if scroll != 0.0 {
+    if scroll != 0.0 && response.hovered() {
         let rate = if slow { 0.001 } else { 0.002 };
         o.distance = (o.distance * (-scroll * rate).exp()).clamp(1.0, 2000.0);
+    }
+    if !active {
+        return;
     }
     use crate::keys::Cmd;
     // Letters and digits don't move the camera while a field has the
