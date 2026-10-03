@@ -507,10 +507,15 @@ fn escape_nim(out: &mut String, s: &str) {
 
 fn as_int(v: &Json, path: &str) -> Result<i128, JsonError> {
     match v {
+        // (A whole number written as a float, `4.0`, is one: scripting
+        // languages with one kind of number write them so.)
         Json::Number(n) => n
             .as_i64()
             .map(i128::from)
             .or_else(|| n.as_u64().map(i128::from))
+            .or_else(|| {
+                n.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9e15).map(|f| f as i128)
+            })
             .map_or_else(|| err(path, format!("{n} is not an integer")), Ok),
         _ => err(path, "expected an integer"),
     }

@@ -12,7 +12,7 @@ mod cfg;
 mod glob;
 mod project;
 
-pub use cfg::{Package, Settings, Target};
+pub use cfg::{Package, Section, Settings, Target, sections};
 pub use project::{Project, Resources, SaveReport};
 
 use mg_core::{Codepage, ResType};
