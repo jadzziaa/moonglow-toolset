@@ -10,6 +10,8 @@
 //! - A crosser brush is dragged: the crosser goes on the edge of every
 //!   quarter of a tile the pointer passes through (the quarter nearest that
 //!   edge), as Aurora draws it. A click chooses the tile again.
+//!   A right click on a quarter the crosser already crosses erases that
+//!   tile, as the Eraser would.
 //! - The Eraser acts on the tile under the pointer: it removes its crossers
 //!   (and those that then fit nothing), or chooses it again; with Shift it
 //!   steps through the tiles that fit, in Aurora's order. Dragged, it marks
@@ -550,6 +552,16 @@ pub(crate) fn input(
                 let tools = view.terrain.as_ref().expect("checked");
                 let (st, label, pick) = click(tools, &g, &brush, s, shift, false, 0);
                 commit(app, view, g, st, &label, pick);
+            } else if response.secondary_clicked()
+                && let Some(s) = view.spot
+                && let Some(g) = current_grid(app, view)
+                && g.lattice.cell(s.cell.0, s.cell.1).edges[s.edge] == Some(c)
+            {
+                // A right click where the crosser is (the cursor blue):
+                // the Eraser's click on that tile, without changing brush.
+                let tools = view.terrain.as_ref().expect("checked");
+                let st = g.erase(&tools.index, s.cell.0, s.cell.1);
+                commit(app, view, g, st, "Erase tile", None);
             }
         }
         Brush::Group(_) => {

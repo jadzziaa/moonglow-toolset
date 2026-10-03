@@ -7005,6 +7005,66 @@ fn the_eraser_erases_every_tile_it_is_dragged_across() {
 }
 
 #[test]
+fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("crosser-right-click") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let lattice = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap().lattice
+    };
+    let right_click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let at = screen(h, area, p);
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(2);
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    // A road along the first row.
+    let from = screen(&h, area, Vec3::new(7.0, 5.0, 0.0));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for x in [12.0, 18.0, 24.0, 25.0] {
+        h.hover_at(screen(&h, area, Vec3::new(x, 5.0, 0.0)));
+        h.run_steps(1);
+    }
+    press(&h, screen(&h, area, Vec3::new(25.0, 5.0, 0.0)), false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    let road = lattice(&mut h);
+    assert!(road.cell(1, 0).edges.iter().any(Option::is_some), "a road drawn");
+
+    // On grass, the brush still chosen: nothing is erased.
+    right_click(&mut h, Vec3::new(15.0, 25.0, 0.0));
+    assert_eq!(lattice(&mut h), road);
+    // On the road's east quarter of tile (1, 0): the tile is erased, as the
+    // Eraser's click there, and the brush stays.
+    right_click(&mut h, Vec3::new(18.0, 5.0, 0.0));
+    assert!((0..4).all(|x| lattice(&mut h).cell(x, 0).edges == [None; 4]));
+    assert!(h.state().palette.tile_brush.is_some());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(lattice(&mut h), road);
+}
+
+#[test]
 fn the_eraser_and_raise_lower_head_the_terrain_brushes() {
     let Some((mut h, _)) = area_harness("tools-first") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
