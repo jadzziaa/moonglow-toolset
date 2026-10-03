@@ -11,8 +11,11 @@
 //! - [`run_command`] and [`run_check`] run a plugin's code for one job.
 //! - [`Host`] is what the plugin's code reaches of whoever runs it: the
 //!   log, progress, and questions for the user.
+//! - [`Package`] is a plugin as an archive to hand around, read and
+//!   installed into a plugins folder.
 
 mod manifest;
+mod package;
 mod runtime;
 
 use std::collections::BTreeMap;
@@ -25,6 +28,7 @@ use mg_edit::Edit;
 use mg_module::Module;
 use mg_module::doctor::Finding;
 use mg_rules::GameData;
+pub use package::{Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, pack};
 use thiserror::Error;
 
 /// What can go wrong with a plugin.
@@ -39,6 +43,10 @@ pub enum PluginError {
     Script { plugin: String, message: String },
     #[error("{0}: canceled")]
     Canceled(String),
+    /// An archive that is no plugin's, or one that could not be
+    /// installed: why.
+    #[error("{0}")]
+    Package(String),
 }
 
 /// A plugin as installed: its folder and what its manifest says.
@@ -74,14 +82,24 @@ impl Plugin {
     }
 }
 
+/// The plugins' folders in `dir`: each folder with a `plugin.cfg`, sorted
+/// by name. Hidden ones are not plugins (an install under way is one).
+pub fn folders(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut folders: Vec<PathBuf> = entries
+        .flatten()
+        .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+        .map(|e| e.path())
+        .filter(|p| p.join("plugin.cfg").is_file())
+        .collect();
+    folders.sort();
+    folders
+}
+
 /// The plugins in the folders of `dir` (each folder with a `plugin.cfg`),
 /// by folder name: each one read, or why it could not be.
 pub fn discover(dir: &Path) -> Vec<Result<Plugin, PluginError>> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
-    let mut folders: Vec<PathBuf> =
-        entries.flatten().map(|e| e.path()).filter(|p| p.join("plugin.cfg").is_file()).collect();
-    folders.sort();
-    folders.iter().map(|d| Plugin::load(d)).collect()
+    folders(dir).iter().map(|d| Plugin::load(d)).collect()
 }
 
 /// How much a log line matters.

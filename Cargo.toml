@@ -66,6 +66,8 @@ rodio = { version = "0.22", default-features = false, features = ["playback"] }
 symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"
 wgpu = "30"
+# (Reading a plugin's archive: flate2 with zlib-rs is built in already.)
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"
