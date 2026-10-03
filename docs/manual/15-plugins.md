@@ -59,8 +59,7 @@ in it) into the plugins folder and press **Reload**.
 
 **Plugins › Manage Plugins…** shows where the folder is on your system;
 **Open Folder** opens it (and makes it, the first time), and **Reload**
-reads it again after you copy a plugin in or change one. To remove a
-plugin, delete its folder.
+reads it again after you copy a plugin in or change one.
 
 ## Enabling
 
@@ -72,6 +71,16 @@ Tick its box to enable it; Moonglow remembers.
 A plugin that can't be read is listed with what is wrong (its manifest
 has a fault, its script is missing, or it was written for a version of
 the plugin API this Moonglow doesn't have).
+
+## Removing
+
+**Remove…** beside a plugin in Manage Plugins deletes the plugin's
+folder, after asking. Your modules are not touched: what the plugin's
+commands changed in them stays.
+
+Remove is there for plugins installed from an archive. A plugin whose
+folder you copied in yourself has none (Moonglow deletes only what it
+installed): delete its folder, and press **Reload**.
 
 ## Commands
 
@@ -132,6 +141,7 @@ mg plugin list ~/.local/share/moonglow/plugins
 mg plugin run mymodule.mod plugins/tag-conventions fix-tags --dry-run
 mg verify mymodule.mod --plugins plugins/tag-conventions
 mg plugin install tag-conventions-1.0.0.zip plugins
+mg plugin remove example.tag-conventions plugins
 ```
 
 `mg` has no list of enabled plugins: it runs the plugin you name. It

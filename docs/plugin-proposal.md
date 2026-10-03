@@ -461,9 +461,11 @@ Phases 2 and 3 can swap if teams ask for Python first.
 - Install Plugin from File: a plugin's archive (a zip) checked as
   untrusted input and unpacked into the plugins folder, off; one
   installed before is replaced after a question, a folder put there by
-  hand never. `mg plugin pack` makes the archive, `mg plugin install`
-  unpacks one from the command line. (The `zip` crate reads it, with
-  the deflate code that was built in already.)
+  hand never. Remove… in Manage Plugins deletes one that was installed
+  that way, after a question. `mg plugin pack` makes the archive, `mg
+  plugin install` and `remove` do the same from the command line, and
+  `mg plugin check` takes an archive as well as a folder. (The `zip`
+  crate reads it, with the deflate code that was built in already.)
 - `mg plugin list`, `check` and `run` (`--dry-run`, `--answer`,
   `--yes`), and `mg verify --plugins`.
 - Documentation: the manual's Plugins, Writing plugins and Plugin API

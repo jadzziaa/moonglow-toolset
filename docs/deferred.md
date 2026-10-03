@@ -223,14 +223,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **Plugins, beyond API 0.1** (`plugin-proposal.md`; commands and checks
   in sandboxed Luau are built):
-  - **Removing and updating:** a plugin is removed by deleting its
-    folder; there is no Remove button, and no list of plugins to
-    install or update from (the proposal has an index with API 1.0).
-    (S, the button; M, an index)
-  - **`mg plugin check` on an archive:** it checks a plugin's folder;
-    an archive is checked for what the installer needs (its layout, its
-    manifest), not that its code registers what the manifest declares,
-    until it is installed. `mg plugin pack` checks before it packs. (S)
+  - **No list to install or update from:** plugins come as files; the
+    proposal has an index with API 1.0. Remove is for what Install from
+    File installed; a folder copied in by hand is deleted by hand. (M)
   - **Archives of several plugins** are refused: one plugin to an
     archive. (S)
   - **A project's plugins:** `plugins/` beside a nasher project's

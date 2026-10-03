@@ -379,7 +379,10 @@ return rules
   changed.
 - **`mg plugin check DIR`** checks a plugin without a module: the
   manifest reads, the code loads, and each registers what the other
-  declares. It is a good first step in a plugin's own tests.
+  declares. It is a good first step in a plugin's own tests. Given an
+  archive (`mg plugin check hello.zip`), it checks what the installer
+  would, and the code as it is in the archive: do that before you send
+  one to anybody.
 - **`mg plugin run MODULE DIR COMMAND --dry-run`** prints the edits a
   command would make, as an edit file
   ([Command-line tools](11-command-line.md)), and changes nothing: run it
