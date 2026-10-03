@@ -100,7 +100,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
 fn visual(f: &mut Form<'_>, ui: &mut Ui) {
     let schemes = choices(f.app, "environment", "STRREF", "LABEL");
     let current = f.int("LightingScheme");
-    ui.strong("Lighting Scheme");
+    crate::widgets::section_heading(ui, "Lighting Scheme");
     ui.weak(
         "Choosing a scheme replaces the area's lighting and weather settings and its tiles' \
          custom lighting.",
@@ -117,7 +117,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         apply_scheme(f, row);
     }
     ui.separator();
-    ui.strong("Environment");
+    crate::widgets::section_heading(ui, "Environment");
     let skyboxes = choices(f.app, "skyboxes", "STRING_REF", "LABEL");
     egui::Grid::new(("are-env", f.key)).num_columns(3).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "");
@@ -129,7 +129,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
             ("Diffuse Color", "SunDiffuseColor", "MoonDiffuseColor"),
             ("Fog Color", "SunFogColor", "MoonFogColor"),
         ] {
-            ui.label(what);
+            crate::widgets::field_label(ui, what);
             f.color(ui, &format!("Sun {what}"), sun);
             f.color(ui, &format!("Moon {what}"), moon);
             ui.end_row();
@@ -262,7 +262,7 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef) {
             ("Ambient Sound, Day", "AmbientSndDay", &sounds),
             ("Ambient Sound, Night", "AmbientSndNight", &sounds),
         ] {
-            ui.label(text);
+            crate::widgets::field_label(ui, text);
             f.choice(ui, text, label, list, FieldType::Int);
             ui.end_row();
         }
@@ -277,7 +277,7 @@ fn audio(app: &mut Moonglow, ui: &mut Ui, area: ResRef) {
             ("Music, Night", "MusicNight"),
             ("Music, Battle", "MusicBattle"),
         ] {
-            ui.label(text);
+            crate::widgets::field_label(ui, text);
             f.choice(ui, text, label, &music, FieldType::Int);
             ui.end_row();
         }
@@ -294,7 +294,7 @@ fn events(f: &mut Form<'_>, ui: &mut Ui) {
     let events = ["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"].map(|l| (l, l));
     egui::Grid::new(("are-events", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (label, field) in events {
-            ui.label(label);
+            crate::widgets::field_label(ui, label);
             f.script(ui, label, field);
             ui.end_row();
         }

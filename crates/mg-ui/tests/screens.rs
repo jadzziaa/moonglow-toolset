@@ -774,6 +774,91 @@ fn area_grid() {
 
 #[test]
 #[ignore]
+fn lighting_off_and_sound_ranges() {
+    // The area with the most placed sounds, at night: with the area's
+    // lighting, then without it and with the sounds' ranges, the camera
+    // raised.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let ws = app.ws.as_mut().unwrap();
+    let areas = ws.module.areas().unwrap();
+    let sounds = |ws: &mut mg_edit::Workspace, a: mg_core::ResRef| {
+        let git = ws.doc(&ResKey::new(a, ResType::GIT)).unwrap();
+        git.root.list("SoundList").map_or(0, <[_]>::len)
+    };
+    let area = *areas.iter().max_by_key(|a| sounds(ws, **a)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.night = true;
+        if let Some(o) = &mut view.orbit {
+            o.pitch = 50f32.to_radians();
+            o.distance *= 0.6;
+        }
+    }
+    h.run_steps(5);
+    shoot(&mut h, &dir, "lighting-on");
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.lit = false;
+        view.sound_ranges = true;
+        if let Some(o) = &mut view.orbit {
+            o.target.z += 5.0;
+        }
+    }
+    h.run_steps(5);
+    shoot(&mut h, &dir, "lighting-off-sound-ranges");
+}
+
+#[test]
+#[ignore]
+fn areas_by_name_and_area_properties() {
+    // Options › General › Show areas by name: the tree and the tabs; and
+    // Area Properties' Visual and Audio pages (headings, field labels).
+    mg_testkit::gpu::hold();
+    use egui_kittest::kittest::Queryable;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.settings.area_names = true;
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    h.get_by_label("Visual").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "area-names-visual");
+    h.get_by_label("Audio").click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "area-names-audio");
+}
+
+#[test]
+#[ignore]
 fn crosser_cursor() {
     // The Road brush's quarter under a pointer resting on the ground of a
     // rural area.

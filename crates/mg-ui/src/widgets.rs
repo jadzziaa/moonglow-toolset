@@ -678,6 +678,21 @@ pub(crate) fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::R
     ui.label(text)
 }
 
+/// A form's section heading ("Lighting Scheme", "Environment"): bold, in
+/// the strong text colour and larger than the field labels under it.
+pub(crate) fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+    let bold = egui::FontFamily::Name(BOLD.into());
+    let size = egui::TextStyle::Body.resolve(ui.style()).size * HEADING_SCALE;
+    let mut text = egui::RichText::new(text).strong().size(size);
+    if ui.fonts(|f| f.families().contains(&bold)) {
+        text = text.family(bold);
+    }
+    ui.label(text)
+}
+
+/// How much larger than the body text a section heading is.
+const HEADING_SCALE: f32 = 1.25;
+
 #[cfg(test)]
 mod tests {
     use super::*;

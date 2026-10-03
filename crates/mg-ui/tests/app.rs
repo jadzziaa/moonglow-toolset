@@ -7506,3 +7506,58 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
     h.run_steps(2);
     check(&mut h, &[7.0, 12.0, 18.0, 24.0, 25.0].map(|x| Vec3::new(x, 5.0, 0.0)));
 }
+
+/// Options › General › Show areas by name: the tree lists areas by their
+/// names (an unnamed one by its ResRef), in the names' order; the filter
+/// finds a name or a ResRef, and a renamed area shows its new name at once.
+#[test]
+fn areas_are_listed_by_name_when_asked() {
+    let dir = mg_testkit::scratch_dir("ui-area-names");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let named = |name: &str| {
+        let mut are = Gff::new(*b"ARE ");
+        let name = LocString::from_text(Language::ENGLISH, Gender::Male, name);
+        are.root.set("Name", mg_gff::Value::LocString(name));
+        are.to_bytes().unwrap()
+    };
+    let docks = ResKey::parse("area467", ResType::ARE).unwrap();
+    m.set(docks, named("The Docks"));
+    m.set(ResKey::parse("area900", ResType::ARE).unwrap(), named("Apple Inn"));
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // By ResRef, as Aurora lists them.
+    h.get_by_label("area467");
+    assert!(h.query_by_label("The Docks").is_none());
+    h.state_mut().settings.area_names = true;
+    h.run();
+    assert!(h.query_by_label("area467").is_none());
+    let y = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
+    assert!(y(&h, "Apple Inn") < y(&h, "The Docks"), "in the names' order");
+    // The area without a name keeps its ResRef.
+    h.get_by_label("start");
+    // Renamed (as Area Properties does): the new name, in its place.
+    let edit = mg_edit::Edit::SetField {
+        key: docks,
+        path: mg_edit::GffPath::root(),
+        label: "Name".into(),
+        value: Some(mg_gff::Value::LocString(LocString::from_text(
+            Language::ENGLISH,
+            Gender::Male,
+            "A Quay",
+        ))),
+    };
+    h.state_mut().ws.as_mut().unwrap().apply(mg_edit::Command::new("Rename", vec![edit])).unwrap();
+    h.run();
+    assert!(y(&h, "A Quay") < y(&h, "Apple Inn"));
+    // The filter finds the name.
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.run();
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("apple");
+    h.run();
+    h.get_by_label("Apple Inn");
+    assert!(h.query_by_label("A Quay").is_none());
+}

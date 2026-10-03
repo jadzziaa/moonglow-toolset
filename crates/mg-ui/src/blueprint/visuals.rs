@@ -105,15 +105,15 @@ fn cursor_name(v: i64) -> String {
 /// The page: everything (`full`), or only `MiscVisuals` (triggers).
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, full: bool) {
     if full {
-        ui.strong("Texture replacements");
+        crate::widgets::section_heading(ui, "Texture replacements");
         ui.weak("A texture of the object's model drawn with another (not PLT textures).");
         pairs(f, ui, Pairs::TEXTURES);
         ui.separator();
-        ui.strong("Animation replacements");
+        crate::widgets::section_heading(ui, "Animation replacements");
         ui.weak("An animation of the object's model played as another.");
         pairs(f, ui, Pairs::ANIMATIONS);
         ui.separator();
-        ui.strong("Shader parameters");
+        crate::widgets::section_heading(ui, "Shader parameters");
         ui.weak("Values a material's shader reads (uniforms).");
         shader_params(f, ui);
         ui.separator();
@@ -270,7 +270,7 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
     egui::Grid::new(f.id("ShaderParams")).num_columns(5).spacing([12.0, 4.0]).show(ui, |ui| {
         if !items.is_empty() {
             for l in ["Material", "Parameter", "Type", "Value"] {
-                ui.label(l);
+                ui.strong(l);
             }
             ui.end_row();
         }

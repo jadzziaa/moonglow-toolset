@@ -64,13 +64,13 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
             }
             egui::Grid::new("adjust").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 for (i, label) in ["X", "Y", "Z"].into_iter().enumerate() {
-                    ui.label(label);
+                    crate::widgets::field_label(ui, label);
                     let r = ui
                         .add(egui::DragValue::new(&mut a.position[i]).speed(0.05).max_decimals(3));
                     a.changed[i] |= r.changed();
                     ui.end_row();
                 }
-                ui.label("Bearing (°)")
+                crate::widgets::field_label(ui, "Bearing (°)")
                     .on_hover_text("0 faces north, 90 west (as Aurora shows it)");
                 let r = ui.add(
                     egui::DragValue::new(&mut a.bearing)
@@ -82,7 +82,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                 ui.end_row();
             });
             ui.separator();
-            ui.strong("Visual Transforms");
+            crate::widgets::section_heading(ui, "Visual Transforms");
             egui::Grid::new("adjust-visual").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Scale");
                 let mut scale = a.visual.scale.x;
@@ -250,7 +250,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
     });
     egui::Window::new("Find Instance").open(&mut open).default_width(460.0).show(ui.ctx(), |ui| {
         ui.horizontal_wrapped(|ui| {
-            ui.label("Search For");
+            crate::widgets::field_label(ui, "Search For");
             for kind in ObjectKind::ALL {
                 ui.checkbox(&mut f.kinds[kind.index()], kind.plural());
             }
@@ -345,7 +345,7 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
                     ui,
                     |ui| {
                         for (label, value) in summary(app, key.restype, &gff.root) {
-                            ui.label(label);
+                            crate::widgets::field_label(ui, label);
                             ui.add(egui::Label::new(value).truncate());
                             ui.end_row();
                         }

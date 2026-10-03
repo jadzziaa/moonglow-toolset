@@ -355,7 +355,7 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                     });
                 ui.end_row();
             });
-            ui.label("Portrait");
+            crate::widgets::field_label(ui, "Portrait");
             // The race's and gender's portraits as pictures, the chosen one
             // large beside them (as Select Portrait shows them).
             let list = portraits(game, w.race.unwrap_or(6), w.gender);

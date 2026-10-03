@@ -1,8 +1,13 @@
 //! The module contents tree (Aurora's left pane).
 
+use std::collections::HashMap;
+
 use egui::Ui;
-use mg_core::ResType;
+use mg_core::{ResRef, ResType};
+use mg_edit::Workspace;
+use mg_gff::Gff;
 use mg_resman::ResKey;
+use mg_rules::GameData;
 
 use crate::{Action, Moonglow, Tab};
 
@@ -22,12 +27,64 @@ const GROUPS: &[(&str, &[ResType])] = &[
     ("Journal and factions", &[ResType::JRL, ResType::FAC]),
 ];
 
+/// The areas' names, each read from its ARE once: again when the ARE is
+/// replaced, and from the open document while it is being edited.
+#[derive(Debug, Default)]
+pub(crate) struct AreaNames {
+    /// By area: the stored ARE read (where its data is and its length:
+    /// replaced data is elsewhere) and its name.
+    read: HashMap<ResRef, ((usize, usize), String)>,
+}
+
+impl AreaNames {
+    /// The area's name in the editing language, else as the game shows it
+    /// (its talk-table string); empty when it has none.
+    pub(crate) fn name(&mut self, ws: &Workspace, game: Option<&GameData>, area: ResRef) -> String {
+        let key = ResKey::new(area, ResType::ARE);
+        let text = |are: &Gff| {
+            let Some(name) = are.root.locstring("Name") else { return String::new() };
+            let edited = crate::text::edited_text(name);
+            if !edited.is_empty() {
+                return edited;
+            }
+            game.and_then(|g| g.locstring(name)).unwrap_or_default()
+        };
+        if let Some(are) = ws.loaded(&key) {
+            return text(are);
+        }
+        let Some(data) = ws.module.get(&key) else { return String::new() };
+        let stamp = (data.as_ptr() as usize, data.len());
+        if let Some((s, name)) = self.read.get(&area)
+            && *s == stamp
+        {
+            return name.clone();
+        }
+        let name = Gff::read(data).map(|g| text(&g)).unwrap_or_default();
+        self.read.insert(area, (stamp, name.clone()));
+        name
+    }
+
+    /// What the area is called in lists and tab titles: its name when
+    /// `by_name` and it has one, else its ResRef.
+    pub(crate) fn label(
+        &mut self,
+        ws: &Workspace,
+        game: Option<&GameData>,
+        area: ResRef,
+        by_name: bool,
+    ) -> String {
+        let name = if by_name { self.name(ws, game, area) } else { String::new() };
+        if name.trim().is_empty() { area.to_string() } else { name }
+    }
+}
+
 pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     let Some(ws) = &app.ws else { return };
+    let by_name = app.settings.area_names;
     let filter_id = egui::Id::new("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
     ui.horizontal(|ui| {
-        ui.label("Filter");
+        crate::widgets::field_label(ui, "Filter");
         ui.text_edit_singleline(&mut filter);
     });
     app.buffers.insert(filter_id, filter.clone());
@@ -42,7 +99,21 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
             ws.module.keys().filter(|k| types.contains(&k.restype)).copied().collect();
         keys.sort();
         listed += keys.len();
-        keys.retain(|k| filter.is_empty() || k.to_string().contains(&filter));
+        // Areas by name (Options › General): named, and in the names'
+        // order; the filter finds a name or a ResRef.
+        let mut names: HashMap<ResKey, String> = HashMap::new();
+        if by_name && types == &[ResType::ARE] {
+            for k in &keys {
+                let name = app.area_names.label(ws, app.game.as_ref(), k.resref, true);
+                names.insert(*k, name);
+            }
+            keys.sort_by_cached_key(|k| (names[k].to_lowercase(), *k));
+        }
+        keys.retain(|k| {
+            filter.is_empty()
+                || k.to_string().contains(&filter)
+                || names.get(k).is_some_and(|n| n.to_lowercase().contains(&filter))
+        });
         egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
             .id_salt(name)
             .default_open(*name == "Areas")
@@ -50,8 +121,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
             .open((!filter.is_empty()).then_some(true))
             .show(ui, |ui| {
                 for k in keys {
-                    let label = match k.restype {
-                        ResType::ARE | ResType::DLG | ResType::NSS => k.resref.to_string(),
+                    let label = match (names.get(&k), k.restype) {
+                        (Some(name), _) => name.clone(),
+                        (None, ResType::ARE | ResType::DLG | ResType::NSS) => k.resref.to_string(),
                         _ => k.to_string(),
                     };
                     // Blueprints drag into an area, as from the palette.
@@ -61,7 +133,10 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     } else {
                         egui::Sense::click()
                     };
-                    let r = ui.add(egui::Button::selectable(false, label).sense(sense));
+                    let mut r = ui.add(egui::Button::selectable(false, label).sense(sense));
+                    if names.contains_key(&k) {
+                        r = r.on_hover_text(k.resref.to_string());
+                    }
                     if blueprint && r.drag_started() {
                         r.dnd_set_drag_payload(crate::palette_view::Dragged(k));
                     }

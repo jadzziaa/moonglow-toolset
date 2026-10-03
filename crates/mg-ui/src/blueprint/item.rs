@@ -214,7 +214,7 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
                     for (label, value) in
                         f.app.game.as_ref().map(|g| statistics(g, &f.root)).unwrap_or_default()
                     {
-                        ui.label(label);
+                        crate::widgets::field_label(ui, label);
                         ui.strong(value);
                         ui.end_row();
                     }
@@ -338,7 +338,7 @@ const COLORS: [(&str, &str, &str); 6] = [
 fn colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     egui::Grid::new(("uti-colors", f.key)).num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
         for (i, (text, label, palette)) in COLORS.iter().enumerate() {
-            ui.label(*text);
+            crate::widgets::field_label(ui, *text);
             f.palette_color(ui, Some(game), text, label, palette);
             if i % 2 == 1 {
                 ui.end_row();
@@ -489,7 +489,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                         let mut shapes: Vec<u16> = numbers.iter().map(|n| n / 10).collect();
                         shapes.dedup();
                         let shape_numbers: Vec<u16> = shapes.iter().map(|s| s * 10).collect();
-                        ui.label(text);
+                        crate::widgets::field_label(ui, text);
                         let shape_choices: Vec<Choice> = shape_numbers
                             .iter()
                             .map(|&n| Choice {
@@ -563,7 +563,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                                         .and_then(|t| t.get_float(n as usize, "ACBONUS"))
                                         .unwrap_or(0.0)
                                 };
-                                ui.label(*text);
+                                crate::widgets::field_label(ui, *text);
                                 if *table == "parts_chest" {
                                     part_choice(f, ui, text, labels, &numbers, |n| {
                                         format!("{n} (AC {})", ac_of(n).round())
@@ -641,7 +641,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     let mut remove = None;
     crate::widgets::two_columns(ui, 340.0, |ui, col| {
         if col == 0 {
-            ui.strong("Available Properties");
+            crate::widgets::section_heading(ui, "Available Properties");
             egui::ScrollArea::vertical().id_salt(("uti-available", key)).max_height(380.0).show(
                 ui,
                 |ui| {
@@ -679,7 +679,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 },
             );
         } else {
-            ui.strong("Assigned Properties");
+            crate::widgets::section_heading(ui, "Assigned Properties");
             egui::ScrollArea::vertical().id_salt(("uti-assigned", key)).max_height(200.0).show(
                 ui,
                 |ui| {

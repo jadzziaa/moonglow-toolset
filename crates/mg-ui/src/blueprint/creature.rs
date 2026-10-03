@@ -234,7 +234,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
         return;
     };
     let speeds = choices(f, "creaturespeed", "Name", "Label");
-    ui.strong("Ability Scores");
+    crate::widgets::section_heading(ui, "Ability Scores");
     egui::Grid::new(("utc-abilities", f.key))
         .num_columns(5)
         .spacing([16.0, 4.0])
@@ -247,7 +247,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
             let names =
                 ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
             for (i, (name, label)) in names.iter().zip(ABILITIES).enumerate() {
-                ui.label(*name);
+                crate::widgets::field_label(ui, *name);
                 f.number(ui, name, label, 3..=100);
                 ui.label(signed(stats.racial[i]));
                 ui.label(stats.totals[i].to_string());
@@ -258,7 +258,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
     ui.separator();
     crate::widgets::two_columns(ui, 340.0, |ui, col| {
         if col == 0 {
-            ui.strong("Armor Class");
+            crate::widgets::section_heading(ui, "Armor Class");
             egui::Grid::new(("utc-ac", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Natural AC");
                 f.number(ui, "Natural AC", "NaturalAC", 0..=100);
@@ -269,13 +269,13 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                     ("Size Modifier", signed(stats.ac_size)),
                     ("Total Armor Class", stats.ac.to_string()),
                 ] {
-                    ui.label(label);
+                    crate::widgets::field_label(ui, label);
                     ui.label(v);
                     ui.end_row();
                 }
             });
             ui.separator();
-            ui.strong("Hit Points");
+            crate::widgets::section_heading(ui, "Hit Points");
             egui::Grid::new(("utc-hp", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Base Hit Points");
                 // The current hit points follow the base.
@@ -302,7 +302,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                 f.choice(ui, "Movement rate", "WalkRate", &speeds, FieldType::Int);
             });
         } else {
-            ui.strong("Saves");
+            crate::widgets::section_heading(ui, "Saves");
             egui::Grid::new(("utc-saves", f.key)).num_columns(5).spacing([16.0, 4.0]).show(
                 ui,
                 |ui| {
@@ -315,7 +315,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                             .into_iter()
                             .enumerate()
                     {
-                        ui.label(name);
+                        crate::widgets::field_label(ui, name);
                         ui.label(stats.saves_base[i].to_string());
                         ui.label(signed(stats.saves_modifier[i]));
                         if let Some(v) = commit_number(ui, f.int(label), -100..=100) {
@@ -422,7 +422,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui) {
                                     .iter()
                                     .map(|&n| Choice { row: n as usize, text: n.to_string() })
                                     .collect();
-                                ui.label(text);
+                                crate::widgets::field_label(ui, text);
                                 if let Some(v) = situated::pick(ui, f.key, label, &choices, current)
                                 {
                                     set_part(f, text, label, v);
@@ -452,7 +452,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui) {
                         ("Tattoo 1 Color", "Color_Tattoo1", "pal_tattoo01"),
                         ("Tattoo 2 Color", "Color_Tattoo2", "pal_tattoo01"),
                     ] {
-                        ui.label(text);
+                        crate::widgets::field_label(ui, text);
                         f.palette_color(ui, Some(&game), text, label, palette);
                         ui.end_row();
                     }
@@ -869,7 +869,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 f.check(ui, text, label);
             }
             ui.separator();
-            ui.strong("Challenge Rating");
+            crate::widgets::section_heading(ui, "Challenge Rating");
             egui::Grid::new(("utc-cr", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Adjustment");
                 // The rating is recalculated with it (`refresh_hit_points`).

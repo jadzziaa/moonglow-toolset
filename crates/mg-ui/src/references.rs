@@ -343,7 +343,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     // The Find field: a resource name or a tag.
     let mut find = None;
     ui.horizontal(|ui| {
-        ui.label("Find references to");
+        crate::widgets::field_label(ui, "Find references to");
         let r = ui.add(
             egui::TextEdit::singleline(&mut app.references.input)
                 .hint_text("a script, area, conversation, blueprint or tag")
@@ -475,7 +475,7 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
         .resizable(false)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("New name");
+                crate::widgets::field_label(ui, "New name");
                 let r = ui.add(egui::TextEdit::singleline(&mut draft.to).desired_width(200.0));
                 autofocus(ui, &r);
             });

@@ -22,8 +22,9 @@ it differs, it is on purpose:
   game draws them.
 - **Grass** is not drawn in the area viewer, as in Aurora (the game's
   grass does not show at the distances the editor views from).
-- **Waypoints and merchants** are yellow arrows along their facing;
-  sounds are boxes.
+- **Waypoints** are the flags of their appearance (blue, red, green,
+  yellow), in their own colors whatever the area's light. **Merchants**
+  are yellow arrows along their facing; sounds are boxes.
 - **Locked objects** carry a field of Moonglow's (`MG_Locked`), which the
   game ignores and Aurora drops when it saves.
 - **Blueprint previews** in the door and placeable windows are a

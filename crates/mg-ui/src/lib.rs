@@ -255,6 +255,9 @@ pub struct Moonglow {
     /// A tileset whose tab is being closed with unsaved changes.
     pub(crate) tileset_closing: Option<u32>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
+    /// The areas' names as last read (Options › General: Show areas by
+    /// name).
+    pub(crate) area_names: tree::AreaNames,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
     /// The Adjust Location window.
@@ -425,6 +428,7 @@ impl Moonglow {
             next_tileset: 0,
             tileset_closing: None,
             model_views: HashMap::new(),
+            area_names: Default::default(),
             area_views: HashMap::new(),
             adjust: None,
             find_instance: None,
@@ -1254,6 +1258,7 @@ impl Moonglow {
             self.haks_layered = haks;
         }
         self.ws = Some(Workspace::new(m));
+        self.area_names = Default::default();
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
         self.open_palette = true;
         // On the area's tiles: what a new module needs first.

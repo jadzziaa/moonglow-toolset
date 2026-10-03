@@ -160,3 +160,23 @@ fn shows_nothing(game: &GameData, placeable: &Struct) -> bool {
         Some(m) => game.resman.get_named(m, ResType::MDL).is_err(),
     }
 }
+
+/// A waypoint is drawn as the flag of its appearance (waypoint.2da: blue,
+/// red, green, yellow); one without an appearance has none, and no problem.
+#[test]
+fn waypoints_show_their_flags() {
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let flag = |appearance: u8| {
+        let mut w = mg_module::instances::walk_waypoint("WP", [0.0; 3]);
+        w.set("Appearance", mg_gff::Value::Byte(appearance));
+        let o = mg_area::AreaObject::read(&game, ObjectKind::Waypoint, 0, &w);
+        assert_eq!(o.problem, None);
+        o.preview.map(|p| p.base.model)
+    };
+    let flags: Vec<Option<String>> = (1..=4).map(flag).collect();
+    let names = ["gi_waypoint01", "gi_waypoint02", "gi_waypoint03", "gi_waypoint04"];
+    assert_eq!(flags, names.map(|n| Some(n.to_string())));
+    assert_eq!(flag(0), None);
+    assert_eq!(flag(200), None);
+}

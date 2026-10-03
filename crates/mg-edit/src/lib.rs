@@ -158,6 +158,12 @@ impl Workspace {
         self.doc_mut(key).map(|g| &*g)
     }
 
+    /// A GFF document if it has been used (and so may differ from the
+    /// module's stored copy), without parsing it otherwise.
+    pub fn loaded(&self, key: &ResKey) -> Option<&Gff> {
+        self.docs.get(key)
+    }
+
     fn doc_mut(&mut self, key: &ResKey) -> Result<&mut Gff, EditError> {
         if !self.docs.contains_key(key) {
             let bytes = self.module.get(key).ok_or(EditError::NoResource(*key))?;

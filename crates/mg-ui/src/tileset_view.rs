@@ -352,11 +352,11 @@ fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             ("UnlocalizedName", "Name shown (no talk-table string)"),
             ("EnvMap", "Environment map"),
         ] {
-            ui.label(label);
+            crate::widgets::field_label(ui, label);
             text_key(app, ui, d, "GENERAL", key, 220.0);
             ui.end_row();
         }
-        ui.label("Name's talk-table string");
+        crate::widgets::field_label(ui, "Name's talk-table string");
         int_key(ui, d, "GENERAL", "DisplayName", -1..=i32::MAX);
         ui.end_row();
         crate::widgets::field_label(ui, "Height step (m)");
@@ -370,7 +370,7 @@ fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             ("Default", "New areas' terrain"),
             ("Floor", "Floor terrain"),
         ] {
-            ui.label(label);
+            crate::widgets::field_label(ui, label);
             name_key(ui, d, "GENERAL", key, &terrains, false);
             ui.end_row();
         }
@@ -378,13 +378,13 @@ fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     flag_key(ui, d, "GENERAL", "Interior", "Interior");
     flag_key(ui, d, "GENERAL", "HasHeightTransition", "Height transitions (raise and lower)");
     ui.separator();
-    ui.strong("Grass");
+    crate::widgets::section_heading(ui, "Grass");
     flag_key(ui, d, "GRASS", "Grass", "Grass on tiles' grass faces");
     egui::Grid::new(("set-grass", d.id)).num_columns(2).show(ui, |ui| {
         for (key, label) in
             [("GrassTextureName", "Texture"), ("Density", "Density"), ("Height", "Height")]
         {
-            ui.label(label);
+            crate::widgets::field_label(ui, label);
             text_key(app, ui, d, "GRASS", key, 160.0);
             ui.end_row();
         }
@@ -396,7 +396,7 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
     ui.columns(2, |cols| {
         for (col, crosser) in [(0, false), (1, true)] {
             let ui = &mut cols[col];
-            ui.strong(if crosser { "Crossers" } else { "Terrains" });
+            crate::widgets::section_heading(ui, if crosser { "Crossers" } else { "Terrains" });
             let list = if crosser { &t.crossers } else { &t.terrains };
             for (i, x) in list.iter().enumerate() {
                 let label = if x.strref.is_none() {
@@ -538,7 +538,7 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             ("ImageMap2D", "Minimap picture"),
             ("PathNode", "Path node"),
         ] {
-            ui.label(label);
+            crate::widgets::field_label(ui, label);
             text_key(app, ui, d, &section, key, 160.0);
             ui.end_row();
         }
