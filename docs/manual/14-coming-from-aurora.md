@@ -158,7 +158,9 @@ own.
   Conversation… from Twine or Ink (see [Conversations](06-conversations.md)).
 - **Bulk edits**: Ctrl+click several custom blueprints to edit them
   together or update all their instances at once (or a whole category's,
-  from its right-click menu); saved variable sets; **Edit › Find and
+  from its right-click menu); **Edit › Edit Areas Together…** sets the
+  lighting, fog, weather, music, scripts and variables of the areas you
+  tick (see [Areas](04-areas.md)); saved variable sets; **Edit › Find and
   Replace Text…** (Ctrl+H) across names, descriptions, conversations and
   the journal (see [Blueprints](05-blueprints.md) and
   [Modules](03-modules.md)).

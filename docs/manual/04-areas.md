@@ -245,6 +245,29 @@ Properties** on the viewer's toolbar:
   no rest, PvP; **Shader Flags**, the area flags past those three, which
   custom shaders read from their `areaFlags` uniform), **Comments**.
 
+### Several areas together
+
+**Edit › Edit Areas Together…** (or an area's right-click menu in the
+module tree) lists the module's areas to tick. Narrow the list by a name
+or ResRef, by tileset, and by kind (interior or exterior, above or under
+ground, natural or artificial); **Tick Shown** ticks what the filters
+leave. **Edit N Together** opens one Area Properties for the areas
+ticked, shown as the first of them:
+
+- A change is set on each area, as one undoable step: the lighting scheme
+  (each area's tiles get its lights) and environment, fog, weather, day
+  and night, the ambient sounds and music, the event scripts, the check
+  modifiers, player vs. player, the loading screen and No Rest.
+- Interior, natural, underground and the shader flags change alone: each
+  area keeps its other flags.
+- **Variables**: the variables you add or change are set on each area,
+  those you delete are deleted from each, and each keeps its others.
+- Names, tags and comments are an area's own, and aren't offered.
+
+To give every underground area the same music: Underground in the
+chooser, Tick Shown, Edit Together, then Audio. From the command line,
+`mg areas` does the same (see [Command-line tools](11-command-line.md)).
+
 ## Area sounds
 
 With **🔊 Sounds** on, the placed sound objects play as you move around:

@@ -161,6 +161,55 @@ enum Cmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// List a module's areas, or set properties of several at once and
+    /// save. Which areas: those named, narrowed by the filters (all that are
+    /// given must hold). With `--set`, `--var` or `--remove-var`, each
+    /// change is made to each of them: all of the changes, or none if one
+    /// cannot be made.
+    Areas {
+        module: PathBuf,
+        /// Only these areas (ResRefs); none: every area.
+        areas: Vec<String>,
+        /// Areas with this text in their name, tag or ResRef.
+        #[arg(long = "match")]
+        text: Option<String>,
+        /// Areas of this tileset (its ResRef, e.g. `tdc01`).
+        #[arg(long)]
+        tileset: Option<String>,
+        #[arg(long, conflicts_with = "exterior")]
+        interior: bool,
+        #[arg(long)]
+        exterior: bool,
+        #[arg(long, conflicts_with = "above_ground")]
+        underground: bool,
+        #[arg(long)]
+        above_ground: bool,
+        #[arg(long, conflicts_with = "artificial")]
+        natural: bool,
+        #[arg(long)]
+        artificial: bool,
+        /// `FIELD=VALUE`: a field of the area (`SunFogAmount=5`,
+        /// `MoonAmbientColor=0x402010`, `OnEnter=my_script`), of its
+        /// ambient sounds and music (`MusicDay=57`), or a flag
+        /// (`Interior`, `Underground`, `Natural`: `yes` or `no`). A field
+        /// keeps its type; a number may be hexadecimal (`0x…`).
+        #[arg(long = "set")]
+        sets: Vec<String>,
+        /// `NAME=VALUE` or `NAME:int=VALUE` (`int`, `float`, `string`): a
+        /// scripting variable to set on each area, which keeps its others.
+        #[arg(long = "var")]
+        vars: Vec<String>,
+        /// A scripting variable to delete from each area.
+        #[arg(long)]
+        remove_var: Vec<String>,
+        /// Change every area of the module (needed when no area is named
+        /// and no filter given).
+        #[arg(long)]
+        all: bool,
+        /// List what would change; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Make the objects placed from blueprints again from them, where they
     /// stand (Aurora's Update Instances), and save: their tags, names,
     /// scripts and variables become the blueprints'.
@@ -782,6 +831,126 @@ fn run(cli: &Cli) -> Result<Output> {
                 "strings": hits.iter().map(|h| json!({ "place": h.place, "resource": h.key.to_string(), "kind": h.kind.label(), "text": h.text, "times": h.count })).collect::<Vec<_>>(),
                 "times": times,
                 "replaced": replaced,
+                "dry_run": *dry_run,
+            });
+            out
+        }
+        Cmd::Areas {
+            module,
+            areas,
+            text,
+            tileset,
+            interior,
+            exterior,
+            underground,
+            above_ground,
+            natural,
+            artificial,
+            sets,
+            vars,
+            remove_var,
+            all,
+            dry_run,
+        } => {
+            use mg_module::areas::{self, Change, Filter};
+            let resref =
+                |s: &String| mg_core::ResRef::from_str(s).map_err(|e| anyhow::anyhow!("{s}: {e}"));
+            // `--interior` or `--exterior`: so, not so, or either.
+            let kind = |yes: bool, no: bool| if yes { Some(true) } else { no.then_some(false) };
+            let filter = Filter {
+                only: areas.iter().map(resref).collect::<Result<_>>()?,
+                text: text.clone(),
+                tileset: tileset.as_ref().map(resref).transpose()?,
+                interior: kind(*interior, *exterior),
+                underground: kind(*underground, *above_ground),
+                natural: kind(*natural, *artificial),
+            };
+            let mut changes: Vec<Change> = Vec::new();
+            for s in sets {
+                changes.push(Change::parse_set(s).map_err(anyhow::Error::msg)?);
+            }
+            for v in vars {
+                changes.push(Change::parse_var(v).map_err(anyhow::Error::msg)?);
+            }
+            changes.extend(remove_var.iter().cloned().map(Change::RemoveVar));
+            let mut m = Module::open(module)?;
+            let listed = areas::list(&m);
+            for a in &filter.only {
+                if !listed.iter().any(|l| l.resref == *a) {
+                    bail!("{a} is not an area of the module");
+                }
+            }
+            let chosen: Vec<&areas::AreaInfo> =
+                listed.iter().filter(|a| filter.matches(a)).collect();
+            if !changes.is_empty() && filter.is_empty() && !*all {
+                bail!("name areas or give a filter, or pass --all to change every area");
+            }
+            let resrefs: Vec<mg_core::ResRef> = chosen.iter().map(|a| a.resref).collect();
+            let done = areas::apply(&mut m, &resrefs, &changes).map_err(anyhow::Error::msg)?;
+            let mut out = Output::default();
+            let kinds = |flags: u32| {
+                let word = |bit: u32, yes: &'static str, no: &'static str| {
+                    if flags & bit != 0 { yes } else { no }
+                };
+                [
+                    word(areas::INTERIOR, "interior", "exterior"),
+                    word(areas::UNDERGROUND, "underground", "above ground"),
+                    word(areas::NATURAL, "natural", "artificial"),
+                ]
+                .join(", ")
+            };
+            if changes.is_empty() {
+                for a in &chosen {
+                    out.line(format!(
+                        "{}\t{}\t{}\t{}",
+                        a.resref,
+                        a.name,
+                        a.tileset,
+                        kinds(a.flags)
+                    ));
+                }
+                out.note(format!("{} of {} areas", chosen.len(), listed.len()));
+            } else {
+                let text = |v: &Option<String>| v.clone().unwrap_or_else(|| "(none)".into());
+                for c in &done {
+                    out.line(format!(
+                        "{}\t{}\t{} -> {}",
+                        c.area,
+                        c.what,
+                        text(&c.from),
+                        text(&c.to)
+                    ));
+                }
+                let changed: std::collections::BTreeSet<_> = done.iter().map(|c| c.area).collect();
+                if *dry_run {
+                    out.note(format!(
+                        "would change {} of {} areas chosen",
+                        changed.len(),
+                        chosen.len()
+                    ));
+                } else {
+                    if !done.is_empty() {
+                        m.save()?;
+                    }
+                    out.note(format!("changed {} of {} areas chosen", changed.len(), chosen.len()));
+                }
+            }
+            out.json = json!({
+                "areas": chosen.iter().map(|a| json!({
+                    "resref": a.resref.to_string(),
+                    "name": a.name,
+                    "tag": a.tag,
+                    "tileset": a.tileset.to_string(),
+                    "interior": a.flags & areas::INTERIOR != 0,
+                    "underground": a.flags & areas::UNDERGROUND != 0,
+                    "natural": a.flags & areas::NATURAL != 0,
+                })).collect::<Vec<_>>(),
+                "changes": done.iter().map(|c| json!({
+                    "area": c.area.to_string(),
+                    "field": c.what,
+                    "from": c.from,
+                    "to": c.to,
+                })).collect::<Vec<_>>(),
                 "dry_run": *dry_run,
             });
             out

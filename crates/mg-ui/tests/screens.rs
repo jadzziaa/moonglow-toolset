@@ -907,6 +907,43 @@ fn merchant_markers() {
 
 #[test]
 #[ignore]
+fn areas_edited_together() {
+    // Edit › Edit Areas Together…: the chooser, every area ticked, and the
+    // Area Properties of those ticked.
+    mg_testkit::gpu::hold();
+    use egui_kittest::kittest::Queryable;
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.settings.area_names = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Edit Areas Together…").click();
+    h.run_steps(2);
+    h.get_by_label("Tick Shown").click();
+    h.run_steps(2);
+    shoot(&mut h, &dir, "areas-chooser");
+    h.get_all_by_label_contains(" Together").last().unwrap().click();
+    h.run_steps(3);
+    h.get_all_by_label("Audio").last().unwrap().click();
+    h.run_steps(3);
+    shoot(&mut h, &dir, "areas-together-audio");
+}
+
+#[test]
+#[ignore]
 fn crosser_cursor() {
     // The Road brush's quarter under a pointer resting on the ground of a
     // rural area.

@@ -49,6 +49,8 @@ pub enum Tab {
     Area(mg_core::ResRef),
     /// An area's Properties.
     AreaProperties(mg_core::ResRef),
+    /// Several areas' Properties, edited together.
+    AreasProperties(Vec<mg_core::ResRef>),
     /// Several objects of one type placed in an area, edited together.
     Instances { area: mg_core::ResRef, paths: Vec<mg_edit::GffPath> },
     /// An object placed in an area (its entry in the area's GIT), in its
@@ -157,6 +159,9 @@ impl TabViewer for Viewer<'_> {
             Tab::AreaProperties(area) => {
                 format!("{} (Area Properties)", area_label(self.app, *area)).into()
             }
+            Tab::AreasProperties(areas) => {
+                format!("{} areas (Area Properties)", areas.len()).into()
+            }
             Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()).into(),
             Tab::Blueprints(keys) => {
                 let ext = keys[0].restype.extension().unwrap_or_default();
@@ -196,7 +201,11 @@ impl TabViewer for Viewer<'_> {
                 model_view::ui(self.app, ui, source);
             }
             Tab::Area(r) => area_view::ui(self.app, ui, *r),
-            Tab::AreaProperties(area) => crate::area_props::ui(self.app, ui, *area),
+            Tab::AreaProperties(area) => crate::area_props::ui(self.app, ui, *area, &[]),
+            Tab::AreasProperties(areas) => {
+                let (first, rest) = areas.split_first().expect("at least one");
+                crate::area_props::ui(self.app, ui, *first, rest);
+            }
             Tab::Instances { area, paths } => {
                 let git = ResKey::new(*area, ResType::GIT);
                 let (first, rest) = paths.split_first().expect("at least one");

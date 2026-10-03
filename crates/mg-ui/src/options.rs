@@ -673,7 +673,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
             for cmd in Cmd::ALL {
                 if group != Some(cmd.group()) {
                     group = Some(cmd.group());
-                    crate::widgets::section_heading(ui, cmd.group().name());
+                    crate::widgets::table_heading(ui, cmd.group().name());
                     ui.end_row();
                 }
                 ui.label(cmd.name());

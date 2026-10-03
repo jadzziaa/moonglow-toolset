@@ -7570,3 +7570,118 @@ fn areas_are_listed_by_name_when_asked() {
     h.get_by_label("Apple Inn");
     assert!(h.query_by_label("A Quay").is_none());
 }
+
+/// Edit › Edit Areas Together…: areas ticked in the chooser (narrowed by
+/// its filters) open in one Area Properties, where a change is set on each:
+/// a field, a flag (each area keeping its other flags), and the variables
+/// added or changed (each keeping its own).
+#[test]
+fn several_areas_are_edited_together() {
+    let dir = mg_testkit::scratch_dir("ui-areas-together");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+    let int_var = |name: &str, value: i32| {
+        let mut s = mg_gff::Struct::new(0);
+        s.set("Name", mg_gff::Value::String(name.as_bytes().to_vec()));
+        s.set("Type", mg_gff::Value::Dword(1));
+        s.set("Value", mg_gff::Value::Int(value));
+        s
+    };
+    // Two caves (underground) and an inn; the caves' flags and variables
+    // differ.
+    for (name, title, flags, vars) in [
+        ("cave1", "Wolf Cave", 0x7u32, vec![int_var("nDepth", 1)]),
+        ("cave2", "Bear Cave", 0x3 | 0x100, vec![int_var("nBears", 4)]),
+        ("inn", "Apple Inn", 0x1, Vec::new()),
+    ] {
+        let mut are = Gff::new(*b"ARE ");
+        let title = LocString::from_text(Language::ENGLISH, Gender::Male, title);
+        are.root.set("Name", mg_gff::Value::LocString(title));
+        are.root.set("Flags", mg_gff::Value::Dword(flags));
+        are.root.set("DayNightCycle", mg_gff::Value::Byte(1));
+        are.root.set("IsNight", mg_gff::Value::Byte(0));
+        are.root.set("VarTable", mg_gff::Value::List(vars));
+        m.set(key(name, ResType::ARE), are.to_bytes().unwrap());
+    }
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let are = |h: &mut Harness<'_, Moonglow>, name: &str| -> mg_gff::Struct {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&ResKey::parse(name, ResType::ARE).unwrap()).unwrap().root.clone()
+    };
+
+    // The chooser: the underground areas, ticked.
+    h.get_by_label("Edit").click();
+    h.run();
+    h.get_by_label("Edit Areas Together…").click();
+    h.run();
+    h.get_by_label_contains("Apple Inn");
+    h.get_by_value("Above or under ground").click();
+    h.run();
+    h.get_all_by_label("Underground").last().unwrap().click();
+    h.run();
+    assert!(h.query_by_label_contains("Apple Inn").is_none(), "the inn is above ground");
+    assert!(h.query_by_label("Edit 0 Together").is_some());
+    h.get_by_label("Tick Shown").click();
+    h.run();
+    h.get_by_label("Edit 2 Together").click();
+    h.run_steps(3);
+    let caves: Vec<ResRef> = ["cave1", "cave2"].map(|n| ResRef::from_str(n).unwrap()).to_vec();
+    assert!(h.state().dock.find_tab(&Tab::AreasProperties(caves.clone())).is_some());
+    assert!(h.query_by_label("Edit Areas Together").is_none(), "the chooser closed");
+
+    // Visual: always dark, on both caves and not on the inn.
+    h.get_by_label("Always Dark").click();
+    h.run_steps(2);
+    for (name, night) in [("cave1", 1), ("cave2", 1), ("inn", 0)] {
+        let a = are(&mut h, name);
+        assert_eq!(
+            (a.integer("IsNight"), a.integer("DayNightCycle")),
+            (Some(night), Some(1 - night))
+        );
+    }
+    // Advanced: no tag or ResRef for several; a flag is cleared on each,
+    // which keeps its other flags.
+    h.get_all_by_label("Advanced").last().unwrap().click();
+    h.run_steps(2);
+    assert!(h.query_by_label("ResRef").is_none());
+    h.get_by_label("Names, tags and comments are edited one area at a time.");
+    h.get_by_label("Above ground").click();
+    h.run_steps(2);
+    let flags = |h: &mut Harness<'_, Moonglow>, name: &str| are(h, name).integer("Flags");
+    assert_eq!(flags(&mut h, "cave1"), Some(0x5));
+    assert_eq!(flags(&mut h, "cave2"), Some(0x1 | 0x100));
+    assert_eq!(flags(&mut h, "inn"), Some(0x1));
+    // Variables: one added is added to each, which keeps its own.
+    h.get_by_label("Variables (1)…").click();
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    {
+        let row = h.state_mut().var_edit.as_mut().unwrap().rows.last_mut().unwrap();
+        row.name = "nMusic".into();
+        row.value = "42".into();
+    }
+    h.run();
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    let names = |h: &mut Harness<'_, Moonglow>, name: &str| -> Vec<String> {
+        let a = are(h, name);
+        let vars = a.list("VarTable").unwrap_or(&[]);
+        vars.iter()
+            .map(|v| String::from_utf8_lossy(v.string("Name").unwrap()).into_owned())
+            .collect()
+    };
+    assert_eq!(names(&mut h, "cave1"), ["nDepth", "nMusic"]);
+    assert_eq!(names(&mut h, "cave2"), ["nBears", "nMusic"]);
+    assert!(names(&mut h, "inn").is_empty());
+    // One undo takes the variable from both.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_eq!(names(&mut h, "cave2"), ["nBears"]);
+    assert_eq!(names(&mut h, "cave1"), ["nDepth"]);
+}

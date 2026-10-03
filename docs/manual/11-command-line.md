@@ -59,6 +59,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg dialog-export MODULE NAME.dlg OUT` | write a conversation as plain text, CSV, Twine or Ink, by `OUT`'s extension (`.txt`, `.csv`, `.twee`, `.ink`) |
 | `mg dialog-import MODULE FILE [--name NAME]` | read a Twine or Ink story into the module as a conversation (replacing one of that name), or a CSV export's text back into its conversation, and save |
 | `mg replace MODULE FIND WITH` | replace text in the module's names, descriptions, conversations and journal and save (`--match-case`, `--whole-word`, `--only names,journal,…`, `--dry-run` to list the strings only) |
+| `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`; with `--set FIELD=VALUE`, `--var NAME=VALUE` or `--remove-var NAME`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area) |
 
 A module is a `.mod` archive, a module folder or a nasher project. `mg
 compile` and `mg import` write the module in place; an archive's previous
@@ -70,6 +71,40 @@ no OnSpawn script set, in the area `keep`:
 ```text
 mg find mymodule.mod --type utc --placed --area keep --tag 'GUARD*' --where ScriptSpawn=
 ```
+
+## Several areas at once
+
+`mg areas` does from the command line what **Edit › Edit Areas Together…**
+does in the window (see [Areas](04-areas.md)). Without a change, it lists
+the areas chosen: ResRef, name, tileset and kind.
+
+```text
+mg areas mymodule.mod --underground
+mg areas mymodule.mod --underground --set MusicDay=57 --set MusicNight=57 --dry-run
+mg areas mymodule.mod --tileset tdc01 --set SunFogAmount=8 --set SunFogColor=0x201810
+mg areas mymodule.mod cave1 cave2 --var nSpawnLevel=4 --remove-var bOld --set Natural=yes
+```
+
+- **`--set FIELD=VALUE`**: a field of the area's `.are` by its label
+  (`SunAmbientColor`, `MoonFogAmount`, `ChanceRain`, `OnEnter`,
+  `LoadScreenID`, `NoRest`…), a field of its ambient sounds and music
+  (`MusicDay`, `MusicNight`, `MusicBattle`, `MusicDelay`, `AmbientSndDay`,
+  `AmbientSndNight`, `AmbientSndDayVol`, `AmbientSndNitVol`, `EnvAudio`),
+  or a flag (`Interior`, `Underground`, `Natural`: `yes` or `no`; each
+  area keeps its other flags). A field keeps its type, and a value that
+  doesn't fit it is refused. Numbers may be hexadecimal: colors are
+  `0xBBGGRR`. Music and sounds are rows of ambientmusic.2da and
+  ambientsound.2da.
+- **`--var NAME=VALUE`**: a scripting variable, set on each area, which
+  keeps its others. Its type is the one the area's variable has, else what
+  the value reads as; `NAME:int=`, `NAME:float=` or `NAME:string=` says
+  which. **`--remove-var NAME`** deletes one.
+- All the changes are made, or none: one that can't be made to one of the
+  areas stops the command before anything is saved. The output lists each
+  change (`area`, field, `from -> to`); an area that already has a value
+  isn't listed for it.
+- Names, lighting schemes (which also pick each tile's lights) and list
+  fields aren't set by this command.
 
 ## JSON output
 
