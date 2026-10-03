@@ -38,6 +38,11 @@ def licence_files(root):
     return found
 
 
+def is_source(package):
+    """Whether a crate is the vendored source of a library built in."""
+    return package["name"].endswith("-src")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", help="target triple (default: the host's)")
@@ -57,8 +62,14 @@ def main():
         if i in seen:
             continue
         seen.add(i)
+        if is_source(packages[i]):
+            # (What builds it is not built in.)
+            continue
         for d in nodes[i]["deps"]:
-            if any(k["kind"] is None for k in d["dep_kinds"]):
+            kinds = [k["kind"] for k in d["dep_kinds"]]
+            # A crate that is another program's source (luau0-src) is a
+            # build dependency, and what it holds is compiled in.
+            if None in kinds or ("build" in kinds and is_source(packages[d["pkg"]])):
                 todo.append(d["pkg"])
     crates = sorted((packages[i] for i in seen - workspace),
                     key=lambda p: (p["name"], p["version"]))
@@ -71,8 +82,9 @@ def main():
     out.write("Moonglow Toolset is licensed under the GNU General Public License,\n"
               "version 3 (LICENSE). It includes Beamdog's NWScript compiler (GPL-3.0)\n"
               "with neverwinter.nim's C API over it (MIT, copyright the neverwinter.nim\n"
-              "authors, https://github.com/niv/neverwinter.nim), and Ubuntu Bold\n"
-              "(Ubuntu Font Licence 1.0, copyright Canonical Ltd) for its labels. It is\n"
+              "authors, https://github.com/niv/neverwinter.nim), Ubuntu Bold (Ubuntu\n"
+              "Font Licence 1.0, copyright Canonical Ltd) for its labels, and Luau (MIT,\n"
+              "copyright Roblox Corporation and Lua.org, PUC-Rio) for plugins. It is\n"
               f"built from these crates, under their own licenses (target {target}):\n\n")
     for p in crates:
         out.write(f"  {p['name']} {p['version']}: {p['license'] or p.get('license_file') or '?'}\n")
