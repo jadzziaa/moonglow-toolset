@@ -8,7 +8,7 @@ use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use crate::Moonglow;
 
 /// The chapters: file name and text, the contents first.
-pub(crate) const CHAPTERS: [(&str, &str); 15] = [
+pub(crate) const CHAPTERS: [(&str, &str); 18] = [
     ("README.md", include_str!("../../../docs/manual/README.md")),
     ("01-getting-started.md", include_str!("../../../docs/manual/01-getting-started.md")),
     ("02-main-window.md", include_str!("../../../docs/manual/02-main-window.md")),
@@ -24,6 +24,9 @@ pub(crate) const CHAPTERS: [(&str, &str); 15] = [
     ("12-differences.md", include_str!("../../../docs/manual/12-differences.md")),
     ("13-troubleshooting.md", include_str!("../../../docs/manual/13-troubleshooting.md")),
     ("14-coming-from-aurora.md", include_str!("../../../docs/manual/14-coming-from-aurora.md")),
+    ("15-plugins.md", include_str!("../../../docs/manual/15-plugins.md")),
+    ("16-writing-plugins.md", include_str!("../../../docs/manual/16-writing-plugins.md")),
+    ("17-plugin-api.md", include_str!("../../../docs/manual/17-plugin-api.md")),
 ];
 
 /// A chapter's title: its first heading.

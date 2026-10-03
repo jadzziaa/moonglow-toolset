@@ -16,6 +16,7 @@ close it, **Palettes** on the toolbar brings it back.
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
+| Plugins | the commands of the plugins you have enabled, Manage Plugins… ([Plugins](15-plugins.md)) |
 | Help | User Manual, Command Palette…, About Moonglow Toolset |
 
 **Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:

@@ -2,9 +2,10 @@
 
 Status: accepted on 2026-10-03 (see [Decisions](#decisions)). Phase 0
 (the groundwork) is done, with what each item left noted under [What
-Moonglow needs first](#what-moonglow-needs-first); nothing of the plugin
-host itself is built yet. The work happens on the `plugins` branch until
-it is ready to merge. This expands the one line on "a plugin or scripting
+Moonglow needs first](#what-moonglow-needs-first), and Phase 1 (commands
+and checks, API 0.1) is built: see [Where it stands](#where-it-stands)
+for what it has and what is left. The work happens on the `plugins`
+branch until it is ready to merge. This expands the one line on "a plugin or scripting
 API" in [deferred.md](deferred.md) and [PLAN.md](PLAN.md). Sizes are the
 project's: S (an hour or two), M (a day or so), L (several days).
 
@@ -133,6 +134,10 @@ title = "Yarn Spinner"
 resource = "dlg"
 extension = "yarn"
 ```
+
+(API 0.1 has `[plugin]`, `[command]` with `id`, `title`, `hint` and
+`key`, and `[check]`; `menu`, `when` and `[export]` belong to later
+versions, and a key the running API doesn't know is an error.)
 
 Where plugins live:
 
@@ -439,6 +444,45 @@ For authors, in `docs/plugins/` and built into the application:
 | 5. Panels and area tools | described panels; tools with previews and overlays as data | L | experimental until used |
 
 Phases 2 and 3 can swap if teams ask for Python first.
+
+## Where it stands
+
+**Phase 1 is built** (the `plugins` branch):
+
+- `crates/mg-plugin`: the manifest, discovery, and the runtime: a Luau
+  machine per job, sandboxed, with a memory limit, stopped by Cancel;
+  `ctx.module`, `ctx.game`, `ctx.edit`, `ctx.log`, `ctx.progress`,
+  `ctx.ui`; commands hand back edits, checks findings.
+- In the window: the Plugins menu with enabled plugins' commands (also
+  in the Command Palette and Options › Keyboard), Manage Plugins (off
+  until enabled, what each adds, the console), a plugin's questions in
+  the job's window, its checks in Verify Module, `--no-plugins`, and the
+  enabled plugins named in a crash report.
+- `mg plugin list`, `check` and `run` (`--dry-run`, `--answer`,
+  `--yes`), and `mg verify --plugins`.
+- Documentation: the manual's Plugins, Writing plugins and Plugin API
+  reference; `docs/plugins/` with four examples, the API's types for
+  editors and the change list. Tests run the examples, hold the
+  reference and the type file to name everything the runtime offers,
+  and the guide to carry the code of its example.
+
+**Left of Phase 1:**
+
+- Its "done when": nobody outside the project has written a plugin yet.
+  The questions under [Decisions](#decisions) are still open, and the
+  API should not grow before some of them are answered.
+- Install from File (a zip): plugins are installed by copying a folder.
+- The reference is written by hand and checked for completeness, not
+  generated; a plugin's own tests (`mg plugin test`) are not built.
+- The type file was not tried in an editor with the Luau language
+  server.
+- The window was tested through the UI harness and rendered
+  screenshots, not by hand in the running application.
+
+Where the build differs from the text above: the window's commands are
+under a **Plugins** menu (Manage Plugins…), not Tools › Plugins; a
+project's plugins and their prompt are Phase 2; the examples are four,
+with the cookbook's others to come with the things they would add.
 
 ## Decisions
 

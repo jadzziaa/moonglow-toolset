@@ -215,9 +215,31 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Automation
 
-- **A plugin or scripting API** for the GUI (menu commands and panels of
-  one's own): not started. `mg --json` and the `mg-module` crate are the
-  interface for now. (L)
+- **Plugins, beyond API 0.1** (`plugin-proposal.md`; commands and checks
+  in sandboxed Luau are built):
+  - **Install from File:** a plugin is installed by copying its folder
+    into the plugins folder; there is no command that takes a zip (it
+    needs a zip reader, a new dependency). (S)
+  - **A project's plugins:** `plugins/` beside a nasher project's
+    `nasher.cfg`, with a prompt before they run, so that a team shares
+    its checks through git. `mg verify --plugins DIR` covers a build
+    pipeline meanwhile. (M)
+  - **More kinds of things to add:** exporters and importers, wizards,
+    quick fixes for findings, events, settings a plugin keeps, panels.
+    A plugin's command can't yet read what is selected or open in the
+    window. (L)
+  - **A plugin's own tests** (`mg plugin test`, against a fixture
+    module): `mg plugin check` and `mg plugin run --dry-run` are what
+    there is. (S–M)
+  - **The reference is written by hand.** A test holds it to list every
+    name of the API, not that each description is right. (S)
+  - **The type file was not tried in an editor:** it loads as Luau and a
+    test holds it to have every name, but it was not checked with the
+    Luau language server. (S)
+  - **External programs** as plugins (a protocol over standard input and
+    output, for Python or Nim): not started. (M)
+  - **The window with plugins was tested through the UI harness**, not
+    by hand in the running application on each system. (S)
 - **`mg find` beyond objects:** it searches blueprints and placed objects;
   conversation lines, scripts' text and 2DA rows have `mg replace
   --dry-run`, the script editor's Find in Files and the resource browser.

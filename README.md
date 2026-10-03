@@ -206,6 +206,7 @@ A Cargo workspace, layered bottom-up:
 | `crates/mg-resman`, `mg-rules` | the game's load order, and its rules from its 2DA tables and talk tables |
 | `crates/mg-schema`, `mg-module`, `mg-edit` | typed views of the authored files, the module workspace, undoable editing |
 | `crates/mg-script` | the NWScript compiler and the editor's language support |
+| `crates/mg-plugin` | plugins: the sandboxed Luau runtime for their commands and checks (examples and the API's types in `docs/plugins/`) |
 | `crates/mg-tiles`, `mg-area`, `mg-render`, `mg-preview` | tile painting, areas, the renderer, blueprint previews |
 | `crates/mg-ui` | the egui application |
 | `apps/moonglow`, `apps/mg` | the GUI and the command-line tools |

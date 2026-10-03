@@ -340,6 +340,73 @@ fn the_console_runs_what_is_typed() {
     assert!(e.contains("there are no files to require here"), "{e}");
 }
 
+/// Values written by hand are read as meant: an empty table is a list
+/// where one is said to be (set as a value, in an item added, in a whole
+/// GFF), a localized string is made from either shape of one, and the
+/// root's path is empty.
+#[test]
+fn values_written_by_hand_are_read_as_meant() {
+    let dir = mg_testkit::scratch_dir("plugin-empty-list");
+    std::fs::write(
+        dir.join("plugin.cfg"),
+        "[plugin]\nid = \"test.lists\"\nname = \"Lists\"\nversion = \"1\"\napi = \"0.1\"\n\
+         license = \"GPL-3.0-or-later\"\n[command]\nid = \"empty\"\ntitle = \"Empty\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("main.luau"),
+        r#"
+        local mg = require("@moonglow")
+        mg.command("empty", function(ctx)
+            ctx.edit:set("guard.utc", "FeatList", { type = "list", value = {} })
+            ctx.edit:insert("guard.utc", "/ClassList", {
+                __struct_id = 2,
+                Class = mg.int(1),
+                KnownList0 = { type = "list", value = {} },
+            })
+            local copy = ctx.module:raw("guard.utc")
+            copy.SkillList = { type = "list", value = {} }
+            -- A localized string with its type, from either shape.
+            copy.LastName = mg.locstring({ [0] = "Stone", [4] = "Stein", strref = 9 })
+            copy.Description = mg.locstring(ctx.module:raw("guard.utc").FirstName.value)
+            ctx.edit:write_gff("copy.utc", copy)
+            -- The root's path is empty: a field's is that and its label.
+            local guard = ctx.module:gff("guard.utc")
+            assert(mg.path(guard) == "" and mg.path(guard.ClassList[1]) == "/ClassList[0]")
+            ctx.edit:set("guard.utc", mg.path(guard) .. "/Tag", "ROOT")
+            assert(ctx.module:raw("guard.utc", mg.path(guard)).Tag.value == "ROOT")
+            assert(ctx.module:raw("guard.utc", "/ClassList[0]").Class.value == 4)
+            -- A fault says which field.
+            local ok, err = pcall(function()
+                ctx.edit:set("guard.utc", "FeatList", { type = "list", value = 3 })
+            end)
+            return tostring(err)
+        end)
+        "#,
+    )
+    .unwrap();
+    let host = Rc::new(TestHost::default());
+    let outcome = run(&Plugin::load(&dir).unwrap(), "empty", &host).unwrap();
+    assert!(outcome.label.contains("guard.utc FeatList: expected an array"), "{}", outcome.label);
+    let mut ws = applied(outcome.edits);
+    ws.flush().unwrap();
+    let guard = ws.module.gff(&key("guard.utc")).unwrap().unwrap();
+    assert_eq!(guard.root.get("FeatList"), Some(&Value::List(Vec::new())));
+    let classes = guard.root.list("ClassList").unwrap();
+    assert_eq!(classes[1].get("KnownList0"), Some(&Value::List(Vec::new())));
+    let copy = ws.module.gff(&key("copy.utc")).unwrap().unwrap();
+    assert_eq!(copy.root.get("SkillList"), Some(&Value::List(Vec::new())));
+    assert_eq!(copy.root.list("ClassList").unwrap().len(), 2);
+    let mut name = LocString::from_strref(StrRef(9));
+    name.strings = vec![(LocStringKey(0), b"Stone".to_vec()), (LocStringKey(4), b"Stein".to_vec())];
+    assert_eq!(copy.root.get("LastName"), Some(&Value::LocString(name)));
+    assert_eq!(
+        copy.root.get("Description"),
+        Some(&Value::LocString(LocString::from_strref(StrRef(77))))
+    );
+    assert_eq!(guard.root.get("Tag"), Some(&Value::String(b"ROOT".to_vec())));
+}
+
 /// The game's own data, where there is an install: a 2DA's cells by row
 /// and column, a talk-table string, a resource the game would load.
 #[test]

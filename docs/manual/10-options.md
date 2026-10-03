@@ -82,6 +82,9 @@ what you type (a command's name, or its group's).
   command.
 - **Conflicts:** a key two commands share where both work is named above
   the list. (A key of the whole window wins over the editors' own.)
+- The commands of enabled [plugins](15-plugins.md) are listed under
+  **Plugins**, with the key each plugin suggests; they take keys like
+  any other.
 
 Keys match exactly: Shift+Q is not Q. Text editing, Escape and Enter,
 Copy, Cut and Paste, Delete in the area view, and the script editor's

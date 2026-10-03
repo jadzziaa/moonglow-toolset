@@ -39,6 +39,11 @@ deliberately departs.
     files, crash reports, common problems.
 14. [Coming from Aurora](14-coming-from-aurora.md): for builders who know
     Aurora.
+15. [Plugins](15-plugins.md): installing and enabling them, what they can
+    and cannot do, the console.
+16. [Writing plugins](16-writing-plugins.md): a first plugin, and how
+    plugins work.
+17. [Plugin API reference](17-plugin-api.md).
 
 Moonglow is free software under the GNU General Public License, version 3.
 It contains no game data: it reads the game's files from your

@@ -224,6 +224,12 @@ pub fn run_console(code: &str, input: Input, host: Rc<dyn Host>) -> Result<Outco
     runtime::run_console(code, input, host)
 }
 
+/// Every name a plugin's code can use, as the reference writes them
+/// (`mg.command`, `ctx.module:gff`, `ctx.plugin.id`).
+pub fn api_names() -> Vec<String> {
+    runtime::api_names()
+}
+
 /// Loads a plugin's code and compares what it registers with what its
 /// manifest declares: the faults, as text (none: the two agree).
 pub fn inspect(plugin: &Plugin, host: Rc<dyn Host>) -> Result<Vec<String>, PluginError> {

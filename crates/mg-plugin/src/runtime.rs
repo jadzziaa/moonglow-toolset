@@ -141,7 +141,8 @@ fn plain(lua: &Lua, s: &Struct, path: &GffPath) -> mlua::Result<Table> {
         t.raw_set(label, v)?;
     }
     let meta = lua.create_table()?;
-    meta.raw_set("path", path.to_string())?;
+    // (The root's is empty, so that a field's path is this and "/Label".)
+    meta.raw_set("path", if path.0.is_empty() { String::new() } else { path.to_string() })?;
     meta.raw_set("struct_id", f64::from(s.id))?;
     t.set_metatable(Some(meta))?;
     Ok(t)
@@ -258,17 +259,41 @@ fn typed(ty: FieldType, v: &LuaValue, old: Option<&Value>) -> Result<Value, Stri
     })
 }
 
+/// A table of the plugin's as JSON. A list with no items written by hand,
+/// `{ type = "list", value = {} }`, is an empty table, which reads as an
+/// object: it is made the empty list it stands for.
+fn json_of(lua: &Lua, v: LuaValue) -> mlua::Result<serde_json::Value> {
+    fn lists(v: &mut serde_json::Value) {
+        match v {
+            serde_json::Value::Object(o) => {
+                let empty = o.get("type").and_then(|t| t.as_str()) == Some("list")
+                    && o.get("value").and_then(|v| v.as_object()).is_some_and(|v| v.is_empty());
+                if empty {
+                    o.insert("value".into(), serde_json::Value::Array(Vec::new()));
+                }
+                o.values_mut().for_each(lists);
+            }
+            serde_json::Value::Array(items) => items.iter_mut().for_each(lists),
+            _ => {}
+        }
+    }
+    let mut json: serde_json::Value = lua.from_value(v)?;
+    lists(&mut json);
+    Ok(json)
+}
+
 /// A table that is a value with its type, as `mg.int(3)` makes it and
-/// `mg gff` writes it: `{ type = "int", value = 3 }`.
-fn typed_table(lua: &Lua, v: &LuaValue) -> mlua::Result<Option<Value>> {
+/// `mg gff` writes it: `{ type = "int", value = 3 }` (`what`: the field
+/// it is for, for an error).
+fn typed_table(lua: &Lua, v: &LuaValue, what: &str) -> mlua::Result<Option<Value>> {
     let LuaValue::Table(t) = v else { return Ok(None) };
     if !matches!(t.raw_get::<LuaValue>("type")?, LuaValue::String(_)) {
         return Ok(None);
     }
-    let json: serde_json::Value = lua.from_value(v.clone())?;
+    let json = json_of(lua, v.clone())?;
     match mg_gff::value_from_json(&json, CODEPAGE) {
         Ok(value) => Ok(Some(value)),
-        Err(e) => fail(e),
+        Err(e) => fail(format!("{what}{e}")),
     }
 }
 
@@ -328,7 +353,7 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
         lua.create_function(move |lua, (_, name, path): (This, String, Option<String>)| {
             let key = key_of(&name)?;
             let gff = s.gff(&key, game)?;
-            let json = match path {
+            let json = match path.filter(|p| !p.is_empty()) {
                 None => mg_gff::to_json(&gff, CODEPAGE),
                 Some(path) => {
                     let path: GffPath = path.parse().or_else(fail)?;
@@ -405,7 +430,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
                         None => return fail(format!("{key}: no struct at {path}")),
                     }
                 };
-                let value = match typed_table(lua, &value)? {
+                let value = match typed_table(lua, &value, &format!("{key} {field}"))? {
                     Some(value) => value,
                     None => {
                         // Its own type; else the one given; else the game's.
@@ -461,7 +486,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
             move |lua, (_, name, list, item, index): (This, String, String, LuaValue, Option<usize>)| {
                 let key = key_of(&name)?;
                 let (path, list) = field_from_str(&list).or_else(fail)?;
-                let json: serde_json::Value = lua.from_value(item)?;
+                let json = json_of(lua, item)?;
                 let item = mg_gff::struct_from_json(&json, CODEPAGE)
                     .or_else(|e| fail(format!("{key} {list}: the item{e}")))?;
                 // At the end, unless a place is given (0 is first).
@@ -519,7 +544,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
         "write_gff",
         lua.create_function(move |lua, (_, name, doc): (This, String, LuaValue)| {
             let key = key_of(&name)?;
-            let json: serde_json::Value = lua.from_value(doc)?;
+            let json = json_of(lua, doc)?;
             let gff = mg_gff::from_json(&json, CODEPAGE).or_else(|e| fail(format!("{key}{e}")))?;
             let data = gff.to_bytes().or_else(|e| fail(format!("{key}: {e}")))?;
             s.apply(Edit::SetResource { key, data: Some(data) })
@@ -683,11 +708,30 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
             lua.create_function(move |lua, value: LuaValue| {
                 let t = lua.create_table()?;
                 t.set("type", ty.json_name())?;
-                // (A localized string's text alone is its English.)
                 match (&value, ty) {
+                    // (A localized string's text alone is its English.)
                     (LuaValue::String(_), FieldType::LocString) => {
                         let texts = lua.create_table()?;
                         texts.set("0", value)?;
+                        t.set("value", texts)?;
+                    }
+                    // Its texts by language number and `strref`, as `gff`
+                    // reads one (written "0" and `id`, as `raw` has it).
+                    (LuaValue::Table(given), FieldType::LocString) => {
+                        let texts = lua.create_table()?;
+                        for pair in given.pairs::<LuaValue, LuaValue>() {
+                            let (k, text) = pair?;
+                            match k {
+                                LuaValue::Integer(n) => texts.set(n.to_string(), text)?,
+                                LuaValue::Number(n) if n.fract() == 0.0 => {
+                                    texts.set((n as i64).to_string(), text)?
+                                }
+                                LuaValue::String(s) if s.as_bytes() == b"strref" => {
+                                    texts.set("id", text)?
+                                }
+                                other => texts.set(other, text)?,
+                            }
+                        }
                         t.set("value", texts)?;
                     }
                     _ => t.set("value", value)?,
@@ -1021,4 +1065,47 @@ pub(crate) fn run_console(
         return Err(PluginError::Canceled("Console".into()));
     }
     Ok(Outcome { label: "Plugin console".into(), edits: sh.edits.take() })
+}
+
+/// Every name a plugin's code can use, as the reference writes them
+/// (`mg.command`, `ctx.module:gff`, `ctx.plugin.id`): read off the API as
+/// it is built, so that a test can hold the reference to list them all.
+pub(crate) fn api_names() -> Vec<String> {
+    struct Nobody;
+    impl Host for Nobody {
+        fn log(&self, _: Level, _: &str) {}
+        fn ask(&self, _: &Question) -> Option<Answer> {
+            None
+        }
+    }
+    let host: Rc<dyn Host> = Rc::new(Nobody);
+    let input = Input { module: mg_module::Module::new(), game: None };
+    let sh = shared_in(PathBuf::new(), input, &host);
+    let names = || -> mlua::Result<Vec<String>> {
+        let lua = start(None, &sh)?;
+        let mut out = vec!["require".to_string(), "print".to_string()];
+        let mg: Table = lua.named_registry_value("mg.api")?;
+        for pair in mg.pairs::<String, LuaValue>() {
+            out.push(format!("mg.{}", pair?.0));
+        }
+        let ctx = context(&lua, &sh, ["", "", ""])?;
+        for pair in ctx.pairs::<String, LuaValue>() {
+            let (name, value) = pair?;
+            match value {
+                LuaValue::Table(t) => {
+                    for inner in t.pairs::<String, LuaValue>() {
+                        let (inner, value) = inner?;
+                        let sep = if value.is_function() { ':' } else { '.' };
+                        out.push(format!("ctx.{name}{sep}{inner}"));
+                    }
+                }
+                _ => out.push(format!("ctx.{name}")),
+            }
+        }
+        // What `ctx.game:table` returns.
+        out.extend(["twoda.rows", "twoda.columns", "twoda:get"].map(String::from));
+        out.sort();
+        Ok(out)
+    };
+    names().unwrap_or_default()
 }

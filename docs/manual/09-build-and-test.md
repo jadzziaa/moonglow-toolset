@@ -99,6 +99,10 @@ a placed object's are errors. A hak that hides the game's own longer
 do that. When it matters, an object naming one of the lost rows is
 reported instead.
 
+The checks of enabled [plugins](15-plugins.md) run with these, and their
+findings are listed with the rest: a team's own rules (naming, required
+scripts) become part of Verify Module.
+
 `mg verify` does the same from a terminal, and can write its results as
 JSON for a build pipeline (`mg --json verify`; see [Command-line
 tools](11-command-line.md)). There each problem carries the id of the
