@@ -365,7 +365,9 @@ enum PluginCmd {
     /// is a plugin's own, or one that holds plugins' folders.
     List { folders: Vec<PathBuf> },
     /// Check plugins: the manifest reads, and the code registers what it
-    /// declares. Exits with an error if one does not.
+    /// declares. Exits with an error if one does not. A file is a
+    /// plugin's archive: checked as the installer checks it, and its code
+    /// as it is in the archive.
     Check { folders: Vec<PathBuf> },
     /// Run a plugin's command on a module and save: its edits applied as
     /// one command, all or none. The plugin runs sandboxed, as in the
@@ -407,6 +409,14 @@ enum PluginCmd {
         /// Install over the same plugin installed from an archive before.
         #[arg(long)]
         replace: bool,
+    },
+    /// Remove a plugin that was installed from an archive from a folder of
+    /// plugins. One put there by hand is left alone: delete its folder.
+    Remove {
+        /// The plugin's id (`mg plugin list` shows it).
+        id: String,
+        /// The folder of plugins.
+        folder: PathBuf,
     },
 }
 
@@ -671,6 +681,7 @@ fn run(cli: &Cli) -> Result<Output> {
             PluginCmd::Install { file, folder, replace } => {
                 plugins::install(file, folder, *replace)?
             }
+            PluginCmd::Remove { id, folder } => plugins::remove(id, folder)?,
         },
         Cmd::Checks => {
             use mg_module::doctor::Check;

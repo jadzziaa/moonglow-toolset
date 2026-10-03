@@ -70,6 +70,7 @@ fn every_command_answers_in_json() {
     assert_eq!(packed["id"], "example.tag-conventions");
     let installed = ok(&["plugin", "install", &at("tags.zip"), &at("plugins")]);
     assert_eq!(installed["replaced"], Value::Null);
+    ok(&["plugin", "remove", "example.tag-conventions", &at("plugins")]);
     let checks = ok(&["checks"]);
     assert!(checks["checks"].as_array().unwrap().iter().any(|c| c["id"] == "set-model"));
     assert!(ok(&["haks", c])["haks"].as_array().unwrap().is_empty());

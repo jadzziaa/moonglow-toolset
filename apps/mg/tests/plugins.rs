@@ -169,8 +169,14 @@ fn a_plugin_is_packed_and_installed() {
     assert!(ok, "{again}");
     assert_eq!(again["replaced"], "1.0.0");
 
+    // The archive is checked like a folder: its layout and manifest, and
+    // that its code registers what the manifest declares.
+    let (ok, checked) = mg(&["plugin", "check", zip]);
+    assert!(ok, "{checked}");
+    assert_eq!(checked["plugins"], json!([{ "plugin": "example.tag-conventions", "faults": [] }]));
+
     // A plugin whose code and manifest disagree is not packed; a file
-    // that is no archive is not installed.
+    // that is no archive is not installed, and fails the check.
     let broken = fixtures().join("broken");
     let (ok, failed) = mg(&["plugin", "pack", broken.to_str().unwrap(), "-o", zip]);
     assert!(!ok, "{failed}");
@@ -179,6 +185,29 @@ fn a_plugin_is_packed_and_installed() {
     let (ok, failed) = mg(&["plugin", "install", junk.to_str().unwrap(), to]);
     assert!(!ok);
     assert!(failed["error"].as_str().unwrap().ends_with("junk.zip: it is not a zip archive"));
+    let (ok, checked) = mg(&["plugin", "check", junk.to_str().unwrap()]);
+    assert!(!ok);
+    assert_eq!(checked["plugins"][0]["faults"], json!(["it is not a zip archive"]));
+
+    // Removed by its id: what was installed, not what was copied in.
+    let copied = plugins.join("by-hand");
+    std::fs::create_dir_all(&copied).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(fixtures().join("forms").join(file), copied.join(file)).unwrap();
+    }
+    let (ok, removed) = mg(&["plugin", "remove", "example.tag-conventions", to]);
+    assert!(ok, "{removed}");
+    assert_eq!(removed["version"], "1.0.0");
+    assert!(!folder.exists());
+    let (ok, refused) = mg(&["plugin", "remove", "test.forms", to]);
+    assert!(!ok);
+    assert!(refused["error"].as_str().unwrap().contains("was not installed from a file"));
+    assert!(copied.join("main.luau").is_file());
+    let (ok, missing) = mg(&["plugin", "remove", "example.tag-conventions", to]);
+    assert!(!ok);
+    assert!(
+        missing["error"].as_str().unwrap().ends_with("no plugin example.tag-conventions there")
+    );
 }
 
 /// A plugin's checks run with the doctor's (where there is a game to

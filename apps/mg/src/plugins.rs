@@ -238,6 +238,28 @@ pub(crate) fn check(dirs: &[PathBuf]) -> Result<Output> {
     let mut out = Output::default();
     let mut all = Vec::new();
     for dir in dirs {
+        // A file is a plugin's archive: what the installer checks of it,
+        // then its code, as it is in the archive.
+        if dir.is_file() {
+            let (name, faults) = match archive(dir) {
+                Ok(package) => {
+                    let host = Rc::new(CliHost::default());
+                    let faults = match package.inspect(host) {
+                        Ok(faults) => faults,
+                        Err(e) => vec![e.to_string()],
+                    };
+                    (package.manifest.id.clone(), faults)
+                }
+                Err(e) => (dir.display().to_string(), vec![e.to_string()]),
+            };
+            match faults.as_slice() {
+                [] => out.line(format!("{name}\tok")),
+                faults => faults.iter().for_each(|f| out.line(format!("{name}\t{f}"))),
+            }
+            out.failed |= !faults.is_empty();
+            all.push(json!({ "plugin": name, "faults": faults }));
+            continue;
+        }
         let found = plugins_in(dir);
         if found.is_empty() {
             bail!("{}: no plugin there (no plugin.cfg)", dir.display());
@@ -296,17 +318,41 @@ pub(crate) fn pack(dir: &Path, output: Option<&Path>) -> Result<Output> {
     Ok(out)
 }
 
+/// A plugin's archive read from a file, as the installer reads it.
+fn archive(file: &Path) -> Result<mg_plugin::Package> {
+    let size = std::fs::metadata(file)?.len();
+    if size > mg_plugin::MAX_ARCHIVE {
+        bail!("it is over {} MB", mg_plugin::MAX_ARCHIVE >> 20);
+    }
+    mg_plugin::Package::read(&std::fs::read(file)?).map_err(|e| anyhow!("{e}"))
+}
+
+/// `mg plugin remove`: a plugin installed from an archive taken out of a
+/// folder of plugins, by its id. One put there by hand is left alone.
+pub(crate) fn remove(id: &str, plugins: &Path) -> Result<Output> {
+    let found = mg_plugin::discover(plugins)
+        .into_iter()
+        .flatten()
+        .find(|p| p.manifest.id == id)
+        .map(|p| (p.dir, p.manifest.version))
+        // (One whose manifest does not read is still where it was put.)
+        .or_else(|| Some((plugins.join(id), String::new())).filter(|(dir, _)| dir.is_dir()));
+    let Some((dir, version)) = found else {
+        bail!("{}: no plugin {id} there", plugins.display());
+    };
+    mg_plugin::remove(&dir).map_err(|e| anyhow!("{e}"))?;
+    let mut out = Output::new(json!({
+        "id": id, "version": version, "folder": dir.display().to_string(),
+    }));
+    out.line(format!("{id}\t{version}\tremoved from {}", plugins.display()));
+    Ok(out)
+}
+
 /// `mg plugin install`: a plugin's archive unpacked into a plugins folder
 /// (as Install Plugin from File does: checked, none of it run), in a
 /// folder named by its id.
 pub(crate) fn install(file: &Path, plugins: &Path, replace: bool) -> Result<Output> {
-    let size = std::fs::metadata(file).with_context(|| file.display().to_string())?.len();
-    if size > mg_plugin::MAX_ARCHIVE {
-        bail!("{}: it is over {} MB", file.display(), mg_plugin::MAX_ARCHIVE >> 20);
-    }
-    let bytes = std::fs::read(file).with_context(|| file.display().to_string())?;
-    let package =
-        mg_plugin::Package::read(&bytes).map_err(|e| anyhow!("{}: {e}", file.display()))?;
+    let package = archive(file).map_err(|e| anyhow!("{}: {e}", file.display()))?;
     let replaced = match package.existing(plugins) {
         mg_plugin::Existing::Installed { version } if !replace => bail!(
             "{} {version} is installed already (--replace installs over it)",
