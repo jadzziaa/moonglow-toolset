@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use mg_plugin::{
     Answer, Existing, Host, Level, MARKER, MAX_FILES, Package, Plugin, PluginError, Question,
-    discover, inspect, pack,
+    discover, from_archive, inspect, pack, remove,
 };
 use zip::write::SimpleFileOptions;
 
@@ -361,4 +361,66 @@ fn a_packed_plugin_installs_as_itself() {
     std::fs::write(source.join("aux.luau"), "return 1").unwrap();
     let e = pack(&plugin).unwrap_err().to_string();
     assert!(e.contains("\"aux.luau\" has a name Windows keeps for a device"), "{e}");
+}
+
+/// An archive's code is loaded as it is in the archive, nothing unpacked:
+/// what it registers is compared with its manifest as a folder's is.
+#[test]
+fn an_archive_s_code_is_checked_without_unpacking() {
+    // (Its main.luau requires rules.luau: from the archive too.)
+    let good = Package::read(&zipped(&plugin_under("", &fixture("plugin.cfg")))).unwrap();
+    assert_eq!(good.inspect(Rc::new(Quiet)).unwrap(), Vec::<String>::new());
+
+    let broken = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/broken");
+    let files: Vec<(String, Vec<u8>)> = ["plugin.cfg", "main.luau"]
+        .iter()
+        .map(|f| (format!("broken/{f}"), std::fs::read(broken.join(f)).unwrap()))
+        .collect();
+    let package = Package::read(&zipped(&files)).unwrap();
+    let from_folder = inspect(&Plugin::load(&broken).unwrap(), Rc::new(Quiet)).unwrap();
+    assert_eq!(from_folder.len(), 3);
+    assert_eq!(package.inspect(Rc::new(Quiet)).unwrap(), from_folder);
+
+    // Code that does not load is an error that names the script.
+    let mut files = plugin_under("", &fixture("plugin.cfg"));
+    files[2].1 = b"this is not Luau".to_vec();
+    let e = Package::read(&zipped(&files)).unwrap().inspect(Rc::new(Quiet)).unwrap_err();
+    assert!(e.to_string().contains("rules.luau"), "{e}");
+}
+
+/// Remove takes away what Install from File put there, and nothing else.
+#[test]
+fn only_what_was_installed_from_an_archive_is_removed() {
+    let plugins = mg_testkit::scratch_dir("plugin-remove");
+    let package = Package::read(&zipped(&plugin_under("", &fixture("plugin.cfg")))).unwrap();
+    let installed = package.install(&plugins, false).unwrap();
+    assert!(from_archive(&installed.dir));
+    remove(&installed.dir).unwrap();
+    assert!(!installed.dir.exists());
+    assert!(tree(&plugins).is_empty(), "{:?}", tree(&plugins));
+    assert_eq!(package.existing(&plugins), Existing::Nothing);
+
+    // A folder put there by hand is refused, and stays.
+    let mine = plugins.join("my-tags");
+    std::fs::create_dir_all(&mine).unwrap();
+    for file in ["plugin.cfg", "main.luau", "rules.luau"] {
+        std::fs::write(mine.join(file), fixture(file)).unwrap();
+    }
+    assert!(!from_archive(&mine));
+    let e = remove(&mine).unwrap_err().to_string();
+    assert!(e.ends_with("was not installed from a file: delete its folder to remove it"), "{e}");
+    assert_eq!(tree(&plugins).len(), 3);
+
+    // A link to a plugin kept elsewhere: the link goes, the plugin stays.
+    #[cfg(unix)]
+    {
+        let elsewhere = mg_testkit::scratch_dir("plugin-remove-elsewhere");
+        let kept = package.install(&elsewhere, false).unwrap();
+        let link = plugins.join("linked");
+        std::os::unix::fs::symlink(&kept.dir, &link).unwrap();
+        assert_eq!(discover(&plugins).len(), 2);
+        remove(&link).unwrap();
+        assert!(!link.exists());
+        assert!(kept.dir.join("main.luau").is_file());
+    }
 }

@@ -28,7 +28,9 @@ use mg_edit::Edit;
 use mg_module::Module;
 use mg_module::doctor::Finding;
 use mg_rules::GameData;
-pub use package::{Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, pack};
+pub use package::{
+    Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, from_archive, pack, remove,
+};
 use thiserror::Error;
 
 /// What can go wrong with a plugin.
@@ -251,5 +253,5 @@ pub fn api_names() -> Vec<String> {
 /// Loads a plugin's code and compares what it registers with what its
 /// manifest declares: the faults, as text (none: the two agree).
 pub fn inspect(plugin: &Plugin, host: Rc<dyn Host>) -> Result<Vec<String>, PluginError> {
-    runtime::inspect(plugin, host)
+    runtime::inspect(runtime::Source::Folder(plugin.dir.clone()), &plugin.manifest, host)
 }

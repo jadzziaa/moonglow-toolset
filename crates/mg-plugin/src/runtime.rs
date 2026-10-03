@@ -24,16 +24,42 @@ use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue, Variadic, VmSta
 
 use crate::{
     Answer, CheckDecl, CommandDecl, FieldKind, FormField, Host, Input, Level, MEMORY_LIMIT,
-    Outcome, Plugin, PluginError, Question,
+    Manifest, Outcome, Plugin, PluginError, Question,
 };
 
 /// The codepage of a module's text, as the plugin's UTF-8 strings go in
 /// and come out.
 const CODEPAGE: Codepage = Codepage::WINDOWS_1252;
 
+/// Where a job's scripts are read from.
+pub(crate) enum Source {
+    /// Nowhere: the console has no files.
+    Nothing,
+    /// A plugin's folder.
+    Folder(PathBuf),
+    /// A plugin's archive, not unpacked: its files by their paths in it.
+    Memory(BTreeMap<String, Vec<u8>>),
+}
+
+impl Source {
+    /// A script, by its path in the plugin's folder.
+    fn read(&self, name: &str) -> std::io::Result<String> {
+        use std::io::{Error, ErrorKind};
+        match self {
+            Source::Nothing => Err(Error::new(ErrorKind::NotFound, "there are no files here")),
+            Source::Folder(dir) => std::fs::read_to_string(dir.join(name)),
+            Source::Memory(files) => match files.get(name) {
+                Some(bytes) => String::from_utf8(bytes.clone())
+                    .map_err(|_| Error::new(ErrorKind::InvalidData, "it is not text (UTF-8)")),
+                None => Err(Error::new(ErrorKind::NotFound, "no such file")),
+            },
+        }
+    }
+}
+
 /// What a job's API works on.
 struct Shared {
-    dir: PathBuf,
+    files: Source,
     ws: RefCell<Workspace>,
     edits: RefCell<Vec<Edit>>,
     game: Option<Arc<GameData>>,
@@ -776,7 +802,7 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     )?;
 
     // require: the API, or a file of the plugin's own folder.
-    let dir = sh.dir.clone();
+    let files = sh.clone();
     globals.set(
         "require",
         lua.create_function(move |lua, name: String| -> mlua::Result<LuaValue> {
@@ -793,7 +819,7 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
                 return fail(format!("require({name:?}): only files of the plugin's folder"));
             }
             // (The console has no folder.)
-            if dir.as_os_str().is_empty() {
+            if matches!(files.files, Source::Nothing) {
                 return fail(format!("require({name:?}): there are no files to require here"));
             }
             let loaded: Table = lua.named_registry_value("mg.modules")?;
@@ -801,8 +827,9 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
             if !cached.is_nil() {
                 return Ok(cached);
             }
-            let path = dir.join(format!("{file}.luau"));
-            let source = std::fs::read_to_string(&path)
+            let source = files
+                .files
+                .read(&format!("{file}.luau"))
                 .or_else(|e| fail(format!("require({name:?}): {e}")))?;
             let value: LuaValue = lua.load(source).set_name(format!("@{file}.luau")).eval()?;
             // (Loaded once, whatever it returns.)
@@ -840,8 +867,7 @@ fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     // From here the globals are fixed, and each script has its own.
     lua.sandbox(true)?;
     if let Some(entry) = entry {
-        let source = std::fs::read_to_string(sh.dir.join(entry))
-            .or_else(|e| fail(format!("{entry}: {e}")))?;
+        let source = sh.files.read(entry).or_else(|e| fail(format!("{entry}: {e}")))?;
         lua.load(source).set_name(format!("@{entry}")).exec()?;
     }
     Ok(lua)
@@ -870,12 +896,12 @@ fn failure(name: &str, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
 }
 
 fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
-    shared_in(plugin.dir.clone(), input, host)
+    shared_in(Source::Folder(plugin.dir.clone()), input, host)
 }
 
-fn shared_in(dir: PathBuf, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
+fn shared_in(files: Source, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
     Rc::new(Shared {
-        dir,
+        files,
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
         game: input.game,
@@ -969,19 +995,25 @@ pub(crate) fn run_check(
     Ok(findings)
 }
 
-pub(crate) fn inspect(plugin: &Plugin, host: Rc<dyn Host>) -> Result<Vec<String>, PluginError> {
+/// Loads a plugin's code from `files` and compares what it registers with
+/// what `manifest` declares.
+pub(crate) fn inspect(
+    files: Source,
+    manifest: &Manifest,
+    host: Rc<dyn Host>,
+) -> Result<Vec<String>, PluginError> {
     let input = Input { module: mg_module::Module::new(), game: None };
-    let sh = shared(plugin, input, &host);
+    let sh = shared_in(files, input, &host);
     let run = || -> mlua::Result<Vec<String>> {
-        let lua = start(Some(&plugin.manifest.entry), &sh)?;
+        let lua = start(Some(&manifest.entry), &sh)?;
         let mut faults = Vec::new();
         let registered = |registry: &str| -> mlua::Result<Vec<String>> {
             let handlers: Table = lua.named_registry_value(registry)?;
             handlers.pairs::<String, LuaValue>().map(|p| p.map(|(id, _)| id)).collect()
         };
         let declared: BTreeMap<&str, Vec<&str>> = BTreeMap::from([
-            ("command", plugin.manifest.commands.iter().map(|c| c.id.as_str()).collect()),
-            ("check", plugin.manifest.checks.iter().map(|c| c.id.as_str()).collect()),
+            ("command", manifest.commands.iter().map(|c| c.id.as_str()).collect()),
+            ("check", manifest.checks.iter().map(|c| c.id.as_str()).collect()),
         ]);
         for (kind, registry) in [("command", "mg.commands"), ("check", "mg.checks")] {
             let mut code = registered(registry)?;
@@ -1003,7 +1035,7 @@ pub(crate) fn inspect(plugin: &Plugin, host: Rc<dyn Host>) -> Result<Vec<String>
         }
         Ok(faults)
     };
-    run().map_err(|e| failed(plugin, &host, e))
+    run().map_err(|e| failure(&manifest.name, &host, e))
 }
 
 /// A value as the console shows it: text and numbers as they are, a table
@@ -1047,7 +1079,7 @@ pub(crate) fn run_console(
     input: Input,
     host: Rc<dyn Host>,
 ) -> Result<Outcome, PluginError> {
-    let sh = shared_in(PathBuf::new(), input, &host);
+    let sh = shared_in(Source::Nothing, input, &host);
     let run = || -> mlua::Result<()> {
         let lua = start(None, &sh)?;
         let ctx = context(&lua, &sh, ["console", "Console", crate::API])?;
@@ -1080,7 +1112,7 @@ pub(crate) fn api_names() -> Vec<String> {
     }
     let host: Rc<dyn Host> = Rc::new(Nobody);
     let input = Input { module: mg_module::Module::new(), game: None };
-    let sh = shared_in(PathBuf::new(), input, &host);
+    let sh = shared_in(Source::Nothing, input, &host);
     let names = || -> mlua::Result<Vec<String>> {
         let lua = start(None, &sh)?;
         let mut out = vec!["require".to_string(), "print".to_string()];

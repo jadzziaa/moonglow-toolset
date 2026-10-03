@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-use crate::{Manifest, Plugin, PluginError};
+use crate::runtime::{self, Source};
+use crate::{Host, Manifest, Plugin, PluginError};
 
 /// The most files a plugin's archive may hold.
 pub const MAX_FILES: usize = 500;
@@ -232,6 +233,14 @@ impl Package {
         Ok(Package { manifest, files })
     }
 
+    /// Loads its code, as it is in the archive (nothing is unpacked),
+    /// and compares what it registers with what its manifest declares:
+    /// the faults, as [`crate::inspect`] gives them for a folder.
+    pub fn inspect(&self, host: std::rc::Rc<dyn Host>) -> Result<Vec<String>, PluginError> {
+        let files = self.files.iter().cloned().collect();
+        runtime::inspect(Source::Memory(files), &self.manifest, host)
+    }
+
     /// Its files' paths in the plugin's folder, sorted.
     pub fn files(&self) -> impl Iterator<Item = &str> {
         self.files.iter().map(|(p, _)| p.as_str())
@@ -256,7 +265,7 @@ impl Package {
         if !target.exists() {
             return Existing::Nothing;
         }
-        if !target.join(MARKER).is_file() {
+        if !from_archive(&target) {
             return Existing::Foreign { dir: target };
         }
         let version = Plugin::load(&target).map(|p| p.manifest.version).unwrap_or_default();
@@ -331,6 +340,36 @@ impl Package {
         }
         Plugin::load(&target)
     }
+}
+
+/// Whether a plugin's folder was installed from an archive, and so is
+/// Moonglow's to replace or remove.
+pub fn from_archive(dir: &Path) -> bool {
+    dir.join(MARKER).is_file()
+}
+
+/// Removes a plugin that was installed from an archive: its folder,
+/// whole. A folder that was not (one copied in by hand, an author's own)
+/// is refused: what Moonglow did not put there it does not delete. The
+/// folder is moved aside first, so that it is gone from the plugins at
+/// once or not at all.
+pub fn remove(dir: &Path) -> Result<(), PluginError> {
+    let name = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if !from_archive(dir) {
+        return fault(format!(
+            "{} was not installed from a file: delete its folder to remove it",
+            dir.display()
+        ));
+    }
+    let Some(plugins) = dir.parent() else { return fault("it has no folder it is in") };
+    let io = |what: &str, e: std::io::Error| PluginError::Package(format!("{what}: {e}"));
+    let gone = plugins.join(format!(".removed-{name}"));
+    if gone.exists() {
+        std::fs::remove_dir_all(&gone).map_err(|e| io("clearing an earlier attempt", e))?;
+    }
+    std::fs::rename(dir, &gone).map_err(|e| io("moving the plugin's folder away", e))?;
+    std::fs::remove_dir_all(&gone)
+        .map_err(|e| io(&format!("deleting {} (the plugin is removed)", gone.display()), e))
 }
 
 /// A plugin's folder as an archive to hand around: its files (hidden ones
