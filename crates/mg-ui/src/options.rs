@@ -685,7 +685,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
     rows.retain(|(group, _, name)| {
         name.to_lowercase().contains(&needle) || group.name().to_lowercase().contains(&needle)
     });
-    egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+    egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
         let mut group = None;
         egui::Grid::new("keys").num_columns(3).striped(true).show(ui, |ui| {
             for (in_group, id, name) in &rows {
