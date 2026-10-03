@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 mod edits;
 mod lsp;
+mod plugins;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -71,6 +72,15 @@ enum Cmd {
         /// Also list module resources nothing references.
         #[arg(long)]
         unused: bool,
+        /// Run these plugins' checks too: a plugin's folder, or a folder
+        /// of plugins.
+        #[arg(long)]
+        plugins: Vec<PathBuf>,
+    },
+    /// Plugins: list them, check them, run one's command on a module.
+    Plugin {
+        #[command(subcommand)]
+        cmd: PluginCmd,
     },
     /// List the checks `verify` makes of custom content: each one's id (a
     /// finding's "check" with --json) and what it holds to be true.
@@ -348,6 +358,36 @@ enum Cmd {
     },
 }
 
+/// `mg plugin`'s commands.
+#[derive(Subcommand)]
+enum PluginCmd {
+    /// List plugins and what each adds: its commands and checks. A folder
+    /// is a plugin's own, or one that holds plugins' folders.
+    List { folders: Vec<PathBuf> },
+    /// Check plugins: the manifest reads, and the code registers what it
+    /// declares. Exits with an error if one does not.
+    Check { folders: Vec<PathBuf> },
+    /// Run a plugin's command on a module and save: its edits applied as
+    /// one command, all or none. The plugin runs sandboxed, as in the
+    /// window.
+    Run {
+        module: PathBuf,
+        /// The plugin's folder.
+        plugin: PathBuf,
+        /// The command's id (`mg plugin list` shows them).
+        command: String,
+        /// A form's field, `ID=VALUE` (the others take their defaults).
+        #[arg(long)]
+        answer: Vec<String>,
+        /// Answer yes where the plugin asks to confirm (else: no).
+        #[arg(long)]
+        yes: bool,
+        /// Print the edits it would make; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
 /// What a command produced: its result as JSON, and the same for people
 /// as lines of standard output and notes (warnings, summaries) on
 /// standard error.
@@ -593,7 +633,19 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Verify { module, unused } => verify(&install(cli)?, module, *unused)?,
+        Cmd::Verify { module, unused, plugins } => {
+            verify(&install(cli)?, module, *unused, plugins)?
+        }
+        Cmd::Plugin { cmd } => match cmd {
+            PluginCmd::List { folders } => plugins::list(folders)?,
+            PluginCmd::Check { folders } => plugins::check(folders)?,
+            PluginCmd::Run { module, plugin, command, answer, yes, dry_run } => {
+                let host = plugins::CliHost::new(answer, *yes)?;
+                // (A plugin that reads no game data needs no game.)
+                let gi = install(cli).ok();
+                plugins::run(gi.as_ref(), module, plugin, command, host, *dry_run)?
+            }
+        },
         Cmd::Checks => {
             use mg_module::doctor::Check;
             let mut out = Output::new(json!({
@@ -1297,7 +1349,7 @@ fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMa
     Ok(rm)
 }
 
-fn verify(gi: &GameInstall, path: &Path, show_unused: bool) -> Result<Output> {
+fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf]) -> Result<Output> {
     let m = Module::open(path)?;
     let mut out = Output::default();
     let rm = module_resman(gi, &m, &mut out)?;
@@ -1308,8 +1360,10 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool) -> Result<Output> {
     let custom = m.custom_tlk().ok().flatten().and_then(|name| {
         mg_module::talk::find(&rm, &gi.tlk_dirs(), &name).and_then(|f| count(f.data))
     });
-    let findings =
+    let mut findings =
         mg_module::doctor::examine(&m, &rm, mg_module::doctor::TalkTables { base, custom });
+    // The plugins' checks, beside the doctor's.
+    findings.extend(plugins::findings(gi, &m, plugins, &mut out)?);
     let errors = missing.iter().filter(|x| x.is_error()).count()
         + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
     let warnings = findings.len() + missing.len() - errors;

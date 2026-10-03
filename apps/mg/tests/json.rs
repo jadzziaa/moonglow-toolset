@@ -58,6 +58,14 @@ fn every_command_answers_in_json() {
 
     // Modules.
     assert_eq!(ok(&["verify", c])["errors"], 0);
+    // Plugins: the plugin host's own fixture, listed, checked, run and
+    // its checks counted.
+    let plugins = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/mg-plugin/tests/fixtures");
+    let plugin = format!("{plugins}/tag-conventions");
+    assert!(ok(&["plugin", "list", plugins])["plugins"].as_array().unwrap().len() >= 4);
+    assert_eq!(ok(&["plugin", "check", &plugin])["plugins"][0]["faults"], serde_json::json!([]));
+    ok(&["plugin", "run", c, &plugin, "fix-tags", "--dry-run"]);
+    assert_eq!(ok(&["verify", c, "--plugins", &plugin])["errors"], 0);
     let checks = ok(&["checks"]);
     assert!(checks["checks"].as_array().unwrap().iter().any(|c| c["id"] == "set-model"));
     assert!(ok(&["haks", c])["haks"].as_array().unwrap().is_empty());

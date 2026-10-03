@@ -33,7 +33,7 @@ pub(crate) fn apply(module: &Path, edits: &Path, dry_run: bool) -> Result<Output
     let cmd =
         command_from_json(&json, CODEPAGE).map_err(|e| anyhow!("{}: {e}", edits.display()))?;
     let ws = Workspace::new(Module::open(module)?);
-    run(ws, cmd, dry_run, None)
+    run(ws, cmd, dry_run, None, false)
 }
 
 /// `mg set`: fields of one resource, each `FIELD=VALUE` (or
@@ -107,7 +107,7 @@ pub(crate) fn set(
         [Edit::SetField { label, .. }] => format!("Remove {label}"),
         _ => format!("Set {} fields of {key}", edits.len()),
     };
-    run(ws, Command::new(label, edits), dry_run, Some(lines))
+    run(ws, Command::new(label, edits), dry_run, Some(lines), true)
 }
 
 /// `text` as a value of type `ty` (a localized string keeps what `old` has
@@ -165,9 +165,16 @@ fn typed(ty: FieldType, text: &str, old: Option<&Value>) -> Result<Value> {
 }
 
 /// Applies a command (all of it or none) and saves, or with `dry_run`
-/// only checks that it applies. `set`: `mg set`'s lines for people, and
-/// the command shown as `mg apply` reads it.
-fn run(mut ws: Workspace, cmd: Command, dry_run: bool, set: Option<Vec<String>>) -> Result<Output> {
+/// only checks that it applies. `lines`: what to print for people in
+/// place of the resources changed; `show`: the command is in the JSON, as
+/// `mg apply` reads it.
+pub(crate) fn run(
+    mut ws: Workspace,
+    cmd: Command,
+    dry_run: bool,
+    lines: Option<Vec<String>>,
+    show: bool,
+) -> Result<Output> {
     let mut resources: Vec<ResKey> = Vec::new();
     for e in &cmd.edits {
         let (Edit::SetField { key, .. }
@@ -181,7 +188,7 @@ fn run(mut ws: Workspace, cmd: Command, dry_run: bool, set: Option<Vec<String>>)
     let written = command_to_json(&cmd, CODEPAGE).map_err(|e| anyhow!("{e}"))?;
     let (label, count) = (cmd.label.clone(), cmd.edits.len());
     ws.apply(cmd)?;
-    if !dry_run {
+    if !dry_run && count > 0 {
         ws.save()?;
     }
     let mut out = Output::new(json!({
@@ -190,12 +197,10 @@ fn run(mut ws: Workspace, cmd: Command, dry_run: bool, set: Option<Vec<String>>)
         "resources": resources.iter().map(ToString::to_string).collect::<Vec<_>>(),
         "dry_run": dry_run,
     }));
-    if set.is_some()
-        && let serde_json::Value::Object(o) = &mut out.json
-    {
+    if show && let serde_json::Value::Object(o) = &mut out.json {
         o.insert("command".into(), written);
     }
-    match set {
+    match lines {
         Some(lines) => lines.into_iter().for_each(|l| out.line(l)),
         None => resources.iter().for_each(|r| out.line(r.to_string())),
     }

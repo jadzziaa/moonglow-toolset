@@ -1879,6 +1879,7 @@ dependencies = [
  "mg-erf",
  "mg-gff",
  "mg-module",
+ "mg-plugin",
  "mg-resman",
  "mg-rules",
  "mg-schema",
