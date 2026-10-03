@@ -336,11 +336,18 @@ fn is(e: &Event, s: &KeyboardShortcut) -> bool {
         if *key == s.logical_key && modifiers.matches_exact(s.modifiers))
 }
 
+/// A command's own keys, by the id its keys are kept under: a key
+/// command's defaults, none for any other command.
+pub fn defaults_of(id: &str) -> Vec<KeyboardShortcut> {
+    Cmd::from_id(id).map(Cmd::defaults).unwrap_or_default()
+}
+
 /// The keys of every command: Moonglow's, but where the settings choose
-/// others.
+/// others. Kept by command id: the key commands here ([`Cmd`]), and any
+/// other command (the window's, which have no keys until given some).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keymap {
-    keys: HashMap<Cmd, Vec<KeyboardShortcut>>,
+    keys: HashMap<String, Vec<KeyboardShortcut>>,
 }
 
 impl Default for Keymap {
@@ -351,43 +358,52 @@ impl Default for Keymap {
 
 impl Keymap {
     /// The keys with the settings' choices (by command id; an empty list
-    /// takes a command's keys away). Keys that don't read are left out.
+    /// takes a command's keys away). Keys that don't read are left out; an
+    /// id that is no command's now keeps its keys for when it is one.
     pub fn new(chosen: &BTreeMap<String, Vec<String>>) -> Keymap {
-        let keys = Cmd::ALL
-            .into_iter()
-            .map(|c| {
-                let keys = match chosen.get(c.id()) {
-                    Some(list) => list.iter().filter_map(|t| from_text(t)).collect(),
-                    None => c.defaults(),
-                };
-                (c, keys)
-            })
-            .collect();
+        let mut keys: HashMap<String, Vec<KeyboardShortcut>> =
+            Cmd::ALL.into_iter().map(|c| (c.id().to_string(), c.defaults())).collect();
+        for (id, list) in chosen {
+            keys.insert(id.clone(), list.iter().filter_map(|t| from_text(t)).collect());
+        }
         Keymap { keys }
     }
 
     /// The settings' form: each command whose keys aren't Moonglow's.
     pub fn chosen(&self) -> BTreeMap<String, Vec<String>> {
-        Cmd::ALL
-            .into_iter()
-            .filter(|c| self.keys(*c) != c.defaults())
-            .map(|c| (c.id().to_string(), self.keys(c).iter().map(to_text).collect()))
+        self.keys
+            .iter()
+            .filter(|(id, keys)| **keys != defaults_of(id))
+            .map(|(id, keys)| (id.clone(), keys.iter().map(to_text).collect()))
             .collect()
     }
 
+    /// The keys of the command kept under `id`.
+    pub fn keys_of(&self, id: &str) -> Vec<KeyboardShortcut> {
+        self.keys.get(id).cloned().unwrap_or_default()
+    }
+
     pub fn keys(&self, cmd: Cmd) -> Vec<KeyboardShortcut> {
-        self.keys.get(&cmd).cloned().unwrap_or_default()
+        self.keys_of(cmd.id())
+    }
+
+    pub fn set_of(&mut self, id: &str, keys: Vec<KeyboardShortcut>) {
+        self.keys.insert(id.to_string(), keys);
     }
 
     pub fn set(&mut self, cmd: Cmd, keys: Vec<KeyboardShortcut>) {
-        self.keys.insert(cmd, keys);
+        self.set_of(cmd.id(), keys);
     }
 
     /// The first key, as shown on this system, for menus and tooltips;
     /// empty for none.
-    pub fn label(&self, cmd: Cmd, ctx: &egui::Context) -> String {
+    pub fn label_of(&self, id: &str, ctx: &egui::Context) -> String {
         let mac = ctx.os() == egui::os::OperatingSystem::Mac;
-        self.keys.get(&cmd).and_then(|k| k.first()).map(|s| shown(s, mac)).unwrap_or_default()
+        self.keys.get(id).and_then(|k| k.first()).map(|s| shown(s, mac)).unwrap_or_default()
+    }
+
+    pub fn label(&self, cmd: Cmd, ctx: &egui::Context) -> String {
+        self.label_of(cmd.id(), ctx)
     }
 
     /// A name with its key in brackets: `Test Module (F9)`.
@@ -400,8 +416,8 @@ impl Keymap {
 
     /// Whether one of the command's keys was pressed this frame; the press
     /// is used up, so nothing else takes it.
-    pub fn consume(&self, i: &mut InputState, cmd: Cmd) -> bool {
-        let Some(keys) = self.keys.get(&cmd) else { return false };
+    pub fn consume_of(&self, i: &mut InputState, id: &str) -> bool {
+        let Some(keys) = self.keys.get(id) else { return false };
         let mut hit = false;
         i.events.retain(|e| {
             let this = !hit && keys.iter().any(|s| is(e, s));
@@ -411,10 +427,33 @@ impl Keymap {
         hit
     }
 
+    pub fn consume(&self, i: &mut InputState, cmd: Cmd) -> bool {
+        self.consume_of(i, cmd.id())
+    }
+
+    /// [`Keymap::consume_of`] for a command of the whole window: while a
+    /// text field has the keyboard (`typing`), a key that types a
+    /// character (a letter or digit, alone or with Shift) is the field's.
+    pub fn consume_outside_text(&self, i: &mut InputState, id: &str, typing: bool) -> bool {
+        let Some(keys) = self.keys.get(id) else { return false };
+        let types = |s: &KeyboardShortcut| {
+            let m = s.modifiers;
+            s.logical_key.name().chars().count() == 1
+                && !(m.command || m.ctrl || m.alt || m.mac_cmd)
+        };
+        let mut hit = false;
+        i.events.retain(|e| {
+            let this = !hit && keys.iter().any(|s| is(e, s) && !(typing && types(s)));
+            hit |= this;
+            !this
+        });
+        hit
+    }
+
     /// Whether one of the command's keys was pressed this frame (left for
     /// others).
     pub fn pressed(&self, i: &InputState, cmd: Cmd) -> bool {
-        let Some(keys) = self.keys.get(&cmd) else { return false };
+        let Some(keys) = self.keys.get(cmd.id()) else { return false };
         i.events.iter().any(|e| keys.iter().any(|s| is(e, s)))
     }
 
@@ -423,7 +462,7 @@ impl Keymap {
     /// text field has the keyboard (`typing`), so Ctrl+S doesn't move the
     /// camera.
     pub fn held(&self, i: &InputState, cmd: Cmd, typing: bool) -> bool {
-        let Some(keys) = self.keys.get(&cmd) else { return false };
+        let Some(keys) = self.keys.get(cmd.id()) else { return false };
         keys.iter().any(|s| {
             let plain = s.modifiers.is_none();
             let text = s.logical_key.name().chars().count() == 1;
@@ -437,17 +476,25 @@ impl Keymap {
         })
     }
 
-    /// Keys that two commands working at the same moment share.
-    pub fn conflicts(&self) -> Vec<(KeyboardShortcut, Cmd, Cmd)> {
+    /// Keys that two commands working at the same moment share: the key
+    /// and the two commands' ids. A command that is no key command works
+    /// anywhere in the window.
+    pub fn conflicts(&self) -> Vec<(KeyboardShortcut, String, String)> {
+        let group = |id: &str| Cmd::from_id(id).map_or(Group::General, Cmd::group);
+        // The key commands in their order, then the others by id.
+        let mut ids: Vec<&String> = self.keys.keys().collect();
+        ids.sort_by_key(|id| {
+            (Cmd::ALL.iter().position(|c| c.id() == id.as_str()).unwrap_or(usize::MAX), *id)
+        });
         let mut out = Vec::new();
-        for (i, a) in Cmd::ALL.iter().enumerate() {
-            for b in &Cmd::ALL[i + 1..] {
-                if !a.group().overlaps(b.group()) {
+        for (i, a) in ids.iter().enumerate() {
+            for b in &ids[i + 1..] {
+                if !group(a).overlaps(group(b)) {
                     continue;
                 }
-                for k in self.keys(*a) {
-                    if self.keys(*b).contains(&k) {
-                        out.push((k, *a, *b));
+                for k in &self.keys[*a] {
+                    if self.keys[*b].contains(k) {
+                        out.push((*k, (*a).clone(), (*b).clone()));
                     }
                 }
             }
@@ -459,6 +506,62 @@ impl Keymap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A command that is no key command has no keys until given some, keeps
+    /// them through the settings, and counts in what conflicts.
+    #[test]
+    fn any_command_takes_keys_by_its_id() {
+        let mut map = Keymap::default();
+        assert!(map.keys_of("build-module").is_empty());
+        let f8 = KeyboardShortcut::new(NONE, Key::F8);
+        map.set_of("build-module", vec![f8]);
+        let chosen = map.chosen();
+        assert_eq!(chosen.get("build-module"), Some(&vec!["F8".to_string()]));
+        assert_eq!(chosen.len(), 1, "{chosen:?}");
+        let back = Keymap::new(&chosen);
+        assert_eq!(back, map);
+        assert_eq!(back.keys_of("build-module"), [f8]);
+        // The same key on a key command that works anywhere: named.
+        map.set(Cmd::Manual, vec![f8]);
+        assert_eq!(map.conflicts(), [(f8, "manual".to_string(), "build-module".to_string())]);
+        // Taken away again: nothing kept for it.
+        map.set_of("build-module", Vec::new());
+        assert!(!map.chosen().contains_key("build-module"));
+    }
+
+    /// A letter given to a command of the window stays a letter while a
+    /// text field has the keyboard; a key with Ctrl, or a function key,
+    /// works there too.
+    #[test]
+    fn letters_are_a_text_field_s_while_it_has_the_keyboard() {
+        let press = |key: Key, modifiers: Modifiers| {
+            let mut i = InputState::default();
+            i.events.push(Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            });
+            i
+        };
+        let mut map = Keymap::default();
+        map.set_of("a", vec![KeyboardShortcut::new(NONE, Key::B)]);
+        map.set_of("b", vec![KeyboardShortcut::new(SHIFT, Key::B)]);
+        map.set_of("c", vec![KeyboardShortcut::new(CTRL, Key::B)]);
+        map.set_of("d", vec![KeyboardShortcut::new(NONE, Key::F8)]);
+        for (id, key, modifiers, when_typing) in [
+            ("a", Key::B, NONE, false),
+            ("b", Key::B, SHIFT, false),
+            ("c", Key::B, CTRL, true),
+            ("d", Key::F8, NONE, true),
+        ] {
+            assert!(map.consume_outside_text(&mut press(key, modifiers), id, false), "{id}");
+            let mut typing = press(key, modifiers);
+            assert_eq!(map.consume_outside_text(&mut typing, id, true), when_typing, "{id}");
+            assert_eq!(typing.events.is_empty(), when_typing, "{id}: the field keeps its key");
+        }
+    }
 
     #[test]
     fn shortcuts_as_text() {

@@ -953,27 +953,50 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     h.get_by_label("Keyboard").click();
     h.run();
+    // Every command of the menus is listed, with or without keys; the list
+    // narrows to what is typed.
+    h.get_by_label("Build Module");
+    type_into_hint(&mut h, "Find a command", "manual");
+    h.run();
+    assert!(h.query_by_label("Build Module").is_none());
     // User Manual: F1 taken away, Ctrl+M added by pressing it.
     h.get_by_label("F1 ×").click();
     h.run();
-    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual);
+    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual.id().to_string());
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::M);
     h.run();
     // A key two commands share is named.
-    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual);
+    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual.id().to_string());
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
     h.run();
     assert!(h.query_by_label_contains("is the key of both Save and User Manual").is_some());
-    // Save's row comes first; the User Manual's Ctrl+S is taken away again.
-    h.get_all_by_label("Ctrl+S ×").last().unwrap().click();
+    // The User Manual's Ctrl+S is taken away again (the only row shown).
+    h.get_by_label("Ctrl+S ×").click();
+    h.run();
+    // A menu command that never had a key takes one.
+    h.state_mut().options.as_mut().unwrap().recording = Some("build-module".to_string());
+    h.run();
+    h.key_press(egui::Key::F8);
     h.run();
     h.get_by_label("OK").click();
     h.run();
     let chosen = &h.state().settings.key_bindings;
     assert_eq!(chosen.get("manual"), Some(&vec!["Ctrl+M".to_string()]), "{chosen:?}");
-    assert_eq!(chosen.len(), 1);
+    assert_eq!(chosen.get("build-module"), Some(&vec!["F8".to_string()]), "{chosen:?}");
+    assert_eq!(chosen.len(), 2);
+    // Its key opens its window, and its menu entry shows the key.
+    h.key_press(egui::Key::F8);
+    h.run();
+    assert!(h.state().build.is_some(), "F8 opens Build Module");
+    h.state_mut().build = None;
+    h.run();
+    h.get_by_label("Build").click();
+    h.run();
+    assert!(h.query_by_label_contains("F8").is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
 
     // F1 no longer opens the manual; Ctrl+M does.
     h.key_press(egui::Key::F1);

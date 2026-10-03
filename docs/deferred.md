@@ -206,9 +206,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Not every key:** text editing, Escape and Enter, Copy, Cut and Paste,
   Delete in the area view, the script editor's numbered bookmarks, and
   mouse bindings (drags, Ctrl+click) are fixed. (S)
-- **Menu commands without keys** (Verify, Build Module, the other
-  wizards, Find Instance…) can't be given one yet: each command must be
-  listed. (S)
 - **Aurora's keys Moonglow lacks:** Plot Wizard (Ctrl+Alt+P; no plot
   wizard), Refresh (F5), the script editor's Save As (Ctrl+Alt+S, now
   New Script's), Close (Ctrl+F4), and the conversation editor's Find and

@@ -1,10 +1,12 @@
 # Plugins: a proposal
 
-Status: accepted on 2026-10-03 (see [Decisions](#decisions)); nothing
-built yet. The work happens on the `plugins` branch until it is ready to
-merge. This expands the one line on "a plugin or scripting API" in
-[deferred.md](deferred.md) and [PLAN.md](PLAN.md). Sizes are the project's: S (an hour or two), M (a day
-or so), L (several days).
+Status: accepted on 2026-10-03 (see [Decisions](#decisions)). Phase 0
+(the groundwork) is done, with what each item left noted under [What
+Moonglow needs first](#what-moonglow-needs-first); nothing of the plugin
+host itself is built yet. The work happens on the `plugins` branch until
+it is ready to merge. This expands the one line on "a plugin or scripting
+API" in [deferred.md](deferred.md) and [PLAN.md](PLAN.md). Sizes are the
+project's: S (an hour or two), M (a day or so), L (several days).
 
 ## Summary
 
@@ -323,14 +325,17 @@ upkeep.
 The groundwork, from a survey of the code. Each item is useful without
 plugins.
 
-1. **A command registry (M–L).** Menus, the toolbar, context menus and
-   the key list are separate hand-written lists (`Action` has 39
-   variants, the key list `Cmd` 43, and many menu items change the
-   application directly). One table of commands (id, title, where it
-   shows, when it is enabled, its default key) drives all of them.
-   Today's gain: every menu command can be given a key (a
-   [deferred](deferred.md) item), and a command palette becomes
-   possible.
+1. **A command registry (M–L). Done for the window's commands.**
+   `mg_ui::commands` is the table: each command's id, name, tip, when it
+   can be chosen and what it does. The menu bar (`MENUS`), the toolbar
+   (`TOOLBAR`), the keys and Options › Keyboard are drawn from it, so
+   every menu command can be given a key (a deferred item, closed), and
+   keys are kept by command id, whoever the command belongs to. Left:
+   the context menus (the module tree's, a tab's, an object's, the
+   palette's) are still written where they show, since their commands
+   act on the thing clicked; a plugin's commands join them, and the
+   Plugins menu, with the host in Phase 1. A command palette is now a
+   small step.
 2. **Edits on the wire (M). Done.** A command is written as JSON and
    read back (`mg_edit::wire`): six kinds of edit, values as nwn-lib
    JSON, field paths that parse as they print. `mg apply EDITS.json` and

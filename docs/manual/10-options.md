@@ -72,7 +72,10 @@ show and edit that language's text, and String Edit opens on it.
 ## Keyboard
 
 Every command and its keys, by where it works (anywhere, the area view,
-the script editor, the conversation editor):
+the script editor, the conversation editor). Every command of the menus
+is listed, in the menus' order, whether it has a key or not: give Build
+Module or Verify Module one here. **Find a command** narrows the list to
+what you type (a command's name, or its group's).
 - **+** then the keys adds a key (Escape: none); a key's **×** removes
   it. A command can have several keys, or none.
 - **Reset** gives a command Moonglow's keys back, **Reset All** every
@@ -82,7 +85,10 @@ the script editor, the conversation editor):
 
 Keys match exactly: Shift+Q is not Q. Text editing, Escape and Enter,
 Copy, Cut and Paste, Delete in the area view, and the script editor's
-numbered bookmarks (Ctrl and a digit) keep their keys.
+numbered bookmarks (Ctrl and a digit) keep their keys. A letter or digit
+given to a command of the whole window (alone or with Shift) stays a
+character while a text field has the keyboard; with Ctrl or Alt, and
+function keys, work there too.
 
 ## Where the settings are kept
 
