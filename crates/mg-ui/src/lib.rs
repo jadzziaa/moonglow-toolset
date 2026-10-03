@@ -639,6 +639,7 @@ impl Moonglow {
             }
         }
         plugins::window(self, ui.ctx());
+        plugins::replace_window(self, ui.ctx());
         commands::palette_window(self, ui.ctx());
         jobs::window(self, ui.ctx());
         if !self.actions.is_empty() {

@@ -1361,4 +1361,23 @@ fn plugins_window() {
     h.get_by_label("Plugins").click();
     h.run();
     shoot(&mut h, &dir, "plugins-menu");
+    h.key_press(egui::Key::Escape);
+    h.run();
+
+    // Install from File: what it said, and the question before it
+    // replaces one installed (in a plugins folder of this test's own).
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../mg-plugin/tests/fixtures/tag-conventions");
+    let plugin = mg_plugin::Plugin::load(&fixture).unwrap();
+    let archive = dir.join("tag-conventions-1.0.0.zip");
+    std::fs::write(&archive, mg_plugin::pack(&plugin).unwrap()).unwrap();
+    h.state_mut().plugin_dir = Some(dir.join("plugins"));
+    h.state_mut().load_plugins();
+    h.state_mut().install_plugin_from(&archive);
+    h.run();
+    shoot(&mut h, &dir, "plugins-installed");
+    h.state_mut().install_plugin_from(&archive);
+    h.run();
+    h.run();
+    shoot(&mut h, &dir, "plugins-replace");
 }

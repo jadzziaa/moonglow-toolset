@@ -9,14 +9,16 @@
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use mg_edit::{Command, Edit};
 use mg_module::doctor::{Finding, Severity};
-use mg_plugin::{Answer, FieldKind, Host, Input, Outcome, Plugin, PluginError, Question};
+use mg_plugin::{
+    Answer, Existing, FieldKind, Host, Input, Outcome, Package, Plugin, PluginError, Question,
+};
 
 use crate::jobs::{Context, Progress};
 use crate::{Level, Moonglow};
@@ -44,6 +46,21 @@ pub struct Plugins {
     ask: Option<Arc<Ask>>,
     /// The form being filled: the question it belongs to, and its values.
     form: Option<(Question, Vec<serde_json::Value>)>,
+    /// An archive chosen to install whose plugin is installed already:
+    /// asked before it is replaced.
+    pub replace: Option<Replace>,
+    /// What the last install came to, shown in the window.
+    pub install_note: Option<(Level, String)>,
+}
+
+/// A plugin's archive waiting for a yes to replace the one installed.
+#[derive(Debug, Clone)]
+pub struct Replace {
+    pub package: Package,
+    /// The archive's file name.
+    pub file: String,
+    /// The version installed (empty if its manifest does not read).
+    pub installed: String,
 }
 
 /// A command a plugin adds, as the menus, the keys and the Command Palette
@@ -201,15 +218,8 @@ impl Moonglow {
         self.plugins.installed.clear();
         if !self.no_plugins
             && let Some(dir) = &self.plugin_dir
-            && let Ok(entries) = std::fs::read_dir(dir)
         {
-            let mut folders: Vec<PathBuf> = entries
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.join("plugin.cfg").is_file())
-                .collect();
-            folders.sort();
-            for dir in folders {
+            for dir in mg_plugin::folders(dir) {
                 let plugin = Plugin::load(&dir).map_err(|e| e.to_string());
                 self.plugins.installed.push(Installed { dir, plugin });
             }
@@ -286,6 +296,74 @@ impl Moonglow {
             mg_plugin::run_command(&plugin, &command, input, host)
         };
         self.run_plugin(name, title, run);
+    }
+
+    /// Plugins › Install Plugin from File…: asks for a plugin's archive
+    /// and installs it.
+    pub fn install_plugin(&mut self) {
+        if self.plugin_dir.is_none() {
+            return;
+        }
+        let Some(path) = self.dialogs.open_file(crate::FileKind::Plugin, None) else { return };
+        self.install_plugin_from(&path);
+    }
+
+    /// Installs a plugin from its archive into the plugins folder. None
+    /// of its code runs, and nothing is enabled. One installed from an
+    /// archive before is replaced only after a yes ([`Plugins::replace`]).
+    pub fn install_plugin_from(&mut self, path: &Path) {
+        let Some(dir) = self.plugin_dir.clone() else { return };
+        self.plugins.window = true;
+        let file = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let read = || -> Result<Package, String> {
+            let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+            if size > mg_plugin::MAX_ARCHIVE {
+                return Err(format!("it is over {} MB", mg_plugin::MAX_ARCHIVE >> 20));
+            }
+            let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+            Package::read(&bytes).map_err(|e| e.to_string())
+        };
+        match read() {
+            Err(e) => self.install_said(Level::Error, format!("{file} was not installed: {e}")),
+            Ok(package) => match package.existing(&dir) {
+                Existing::Installed { version } => {
+                    self.plugins.replace = Some(Replace { package, file, installed: version });
+                }
+                _ => self.install_package(&package, &file, false),
+            },
+        }
+    }
+
+    /// Installs a package read from `file`, over the one installed if
+    /// `replace`.
+    pub fn install_package(&mut self, package: &Package, file: &str, replace: bool) {
+        let Some(dir) = self.plugin_dir.clone() else { return };
+        let m = &package.manifest;
+        match package.install(&dir, replace) {
+            Ok(_) => {
+                // Installing enables nothing: a plugin new here is off,
+                // whatever was enabled under its id once.
+                if !replace {
+                    self.settings.plugins_enabled.retain(|e| e != &m.id);
+                }
+                self.load_plugins();
+                let state = if self.plugin_enabled(&m.id) {
+                    "it stays enabled"
+                } else {
+                    "it is off until you enable it"
+                };
+                self.install_said(
+                    Level::Info,
+                    format!("Installed {} {} from {file}: {state}", m.name, m.version),
+                );
+            }
+            Err(e) => self.install_said(Level::Error, format!("{file} was not installed: {e}")),
+        }
+    }
+
+    fn install_said(&mut self, level: Level, text: String) {
+        self.log.entries.push((level, text.clone()));
+        self.plugins.install_note = Some((level, text));
     }
 
     /// Runs what is typed in the plugin console, as a plugin's command
@@ -524,7 +602,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         return;
     }
     let mut open = true;
-    let (mut reload, mut toggle, mut run_console) = (false, None, false);
+    let (mut reload, mut toggle, mut run_console, mut install) = (false, None, false, false);
     egui::Window::new("Plugins")
         .open(&mut open)
         .default_pos([180.0, 90.0])
@@ -536,28 +614,49 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
              network or other programs. Each is off until you enable it.",
             );
             ui.add_space(4.0);
+            // The buttons first, the folder under them: its path may be
+            // longer than the window is wide.
+            ui.horizontal(|ui| {
+                install = ui
+                    .add_enabled(app.plugin_dir.is_some(), egui::Button::new("Install from File…"))
+                    .on_hover_text(
+                        "Install a plugin from its archive (a zip); it is off until you enable it",
+                    )
+                    .clicked();
+                reload = ui
+                    .button("Reload")
+                    .on_hover_text("Read the folder again: a plugin copied in, or changed")
+                    .clicked();
+                if let Some(dir) = &app.plugin_dir
+                    && ui
+                        .button("Open Folder")
+                        .on_hover_text("Open the plugins folder (it is made if it is not there)")
+                        .clicked()
+                {
+                    let _ = std::fs::create_dir_all(dir);
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(format!("file://{}", dir.display())));
+                }
+            });
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Folder");
                 match &app.plugin_dir {
                     Some(dir) => {
-                        ui.label(dir.display().to_string());
-                        if ui.small_button("Open").on_hover_text("Open the folder").clicked() {
-                            let _ = std::fs::create_dir_all(dir);
-                            ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
-                                "file://{}",
-                                dir.display()
-                            )));
-                        }
+                        let path = dir.display().to_string();
+                        ui.add(egui::Label::new(&path).truncate()).on_hover_text(&path);
                     }
                     None => {
                         ui.weak("none");
                     }
                 }
-                reload = ui
-                    .small_button("Reload")
-                    .on_hover_text("Read the folder again: a plugin copied in, or changed")
-                    .clicked();
             });
+            if let Some((l, note)) = &app.plugins.install_note {
+                let color = match l {
+                    Level::Error => ui.visuals().error_fg_color,
+                    Level::Warning => ui.visuals().warn_fg_color,
+                    Level::Info => ui.visuals().text_color(),
+                };
+                ui.colored_label(color, note);
+            }
             if app.no_plugins {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
@@ -568,7 +667,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                 if app.plugins.installed.is_empty() {
                     ui.weak(
-                        "No plugins are installed. Copy a plugin's folder into the folder above.",
+                        "No plugins are installed. Install one from its archive (Install from \
+                         File…), or copy a plugin's folder into the folder above.",
                     );
                 }
                 for installed in &app.plugins.installed {
@@ -639,12 +739,52 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         app.enable_plugin(&id, on);
     }
     if reload {
+        app.plugins.install_note = None;
         app.load_plugins();
+    }
+    if install {
+        app.install_plugin();
     }
     if run_console {
         app.run_console();
     }
     if !open {
         app.plugins.window = false;
+        app.plugins.install_note = None;
+    }
+}
+
+/// The question before a plugin installed from an archive is replaced by
+/// another archive's.
+pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(r) = &app.plugins.replace else { return };
+    let m = &r.package.manifest;
+    let (mut yes, mut no) = (false, false);
+    let modal = egui::Modal::new(egui::Id::new("plugin-replace")).show(ctx, |ui| {
+        ui.set_width(400.0);
+        ui.heading(format!("Replace {}?", m.name));
+        ui.add_space(4.0);
+        let installed = match r.installed.as_str() {
+            "" => format!("{} is installed.", m.name),
+            version => format!("{} {version} is installed.", m.name),
+        };
+        ui.label(format!("{installed} Replace it with {} from {}?", m.version, r.file));
+        ui.label(if app.plugin_enabled(&m.id) {
+            "Its folder is replaced whole. It is enabled, and stays enabled."
+        } else {
+            "Its folder is replaced whole. It stays off until you enable it."
+        });
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            yes = ui.button("Replace").clicked();
+            no = ui.button("Cancel").clicked();
+        });
+    });
+    if yes {
+        if let Some(r) = app.plugins.replace.take() {
+            app.install_package(&r.package, &r.file, true);
+        }
+    } else if no || modal.should_close() {
+        app.plugins.replace = None;
     }
 }

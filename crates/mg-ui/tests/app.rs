@@ -7952,3 +7952,95 @@ fn a_plugin_s_checks_run_with_verify() {
         "{log:#?}"
     );
 }
+
+/// Plugins › Install Plugin from File…: a plugin's archive goes into the
+/// plugins folder, off; installing it again asks before it replaces; what
+/// is no plugin's archive changes nothing.
+#[test]
+fn a_plugin_installs_from_a_file_and_is_off() {
+    let dir = mg_testkit::scratch_dir("ui-plugin-install");
+    let plugins = dir.join("plugins");
+    // The fixture plugin's folder, to pack as it is and as a later version.
+    let work = dir.join("work/tag-conventions");
+    std::fs::create_dir_all(&work).unwrap();
+    for file in ["plugin.cfg", "main.luau", "rules.luau"] {
+        std::fs::copy(plugin_fixtures().join("tag-conventions").join(file), work.join(file))
+            .unwrap();
+    }
+    let pack = |to: &str| {
+        let plugin = mg_plugin::Plugin::load(&work).unwrap();
+        let path = dir.join(to);
+        std::fs::write(&path, mg_plugin::pack(&plugin).unwrap()).unwrap();
+        path
+    };
+    let first = pack("tag-conventions-1.0.0.zip");
+    let manifest = std::fs::read_to_string(work.join("plugin.cfg")).unwrap();
+    std::fs::write(work.join("plugin.cfg"), manifest.replace("1.0.0", "1.1.0")).unwrap();
+    let second = pack("tag-conventions-1.1.0.zip");
+    let junk = dir.join("junk.zip");
+    std::fs::write(&junk, "not an archive").unwrap();
+
+    let mut app = app_with(vec![first]);
+    app.plugin_dir = Some(plugins.clone());
+    // (Enabled once, and removed since: installing does not bring that back.)
+    app.settings.plugins_enabled = vec!["example.tag-conventions".to_string()];
+    app.load_plugins();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Plugins").click();
+    h.run();
+    h.get_by_label("Install Plugin from File…").click();
+    h.run();
+    // (In the window, and in the log.)
+    let said = |h: &Harness<'_, Moonglow>, text: &str| h.get_all_by_label(text).count() == 2;
+    assert!(said(
+        &h,
+        "Installed Tag conventions 1.0.0 from tag-conventions-1.0.0.zip: it is off until you \
+         enable it"
+    ));
+    assert_eq!(h.state().plugins.installed.len(), 1);
+    assert!(!h.state().plugin_enabled("example.tag-conventions"));
+    assert!(plugins.join("example.tag-conventions/main.luau").is_file());
+    h.get_by_label("Tag conventions 1.0.0").click();
+    h.run();
+    assert!(h.state().plugin_enabled("example.tag-conventions"));
+
+    // Again, from the window: asked first, and Cancel leaves it.
+    let install = |h: &mut Harness<'_, Moonglow>, file: &std::path::Path| {
+        h.state_mut().dialogs =
+            Box::new(NoDialogs { open: vec![file.to_path_buf()], ..Default::default() });
+        h.get_by_label("Install from File…").click();
+        h.run();
+        h.run();
+    };
+    install(&mut h, &second);
+    h.get_by_label("Replace Tag conventions?");
+    h.get_by_label(
+        "Tag conventions 1.0.0 is installed. Replace it with 1.1.0 from \
+         tag-conventions-1.1.0.zip?",
+    );
+    h.get_by_label_contains("It is enabled, and stays enabled.");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state().plugins.replace.is_none());
+    h.get_by_label("Tag conventions 1.0.0");
+    install(&mut h, &second);
+    h.get_by_label("Replace").click();
+    h.run();
+    h.get_by_label("Tag conventions 1.1.0");
+    assert!(said(
+        &h,
+        "Installed Tag conventions 1.1.0 from tag-conventions-1.1.0.zip: it stays enabled"
+    ));
+    assert!(h.state().plugin_enabled("example.tag-conventions"));
+
+    // What is no plugin's archive says why, and changes nothing.
+    install(&mut h, &junk);
+    assert!(said(&h, "junk.zip was not installed: it is not a zip archive"));
+    assert!(h.state().log.entries.iter().any(|(l, m)| *l == mg_ui::Level::Error
+        && m == "junk.zip was not installed: it is not a zip archive"));
+    assert_eq!(h.state().plugins.installed.len(), 1);
+    h.get_by_label("Tag conventions 1.1.0");
+}

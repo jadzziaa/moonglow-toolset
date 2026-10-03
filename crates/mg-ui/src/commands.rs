@@ -63,6 +63,8 @@ pub enum Id {
     AreaStatistics,
     /// The Plugins window.
     Plugins,
+    /// Install a plugin from its archive.
+    InstallPlugin,
     Manual,
     CommandPalette,
     About,
@@ -160,7 +162,7 @@ pub const MENUS: [(&str, &[Item]); 7] = [
             Do(Id::AreaStatistics),
         ],
     ),
-    ("Plugins", &[Item::PluginCommands, Do(Id::Plugins)]),
+    ("Plugins", &[Item::PluginCommands, Do(Id::Plugins), Do(Id::InstallPlugin)]),
     ("Help", &[Do(Id::Manual), Do(Id::CommandPalette), Do(Id::About)]),
 ];
 
@@ -311,6 +313,11 @@ impl Id {
                 "Manage Plugins…",
                 "The plugins installed: enable them, and try the plugin console",
             ),
+            Id::InstallPlugin => (
+                "install-plugin",
+                "Install Plugin from File…",
+                "Install a plugin from its archive (a zip); it is off until you enable it",
+            ),
             Id::Manual => ("manual", "User Manual", ""),
             Id::CommandPalette => {
                 ("command-palette", "Command Palette…", "Find a command by its name and run it")
@@ -418,6 +425,7 @@ impl Id {
             | Id::About
             | Id::PreviewWindow
             | Id::FullScreen => true,
+            Id::InstallPlugin => app.plugin_dir.is_some(),
             Id::Undo => app.ws.as_ref().is_some_and(|ws| ws.can_undo().is_some()),
             Id::Redo => app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some()),
             Id::ResizeArea | Id::RotateArea | Id::AreaStatistics => shown_area(app).is_some(),
@@ -542,6 +550,7 @@ impl Id {
                 app.plugins.window = true;
                 return;
             }
+            Id::InstallPlugin => return app.install_plugin(),
             Id::CommandPalette => {
                 app.command_palette = Some(Finder::default());
                 return;
