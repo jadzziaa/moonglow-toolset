@@ -6884,6 +6884,63 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
 }
 
 #[test]
+fn the_eraser_erases_every_tile_it_is_dragged_across() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("eraser-drag") else { return };
+    let index = {
+        let game = h.state().game.as_ref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let lattice = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap().lattice
+    };
+    let drag = |h: &mut Harness<'_, Moonglow>, path: &[Vec3]| {
+        let from = screen(h, area, path[0]);
+        h.hover_at(from);
+        press(h, from, true, egui::Modifiers::NONE);
+        h.run_steps(1);
+        for &p in &path[1..] {
+            h.hover_at(screen(h, area, p));
+            h.run_steps(1);
+        }
+        press(h, screen(h, area, path[path.len() - 1]), false, egui::Modifiers::NONE);
+        h.run_steps(2);
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("Road").click();
+    h.run_steps(2);
+    // Two roads, along the first row and the third.
+    for y in [5.0, 25.0] {
+        let path: Vec<Vec3> =
+            [7.0, 12.0, 18.0, 24.0, 25.0].iter().map(|&x| Vec3::new(x, y, 0.0)).collect();
+        drag(&mut h, &path);
+    }
+    let roads = lattice(&mut h);
+    let road = |l: &mg_tiles::Lattice, y: u32| l.cell(1, y).edges.iter().any(Option::is_some);
+    assert!(road(&roads, 0) && road(&roads, 2), "two roads drawn");
+
+    // One Eraser drag down across both: each is erased.
+    h.get_by_label("🗑 Eraser").click();
+    h.run_steps(2);
+    let path: Vec<Vec3> =
+        [5.0, 10.0, 15.0, 20.0, 25.0].iter().map(|&y| Vec3::new(15.0, y, 0.0)).collect();
+    drag(&mut h, &path);
+    let l = lattice(&mut h);
+    assert!(!road(&l, 0) && !road(&l, 2), "both roads erased");
+
+    // As one command.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(lattice(&mut h), roads);
+}
+
+#[test]
 fn the_eraser_and_raise_lower_head_the_terrain_brushes() {
     let Some((mut h, _)) = area_harness("tools-first") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));

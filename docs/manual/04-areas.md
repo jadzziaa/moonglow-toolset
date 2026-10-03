@@ -171,7 +171,9 @@ as Aurora's Terrain tab does:
 - **Groups** (buildings, big features) are placed whole; right-click to
   turn one before placing it. It stays chosen, to place another.
 - The **Eraser** takes the crossers off a tile; Shift + click steps the
-  tile through the other tiles that fit there.
+  tile through the other tiles that fit there. Dragged, it marks the
+  tiles it passes, as a terrain brush marks corners (run back, Shift for
+  a rectangle), and erases them when you let go.
 - **Refine Tile** (Moonglow's own) steps the tile you click through the
   other tiles that fit there, whatever it holds, and never paints.
 - The Eraser, Refine Tile and Raise/Lower head the Terrain list, whatever
@@ -180,7 +182,7 @@ as Aurora's Terrain tab does:
 Under the pointer, the area shows the tiles a click would make, slightly
 see-through, in place of those they replace: a feature or group, a
 terrain's or a raised corner's tiles, the Eraser's or Refine Tile's
-choice. While you drag a terrain or a crosser, it shows what letting go
+choice. While you drag a terrain, a crosser or the Eraser, it shows what letting go
 now would paint. The click or drag puts down exactly the tiles shown:
 where several fit, the one shown.
 

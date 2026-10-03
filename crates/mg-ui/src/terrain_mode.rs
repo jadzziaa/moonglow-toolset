@@ -12,7 +12,9 @@
 //!   edge), as Aurora draws it. A click chooses the tile again.
 //! - The Eraser acts on the tile under the pointer: it removes its crossers
 //!   (and those that then fit nothing), or chooses it again; with Shift it
-//!   steps through the tiles that fit, in Aurora's order.
+//!   steps through the tiles that fit, in Aurora's order. Dragged, it marks
+//!   the tiles the pointer passes, as a terrain brush marks corners, and
+//!   erases them all when the button is let go.
 //!
 //! Every stroke is one undoable command on the ARE (`mg_tiles::paint`,
 //! `mg_area::terrain`).
@@ -81,24 +83,27 @@ const SIDE_REACH: f32 = 0.25;
 /// Refine Tile's name in the palette.
 const REFINE: &str = "Refine Tile";
 
-/// A terrain brush (or Raise/Lower) dragged across the area: the corners
-/// it has marked, in order, to paint when it is let go.
+/// A terrain brush (or Raise/Lower, or the Eraser) dragged across the
+/// area: the corners (the Eraser's tiles) it has marked, in order, to paint
+/// when it is let go.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TerrainDrag {
     /// Where the pointer was last seen.
     at: Option<Vec3>,
-    /// The corners passed (the path).
+    /// The corners passed (the path), or the tiles.
     corners: Vec<(u32, u32)>,
-    /// The corner under the pointer.
+    /// The corner (or tile) under the pointer.
     here: Option<(u32, u32)>,
+    /// It marks tiles, not corners (the Eraser).
+    tiles: bool,
     /// Shift is held: the drag marks the rectangle from its first corner
     /// to the one under the pointer, not its path.
     fill: bool,
 }
 
 impl TerrainDrag {
-    /// The corners to paint, in order: the path, or with Shift the
-    /// rectangle from the first corner to the pointer's, row by row.
+    /// The corners (or tiles) to paint, in order: the path, or with Shift
+    /// the rectangle from the first to the pointer's, row by row.
     fn marked(&self) -> Vec<(u32, u32)> {
         match (self.fill, self.corners.first(), self.here) {
             (true, Some(&(x0, y0)), Some((x1, y1))) => (y0.min(y1)..=y0.max(y1))
@@ -106,6 +111,11 @@ impl TerrainDrag {
                 .collect(),
             _ => self.corners.clone(),
         }
+    }
+
+    /// What the drag marks at spot `s`: its corner, or its tile.
+    fn mark(&self, s: Spot) -> (u32, u32) {
+        if self.tiles { s.cell } else { s.corner }
     }
 
     /// The pointer reaching corner `c`: marked if new; back at the corner
@@ -366,7 +376,7 @@ fn work_out_preview(app: &mut Moonglow, view: &AreaView, shift: bool) -> Option<
     let changed = if let Some(drag) = &view.terrain_drag {
         // A drag: what letting go now would paint.
         let size = (model.width, model.height);
-        paint_corners(tools, &mut g, &brush, &drag.marked(), size, seed).0
+        paint_corners(tools, &mut g, &brush, drag, size, seed).0
     } else if let (false, Brush::Crosser(c)) = (view.crossing.is_empty(), brush.brush) {
         let st = crosser_stroke(tools, &g, crossing_shown(view), c);
         changes(tools, &mut g, st?, None, seed)
@@ -556,7 +566,8 @@ pub(crate) fn input(
                 commit(app, view, g, st, &label, pick);
             }
         }
-        Brush::Terrain(_) | Brush::RaiseLower if terrain_drag(app, view, response, &brush) => {}
+        Brush::Terrain(_) | Brush::RaiseLower | Brush::Eraser
+            if terrain_drag(app, view, response, &brush) => {}
         _ => {
             let lower = response.secondary_clicked() && brush.brush == Brush::RaiseLower;
             if (response.clicked() || lower)
@@ -575,8 +586,9 @@ pub(crate) fn input(
 }
 
 /// A terrain brush (or Raise/Lower) dragged with the primary button: it
-/// marks the corners the pointer passes, and when it is let go paints
-/// them, in order, as one command; whether a drag is going on.
+/// marks the corners the pointer passes (the Eraser, the tiles), and when
+/// it is let go paints them, in order, as one command; whether a drag is
+/// going on.
 fn terrain_drag(
     app: &mut Moonglow,
     view: &mut AreaView,
@@ -588,7 +600,8 @@ fn terrain_drag(
     if response.drag_started_by(egui::PointerButton::Primary) {
         let press = response.ctx.input(|i| i.pointer.press_origin());
         let from = press.and_then(|p| view.ground_at(p, 0.0));
-        view.terrain_drag = Some(TerrainDrag { at: from, ..Default::default() });
+        let tiles = brush.brush == Brush::Eraser;
+        view.terrain_drag = Some(TerrainDrag { at: from, tiles, ..Default::default() });
     }
     let Some(mut drag) = view.terrain_drag.take() else { return false };
     // Every metre of the way, so that no corner is skipped.
@@ -597,11 +610,11 @@ fn terrain_drag(
         let steps = (to - from).truncate().length().ceil().max(1.0) as u32;
         for k in 0..=steps {
             if let Some(s) = spot(from.lerp(to, k as f32 / steps as f32), w, h) {
-                drag.reach(s.corner);
+                drag.reach(drag.mark(s));
             }
         }
         drag.at = Some(to);
-        drag.here = view.spot.map(|s| s.corner);
+        drag.here = view.spot.map(|s| drag.mark(s));
     }
     if response.dragged_by(egui::PointerButton::Primary) {
         drag.fill = response.ctx.input(|i| i.modifiers.shift);
@@ -615,10 +628,11 @@ fn terrain_drag(
     let before = g.clone();
     // The tiles the drag's preview showed; the next chooses anew.
     let (changes, label, refused) =
-        paint_corners(tools, &mut g, brush, &drag.marked(), (w, h), view.preview_seed);
+        paint_corners(tools, &mut g, brush, &drag, (w, h), view.preview_seed);
     view.preview_seed = fastrand::u64(..);
     tile_command(app, view, &before, &changes, &label);
-    view.notice = (refused > 0).then(|| format!("{label}: no tile fits at {refused} corners"));
+    let what = if drag.tiles { "tiles" } else { "corners" };
+    view.notice = (refused > 0).then(|| format!("{label}: no tile fits at {refused} {what}"));
     true
 }
 
@@ -638,29 +652,32 @@ fn crosser_stroke(
     }
 }
 
-/// A terrain drag's strokes, corner by corner in order, each on the tiles
-/// the last left, choosing among those that fit by `seed`: the cells
-/// changed and their new tiles, the command's label, and how many corners
-/// no tile fitted.
+/// A terrain drag's strokes, corner (or tile) by corner in order, each on
+/// the tiles the last left, choosing among those that fit by `seed`: the
+/// cells changed and their new tiles, the command's label, and how many
+/// corners no tile fitted.
 fn paint_corners(
     tools: &Tools,
     g: &mut Grid,
     brush: &TileBrush,
-    corners: &[(u32, u32)],
+    drag: &TerrainDrag,
     (w, h): (u32, u32),
     seed: u64,
 ) -> (Changes, String, usize) {
     let mut rng = fastrand::Rng::with_seed(seed);
     let mut changed: Vec<(u32, u32)> = Vec::new();
     let (mut label, mut refused) = (format!("Paint {}", brush.label), 0);
-    for &corner in corners {
+    // A tile's spot is its middle.
+    let middle = if drag.tiles { 0.5 } else { 0.0 };
+    for (x, y) in drag.marked() {
         let at = Vec3::new(
-            corner.0 as f32 * mg_area::TILE_SIZE,
-            corner.1 as f32 * mg_area::TILE_SIZE,
+            (x as f32 + middle) * mg_area::TILE_SIZE,
+            (y as f32 + middle) * mg_area::TILE_SIZE,
             0.0,
         );
         let Some(s) = spot(at, w, h) else { continue };
-        let (st, l) = stroke(tools, g, brush, Spot { corner, ..s }, false, false, 0);
+        let s = if drag.tiles { s } else { Spot { corner: (x, y), ..s } };
+        let (st, l) = stroke(tools, g, brush, s, false, false, 0);
         match st {
             Some(st) => {
                 label = l;
@@ -826,17 +843,20 @@ fn cursor_shapes(
     for (cell, edge) in crossing_shown(view) {
         quarter(cell, edge, Color32::from_rgb(240, 200, 60));
     }
-    // A terrain drag's marked corners.
-    for (x, y) in view.terrain_drag.iter().flat_map(TerrainDrag::marked) {
-        let (fx, fy) = (x as f32, y as f32);
-        let h = z(x, y) + 0.05;
-        let square = [
-            point(fx - 0.5, fy - 0.5, h),
-            point(fx + 0.5, fy - 0.5, h),
-            point(fx + 0.5, fy + 0.5, h),
-            point(fx - 0.5, fy + 0.5, h),
-        ];
-        polygon(&square, Color32::from_rgb(240, 200, 60));
+    // A terrain drag's marked corners (the squares round them), or tiles.
+    if let Some(drag) = &view.terrain_drag {
+        let o = if drag.tiles { 0.0 } else { -0.5 };
+        for (x, y) in drag.marked() {
+            let (fx, fy) = (x as f32 + o, y as f32 + o);
+            let h = z(x, y) + 0.05;
+            let square = [
+                point(fx, fy, h),
+                point(fx + 1.0, fy, h),
+                point(fx + 1.0, fy + 1.0, h),
+                point(fx, fy + 1.0, h),
+            ];
+            polygon(&square, Color32::from_rgb(240, 200, 60));
+        }
     }
     let Some(s) = view.spot else { return };
     match brush.brush {
@@ -891,8 +911,8 @@ fn cursor_shapes(
                 point(x, y + 1.0, h),
             ];
             // Refine Tile, and the Eraser with Shift, step the tile through
-            // those that fit.
-            let cycle = shift || brush.brush == Brush::Refine;
+            // those that fit (in a drag, Shift fills a rectangle).
+            let cycle = shift && view.terrain_drag.is_none() || brush.brush == Brush::Refine;
             polygon(&square, if cycle { CYCLE } else { ok });
         }
         _ => {
