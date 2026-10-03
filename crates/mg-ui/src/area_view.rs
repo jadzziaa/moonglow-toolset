@@ -654,6 +654,17 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             o.target = p;
             o.distance = o.distance.min(30.0);
         }
+        let tip = crate::transfer::scratch_tip(
+            app.settings.scratch_dir.as_deref(),
+            "the area as it is now (its .are, .git and .gic)",
+        );
+        if ui.button("To Scratch").on_hover_text(tip).clicked() {
+            app.actions.push(Action::ExportFiles {
+                keys: vec![ResKey::new(view.area, ResType::ARE)],
+                dependencies: false,
+                scratch: true,
+            });
+        }
         if let Some(m) = &view.model {
             ui.separator();
             let n = m.objects.iter().filter(|o| view.show[o.kind.index()]).count();

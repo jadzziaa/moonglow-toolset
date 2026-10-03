@@ -49,6 +49,7 @@ pub struct OptionsDraft {
     pub auto_compile: bool,
     pub debug_info: bool,
     pub script_templates: String,
+    pub scratch_dir: String,
     pub external_editor: String,
     pub dialog_names: bool,
     pub edit_language: Option<u32>,
@@ -112,6 +113,7 @@ impl OptionsDraft {
             auto_compile: s.auto_compile,
             debug_info: s.debug_info,
             script_templates: text(&s.script_templates),
+            scratch_dir: text(&s.scratch_dir),
             external_editor: text(&s.external_editor),
             dialog_names: !s.dialog_hide_names,
             edit_language: s.edit_language,
@@ -156,6 +158,7 @@ impl OptionsDraft {
             auto_compile: self.auto_compile,
             debug_info: self.debug_info,
             script_templates: path(&self.script_templates),
+            scratch_dir: path(&self.scratch_dir),
             external_editor: path(&self.external_editor),
             dialog_hide_names: !self.dialog_names,
             edit_language: self.edit_language,
@@ -197,6 +200,7 @@ enum Browse {
     User,
     Templates,
     Editor,
+    Scratch,
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
@@ -312,6 +316,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     None => ui.weak("Empty: none"),
                                 };
                             }
+                            ui.add_space(6.0);
+                            crate::widgets::field_label(ui, "Scratch folder (To Scratch)");
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut draft.scratch_dir)
+                                        .desired_width(300.0),
+                                );
+                                if ui.button("Browse…").clicked() {
+                                    browse = Some(Browse::Scratch);
+                                }
+                            });
+                            ui.weak(
+                                "Where To Scratch copies a script (with its compiled script) or \
+                                 an area as loose files: a development folder, a server's, or \
+                                 anywhere. Empty: asked for the first time.",
+                            );
                         }
                         OptionsPage::General => {
                             // Aurora's order and groups.
@@ -579,6 +599,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             Browse::Game => ("Neverwinter Nights installation", &mut draft.game_root),
             Browse::User => ("NWN user folder", &mut draft.user_dir),
             Browse::Templates => ("Code Templates Directory", &mut draft.script_templates),
+            Browse::Scratch => ("Scratch folder", &mut draft.scratch_dir),
             Browse::Editor => unreachable!("handled above"),
         };
         if let Some(p) = app.dialogs.pick_folder(title, path(field).as_deref()) {
@@ -776,10 +797,13 @@ mod tests {
             (true, true, true, true);
         d.area_names = true;
         d.script_templates = " /tmp/templates ".into();
+        d.scratch_dir = "/tmp/scratch".into();
         let t = d.apply(&s);
         assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
         assert!(t.area_names && !s.area_names, "areas by ResRef unless asked");
         assert_eq!(t.script_templates, Some(PathBuf::from("/tmp/templates")));
+        assert_eq!(t.scratch_dir, Some(PathBuf::from("/tmp/scratch")));
+        assert_eq!(s.scratch_dir, None, "asked for the first time");
         assert!(!d.moves_game(&s), "no reload for these");
         assert_eq!(OptionsDraft::from_settings(&t).script_templates, "/tmp/templates");
     }

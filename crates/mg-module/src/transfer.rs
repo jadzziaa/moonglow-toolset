@@ -31,6 +31,39 @@ fn area_companions(k: &ResKey) -> Vec<ResKey> {
     }
 }
 
+/// What goes with a resource as loose files (those the module has): an
+/// area's `.are`, `.git` and `.gic`; a script's source, its compiled
+/// script (`.ncs`, what the game runs) and its debug file (`.ndb`).
+pub fn file_set(module: &Module, key: &ResKey) -> Vec<ResKey> {
+    let types: &[ResType] = match key.restype {
+        ResType::ARE | ResType::GIT | ResType::GIC => &[ResType::ARE, ResType::GIT, ResType::GIC],
+        ResType::NSS | ResType::NCS | ResType::NDB => &[ResType::NSS, ResType::NCS, ResType::NDB],
+        _ => return vec![*key],
+    };
+    types.iter().map(|t| ResKey::new(key.resref, *t)).filter(|k| module.contains(k)).collect()
+}
+
+/// Writes `resources` (those the module has, each once) as files named
+/// `name.ext` in `dir` (made if missing), replacing files of those names:
+/// as they are in the module, for a `development` or `override` folder or
+/// to hand on. Returns the files written.
+pub fn export_files(
+    module: &Module,
+    resources: &[ResKey],
+    dir: &std::path::Path,
+) -> std::io::Result<Vec<std::path::PathBuf>> {
+    std::fs::create_dir_all(dir)?;
+    let mut seen = HashSet::new();
+    let mut written = Vec::new();
+    for k in resources {
+        let Some(bytes) = module.get(k).filter(|_| seen.insert(*k)) else { continue };
+        let path = dir.join(k.to_string());
+        std::fs::write(&path, bytes)?;
+        written.push(path);
+    }
+    Ok(written)
+}
+
 /// The resources to export for `roots`: the roots (an area brings its
 /// `.git` and `.gic`), and everything in the module they refer to,
 /// transitively. Dependencies that the game or `resman` provides are not
@@ -360,5 +393,42 @@ mod tests {
         assert_eq!(standard_faction(&list, 5), Some(2));
         assert_eq!(standard_faction(&list, 7), None, "a cycle resolves to nothing");
         assert_eq!(standard_faction(&list, 3), Some(3));
+    }
+
+    #[test]
+    fn resources_are_written_as_files_with_what_goes_with_them() {
+        let mut m = sample();
+        m.set(key("guard_spawn", ResType::NSS), b"void main() {}".to_vec());
+        // A script: its source and its compiled script; an area: its three
+        // files; a blueprint: itself.
+        let script = file_set(&m, &key("guard_spawn", ResType::NSS));
+        assert_eq!(script, [key("guard_spawn", ResType::NSS), key("guard_spawn", ResType::NCS)]);
+        assert_eq!(file_set(&m, &key("guard_spawn", ResType::NCS)), script);
+        let area = file_set(&m, &key("town", ResType::GIT));
+        assert_eq!(area, [ResType::ARE, ResType::GIT, ResType::GIC].map(|t| key("town", t)));
+        assert_eq!(file_set(&m, &key("guard", ResType::UTC)), [key("guard", ResType::UTC)]);
+
+        let dir = mg_testkit::scratch_dir("export-files").join("development");
+        let mut all = script.clone();
+        all.extend(area);
+        // (One named twice, and one the module lacks, are written once and
+        // not at all.)
+        all.extend([key("guard_spawn", ResType::NCS), key("nowhere", ResType::UTC)]);
+        let written = export_files(&m, &all, &dir).unwrap();
+        let names: Vec<String> =
+            written.iter().map(|p| p.file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(
+            names,
+            ["guard_spawn.nss", "guard_spawn.ncs", "town.are", "town.git", "town.gic"]
+        );
+        assert_eq!(std::fs::read(dir.join("guard_spawn.ncs")).unwrap(), b"NCS");
+        assert_eq!(
+            std::fs::read(dir.join("town.git")).unwrap(),
+            m.get(&key("town", ResType::GIT)).unwrap()
+        );
+        // Again: the files are replaced.
+        m.set(key("guard_spawn", ResType::NCS), b"NCS2".to_vec());
+        export_files(&m, &script, &dir).unwrap();
+        assert_eq!(std::fs::read(dir.join("guard_spawn.ncs")).unwrap(), b"NCS2");
     }
 }

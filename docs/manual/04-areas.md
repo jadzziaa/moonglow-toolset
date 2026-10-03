@@ -30,6 +30,9 @@ looking straight down at their middle, north up, as in Aurora.
   Terrain).
 - **Area Properties**, **Reorient Camera** (north up again), **Go to Start
   Location**.
+- **To Scratch**: copy the area as it is now (its `.are`, `.git` and
+  `.gic`) into the scratch folder (chosen the first time; Tools › Options
+  › Folders changes it).
 
 ## Minimaps
 

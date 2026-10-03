@@ -86,6 +86,10 @@ pub struct Settings {
     /// Options > Script Editor: Code Templates Directory, listed with the
     /// game's (`data/scr`) and the user's `scripttemplates`.
     pub script_templates: Option<PathBuf>,
+    /// Options > Folders: the scratch folder, where To Scratch copies a
+    /// script (with its compiled script) or an area as loose files (`None`:
+    /// asked for the first time).
+    pub scratch_dir: Option<PathBuf>,
     /// Options > Script Editor: External Script Editor, a program given the
     /// script's file.
     pub external_editor: Option<PathBuf>,

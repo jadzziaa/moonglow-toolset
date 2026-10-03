@@ -357,6 +357,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let mut save = false;
     let mut compile = false;
     let mut save_as = false;
+    let mut to_scratch = false;
     let dirty = app.scripts[&key].is_dirty();
     // Wrapping: a narrow pane keeps its width (the row would widen the
     // editor past the pane, side lists and all).
@@ -392,6 +393,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         {
             open_external(app, key, &editor);
         }
+        let tip = crate::transfer::scratch_tip(
+            app.settings.scratch_dir.as_deref(),
+            "the script, saved and compiled, with its compiled script",
+        );
+        to_scratch = ui.button("To Scratch").on_hover_text(tip).clicked();
         ui.separator();
         use crate::keys::Cmd;
         let keymap = app.keymap.clone();
@@ -910,7 +916,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     if save_as {
         app.script_save_as = Some((key, String::new()));
     }
-    if save || compile {
+    if save || compile || to_scratch {
         let buf = app.scripts.get_mut(&key).expect("open");
         let text = buf.text.clone();
         if buf.is_dirty() {
@@ -921,8 +927,16 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             )));
         }
         // Options > Script Editor: saving compiles too.
-        if compile || app.settings.auto_compile {
-            compile_one(app, key, &text);
+        let compiled =
+            (compile || to_scratch || app.settings.auto_compile) && compile_one(app, key, &text);
+        // To Scratch: what was just compiled (nothing, if it failed: the
+        // folder keeps what it has).
+        if to_scratch && compiled {
+            app.actions.push(Action::ExportFiles {
+                keys: vec![key],
+                dependencies: false,
+                scratch: true,
+            });
         }
     }
 }
@@ -1020,9 +1034,10 @@ fn compile_with_debug(
 }
 
 /// Compiles one script (its text as in the editor) and stores the bytecode.
-fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) {
+/// Compiles one script into the module; whether it compiled.
+fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
     if app.ws.is_none() {
-        return;
+        return false;
     }
     let result = compile_with_debug(app, key, text, app.settings.debug_info);
     app.script_tools.messages.retain(|m| m.script != key);
@@ -1045,6 +1060,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) {
                 location: None,
                 error: false,
             });
+            true
         }
         Err(e) => {
             app.log.error(e.message.clone());
@@ -1055,6 +1071,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) {
                 location,
                 error: true,
             });
+            false
         }
     }
 }

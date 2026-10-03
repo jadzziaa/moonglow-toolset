@@ -88,14 +88,23 @@ enum Cmd {
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
     Haks { module: PathBuf },
-    /// Export resources and their dependencies from a module to an ERF.
+    /// Export resources and their dependencies from a module to an ERF; or,
+    /// with --files, the resources named as loose files in a folder (for
+    /// the game's `development` or `override`, or to hand on).
     Export {
         module: PathBuf,
         /// Resources to export (`name.ext`; an area brings its .git/.gic).
         #[arg(required = true)]
         resources: Vec<String>,
+        /// The ERF to write; with --files, the folder to write into.
         #[arg(short, long)]
         output: PathBuf,
+        /// Write the resources named as files (`name.ext`) in the folder
+        /// OUTPUT, each with what goes with it (a script's compiled .ncs
+        /// and .ndb, an area's .git and .gic), as they are in the module;
+        /// not what they depend on.
+        #[arg(long)]
+        files: bool,
         /// Description stored in the ERF.
         #[arg(long, default_value = "")]
         comment: String,
@@ -760,16 +769,43 @@ fn run(cli: &Cli) -> Result<Output> {
             out.line(report.to_text().trim_end());
             out
         }
-        Cmd::Export { module, resources, output, comment, keep_factions } => {
+        Cmd::Export { module, resources, output, files, comment, keep_factions } => {
             let m = Module::open(module)?;
             let mut out = Output::default();
-            let rm = module_resman(&install(cli)?, &m, &mut out)?;
             let roots = resources.iter().map(|r| resource_key(r)).collect::<Result<Vec<_>>>()?;
             for r in &roots {
                 if !m.contains(r) {
                     bail!("{r} is not in the module");
                 }
             }
+            if *files {
+                // (No game data needed: nothing is looked up.)
+                let mut set: Vec<ResKey> = Vec::new();
+                for r in &roots {
+                    for k in mg_module::transfer::file_set(&m, r) {
+                        if !set.contains(&k) {
+                            set.push(k);
+                        }
+                    }
+                }
+                for k in set.iter().filter(|k| k.restype == mg_core::ResType::NSS) {
+                    if !set.contains(&ResKey::new(k.resref, mg_core::ResType::NCS)) {
+                        out.note(format!("warning: {k} isn't compiled: no .ncs written"));
+                    }
+                }
+                let written = mg_module::transfer::export_files(&m, &set, output)?;
+                for p in &written {
+                    out.line(path_text(p));
+                }
+                out.json = json!({
+                    "folder": path_text(output),
+                    "files": written.iter().map(|p| path_text(p)).collect::<Vec<_>>(),
+                    "resources": set.iter().map(ToString::to_string).collect::<Vec<_>>(),
+                });
+                out.note(format!("wrote {} files", written.len()));
+                return Ok(out);
+            }
+            let rm = module_resman(&install(cli)?, &m, &mut out)?;
             let plan = mg_module::transfer::plan_export(&m, &roots, &rm);
             for r in &plan.missing {
                 out.note(format!(

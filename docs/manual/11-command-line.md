@@ -60,6 +60,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg attach MODULE FILE…` | copy haks and a talk table (from anywhere) into the user folder's `hak` and `tlk`, list the haks at the top of the module's hak list in the order given, name the talk table, and save (`--replace` replaces different files of the same names there) |
 | `mg compile MODULE [--uncompiled]` | compile the module's scripts (or only those without a compiled version) and save it |
 | `mg export MODULE NAME.EXT… -o OUT.erf` | export resources with what they use (`--keep-factions`, `--comment`) |
+| `mg export MODULE NAME.EXT… --files -o FOLDER` | write the resources named as loose files in FOLDER (a script with its compiled `.ncs` and `.ndb`, an area with its `.git` and `.gic`): for the game's `development` or `override`, or a server's |
 | `mg import MODULE ERF [--overwrite]` | import an archive into the module and save it |
 | `mg refs MODULE NAME.EXT` | where a resource is used, and script strings that spell it (`--tag` for a tag) |
 | `mg rename MODULE NAME.EXT NEW` | rename a script, area, conversation or blueprint everywhere and save (`--strings` changes script strings too) |

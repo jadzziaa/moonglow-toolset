@@ -214,6 +214,33 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                         if ui.button("Export…").clicked() {
                             app.actions.push(Action::ExportDialog(vec![k]));
                         }
+                        let with = match k.restype {
+                            ResType::NSS => " (with its compiled script)",
+                            ResType::ARE => " (with its .git and .gic)",
+                            _ => "",
+                        };
+                        if ui
+                            .button("Export as Files…")
+                            .on_hover_text(format!("Write {k} into a folder{with}"))
+                            .clicked()
+                        {
+                            app.actions.push(Action::ExportFiles {
+                                keys: vec![k],
+                                dependencies: false,
+                                scratch: false,
+                            });
+                        }
+                        let tip = crate::transfer::scratch_tip(
+                            app.settings.scratch_dir.as_deref(),
+                            &format!("{k}{with}"),
+                        );
+                        if ui.button("Copy to Scratch Folder").on_hover_text(tip).clicked() {
+                            app.actions.push(Action::ExportFiles {
+                                keys: vec![k],
+                                dependencies: false,
+                                scratch: true,
+                            });
+                        }
                     });
                 }
             });

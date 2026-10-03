@@ -245,6 +245,25 @@ Closing a hak with unsaved changes asks first.
   scripts and conversations, a conversation its scripts…), and move
   creatures out of the module's own factions into the standard ones.
   Right-click a resource in the tree to export it.
+- **Export as Files…** (in the Export window, and on a resource's
+  right-click menu in the module tree) writes resources as loose files,
+  `name.ext`, into a folder you choose: as they are now in the toolset,
+  saved or not. A script goes with its compiled script (`.ncs`, and
+  `.ndb` if it has one), an area with its `.git` and `.gic`. From the
+  window, **Include the resources they use** applies too.
+- **Copy to Scratch Folder** (the same right-click menu; **To Scratch** in
+  the script editor and the area view) writes them into the scratch
+  folder: one you choose the first time, kept from then on (Tools ›
+  Options › Folders changes it). Make it the game's or a server's
+  `development` folder, which the game loads before the module's own
+  resources: compile a script, send it to scratch, and a running server
+  or game has the fix. (Aurora users pick such files out of its `temp0`
+  folder; Moonglow keeps a module in memory, so it hands them over
+  instead.) From the tree, a script that hasn't been compiled goes without
+  an `.ncs`, and the log says so; the script editor's To Scratch compiles
+  first.
+- A module opened as a folder (**File › Open Folder…**) or kept as a
+  nasher project has its resources as files already.
 - **File › Import…** adds an `.erf`'s resources to the module; for those
   the module already has, you choose which to overwrite. It also lists
   what the imported resources refer to that neither the module nor the

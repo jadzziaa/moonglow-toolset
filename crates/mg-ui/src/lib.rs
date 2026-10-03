@@ -90,6 +90,15 @@ pub enum Action {
     OpenModule(PathBuf),
     /// Opens the Export window with these resources chosen.
     ExportDialog(Vec<ResKey>),
+    /// Writes resources as loose files (a script with its compiled script,
+    /// an area with its `.git` and `.gic`; with `dependencies`, the module
+    /// resources they use too): into the scratch folder (Options › Folders;
+    /// asked for the first time), or a folder asked for.
+    ExportFiles {
+        keys: Vec<ResKey>,
+        dependencies: bool,
+        scratch: bool,
+    },
     Export(ExportDraft),
     ImportDialog,
     Import(ImportDraft),
@@ -307,6 +316,8 @@ pub struct Moonglow {
     pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
+    /// The folder Export as Files last wrote to (offered again).
+    pub(crate) export_dir: Option<PathBuf>,
     /// The Update Instances window.
     pub update_draft: Option<bulk::UpdateDraft>,
     /// The Edit Areas Together window: the areas being chosen.
@@ -462,6 +473,7 @@ impl Moonglow {
             script_nav: Default::default(),
             prefab_save: None,
             update_draft: None,
+            export_dir: None,
             area_chooser: None,
             text_replace: None,
             prefab_dir: None,
@@ -1086,6 +1098,9 @@ impl Moonglow {
                 }
             }
             Action::Export(draft) => self.run_export(draft),
+            Action::ExportFiles { keys, dependencies, scratch } => {
+                self.run_export_files(keys, dependencies, scratch);
+            }
             Action::ImportDialog => self.open_import(),
             Action::Import(draft) => self.run_import(draft),
             Action::HakReport => self.hak_report(),

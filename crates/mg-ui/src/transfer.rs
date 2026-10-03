@@ -34,6 +34,30 @@ pub struct ImportDraft {
     pub missing: Vec<String>,
 }
 
+/// What To Scratch's hover says: where it copies `what`, or that it asks.
+pub(crate) fn scratch_tip(scratch: Option<&std::path::Path>, what: &str) -> String {
+    match scratch {
+        Some(d) => format!(
+            "Copy {what} into the scratch folder, {} (Tools › Options › Folders changes it)",
+            d.display()
+        ),
+        None => format!(
+            "Copy {what} into a scratch folder: asked for once, then kept (Tools › Options › \
+             Folders)"
+        ),
+    }
+}
+
+/// Names for the log: all of a few, else the first and how many more.
+pub(crate) fn listed(names: &[String]) -> String {
+    const SHOWN: usize = 8;
+    if names.len() <= SHOWN {
+        names.join(", ")
+    } else {
+        format!("{} and {} more", names[..SHOWN].join(", "), names.len() - SHOWN)
+    }
+}
+
 fn window(title: &str) -> egui::Window<'_> {
     egui::Window::new(title)
         .collapsible(false)
@@ -109,6 +133,84 @@ impl Moonglow {
             summary.skipped.len()
         ));
         self.refresh_module_layer();
+    }
+
+    /// Writes `keys` as loose files, each with what goes with it (a
+    /// script's compiled script and debug file, an area's `.git` and
+    /// `.gic`), as they are now (saved or not).
+    pub(crate) fn run_export_files(
+        &mut self,
+        keys: Vec<ResKey>,
+        dependencies: bool,
+        scratch: bool,
+    ) {
+        let Some(ws) = &mut self.ws else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
+        let roots = if dependencies {
+            let empty = ResMan::new();
+            let resman = self.game.as_deref().map_or(&empty, |g| &g.resman);
+            plan_export(&ws.module, &keys, resman).resources
+        } else {
+            keys
+        };
+        let mut resources: Vec<ResKey> = Vec::new();
+        for k in &roots {
+            for f in mg_module::transfer::file_set(&ws.module, k) {
+                if !resources.contains(&f) {
+                    resources.push(f);
+                }
+            }
+        }
+        // A script without its compiled script is of no use to the game.
+        let uncompiled: Vec<String> = resources
+            .iter()
+            .filter(|k| k.restype == mg_core::ResType::NSS)
+            .filter(|k| !resources.contains(&ResKey::new(k.resref, mg_core::ResType::NCS)))
+            .map(|k| k.resref.to_string())
+            .collect();
+        let dir = if scratch {
+            // The scratch folder: chosen once, then kept in the settings.
+            self.settings.scratch_dir.clone().or_else(|| {
+                let start = self.module_path().and_then(|p| p.parent().map(|d| d.to_path_buf()));
+                let picked = self.dialogs.pick_folder("Scratch folder", start.as_deref());
+                self.settings.scratch_dir.clone_from(&picked);
+                picked
+            })
+        } else {
+            let start = self
+                .export_dir
+                .clone()
+                .or_else(|| self.module_path().and_then(|p| p.parent().map(|d| d.to_path_buf())));
+            self.dialogs.pick_folder("Export as files into", start.as_deref())
+        };
+        let Some(dir) = dir else { return };
+        let Some(ws) = &self.ws else { return };
+        match mg_module::transfer::export_files(&ws.module, &resources, &dir) {
+            Ok(written) => {
+                let names: Vec<String> = written
+                    .iter()
+                    .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .collect();
+                self.log.info(format!(
+                    "Wrote {} to {}",
+                    crate::transfer::listed(&names),
+                    dir.display()
+                ));
+                if !uncompiled.is_empty() {
+                    self.log.warn(format!(
+                        "Not compiled (no .ncs written; compile first): {}",
+                        crate::transfer::listed(&uncompiled)
+                    ));
+                }
+                if !scratch {
+                    self.export_dir = Some(dir);
+                }
+            }
+            Err(e) => self.log.error(format!("Could not write to {}: {e}", dir.display())),
+        }
     }
 
     pub(crate) fn run_export(&mut self, draft: ExportDraft) {
@@ -200,6 +302,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 let label = format!("Export {}…", draft.selected.len());
                 if ui.add_enabled(!draft.selected.is_empty(), egui::Button::new(label)).clicked() {
                     app.actions.push(Action::Export(draft.clone()));
+                    close = true;
+                }
+                let files = format!("Export {} as Files…", draft.selected.len());
+                if ui
+                    .add_enabled(!draft.selected.is_empty(), egui::Button::new(files))
+                    .on_hover_text(
+                        "Loose files in a folder (name.ext), as they are in the module: a \
+                         script with its compiled .ncs, an area with its .git and .gic",
+                    )
+                    .clicked()
+                {
+                    app.actions.push(Action::ExportFiles {
+                        keys: draft.selected.iter().copied().collect(),
+                        dependencies: draft.dependencies,
+                        scratch: false,
+                    });
                     close = true;
                 }
                 if ui.button("Cancel").clicked() {

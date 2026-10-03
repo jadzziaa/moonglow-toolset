@@ -8222,3 +8222,121 @@ fn several_areas_are_edited_together() {
     assert_eq!(names(&mut h, "cave2"), ["nBears"]);
     assert_eq!(names(&mut h, "cave1"), ["nDepth"]);
 }
+
+/// Export as Files and Copy to Scratch Folder: a script goes out with its
+/// compiled script, as it is now in the toolset (saved or not), into the
+/// folder chosen; the scratch folder is asked for once, then kept.
+#[test]
+fn resources_are_exported_as_files() {
+    let dir = mg_testkit::scratch_dir("ui-export-files");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let ncs = ResKey::parse("hello", ResType::NCS).unwrap();
+    m.set(ncs, b"NCS old".to_vec());
+    m.save().unwrap();
+    let (chosen, scratch) = (dir.join("out"), dir.join("scratch"));
+    // (The folders the dialog gives, the last first.)
+    let folders = vec![scratch.clone(), chosen.clone()];
+    let mut app = Moonglow::new(None, Box::new(NoDialogs { folders, ..Default::default() }));
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Compiled again in the toolset, not saved: what is exported.
+    let edit = mg_edit::Edit::SetResource { key: ncs, data: Some(b"NCS new".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Compile", vec![edit])));
+    h.run();
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    let export = |h: &mut Harness<'_, Moonglow>, scratch: bool| {
+        let keys = vec![script];
+        h.state_mut().actions.push(mg_ui::Action::ExportFiles {
+            keys,
+            dependencies: false,
+            scratch,
+        });
+        h.run();
+    };
+    export(&mut h, false);
+    assert_eq!(h.state().settings.scratch_dir, None, "Export as Files isn't the scratch folder");
+    export(&mut h, true);
+    for folder in [&chosen, &scratch] {
+        assert_eq!(std::fs::read(folder.join("hello.ncs")).unwrap(), b"NCS new", "{folder:?}");
+        assert_eq!(std::fs::read(folder.join("hello.nss")).unwrap(), b"void main() { }\n");
+        assert_eq!(std::fs::read_dir(folder).unwrap().count(), 2);
+    }
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.contains("hello.nss, hello.ncs")), "{log:?}");
+    // The scratch folder is kept: not asked for again (the dialog has no
+    // more folders to give).
+    assert_eq!(h.state().settings.scratch_dir.as_deref(), Some(scratch.as_path()));
+    std::fs::remove_file(scratch.join("hello.ncs")).unwrap();
+    export(&mut h, true);
+    assert!(scratch.join("hello.ncs").exists());
+    // The Export window offers files too, for the resources ticked.
+    h.state_mut().actions.push(mg_ui::Action::ExportDialog(vec![script]));
+    h.run();
+    h.get_by_label("Export 1 as Files…");
+}
+
+/// The script editor's To Scratch: the script saved and compiled, then it
+/// and its compiled script copied into the scratch folder; one that
+/// doesn't compile is not copied.
+#[test]
+fn a_script_goes_to_the_scratch_folder_compiled() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-script-scratch");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let open = |module: &std::path::Path, scratch: &std::path::Path| {
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        app.settings.scratch_dir = Some(scratch.into());
+        app.open_module(module);
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+        let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.run();
+        h
+    };
+    let scratch = dir.join("scratch");
+    let mut h = open(&path, &scratch);
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    assert_eq!(std::fs::read(scratch.join("hello.nss")).unwrap(), b"void main() { }\n");
+    let ncs = std::fs::read(scratch.join("hello.ncs")).unwrap();
+    assert!(ncs.starts_with(b"NCS V1.0"), "a compiled script");
+    // A script that doesn't compile is not copied.
+    let broken_path = sample_module(&dir.join("broken"));
+    let mut m = Module::open(&broken_path).unwrap();
+    m.set(key, b"void main() { x = 1; }\n".to_vec());
+    m.save().unwrap();
+    let scratch = dir.join("scratch2");
+    let mut h = open(&broken_path, &scratch);
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    assert!(h.state().script_tools.messages.last().is_some_and(|m| m.error));
+    assert!(!scratch.join("hello.nss").exists());
+}
+
+/// The area view's To Scratch: the area as it is now (its .are, .git and
+/// .gic) copied into the scratch folder.
+#[test]
+fn an_area_goes_to_the_scratch_folder() {
+    let Some((mut h, area)) = area_harness("area-scratch") else { return };
+    // No scratch folder yet, and none chosen when asked: nothing is copied.
+    h.get_by_label("To Scratch").click();
+    h.run_steps(2);
+    assert_eq!(h.state().settings.scratch_dir, None);
+    let scratch = mg_testkit::scratch_dir("ui-area-scratch").join("scratch");
+    h.state_mut().settings.scratch_dir = Some(scratch.clone());
+    h.run_steps(2);
+    h.get_by_label("To Scratch").click();
+    h.run_steps(3);
+    let mut names: Vec<String> = std::fs::read_dir(&scratch)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["are", "gic", "git"].map(|e| format!("{area}.{e}")));
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().to_bytes().unwrap();
+    assert_eq!(std::fs::read(scratch.join(format!("{area}.are"))).unwrap(), are);
+}

@@ -78,6 +78,12 @@ The buttons:
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.
+- **To Scratch**: save and compile the script, then copy it and its
+  compiled script into the scratch folder: a folder you choose the first
+  time (Tools › Options › Folders changes it), such as the game's or a
+  server's `development` folder, for a quick fix. A script that doesn't
+  compile isn't copied. (See [Modules](03-modules.md) for exporting files
+  elsewhere.)
 - **External Editor**: open the script in the editor set in Options ›
   Script Editor; what you save there comes back into Moonglow's editor.
 

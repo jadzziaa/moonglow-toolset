@@ -8,6 +8,10 @@
   and `bin/` in it). Moonglow reads the game's data from here.
 - **NWN user folder**: where your modules, haks, talk tables, override and
   characters are.
+- **Scratch folder**: where **To Scratch** (the script editor, the area
+  view) and **Copy to Scratch Folder** (the module tree) copy a script
+  with its compiled script, or an area, as loose files. Empty: asked for
+  the first time. See [Modules](03-modules.md).
 
 ## Area
 

@@ -74,7 +74,8 @@ area's view is placed there, as from the palette. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields
 of its `.are` and `.git` files; on a script, area, conversation or
 blueprint, **Find References** and **Rename…** (see
-[Modules](03-modules.md)); on any resource, **Export…**.
+[Modules](03-modules.md)); on any resource, **Export…**, **Export as
+Files…** and **Copy to Scratch Folder**.
 
 ## Tabs and windows
 

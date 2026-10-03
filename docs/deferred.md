@@ -189,6 +189,19 @@ Size: S (an hour or two), M (a day or so), L (several days).
   keep the plain strong style; only section headings were made larger.
   (—)
 
+## Getting files out
+
+- **Stale compiled scripts:** Export as Files and Copy to Scratch
+  Folder write the `.ncs` the module has; a script changed since it was
+  compiled isn't compiled first, nor flagged (only one with no `.ncs` at
+  all is). The script editor's To Scratch compiles first. (S)
+- **One at a time from the tree:** the tree exports one resource at a
+  time (the Export window takes several). The area view's To Scratch
+  copies the area alone, not the blueprints or scripts it uses. (S)
+- **One scratch folder:** To Scratch copies to one folder, for every
+  module; a folder per module, or a remote server's (over SSH), isn't
+  offered. Export as Files takes any folder, and remembers the last. (S)
+
 ## Area visibility
 
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
