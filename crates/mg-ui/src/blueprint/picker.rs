@@ -31,7 +31,7 @@ impl Form<'_> {
         }
         let mut out = HashMap::new();
         let palettes = [false, true].map(|custom| palette_view::palette(self.app, kind, custom));
-        let Some(game) = self.app.game.as_ref() else { return out };
+        let Some(game) = self.app.game.as_deref() else { return out };
         for p in palettes.iter().flatten() {
             for n in &p.nodes {
                 walk(n, game, &mut out);
@@ -81,7 +81,7 @@ pub(crate) fn palette_picker(
     });
     ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Find"));
     let palette = palette_view::palette(app, kind, custom);
-    let game = app.game.as_ref();
+    let game = app.game.as_deref();
     let button = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y;
     let height =
         height.unwrap_or_else(|| (ui.clip_rect().bottom() - ui.cursor().top() - button).max(200.0));
@@ -111,7 +111,7 @@ pub(crate) fn blueprint(
     if let Some(root) = app.ws.as_mut().and_then(|ws| ws.doc(&key).ok().map(|g| g.root.clone())) {
         return Some(root);
     }
-    let data = app.game.as_ref()?.resman.get(&key).ok()?;
+    let data = app.game.as_deref()?.resman.get(&key).ok()?;
     Gff::read(&data).ok().map(|g| g.root)
 }
 

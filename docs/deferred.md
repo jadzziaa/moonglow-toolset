@@ -223,9 +223,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Not every key:** text editing, Escape and Enter, Copy, Cut and Paste,
   Delete in the area view, the script editor's numbered bookmarks, and
   mouse bindings (drags, Ctrl+click) are fixed. (S)
-- **Menu commands without keys** (Verify, Build Module, the other
-  wizards, Find Instance…) can't be given one yet: each command must be
-  listed. (S)
 - **Aurora's keys Moonglow lacks:** Plot Wizard (Ctrl+Alt+P; no plot
   wizard), Refresh (F5), the script editor's Save As (Ctrl+Alt+S, now
   New Script's), Close (Ctrl+F4), and the conversation editor's Find and
@@ -235,15 +232,43 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Automation
 
-- **A plugin or scripting API** for the GUI (menu commands and panels of
-  one's own): not started. `mg --json` and the `mg-module` crate are the
-  interface for now. (L)
+- **Plugins, beyond API 0.1** (`plugin-proposal.md`; commands and checks
+  in sandboxed Luau are built):
+  - **No list to install or update from:** plugins come as files; the
+    proposal has an index with API 1.0. Remove is for what Install from
+    File installed; a folder copied in by hand is deleted by hand. (M)
+  - **Archives of several plugins** are refused: one plugin to an
+    archive. (S)
+  - **A project's plugins:** `plugins/` beside a nasher project's
+    `nasher.cfg`, with a prompt before they run, so that a team shares
+    its checks through git. `mg verify --plugins DIR` covers a build
+    pipeline meanwhile. (M)
+  - **More kinds of things to add:** exporters and importers, wizards,
+    quick fixes for findings, events, settings a plugin keeps, panels.
+    A plugin's command can't yet read what is selected or open in the
+    window. (L)
+  - **A plugin's own tests** (`mg plugin test`, against a fixture
+    module): `mg plugin check` and `mg plugin run --dry-run` are what
+    there is. (S–M)
+  - **The reference is written by hand.** A test holds it to list every
+    name of the API, not that each description is right. (S)
+  - **The type file was not tried in an editor:** it loads as Luau and a
+    test holds it to have every name, but it was not checked with the
+    Luau language server. (S)
+  - **External programs** as plugins (a protocol over standard input and
+    output, for Python or Nim): not started. (M)
+  - **The window with plugins was run on Linux only:** the application
+    itself was driven on an off-screen display there (plugins installed
+    from archives listed and enabled, a command as a background job, a
+    form answered, Undo, a check in Verify Module, the enabled plugins
+    kept over a restart, `--no-plugins`), and the rest through the UI
+    harness. On Windows and macOS the tests pass in CI, but nobody has
+    used plugins in the window there; and the file dialog of Install
+    from File was not driven anywhere (the harness answers for it). (S)
 - **`mg find` beyond objects:** it searches blueprints and placed objects;
   conversation lines, scripts' text and 2DA rows have `mg replace
   --dry-run`, the script editor's Find in Files and the resource browser.
   (S–M)
-- **Editing fields from the command line** (`mg set MODULE NAME.EXT
-  Label=Value`): `mg gff` round trips through JSON instead. (S)
 - **A JSON schema** for each command's output: the fields are described
   in the manual, not in a machine-readable schema. (S)
 
@@ -302,5 +327,7 @@ Size: S (an hour or two), M (a day or so), L (several days).
   lighting scheme whose colors aren't black
   (`docs/research/notes_tilesets.md`). (S)
 - **The manual's tables:** the built-in manual viewer can't wrap a
-  table's cells, so chapters use lists where a table would read
-  better. (S–M)
+  table's cells, so a table wider than the page is shown there as a
+  list (`manual::fitted`; it was cut off at the page's edge before, and
+  the text after it too). Tables with wrapped cells would read better.
+  (S–M)

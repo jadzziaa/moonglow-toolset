@@ -29,6 +29,8 @@ pub enum FileKind {
     Png,
     /// A tileset: `.set`.
     Tileset,
+    /// A plugin's archive: `.zip`.
+    Plugin,
 }
 
 impl FileKind {
@@ -54,6 +56,7 @@ impl FileKind {
             (FileKind::Png, _) => "Save Picture",
             (FileKind::Tileset, false) => "Open Tileset",
             (FileKind::Tileset, true) => "New Tileset",
+            (FileKind::Plugin, _) => "Install Plugin from File",
         }
     }
 
@@ -74,6 +77,7 @@ impl FileKind {
             (FileKind::HakFiles, _) => None,
             (FileKind::Png, _) => Some(("PNG picture", &["png"])),
             (FileKind::Tileset, _) => Some(("Tileset", &["set"])),
+            (FileKind::Plugin, _) => Some(("Plugin archives", &["zip"])),
         }
     }
 }

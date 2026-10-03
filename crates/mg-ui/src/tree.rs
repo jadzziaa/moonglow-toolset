@@ -131,7 +131,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         let mut names: HashMap<ResKey, String> = HashMap::new();
         if by_name && types == &[ResType::ARE] {
             for k in &keys {
-                let name = app.area_names.label(ws, app.game.as_ref(), k.resref, true);
+                let name = app.area_names.label(ws, app.game.as_deref(), k.resref, true);
                 names.insert(*k, name);
             }
             keys.sort_by_cached_key(|k| (names[k].to_lowercase(), *k));

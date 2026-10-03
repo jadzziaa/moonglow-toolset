@@ -57,7 +57,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 /// Tileset doors (doortypes.2da; row 0 is the generic door): the name and
 /// the tileset.
 fn door_types(f: &Form<'_>) -> Vec<Choice> {
-    let Some(game) = f.app.game.as_ref() else { return Vec::new() };
+    let Some(game) = f.app.game.as_deref() else { return Vec::new() };
     let Ok(table) = game.table("doortypes") else { return Vec::new() };
     let names = game
         .choices("doortypes", ChoiceColumns { name: Some("StringRefGame"), label: Some("Label") })

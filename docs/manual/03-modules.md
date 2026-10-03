@@ -204,7 +204,10 @@ for text a server sends many times.
 
 **Resources in haks**: when the module and a hak have the same resource,
 the hak's wins in the game. Moonglow warns in the log when you add such a
-resource, or one that replaces the game's own (Options › General).
+resource, or one that replaces the game's own (Options › General). The same
+warnings come however the resource arrives: made in an editor, imported,
+copied from the palette or renamed. An import that brings many says the
+first few and how many more.
 
 ## The hak editor
 

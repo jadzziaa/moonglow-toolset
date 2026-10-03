@@ -116,7 +116,7 @@ fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 fn resize(app: &mut Moonglow, d: &ResizeDraft) {
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
     let (are_key, git_key) = (ResKey::new(d.area, ResType::ARE), ResKey::new(d.area, ResType::GIT));
     let Ok(are) = ws.doc(&are_key).map(|g| g.root.clone()) else { return };
     let git = ws.doc(&git_key).map(|g| g.root.clone()).unwrap_or_default();

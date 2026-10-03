@@ -127,7 +127,7 @@ fn statement(text: &str) -> &str {
 pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
-    let Some(game) = f.app.game.as_ref() else { return };
+    let Some(game) = f.app.game.as_deref() else { return };
     let Ok(classes) = game.table("classes") else { return };
     let class_list: Vec<Struct> = f.root.list("ClassList").unwrap_or(&[]).to_vec();
     // The creature's spellcasting classes: (index in ClassList, class row,
@@ -475,7 +475,7 @@ const ITEM_FLAGS: [&str; 2] = ["Dropable", "Pickpocketable"];
 /// The slots an item can go in (its base item's `EquipableSlots`).
 fn item_slots(f: &mut Form<'_>, resref: ResRef) -> u32 {
     let base = f.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
-    let table = f.app.game.as_ref().and_then(|g| g.table("baseitems").ok());
+    let table = f.app.game.as_deref().and_then(|g| g.table("baseitems").ok());
     match (table, base) {
         (Some(t), Some(b)) => t.get_int(b.max(0) as usize, "EquipableSlots").unwrap_or(0) as u32,
         _ => 0,
@@ -531,7 +531,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
     if !f.app.settings.no_inventory_warning {
-        let notice = tlk(f.app.game.as_ref(), INVENTORY_NOTICE);
+        let notice = tlk(f.app.game.as_deref(), INVENTORY_NOTICE);
         ui.horizontal_wrapped(|ui| {
             ui.colored_label(ui.visuals().warn_fg_color, notice);
             if ui
@@ -655,7 +655,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 .map(|v| v as u16)
                 .collect();
             let item = f.blueprint(BlueprintKind::Item, r);
-            let missing = match (f.app.game.as_ref(), item) {
+            let missing = match (f.app.game.as_deref(), item) {
                 (Some(g), Some(item)) => g.missing_feats(&item, &feats),
                 _ => Vec::new(),
             };
@@ -668,7 +668,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         }
     }
     if let Some((bit, r, missing)) = ui.data(|d| d.get_temp::<(u32, ResRef, Vec<u16>)>(ask)) {
-        let game = f.app.game.as_ref();
+        let game = f.app.game.as_deref();
         let names: Vec<String> = missing
             .iter()
             .map(|&feat| {

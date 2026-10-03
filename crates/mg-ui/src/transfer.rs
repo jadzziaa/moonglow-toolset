@@ -57,7 +57,7 @@ impl Moonglow {
             return;
         }
         let empty = ResMan::new();
-        let resman = self.game.as_ref().map_or(&empty, |g| &g.resman);
+        let resman = self.game.as_deref().map_or(&empty, |g| &g.resman);
         match plan_import(&ws.module, &data, resman) {
             Ok(ImportPlan { resources, overwrites, missing }) => {
                 self.import = Some(ImportDraft {
@@ -93,18 +93,11 @@ impl Moonglow {
                 return;
             }
         };
-        let edits: Vec<mg_edit::Edit> = staged
-            .keys()
-            .filter(|k| staged.get(k) != ws.module.get(k))
-            .map(|k| mg_edit::Edit::SetResource {
-                key: *k,
-                data: staged.get(k).map(<[u8]>::to_vec),
-            })
-            .collect();
+        let edits = ws.edits_to(&staged);
         let name =
             draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         if !edits.is_empty()
-            && let Err(e) = ws.apply(mg_edit::Command::new(format!("Import {name}"), edits))
+            && let Err(e) = self.apply(mg_edit::Command::new(format!("Import {name}"), edits))
         {
             self.log.error(e.to_string());
             return;
@@ -127,7 +120,7 @@ impl Moonglow {
         let roots: Vec<ResKey> = draft.selected.iter().copied().collect();
         let resources = if draft.dependencies {
             let empty = ResMan::new();
-            let resman = self.game.as_ref().map_or(&empty, |g| &g.resman);
+            let resman = self.game.as_deref().map_or(&empty, |g| &g.resman);
             let plan = plan_export(&ws.module, &roots, resman);
             for r in &plan.missing {
                 self.log.warn(format!(

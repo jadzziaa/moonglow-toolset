@@ -258,7 +258,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             Step::ItemType => {
                 ui.heading("Item Type");
                 ui.label("Please choose the type of item you wish to create");
-                let types = item_types(app.game.as_ref().expect("checked"));
+                let types = item_types(app.game.as_deref().expect("checked"));
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                     for (row, name) in types {
                         if ui.selectable_label(w.base_item == Some(row), name).clicked() {
@@ -398,7 +398,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             Step::Category => {
                 ui.heading("Assign Palette Category");
                 ui.label("Choose the palette category that this new blueprint should appear under");
-                let game = app.game.as_ref().expect("checked");
+                let game = app.game.as_deref().expect("checked");
                 let nodes = categories(game, w.kind);
                 let before = w.category;
                 egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
@@ -456,7 +456,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let taken = |r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, w.kind.restype())))
         };
-        let (resref, g) = w.build(app.game.as_ref().expect("checked"), taken);
+        let (resref, g) = w.build(app.game.as_deref().expect("checked"), taken);
         let key = ResKey::new(resref, w.kind.restype());
         match g.to_bytes() {
             Ok(data) => {

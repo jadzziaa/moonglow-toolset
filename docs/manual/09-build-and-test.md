@@ -44,6 +44,17 @@ background; the window shows progress, then the manifest's hash
 (**Copy** copies it, for `-nwsynchash`). Upload the folder to the web
 server. `mg nwsync` does the same from the command line.
 
+## Long work
+
+Compile All Scripts, Build Module (its Build button) and Verify Module
+run in the background: a small window names the work, shows how far it
+is, and has **Cancel**. Until it is done the rest of the window takes no
+input, so nothing changes under the work; what it made (compiled scripts,
+say) then goes in as one step that Undo takes back. Canceled, it changes
+nothing. The build before saving (Options › General) and the compile
+before a test run wait instead, since saving and testing need their
+result.
+
 ## Verify Module
 
 **Build › Verify Module** writes to the log, as errors and warnings, what
@@ -88,9 +99,15 @@ a placed object's are errors. A hak that hides the game's own longer
 do that. When it matters, an object naming one of the lost rows is
 reported instead.
 
+The checks of enabled [plugins](15-plugins.md) run with these, and their
+findings are listed with the rest: a team's own rules (naming, required
+scripts) become part of Verify Module.
+
 `mg verify` does the same from a terminal, and can write its results as
 JSON for a build pipeline (`mg --json verify`; see [Command-line
-tools](11-command-line.md)).
+tools](11-command-line.md)). There each problem carries the id of the
+check that found it (`set-model`, `2da-row`…); `mg checks` lists the
+checks.
 
 ## Test Module
 

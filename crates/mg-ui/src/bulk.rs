@@ -94,7 +94,7 @@ impl Moonglow {
     /// Makes the ticked objects again from their blueprints, as one
     /// command; how many.
     pub fn apply_update(&mut self, draft: &UpdateDraft) -> usize {
-        let (Some(ws), Some(game)) = (self.ws.as_mut(), self.game.as_ref()) else { return 0 };
+        let (Some(ws), Some(game)) = (self.ws.as_mut(), self.game.as_deref()) else { return 0 };
         let wanted: HashSet<ResKey> = draft.blueprints.iter().copied().collect();
         let mut blueprints = std::collections::HashMap::new();
         for k in &wanted {

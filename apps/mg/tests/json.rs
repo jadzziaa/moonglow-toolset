@@ -58,6 +58,21 @@ fn every_command_answers_in_json() {
 
     // Modules.
     assert_eq!(ok(&["verify", c])["errors"], 0);
+    // Plugins: the plugin host's own fixture, listed, checked, run and
+    // its checks counted.
+    let plugins = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/mg-plugin/tests/fixtures");
+    let plugin = format!("{plugins}/tag-conventions");
+    assert!(ok(&["plugin", "list", plugins])["plugins"].as_array().unwrap().len() >= 4);
+    assert_eq!(ok(&["plugin", "check", &plugin])["plugins"][0]["faults"], serde_json::json!([]));
+    ok(&["plugin", "run", c, &plugin, "fix-tags", "--dry-run"]);
+    assert_eq!(ok(&["verify", c, "--plugins", &plugin])["errors"], 0);
+    let packed = ok(&["plugin", "pack", &plugin, "-o", &at("tags.zip")]);
+    assert_eq!(packed["id"], "example.tag-conventions");
+    let installed = ok(&["plugin", "install", &at("tags.zip"), &at("plugins")]);
+    assert_eq!(installed["replaced"], Value::Null);
+    ok(&["plugin", "remove", "example.tag-conventions", &at("plugins")]);
+    let checks = ok(&["checks"]);
+    assert!(checks["checks"].as_array().unwrap().iter().any(|c| c["id"] == "set-model"));
     assert!(ok(&["haks", c])["haks"].as_array().unwrap().is_empty());
     let exported = ok(&["export", c, "pawn_w.utc", "-o", &at("pawn.erf")]);
     assert!(exported["resources"].as_array().unwrap().iter().any(|r| r == "pawn_w.utc"));
@@ -80,6 +95,13 @@ fn every_command_answers_in_json() {
     assert_eq!(imported["conversation"], "mg_talk.dlg");
     let replaced = ok(&["replace", c, "Pawn", "Footman", "--dry-run"]);
     assert!(replaced["times"].as_u64().unwrap() > 0);
+    let set = ok(&["set", c, "module.ifo", "Mod_Tag=CHESS", "--dry-run"]);
+    assert_eq!(set["command"]["edits"][0]["field"], "/Mod_Tag");
+    std::fs::write(at("edits.json"), set["command"].to_string()).unwrap();
+    assert_eq!(
+        ok(&["apply", c, &at("edits.json")])["resources"],
+        serde_json::json!(["module.ifo"])
+    );
     assert!(ok(&["update-instances", c])["updated"].is_number());
     let init = ok(&["init", c, &at("project")]);
     assert_eq!(init["target"], "default");

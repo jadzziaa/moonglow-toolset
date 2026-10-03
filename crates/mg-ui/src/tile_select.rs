@@ -333,7 +333,7 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
 
 /// lightcolor.2da's toolset colours (TOOLSETRED, GREEN, BLUE, 0 to 1).
 fn light_colors(app: &Moonglow) -> Vec<Color32> {
-    let Some(t) = app.game.as_ref().and_then(|g| g.table("lightcolor").ok()) else {
+    let Some(t) = app.game.as_deref().and_then(|g| g.table("lightcolor").ok()) else {
         return Vec::new();
     };
     (0..t.len())
@@ -520,7 +520,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 /// Defaults: the lighting scheme's first colours and every loop on (where
 /// the tile has them).
 fn defaults(app: &mut Moonglow, props: &mut TileProps) {
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
     let Ok(are) = ws.doc(&ResKey::new(props.area, ResType::ARE)) else { return };
     let row = are.root.integer("LightingScheme").unwrap_or(0).max(0) as usize;
     if let Ok(t) = game.table("environment") {

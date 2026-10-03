@@ -15,6 +15,7 @@ pub mod blueprint_wizard;
 mod browser;
 pub mod build_view;
 pub mod bulk;
+pub mod commands;
 pub mod creature_wizard;
 pub mod dialog_view;
 pub mod dialogs;
@@ -23,6 +24,7 @@ mod gff_view;
 pub mod hak_view;
 mod icons;
 mod images;
+pub mod jobs;
 pub mod journal_view;
 pub mod keys;
 pub mod levelup_view;
@@ -32,6 +34,7 @@ pub mod module_props;
 pub mod nwsync_view;
 mod options;
 pub mod palette_view;
+pub mod plugins;
 pub mod prefabs;
 pub mod recovery;
 pub mod references;
@@ -56,6 +59,7 @@ pub mod wizards;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use egui_dock::{DockArea, DockState};
 use mg_core::ResType;
@@ -94,7 +98,7 @@ pub enum Action {
     OptionsDialog,
     /// Uses these folders for the game and the user directory (reloading the
     /// game data; closes the module).
-    ApplyOptions(OptionsDraft),
+    ApplyOptions(Box<OptionsDraft>),
     Save,
     SaveAsDialog,
     /// File › Save As nasher Project…: the module into a nasher project
@@ -179,7 +183,9 @@ impl Log {
 pub struct Moonglow {
     pub install: Option<GameInstall>,
     /// The game data, with the open module's haks and module layered in.
-    pub game: Option<GameData>,
+    /// The game's data, shared with the jobs that read it while they run
+    /// (changed only between them: [`exclusive`]).
+    pub game: Option<Arc<GameData>>,
     pub ws: Option<Workspace>,
     pub dock: DockState<Tab>,
     pub log: Log,
@@ -363,6 +369,22 @@ pub struct Moonglow {
     /// shows (and has a width to match). Tests of other windows turn it
     /// off.
     pub open_palette: bool,
+    /// The plugins installed, and what they are doing (`plugins`).
+    pub plugins: plugins::Plugins,
+    /// Where plugins are installed (the application gives Moonglow's data
+    /// folder's `plugins`).
+    pub plugin_dir: Option<PathBuf>,
+    /// Started without plugins (`--no-plugins`): none are read.
+    pub no_plugins: bool,
+    /// The keys are to be worked out again (the plugins changed).
+    keymap_stale: bool,
+    /// The Command Palette, while it is open.
+    pub command_palette: Option<commands::Finder>,
+    /// The job under way, if one is (`jobs`).
+    pub(crate) job: Option<jobs::Job>,
+    /// Jobs run while the window keeps drawing (the application turns
+    /// this on); off, starting a job waits for it, as tests want.
+    pub background_jobs: bool,
 }
 
 impl std::fmt::Debug for Moonglow {
@@ -483,6 +505,13 @@ impl Moonglow {
             tree_width: None,
             dock_width: None,
             open_palette: false,
+            plugins: Default::default(),
+            plugin_dir: None,
+            no_plugins: false,
+            keymap_stale: false,
+            command_palette: None,
+            job: None,
+            background_jobs: false,
         }
     }
 
@@ -524,7 +553,11 @@ impl Moonglow {
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
-        self.shortcuts(ui);
+        self.poll_job(ui.ctx());
+        // (A running job has the window to itself.)
+        if !self.busy() {
+            self.shortcuts(ui);
+        }
         egui::Panel::top("menu").show(ui, |ui| {
             self.menu(ui);
             self.toolbar(ui);
@@ -609,6 +642,11 @@ impl Moonglow {
                 self.hak_report = None;
             }
         }
+        plugins::window(self, ui.ctx());
+        plugins::replace_window(self, ui.ctx());
+        plugins::remove_window(self, ui.ctx());
+        commands::palette_window(self, ui.ctx());
+        jobs::window(self, ui.ctx());
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
@@ -663,524 +701,31 @@ impl Moonglow {
     }
 
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
-        use keys::Cmd;
         // The keys as Options › Keyboard last set them.
-        if self.keymap_from != self.settings.key_bindings {
+        if std::mem::take(&mut self.keymap_stale) || self.keymap_from != self.settings.key_bindings
+        {
             self.keymap = keys::Keymap::new(&self.settings.key_bindings);
+            let commands = self.plugin_commands();
+            plugins::register_keys(&mut self.keymap, &commands);
             self.keymap_from = self.settings.key_bindings.clone();
         }
-        // Options › Keyboard takes the next key itself.
-        if self.options.as_ref().is_some_and(|o| o.recording.is_some()) {
+        // Options › Keyboard takes the next key itself, and the Command
+        // Palette what is typed into it.
+        if self.options.as_ref().is_some_and(|o| o.recording.is_some())
+            || self.command_palette.is_some()
+        {
             return;
         }
-        let keymap = self.keymap.clone();
-        let pressed = |cmd: Cmd| ui.input_mut(|i| keymap.consume(i, cmd));
-        let open = self.ws.is_some();
-        if pressed(Cmd::NewModule) {
-            self.actions.push(Action::NewModuleDialog);
-        }
-        if pressed(Cmd::ReplaceText) && open {
-            self.text_replace.get_or_insert_with(Default::default);
-        }
-        if pressed(Cmd::AreaWizard) {
-            self.actions.push(Action::AreaWizard);
-        }
-        if pressed(Cmd::Factions) && open {
-            self.actions.push(Action::OpenTab(Tab::Factions));
-        }
-        if pressed(Cmd::Journal) && open {
-            self.actions.push(Action::OpenTab(Tab::Journal));
-        }
-        if pressed(Cmd::OpenModule) {
-            self.actions.push(Action::OpenModuleDialog);
-        }
-        if pressed(Cmd::Save) {
-            self.actions.push(Action::Save);
-        }
-        if pressed(Cmd::Redo) {
-            self.actions.push(Action::Redo);
-        }
-        if pressed(Cmd::Undo) {
-            self.actions.push(Action::Undo);
-        }
-        if pressed(Cmd::CompileAll) {
-            self.actions.push(Action::CompileScripts);
-        }
-        if pressed(Cmd::TestModule) && open {
-            self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
-        }
-        if pressed(Cmd::TestChoose) && open {
-            self.actions.push(Action::SaveThen(Box::new(Action::TestModuleChoose)));
-        }
-        if pressed(Cmd::Manual) {
-            self.actions.push(Action::OpenTab(Tab::Manual));
-        }
-        if pressed(Cmd::NewConversation) && open {
-            self.new_dialog = Some(String::new());
-        }
-        if pressed(Cmd::NewScript) && open {
-            self.new_script = Some(String::new());
-        }
-        if pressed(Cmd::CreatureWizard) && open {
-            self.creature_wizard = Some(Default::default());
-        }
-        if pressed(Cmd::ItemWizard) && open {
-            let kind = mg_module::palette::BlueprintKind::Item;
-            self.blueprint_wizard = Some(blueprint_wizard::BlueprintWizard::new(kind));
-        }
-        if pressed(Cmd::FullScreen) {
-            let full = ui.ctx().input(|i| i.viewport().fullscreen.unwrap_or(false));
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
-        }
+        commands::keys_pressed(self, ui);
     }
 
     fn menu(&mut self, ui: &mut egui::Ui) {
-        let open = self.ws.is_some();
-        egui::MenuBar::new().ui(ui, |ui| {
-            ui.menu_button("File", |ui| {
-                if ui
-                    .add(
-                        egui::Button::new("New Module…")
-                            .shortcut_text(self.keymap.label(keys::Cmd::NewModule, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::NewModuleDialog);
-                }
-                if ui
-                    .add(
-                        egui::Button::new("Open Module…")
-                            .shortcut_text(self.keymap.label(keys::Cmd::OpenModule, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::OpenModuleDialog);
-                }
-                if ui
-                    .button("Open Folder…")
-                    .on_hover_text("A module folder, or a nasher project")
-                    .clicked()
-                {
-                    self.actions.push(Action::OpenFolderDialog);
-                }
-                let recent = self.settings.recent.clone();
-                ui.add_enabled_ui(!recent.is_empty(), |ui| {
-                    ui.menu_button("Recent Modules", |ui| {
-                        for p in recent {
-                            if ui.button(p.display().to_string()).clicked() {
-                                self.actions.push(Action::OpenModule(p));
-                            }
-                        }
-                    });
-                });
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("Save")
-                            .shortcut_text(self.keymap.label(keys::Cmd::Save, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::Save);
-                }
-                if ui.add_enabled(open, egui::Button::new("Save As…")).clicked() {
-                    self.actions.push(Action::SaveAsDialog);
-                }
-                if ui
-                    .add_enabled(open, egui::Button::new("Save As nasher Project…"))
-                    .on_hover_text("Keep the module as text files for version control")
-                    .clicked()
-                {
-                    self.actions.push(Action::SaveAsProjectDialog);
-                }
-                ui.separator();
-                if ui.add_enabled(open, egui::Button::new("Import…")).clicked() {
-                    self.actions.push(Action::ImportDialog);
-                }
-                if ui.add_enabled(open, egui::Button::new("Export…")).clicked() {
-                    self.actions.push(Action::ExportDialog(Vec::new()));
-                }
-                if ui
-                    .add_enabled(open, egui::Button::new("Import Conversation…"))
-                    .on_hover_text("A Twine (.twee) or Ink (.ink) story, as a new conversation")
-                    .clicked()
-                    && let Some(path) = self.dialogs.open_file(dialogs::FileKind::Story, None)
-                {
-                    self.import_conversation(&path);
-                }
-                ui.separator();
-                if ui.add_enabled(open, egui::Button::new("Close")).clicked() {
-                    self.actions.push(Action::Close);
-                }
-                ui.separator();
-                if ui.button("Exit").clicked() {
-                    self.actions.push(Action::Quit);
-                }
-            });
-            ui.menu_button("Edit", |ui| {
-                let (undo, redo) = match &self.ws {
-                    Some(ws) => {
-                        (ws.can_undo().map(str::to_string), ws.can_redo().map(str::to_string))
-                    }
-                    None => (None, None),
-                };
-                let label = |what: &str, cmd: &Option<String>| match cmd {
-                    Some(c) => format!("{what} {c}"),
-                    None => what.to_string(),
-                };
-                if ui
-                    .add_enabled(
-                        undo.is_some(),
-                        egui::Button::new(label("Undo", &undo))
-                            .shortcut_text(self.keymap.label(keys::Cmd::Undo, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::Undo);
-                }
-                if ui
-                    .add_enabled(
-                        redo.is_some(),
-                        egui::Button::new(label("Redo", &redo))
-                            .shortcut_text(self.keymap.label(keys::Cmd::Redo, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::Redo);
-                }
-                ui.separator();
-                if ui.add_enabled(open, egui::Button::new("Module Properties")).clicked() {
-                    self.actions.push(Action::OpenTab(Tab::ModuleProperties));
-                }
-                ui.separator();
-                let area = self.palette.area.filter(|a| self.area_views.contains_key(a));
-                if ui.add_enabled(area.is_some(), egui::Button::new("Resize Area…")).clicked()
-                    && let Some(a) = area
-                {
-                    area_reshape::open_resize(self, a);
-                }
-                if ui.add_enabled(area.is_some(), egui::Button::new("Rotate Area…")).clicked()
-                    && let Some(a) = area
-                {
-                    self.rotate_area = Some(area_reshape::RotateDraft { area: a, turns: 1 });
-                }
-                ui.separator();
-                if ui.add_enabled(open, egui::Button::new("Find Instance…")).clicked() {
-                    self.find_instance.get_or_insert_with(Default::default);
-                }
-                let names = prefabs::list(self.prefab_dir.as_deref());
-                ui.add_enabled_ui(open && !names.is_empty(), |ui| {
-                    ui.menu_button("Prefabs", |ui| {
-                        for n in names {
-                            if ui.button(&n).on_hover_text("Place it in the area shown").clicked() {
-                                self.actions.push(Action::PlacePrefab(n));
-                                ui.close();
-                            }
-                        }
-                    })
-                    .response
-                    .on_disabled_hover_text("Save objects as a prefab from an area's menu first");
-                });
-                if ui
-                    .add_enabled(open, egui::Button::new("Edit Areas Together…"))
-                    .on_hover_text(
-                        "Choose several areas (by name, tileset, interior, underground…) and \
-                         set their lighting, fog, weather, music, scripts and variables at once",
-                    )
-                    .clicked()
-                {
-                    self.area_chooser.get_or_insert_with(Default::default);
-                }
-                if ui
-                    .add_enabled(open, egui::Button::new("Find and Replace Text…"))
-                    .on_hover_text(self.keymap.titled(
-                        "In names, descriptions, conversations and the journal",
-                        keys::Cmd::ReplaceText,
-                        ui.ctx(),
-                    ))
-                    .clicked()
-                {
-                    self.text_replace.get_or_insert_with(Default::default);
-                }
-                if ui
-                    .add_enabled(open, egui::Button::new("Find References…"))
-                    .on_hover_text("Where a script, area, conversation, blueprint or tag is used")
-                    .clicked()
-                {
-                    self.actions.push(Action::OpenTab(Tab::References));
-                }
-            });
-            ui.menu_button("Wizards", |ui| {
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("Area Wizard…")
-                            .shortcut_text(self.keymap.label(keys::Cmd::AreaWizard, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::AreaWizard);
-                }
-                ui.separator();
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("Creature Wizard…")
-                            .shortcut_text(self.keymap.label(keys::Cmd::CreatureWizard, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.creature_wizard = Some(Default::default());
-                }
-                for kind in blueprint_wizard::KINDS {
-                    let text = format!("{} Wizard…", kind.label().trim_end_matches('s'));
-                    if ui.add_enabled(open, egui::Button::new(text)).clicked() {
-                        self.blueprint_wizard = Some(blueprint_wizard::BlueprintWizard::new(kind));
-                    }
-                }
-            });
-            ui.menu_button("Tools", |ui| {
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("New Conversation…")
-                            .shortcut_text(self.keymap.label(keys::Cmd::NewConversation, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.new_dialog = Some(String::new());
-                }
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("Faction Editor")
-                            .shortcut_text(self.keymap.label(keys::Cmd::Factions, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::OpenTab(Tab::Factions));
-                }
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("Journal Editor")
-                            .shortcut_text(self.keymap.label(keys::Cmd::Journal, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::OpenTab(Tab::Journal));
-                }
-                if ui
-                    .add_enabled(open, egui::Button::new("Talk Table"))
-                    .on_hover_text("The module's own talk table: text named by StrRef")
-                    .clicked()
-                {
-                    self.actions.push(Action::OpenTab(Tab::TalkTable));
-                }
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("New Script…")
-                            .shortcut_text(self.keymap.label(keys::Cmd::NewScript, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.new_script = Some(String::new());
-                }
-                ui.separator();
-                if ui.button("Palettes").clicked() {
-                    self.actions.push(Action::OpenTab(Tab::Palette));
-                }
-                if ui.button("Resource Browser").clicked() {
-                    self.actions.push(Action::OpenTab(Tab::Resources));
-                }
-                ui.menu_button("Tilesets", |ui| {
-                    if ui.button("New Tileset…").on_hover_text("A new .set file to fill").clicked()
-                    {
-                        tileset_view::new_tileset(self);
-                    }
-                    if ui.button("Open Tileset…").clicked() {
-                        tileset_view::open(self);
-                    }
-                });
-                ui.menu_button("Haks", |ui| {
-                    if ui.button("New Hak").clicked() {
-                        hak_view::new_hak(self);
-                    }
-                    if ui.button("Open Hak…").clicked() {
-                        hak_view::open_hak(self);
-                    }
-                    if ui
-                        .button("Build Hak from Folder…")
-                        .on_hover_text("A new hak with a folder's files, to look over and save")
-                        .clicked()
-                    {
-                        hak_view::build_from_folder(self);
-                    }
-                });
-                if ui
-                    .button("Reload Resources")
-                    .on_hover_text(
-                        "Read again the haks, override and development folders that changed",
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::ReloadResources);
-                }
-                if ui.button("Options…").clicked() {
-                    self.actions.push(Action::OptionsDialog);
-                }
-            });
-            ui.menu_button("Build", |ui| {
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("Compile All Scripts")
-                            .shortcut_text(self.keymap.label(keys::Cmd::CompileAll, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::CompileScripts);
-                }
-                if ui.add_enabled(open, egui::Button::new("Build Module…")).clicked() {
-                    self.build.get_or_insert_with(Default::default);
-                }
-                if ui
-                    .add_enabled(open, egui::Button::new("Publish to NWSync…"))
-                    .on_hover_text(
-                        "The module's haks and talk table, for players' games to download",
-                    )
-                    .clicked()
-                {
-                    nwsync_view::open(self);
-                }
-                if ui.add_enabled(open, egui::Button::new("Verify Module")).clicked() {
-                    self.actions.push(Action::Verify);
-                }
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("Test Module")
-                            .shortcut_text(self.keymap.label(keys::Cmd::TestModule, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::SaveThen(Box::new(Action::TestModule)));
-                }
-                if ui
-                    .add_enabled(
-                        open,
-                        egui::Button::new("Test Module, Choose Character")
-                            .shortcut_text(self.keymap.label(keys::Cmd::TestChoose, ui.ctx())),
-                    )
-                    .on_hover_text("The game asks which character to play")
-                    .clicked()
-                {
-                    self.actions.push(Action::SaveThen(Box::new(Action::TestModuleChoose)));
-                }
-                let target = self.ws.as_ref().and_then(|ws| ws.module.project.as_ref()).map(|p| {
-                    let file = p.target().file.clone();
-                    format!("Pack {file}")
-                });
-                if let Some(label) = target
-                    && ui
-                        .button(label)
-                        .on_hover_text("Write the nasher project's module file, as nasher packs it")
-                        .clicked()
-                {
-                    self.actions.push(Action::PackTarget);
-                }
-                ui.separator();
-                let area = self.palette.area.filter(|a| self.area_views.contains_key(a));
-                if ui.add_enabled(area.is_some(), egui::Button::new("Area Statistics")).clicked() {
-                    self.area_stats = area;
-                }
-            });
-            ui.menu_button("Help", |ui| {
-                if ui
-                    .add(
-                        egui::Button::new("User Manual")
-                            .shortcut_text(self.keymap.label(keys::Cmd::Manual, ui.ctx())),
-                    )
-                    .clicked()
-                {
-                    self.actions.push(Action::OpenTab(Tab::Manual));
-                }
-                if ui.button("About Moonglow Toolset").clicked() {
-                    self.about = true;
-                }
-            });
-        });
+        commands::menu_bar(self, ui);
     }
 
     /// Buttons for the common commands, below the menu as in Aurora.
     fn toolbar(&mut self, ui: &mut egui::Ui) {
-        let open = self.ws.is_some();
-        let (undo, redo) = self
-            .ws
-            .as_ref()
-            .map_or((false, false), |ws| (ws.can_undo().is_some(), ws.can_redo().is_some()));
-        let keymap = self.keymap.clone();
-        let ctx = ui.ctx().clone();
-        let tip = |text: &str, cmd: keys::Cmd| keymap.titled(text, cmd, &ctx);
-        ui.horizontal(|ui| {
-            let mut button =
-                |ui: &mut egui::Ui, enabled: bool, label: &str, tip: &str, action: Action| {
-                    if ui
-                        .add_enabled(enabled, egui::Button::new(label).small())
-                        .on_hover_text(tip)
-                        .clicked()
-                    {
-                        self.actions.push(action);
-                    }
-                };
-            button(
-                ui,
-                true,
-                "🗋 New",
-                &tip("New module", keys::Cmd::NewModule),
-                Action::NewModuleDialog,
-            );
-            button(
-                ui,
-                true,
-                "🗁 Open",
-                &tip("Open module", keys::Cmd::OpenModule),
-                Action::OpenModuleDialog,
-            );
-            button(ui, open, "💾 Save", &tip("Save module", keys::Cmd::Save), Action::Save);
-            ui.separator();
-            button(ui, undo, "⟲ Undo", &tip("Undo", keys::Cmd::Undo), Action::Undo);
-            button(ui, redo, "⟳ Redo", &tip("Redo", keys::Cmd::Redo), Action::Redo);
-            ui.separator();
-            button(
-                ui,
-                open,
-                "ℹ Properties",
-                "Module properties",
-                Action::OpenTab(Tab::ModuleProperties),
-            );
-            button(
-                ui,
-                open,
-                "🗺 New Area",
-                &tip("Area Wizard", keys::Cmd::AreaWizard),
-                Action::AreaWizard,
-            );
-            button(ui, true, "🔍 Resources", "Resource browser", Action::OpenTab(Tab::Resources));
-            button(ui, true, "📦 Palettes", "Blueprint palettes", Action::OpenTab(Tab::Palette));
-            ui.toggle_value(&mut self.preview_window, "👁 Preview")
-                .on_hover_text("Show Preview Window: the blueprint chosen in the palette");
-            ui.separator();
-            button(
-                ui,
-                open,
-                "⚙ Compile",
-                &tip("Compile all scripts", keys::Cmd::CompileAll),
-                Action::CompileScripts,
-            );
-            button(ui, open, "✔ Verify", "Verify the module", Action::Verify);
-        });
+        commands::toolbar(self, ui);
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -1257,7 +802,7 @@ impl Moonglow {
     /// the game data.
     fn use_module(&mut self, m: Module) {
         self.close();
-        if let (Some(game), Some(gi)) = (&mut self.game, &self.install) {
+        if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
             let haks = m.haks().unwrap_or_default();
             match game.resman.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>()) {
                 Ok(missing) => {
@@ -1299,7 +844,7 @@ impl Moonglow {
     }
 
     fn load_custom_tlk(&mut self) {
-        let (Some(ws), Some(game)) = (&self.ws, &mut self.game) else { return };
+        let (Some(ws), Some(game)) = (&self.ws, exclusive(&mut self.game)) else { return };
         let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
         if name == self.custom_tlk {
             return;
@@ -1387,15 +932,8 @@ impl Moonglow {
                     return;
                 }
             };
-        let edits: Vec<mg_edit::Edit> = staged
-            .keys()
-            .filter(|k| staged.get(k) != ws.module.get(k))
-            .map(|k| mg_edit::Edit::SetResource {
-                key: *k,
-                data: staged.get(k).map(<[u8]>::to_vec),
-            })
-            .collect();
-        match ws.apply(Command::new(format!("New area {area}"), edits)) {
+        let edits = ws.edits_to(&staged);
+        match self.apply(Command::new(format!("New area {area}"), edits)) {
             Ok(()) => {
                 self.log.info(format!(
                     "Created area {area} ({}, {}×{})",
@@ -1428,7 +966,7 @@ impl Moonglow {
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)
         self.palette.forget_game_data();
-        if let Some(game) = &mut self.game {
+        if let Some(game) = exclusive(&mut self.game) {
             let module_layers: Vec<String> = game
                 .resman
                 .layers()
@@ -1445,7 +983,7 @@ impl Moonglow {
 
     /// Refreshes the module layer of the game data after edits.
     pub(crate) fn refresh_module_layer(&mut self) {
-        let (Some(game), Some(ws)) = (&mut self.game, &mut self.ws) else { return };
+        let (Some(game), Some(ws)) = (exclusive(&mut self.game), &mut self.ws) else { return };
         if ws.flush().is_err() {
             return;
         }
@@ -1552,9 +1090,17 @@ impl Moonglow {
             Action::Import(draft) => self.run_import(draft),
             Action::HakReport => self.hak_report(),
             Action::OptionsDialog => {
-                self.options = Some(OptionsDraft::from_settings(&self.settings))
+                let mut draft = OptionsDraft::from_settings(&self.settings);
+                // The plugins' commands take keys like the rest.
+                let commands = self.plugin_commands();
+                plugins::register_keys(&mut draft.keymap, &commands);
+                draft.plugin_commands = commands
+                    .into_iter()
+                    .map(|c| (c.key_id, format!("{}: {}", c.plugin_name, c.title)))
+                    .collect();
+                self.options = Some(draft);
             }
-            Action::ApplyOptions(draft) => self.apply_options(draft),
+            Action::ApplyOptions(draft) => self.apply_options(*draft),
             Action::Save => self.save(None),
             Action::SaveAsDialog => {
                 // A new module is offered as <name>.mod in the modules folder.
@@ -1598,19 +1144,9 @@ impl Moonglow {
                 }
             }
             Action::Apply(cmd) => {
-                self.warn_shadowing(&cmd);
-                let Some(ws) = &mut self.ws else { return };
-                let custom_tlk = cmd.edits.iter().any(|e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"));
-                let edits = cmd.clone();
-                match ws.apply(cmd) {
-                    Ok(()) => blueprint::after_apply(self, &edits),
-                    Err(e) => self.log.error(e.to_string()),
+                if let Err(e) = self.apply(cmd) {
+                    self.log.error(e.to_string());
                 }
-                let Some(ws) = &mut self.ws else { return };
-                if custom_tlk && ws.flush().is_ok() {
-                    self.load_custom_tlk();
-                }
-                self.sync_haks();
             }
             Action::OpenTab(tab) => {
                 // A tab docked in an area's pane (Module Properties, docked
@@ -1758,15 +1294,48 @@ impl Moonglow {
                 warnings.push(format!("{key} replaces the game's own"));
             }
         }
-        for w in warnings {
+        // (An import can bring hundreds: the first few say what to look for.)
+        const MOST: usize = 8;
+        let more = warnings.len().saturating_sub(MOST);
+        for w in warnings.into_iter().take(MOST) {
             self.log.warn(w);
         }
+        if more > 0 {
+            self.log.warn(format!(
+                "… and {more} more like these (Module Properties › Custom Content › \
+                 Check for Conflicts lists what haks override)"
+            ));
+        }
+    }
+
+    /// Applies a command to the open module: the one way a change gets
+    /// into it, whoever makes it (an editor, a wizard, an import, a build).
+    /// It warns of new resources that shadow others, brings the values
+    /// derived from what changed up to date as part of the command (an
+    /// item's cost, a creature's hit points), and follows a changed hak list
+    /// or talk table. On failure nothing is changed.
+    pub(crate) fn apply(&mut self, cmd: Command) -> Result<(), mg_edit::EditError> {
+        self.warn_shadowing(&cmd);
+        let Some(ws) = &mut self.ws else { return Ok(()) };
+        let custom_tlk = cmd.edits.iter().any(
+            |e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"),
+        );
+        let derived = blueprint::derived_of(&cmd);
+        ws.apply(cmd)?;
+        blueprint::after_apply(self, derived);
+        if custom_tlk && self.ws.as_mut().is_some_and(|ws| ws.flush().is_ok()) {
+            self.load_custom_tlk();
+        }
+        self.sync_haks();
+        Ok(())
     }
 
     /// Puts the script editors' unsaved text into the module (one undoable
     /// command).
     pub(crate) fn store_script_text(&mut self) {
-        let Some(ws) = &mut self.ws else { return };
+        if self.ws.is_none() {
+            return;
+        }
         let mut edits = Vec::new();
         for (key, buf) in self.scripts.iter_mut().filter(|(_, b)| b.is_dirty()) {
             buf.saved = buf.text.clone();
@@ -1777,7 +1346,7 @@ impl Moonglow {
         }
         if !edits.is_empty() {
             let n = edits.len();
-            if let Err(e) = ws.apply(Command::new(format!("Save {n} script(s)"), edits)) {
+            if let Err(e) = self.apply(Command::new(format!("Save {n} script(s)"), edits)) {
                 self.log.error(e.to_string());
             }
         }
@@ -1799,9 +1368,9 @@ impl Moonglow {
         // them.
         if let Some(game) = &self.game {
             let rebuilt = ws
-                .flush()
+                .derive(|module| mg_module::palette::rebuild_custom_palettes(module, game))
                 .map_err(|e| e.to_string())
-                .and_then(|()| mg_module::palette::rebuild_custom_palettes(&mut ws.module, game));
+                .and_then(|made| made);
             if let Err(e) = rebuilt {
                 self.log.error(format!("Custom palettes: {e}"));
             }
@@ -1904,63 +1473,70 @@ impl Moonglow {
     /// holds none).
     fn compile_uncompiled(&mut self) {
         let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
-        if ws.flush().is_err() {
+        let Ok(results) = ws.derive(|module| {
+            mg_module::build::compile_scripts(
+                module,
+                &game.resman,
+                mg_module::build::ScriptSelection::Uncompiled,
+            )
+        }) else {
             return;
-        }
-        let results = mg_module::build::compile_scripts(
-            &mut ws.module,
-            &game.resman,
-            mg_module::build::ScriptSelection::Uncompiled,
-        );
+        };
         let failed = results.iter().filter(|r| r.result.is_err()).count();
         if failed > 0 {
             self.log.warn(format!("{failed} script(s) didn't compile; see Build › Compile"));
         }
     }
 
+    /// Compile All Scripts, as a job: the bytecode that changed is stored
+    /// through one undoable command when it is done.
     fn compile_scripts(&mut self) {
-        self.refresh_module_layer();
-        let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else {
+        if self.ws.is_none() || self.game.is_none() {
             self.log.error("Compiling needs an open module and the game data");
             return;
-        };
-        if let Err(e) = ws.flush() {
-            self.log.error(e.to_string());
-            return;
         }
-        let mut staged = ws.module.clone();
-        let results = mg_module::build::compile_scripts(
-            &mut staged,
-            &game.resman,
-            mg_module::build::ScriptSelection::All,
+        self.start_job(
+            "Compile All Scripts",
+            |job| {
+                let game = job.game.as_deref()?;
+                let mut staged = job.module.clone();
+                let results = mg_module::build::compile_scripts(
+                    &mut staged,
+                    &game.resman,
+                    mg_module::build::ScriptSelection::All,
+                );
+                let edits: Vec<mg_edit::Edit> = staged
+                    .keys_of(ResType::NCS)
+                    .filter(|k| staged.get(k) != job.module.get(k))
+                    .map(|k| mg_edit::Edit::SetResource {
+                        key: *k,
+                        data: staged.get(k).map(<[u8]>::to_vec),
+                    })
+                    .collect();
+                Some((results, edits))
+            },
+            |app, made| {
+                let Some((results, edits)) = made else { return };
+                let failed: Vec<String> = results
+                    .iter()
+                    .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
+                    .collect();
+                for f in &failed {
+                    app.log.error(f.clone());
+                }
+                let changed = edits.len();
+                if !edits.is_empty()
+                    && let Err(e) = app.apply(Command::new("Compile scripts", edits))
+                {
+                    app.log.error(e.to_string());
+                }
+                app.log.info(format!(
+                    "Compiled {} scripts: {} failed, {changed} changed",
+                    results.len(),
+                    failed.len()
+                ));
+            },
         );
-        // Store the new bytecode through one undoable command.
-        let edits: Vec<mg_edit::Edit> = staged
-            .keys_of(ResType::NCS)
-            .filter(|k| staged.get(k) != ws.module.get(k))
-            .map(|k| mg_edit::Edit::SetResource {
-                key: *k,
-                data: staged.get(k).map(<[u8]>::to_vec),
-            })
-            .collect();
-        let failed: Vec<String> = results
-            .iter()
-            .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
-            .collect();
-        for f in &failed {
-            self.log.error(f.clone());
-        }
-        let changed = edits.len();
-        if !edits.is_empty()
-            && let Err(e) = ws.apply(Command::new("Compile scripts", edits))
-        {
-            self.log.error(e.to_string());
-        }
-        self.log.info(format!(
-            "Compiled {} scripts: {} failed, {changed} changed",
-            results.len(),
-            failed.len()
-        ));
     }
 
     /// Starts the game on the saved module (Test Module).
@@ -2074,7 +1650,7 @@ impl Moonglow {
     /// Resources), it says when nothing changed.
     pub fn reload_resources(&mut self, asked: bool) {
         use mg_resman::priority as p;
-        let Some(game) = &mut self.game else { return };
+        let Some(game) = exclusive(&mut self.game) else { return };
         // The user's content; the install's own folders don't change.
         let user = |l: &mg_resman::Layer| {
             matches!(
@@ -2114,7 +1690,7 @@ impl Moonglow {
 
     /// What was shown from the game data is shown anew: its layers changed.
     fn game_data_changed(&mut self) {
-        if let Some(game) = &mut self.game {
+        if let Some(game) = exclusive(&mut self.game) {
             game.invalidate();
         }
         self.pictures = Default::default();
@@ -2184,7 +1760,7 @@ impl Moonglow {
         if listed == self.haks_layered {
             return;
         }
-        let (Some(game), Some(gi)) = (&mut self.game, &self.install) else { return };
+        let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) else { return };
         let old: Vec<String> = game
             .resman
             .layers()
@@ -2212,7 +1788,8 @@ impl Moonglow {
     /// Every few seconds, with Options › General's reloading on: the haks
     /// and folders that changed.
     fn reload_timer(&mut self, ui: &egui::Ui) {
-        if self.settings.no_auto_reload || self.game.is_none() {
+        // (Not under a job, which reads the game data.)
+        if self.settings.no_auto_reload || self.game.is_none() || self.busy() {
             return;
         }
         let every = std::time::Duration::from_secs(3);
@@ -2243,49 +1820,76 @@ impl Moonglow {
         }
     }
 
+    /// Verify Module, as a job: what is missing, and what is wrong with the
+    /// custom content, into the log.
     fn verify(&mut self) {
-        self.refresh_module_layer();
-        let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
-        if let Err(e) = ws.flush() {
-            self.log.error(e.to_string());
+        if self.ws.is_none() || self.game.is_none() {
             return;
         }
-        let missing = mg_module::verify::missing(&ws.module, &game.resman);
-        for m in &missing {
-            let what = if m.uncompiled { "is not compiled" } else { "is missing" };
-            let text = format!(
-                "{:?}: {}{} → {} {} {what}",
-                m.category,
-                m.reference.from,
-                m.reference.path,
-                m.reference.kind.name(),
-                m.reference.target
-            );
-            if m.is_error() { self.log.error(text) } else { self.log.warn(text) }
-        }
-        // The custom content: tilesets, 2DAs, materials, objects naming rows
-        // that don't exist.
-        let tlk = mg_module::doctor::TalkTables {
-            base: game.tlk().entries.len(),
-            custom: game.custom_tlk().map(|t| t.entries.len()),
-        };
-        let findings = mg_module::doctor::examine(&ws.module, &game.resman, tlk);
-        for f in &findings {
-            let at = if f.at.is_empty() { String::new() } else { format!(" › {}", f.at) };
-            let text = format!("{} › {}{at}: {}", f.source, f.resource, f.message);
-            match f.severity {
-                mg_module::doctor::Severity::Error => self.log.error(text),
-                mg_module::doctor::Severity::Warning => self.log.warn(text),
-            }
-        }
-        let errors = missing.iter().filter(|m| m.is_error()).count()
-            + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
-        let warnings = missing.len() + findings.len() - errors;
-        self.log.info(format!(
-            "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s))",
-            missing.len(),
-            findings.len()
-        ));
+        // The enabled plugins' checks run with the doctor's.
+        let plugins: Vec<mg_plugin::Plugin> = self
+            .enabled_plugins()
+            .into_iter()
+            .filter(|p| !p.manifest.checks.is_empty())
+            .cloned()
+            .collect();
+        self.start_job(
+            "Verify Module",
+            move |job| {
+                let game = job.game.as_deref()?;
+                job.progress.say("Looking for what is missing");
+                let missing = mg_module::verify::missing(&job.module, &game.resman);
+                if job.progress.cancelled() {
+                    return None;
+                }
+                // The custom content: tilesets, 2DAs, materials, objects
+                // naming rows that don't exist.
+                job.progress.say("Checking the custom content");
+                let tlk = mg_module::doctor::TalkTables {
+                    base: game.tlk().entries.len(),
+                    custom: game.custom_tlk().map(|t| t.entries.len()),
+                };
+                let mut findings = mg_module::doctor::examine(&job.module, &game.resman, tlk);
+                let (found, said) = plugins::check_findings(&plugins, job);
+                findings.extend(found);
+                Some((missing, findings, said))
+            },
+            |app, made| {
+                let Some((missing, findings, said)) = made else { return };
+                app.log.entries.extend(said);
+                for m in &missing {
+                    let what = if m.uncompiled { "is not compiled" } else { "is missing" };
+                    let text = format!(
+                        "{:?}: {}{} → {} {} {what}",
+                        m.category,
+                        m.reference.from,
+                        m.reference.path,
+                        m.reference.kind.name(),
+                        m.reference.target
+                    );
+                    if m.is_error() { app.log.error(text) } else { app.log.warn(text) }
+                }
+                for f in &findings {
+                    let at = if f.at.is_empty() { String::new() } else { format!(" › {}", f.at) };
+                    let text = format!("{} › {}{at}: {}", f.source, f.resource, f.message);
+                    match f.severity {
+                        mg_module::doctor::Severity::Error => app.log.error(text),
+                        mg_module::doctor::Severity::Warning => app.log.warn(text),
+                    }
+                }
+                let errors = missing.iter().filter(|m| m.is_error()).count()
+                    + findings
+                        .iter()
+                        .filter(|f| f.severity == mg_module::doctor::Severity::Error)
+                        .count();
+                let warnings = missing.len() + findings.len() - errors;
+                app.log.info(format!(
+                    "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s))",
+                    missing.len(),
+                    findings.len()
+                ));
+            },
+        );
     }
 
     /// Uses new game and user folders: closes the module and reloads the
@@ -2381,17 +1985,23 @@ impl Moonglow {
 
     /// A resman view for things that need one without a game install (tests).
     pub fn resman(&self) -> Option<&ResMan> {
-        self.game.as_ref().map(|g| &g.resman)
+        self.game.as_deref().map(|g| &g.resman)
     }
 }
 
 /// Loads the game data of an install, logging the outcome.
-fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<GameData> {
+/// The game data to change (its layers, its talk table): only while no job
+/// is reading it, which is whenever the window takes input.
+pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
+    game.as_mut().and_then(Arc::get_mut)
+}
+
+fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameData>> {
     match install {
         Some(gi) => match GameData::open(gi) {
             Ok(g) => {
                 log.info(format!("Game data loaded from {}", gi.root.display()));
-                Some(g)
+                Some(Arc::new(g))
             }
             Err(e) => {
                 log.error(format!("Could not load the game data from {}: {e}", gi.root.display()));

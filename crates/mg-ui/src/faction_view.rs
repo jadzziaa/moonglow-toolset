@@ -4,7 +4,7 @@
 
 use egui::{Color32, Ui};
 use mg_core::{ResRef, ResType};
-use mg_edit::{Command, Edit};
+use mg_edit::Command;
 use mg_module::factions::{Factions, STANDARD, faction_users, renumber_faction_users};
 use mg_resman::ResKey;
 
@@ -82,13 +82,9 @@ impl Moonglow {
         if let Some(map) = renumber {
             renumber_faction_users(&mut staged, map);
         }
-        let edits: Vec<Edit> = staged
-            .keys()
-            .filter(|k| staged.get(k) != ws.module.get(k))
-            .map(|k| Edit::SetResource { key: *k, data: staged.get(k).map(<[u8]>::to_vec) })
-            .collect();
+        let edits = ws.edits_to(&staged);
         if !edits.is_empty()
-            && let Err(e) = ws.apply(Command::new(what, edits))
+            && let Err(e) = self.apply(Command::new(what, edits))
         {
             self.log.error(e.to_string());
         }

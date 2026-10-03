@@ -416,11 +416,11 @@ fn reload_resources_picks_up_new_files_in_override() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
     let key = ResKey::parse("mg_reload_test", ResType::TWODA).unwrap();
-    assert!(!app.game.as_ref().unwrap().resman.contains(&key));
+    assert!(!app.game.as_deref().unwrap().resman.contains(&key));
     std::fs::write(user.join("override/mg_reload_test.2da"), "2DA V2.0\n\n   Label\n0  x\n")
         .unwrap();
     app.run(mg_ui::Action::ReloadResources);
-    assert!(app.game.as_ref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
+    assert!(app.game.as_deref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
     assert!(app.log.entries.iter().any(|(_, m)| m == "Reloaded override"), "{:?}", app.log.entries);
     app.run(mg_ui::Action::ReloadResources);
     assert!(app.log.entries.iter().any(|(_, m)| m == "Reload Resources: nothing changed"));
@@ -718,7 +718,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
         h.state().ws.as_ref().unwrap().module.custom_tlk().unwrap().unwrap_or_default()
     };
     assert_eq!(named(&mut h), "mg_talk");
-    assert!(h.state().game.as_ref().unwrap().custom_tlk().is_some());
+    assert!(h.state().game.as_deref().unwrap().custom_tlk().is_some());
 
     // A line, typed: one undo takes the typing back.
     h.get_by_label("Add Line").click();
@@ -740,7 +740,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
     assert!(!h.state().talk.as_ref().unwrap().is_dirty());
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Greetings"));
     let f = mg_tlk::Tlk::read(&std::fs::read(user.join("tlk/mg_talkf.tlk")).unwrap()).unwrap();
     assert_eq!(f.text(mg_core::StrRef(0)).as_deref(), Some("Greetings, lady"));
@@ -814,7 +814,7 @@ fn two_da_view_shows_where_rows_come_from() {
     h.get_by_label("mus_mine");
     // The Description column shows the talk table's text.
     let description = t.get(0, "Description").and_then(|s| s.parse::<u32>().ok()).unwrap();
-    let text = h.state().game.as_ref().unwrap().string(mg_core::StrRef(description)).unwrap();
+    let text = h.state().game.as_deref().unwrap().string(mg_core::StrRef(description)).unwrap();
     assert!(h.query_by_label(&text).is_some(), "{text}");
     // Only override's rows.
     h.state_mut().browser.rows_from = Some(0);
@@ -885,9 +885,9 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     assert!(user.join("tlk/mg_ui.tlk").is_file());
     let key = ResKey::parse("mg_ui_test", ResType::TWODA).unwrap();
-    let has = |h: &Harness<'_, Moonglow>| h.state().game.as_ref().unwrap().resman.contains(&key);
+    let has = |h: &Harness<'_, Moonglow>| h.state().game.as_deref().unwrap().resman.contains(&key);
     assert!(has(&h), "{:?}", log(&h));
-    assert!(h.state().game.as_ref().unwrap().custom_tlk().is_some());
+    assert!(h.state().game.as_deref().unwrap().custom_tlk().is_some());
     // Undone, the hak leaves the game data.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
@@ -912,7 +912,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     assert!(!has(&h), "{:?}", log(&h));
     let other = ResKey::parse("mg_ui_other", ResType::TWODA).unwrap();
-    assert!(h.state().game.as_ref().unwrap().resman.contains(&other));
+    assert!(h.state().game.as_deref().unwrap().resman.contains(&other));
 }
 
 #[test]
@@ -947,6 +947,73 @@ fn minimap_exported_and_object_walkmeshes_shown() {
 }
 
 #[test]
+fn the_command_palette_finds_a_command_and_runs_it() {
+    let dir = mg_testkit::scratch_dir("ui-command-palette");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+        h.run();
+        assert!(h.state().command_palette.is_some(), "Ctrl+Shift+P opens it");
+    };
+    let hint = "Type a command's name";
+
+    // Every command is there until something is typed; then those whose
+    // name or menu has every word.
+    open(&mut h);
+    h.get_by_label("Verify Module");
+    type_into_hint(&mut h, hint, "mod build");
+    assert!(h.query_by_label("Open Module…").is_none());
+    // (By name first; then the Build menu's other commands with "mod".)
+    h.get_by_label("Build Module…");
+    h.get_by_label("Verify Module");
+    // Enter runs the one chosen, and the palette closes.
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().build.is_some() && h.state().command_palette.is_none());
+    h.state_mut().build = None;
+    h.run();
+
+    // The arrows choose among several: the second of the two editors.
+    open(&mut h);
+    type_into_hint(&mut h, hint, "editor");
+    h.get_by_label("Faction Editor");
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Journal).is_some());
+    assert!(h.state().dock.find_tab(&Tab::Factions).is_none());
+
+    // A command that can't be chosen now is listed, and Enter leaves it.
+    open(&mut h);
+    type_into_hint(&mut h, hint, "redo");
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert!(h.state().command_palette.is_some(), "nothing to redo: nothing done");
+    // A click runs one; Escape closes without running anything.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.state().command_palette.is_none());
+    open(&mut h);
+    type_into_hint(&mut h, hint, "about");
+    h.get_by_label("About Moonglow Toolset").click();
+    h.run();
+    assert!(h.state().command_palette.is_none());
+    h.get_by_label_contains("GNU General Public License");
+    // While it is open, keys are its own: Ctrl+N starts no module.
+    open(&mut h);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::N);
+    h.run();
+    assert!(h.state().command_palette.is_some() && h.state().ws.is_some());
+}
+
+#[test]
 fn keys_remapped_in_options_and_used() {
     use mg_ui::keys::Cmd;
     let dir = mg_testkit::scratch_dir("ui-keys");
@@ -962,27 +1029,50 @@ fn keys_remapped_in_options_and_used() {
     h.run();
     h.get_by_label("Keyboard").click();
     h.run();
+    // Every command of the menus is listed, with or without keys; the list
+    // narrows to what is typed.
+    h.get_by_label("Build Module");
+    type_into_hint(&mut h, "Find a command", "manual");
+    h.run();
+    assert!(h.query_by_label("Build Module").is_none());
     // User Manual: F1 taken away, Ctrl+M added by pressing it.
     h.get_by_label("F1 ×").click();
     h.run();
-    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual);
+    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual.id().to_string());
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::M);
     h.run();
     // A key two commands share is named.
-    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual);
+    h.state_mut().options.as_mut().unwrap().recording = Some(Cmd::Manual.id().to_string());
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::S);
     h.run();
     assert!(h.query_by_label_contains("is the key of both Save and User Manual").is_some());
-    // Save's row comes first; the User Manual's Ctrl+S is taken away again.
-    h.get_all_by_label("Ctrl+S ×").last().unwrap().click();
+    // The User Manual's Ctrl+S is taken away again (the only row shown).
+    h.get_by_label("Ctrl+S ×").click();
+    h.run();
+    // A menu command that never had a key takes one.
+    h.state_mut().options.as_mut().unwrap().recording = Some("build-module".to_string());
+    h.run();
+    h.key_press(egui::Key::F8);
     h.run();
     h.get_by_label("OK").click();
     h.run();
     let chosen = &h.state().settings.key_bindings;
     assert_eq!(chosen.get("manual"), Some(&vec!["Ctrl+M".to_string()]), "{chosen:?}");
-    assert_eq!(chosen.len(), 1);
+    assert_eq!(chosen.get("build-module"), Some(&vec!["F8".to_string()]), "{chosen:?}");
+    assert_eq!(chosen.len(), 2);
+    // Its key opens its window, and its menu entry shows the key.
+    h.key_press(egui::Key::F8);
+    h.run();
+    assert!(h.state().build.is_some(), "F8 opens Build Module");
+    h.state_mut().build = None;
+    h.run();
+    h.get_by_label("Build").click();
+    h.run();
+    assert!(h.query_by_label_contains("F8").is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
 
     // F1 no longer opens the manual; Ctrl+M does.
     h.key_press(egui::Key::F1);
@@ -1708,7 +1798,7 @@ fn palette_edit_copy_and_delete() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     // The standard waypoints: the "Tavern" waypoint (nw_wp_tavern).
-    let tavern = app.game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
     app.palette.filter = "nw_wp_tavern".into();
@@ -1729,7 +1819,7 @@ fn palette_edit_copy_and_delete() {
     let name = mg_module::palette::blueprint_name(
         mg_module::palette::BlueprintKind::Waypoint,
         &gff.root,
-        h.state().game.as_ref().unwrap(),
+        h.state().game.as_deref().unwrap(),
     );
     // (The copy's editor, opened in a window, closed first.)
     close_windows(&mut h);
@@ -1756,7 +1846,7 @@ fn finding_in_a_palette_opens_its_categories() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
-    let tavern = app.game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -1777,7 +1867,7 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
     // Gate A (tag MG_SECRET_GATE) in Waypoints, Gate B in Custom 1.
     let keys: Vec<ResKey> = ["mg_gate_a", "mg_gate_b"]
@@ -1872,7 +1962,7 @@ fn blueprint_harness(
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named(name, t).unwrap().into_owned();
     let key = ResKey::parse(copy, t).unwrap();
     app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
@@ -2166,7 +2256,7 @@ fn door_editor_sets_appearance_lock_and_transition() {
     h.run();
     // A generic door: its Generic Appearance (and the old byte field).
     let generic = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let cols = mg_rules::ChoiceColumns { name: Some("Name"), label: Some("Label") };
         game.choices("genericdoors", cols).unwrap()
     };
@@ -2272,7 +2362,7 @@ fn visuals_page_sets_replacements_and_misc_visuals() {
     assert_eq!(field(&mut h, &key).child("TextureReplace").unwrap().id, 9, "the game's struct id");
     // The area view and model viewer draw it.
     let chest = field(&mut h, &key);
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let preview = mg_preview::replaced(mg_preview::placeable(game, &chest).unwrap(), &chest);
     assert_eq!(preview.base.textures.get("plc_chest1").map(String::as_str), Some("mg_gold"));
     // Removed: the field goes.
@@ -2318,7 +2408,7 @@ fn classes_page_sets_domains_and_associates() {
     // the game decides).
     assert_eq!(cleric(&mut h).integer("Domain1"), None);
     let animal = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let t = game.table("domains").unwrap();
         game.string(mg_core::StrRef(t.get_int(1, "Name").unwrap() as u32)).unwrap()
     };
@@ -2342,7 +2432,7 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     let cost_of = |h: &mut Harness<'_, Moonglow>| {
         let s = field(h, &key);
         let value = mg_rules::ItemValue::from_gff(&s);
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         (s.integer("Cost"), Some(i64::from(game.item_cost(&value))))
     };
     h.run();
@@ -2389,7 +2479,7 @@ fn creature_editor_levels_and_aligns() {
     let max_hp = |h: &mut Harness<'_, Moonglow>| {
         let s = field(h, &key);
         let sheet = mg_rules::CreatureSheet::from_gff(&s);
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         (s.integer("MaxHitPoints"), i64::from(game.creature_stats(&sheet).max_hit_points))
     };
     h.run();
@@ -2406,7 +2496,7 @@ fn creature_editor_levels_and_aligns() {
     assert_ne!(stored, before);
     // So is the challenge rating, recalculated as Aurora does on OK.
     let s = field(&mut h, &key);
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let item = |r: ResRef| {
         let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
         Gff::read(&data).ok().map(|g| g.root)
@@ -2934,7 +3024,7 @@ fn area_properties_edit_the_area() {
     h.run_steps(2);
     let game_row = 2; // environment.2da ExteriorDark
     let name = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let t = game.table("environment").unwrap();
         let strref = t.get(game_row, "STRREF").unwrap().trim().parse::<u32>().unwrap();
         game.string(mg_core::StrRef(strref)).unwrap()
@@ -3079,7 +3169,7 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     // A chest, a sound and an encounter, placed.
     {
         let app = h.state_mut();
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let read = |name: &str, t: ResType| {
             Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
         };
@@ -3203,7 +3293,7 @@ fn add_to_palette_create_waypoint_and_set() {
     let git_key = ResKey::new(area, ResType::GIT);
     {
         let app = h.state_mut();
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let read = |name: &str, t: ResType| {
             Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
         };
@@ -3357,7 +3447,7 @@ fn placed_chest_holds_whole_items() {
     let git_key = ResKey::new(area, ResType::GIT);
     {
         let app = h.state_mut();
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let data = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
         let mut chest = Gff::read(&data).unwrap().root;
         chest.set("HasInventory", mg_gff::Value::Byte(1));
@@ -3471,7 +3561,7 @@ fn area_viewer_paints_terrain() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("terrain") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let lattice = |h: &mut Harness<'_, Moonglow>| {
@@ -3816,7 +3906,7 @@ fn tiles_copy_and_paste() {
         assert_eq!(pasted.get(label), copied.get(label), "{label}");
     }
     // The tiles around fit it: the area's tiles make one lattice.
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let set = mg_area::tileset(game, ResRef::from_str("tic01").unwrap()).unwrap();
     let index = mg_tiles::TileIndex::new(&set);
     let ws = h.state_mut().ws.as_mut().unwrap();
@@ -3832,7 +3922,7 @@ fn update_instances_remakes_placed_sounds() {
     let Some((mut h, area)) = area_harness("update-instances") else { return };
     // A custom sound blueprint (a copy of hawkcry) placed twice, then its
     // volume changed.
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let data = game.resman.get(&ResKey::parse("hawkcry", ResType::UTS).unwrap()).unwrap();
     let mut bp = Gff::read(&data).unwrap();
     let key = ResKey::parse("mg_hawk", ResType::UTS).unwrap();
@@ -3903,7 +3993,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
     // Two trigger blueprints, each placed once with an outline.
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("trackstrigger", ResType::UTT).unwrap()).unwrap();
     let none = |_: ResRef| None;
     let placing = Placing { game, item: &none };
@@ -3944,7 +4034,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     // The blueprints' name in the palette, and their category's title.
     let (a, title) = {
         let app = h.state();
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let kind = mg_module::palette::BlueprintKind::Trigger;
         let gff = mg_module::palette::rebuild_custom_palette(
             &app.ws.as_ref().unwrap().module,
@@ -4017,7 +4107,7 @@ fn several_blueprints_are_edited_together() {
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
     let keys: Vec<ResKey> =
         ["mg_box_a", "mg_box_b"].iter().map(|n| ResKey::parse(n, ResType::UTP).unwrap()).collect();
@@ -4040,7 +4130,7 @@ fn several_blueprints_are_edited_together() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
     let name = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         mg_module::palette::blueprint_name(
             mg_module::palette::BlueprintKind::Placeable,
             &base.root,
@@ -4905,6 +4995,54 @@ fn a_script_named_as_the_game_s_own_is_warned_about() {
     assert!(!warned.iter().any(|m| m.contains("mg_mine")), "{warned:?}");
 }
 
+/// However a resource arrives, it goes in through the same gate: an import
+/// warns of what it shadows as an editor's change does (the first few, and
+/// how many more).
+#[test]
+fn an_import_warns_of_what_it_shadows() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-import-warning");
+    let path = sample_module(&dir);
+    let erf = dir.join("scripts.erf");
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs { open: vec![erf.clone()], ..Default::default() }),
+    );
+    app.open_module(&path);
+    // Twelve scripts named as the game's own, and one of the module's.
+    let mut names = app.game.as_deref().unwrap().resman.list(ResType::NSS);
+    names.sort();
+    names.truncate(12);
+    let mut w = mg_erf::ErfWriter::new(*b"ERF ");
+    for n in &names {
+        w.add(*n, ResType::NSS, b"void main() {}".to_vec()).unwrap();
+    }
+    w.add(ResRef::from_str("mg_mine").unwrap(), ResType::NSS, b"void main() {}".to_vec()).unwrap();
+    std::fs::write(&erf, w.to_bytes().unwrap()).unwrap();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::ImportDialog);
+    h.run();
+    h.get_by_label("Import").click();
+    h.run();
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(names.iter().all(|n| ws.module.contains(&ResKey::new(*n, ResType::NSS))));
+    let warned: Vec<&String> = h
+        .state()
+        .log
+        .entries
+        .iter()
+        .filter(|(l, _)| *l == mg_ui::Level::Warning)
+        .map(|(_, m)| m)
+        .collect();
+    let shadows = warned.iter().filter(|m| m.contains("replaces the game's own")).count();
+    assert_eq!(shadows, 8, "{warned:?}");
+    assert!(warned.iter().any(|m| m.contains("and 4 more like these")), "{warned:?}");
+    assert!(!warned.iter().any(|m| m.contains("mg_mine")), "{warned:?}");
+}
+
 /// A look at Options › Area's marks: a door's orientation arrow and an
 /// encounter's spawn point posts. Writes
 /// `target/test-output/ui-area-marks/marks.png`; run by hand.
@@ -4914,7 +5052,7 @@ fn area_marks_screen() {
     use mg_module::instances::{Placement, Placing, instance};
     let Some((mut h, area)) = area_harness("marks") else { return };
     let git = ResKey::new(area, ResType::GIT);
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let read = |r: &str, t: ResType| {
         Gff::read(&game.resman.get(&ResKey::parse(r, t).unwrap()).unwrap()).unwrap()
     };
@@ -5312,7 +5450,7 @@ fn the_area_view_plays_the_area_s_sounds() {
     h.state_mut().speaker = Box::new(speaker.clone());
     // The first rows of ambientsound.2da and ambientmusic.2da with a sound.
     let first = |table: &str| -> (i32, ResRef) {
-        let t = h.state().game.as_ref().unwrap().table(table).unwrap();
+        let t = h.state().game.as_deref().unwrap().table(table).unwrap();
         (0..t.len())
             .find_map(|r| {
                 let name = ResRef::from_str(t.get(r, "Resource")?).ok()?;
@@ -5392,12 +5530,12 @@ fn a_creature_s_sound_set_plays_a_sample() {
     assert!(played.is_some(), "{:?}", h.state().log.entries);
     // Female sound sets only: a male one is no longer offered.
     let name = |h: &Harness<'_, Moonglow>, row: usize| -> Option<String> {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let strref = game.table("soundset").unwrap().get_int(row, "STRREF")?;
         game.string(mg_core::StrRef(strref as u32))
     };
     let rows = |h: &Harness<'_, Moonglow>, gender: i32| -> Vec<String> {
-        let t = h.state().game.as_ref().unwrap().table("soundset").unwrap();
+        let t = h.state().game.as_deref().unwrap().table("soundset").unwrap();
         (0..t.len())
             .filter(|&r| t.get_int(r, "GENDER") == Some(gender))
             .filter_map(|r| name(h, r))
@@ -5740,7 +5878,7 @@ fn premium_campaigns_find_their_talk_tables_in_the_install() {
     app.open_module(&path);
     let loaded = app.log.entries.iter().any(|(_, e)| e == "Custom talk table tyrants loaded");
     assert!(loaded, "{:?}", app.log.entries);
-    assert!(app.game.as_ref().unwrap().custom_tlk().is_some());
+    assert!(app.game.as_deref().unwrap().custom_tlk().is_some());
 }
 
 #[test]
@@ -6092,7 +6230,7 @@ fn a_preview_follows_its_blueprint_s_editor() {
     app.set_render_state(rs.clone());
     app.open_module(&path);
     // A human of parts, in the module, its preview open beside its editor.
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap().into_owned();
     let key = ResKey::parse("live_look", ResType::UTC).unwrap();
     let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
@@ -6138,7 +6276,7 @@ fn blueprints_drag_from_the_module_tree_into_the_area() {
     // A waypoint blueprint of the module's own (the game's Tavern's copy).
     let key = ResKey::parse("mg_tree_wp", ResType::UTW).unwrap();
     let tavern = ResKey::parse("nw_wp_tavern", ResType::UTW).unwrap();
-    let data = h.state().game.as_ref().unwrap().resman.get(&tavern).unwrap().into_owned();
+    let data = h.state().game.as_deref().unwrap().resman.get(&tavern).unwrap().into_owned();
     h.state_mut().ws.as_mut().unwrap().module.set(key, data);
     h.run_steps(2);
     let count = |h: &mut Harness<'_, Moonglow>| {
@@ -6192,7 +6330,7 @@ fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
     let Some((mut h, area)) = area_harness("drag-ghost") else { return };
     let key = ResKey::parse("mg_ghost_chest", ResType::UTP).unwrap();
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
-    let data = h.state().game.as_ref().unwrap().resman.get(&chest).unwrap().into_owned();
+    let data = h.state().game.as_deref().unwrap().resman.get(&chest).unwrap().into_owned();
     h.state_mut().ws.as_mut().unwrap().module.set(key, data);
     h.run_steps(2);
     h.get_by_label_contains("Placeables (").click();
@@ -6242,7 +6380,7 @@ fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
 fn blueprints_drag_from_the_palette_into_the_area() {
     let Some((mut h, area)) = area_harness("drag-place") else { return };
     // The standard Tavern waypoint, in the palette beside the area.
-    let tavern = h.state().game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     h.state_mut().palette.tiles = false;
     h.state_mut().palette.filter = "nw_wp_tavern".into();
@@ -6305,7 +6443,7 @@ fn placed_objects_preview_as_placed() {
     // A human of parts, placed in the area.
     let git = ResKey::new(area, ResType::GIT);
     let entry = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let data = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap();
         let mut bp = Gff::read(&data).unwrap().root;
         bp.set("Appearance_Type", mg_gff::Value::Word(6));
@@ -6822,7 +6960,7 @@ fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
     );
     app.open_module(&path);
     app.open_palette = false;
-    let first = mg_module::new::tilesets(app.game.as_ref().unwrap())[0].name.clone();
+    let first = mg_module::new::tilesets(app.game.as_deref().unwrap())[0].name.clone();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 900.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -6863,7 +7001,7 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("terrain-drag") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let water = index.terrain("Water").unwrap();
@@ -6977,7 +7115,7 @@ fn the_eraser_erases_every_tile_it_is_dragged_across() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("eraser-drag") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let lattice = |h: &mut Harness<'_, Moonglow>| {
@@ -7034,7 +7172,7 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("crosser-right-click") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let lattice = |h: &mut Harness<'_, Moonglow>| {
@@ -7144,7 +7282,7 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("refine-tile") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let grid = |h: &mut Harness<'_, Moonglow>| {
@@ -7192,7 +7330,7 @@ fn a_terrain_drag_with_shift_fills_its_rectangle() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("terrain-fill") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let water = index.terrain("Water").unwrap();
@@ -7244,7 +7382,7 @@ fn a_crosser_drag_with_shift_follows_its_rectangle_s_outline() {
     use mg_tiles::{EAST, NORTH, SOUTH, TileIndex, WEST};
     let Some((mut h, area)) = area_harness("crosser-outline") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let road = index.crosser("Road").unwrap();
@@ -7350,7 +7488,7 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("tile-preview") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let grid = |h: &mut Harness<'_, Moonglow>| {
@@ -7465,7 +7603,7 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("drag-preview") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let grid = |h: &mut Harness<'_, Moonglow>| {
@@ -7569,6 +7707,405 @@ fn areas_are_listed_by_name_when_asked() {
     h.run();
     h.get_by_label("Apple Inn");
     assert!(h.query_by_label("A Quay").is_none());
+}
+
+/// The plugin host's fixture plugins, as an installed plugins folder.
+fn plugin_fixtures() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures")
+}
+
+/// The sample module with a guard whose tag is in lower case, and the
+/// fixture plugins installed (none enabled).
+fn plugin_harness(name: &str, game: bool) -> Option<(Harness<'static, Moonglow>, ResKey)> {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let mut app = if game {
+        let root = mg_testkit::nwn_root()?;
+        Moonglow::new(
+            Some(mg_resman::GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        )
+    } else {
+        app_with(Vec::new())
+    };
+    app.open_module(&path);
+    app.open_palette = false;
+    let key = ResKey::parse("guard", ResType::UTC).unwrap();
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"gate_guard".to_vec()));
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A guard",
+        vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+    )));
+    app.plugin_dir = Some(plugin_fixtures());
+    app.load_plugins();
+    let h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    Some((h, key))
+}
+
+fn tag_of(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> String {
+    String::from_utf8(field(h, key).string("Tag").unwrap().to_vec()).unwrap()
+}
+
+#[test]
+fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
+    let Some((mut h, key)) = plugin_harness("ui-plugins", false) else { return };
+    h.run();
+    // Installed, none enabled: the Plugins menu has only its manager.
+    assert_eq!(h.state().plugins.installed.len(), 4);
+    assert!(h.state().plugin_commands().is_empty());
+    h.get_by_label("Plugins").click();
+    h.run();
+    assert!(h.query_by_label("Fix Creature Tags").is_none());
+    h.get_by_label("Manage Plugins…").click();
+    h.run();
+    // The window says what each adds; enabling one is a tick.
+    h.get_by_label_contains("cannot reach your files");
+    h.get_by_label_contains("Plugins are experimental: the plugin API (0.1)");
+    h.get_by_label("Command: Fix Creature Tags");
+    h.get_by_label("Check: Creature tags are upper case");
+    // (The last of the four installed: below the list's fold.)
+    h.get_by_label("Tag conventions 1.0.0").scroll_to_me();
+    h.run();
+    h.get_by_label("Tag conventions 1.0.0").click();
+    h.run();
+    assert_eq!(h.state().settings.plugins_enabled, ["example.tag-conventions"]);
+    h.state_mut().plugins.window = false;
+    h.run();
+
+    // Its commands are in the Plugins menu; one runs as one undoable step.
+    h.get_by_label("Plugins").click();
+    h.run();
+    h.get_by_label("Promote the Guards");
+    h.get_by_label("Fix Creature Tags").click();
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD");
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(log.contains(&"Tag conventions: 1 creature tags changed".to_string()), "{log:#?}");
+    assert!(
+        log.iter().any(|m| m.contains("Fix Creature Tags changed 1 resource (Edit › Undo")),
+        "{log:#?}"
+    );
+    assert_eq!(
+        h.state().ws.as_ref().unwrap().can_undo(),
+        Some("Upper-case creature tags"),
+        "named by the plugin"
+    );
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "gate_guard");
+    // Run again with nothing to do: it says so, and adds no step.
+    h.state_mut().run_plugin_command("example.tag-conventions", "fix-tags");
+    h.run();
+    h.state_mut().run_plugin_command("example.tag-conventions", "fix-tags");
+    h.run();
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("changed nothing")));
+
+    // The Command Palette finds it, under its plugin's name.
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run();
+    type_into_hint(&mut h, "Type a command's name", "tag conv");
+    h.get_by_label("Promote the Guards");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    // And it takes a key like any command: listed with the plugins'.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Keyboard").click();
+    h.run();
+    type_into_hint(&mut h, "Find a command", "plugins");
+    h.get_by_label("Tag conventions: Fix Creature Tags");
+    h.state_mut().options.as_mut().unwrap().recording =
+        Some("example.tag-conventions/fix-tags".to_string());
+    h.run();
+    h.key_press(egui::Key::F6);
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "gate_guard");
+    h.key_press(egui::Key::F6);
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD", "F6 runs the plugin's command");
+
+    // Disabled again: its commands are gone.
+    h.state_mut().enable_plugin("example.tag-conventions", false);
+    h.run();
+    assert!(h.state().plugin_commands().is_empty());
+    // A plugin whose code fails changes nothing and says why.
+    h.state_mut().enable_plugin("test.hostile", true);
+    h.state_mut().run_plugin_command("test.hostile", "fails");
+    h.run();
+    assert!(
+        h.state()
+            .log
+            .entries
+            .iter()
+            .any(|(l, m)| { *l == mg_ui::Level::Error && m.contains("something went wrong") })
+    );
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD");
+}
+
+/// A plugin's questions show in its job's window, one after another, and
+/// its work goes on with the answers.
+#[test]
+fn a_plugin_asks_in_its_job_s_window() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-forms", false) else { return };
+    h.state_mut().enable_plugin("test.forms", true);
+    h.state_mut().background_jobs = true;
+    h.run();
+    h.state_mut().run_plugin_command("test.forms", "rename");
+    // Frames until something with this label shows (the job's thread asks).
+    let wait_for = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        let started = std::time::Instant::now();
+        while h.query_by_label(label).is_none() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "no {label:?}");
+        }
+        // (The window settles where it stands before it is clicked.)
+        h.run_steps(3);
+    };
+    // The form, as the plugin described it, with its defaults.
+    wait_for(&mut h, "Prefix Tags");
+    h.get_by_label("Forms: Prefix Tags");
+    h.get_by_label("At most");
+    assert!(h.get_all_by_value("NPC_").next().is_some(), "the prefix's default");
+    h.get_by_label("OK").click();
+    // Then its question, then its message.
+    wait_for(&mut h, "Prefix up to 10 creatures?");
+    h.get_by_label("Yes").click();
+    wait_for(&mut h, "Done.");
+    h.get_by_label("OK").click();
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "the job never ended");
+    }
+    h.run_steps(2);
+    assert_eq!(tag_of(&mut h, &key), "NPC_GATE_GUARD");
+
+    // Canceled at the form: nothing changes.
+    h.state_mut().run_plugin_command("test.forms", "rename");
+    wait_for(&mut h, "Prefix Tags");
+    h.get_by_label("Cancel").click();
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "the job never ended");
+    }
+    h.run_steps(2);
+    assert_eq!(tag_of(&mut h, &key), "NPC_GATE_GUARD");
+}
+
+#[test]
+fn the_plugin_console_runs_what_is_typed() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-console", false) else { return };
+    h.run();
+    h.state_mut().plugins.window = true;
+    h.state_mut().plugins.console =
+        "ctx.edit:set(\"guard.utc\", \"Tag\", \"TYPED\")\nreturn ctx.module:gff(\"guard.utc\").Tag"
+            .into();
+    h.run();
+    h.get_by_label("Console").click();
+    h.run();
+    h.get_by_label("Run").click();
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "TYPED");
+    h.get_by_label("\"TYPED\"");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Plugin console"));
+    // A fault shows under the console, and changes nothing.
+    h.state_mut().plugins.console = "return nothing.here".into();
+    h.run();
+    h.get_by_label("Run").click();
+    h.run();
+    // (Under the console, and in the log.)
+    assert_eq!(h.get_all_by_label_contains("attempt to index nil").count(), 2);
+    assert_eq!(tag_of(&mut h, &key), "TYPED");
+}
+
+/// A plugin's checks run with Verify Module (which needs the game).
+#[test]
+fn a_plugin_s_checks_run_with_verify() {
+    let Some((mut h, _)) = plugin_harness("ui-plugin-verify", true) else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    h.state_mut().enable_plugin("example.tag-conventions", true);
+    h.state_mut().enable_plugin("test.hostile", true);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Warning
+            && m.contains("guard.utc › Tag: tag \"gate_guard\" is not upper case")),
+        "{log:#?}"
+    );
+    // A check that breaks the rules is an error of its own, not a crash.
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Error && m.contains("a check only reads")),
+        "{log:#?}"
+    );
+}
+
+/// Plugins › Install Plugin from File…: a plugin's archive goes into the
+/// plugins folder, off; installing it again asks before it replaces; what
+/// is no plugin's archive changes nothing.
+#[test]
+fn a_plugin_installs_from_a_file_and_is_off() {
+    let dir = mg_testkit::scratch_dir("ui-plugin-install");
+    let plugins = dir.join("plugins");
+    // The fixture plugin's folder, to pack as it is and as a later version.
+    let work = dir.join("work/tag-conventions");
+    std::fs::create_dir_all(&work).unwrap();
+    for file in ["plugin.cfg", "main.luau", "rules.luau"] {
+        std::fs::copy(plugin_fixtures().join("tag-conventions").join(file), work.join(file))
+            .unwrap();
+    }
+    let pack = |to: &str| {
+        let plugin = mg_plugin::Plugin::load(&work).unwrap();
+        let path = dir.join(to);
+        std::fs::write(&path, mg_plugin::pack(&plugin).unwrap()).unwrap();
+        path
+    };
+    let first = pack("tag-conventions-1.0.0.zip");
+    let manifest = std::fs::read_to_string(work.join("plugin.cfg")).unwrap();
+    std::fs::write(work.join("plugin.cfg"), manifest.replace("1.0.0", "1.1.0")).unwrap();
+    let second = pack("tag-conventions-1.1.0.zip");
+    let junk = dir.join("junk.zip");
+    std::fs::write(&junk, "not an archive").unwrap();
+
+    let mut app = app_with(vec![first]);
+    app.plugin_dir = Some(plugins.clone());
+    // (Enabled once, and removed since: installing does not bring that back.)
+    app.settings.plugins_enabled = vec!["example.tag-conventions".to_string()];
+    app.load_plugins();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Plugins").click();
+    h.run();
+    h.get_by_label("Install Plugin from File…").click();
+    h.run();
+    // (In the window, and in the log.)
+    let said = |h: &Harness<'_, Moonglow>, text: &str| h.get_all_by_label(text).count() == 2;
+    assert!(said(
+        &h,
+        "Installed Tag conventions 1.0.0 from tag-conventions-1.0.0.zip: it is off until you \
+         enable it"
+    ));
+    assert_eq!(h.state().plugins.installed.len(), 1);
+    assert!(!h.state().plugin_enabled("example.tag-conventions"));
+    assert!(plugins.join("example.tag-conventions/main.luau").is_file());
+    h.get_by_label("Tag conventions 1.0.0").click();
+    h.run();
+    assert!(h.state().plugin_enabled("example.tag-conventions"));
+
+    // Again, from the window: asked first, and Cancel leaves it.
+    let install = |h: &mut Harness<'_, Moonglow>, file: &std::path::Path| {
+        h.state_mut().dialogs =
+            Box::new(NoDialogs { open: vec![file.to_path_buf()], ..Default::default() });
+        h.get_by_label("Install from File…").click();
+        h.run();
+        h.run();
+    };
+    install(&mut h, &second);
+    h.get_by_label("Replace Tag conventions?");
+    h.get_by_label(
+        "Tag conventions 1.0.0 is installed. Replace it with 1.1.0 from \
+         tag-conventions-1.1.0.zip?",
+    );
+    h.get_by_label_contains("It is enabled, and stays enabled.");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state().plugins.replace.is_none());
+    h.get_by_label("Tag conventions 1.0.0");
+    install(&mut h, &second);
+    h.get_by_label("Replace").click();
+    h.run();
+    h.get_by_label("Tag conventions 1.1.0");
+    assert!(said(
+        &h,
+        "Installed Tag conventions 1.1.0 from tag-conventions-1.1.0.zip: it stays enabled"
+    ));
+    assert!(h.state().plugin_enabled("example.tag-conventions"));
+
+    // What is no plugin's archive says why, and changes nothing.
+    install(&mut h, &junk);
+    assert!(said(&h, "junk.zip was not installed: it is not a zip archive"));
+    assert!(h.state().log.entries.iter().any(|(l, m)| *l == mg_ui::Level::Error
+        && m == "junk.zip was not installed: it is not a zip archive"));
+    assert_eq!(h.state().plugins.installed.len(), 1);
+    h.get_by_label("Tag conventions 1.1.0");
+
+    // Remove: what Install from File put there, after a question. A
+    // plugin copied in by hand has no Remove: Moonglow deletes only what
+    // it installed.
+    let by_hand = plugins.join("by-hand");
+    std::fs::create_dir_all(&by_hand).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(plugin_fixtures().join("forms").join(file), by_hand.join(file)).unwrap();
+    }
+    h.get_by_label("Reload").click();
+    h.run();
+    let disabled: Vec<bool> =
+        h.get_all_by_label("Remove…").map(|n| n.accesskit_node().is_disabled()).collect();
+    assert_eq!(disabled, [true, false], "by-hand, then the one installed");
+    let remove = |h: &mut Harness<'_, Moonglow>| {
+        let button =
+            h.get_all_by_label("Remove…").find(|n| !n.accesskit_node().is_disabled()).unwrap();
+        button.scroll_to_me();
+        h.run();
+        h.get_all_by_label("Remove…").find(|n| !n.accesskit_node().is_disabled()).unwrap().click();
+        h.run();
+        h.run();
+    };
+    remove(&mut h);
+    h.get_by_label("Remove Tag conventions 1.1.0?");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(plugins.join("example.tag-conventions").is_dir());
+    remove(&mut h);
+    h.get_by_label("Remove").click();
+    h.run();
+    assert!(!plugins.join("example.tag-conventions").exists());
+    assert!(said(&h, "Removed Tag conventions 1.1.0"));
+    assert!(!h.state().plugin_enabled("example.tag-conventions"));
+    assert_eq!(h.state().plugins.installed.len(), 1);
+    assert!(by_hand.join("main.luau").is_file());
+}
+
+/// Started with `--no-plugins`: none is loaded, whatever is installed and
+/// was enabled, and Manage Plugins says so.
+#[test]
+fn started_without_plugins_none_is_loaded() {
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(plugin_fixtures());
+    app.settings.plugins_enabled = vec!["example.tag-conventions".to_string()];
+    app.no_plugins = true;
+    app.load_plugins();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(h.state().plugins.installed.is_empty());
+    assert!(h.state().plugin_commands().is_empty());
+    h.get_by_label("Plugins").click();
+    h.run();
+    assert!(h.query_by_label("Fix Creature Tags").is_none());
+    h.get_by_label("Manage Plugins…").click();
+    h.run();
+    h.get_by_label("Started with --no-plugins: none are loaded.");
+    assert!(h.query_by_label_contains("No plugins are installed").is_none());
+    // (What was enabled stays enabled for the next start.)
+    assert_eq!(h.state().settings.plugins_enabled, ["example.tag-conventions"]);
 }
 
 /// Edit › Edit Areas Together…: areas ticked in the chooser (narrowed by

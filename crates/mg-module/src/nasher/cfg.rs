@@ -13,6 +13,38 @@ fn bad(file: &Path, message: impl Into<String>) -> ModuleError {
     ModuleError::Source { name: file.display().to_string(), message: message.into() }
 }
 
+/// The sections of a file in `nasher.cfg`'s format, in order: each one's
+/// name, the line it starts on, and its `key = value` pairs (a key may
+/// repeat). For other files written the same way (a plugin's manifest).
+pub fn sections(text: &str) -> Result<Vec<Section>, String> {
+    let mut out: Vec<Section> = Vec::new();
+    for (line, event) in parse_events(text)? {
+        match event {
+            Event::Section(name) => out.push(Section { name, line, pairs: Vec::new() }),
+            Event::Pair(key, value) => match out.last_mut() {
+                Some(section) => section.pairs.push((key, value)),
+                None => return Err(format!("line {line}: {key} is in no [section]")),
+            },
+        }
+    }
+    Ok(out)
+}
+
+/// A section of a file in `nasher.cfg`'s format ([`sections`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Section {
+    pub name: String,
+    pub line: usize,
+    pub pairs: Vec<(String, String)>,
+}
+
+impl Section {
+    /// The first value of a key.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+    }
+}
+
 /// One parsecfg event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Event {

@@ -73,7 +73,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
         let names: Vec<String> = std::iter::once(&area)
             .chain(others)
             .map(|a| match &app.ws {
-                Some(ws) => app.area_names.label(ws, app.game.as_ref(), *a, by_name),
+                Some(ws) => app.area_names.label(ws, app.game.as_deref(), *a, by_name),
                 None => a.to_string(),
             })
             .collect();
@@ -245,7 +245,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
 /// Applies an environment.2da scheme: the area's lighting and weather, and
 /// each tile's lights picked anew from the scheme's colours (one command).
 fn apply_scheme(f: &mut Form<'_>, row: usize) {
-    let Some(game) = f.app.game.as_ref() else { return };
+    let Some(game) = f.app.game.as_deref() else { return };
     let scheme = match mg_module::new::Scheme::read(game, row) {
         Ok(s) => s,
         Err(e) => {
@@ -508,7 +508,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut areas: Vec<(ResRef, crate::tree::AreaInfo)> = ws
         .module
         .keys_of(ResType::ARE)
-        .map(|k| (k.resref, app.area_names.info(ws, app.game.as_ref(), k.resref)))
+        .map(|k| (k.resref, app.area_names.info(ws, app.game.as_deref(), k.resref)))
         .collect();
     // In the module tree's order: by name when it lists names.
     let by_name = app.settings.area_names;

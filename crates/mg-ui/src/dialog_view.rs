@@ -416,7 +416,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     if ui
                         .selectable_label(
                             false,
-                            format!("{kind:?} {index}: {}", line_text(app.game.as_ref(), n)),
+                            format!("{kind:?} {index}: {}", line_text(app.game.as_deref(), n)),
                         )
                         .clicked()
                         && let Some((parent, pos)) = mg_module::dialog::owner(&g, kind, index)
@@ -556,7 +556,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let mut path = HashSet::new();
             tree(
                 ui,
-                app.game.as_ref(),
+                app.game.as_deref(),
                 &g,
                 Parent::Root,
                 1,
@@ -886,7 +886,7 @@ fn text_panel(
     // Text from the talk table shows under the field; text typed in the
     // field is the line's own, said instead.
     let from_tlk = (english.is_empty() && !ls.strref.is_none())
-        .then(|| app.game.as_ref().and_then(|g| g.string(ls.strref)))
+        .then(|| app.game.as_deref().and_then(|g| g.string(ls.strref)))
         .flatten();
     if let Some(v) = commit_text(app, ui, id, &english, true, f32::INFINITY) {
         actions.push(set(
@@ -1339,7 +1339,7 @@ fn search_pane(
             let Some(d) = doc else { continue };
             for kind in [Kind::Entry, Kind::Reply] {
                 for (i, n) in mg_module::dialog::nodes(&d, kind).iter().enumerate() {
-                    let t = line_text(app.game.as_ref(), n);
+                    let t = line_text(app.game.as_deref(), n);
                     if matches(&t, &s.find, s) {
                         results.push((k, kind, i as u32, t));
                     }
@@ -1400,7 +1400,7 @@ impl Moonglow {
     /// Reads a Twine or Ink story as a new conversation of the module,
     /// named after the file (made unique), and opens it; its name.
     pub fn import_conversation(&mut self, path: &std::path::Path) -> Option<ResKey> {
-        use mg_module::dialog_io::{Format, from_ink, from_twee};
+        use mg_module::dialog_io::Format;
         let source = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) => {
@@ -1408,11 +1408,9 @@ impl Moonglow {
                 return None;
             }
         };
-        let read = match Format::of(path) {
-            Some(Format::Twine) => from_twee(&source),
-            Some(Format::Ink) => from_ink(&source),
-            _ => Err("not a Twine (.twee) or Ink (.ink) story".to_string()),
-        };
+        let read = Format::of(path)
+            .and_then(|f| f.read(&source))
+            .unwrap_or_else(|| Err("not a Twine (.twee) or Ink (.ink) story".to_string()));
         let g = match read {
             Ok(g) => g,
             Err(e) => {
@@ -1500,7 +1498,7 @@ pub(crate) fn test_window(app: &mut Moonglow, ui: &mut Ui) {
     for key in open {
         let Some(g) = app.ws.as_mut().and_then(|w| w.doc(&key).ok().cloned()) else { continue };
         let view = app.dialog_views.get_mut(&key).expect("listed");
-        let game = app.game.as_ref();
+        let game = app.game.as_deref();
         let mut path = view.test.clone().unwrap_or_default();
         let mut assume = view.assume.clone();
         let mut close = false;

@@ -308,7 +308,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let tlk_text = |app: &Moonglow, s: &str| -> Option<String> {
         let n: u32 = s.trim().parse().ok()?;
-        app.game.as_ref()?.string(StrRef(n))
+        app.game.as_deref()?.string(StrRef(n))
     };
 
     if let Some(edit) = app.loc_edit.clone() {

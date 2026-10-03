@@ -26,7 +26,11 @@ and neverwinter.nim's tools and nasher as oracles (`NWN_TOOLS_BIN`, default
 Cargo workspace, layered bottom-up (a crate depends only on crates listed
 before it in `docs/PLAN.md` §4): `crates/mg-core` (ResRef, ResType, languages,
 LocString, binary helpers), `mg-gff`, `mg-erf`, `mg-key`, `mg-2da`, `mg-tlk`,
-... `mg-edit` (undoable workspace), `mg-render` (wgpu renderer), `mg-preview`
+... `mg-edit` (undoable workspace), `mg-plugin` (the plugin host: manifests
+and the sandboxed Luau runtime; the API is documented in
+`docs/manual/16-writing-plugins.md` and `17-plugin-api.md`, and
+`crates/mg-plugin/tests/examples.rs` holds those and the examples in
+`docs/plugins/` to the code), `mg-render` (wgpu renderer), `mg-preview`
 (blueprint previews: what a creature, item, placeable or door looks like),
 `mg-ui` (egui app; UI tests with
 `egui_kittest` in `crates/mg-ui/tests`; to look at a window's layout,

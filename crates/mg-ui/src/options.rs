@@ -71,7 +71,11 @@ pub struct OptionsDraft {
     pub music_volume: u8,
     pub keymap: crate::keys::Keymap,
     /// The command whose next key press is being taken as a new key.
-    pub recording: Option<crate::keys::Cmd>,
+    /// The enabled plugins' commands, listed after the window's: the id
+    /// each one's keys are kept under, and its name.
+    pub plugin_commands: Vec<(String, String)>,
+    /// The command (by the id its keys are kept under) taking the next key.
+    pub recording: Option<String>,
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -88,6 +92,7 @@ impl OptionsDraft {
         OptionsDraft {
             page: OptionsPage::default(),
             keymap: crate::keys::Keymap::new(&s.key_bindings),
+            plugin_commands: Vec::new(),
             recording: None,
             game_root: text(&s.game_root),
             user_dir: text(&s.user_dir),
@@ -218,7 +223,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         if ui.button("OK").clicked() || crate::widgets::enter(ui) {
                             close = true;
                             if draft.moves_game(&app.settings) {
-                                app.actions.push(Action::ApplyOptions(draft.clone()));
+                                app.actions.push(Action::ApplyOptions(Box::new(draft.clone())));
                             } else {
                                 // Only looks: no reload.
                                 app.settings = draft.apply(&app.settings);
@@ -624,10 +629,10 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
 /// Options › Keyboard: each command's keys, to add to (the next key
 /// pressed), take away or reset; keys two commands share are named.
 fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
-    use crate::keys::{Cmd, shown};
+    use crate::keys::{Cmd, Group, shown};
     let mac = ui.ctx().os() == egui::os::OperatingSystem::Mac;
     // Taking a key: the next press with a key that isn't only a modifier.
-    if let Some(cmd) = draft.recording {
+    if let Some(id) = draft.recording.clone() {
         let taken = ui.input_mut(|i| {
             let mut got = None;
             i.events.retain(|e| match e {
@@ -642,7 +647,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
         if let Some(k) = taken {
             draft.recording = None;
             if k.logical_key != egui::Key::Escape {
-                let mut keys = draft.keymap.keys(cmd);
+                let mut keys = draft.keymap.keys_of(&id);
                 let k = egui::KeyboardShortcut::new(
                     egui::Modifiers {
                         command: k.modifiers.command || k.modifiers.ctrl || k.modifiers.mac_cmd,
@@ -655,7 +660,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
                 if !keys.contains(&k) {
                     keys.push(k);
                 }
-                draft.keymap.set(cmd, keys);
+                draft.keymap.set_of(&id, keys);
             }
         }
     }
@@ -664,21 +669,48 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
     for (k, a, b) in &conflicts {
         ui.colored_label(
             ui.visuals().warn_fg_color,
-            format!("{} is the key of both {} and {}", shown(k, mac), a.name(), b.name()),
+            format!(
+                "{} is the key of both {} and {}",
+                shown(k, mac),
+                crate::commands::name_of(a),
+                crate::commands::name_of(b)
+            ),
         );
     }
-    egui::ScrollArea::vertical().max_height(380.0).show(ui, |ui| {
+    // The window's commands (every one of the menus'), then the keys of
+    // the area view and the editors.
+    let general =
+        crate::commands::Id::all().into_iter().map(|c| (Group::General, c.id(), c.name()));
+    let others = Cmd::ALL
+        .into_iter()
+        .filter(|c| c.group() != Group::General)
+        .map(|c| (c.group(), c.id().to_string(), c.name().to_string()));
+    let plugins =
+        draft.plugin_commands.iter().map(|(id, name)| (Group::Plugins, id.clone(), name.clone()));
+    let mut rows: Vec<(Group, String, String)> = general.chain(plugins).chain(others).collect();
+    // The list is long: narrow it by a command's name, or its group's.
+    let filter_id = egui::Id::new("options-keys-filter");
+    let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+    ui.add(
+        egui::TextEdit::singleline(&mut filter).hint_text("Find a command").desired_width(240.0),
+    );
+    ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
+    let needle = filter.trim().to_lowercase();
+    rows.retain(|(group, _, name)| {
+        name.to_lowercase().contains(&needle) || group.name().to_lowercase().contains(&needle)
+    });
+    egui::ScrollArea::vertical().max_height(350.0).show(ui, |ui| {
         let mut group = None;
         egui::Grid::new("keys").num_columns(3).striped(true).show(ui, |ui| {
-            for cmd in Cmd::ALL {
-                if group != Some(cmd.group()) {
-                    group = Some(cmd.group());
-                    crate::widgets::table_heading(ui, cmd.group().name());
+            for (in_group, id, name) in &rows {
+                if group != Some(*in_group) {
+                    group = Some(*in_group);
+                    crate::widgets::table_heading(ui, in_group.name());
                     ui.end_row();
                 }
-                ui.label(cmd.name());
+                ui.label(name);
                 ui.horizontal(|ui| {
-                    let mut keys = draft.keymap.keys(cmd);
+                    let mut keys = draft.keymap.keys_of(id);
                     let mut remove = None;
                     for (i, k) in keys.iter().enumerate() {
                         if ui
@@ -691,24 +723,33 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
                     }
                     if let Some(i) = remove {
                         keys.remove(i);
-                        draft.keymap.set(cmd, keys);
+                        draft.keymap.set_of(id, keys);
                     }
-                    let recording = draft.recording == Some(cmd);
+                    let recording = draft.recording.as_ref() == Some(id);
                     let label = if recording { "press a key…" } else { "+" };
-                    if ui.small_button(label).on_hover_text("Add a key (Escape: none)").clicked() {
-                        draft.recording = if recording { None } else { Some(cmd) };
+                    let add = ui.small_button(label).on_hover_text("Add a key (Escape: none)");
+                    add.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::Button,
+                            true,
+                            format!("Add a key for {name}"),
+                        )
+                    });
+                    if add.clicked() {
+                        draft.recording = if recording { None } else { Some(id.clone()) };
                     }
                 });
-                let default = draft.keymap.keys(cmd) == cmd.defaults();
+                let own = draft.keymap.defaults_of(id);
+                let default = draft.keymap.keys_of(id) == own;
                 if ui.add_enabled(!default, egui::Button::new("Reset").small()).clicked() {
-                    draft.keymap.set(cmd, cmd.defaults());
+                    draft.keymap.set_of(id, own);
                 }
                 ui.end_row();
             }
         });
     });
     if ui.button("Reset All").clicked() {
-        draft.keymap = crate::keys::Keymap::default();
+        draft.keymap.reset_all();
     }
 }
 

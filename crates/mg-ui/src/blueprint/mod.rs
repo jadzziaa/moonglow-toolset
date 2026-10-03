@@ -128,7 +128,7 @@ impl Form<'_> {
         if !text.is_empty() || ls.strref.is_none() {
             return text;
         }
-        self.app.game.as_ref().and_then(|g| g.string(ls.strref)).unwrap_or_default()
+        self.app.game.as_deref().and_then(|g| g.string(ls.strref)).unwrap_or_default()
     }
 
     fn id(&self, name: &str) -> egui::Id {
@@ -445,7 +445,7 @@ impl Form<'_> {
     ) -> Option<u8> {
         let pal = {
             let app = &mut *self.app;
-            let game = game.or(app.game.as_ref());
+            let game = game.or(app.game.as_deref());
             game.and_then(|game| {
                 let mut l = crate::images::Loader {
                     pictures: &mut app.pictures,
@@ -655,7 +655,7 @@ impl Form<'_> {
             }
             let key = ResKey::new(current, edit);
             let in_module = self.app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
-            let in_game = self.app.game.as_ref().is_some_and(|g| g.resman.contains(&key));
+            let in_game = self.app.game.as_deref().is_some_and(|g| g.resman.contains(&key));
             if ui
                 .add_enabled(
                     !current.is_empty() && (in_module || in_game),
@@ -676,7 +676,7 @@ impl Form<'_> {
             ui.weak("(placed in an area)");
             return;
         }
-        let Some(game) = self.app.game.as_ref() else { return };
+        let Some(game) = self.app.game.as_deref() else { return };
         let categories = game
             .resman
             .get_named(&format!("{}pal", kind.name()), ResType::ITP)
@@ -808,9 +808,23 @@ pub(crate) fn changed_objects(
     out
 }
 
-pub(crate) fn after_apply(app: &mut Moonglow, cmd: &Command) {
-    item::refresh_costs(app, cmd);
-    creature::refresh_hit_points(app, cmd);
+/// The objects whose derived values a command leaves to bring up to date
+/// (worked out before it is applied, which takes the command).
+pub(crate) struct Derived {
+    items: Vec<(ResKey, GffPath)>,
+    creatures: Vec<(ResKey, GffPath)>,
+}
+
+pub(crate) fn derived_of(cmd: &Command) -> Derived {
+    Derived {
+        items: changed_objects(cmd, ResType::UTI, &["Cost"]),
+        creatures: changed_objects(cmd, ResType::UTC, &["MaxHitPoints", "ChallengeRating"]),
+    }
+}
+
+pub(crate) fn after_apply(app: &mut Moonglow, derived: Derived) {
+    item::refresh_costs(app, derived.items);
+    creature::refresh_hit_points(app, derived.creatures);
 }
 
 /// Renames a blueprint everywhere (its resource, its `TemplateResRef` or a

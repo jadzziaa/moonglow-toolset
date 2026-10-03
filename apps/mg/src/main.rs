@@ -5,7 +5,9 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+mod edits;
 mod lsp;
+mod plugins;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -70,7 +72,19 @@ enum Cmd {
         /// Also list module resources nothing references.
         #[arg(long)]
         unused: bool,
+        /// Run these plugins' checks too: a plugin's folder, or a folder
+        /// of plugins.
+        #[arg(long)]
+        plugins: Vec<PathBuf>,
     },
+    /// Plugins: list them, check them, run one's command on a module.
+    Plugin {
+        #[command(subcommand)]
+        cmd: PluginCmd,
+    },
+    /// List the checks `verify` makes of custom content: each one's id (a
+    /// finding's "check" with --json) and what it holds to be true.
+    Checks,
     /// Report the resources a module's haks provide, their conflicts and the
     /// base-game resources they override.
     Haks { module: PathBuf },
@@ -362,6 +376,97 @@ enum Cmd {
         #[arg(long)]
         overwrite: bool,
     },
+    /// Set fields of one of a module's resources and save: each
+    /// `FIELD=VALUE`, the field a path from the resource's root (`Tag`,
+    /// `/ClassList[0]/ClassLevel`). A field keeps its type; one the
+    /// resource lacks takes the game's for it, or the one given
+    /// (`FIELD:TYPE=VALUE`).
+    Set {
+        module: PathBuf,
+        /// `name.ext`, e.g. `guard.utc`.
+        resource: String,
+        /// `FIELD=VALUE`, or `FIELD:TYPE=VALUE`.
+        fields: Vec<String>,
+        /// Remove this field.
+        #[arg(long)]
+        remove: Vec<String>,
+        /// Check the change and print it; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Apply a file of edits (JSON: fields set and removed, list items
+    /// inserted and removed, resources written and removed) to a module and
+    /// save: all of them, or none if one does not apply. `-` reads standard
+    /// input.
+    Apply {
+        module: PathBuf,
+        edits: PathBuf,
+        /// Check that the edits apply; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+/// `mg plugin`'s commands.
+#[derive(Subcommand)]
+enum PluginCmd {
+    /// List plugins and what each adds: its commands and checks. A folder
+    /// is a plugin's own, or one that holds plugins' folders.
+    List { folders: Vec<PathBuf> },
+    /// Check plugins: the manifest reads, and the code registers what it
+    /// declares. Exits with an error if one does not. A file is a
+    /// plugin's archive: checked as the installer checks it, and its code
+    /// as it is in the archive.
+    Check { folders: Vec<PathBuf> },
+    /// Run a plugin's command on a module and save: its edits applied as
+    /// one command, all or none. The plugin runs sandboxed, as in the
+    /// window.
+    Run {
+        module: PathBuf,
+        /// The plugin's folder.
+        plugin: PathBuf,
+        /// The command's id (`mg plugin list` shows them).
+        command: String,
+        /// A form's field, `ID=VALUE` (the others take their defaults).
+        #[arg(long)]
+        answer: Vec<String>,
+        /// Answer yes where the plugin asks to confirm (else: no).
+        #[arg(long)]
+        yes: bool,
+        /// Print the edits it would make; change nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Pack a plugin's folder into an archive to hand around (a zip that
+    /// Install Plugin from File and `mg plugin install` take). Hidden
+    /// files are left out; the plugin is checked first.
+    Pack {
+        /// The plugin's folder.
+        plugin: PathBuf,
+        /// The archive to write (default: ID-VERSION.zip, here).
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Install a plugin from its archive into a folder of plugins, as
+    /// Install Plugin from File does: the archive is checked, and none of
+    /// the plugin runs.
+    Install {
+        /// The plugin's archive (a zip).
+        file: PathBuf,
+        /// The folder of plugins to install into.
+        folder: PathBuf,
+        /// Install over the same plugin installed from an archive before.
+        #[arg(long)]
+        replace: bool,
+    },
+    /// Remove a plugin that was installed from an archive from a folder of
+    /// plugins. One put there by hand is left alone: delete its folder.
+    Remove {
+        /// The plugin's id (`mg plugin list` shows it).
+        id: String,
+        /// The folder of plugins.
+        folder: PathBuf,
+    },
 }
 
 /// What a command produced: its result as JSON, and the same for people
@@ -554,6 +659,10 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
+        Cmd::Set { module, resource, fields, remove, dry_run } => {
+            edits::set(module, resource, fields, remove, *dry_run)?
+        }
+        Cmd::Apply { module, edits, dry_run } => edits::apply(module, edits, *dry_run)?,
         Cmd::Which { resource } => {
             let rm = ResMan::for_game(&install(cli)?)?;
             let key = resource_key(resource)?;
@@ -605,7 +714,37 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Verify { module, unused } => verify(&install(cli)?, module, *unused)?,
+        Cmd::Verify { module, unused, plugins } => {
+            verify(&install(cli)?, module, *unused, plugins)?
+        }
+        Cmd::Plugin { cmd } => match cmd {
+            PluginCmd::List { folders } => plugins::list(folders)?,
+            PluginCmd::Check { folders } => plugins::check(folders)?,
+            PluginCmd::Run { module, plugin, command, answer, yes, dry_run } => {
+                let host = plugins::CliHost::new(answer, *yes)?;
+                // (A plugin that reads no game data needs no game.)
+                let gi = install(cli).ok();
+                plugins::run(gi.as_ref(), module, plugin, command, host, *dry_run)?
+            }
+            PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,
+            PluginCmd::Install { file, folder, replace } => {
+                plugins::install(file, folder, *replace)?
+            }
+            PluginCmd::Remove { id, folder } => plugins::remove(id, folder)?,
+        },
+        Cmd::Checks => {
+            use mg_module::doctor::Check;
+            let mut out = Output::new(json!({
+                "checks": Check::ALL
+                    .iter()
+                    .map(|c| json!({ "id": c.id(), "about": c.about() }))
+                    .collect::<Vec<_>>(),
+            }));
+            for c in Check::ALL {
+                out.line(format!("{}\t{}", c.id(), c.about()));
+            }
+            out
+        }
         Cmd::Haks { module } => {
             let m = Module::open(module)?;
             let report = mg_module::haks::hak_report(&install(cli)?, &m.haks()?)?;
@@ -758,7 +897,7 @@ fn run(cli: &Cli) -> Result<Output> {
             )
         }
         Cmd::DialogImport { module, file, name } => {
-            use mg_module::dialog_io::{Format, from_ink, from_twee, update_from_csv};
+            use mg_module::dialog_io::Format;
             let mut m = Module::open(module)?;
             let stem = file.file_stem().map(|s| s.to_string_lossy().to_ascii_lowercase());
             let name = name.clone().or(stem).context("name the conversation with --name")?;
@@ -767,18 +906,25 @@ fn run(cli: &Cli) -> Result<Output> {
             let source = std::fs::read_to_string(file)?;
             let mut out = Output::default();
             let mut changed = None;
-            let g = match Format::of(file) {
-                Some(Format::Twine) => from_twee(&source).map_err(|e| anyhow::anyhow!("{e}"))?,
-                Some(Format::Ink) => from_ink(&source).map_err(|e| anyhow::anyhow!("{e}"))?,
-                Some(Format::Csv) => {
-                    let mut g =
-                        m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
-                    let n = update_from_csv(&mut g, &source).map_err(|e| anyhow::anyhow!("{e}"))?;
-                    out.note(format!("{n} lines changed"));
-                    changed = Some(n);
-                    g
-                }
-                _ => bail!("{}: not a .twee, .ink or .csv file", file.display()),
+            // A story is a conversation of its own; a text export goes
+            // back into the conversation it came from.
+            let format = Format::of(file);
+            let g = if let Some(read) = format.and_then(|f| f.read(&source)) {
+                read.map_err(|e| anyhow::anyhow!("{e}"))?
+            } else if let Some(format) =
+                format.filter(|f| f.reads() == mg_module::dialog_io::Reads::Text)
+            {
+                let mut g =
+                    m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
+                let n = format
+                    .update(&mut g, &source)
+                    .expect("it reads text")
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+                out.note(format!("{n} lines changed"));
+                changed = Some(n);
+                g
+            } else {
+                bail!("{}: not a .twee, .ink or .csv file", file.display())
             };
             m.set_gff(key, &g)?;
             m.save()?;
@@ -1409,7 +1555,7 @@ fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMa
     Ok(rm)
 }
 
-fn verify(gi: &GameInstall, path: &Path, show_unused: bool) -> Result<Output> {
+fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf]) -> Result<Output> {
     let m = Module::open(path)?;
     let mut out = Output::default();
     let rm = module_resman(gi, &m, &mut out)?;
@@ -1420,8 +1566,10 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool) -> Result<Output> {
     let custom = m.custom_tlk().ok().flatten().and_then(|name| {
         mg_module::talk::find(&rm, &gi.tlk_dirs(), &name).and_then(|f| count(f.data))
     });
-    let findings =
+    let mut findings =
         mg_module::doctor::examine(&m, &rm, mg_module::doctor::TalkTables { base, custom });
+    // The plugins' checks, beside the doctor's.
+    findings.extend(plugins::findings(gi, &m, plugins, &mut out)?);
     let errors = missing.iter().filter(|x| x.is_error()).count()
         + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
     let warnings = findings.len() + missing.len() - errors;

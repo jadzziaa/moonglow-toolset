@@ -189,6 +189,7 @@ in this list. ✅ = exists.
 | `mg-tiles` (partial) | tilesets, tile grid model, terrain painting engine with SET rules, walkmesh assembly; so far the corner lattice, tile fitting and new-area terrain |
 | `mg-module` ✅ | module workspace: open/save, working copy, palettes, reference graph, verify, build, import/export, haks/TLK |
 | `mg-edit` | editor core: documents, commands, undo/redo, selection, tools (no UI) |
+| `mg-plugin` | plugins: manifests, and a sandboxed Luau runtime in which a plugin's commands and checks read a module and hand back edits and findings (`docs/plugin-proposal.md`; the API in `docs/manual/17-plugin-api.md`) |
 | `mg-render` (partial) | renderer: scene, materials and maps, EE lighting (matched to the client), offscreen mode, animation, skinning, animated and dangly meshes, particles (done); picking, gizmos |
 | `mg-preview` ✅ | blueprint previews: part-based and single-model creatures with equipment, wings and tails, PLT colors; items; placeables; doors |
 | `mg-area` (partial) | areas as the area editor shows them: tiles with their lights and animation loops, placed objects with their previews and outlines, sun, moon and fog; the renderer's scene of an area |
@@ -560,7 +561,7 @@ surveyed after 0.2.0). What each item left undone is collected in
      standard output, notes inside, `{"error": …}` on failure;
      `apps/mg/tests/json.rs` runs them all), `mg find` (blueprints and
      placed objects by type, tag, name, resref, area and field values)
-     and `mg info`; a plugin or scripting API deferred;
+     and `mg info`; a plugin API since (`docs/plugin-proposal.md`);
    - NWSync publishing — done: Build › Publish to NWSync… and `mg nwsync`
      write the repository (manifest, zstd data, .json, `latest`); for a
      module with two of the game's haks and a premium talk table, the

@@ -16,7 +16,14 @@ close it, **Palettes** on the toolbar brings it back.
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
-| Help | User Manual, About Moonglow Toolset |
+| Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
+| Help | User Manual, Command Palette…, About Moonglow Toolset |
+
+**Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:
+type part of it (or of its menu's name), choose with the arrow keys, and
+Enter runs it; Escape closes. Each command shows its menu and its key. A
+command that can't be chosen now is listed dimmed. Any command can be
+given a key in Tools › Options › Keyboard.
 
 ## Keyboard shortcuts
 
@@ -43,6 +50,7 @@ changes them; the menus show the current keys.
 | Ctrl+Alt+C | Creature Wizard |
 | Ctrl+Alt+I | Item Wizard |
 | F11 | Full screen |
+| Ctrl+Shift+P | Command Palette |
 
 The area viewer and the editors have their own keys; their chapters list
 them.

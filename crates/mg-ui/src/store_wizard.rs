@@ -97,7 +97,7 @@ pub fn open(app: &mut Moonglow, area: ResRef, list: &'static str, creature: usiz
 /// The store blueprints to choose from: the game's (Standard) or the
 /// module's (Custom), as (resref, name).
 fn stores(app: &Moonglow, custom: bool) -> Vec<(ResRef, String)> {
-    let Some(game) = app.game.as_ref() else { return Vec::new() };
+    let Some(game) = app.game.as_deref() else { return Vec::new() };
     let names: Vec<ResRef> = if custom {
         app.ws
             .as_ref()
@@ -260,7 +260,7 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
             .ok_or("the shopkeeper is gone")?;
         (creature, doc.root.list("StoreList").map_or(0, <[_]>::len))
     };
-    let game = app.game.as_ref().ok_or("no game data")?;
+    let game = app.game.as_deref().ok_or("no game data")?;
     let ws = app.ws.as_ref().ok_or("no module")?;
     let read = |k: ResKey| {
         let data = ws

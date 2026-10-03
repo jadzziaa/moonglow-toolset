@@ -28,7 +28,7 @@ fn script_wizard_pages() {
     let app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     let dir = mg_testkit::scratch_dir("screens");
-    let lists = Arc::new(Lists::load(app.game.as_ref().unwrap()));
+    let lists = Arc::new(Lists::load(app.game.as_deref().unwrap()));
     let key = ResKey::parse("dlg", ResType::DLG).unwrap();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
@@ -140,7 +140,7 @@ fn palette_hover_preview() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
-    let chest = h.state().game.as_ref().unwrap().string(mg_core::StrRef(5348)).unwrap();
+    let chest = h.state().game.as_deref().unwrap().string(mg_core::StrRef(5348)).unwrap();
     let at = h.get_all_by_label(&chest).next().unwrap().rect().center();
     h.hover_at(at);
     h.run_steps(30);
@@ -221,7 +221,7 @@ fn blueprint_editors() {
             Some(GameInstall::new(&root, None, "en")),
             Box::new(NoDialogs::default()),
         );
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let data = game.resman.get_named(name, t).unwrap().into_owned();
         let mut m = mg_module::Module::new();
         m.set(ResKey::parse(name, t).unwrap(), data);
@@ -250,7 +250,7 @@ fn store_chosen_item() {
     let (name, t) = ("nw_storebar01", ResType::UTM);
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named(name, t).unwrap().into_owned();
     // A magic armor: statistics and properties.
     let armor = game.resman.get_named("nw_maarcl002", ResType::UTI).unwrap();
@@ -305,6 +305,16 @@ fn user_manual() {
     shoot(&mut h, &dir, "manual-areas");
     h.get_all_by_label("Coming from Aurora").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-coming-from-aurora");
+    // (The menu bar has a Plugins too: the chapter is the later one.)
+    for (chapter, shot) in [
+        ("The main window", "manual-main-window"),
+        ("Plugins", "manual-plugins"),
+        ("Writing plugins", "manual-writing-plugins"),
+        ("Plugin API reference", "manual-plugin-api"),
+    ] {
+        h.get_all_by_label(chapter).rfind(|n| listed(n)).unwrap().click();
+        shoot(&mut h, &dir, shot);
+    }
     h.state_mut().about = true;
     shoot(&mut h, &dir, "about");
 }
@@ -1338,4 +1348,73 @@ fn place(h: &mut Harness<'_, Moonglow>, tab: &mg_ui::Tab, at: (f32, f32), size: 
     if let Some(w) = h.state_mut().dock.get_window_state_mut(path.surface) {
         w.set_position(egui::pos2(at.0, at.1)).set_size(egui::vec2(size.0, size.1));
     }
+}
+
+/// The Command Palette over the window, something typed
+/// (`target/test-output/screens/command-palette.png`).
+#[test]
+#[ignore]
+fn command_palette() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-command-palette");
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut finder = mg_ui::commands::Finder::default();
+    finder.filter = "mod".into();
+    app.command_palette = Some(finder);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    shoot(&mut h, &dir, "command-palette");
+}
+
+/// The Plugins window with the plugin host's fixture plugins installed and
+/// one enabled, the console open (`target/test-output/screens-plugins/`).
+#[test]
+#[ignore]
+fn plugins_window() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-plugins");
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.plugin_dir =
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"));
+    app.load_plugins();
+    app.enable_plugin("example.tag-conventions", true);
+    app.plugins.window = true;
+    app.plugins.console = "return ctx.module:resources(\"utc\")".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Console").click();
+    h.run();
+    shoot(&mut h, &dir, "plugins");
+    h.state_mut().plugins.window = false;
+    h.run();
+    h.get_by_label("Plugins").click();
+    h.run();
+    shoot(&mut h, &dir, "plugins-menu");
+    h.key_press(egui::Key::Escape);
+    h.run();
+
+    // Install from File: what it said, and the question before it
+    // replaces one installed (in a plugins folder of this test's own).
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../mg-plugin/tests/fixtures/tag-conventions");
+    let plugin = mg_plugin::Plugin::load(&fixture).unwrap();
+    let archive = dir.join("tag-conventions-1.0.0.zip");
+    std::fs::write(&archive, mg_plugin::pack(&plugin).unwrap()).unwrap();
+    h.state_mut().plugin_dir = Some(dir.join("plugins"));
+    h.state_mut().load_plugins();
+    h.state_mut().install_plugin_from(&archive);
+    h.run();
+    shoot(&mut h, &dir, "plugins-installed");
+    h.state_mut().install_plugin_from(&archive);
+    h.run();
+    h.run();
+    shoot(&mut h, &dir, "plugins-replace");
 }

@@ -110,7 +110,7 @@ pub fn copy_resref(from: &str, taken: &dyn Fn(&str) -> bool) -> Option<ResRef> {
 /// Copies a blueprint into the module under a new resref (its
 /// `TemplateResRef`, a store's `ResRef`, too); the new key.
 fn edit_copy(app: &mut Moonglow, key: ResKey) -> Option<ResKey> {
-    let game = app.game.as_ref()?;
+    let game = app.game.as_deref()?;
     let ws = app.ws.as_mut()?;
     let data = ws
         .module
@@ -131,7 +131,7 @@ fn edit_copy(app: &mut Moonglow, key: ResKey) -> Option<ResKey> {
         format!("Edit copy of {key}"),
         vec![Edit::SetResource { key: new, data: Some(gff.to_bytes().ok()?) }],
     );
-    match ws.apply(cmd) {
+    match app.apply(cmd) {
         Ok(()) => Some(new),
         Err(e) => {
             app.log.error(e.to_string());
@@ -147,7 +147,7 @@ pub(crate) fn palette(
     kind: BlueprintKind,
     custom: bool,
 ) -> Option<Arc<Palette>> {
-    let game = app.game.as_ref()?;
+    let game = app.game.as_deref()?;
     let view = &mut app.palette;
     if !custom {
         let p = view.standard.entry(kind).or_insert_with(|| {
@@ -193,7 +193,7 @@ fn found(
     {
         return (f.clone(), find.clone());
     }
-    let Some(game) = app.game.as_ref() else { return Default::default() };
+    let Some(game) = app.game.as_deref() else { return Default::default() };
     let fields: Vec<(ResRef, [String; 3])> = palette
         .blueprints()
         .into_iter()
@@ -230,7 +230,7 @@ fn tags(
     {
         return t.clone();
     }
-    let (Some(game), ws) = (app.game.as_ref(), app.ws.as_ref()) else { return Arc::default() };
+    let (Some(game), ws) = (app.game.as_deref(), app.ws.as_ref()) else { return Arc::default() };
     let read = |r: ResRef| -> Option<String> {
         let k = ResKey::new(r, kind.restype());
         let data = ws
@@ -336,7 +336,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         (None, Find::default())
     };
     let mut view = std::mem::take(&mut app.palette);
-    let game = app.game.as_ref().expect("checked");
+    let game = app.game.as_deref().expect("checked");
     let favorites = app.settings.palette_favorites.clone();
     let recent = app.settings.palette_recent.clone();
     let ext = kind.restype().extension().unwrap_or_default();
@@ -401,14 +401,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
             }
             Pick::Delete(key) => {
-                if let Some(ws) = &mut app.ws {
-                    let cmd = Command::new(
-                        format!("Delete {key}"),
-                        vec![Edit::SetResource { key, data: None }],
-                    );
-                    if let Err(e) = ws.apply(cmd) {
-                        app.log.error(e.to_string());
-                    }
+                let cmd = Command::new(
+                    format!("Delete {key}"),
+                    vec![Edit::SetResource { key, data: None }],
+                );
+                if let Err(e) = app.apply(cmd) {
+                    app.log.error(e.to_string());
                 }
             }
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),

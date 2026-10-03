@@ -46,6 +46,14 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg info MODULE` | the module's name, tag, entry area, areas, haks, talk table, game version and resources by type |
 | `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed |
 | `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops |
+| `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON) and what it holds to be true |
+| `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest |
+| `mg plugin list DIR…` | the plugins in the folders and what each adds: its commands and checks |
+| `mg plugin check DIR…` | check plugins: the manifest reads, and the code registers what it declares; fails if not. A file is a plugin's archive: checked as the installer checks it, and its code as it is in the archive |
+| `mg plugin run MODULE PLUGIN COMMAND` | run a plugin's command on a module and save: its edits as one command, all or none. `--answer ID=VALUE` fills a form's field (the others take their defaults), `--yes` agrees where it asks; `--dry-run` prints the edits (a file `mg apply` reads) and changes nothing |
+| `mg plugin pack PLUGIN` | pack a plugin's folder into an archive to hand around (`ID-VERSION.zip`, or `-o FILE`): checked first, hidden files left out |
+| `mg plugin install FILE FOLDER` | install a plugin from its archive into a folder of plugins, as Plugins › Install Plugin from File… does: the archive is checked and nothing of it runs. `--replace` installs over the same plugin installed from an archive before |
+| `mg plugin remove ID FOLDER` | remove a plugin that was installed from an archive from a folder of plugins, by its id; one put there by hand is left alone |
 | `mg haks MODULE` | what the module's haks provide, where they conflict and which game resources they override |
 | `mg minimap MODULE AREA OUT.png [--size PX]` | an area's minimap as a PNG, laid out as the game's map draws it (`PX` pixels a tile) |
 | `mg nwsync MODULE REPOSITORY` | publish the module's haks and talk table for NWSync into a repository folder, as `nwn_nwsync_write` does: `--with-module` (with `--name`, `--description`, `--uuid`), `--group-id`, `--no-latest`, `--limit-file-size MB`, `--force`, `--dry-run`; prints the manifest's hash |
@@ -59,6 +67,8 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg dialog-export MODULE NAME.dlg OUT` | write a conversation as plain text, CSV, Twine or Ink, by `OUT`'s extension (`.txt`, `.csv`, `.twee`, `.ink`) |
 | `mg dialog-import MODULE FILE [--name NAME]` | read a Twine or Ink story into the module as a conversation (replacing one of that name), or a CSV export's text back into its conversation, and save |
 | `mg replace MODULE FIND WITH` | replace text in the module's names, descriptions, conversations and journal and save (`--match-case`, `--whole-word`, `--only names,journal,…`, `--dry-run` to list the strings only) |
+| `mg set MODULE NAME.EXT FIELD=VALUE…` | set fields of a resource and save: a field is a path from the resource's root (`Tag`, `/ClassList[0]/ClassLevel`) and keeps its type; `--remove FIELD`; `--dry-run` prints the change and makes none |
+| `mg apply MODULE EDITS.json` | apply a file of edits (below) and save: all of them, or none if one does not apply; `-` reads standard input; `--dry-run` only checks |
 | `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`; with `--set FIELD=VALUE`, `--var NAME=VALUE` or `--remove-var NAME`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area) |
 
 A module is a `.mod` archive, a module folder or a nasher project. `mg
@@ -71,6 +81,60 @@ no OnSpawn script set, in the area `keep`:
 ```text
 mg find mymodule.mod --type utc --placed --area keep --tag 'GUARD*' --where ScriptSpawn=
 ```
+
+## Setting fields, and edit files
+
+`mg set` changes fields of one resource, and nothing else in it:
+
+```text
+mg set mymodule.mod guard.utc Tag=GATE_GUARD '/ClassList[0]/ClassLevel=5'
+```
+
+- A field is named by its path from the resource's root: its label, or
+  through lists as `/List[item]/Label` (items count from 0; quote the
+  brackets in a shell).
+- A field keeps the type it has. A field the resource lacks takes the
+  type the game's files give it, or the one you give:
+  `MyFlag:byte=1` (`byte`, `char`, `word`, `short`, `dword`, `int`,
+  `dword64`, `int64`, `float`, `double`, `cexostring`, `resref`,
+  `cexolocstring`).
+- Text set on a name or description becomes its English text; its
+  talk-table reference and other languages stay.
+- `--remove FIELD` takes a field away.
+- `--dry-run` prints each field as it was and would be; with `--json`,
+  the change under `"command"` is an edit file.
+
+`mg apply` reads an **edit file**: every change the editors make is one
+of these six, so a script can write any change as data, and Moonglow
+applies it as the editors would.
+
+```json
+{ "version": 1, "label": "Promote the guard", "edits": [
+  { "op": "set_field", "resource": "guard.utc", "field": "/Tag",
+    "value": { "type": "cexostring", "value": "GATE_GUARD" } },
+  { "op": "remove_field", "resource": "guard.utc", "field": "/Comment" },
+  { "op": "insert_item", "resource": "guard.utc", "list": "/ClassList",
+    "index": 1, "item": { "__struct_id": 2,
+      "Class": { "type": "int", "value": 4 },
+      "ClassLevel": { "type": "short", "value": 2 } } },
+  { "op": "remove_item", "resource": "guard.utc", "item": "/ClassList[0]" },
+  { "op": "set_resource", "resource": "on_spawn.nss",
+    "text": "void main() { }" },
+  { "op": "remove_resource", "resource": "old_guard.utc" }
+] }
+```
+
+- Values and list items are written as `mg gff` writes them (the JSON of
+  neverwinter.nim and nasher).
+- `set_resource` takes `"text"`, `"base64"` (any bytes) or `"gff"` (a
+  whole GFF as `mg gff` prints it).
+- In a path, a label's `/`, `[`, `]` and `~` are written `~1`, `~2`, `~3`
+  and `~0`, and an empty label `~e`.
+- Edits apply in order, each to what the last left. If one does not
+  apply (no such resource, a path that leads nowhere, no such item),
+  nothing is changed and the error says which.
+- The edits are applied as given: values that Moonglow's editors keep in
+  step (an item's cost, say) are not recomputed.
 
 ## Several areas at once
 

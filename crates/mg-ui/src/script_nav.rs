@@ -95,7 +95,7 @@ impl Moonglow {
         let text = self.scripts.get(&key)?.text.clone();
         let offset = tools::byte_index(&text, at);
         let Moonglow { scripts, ws, game, script_nav, .. } = self;
-        let mut src = source(scripts, ws.as_ref(), game.as_ref());
+        let mut src = source(scripts, ws.as_ref(), game.as_deref());
         script_nav.index.declaration_at(&key.resref.to_string(), offset, &mut src)
     }
 
@@ -138,7 +138,7 @@ impl Moonglow {
         self.sync_nav();
         let files = self.module_scripts();
         let Moonglow { scripts, ws, game, script_nav, script_tools, .. } = self;
-        let mut src = source(scripts, ws.as_ref(), game.as_ref());
+        let mut src = source(scripts, ws.as_ref(), game.as_deref());
         let refs = script_nav.index.references(d, &files, &mut src);
         let mut results = Vec::new();
         for r in &refs {
@@ -162,7 +162,7 @@ impl Moonglow {
         let files = self.module_scripts();
         let places = {
             let Moonglow { scripts, ws, game, script_nav, .. } = self;
-            let mut src = source(scripts, ws.as_ref(), game.as_ref());
+            let mut src = source(scripts, ws.as_ref(), game.as_deref());
             script_nav.index.rename(d, new, &files, &mut src)
         };
         let places = match places {
@@ -226,7 +226,7 @@ impl Moonglow {
         let name = key.resref.to_lowercase().to_string();
         let error = {
             let module = self.ws.as_ref().map(|w| &w.module);
-            let resman = self.game.as_ref().map(|g| &g.resman);
+            let resman = self.game.as_deref().map(|g| &g.resman);
             let scripts = &self.scripts;
             let mut c = Compiler::new(|n: &str, t: ResType| {
                 let k = mg_resman::ResKey::parse(n, t)?;
