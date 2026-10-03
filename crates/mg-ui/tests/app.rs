@@ -8043,4 +8043,40 @@ fn a_plugin_installs_from_a_file_and_is_off() {
         && m == "junk.zip was not installed: it is not a zip archive"));
     assert_eq!(h.state().plugins.installed.len(), 1);
     h.get_by_label("Tag conventions 1.1.0");
+
+    // Remove: what Install from File put there, after a question. A
+    // plugin copied in by hand has no Remove: Moonglow deletes only what
+    // it installed.
+    let by_hand = plugins.join("by-hand");
+    std::fs::create_dir_all(&by_hand).unwrap();
+    for file in ["plugin.cfg", "main.luau"] {
+        std::fs::copy(plugin_fixtures().join("forms").join(file), by_hand.join(file)).unwrap();
+    }
+    h.get_by_label("Reload").click();
+    h.run();
+    let disabled: Vec<bool> =
+        h.get_all_by_label("Remove…").map(|n| n.accesskit_node().is_disabled()).collect();
+    assert_eq!(disabled, [true, false], "by-hand, then the one installed");
+    let remove = |h: &mut Harness<'_, Moonglow>| {
+        let button =
+            h.get_all_by_label("Remove…").find(|n| !n.accesskit_node().is_disabled()).unwrap();
+        button.scroll_to_me();
+        h.run();
+        h.get_all_by_label("Remove…").find(|n| !n.accesskit_node().is_disabled()).unwrap().click();
+        h.run();
+        h.run();
+    };
+    remove(&mut h);
+    h.get_by_label("Remove Tag conventions 1.1.0?");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(plugins.join("example.tag-conventions").is_dir());
+    remove(&mut h);
+    h.get_by_label("Remove").click();
+    h.run();
+    assert!(!plugins.join("example.tag-conventions").exists());
+    assert!(said(&h, "Removed Tag conventions 1.1.0"));
+    assert!(!h.state().plugin_enabled("example.tag-conventions"));
+    assert_eq!(h.state().plugins.installed.len(), 1);
+    assert!(by_hand.join("main.luau").is_file());
 }

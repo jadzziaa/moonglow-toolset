@@ -28,6 +28,9 @@ use crate::{Level, Moonglow};
 pub struct Installed {
     pub dir: PathBuf,
     pub plugin: Result<Plugin, String>,
+    /// Installed from an archive (Install from File): Moonglow's to
+    /// replace and remove. Else it was put there by hand, and is not.
+    pub from_archive: bool,
 }
 
 /// The plugins as the window has them.
@@ -49,8 +52,20 @@ pub struct Plugins {
     /// An archive chosen to install whose plugin is installed already:
     /// asked before it is replaced.
     pub replace: Option<Replace>,
-    /// What the last install came to, shown in the window.
+    /// What the last install or removal came to, shown in the window.
     pub install_note: Option<(Level, String)>,
+    /// A plugin chosen to remove: asked before its folder is deleted.
+    pub remove: Option<Remove>,
+}
+
+/// An installed plugin waiting for a yes to be removed.
+#[derive(Debug, Clone)]
+pub struct Remove {
+    pub dir: PathBuf,
+    /// Its name and version (its folder's name, if its manifest does not
+    /// read).
+    pub name: String,
+    pub id: Option<String>,
 }
 
 /// A plugin's archive waiting for a yes to replace the one installed.
@@ -221,7 +236,8 @@ impl Moonglow {
         {
             for dir in mg_plugin::folders(dir) {
                 let plugin = Plugin::load(&dir).map_err(|e| e.to_string());
-                self.plugins.installed.push(Installed { dir, plugin });
+                let from_archive = mg_plugin::from_archive(&dir);
+                self.plugins.installed.push(Installed { dir, plugin, from_archive });
             }
         }
         self.plugins_changed();
@@ -358,6 +374,24 @@ impl Moonglow {
                 );
             }
             Err(e) => self.install_said(Level::Error, format!("{file} was not installed: {e}")),
+        }
+    }
+
+    /// Removes a plugin that was installed from an archive: its folder is
+    /// deleted, and it is enabled no longer. One put there by hand is
+    /// refused.
+    pub fn remove_plugin(&mut self, remove: &Remove) {
+        match mg_plugin::remove(&remove.dir) {
+            Ok(()) => {
+                if let Some(id) = &remove.id {
+                    self.settings.plugins_enabled.retain(|e| e != id);
+                }
+                self.load_plugins();
+                self.install_said(Level::Info, format!("Removed {}", remove.name));
+            }
+            Err(e) => {
+                self.install_said(Level::Error, format!("{} was not removed: {e}", remove.name));
+            }
         }
     }
 
@@ -531,7 +565,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
             }
             let Some((_, values)) = &mut app.plugins.form else { return true };
             if !title.is_empty() {
-                ui.strong(title);
+                crate::widgets::section_heading(ui, title);
             }
             egui::Grid::new("plugin-form").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                 for (f, value) in fields.iter().zip(values.iter_mut()) {
@@ -603,6 +637,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let mut open = true;
     let (mut reload, mut toggle, mut run_console, mut install) = (false, None, false, false);
+    let mut remove = None;
     egui::Window::new("Plugins")
         .open(&mut open)
         .default_pos([180.0, 90.0])
@@ -671,6 +706,24 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                          File…), or copy a plugin's folder into the folder above.",
                     );
                 }
+                // Remove, for what Install from File put there.
+                let mut remove_button = |ui: &mut egui::Ui, installed: &Installed, name: String| {
+                    let id = installed.plugin.as_ref().ok().map(|p| p.manifest.id.clone());
+                    let tip = if installed.from_archive {
+                        "Delete this plugin's folder from the plugins folder"
+                    } else {
+                        "Not installed from a file: to remove it, delete its folder (Open Folder)"
+                    };
+                    let button = egui::Button::new("Remove…").small();
+                    if ui
+                        .add_enabled(installed.from_archive, button)
+                        .on_hover_text(tip)
+                        .on_disabled_hover_text(tip)
+                        .clicked()
+                    {
+                        remove = Some(Remove { dir: installed.dir.clone(), name, id });
+                    }
+                };
                 for installed in &app.plugins.installed {
                     match &installed.plugin {
                         Ok(p) => {
@@ -679,12 +732,13 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             ui.horizontal(|ui| {
                                 let label = format!("{} {}", m.name, m.version);
                                 if ui
-                                    .checkbox(&mut on, egui::RichText::new(label).strong())
+                                    .checkbox(&mut on, egui::RichText::new(&label).strong())
                                     .changed()
                                 {
                                     toggle = Some((m.id.clone(), on));
                                 }
                                 ui.weak(&m.id);
+                                remove_button(ui, installed, label);
                             });
                             ui.indent(("plugin", &m.id), |ui| {
                                 if !m.description.is_empty() {
@@ -705,7 +759,12 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             });
                         }
                         Err(e) => {
-                            ui.colored_label(ui.visuals().error_fg_color, e);
+                            ui.horizontal_wrapped(|ui| {
+                                ui.colored_label(ui.visuals().error_fg_color, e);
+                                let folder = installed.dir.file_name().unwrap_or_default();
+                                let name = folder.to_string_lossy().into_owned();
+                                remove_button(ui, installed, name);
+                            });
                         }
                     }
                     ui.add_space(4.0);
@@ -744,6 +803,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     if install {
         app.install_plugin();
+    }
+    if remove.is_some() {
+        app.plugins.remove = remove;
     }
     if run_console {
         app.run_console();
@@ -786,5 +848,32 @@ pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
     } else if no || modal.should_close() {
         app.plugins.replace = None;
+    }
+}
+
+/// The question before an installed plugin's folder is deleted.
+pub(crate) fn remove_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(r) = &app.plugins.remove else { return };
+    let (mut yes, mut no) = (false, false);
+    let modal = egui::Modal::new(egui::Id::new("plugin-remove")).show(ctx, |ui| {
+        ui.set_width(400.0);
+        ui.heading(format!("Remove {}?", r.name));
+        ui.add_space(4.0);
+        ui.label(
+            "Its folder is deleted from the plugins folder. Your modules are not touched: what \
+             its commands changed in them stays.",
+        );
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            yes = ui.button("Remove").clicked();
+            no = ui.button("Cancel").clicked();
+        });
+    });
+    if yes {
+        if let Some(r) = app.plugins.remove.take() {
+            app.remove_plugin(&r);
+        }
+    } else if no || modal.should_close() {
+        app.plugins.remove = None;
     }
 }
