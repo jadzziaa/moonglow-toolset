@@ -6,6 +6,14 @@ doesn't have: **commands** (a batch edit, a report, a generator) and
 plugin is a folder with a few text files; anyone can write one
 ([Writing plugins](16-writing-plugins.md)).
 
+**Plugins are experimental.** They are new in Moonglow 1.0, and the
+plugin API (version 0.1) may change in a later release as the people who
+write plugins try it. A plugin written for one version of the API is not
+run by a Moonglow that has another: Manage Plugins says so, and the
+plugin needs its author's update. What you build with plugins, and what
+you miss, is welcome on the
+[issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).
+
 ## What a plugin can and cannot do
 
 A plugin's code runs in a sandbox. It can:

@@ -9,6 +9,9 @@ plugin can call. What plugins are to the people who use them is in
 
 You need a text editor and Moonglow. Nothing is compiled or built.
 
+The plugin API is **experimental** (version 0.1): it may change in a
+later release, and Versions, below, says what that means for a plugin.
+
 ## A first plugin
 
 Open **Plugins › Manage Plugins…** and press **Open Folder**. In the

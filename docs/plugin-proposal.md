@@ -3,9 +3,9 @@
 Status: accepted on 2026-10-03 (see [Decisions](#decisions)). Phase 0
 (the groundwork) is done, with what each item left noted under [What
 Moonglow needs first](#what-moonglow-needs-first), and Phase 1 (commands
-and checks, API 0.1) is built: see [Where it stands](#where-it-stands)
-for what it has and what is left. The work happens on the `plugins`
-branch until it is ready to merge. This expands the one line on "a plugin or scripting
+and checks, API 0.1) is built and in Moonglow 1.0.0, marked
+experimental: see [Where it stands](#where-it-stands) for what it has
+and what is left. This expands the one line on "a plugin or scripting
 API" in [deferred.md](deferred.md) and [PLAN.md](PLAN.md). Sizes are the
 project's: S (an hour or two), M (a day or so), L (several days).
 
@@ -447,7 +447,9 @@ Phases 2 and 3 can swap if teams ask for Python first.
 
 ## Where it stands
 
-**Phase 1 is built** (the `plugins` branch):
+**Phase 1 is built**, and released in Moonglow 1.0.0 as experimental
+(the window, the manual and the README say so; the API stays at 0.1 and
+may change):
 
 - `crates/mg-plugin`: the manifest, discovery, and the runtime: a Luau
   machine per job, sandboxed, with a memory limit, stopped by Cancel;

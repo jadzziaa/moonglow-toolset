@@ -1,7 +1,10 @@
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.1. How plugins work
-and how to write one is in [Writing plugins](16-writing-plugins.md).
+Everything a plugin's code can use, for plugin API 0.1. The API is
+experimental: a later release may change it, and each change is listed
+in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
+How plugins work and how to write one is in
+[Writing plugins](16-writing-plugins.md).
 
 A plugin's script gets the API with `require("@moonglow")` (called `mg`
 here) and registers handlers; a handler gets a context (`ctx`) for the

@@ -100,9 +100,10 @@ Moonglow's later work follows what builders have long asked of Aurora
 - **Publishing:** NWSync repositories for persistent worlds, and minimaps
   exported as the game draws them.
 - **Keys you can change**, and Aurora's own as the defaults.
-- **Plugins:** a team's own commands and checks, written in Luau and run
-  in a sandbox; their edits are one step of Undo, and their checks run
-  with Verify Module, in the window and in a build pipeline.
+- **Plugins (experimental):** a team's own commands and checks, written
+  in Luau and run in a sandbox; their edits are one step of Undo, and
+  their checks run with Verify Module, in the window and in a build
+  pipeline. The plugin API is at 0.1 and may still change.
 
 ![The script editor with a script from the original campaign](docs/images/script.png)
 

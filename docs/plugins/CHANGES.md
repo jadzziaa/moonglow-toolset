@@ -8,7 +8,7 @@ to change.
 
 ## 0.1
 
-The first version.
+The first version, in Moonglow 1.0.0. Experimental.
 
 - A manifest, `plugin.cfg`: `[plugin]`, and a `[command]` or `[check]`
   for each thing added.

@@ -648,6 +648,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
              and hands back changes that Undo takes back; it cannot reach your files, the \
              network or other programs. Each is off until you enable it.",
             );
+            ui.weak(format!(
+                "Plugins are experimental: the plugin API ({}) is new, and a later release may \
+                 change it.",
+                mg_plugin::API
+            ));
             ui.add_space(4.0);
             // The buttons first, the folder under them: its path may be
             // longer than the window is wide.

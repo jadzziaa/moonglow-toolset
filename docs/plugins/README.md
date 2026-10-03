@@ -1,5 +1,8 @@
 # Plugins: for authors
 
+Plugins are experimental: the plugin API is at 0.1, and a later release
+may change it ([`CHANGES.md`](CHANGES.md) lists each change).
+
 What a plugin author needs besides the manual:
 
 - [`examples/`](examples): plugins that work, each a folder to copy into
