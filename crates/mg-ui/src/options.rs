@@ -70,6 +70,9 @@ pub struct OptionsDraft {
     pub music_volume: u8,
     pub keymap: crate::keys::Keymap,
     /// The command whose next key press is being taken as a new key.
+    /// The enabled plugins' commands, listed after the window's: the id
+    /// each one's keys are kept under, and its name.
+    pub plugin_commands: Vec<(String, String)>,
     /// The command (by the id its keys are kept under) taking the next key.
     pub recording: Option<String>,
 }
@@ -88,6 +91,7 @@ impl OptionsDraft {
         OptionsDraft {
             page: OptionsPage::default(),
             keymap: crate::keys::Keymap::new(&s.key_bindings),
+            plugin_commands: Vec::new(),
             recording: None,
             game_root: text(&s.game_root),
             user_dir: text(&s.user_dir),
@@ -216,7 +220,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         if ui.button("OK").clicked() || crate::widgets::enter(ui) {
                             close = true;
                             if draft.moves_game(&app.settings) {
-                                app.actions.push(Action::ApplyOptions(draft.clone()));
+                                app.actions.push(Action::ApplyOptions(Box::new(draft.clone())));
                             } else {
                                 // Only looks: no reload.
                                 app.settings = draft.apply(&app.settings);
@@ -617,7 +621,7 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
 /// Options › Keyboard: each command's keys, to add to (the next key
 /// pressed), take away or reset; keys two commands share are named.
 fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
-    use crate::keys::{Cmd, Group, defaults_of, shown};
+    use crate::keys::{Cmd, Group, shown};
     let mac = ui.ctx().os() == egui::os::OperatingSystem::Mac;
     // Taking a key: the next press with a key that isn't only a modifier.
     if let Some(id) = draft.recording.clone() {
@@ -673,7 +677,9 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
         .into_iter()
         .filter(|c| c.group() != Group::General)
         .map(|c| (c.group(), c.id().to_string(), c.name().to_string()));
-    let mut rows: Vec<(Group, String, String)> = general.chain(others).collect();
+    let plugins =
+        draft.plugin_commands.iter().map(|(id, name)| (Group::Plugins, id.clone(), name.clone()));
+    let mut rows: Vec<(Group, String, String)> = general.chain(plugins).chain(others).collect();
     // The list is long: narrow it by a command's name, or its group's.
     let filter_id = egui::Id::new("options-keys-filter");
     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
@@ -725,16 +731,17 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
                         draft.recording = if recording { None } else { Some(id.clone()) };
                     }
                 });
-                let default = draft.keymap.keys_of(id) == defaults_of(id);
+                let own = draft.keymap.defaults_of(id);
+                let default = draft.keymap.keys_of(id) == own;
                 if ui.add_enabled(!default, egui::Button::new("Reset").small()).clicked() {
-                    draft.keymap.set_of(id, defaults_of(id));
+                    draft.keymap.set_of(id, own);
                 }
                 ui.end_row();
             }
         });
     });
     if ui.button("Reset All").clicked() {
-        draft.keymap = crate::keys::Keymap::default();
+        draft.keymap.reset_all();
     }
 }
 

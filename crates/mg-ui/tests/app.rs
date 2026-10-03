@@ -7699,3 +7699,247 @@ fn areas_are_listed_by_name_when_asked() {
     h.get_by_label("Apple Inn");
     assert!(h.query_by_label("A Quay").is_none());
 }
+
+/// The plugin host's fixture plugins, as an installed plugins folder.
+fn plugin_fixtures() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures")
+}
+
+/// The sample module with a guard whose tag is in lower case, and the
+/// fixture plugins installed (none enabled).
+fn plugin_harness(name: &str, game: bool) -> Option<(Harness<'static, Moonglow>, ResKey)> {
+    let dir = mg_testkit::scratch_dir(name);
+    let path = sample_module(&dir);
+    let mut app = if game {
+        let root = mg_testkit::nwn_root()?;
+        Moonglow::new(
+            Some(mg_resman::GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        )
+    } else {
+        app_with(Vec::new())
+    };
+    app.open_module(&path);
+    app.open_palette = false;
+    let key = ResKey::parse("guard", ResType::UTC).unwrap();
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("Tag", mg_gff::Value::String(b"gate_guard".to_vec()));
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A guard",
+        vec![mg_edit::Edit::SetResource { key, data: Some(guard.to_bytes().unwrap()) }],
+    )));
+    app.plugin_dir = Some(plugin_fixtures());
+    app.load_plugins();
+    let h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    Some((h, key))
+}
+
+fn tag_of(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> String {
+    String::from_utf8(field(h, key).string("Tag").unwrap().to_vec()).unwrap()
+}
+
+#[test]
+fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
+    let Some((mut h, key)) = plugin_harness("ui-plugins", false) else { return };
+    h.run();
+    // Installed, none enabled: the Plugins menu has only its manager.
+    assert_eq!(h.state().plugins.installed.len(), 4);
+    assert!(h.state().plugin_commands().is_empty());
+    h.get_by_label("Plugins").click();
+    h.run();
+    assert!(h.query_by_label("Fix Creature Tags").is_none());
+    h.get_by_label("Manage Plugins…").click();
+    h.run();
+    // The window says what each adds; enabling one is a tick.
+    h.get_by_label_contains("cannot reach your files");
+    h.get_by_label("Command: Fix Creature Tags");
+    h.get_by_label("Check: Creature tags are upper case");
+    // (The last of the four installed: below the list's fold.)
+    h.get_by_label("Tag conventions 1.0.0").scroll_to_me();
+    h.run();
+    h.get_by_label("Tag conventions 1.0.0").click();
+    h.run();
+    assert_eq!(h.state().settings.plugins_enabled, ["example.tag-conventions"]);
+    h.state_mut().plugins.window = false;
+    h.run();
+
+    // Its commands are in the Plugins menu; one runs as one undoable step.
+    h.get_by_label("Plugins").click();
+    h.run();
+    h.get_by_label("Promote the Guards");
+    h.get_by_label("Fix Creature Tags").click();
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD");
+    let log: Vec<String> = h.state().log.entries.iter().map(|(_, m)| m.clone()).collect();
+    assert!(log.contains(&"Tag conventions: 1 creature tags changed".to_string()), "{log:#?}");
+    assert!(
+        log.iter().any(|m| m.contains("Fix Creature Tags changed 1 resource (Edit › Undo")),
+        "{log:#?}"
+    );
+    assert_eq!(
+        h.state().ws.as_ref().unwrap().can_undo(),
+        Some("Upper-case creature tags"),
+        "named by the plugin"
+    );
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "gate_guard");
+    // Run again with nothing to do: it says so, and adds no step.
+    h.state_mut().run_plugin_command("example.tag-conventions", "fix-tags");
+    h.run();
+    h.state_mut().run_plugin_command("example.tag-conventions", "fix-tags");
+    h.run();
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("changed nothing")));
+
+    // The Command Palette finds it, under its plugin's name.
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::P);
+    h.run();
+    type_into_hint(&mut h, "Type a command's name", "tag conv");
+    h.get_by_label("Promote the Guards");
+    h.key_press(egui::Key::Escape);
+    h.run();
+    // And it takes a key like any command: listed with the plugins'.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("Keyboard").click();
+    h.run();
+    type_into_hint(&mut h, "Find a command", "plugins");
+    h.get_by_label("Tag conventions: Fix Creature Tags");
+    h.state_mut().options.as_mut().unwrap().recording =
+        Some("example.tag-conventions/fix-tags".to_string());
+    h.run();
+    h.key_press(egui::Key::F6);
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "gate_guard");
+    h.key_press(egui::Key::F6);
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD", "F6 runs the plugin's command");
+
+    // Disabled again: its commands are gone.
+    h.state_mut().enable_plugin("example.tag-conventions", false);
+    h.run();
+    assert!(h.state().plugin_commands().is_empty());
+    // A plugin whose code fails changes nothing and says why.
+    h.state_mut().enable_plugin("test.hostile", true);
+    h.state_mut().run_plugin_command("test.hostile", "fails");
+    h.run();
+    assert!(
+        h.state()
+            .log
+            .entries
+            .iter()
+            .any(|(l, m)| { *l == mg_ui::Level::Error && m.contains("something went wrong") })
+    );
+    assert_eq!(tag_of(&mut h, &key), "GATE_GUARD");
+}
+
+/// A plugin's questions show in its job's window, one after another, and
+/// its work goes on with the answers.
+#[test]
+fn a_plugin_asks_in_its_job_s_window() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-forms", false) else { return };
+    h.state_mut().enable_plugin("test.forms", true);
+    h.state_mut().background_jobs = true;
+    h.run();
+    h.state_mut().run_plugin_command("test.forms", "rename");
+    // Frames until something with this label shows (the job's thread asks).
+    let wait_for = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        let started = std::time::Instant::now();
+        while h.query_by_label(label).is_none() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "no {label:?}");
+        }
+        // (The window settles where it stands before it is clicked.)
+        h.run_steps(3);
+    };
+    // The form, as the plugin described it, with its defaults.
+    wait_for(&mut h, "Prefix Tags");
+    h.get_by_label("Forms: Prefix Tags");
+    h.get_by_label("At most");
+    assert!(h.get_all_by_value("NPC_").next().is_some(), "the prefix's default");
+    h.get_by_label("OK").click();
+    // Then its question, then its message.
+    wait_for(&mut h, "Prefix up to 10 creatures?");
+    h.get_by_label("Yes").click();
+    wait_for(&mut h, "Done.");
+    h.get_by_label("OK").click();
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "the job never ended");
+    }
+    h.run_steps(2);
+    assert_eq!(tag_of(&mut h, &key), "NPC_GATE_GUARD");
+
+    // Canceled at the form: nothing changes.
+    h.state_mut().run_plugin_command("test.forms", "rename");
+    wait_for(&mut h, "Prefix Tags");
+    h.get_by_label("Cancel").click();
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "the job never ended");
+    }
+    h.run_steps(2);
+    assert_eq!(tag_of(&mut h, &key), "NPC_GATE_GUARD");
+}
+
+#[test]
+fn the_plugin_console_runs_what_is_typed() {
+    let Some((mut h, key)) = plugin_harness("ui-plugin-console", false) else { return };
+    h.run();
+    h.state_mut().plugins.window = true;
+    h.state_mut().plugins.console =
+        "ctx.edit:set(\"guard.utc\", \"Tag\", \"TYPED\")\nreturn ctx.module:gff(\"guard.utc\").Tag"
+            .into();
+    h.run();
+    h.get_by_label("Console").click();
+    h.run();
+    h.get_by_label("Run").click();
+    h.run();
+    assert_eq!(tag_of(&mut h, &key), "TYPED");
+    h.get_by_label("\"TYPED\"");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Plugin console"));
+    // A fault shows under the console, and changes nothing.
+    h.state_mut().plugins.console = "return nothing.here".into();
+    h.run();
+    h.get_by_label("Run").click();
+    h.run();
+    // (Under the console, and in the log.)
+    assert_eq!(h.get_all_by_label_contains("attempt to index nil").count(), 2);
+    assert_eq!(tag_of(&mut h, &key), "TYPED");
+}
+
+/// A plugin's checks run with Verify Module (which needs the game).
+#[test]
+fn a_plugin_s_checks_run_with_verify() {
+    let Some((mut h, _)) = plugin_harness("ui-plugin-verify", true) else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    h.state_mut().enable_plugin("example.tag-conventions", true);
+    h.state_mut().enable_plugin("test.hostile", true);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let log = &h.state().log.entries;
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Warning
+            && m.contains("guard.utc › Tag: tag \"gate_guard\" is not upper case")),
+        "{log:#?}"
+    );
+    // A check that breaks the rules is an error of its own, not a crash.
+    assert!(
+        log.iter().any(|(l, m)| *l == mg_ui::Level::Error && m.contains("a check only reads")),
+        "{log:#?}"
+    );
+}

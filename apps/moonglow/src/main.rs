@@ -108,8 +108,12 @@ fn crash_reports() {
         let time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
+        let plugins = match mg_ui::plugins::enabled_now().as_slice() {
+            [] => "none".to_string(),
+            enabled => enabled.join(", "),
+        };
         let report = format!(
-            "Moonglow Toolset {} crashed.\n\n{info}\n\nBacktrace:\n{}\n",
+            "Moonglow Toolset {} crashed.\n\n{info}\n\nPlugins enabled: {plugins}\n\nBacktrace:\n{}\n",
             env!("CARGO_PKG_VERSION"),
             std::backtrace::Backtrace::force_capture()
         );
@@ -168,6 +172,11 @@ fn main() -> eframe::Result<()> {
             moonglow.recovery_dir = mg_ui::recovery::data_dir().map(|d| d.join("recovery"));
             // Long work runs while the window keeps drawing.
             moonglow.background_jobs = true;
+            // The plugins installed in the data folder (`--no-plugins`
+            // starts without them).
+            moonglow.plugin_dir = mg_ui::recovery::data_dir().map(|d| d.join("plugins"));
+            moonglow.no_plugins = std::env::args().any(|a| a == "--no-plugins");
+            moonglow.load_plugins();
             moonglow.prefab_dir = mg_ui::prefabs::dir();
             moonglow.var_set_dir = mg_ui::var_sets::dir();
             moonglow.find_recoveries();
@@ -176,7 +185,9 @@ fn main() -> eframe::Result<()> {
                 moonglow.speaker = Box::new(s);
             }
             // `moonglow path/to/module.mod` opens a module at start.
-            if let Some(path) = std::env::args_os().nth(1) {
+            let module =
+                std::env::args_os().skip(1).find(|a| !a.to_string_lossy().starts_with("--"));
+            if let Some(path) = module {
                 moonglow.open_module(Path::new(&path));
             }
             Ok(Box::new(App { moonglow, title: String::new() }))

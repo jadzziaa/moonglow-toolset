@@ -35,6 +35,8 @@ impl Default for ScriptStyle {
 pub struct Settings {
     /// Recently opened or saved modules, most recent first.
     pub recent: Vec<PathBuf>,
+    /// The plugins enabled, by id (one installed is off until it is here).
+    pub plugins_enabled: Vec<String>,
     /// The game install, when not the detected one.
     pub game_root: Option<PathBuf>,
     /// The NWN user folder (haks, override, modules), when not the detected

@@ -582,17 +582,17 @@ fn form_fields(fields: Table) -> mlua::Result<Vec<FormField>> {
     Ok(out)
 }
 
-/// What a job's handler gets.
-fn context(lua: &Lua, sh: &Rc<Shared>, plugin: &Plugin) -> mlua::Result<Table> {
+/// What a job's handler gets (`about`: the plugin's id, name and version).
+fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> {
     let ctx = lua.create_table()?;
     ctx.set("module", reader(lua, sh, false)?)?;
     ctx.set("game", reader(lua, sh, true)?)?;
     ctx.set("edit", editor(lua, sh)?)?;
-    let about = lua.create_table()?;
-    about.set("id", plugin.manifest.id.as_str())?;
-    about.set("name", plugin.manifest.name.as_str())?;
-    about.set("version", plugin.manifest.version.as_str())?;
-    ctx.set("plugin", about)?;
+    let plugin = lua.create_table()?;
+    plugin.set("id", about[0])?;
+    plugin.set("name", about[1])?;
+    plugin.set("version", about[2])?;
+    ctx.set("plugin", plugin)?;
 
     let log = lua.create_table()?;
     for (name, level) in [("info", Level::Info), ("warn", Level::Warning), ("error", Level::Error)]
@@ -707,8 +707,9 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
     Ok(mg)
 }
 
-/// A machine for one job, the plugin's code loaded.
-fn start(plugin: &Plugin, sh: &Rc<Shared>) -> mlua::Result<Lua> {
+/// A machine for one job, the plugin's code loaded (`entry`; the console
+/// has none).
+fn start(entry: Option<&str>, sh: &Rc<Shared>) -> mlua::Result<Lua> {
     let lua = Lua::new();
     lua.set_memory_limit(MEMORY_LIMIT)?;
     lua.set_named_registry_value("mg.api", api(&lua)?)?;
@@ -746,6 +747,10 @@ fn start(plugin: &Plugin, sh: &Rc<Shared>) -> mlua::Result<Lua> {
                 && file.split('/').all(|p| !p.is_empty() && p != ".." && p != ".");
             if !inside {
                 return fail(format!("require({name:?}): only files of the plugin's folder"));
+            }
+            // (The console has no folder.)
+            if dir.as_os_str().is_empty() {
+                return fail(format!("require({name:?}): there are no files to require here"));
             }
             let loaded: Table = lua.named_registry_value("mg.modules")?;
             let cached: LuaValue = loaded.get(file)?;
@@ -790,17 +795,26 @@ fn start(plugin: &Plugin, sh: &Rc<Shared>) -> mlua::Result<Lua> {
 
     // From here the globals are fixed, and each script has its own.
     lua.sandbox(true)?;
-    let entry = sh.dir.join(&plugin.manifest.entry);
-    let source = std::fs::read_to_string(&entry)
-        .or_else(|e| fail(format!("{}: {e}", plugin.manifest.entry)))?;
-    lua.load(source).set_name(format!("@{}", plugin.manifest.entry)).exec()?;
+    if let Some(entry) = entry {
+        let source = std::fs::read_to_string(sh.dir.join(entry))
+            .or_else(|e| fail(format!("{entry}: {e}")))?;
+        lua.load(source).set_name(format!("@{entry}")).exec()?;
+    }
     Ok(lua)
+}
+
+fn about(plugin: &Plugin) -> [&str; 3] {
+    [&plugin.manifest.id, &plugin.manifest.name, &plugin.manifest.version]
 }
 
 /// A job's failure as the host reports it.
 fn failed(plugin: &Plugin, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
+    failure(&plugin.manifest.name, host, e)
+}
+
+fn failure(name: &str, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
     if host.cancelled() {
-        return PluginError::Canceled(plugin.manifest.name.clone());
+        return PluginError::Canceled(name.to_string());
     }
     let message = match &e {
         mlua::Error::MemoryError(_) => {
@@ -808,12 +822,16 @@ fn failed(plugin: &Plugin, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
         }
         other => other.to_string(),
     };
-    PluginError::Script { plugin: plugin.manifest.name.clone(), message }
+    PluginError::Script { plugin: name.to_string(), message }
 }
 
 fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
+    shared_in(plugin.dir.clone(), input, host)
+}
+
+fn shared_in(dir: PathBuf, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
     Rc::new(Shared {
-        dir: plugin.dir.clone(),
+        dir,
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
         game: input.game,
@@ -839,9 +857,9 @@ pub(crate) fn run_command(
 ) -> Result<Outcome, PluginError> {
     let sh = shared(plugin, input, &host);
     let run = || -> mlua::Result<String> {
-        let lua = start(plugin, &sh)?;
+        let lua = start(Some(&plugin.manifest.entry), &sh)?;
         let f = handler(&lua, "mg.commands", "command", &decl.id)?;
-        let made: LuaValue = f.call(context(&lua, &sh, plugin)?)?;
+        let made: LuaValue = f.call(context(&lua, &sh, about(plugin))?)?;
         // What it calls the change: `return { label = … }`, or its title.
         let label = match &made {
             LuaValue::Table(t) => t.get::<Option<String>>("label")?,
@@ -865,9 +883,9 @@ pub(crate) fn run_check(
 ) -> Result<Vec<Finding>, PluginError> {
     let sh = shared(plugin, input, &host);
     let run = || -> mlua::Result<Vec<Finding>> {
-        let lua = start(plugin, &sh)?;
+        let lua = start(Some(&plugin.manifest.entry), &sh)?;
         let f = handler(&lua, "mg.checks", "check", &decl.id)?;
-        let made: LuaValue = f.call(context(&lua, &sh, plugin)?)?;
+        let made: LuaValue = f.call(context(&lua, &sh, about(plugin))?)?;
         let list = match made {
             LuaValue::Nil => return Ok(Vec::new()),
             LuaValue::Table(t) => t,
@@ -911,7 +929,7 @@ pub(crate) fn inspect(plugin: &Plugin, host: Rc<dyn Host>) -> Result<Vec<String>
     let input = Input { module: mg_module::Module::new(), game: None };
     let sh = shared(plugin, input, &host);
     let run = || -> mlua::Result<Vec<String>> {
-        let lua = start(plugin, &sh)?;
+        let lua = start(Some(&plugin.manifest.entry), &sh)?;
         let mut faults = Vec::new();
         let registered = |registry: &str| -> mlua::Result<Vec<String>> {
             let handlers: Table = lua.named_registry_value(registry)?;
@@ -942,4 +960,65 @@ pub(crate) fn inspect(plugin: &Plugin, host: Rc<dyn Host>) -> Result<Vec<String>
         Ok(faults)
     };
     run().map_err(|e| failed(plugin, &host, e))
+}
+
+/// A value as the console shows it: text and numbers as they are, a table
+/// with its entries (to a depth, and not without end).
+fn shown(v: &LuaValue, depth: usize, out: &mut String) {
+    match v {
+        LuaValue::String(s) => out.push_str(&format!("{:?}", s.to_string_lossy())),
+        LuaValue::Table(t) if depth < 4 => {
+            out.push('{');
+            for (n, pair) in t.pairs::<LuaValue, LuaValue>().enumerate() {
+                let Ok((k, v)) = pair else { break };
+                if n > 0 {
+                    out.push_str(", ");
+                }
+                if n == 40 {
+                    out.push('…');
+                    break;
+                }
+                match &k {
+                    LuaValue::Integer(_) | LuaValue::Number(_) => {}
+                    LuaValue::String(s) => out.push_str(&format!("{} = ", s.to_string_lossy())),
+                    other => out.push_str(&format!("[{}] = ", other.type_name())),
+                }
+                shown(&v, depth + 1, out);
+            }
+            out.push('}');
+        }
+        LuaValue::Table(_) => out.push_str("{…}"),
+        LuaValue::Nil => out.push_str("nil"),
+        LuaValue::Boolean(b) => out.push_str(&b.to_string()),
+        LuaValue::Integer(i) => out.push_str(&i.to_string()),
+        LuaValue::Number(n) => out.push_str(&n.to_string()),
+        other => out.push_str(other.type_name()),
+    }
+}
+
+/// Code typed into the console: run with `mg` and `ctx` at hand, what it
+/// returns shown in the log, its edits handed back like a command's.
+pub(crate) fn run_console(
+    code: &str,
+    input: Input,
+    host: Rc<dyn Host>,
+) -> Result<Outcome, PluginError> {
+    let sh = shared_in(PathBuf::new(), input, &host);
+    let run = || -> mlua::Result<()> {
+        let lua = start(None, &sh)?;
+        let ctx = context(&lua, &sh, ["console", "Console", crate::API])?;
+        let source = format!("local mg = require(\"@moonglow\")\nlocal ctx = ...\n{code}");
+        let made: mlua::MultiValue = lua.load(source).set_name("=console").call(ctx)?;
+        for v in made {
+            let mut text = String::new();
+            shown(&v, 0, &mut text);
+            sh.host.log(Level::Info, &text);
+        }
+        Ok(())
+    };
+    run().map_err(|e| failure("Console", &host, e))?;
+    if host.cancelled() {
+        return Err(PluginError::Canceled("Console".into()));
+    }
+    Ok(Outcome { label: "Plugin console".into(), edits: sh.edits.take() })
 }

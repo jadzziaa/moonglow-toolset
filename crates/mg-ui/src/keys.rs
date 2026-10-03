@@ -25,6 +25,8 @@ pub enum Group {
     Script,
     /// In the conversation editor, with the pointer over it.
     Conversation,
+    /// The enabled plugins' commands (anywhere in the window).
+    Plugins,
 }
 
 impl Group {
@@ -34,13 +36,15 @@ impl Group {
             Group::Area => "Area",
             Group::Script => "Script Editor",
             Group::Conversation => "Conversation Editor",
+            Group::Plugins => "Plugins",
         }
     }
 
     /// Whether keys in both groups can be pressed at the same moment (the
     /// general keys work everywhere).
     fn overlaps(self, other: Group) -> bool {
-        self == other || self == Group::General || other == Group::General
+        let anywhere = |g: Group| matches!(g, Group::General | Group::Plugins);
+        self == other || anywhere(self) || anywhere(other)
     }
 }
 
@@ -352,6 +356,8 @@ pub fn defaults_of(id: &str) -> Vec<KeyboardShortcut> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keymap {
     keys: HashMap<String, Vec<KeyboardShortcut>>,
+    /// The own keys of commands that are no key commands (a plugin's).
+    defaults: HashMap<String, Vec<KeyboardShortcut>>,
 }
 
 impl Default for Keymap {
@@ -370,14 +376,37 @@ impl Keymap {
         for (id, list) in chosen {
             keys.insert(id.clone(), list.iter().filter_map(|t| from_text(t)).collect());
         }
-        Keymap { keys }
+        Keymap { keys, defaults: HashMap::new() }
+    }
+
+    /// The own keys of a command that is no key command (a plugin's, from
+    /// its manifest): they are its keys unless the settings chose others.
+    pub fn set_default(&mut self, id: &str, keys: Vec<KeyboardShortcut>) {
+        // (The settings' choice for it, if any, is in already.)
+        self.keys.entry(id.to_string()).or_insert_with(|| keys.clone());
+        self.defaults.insert(id.to_string(), keys);
+    }
+
+    /// A command's own keys: Moonglow's for a key command, its manifest's
+    /// for a plugin's, none for any other.
+    pub fn defaults_of(&self, id: &str) -> Vec<KeyboardShortcut> {
+        self.defaults.get(id).cloned().unwrap_or_else(|| defaults_of(id))
+    }
+
+    /// Every command back to its own keys.
+    pub fn reset_all(&mut self) {
+        let ids: Vec<String> = self.keys.keys().cloned().collect();
+        for id in ids {
+            let own = self.defaults_of(&id);
+            self.keys.insert(id, own);
+        }
     }
 
     /// The settings' form: each command whose keys aren't Moonglow's.
     pub fn chosen(&self) -> BTreeMap<String, Vec<String>> {
         self.keys
             .iter()
-            .filter(|(id, keys)| **keys != defaults_of(id))
+            .filter(|(id, keys)| **keys != self.defaults_of(id))
             .map(|(id, keys)| (id.clone(), keys.iter().map(to_text).collect()))
             .collect()
     }

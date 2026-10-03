@@ -200,11 +200,16 @@ impl Moonglow {
 /// else takes input while it shows.
 pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(job) = &app.job else { return };
+    let (title, progress, started) = (job.title.clone(), job.progress.clone(), job.started);
     egui::Modal::new(egui::Id::new("job")).show(ctx, |ui| {
         ui.set_width(320.0);
-        ui.heading(&job.title);
+        ui.heading(&title);
+        // A plugin waiting on the user shows its question here.
+        if crate::plugins::question_ui(app, ui) {
+            return;
+        }
         let (done, total) =
-            (job.progress.done.load(Ordering::Relaxed), job.progress.total.load(Ordering::Relaxed));
+            (progress.done.load(Ordering::Relaxed), progress.total.load(Ordering::Relaxed));
         if total > 0 {
             let bar = egui::ProgressBar::new(done as f32 / total as f32)
                 .text(format!("{done} of {total}"));
@@ -212,18 +217,18 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         } else {
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(format!("{} s", job.started.elapsed().as_secs()));
+                ui.label(format!("{} s", started.elapsed().as_secs()));
             });
         }
-        let note = job.progress.note();
+        let note = progress.note();
         if !note.is_empty() {
             ui.label(note);
         }
         ui.add_space(6.0);
-        if job.progress.cancelled() {
+        if progress.cancelled() {
             ui.weak("Canceling…");
         } else if ui.button("Cancel").clicked() {
-            job.progress.cancel.store(true, Ordering::Relaxed);
+            progress.cancel.store(true, Ordering::Relaxed);
         }
     });
 }

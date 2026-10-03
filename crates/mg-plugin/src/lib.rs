@@ -216,6 +216,14 @@ pub fn run_check(
     runtime::run_check(plugin, decl, input, host)
 }
 
+/// Runs code typed into the plugin console on a module, with `mg` (the
+/// API) and `ctx` (as a command's handler gets it) at hand: what it
+/// returns goes to the log, its edits come back like a command's. The
+/// code is sandboxed as a plugin's is, and can `require` no files.
+pub fn run_console(code: &str, input: Input, host: Rc<dyn Host>) -> Result<Outcome, PluginError> {
+    runtime::run_console(code, input, host)
+}
+
 /// Loads a plugin's code and compares what it registers with what its
 /// manifest declares: the faults, as text (none: the two agree).
 pub fn inspect(plugin: &Plugin, host: Rc<dyn Host>) -> Result<Vec<String>, PluginError> {

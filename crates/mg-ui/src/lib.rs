@@ -34,6 +34,7 @@ pub mod module_props;
 pub mod nwsync_view;
 mod options;
 pub mod palette_view;
+pub mod plugins;
 pub mod prefabs;
 pub mod recovery;
 pub mod references;
@@ -97,7 +98,7 @@ pub enum Action {
     OptionsDialog,
     /// Uses these folders for the game and the user directory (reloading the
     /// game data; closes the module).
-    ApplyOptions(OptionsDraft),
+    ApplyOptions(Box<OptionsDraft>),
     Save,
     SaveAsDialog,
     /// File › Save As nasher Project…: the module into a nasher project
@@ -366,6 +367,15 @@ pub struct Moonglow {
     /// shows (and has a width to match). Tests of other windows turn it
     /// off.
     pub open_palette: bool,
+    /// The plugins installed, and what they are doing (`plugins`).
+    pub plugins: plugins::Plugins,
+    /// Where plugins are installed (the application gives Moonglow's data
+    /// folder's `plugins`).
+    pub plugin_dir: Option<PathBuf>,
+    /// Started without plugins (`--no-plugins`): none are read.
+    pub no_plugins: bool,
+    /// The keys are to be worked out again (the plugins changed).
+    keymap_stale: bool,
     /// The Command Palette, while it is open.
     pub command_palette: Option<commands::Finder>,
     /// The job under way, if one is (`jobs`).
@@ -492,6 +502,10 @@ impl Moonglow {
             tree_width: None,
             dock_width: None,
             open_palette: false,
+            plugins: Default::default(),
+            plugin_dir: None,
+            no_plugins: false,
+            keymap_stale: false,
             command_palette: None,
             job: None,
             background_jobs: false,
@@ -624,6 +638,7 @@ impl Moonglow {
                 self.hak_report = None;
             }
         }
+        plugins::window(self, ui.ctx());
         commands::palette_window(self, ui.ctx());
         jobs::window(self, ui.ctx());
         if !self.actions.is_empty() {
@@ -681,8 +696,11 @@ impl Moonglow {
 
     fn shortcuts(&mut self, ui: &mut egui::Ui) {
         // The keys as Options › Keyboard last set them.
-        if self.keymap_from != self.settings.key_bindings {
+        if std::mem::take(&mut self.keymap_stale) || self.keymap_from != self.settings.key_bindings
+        {
             self.keymap = keys::Keymap::new(&self.settings.key_bindings);
+            let commands = self.plugin_commands();
+            plugins::register_keys(&mut self.keymap, &commands);
             self.keymap_from = self.settings.key_bindings.clone();
         }
         // Options › Keyboard takes the next key itself, and the Command
@@ -1066,9 +1084,17 @@ impl Moonglow {
             Action::Import(draft) => self.run_import(draft),
             Action::HakReport => self.hak_report(),
             Action::OptionsDialog => {
-                self.options = Some(OptionsDraft::from_settings(&self.settings))
+                let mut draft = OptionsDraft::from_settings(&self.settings);
+                // The plugins' commands take keys like the rest.
+                let commands = self.plugin_commands();
+                plugins::register_keys(&mut draft.keymap, &commands);
+                draft.plugin_commands = commands
+                    .into_iter()
+                    .map(|c| (c.key_id, format!("{}: {}", c.plugin_name, c.title)))
+                    .collect();
+                self.options = Some(draft);
             }
-            Action::ApplyOptions(draft) => self.apply_options(draft),
+            Action::ApplyOptions(draft) => self.apply_options(*draft),
             Action::Save => self.save(None),
             Action::SaveAsDialog => {
                 // A new module is offered as <name>.mod in the modules folder.
@@ -1794,9 +1820,16 @@ impl Moonglow {
         if self.ws.is_none() || self.game.is_none() {
             return;
         }
+        // The enabled plugins' checks run with the doctor's.
+        let plugins: Vec<mg_plugin::Plugin> = self
+            .enabled_plugins()
+            .into_iter()
+            .filter(|p| !p.manifest.checks.is_empty())
+            .cloned()
+            .collect();
         self.start_job(
             "Verify Module",
-            |job| {
+            move |job| {
                 let game = job.game.as_deref()?;
                 job.progress.say("Looking for what is missing");
                 let missing = mg_module::verify::missing(&job.module, &game.resman);
@@ -1810,11 +1843,14 @@ impl Moonglow {
                     base: game.tlk().entries.len(),
                     custom: game.custom_tlk().map(|t| t.entries.len()),
                 };
-                let findings = mg_module::doctor::examine(&job.module, &game.resman, tlk);
-                Some((missing, findings))
+                let mut findings = mg_module::doctor::examine(&job.module, &game.resman, tlk);
+                let (found, said) = plugins::check_findings(&plugins, job);
+                findings.extend(found);
+                Some((missing, findings, said))
             },
             |app, made| {
-                let Some((missing, findings)) = made else { return };
+                let Some((missing, findings, said)) = made else { return };
+                app.log.entries.extend(said);
                 for m in &missing {
                     let what = if m.uncompiled { "is not compiled" } else { "is missing" };
                     let text = format!(

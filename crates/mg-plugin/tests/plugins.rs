@@ -319,6 +319,27 @@ fn code_and_manifest_must_agree() {
     assert!(e.contains("the code registers none"), "{e}");
 }
 
+#[test]
+fn the_console_runs_what_is_typed() {
+    use mg_plugin::run_console;
+    let host = Rc::new(TestHost::default());
+    let input = || Input { module: module(), game: None };
+    // What it returns is shown; its edits are a command's.
+    let code = r#"
+        ctx.edit:set("guard.utc", "Tag", "FROM_CONSOLE")
+        return ctx.module:resources("utc"), ctx.module:gff("guard.utc").Tag, 2 + 2
+    "#;
+    let outcome = run_console(code, input(), host.clone()).unwrap();
+    assert_eq!(outcome.edits.len(), 1);
+    let log: Vec<String> = host.log.borrow().iter().map(|(_, m)| m.clone()).collect();
+    assert_eq!(log, ["{\"captain.utc\", \"guard.utc\"}", "\"FROM_CONSOLE\"", "4"]);
+    // A fault says where; no file can be required.
+    let e = run_console("local x = nil\nreturn x.y", input(), host.clone()).unwrap_err();
+    assert!(e.to_string().contains("console:4"), "{e}");
+    let e = run_console("return require('rules')", input(), host).unwrap_err().to_string();
+    assert!(e.contains("there are no files to require here"), "{e}");
+}
+
 /// The game's own data, where there is an install: a 2DA's cells by row
 /// and column, a talk-table string, a resource the game would load.
 #[test]

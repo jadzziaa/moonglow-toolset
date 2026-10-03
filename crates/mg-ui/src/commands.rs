@@ -61,6 +61,8 @@ pub enum Id {
     TestChoose,
     PackTarget,
     AreaStatistics,
+    /// The Plugins window.
+    Plugins,
     Manual,
     CommandPalette,
     About,
@@ -81,12 +83,14 @@ pub enum Item {
     Prefabs,
     /// The blueprint wizards.
     Wizards,
+    /// The enabled plugins' commands.
+    PluginCommands,
 }
 
 use Item::{Do, Separator, Sub};
 
 /// The menu bar.
-pub const MENUS: [(&str, &[Item]); 6] = [
+pub const MENUS: [(&str, &[Item]); 7] = [
     (
         "File",
         &[
@@ -156,6 +160,7 @@ pub const MENUS: [(&str, &[Item]); 6] = [
             Do(Id::AreaStatistics),
         ],
     ),
+    ("Plugins", &[Item::PluginCommands, Do(Id::Plugins)]),
     ("Help", &[Do(Id::Manual), Do(Id::CommandPalette), Do(Id::About)]),
 ];
 
@@ -194,7 +199,7 @@ impl Id {
                     Item::Wizards => {
                         out.extend(crate::blueprint_wizard::KINDS.into_iter().map(Id::Wizard));
                     }
-                    Separator | Item::Recent | Item::Prefabs => {}
+                    Separator | Item::Recent | Item::Prefabs | Item::PluginCommands => {}
                 }
             }
         }
@@ -301,6 +306,11 @@ impl Id {
                 "Write the nasher project's module file, as nasher packs it",
             ),
             Id::AreaStatistics => ("area-statistics", "Area Statistics", ""),
+            Id::Plugins => (
+                "plugins",
+                "Manage Plugins…",
+                "The plugins installed: enable them, and try the plugin console",
+            ),
             Id::Manual => ("manual", "User Manual", ""),
             Id::CommandPalette => {
                 ("command-palette", "Command Palette…", "Find a command by its name and run it")
@@ -402,6 +412,7 @@ impl Id {
             | Id::BuildHak
             | Id::ReloadResources
             | Id::Options
+            | Id::Plugins
             | Id::Manual
             | Id::CommandPalette
             | Id::About
@@ -527,6 +538,10 @@ impl Id {
                 app.area_stats = shown_area(app);
                 return;
             }
+            Id::Plugins => {
+                app.plugins.window = true;
+                return;
+            }
             Id::CommandPalette => {
                 app.command_palette = Some(Finder::default());
                 return;
@@ -577,6 +592,14 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
             id.run(app, ui.ctx());
         }
     }
+    // The plugins' commands, after the window's own: a key both have is
+    // the window's.
+    for c in app.plugin_commands() {
+        let pressed = ui.input_mut(|i| keymap.consume_outside_text(i, &c.key_id, typing));
+        if pressed && app.ws.is_some() {
+            app.run_plugin_command(&c.plugin, &c.command);
+        }
+    }
 }
 
 /// The menu bar, from [`MENUS`].
@@ -601,6 +624,33 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item]) {
             Item::Wizards => {
                 for kind in crate::blueprint_wizard::KINDS {
                     button(app, ui, Id::Wizard(kind));
+                }
+            }
+            Item::PluginCommands => {
+                let commands = app.plugin_commands();
+                let several = commands.iter().any(|c| c.plugin != commands[0].plugin);
+                let mut last = None;
+                for c in &commands {
+                    // Each plugin's under its name, when there are several.
+                    if several && last != Some(&c.plugin) {
+                        ui.weak(&c.plugin_name);
+                    }
+                    last = Some(&c.plugin);
+                    let mut entry = egui::Button::new(&c.title);
+                    let key = app.keymap.label_of(&c.key_id, ui.ctx());
+                    if !key.is_empty() {
+                        entry = entry.shortcut_text(key);
+                    }
+                    let mut r = ui.add_enabled(app.ws.is_some(), entry);
+                    if !c.hint.is_empty() {
+                        r = r.on_hover_text(&c.hint);
+                    }
+                    if r.clicked() {
+                        app.run_plugin_command(&c.plugin, &c.command);
+                    }
+                }
+                if !commands.is_empty() {
+                    ui.separator();
                 }
             }
             Item::Recent => {
@@ -671,31 +721,68 @@ fn menu_of(id: Id) -> Option<&'static str> {
             Do(other) => *other == id,
             Sub(_, items) => has(items, id),
             Item::Wizards => matches!(id, Id::Wizard(_)),
-            Separator | Item::Recent | Item::Prefabs => false,
+            Separator | Item::Recent | Item::Prefabs | Item::PluginCommands => false,
         })
     }
     MENUS.iter().find(|(_, items)| has(items, id)).map(|(name, _)| *name)
 }
 
+/// What a row of the palette runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Choice {
+    Window(Id),
+    /// A plugin's command: the plugin's id and the command's.
+    Plugin(String, String),
+}
+
+/// A command as the palette lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Row {
+    pub(crate) choice: Choice,
+    pub(crate) label: String,
+    /// Its menu (a plugin's command: the plugin's name).
+    pub(crate) menu: String,
+    /// The id its keys are kept under.
+    pub(crate) key_id: String,
+    pub(crate) enabled: bool,
+}
+
 /// The commands the palette offers for what is typed: those whose name (as
 /// its menu shows it now) holds every word, in the menus' order, then
 /// those that need their menu's name for it (`build` finds Build Module,
-/// then the rest of the Build menu).
-pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Id> {
+/// then the rest of the Build menu). The enabled plugins' commands are
+/// among them.
+pub(crate) fn found(app: &Moonglow, filter: &str) -> Vec<Row> {
     let words: Vec<String> = filter.split_whitespace().map(str::to_lowercase).collect();
     let has_all = |text: &str| words.iter().all(|w| text.contains(w));
-    let mut found: Vec<(bool, Id)> = Id::all()
-        .into_iter()
-        .filter(|id| *id != Id::CommandPalette && id.shown(app))
-        .filter_map(|id| {
-            let name = id.label(app).to_lowercase();
-            let with_menu = format!("{} {name}", menu_of(id).unwrap_or_default().to_lowercase());
+    let window =
+        Id::all().into_iter().filter(|id| *id != Id::CommandPalette && id.shown(app)).map(|id| {
+            Row {
+                choice: Choice::Window(id),
+                label: id.label(app),
+                menu: menu_of(id).unwrap_or_default().to_string(),
+                key_id: id.id(),
+                enabled: id.enabled(app),
+            }
+        });
+    let plugins = app.plugin_commands().into_iter().map(|c| Row {
+        choice: Choice::Plugin(c.plugin, c.command),
+        label: c.title,
+        menu: c.plugin_name,
+        key_id: c.key_id,
+        enabled: app.ws.is_some(),
+    });
+    let mut found: Vec<(bool, Row)> = window
+        .chain(plugins)
+        .filter_map(|row| {
+            let name = row.label.to_lowercase();
+            let with_menu = format!("{} {name}", row.menu.to_lowercase());
             let by_name = has_all(&name);
-            (by_name || has_all(&with_menu)).then_some((!by_name, id))
+            (by_name || has_all(&with_menu)).then_some((!by_name, row))
         })
         .collect();
     found.sort_by_key(|(by_menu, _)| *by_menu);
-    found.into_iter().map(|(_, id)| id).collect()
+    found.into_iter().map(|(_, row)| row).collect()
 }
 
 /// The Command Palette's window: type part of a command's name, choose
@@ -737,42 +824,42 @@ pub(crate) fn palette_window(app: &mut Moonglow, ctx: &egui::Context) {
         }
         egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
             ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                for (i, id) in matches.iter().enumerate() {
+                for (i, row) in matches.iter().enumerate() {
                     // Its menu and its key, at the right.
-                    let key = app.keymap.label_of(&id.id(), ui.ctx());
-                    let beside = match (menu_of(*id), key.is_empty()) {
-                        (Some(menu), true) => menu.to_string(),
-                        (Some(menu), false) => format!("{menu}   {key}"),
-                        (None, _) => key,
+                    let key = app.keymap.label_of(&row.key_id, ui.ctx());
+                    let beside = match (row.menu.is_empty(), key.is_empty()) {
+                        (false, true) => row.menu.clone(),
+                        (false, false) => format!("{}   {key}", row.menu),
+                        (true, _) => key,
                     };
-                    let (label, enabled) = (id.label(app), id.enabled(app));
-                    let row = egui::Button::selectable(i == finder.selected, &label)
+                    let entry = egui::Button::selectable(i == finder.selected, &row.label)
                         .shortcut_text(beside);
-                    let row = ui.add_enabled(enabled, row);
+                    let entry = ui.add_enabled(row.enabled, entry);
                     // (Named by the command alone, not with what is beside it.)
-                    row.widget_info(|| {
+                    entry.widget_info(|| {
                         egui::WidgetInfo::selected(
                             egui::WidgetType::Button,
-                            enabled,
+                            row.enabled,
                             i == finder.selected,
-                            &label,
+                            &row.label,
                         )
                     });
                     if (up || down) && i == finder.selected {
-                        row.scroll_to_me(None);
+                        entry.scroll_to_me(None);
                     }
-                    if row.clicked() {
-                        run = Some(*id);
+                    if entry.clicked() {
+                        run = Some(row.choice.clone());
                     }
                 }
             });
         });
-        if enter && let Some(id) = matches.get(finder.selected).filter(|id| id.enabled(app)) {
-            run = Some(*id);
+        if enter && let Some(row) = matches.get(finder.selected).filter(|row| row.enabled) {
+            run = Some(row.choice.clone());
         }
     });
     match run {
-        Some(id) => id.run(app, ctx),
+        Some(Choice::Window(id)) => id.run(app, ctx),
+        Some(Choice::Plugin(plugin, command)) => app.run_plugin_command(&plugin, &command),
         None if modal.should_close() => {}
         None => app.command_palette = Some(finder),
     }

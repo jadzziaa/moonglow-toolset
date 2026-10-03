@@ -1275,3 +1275,32 @@ fn command_palette() {
     h.run();
     shoot(&mut h, &dir, "command-palette");
 }
+
+/// The Plugins window with the plugin host's fixture plugins installed and
+/// one enabled, the console open (`target/test-output/screens-plugins/`).
+#[test]
+#[ignore]
+fn plugins_window() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-plugins");
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.plugin_dir =
+        Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures"));
+    app.load_plugins();
+    app.enable_plugin("example.tag-conventions", true);
+    app.plugins.window = true;
+    app.plugins.console = "return ctx.module:resources(\"utc\")".into();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Console").click();
+    h.run();
+    shoot(&mut h, &dir, "plugins");
+    h.state_mut().plugins.window = false;
+    h.run();
+    h.get_by_label("Plugins").click();
+    h.run();
+    shoot(&mut h, &dir, "plugins-menu");
+}
