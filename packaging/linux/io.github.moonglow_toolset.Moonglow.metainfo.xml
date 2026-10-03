@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.8.0" date="2026-10-03">
+      <description>
+        <p>Waypoints show the flags of their appearance; the area view draws
+        the ranges of placed sounds, lights a dark area evenly with its
+        lighting switched off, and moves its camera up and down (Z and C, or
+        Ctrl + Shift with the wheel or a middle drag); areas can be listed by
+        name rather than ResRef; the Options window keeps its size; and the
+        cliffs of the Forest - Facelift tileset are drawn whole.</p>
+      </description>
+    </release>
     <release version="0.7.1" date="2026-10-03">
       <description>
         <p>Areas on custom tilesets whose door counts are no counts (values
