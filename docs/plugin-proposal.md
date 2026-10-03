@@ -483,8 +483,9 @@ Phases 2 and 3 can swap if teams ask for Python first.
   generated; a plugin's own tests (`mg plugin test`) are not built.
 - The type file was not tried in an editor with the Luau language
   server.
-- The window was tested through the UI harness and rendered
-  screenshots, not by hand in the running application.
+- The running application was driven with plugins on Linux (an
+  off-screen display); on Windows and macOS the tests pass in CI, but
+  nobody has used plugins in the window there.
 
 Where the build differs from the text above: the window's commands are
 under a **Plugins** menu (Manage Plugins…, Install Plugin from File…),

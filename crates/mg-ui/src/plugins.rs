@@ -700,7 +700,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             }
             ui.separator();
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                if app.plugins.installed.is_empty() {
+                // (Started without plugins, none are listed: said above.)
+                if app.plugins.installed.is_empty() && !app.no_plugins {
                     ui.weak(
                         "No plugins are installed. Install one from its archive (Install from \
                          File…), or copy a plugin's folder into the folder above.",

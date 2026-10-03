@@ -246,8 +246,14 @@ Size: S (an hour or two), M (a day or so), L (several days).
     Luau language server. (S)
   - **External programs** as plugins (a protocol over standard input and
     output, for Python or Nim): not started. (M)
-  - **The window with plugins was tested through the UI harness**, not
-    by hand in the running application on each system. (S)
+  - **The window with plugins was run on Linux only:** the application
+    itself was driven on an off-screen display there (plugins installed
+    from archives listed and enabled, a command as a background job, a
+    form answered, Undo, a check in Verify Module, the enabled plugins
+    kept over a restart, `--no-plugins`), and the rest through the UI
+    harness. On Windows and macOS the tests pass in CI, but nobody has
+    used plugins in the window there; and the file dialog of Install
+    from File was not driven anywhere (the harness answers for it). (S)
 - **`mg find` beyond objects:** it searches blueprints and placed objects;
   conversation lines, scripts' text and 2DA rows have `mg replace
   --dry-run`, the script editor's Find in Files and the resource browser.

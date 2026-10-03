@@ -8080,3 +8080,29 @@ fn a_plugin_installs_from_a_file_and_is_off() {
     assert_eq!(h.state().plugins.installed.len(), 1);
     assert!(by_hand.join("main.luau").is_file());
 }
+
+/// Started with `--no-plugins`: none is loaded, whatever is installed and
+/// was enabled, and Manage Plugins says so.
+#[test]
+fn started_without_plugins_none_is_loaded() {
+    let mut app = app_with(Vec::new());
+    app.plugin_dir = Some(plugin_fixtures());
+    app.settings.plugins_enabled = vec!["example.tag-conventions".to_string()];
+    app.no_plugins = true;
+    app.load_plugins();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(h.state().plugins.installed.is_empty());
+    assert!(h.state().plugin_commands().is_empty());
+    h.get_by_label("Plugins").click();
+    h.run();
+    assert!(h.query_by_label("Fix Creature Tags").is_none());
+    h.get_by_label("Manage Plugins…").click();
+    h.run();
+    h.get_by_label("Started with --no-plugins: none are loaded.");
+    assert!(h.query_by_label_contains("No plugins are installed").is_none());
+    // (What was enabled stays enabled for the next start.)
+    assert_eq!(h.state().settings.plugins_enabled, ["example.tag-conventions"]);
+}
