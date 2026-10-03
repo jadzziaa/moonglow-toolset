@@ -125,6 +125,35 @@ fn blueprints_assemble() {
     assert_eq!(d.base.model, door_types.get(1, "Model").unwrap().to_ascii_lowercase());
 }
 
+/// A part whose model names a texture that doesn't exist takes the texture
+/// of its own name, as the game does: `pfh0_belt063` names `beltmerged`.
+#[test]
+fn a_part_naming_a_missing_texture_takes_its_own() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut look = CreatureLook::new(6);
+    look.gender = 1;
+    let mut utc = look.to_utc();
+    utc.set("BodyPart_Belt", mg_gff::Value::Byte(63));
+    let p = creature(&game, &utc, &|_| None).unwrap();
+    let belt = p.parts.iter().find(|x| x.model == "pfh0_belt063").expect("the belt");
+    assert_eq!(belt.textures.get("beltmerged").map(String::as_str), Some("pfh0_belt063"));
+    // No part of the base game's human bodies is left without a texture
+    // that one of its own name (or its fallbacks') would give it.
+    let has = |name: &str| {
+        [ResType::PLT, ResType::DDS, ResType::TGA]
+            .iter()
+            .any(|&t| game.resman.get_named(name, t).is_ok())
+    };
+    for part in &p.parts {
+        for (old, new) in &part.textures {
+            assert!(!has(old) && has(new), "{}: {old} -> {new}", part.model);
+        }
+    }
+}
+
 #[test]
 fn previews_render() {
     let Some(game) = game() else {

@@ -355,22 +355,34 @@ pub fn creature(
 }
 
 /// Textures of a part model that are missing, and the game's fallbacks:
-/// `p<g><r><pheno>_<part>` → phenotype 0 → human of the same gender →
-/// human male.
+/// the texture of the part's own name (`p<g><r><pheno>_<part>`: the game
+/// applies it whatever the model names) → phenotype 0 → human of the same
+/// gender → human male; then the same from the texture's name.
 fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<String, String> {
+    // A part's name, and its fallbacks.
+    let named = |name: &str| -> Vec<String> {
+        let Some((prefix, rest)) = name.split_once('_') else { return Vec::new() };
+        let mut chars = prefix.chars();
+        let (Some('p'), Some(g), Some(r), Some(_), None) =
+            (chars.next(), chars.next(), chars.next(), chars.next(), chars.next())
+        else {
+            return Vec::new();
+        };
+        vec![
+            name.to_string(),
+            format!("p{g}{r}0_{rest}"),
+            format!("p{g}h0_{rest}"),
+            format!("pmh0_{rest}"),
+        ]
+    };
+    let model = model.to_ascii_lowercase();
     let mut out = std::collections::BTreeMap::new();
-    for b in lk.bitmaps(model) {
+    for b in lk.bitmaps(&model) {
         if lk.has_texture(&b) {
             continue;
         }
-        let Some((prefix, rest)) = b.split_once('_') else { continue };
-        let mut chars = prefix.chars();
-        let (Some('p'), Some(g), Some(r)) = (chars.next(), chars.next(), chars.next()) else {
-            continue;
-        };
-        let candidates =
-            [format!("p{g}{r}0_{rest}"), format!("p{g}h0_{rest}"), format!("pmh0_{rest}")];
-        if let Some(c) = candidates.into_iter().find(|c| lk.has_texture(c)) {
+        let candidates = named(&model).into_iter().chain(named(&b));
+        if let Some(c) = candidates.into_iter().find(|c| *c != b && lk.has_texture(c)) {
             out.insert(b, c);
         }
     }
