@@ -309,6 +309,8 @@ pub struct Moonglow {
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
     /// The Update Instances window.
     pub update_draft: Option<bulk::UpdateDraft>,
+    /// The Edit Areas Together window: the areas being chosen.
+    pub(crate) area_chooser: Option<area_props::AreaChooser>,
     /// The Find and Replace Text window.
     pub text_replace: Option<bulk::TextReplace>,
     /// Where prefabs are kept (the app sets Moonglow's data folder's
@@ -460,6 +462,7 @@ impl Moonglow {
             script_nav: Default::default(),
             prefab_save: None,
             update_draft: None,
+            area_chooser: None,
             text_replace: None,
             prefab_dir: None,
             var_set_dir: None,
@@ -619,6 +622,7 @@ impl Moonglow {
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
         bulk::update_window(self, ui.ctx());
+        area_props::chooser_window(self, ui.ctx());
         hak_view::closing_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());

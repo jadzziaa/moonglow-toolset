@@ -7,6 +7,7 @@
 //! file is written next to the old one and renamed over it, after the old
 //! one is kept as a single backup.
 
+pub mod areas;
 pub mod attach;
 pub mod blueprints;
 pub mod build;

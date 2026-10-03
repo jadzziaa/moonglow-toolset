@@ -27,41 +27,68 @@ const GROUPS: &[(&str, &[ResType])] = &[
     ("Journal and factions", &[ResType::JRL, ResType::FAC]),
 ];
 
-/// The areas' names, each read from its ARE once: again when the ARE is
-/// replaced, and from the open document while it is being edited.
+/// What lists of areas show and filter by, from an area's ARE.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct AreaInfo {
+    /// Its name in the editing language, else as the game shows it (its
+    /// talk-table string); empty when it has none.
+    pub name: String,
+    pub tileset: ResRef,
+    /// `Flags`: 1 interior, 2 underground, 4 natural.
+    pub flags: u32,
+}
+
+/// The areas' names (and tilesets and flags), each read from its ARE once:
+/// again when the ARE is replaced, and from the open document while it is
+/// being edited.
 #[derive(Debug, Default)]
 pub(crate) struct AreaNames {
     /// By area: the stored ARE read (where its data is and its length:
-    /// replaced data is elsewhere) and its name.
-    read: HashMap<ResRef, ((usize, usize), String)>,
+    /// replaced data is elsewhere) and what it says.
+    read: HashMap<ResRef, ((usize, usize), AreaInfo)>,
 }
 
 impl AreaNames {
+    pub(crate) fn info(
+        &mut self,
+        ws: &Workspace,
+        game: Option<&GameData>,
+        area: ResRef,
+    ) -> AreaInfo {
+        let key = ResKey::new(area, ResType::ARE);
+        let read = |are: &Gff| {
+            let name = are.root.locstring("Name").map_or(String::new(), |name| {
+                let edited = crate::text::edited_text(name);
+                if !edited.is_empty() {
+                    return edited;
+                }
+                game.and_then(|g| g.locstring(name)).unwrap_or_default()
+            });
+            AreaInfo {
+                name,
+                tileset: are.root.resref("Tileset").unwrap_or(ResRef::EMPTY),
+                flags: are.root.integer("Flags").unwrap_or(0) as u32,
+            }
+        };
+        if let Some(are) = ws.loaded(&key) {
+            return read(are);
+        }
+        let Some(data) = ws.module.get(&key) else { return AreaInfo::default() };
+        let stamp = (data.as_ptr() as usize, data.len());
+        if let Some((s, info)) = self.read.get(&area)
+            && *s == stamp
+        {
+            return info.clone();
+        }
+        let info = Gff::read(data).map(|g| read(&g)).unwrap_or_default();
+        self.read.insert(area, (stamp, info.clone()));
+        info
+    }
+
     /// The area's name in the editing language, else as the game shows it
     /// (its talk-table string); empty when it has none.
     pub(crate) fn name(&mut self, ws: &Workspace, game: Option<&GameData>, area: ResRef) -> String {
-        let key = ResKey::new(area, ResType::ARE);
-        let text = |are: &Gff| {
-            let Some(name) = are.root.locstring("Name") else { return String::new() };
-            let edited = crate::text::edited_text(name);
-            if !edited.is_empty() {
-                return edited;
-            }
-            game.and_then(|g| g.locstring(name)).unwrap_or_default()
-        };
-        if let Some(are) = ws.loaded(&key) {
-            return text(are);
-        }
-        let Some(data) = ws.module.get(&key) else { return String::new() };
-        let stamp = (data.as_ptr() as usize, data.len());
-        if let Some((s, name)) = self.read.get(&area)
-            && *s == stamp
-        {
-            return name.clone();
-        }
-        let name = Gff::read(data).map(|g| text(&g)).unwrap_or_default();
-        self.read.insert(area, (stamp, name.clone()));
-        name
+        self.info(ws, game, area).name
     }
 
     /// What the area is called in lists and tab titles: its name when
@@ -145,6 +172,16 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     r.context_menu(|ui| {
                         if k.restype == ResType::ARE {
+                            if ui
+                                .button("Edit Areas Together…")
+                                .on_hover_text(
+                                    "Choose more areas to set their properties with this one's",
+                                )
+                                .clicked()
+                            {
+                                app.area_chooser =
+                                    Some(crate::area_props::AreaChooser::with(k.resref));
+                            }
                             if ui.button("View Area").clicked() {
                                 app.actions.push(Action::OpenTab(Tab::Area(k.resref)));
                             }

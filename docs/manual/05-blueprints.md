@@ -46,7 +46,8 @@ The palette's buttons:
 **Ctrl+click** chooses several custom blueprints of one type. With
 several chosen, the right-click menu offers:
 - **Edit N Together**: one editor for all of them. A change is set on
-  each, as one undoable step. Inventories, classes, skills, feats, spells
+  each, as one undoable step (in Variables: what you add, change or
+  delete, each blueprint keeping its other variables). Inventories, classes, skills, feats, spells
   and item properties are edited one blueprint at a time, so those pages
   aren't offered.
 - **Update Instances of N**.

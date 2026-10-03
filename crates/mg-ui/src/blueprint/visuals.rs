@@ -108,11 +108,11 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, full: bool) {
         crate::widgets::section_heading(ui, "Texture replacements");
         ui.weak("A texture of the object's model drawn with another (not PLT textures).");
         pairs(f, ui, Pairs::TEXTURES);
-        ui.separator();
+        ui.add_space(crate::widgets::SECTION_GAP);
         crate::widgets::section_heading(ui, "Animation replacements");
         ui.weak("An animation of the object's model played as another.");
         pairs(f, ui, Pairs::ANIMATIONS);
-        ui.separator();
+        ui.add_space(crate::widgets::SECTION_GAP);
         crate::widgets::section_heading(ui, "Shader parameters");
         ui.weak("Values a material's shader reads (uniforms).");
         shader_params(f, ui);

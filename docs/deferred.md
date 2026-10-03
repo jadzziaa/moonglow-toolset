@@ -87,6 +87,17 @@ Size: S (an hour or two), M (a day or so), L (several days).
   Edit Together's guard (leave the pages out, drop changes that reach only
   the first) could apply there too, once Aurora's multi-editor is checked
   for what it allows. (S, plus an Aurora capture)
+- **Areas edited together show the first area's values:** a field whose
+  value differs among the areas isn't marked as mixed (nor is it for
+  blueprints edited together). (S–M)
+- **Choosing areas by more:** the chooser filters by name, ResRef,
+  tileset and the three kinds; not by a property's value (areas with a
+  given music or variable), and its choice isn't kept as a named set.
+  (S–M)
+- **`mg areas` and lighting schemes:** the command sets fields, flags
+  and variables; it doesn't apply a lighting scheme (environment.2da,
+  which also picks each tile's lights, and needs the game's data), nor
+  set names or list fields. (S)
 - **Find and Replace beyond strings players read:** tags, resrefs and
   other plain text fields aren't searched (Find References covers tags,
   Find in Files covers scripts), and there are no regular expressions.

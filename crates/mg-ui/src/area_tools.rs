@@ -81,7 +81,7 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                 a.changed[3] |= r.changed();
                 ui.end_row();
             });
-            ui.separator();
+            ui.add_space(crate::widgets::SECTION_GAP);
             crate::widgets::section_heading(ui, "Visual Transforms");
             egui::Grid::new("adjust-visual").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Scale");

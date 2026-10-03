@@ -33,6 +33,8 @@ pub enum Id {
     ResizeArea,
     RotateArea,
     FindInstance,
+    /// Edit › Edit Areas Together…: the areas to edit as one.
+    EditAreasTogether,
     ReplaceText,
     FindReferences,
     AreaWizard,
@@ -126,6 +128,7 @@ pub const MENUS: [(&str, &[Item]); 7] = [
             Separator,
             Do(Id::FindInstance),
             Item::Prefabs,
+            Do(Id::EditAreasTogether),
             Do(Id::ReplaceText),
             Do(Id::FindReferences),
         ],
@@ -247,6 +250,12 @@ impl Id {
             Id::ResizeArea => ("resize-area", "Resize Area…", ""),
             Id::RotateArea => ("rotate-area", "Rotate Area…", ""),
             Id::FindInstance => ("find-instance", "Find Instance…", ""),
+            Id::EditAreasTogether => (
+                "edit-areas-together",
+                "Edit Areas Together…",
+                "Choose several areas (by name, tileset, interior, underground…) and set their \
+                 lighting, fog, weather, music, scripts and variables at once",
+            ),
             Id::ReplaceText => (
                 "replace-text",
                 "Find and Replace Text…",
@@ -439,6 +448,7 @@ impl Id {
             | Id::Close
             | Id::ModuleProperties
             | Id::FindInstance
+            | Id::EditAreasTogether
             | Id::ReplaceText
             | Id::FindReferences
             | Id::AreaWizard
@@ -510,6 +520,10 @@ impl Id {
             }
             Id::FindInstance => {
                 app.find_instance.get_or_insert_with(Default::default);
+                return;
+            }
+            Id::EditAreasTogether => {
+                app.area_chooser.get_or_insert_with(Default::default);
                 return;
             }
             Id::ReplaceText => {

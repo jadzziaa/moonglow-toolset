@@ -705,7 +705,7 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
             for (in_group, id, name) in &rows {
                 if group != Some(*in_group) {
                     group = Some(*in_group);
-                    crate::widgets::section_heading(ui, in_group.name());
+                    crate::widgets::table_heading(ui, in_group.name());
                     ui.end_row();
                 }
                 ui.label(name);

@@ -106,10 +106,44 @@ impl VarRow {
     }
 }
 
+/// A variable's name.
+fn var_name(s: &Struct) -> &[u8] {
+    s.string("Name").unwrap_or_default()
+}
+
+/// What an edit of one object's variables (`before` to `after`) makes of
+/// another's (`theirs`): the variables added or changed are set on it (in
+/// place where it has one of that name, else at the end), those deleted
+/// are deleted from it, and it keeps its others as they are.
+pub(crate) fn merge_variables(
+    before: &[Struct],
+    after: &[Struct],
+    theirs: &[Struct],
+) -> Vec<Struct> {
+    let had = |list: &[Struct], name: &[u8]| list.iter().any(|s| var_name(s) == name);
+    let changed: Vec<&Struct> = after.iter().filter(|a| !before.contains(a)).collect();
+    let mut out: Vec<Struct> = theirs
+        .iter()
+        .filter(|s| !had(before, var_name(s)) || had(after, var_name(s)))
+        .map(|s| {
+            let set = changed.iter().find(|c| var_name(c) == var_name(s));
+            set.map_or_else(|| s.clone(), |c| (*c).clone())
+        })
+        .collect();
+    for c in changed {
+        if !had(&out, var_name(c)) {
+            out.push(c.clone());
+        }
+    }
+    out
+}
+
 /// The Variables window: a VarTable list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VarTableEdit {
     pub target: FieldTarget,
+    /// The list as it was when the window opened.
+    original: Vec<Struct>,
     pub rows: Vec<VarRow>,
     /// Save Set's name, while it's being typed.
     pub set_name: Option<String>,
@@ -135,7 +169,31 @@ impl VarTableEdit {
                 }
             })
             .collect();
-        VarTableEdit { target, rows, set_name: None }
+        VarTableEdit { target, original: list.to_vec(), rows, set_name: None }
+    }
+
+    /// For several objects edited together: the command that sets what
+    /// was changed here on each, each keeping its other variables.
+    fn merged(&self, app: &mut Moonglow) -> Action {
+        let list = self.list();
+        let t = &self.target;
+        let targets = std::iter::once((t.key, &t.path)).chain(t.also.iter().map(|(k, p)| (*k, p)));
+        let mut edits = Vec::new();
+        for (key, path) in targets {
+            let Some(Ok(doc)) = app.ws.as_mut().map(|ws| ws.doc(&key)) else { continue };
+            let Some(s) = path.get(&doc.root) else { continue };
+            let theirs = s.list(&t.label).unwrap_or(&[]);
+            let merged = merge_variables(&self.original, &list, theirs);
+            if merged != theirs {
+                edits.push(Edit::SetField {
+                    key,
+                    path: path.clone(),
+                    label: t.label.clone(),
+                    value: Some(Value::List(merged)),
+                });
+            }
+        }
+        Action::Apply(Command::new("Edit variables", edits))
     }
 
     /// Why the table cannot be saved, if it cannot.
@@ -466,12 +524,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             if let Some(p) = &problem {
                 ui.colored_label(ui.visuals().error_fg_color, p);
             }
+            if !edit.target.also.is_empty() {
+                ui.weak(format!(
+                    "{} edited together, shown as the first: the variables you add or change \
+                     are set on each, those you delete are deleted from each, and each keeps \
+                     its others.",
+                    edit.target.also.len() + 1
+                ));
+            }
             ui.horizontal(|ui| {
                 if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked()
                     || (problem.is_none() && crate::widgets::enter(ui))
                 {
-                    app.actions
-                        .push(edit.target.command("Edit variables", Value::List(edit.list())));
+                    let action = if edit.target.also.is_empty() {
+                        edit.target.command("Edit variables", Value::List(edit.list()))
+                    } else {
+                        edit.merged(app)
+                    };
+                    app.actions.push(action);
                     close = true;
                 }
                 if ui.button("Cancel").clicked() {
@@ -651,7 +721,7 @@ pub(crate) fn autofocus(ui: &egui::Ui, field: &egui::Response) {
     }
 }
 /// The bold font family (Ubuntu Bold, the bold of egui's own Ubuntu), for
-/// field labels.
+/// section headings.
 const BOLD: &str = "bold";
 
 /// Adds the bold font family to `ctx`'s fonts (once a context; it is there
@@ -678,21 +748,16 @@ pub(crate) fn install_fonts(ctx: &egui::Context) {
 }
 
 /// A form's field label (the first column of an editor's grid: "Tag",
-/// "Name"…): bold, in the strong text colour, to stand apart from the
-/// values beside it.
+/// "Name"…): in the strong text colour (white in the dark theme), to stand
+/// apart from the values beside it; not bold, which is the headings'.
 pub(crate) fn field_label(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
-    let bold = egui::FontFamily::Name(BOLD.into());
-    let mut text = egui::RichText::new(text).strong();
-    // (Until the fonts are in, the first frame, the strong colour alone.)
-    if ui.fonts(|f| f.families().contains(&bold)) {
-        text = text.family(bold);
-    }
-    ui.label(text)
+    ui.label(egui::RichText::new(text).strong())
 }
 
-/// A form's section heading ("Lighting Scheme", "Environment"): bold, in
-/// the strong text colour and larger than the field labels under it.
-pub(crate) fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+/// A heading in a table's cell (a group of rows: Options › Keyboard's):
+/// as a section's, without its rule and room, which a cell has no place
+/// for.
+pub(crate) fn table_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
     let bold = egui::FontFamily::Name(BOLD.into());
     let size = egui::TextStyle::Body.resolve(ui.style()).size * HEADING_SCALE;
     let mut text = egui::RichText::new(text).strong().size(size);
@@ -702,12 +767,60 @@ pub(crate) fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egu
     ui.label(text)
 }
 
+/// A form's section heading ("Lighting Scheme", "Environment"): in Ubuntu
+/// Bold (headings alone are bold), the strong text colour, and larger than
+/// the field labels under it; under it a rule a pixel thick, three quarters
+/// as wide as the pane it is in, then a little room before what follows.
+pub(crate) fn section_heading(ui: &mut egui::Ui, text: impl Into<String>) -> egui::Response {
+    let heading = table_heading(ui, text);
+    // (A pane with no width of its own yet: the heading's.)
+    let pane = ui.available_width();
+    let width = if pane.is_finite() { pane * HEADING_RULE } else { heading.rect.width() };
+    let (rule, _) = ui.allocate_exact_size(egui::vec2(width, 1.0), egui::Sense::hover());
+    let stroke = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color);
+    ui.painter().hline(rule.x_range(), rule.center().y, stroke);
+    ui.add_space(HEADING_ROOM);
+    heading
+}
+
+/// The room above a section heading that follows other content (its rule
+/// is under it; no separator above).
+pub(crate) const SECTION_GAP: f32 = 10.0;
 /// How much larger than the body text a section heading is.
 const HEADING_SCALE: f32 = 1.25;
+/// How much of its pane's width a section heading's rule spans.
+const HEADING_RULE: f32 = 0.75;
+/// The room between a section heading's rule and what follows.
+const HEADING_ROOM: f32 = 6.0;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_variable_edit_merges_into_the_others_edited_with_it() {
+        let var = |name: &str, value: i32| {
+            let mut s = Struct::new(0);
+            s.set("Name", Value::String(name.as_bytes().to_vec()));
+            s.set("Type", Value::Dword(1));
+            s.set("Value", Value::Int(value));
+            s
+        };
+        // The first object's variables, before and after the edit: MUSIC
+        // changed, OLD deleted, NEW added, KEPT untouched.
+        let before = [var("MUSIC", 1), var("OLD", 5), var("KEPT", 7)];
+        let after = [var("MUSIC", 2), var("KEPT", 7), var("NEW", 9)];
+        // Another object: its own KEPT and OWN stay as they are.
+        let theirs = [var("OWN", 3), var("OLD", 6), var("MUSIC", 1), var("KEPT", 100)];
+        assert_eq!(
+            merge_variables(&before, &after, &theirs),
+            [var("OWN", 3), var("MUSIC", 2), var("KEPT", 100), var("NEW", 9)]
+        );
+        // One without variables gets what was added or changed.
+        assert_eq!(merge_variables(&before, &after, &[]), [var("MUSIC", 2), var("NEW", 9)]);
+        // Nothing changed: nothing changes.
+        assert_eq!(merge_variables(&before, &before, &theirs), theirs);
+    }
 
     fn target() -> FieldTarget {
         FieldTarget::new(

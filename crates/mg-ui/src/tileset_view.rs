@@ -377,7 +377,7 @@ fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     });
     flag_key(ui, d, "GENERAL", "Interior", "Interior");
     flag_key(ui, d, "GENERAL", "HasHeightTransition", "Height transitions (raise and lower)");
-    ui.separator();
+    ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Grass");
     flag_key(ui, d, "GRASS", "Grass", "Grass on tiles' grass faces");
     egui::Grid::new(("set-grass", d.id)).num_columns(2).show(ui, |ui| {

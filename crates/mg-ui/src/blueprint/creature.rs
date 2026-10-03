@@ -257,7 +257,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.end_row();
             }
         });
-    ui.separator();
+    ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::two_columns(ui, 340.0, |ui, col| {
         if col == 0 {
             crate::widgets::section_heading(ui, "Armor Class");
@@ -276,7 +276,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                     ui.end_row();
                 }
             });
-            ui.separator();
+            ui.add_space(crate::widgets::SECTION_GAP);
             crate::widgets::section_heading(ui, "Hit Points");
             egui::Grid::new(("utc-hp", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Base Hit Points");
@@ -870,7 +870,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
             ] {
                 f.check(ui, text, label);
             }
-            ui.separator();
+            ui.add_space(crate::widgets::SECTION_GAP);
             crate::widgets::section_heading(ui, "Challenge Rating");
             egui::Grid::new(("utc-cr", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Adjustment");
