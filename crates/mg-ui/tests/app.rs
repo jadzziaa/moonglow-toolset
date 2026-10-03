@@ -201,6 +201,14 @@ fn closing_with_unsaved_changes_asks_first() {
     h.run();
     assert!(h.state().ws.is_some() && h.state().confirm_discard.is_none());
 
+    // File › Open Folder… asks too (it opened the folder over the work).
+    h.state_mut().actions.push(mg_ui::Action::OpenFolderDialog);
+    h.run();
+    h.get_by_label("Save changes to sample.mod?");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.state().ws.is_some() && h.state().confirm_discard.is_none());
+
     // Save saves, then closes.
     h.state_mut().actions.push(mg_ui::Action::Close);
     h.run();

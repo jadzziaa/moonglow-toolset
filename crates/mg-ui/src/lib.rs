@@ -1450,6 +1450,7 @@ impl Moonglow {
             action,
             Action::NewModuleDialog
                 | Action::OpenModuleDialog
+                | Action::OpenFolderDialog
                 | Action::OpenModule(_)
                 | Action::ApplyOptions(_)
                 | Action::Close
