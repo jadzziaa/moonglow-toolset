@@ -305,6 +305,16 @@ fn user_manual() {
     shoot(&mut h, &dir, "manual-areas");
     h.get_all_by_label("Coming from Aurora").find(|n| listed(n)).unwrap().click();
     shoot(&mut h, &dir, "manual-coming-from-aurora");
+    // (The menu bar has a Plugins too: the chapter is the later one.)
+    for (chapter, shot) in [
+        ("The main window", "manual-main-window"),
+        ("Plugins", "manual-plugins"),
+        ("Writing plugins", "manual-writing-plugins"),
+        ("Plugin API reference", "manual-plugin-api"),
+    ] {
+        h.get_all_by_label(chapter).rfind(|n| listed(n)).unwrap().click();
+        shoot(&mut h, &dir, shot);
+    }
     h.state_mut().about = true;
     shoot(&mut h, &dir, "about");
 }

@@ -302,5 +302,7 @@ Size: S (an hour or two), M (a day or so), L (several days).
   lighting scheme whose colors aren't black
   (`docs/research/notes_tilesets.md`). (S)
 - **The manual's tables:** the built-in manual viewer can't wrap a
-  table's cells, so chapters use lists where a table would read
-  better. (S–M)
+  table's cells, so a table wider than the page is shown there as a
+  list (`manual::fitted`; it was cut off at the page's edge before, and
+  the text after it too). Tables with wrapped cells would read better.
+  (S–M)

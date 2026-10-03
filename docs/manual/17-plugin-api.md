@@ -49,17 +49,22 @@ typed value is written (a list's item, a whole GFF). Each returns
 | `mg.short(n)` | `short` | -32,768 to 32,767 |
 | `mg.dword(n)` | `dword` | 0 to 4,294,967,295 |
 | `mg.int(n)` | `int` | -2,147,483,648 to 2,147,483,647 |
-| `mg.dword64(n)` | `dword64` | 0 to 2⁶⁴-1; past 2⁵³ give it as text (`"18446744073709551615"`), since a Luau number can't hold it exactly |
-| `mg.int64(n)` | `int64` | -2⁶³ to 2⁶³-1; likewise |
+| `mg.dword64(n)` | `dword64` | 0 to 2⁶⁴-1 |
+| `mg.int64(n)` | `int64` | -2⁶³ to 2⁶³-1 |
 | `mg.float(n)` | `float` | a number |
 | `mg.double(n)` | `double` | a number |
 | `mg.string(text)` | `cexostring` | text |
-| `mg.resref(name)` | `resref` | a resource's name without its extension, to 16 characters |
-| `mg.locstring(text)` | `cexolocstring` | text (its English), or a table of texts by language number with `strref` |
+| `mg.resref(name)` | `resref` | a resource's name, to 16 characters |
+| `mg.locstring(text)` | `cexolocstring` | text, or a table of texts |
 
-There is none for a struct, a list or a `void` (bytes): write those as
-tables, `{ type = "list", value = { … } }`,
-`{ type = "struct", value = { … }, __struct_id = 0 }`.
+- A Luau number holds whole numbers exactly only to 2⁵³: give a larger
+  `dword64` or `int64` as text (`mg.dword64("18446744073709551615")`).
+- A resource's name is given without its extension.
+- `mg.locstring` takes text (the English text), or a table of texts by
+  language number with `strref`, the shape `gff` reads one as.
+- There is none for a struct, a list or a `void` (bytes): write those
+  as tables, `{ type = "list", value = { … } }`,
+  `{ type = "struct", value = { … }, __struct_id = 0 }`.
 
 ## `ctx.module`
 
