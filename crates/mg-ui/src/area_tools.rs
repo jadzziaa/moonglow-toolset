@@ -412,7 +412,7 @@ fn store_stock(app: &mut Moonglow, ui: &mut Ui, store: &mg_gff::Struct) {
             let name = item
                 .as_ref()
                 .and_then(|i| i.locstring("LocalizedName"))
-                .and_then(|ls| app.game.as_ref()?.locstring(ls))
+                .and_then(|ls| app.game.as_deref()?.locstring(ls))
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| resref.to_string());
             ui.horizontal(|ui| {
@@ -432,13 +432,13 @@ fn blueprint(app: &Moonglow, key: ResKey) -> Option<mg_gff::Gff> {
         .ws
         .as_ref()
         .and_then(|w| w.module.get(&key).map(<[u8]>::to_vec))
-        .or_else(|| app.game.as_ref()?.resman.get(&key).ok().map(|d| d.into_owned()))?;
+        .or_else(|| app.game.as_deref()?.resman.get(&key).ok().map(|d| d.into_owned()))?;
     mg_gff::Gff::read(&data).ok()
 }
 
 /// The Preview window's fields for a blueprint (as Aurora's).
 fn summary(app: &Moonglow, t: ResType, s: &mg_gff::Struct) -> Vec<(&'static str, String)> {
-    let game = app.game.as_ref();
+    let game = app.game.as_deref();
     let text = |label: &str| s.string(label).map(|v| String::from_utf8_lossy(v).into_owned());
     let name = |label: &str| {
         let ls = s.locstring(label)?;

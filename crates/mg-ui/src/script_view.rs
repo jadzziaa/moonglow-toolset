@@ -1003,7 +1003,7 @@ fn compile_with_debug(
 ) -> Result<(Vec<u8>, Option<Vec<u8>>), mg_script::compiler::CompileError> {
     let source = encode(text);
     let module = app.ws.as_ref().map(|w| &w.module);
-    let resman = app.game.as_ref().map(|g| &g.resman);
+    let resman = app.game.as_deref().map(|g| &g.resman);
     let name = key.resref.to_lowercase().to_string();
     let mut c = Compiler::new(|n: &str, t: ResType| {
         if t == ResType::NSS && n.eq_ignore_ascii_case(&name) {

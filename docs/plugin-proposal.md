@@ -348,11 +348,18 @@ plugins.
    fails on a new way round. Left: the module field itself is still
    public (about 140 reads); making it private would close the gate in
    the compiler.
-4. **Jobs (M–L).** Compile All, Verify, Build and Find References run on
-   the interface's thread and freeze the window on big modules; only
-   NWSync publishing reports progress. A job runner (a thread, progress,
-   Cancel, a result, reads from a snapshot) serves those and plugins
-   alike.
+4. **Jobs (M–L). Done.** A job (`mg_ui::jobs`) reads a snapshot of the
+   module and the game data (now shared, `Arc<GameData>`, and changed
+   only between jobs) on a thread of its own, reports progress, can be
+   called off, and hands what it made to the interface's thread, where
+   edits go in through the one gate. One job at a time, the window
+   modal meanwhile. Compile All, Verify and the Build window's Build run
+   so. Tests run jobs to completion where they start (the same thread
+   and hand-over). Left: Find References is a view that refreshes as the
+   module changes, not a command, so it stays where it is until the
+   where-used index ([deferred](deferred.md)); the build before saving
+   and the compile before a test still wait; the compiler reports no
+   progress between scripts, so Compile All shows time, not a bar.
 5. **Open lists for checks and formats (S–M each). Done, as far as it
    goes before there is a plugin host.** The doctor's checks are a
    catalog (`doctor::Check`: an id and what each holds to be true; `mg

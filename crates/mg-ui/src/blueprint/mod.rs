@@ -128,7 +128,7 @@ impl Form<'_> {
         if !text.is_empty() || ls.strref.is_none() {
             return text;
         }
-        self.app.game.as_ref().and_then(|g| g.string(ls.strref)).unwrap_or_default()
+        self.app.game.as_deref().and_then(|g| g.string(ls.strref)).unwrap_or_default()
     }
 
     fn id(&self, name: &str) -> egui::Id {
@@ -445,7 +445,7 @@ impl Form<'_> {
     ) -> Option<u8> {
         let pal = {
             let app = &mut *self.app;
-            let game = game.or(app.game.as_ref());
+            let game = game.or(app.game.as_deref());
             game.and_then(|game| {
                 let mut l = crate::images::Loader {
                     pictures: &mut app.pictures,
@@ -655,7 +655,7 @@ impl Form<'_> {
             }
             let key = ResKey::new(current, edit);
             let in_module = self.app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
-            let in_game = self.app.game.as_ref().is_some_and(|g| g.resman.contains(&key));
+            let in_game = self.app.game.as_deref().is_some_and(|g| g.resman.contains(&key));
             if ui
                 .add_enabled(
                     !current.is_empty() && (in_module || in_game),
@@ -676,7 +676,7 @@ impl Form<'_> {
             ui.weak("(placed in an area)");
             return;
         }
-        let Some(game) = self.app.game.as_ref() else { return };
+        let Some(game) = self.app.game.as_deref() else { return };
         let categories = game
             .resman
             .get_named(&format!("{}pal", kind.name()), ResType::ITP)

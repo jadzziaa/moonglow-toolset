@@ -44,6 +44,17 @@ background; the window shows progress, then the manifest's hash
 (**Copy** copies it, for `-nwsynchash`). Upload the folder to the web
 server. `mg nwsync` does the same from the command line.
 
+## Long work
+
+Compile All Scripts, Build Module (its Build button) and Verify Module
+run in the background: a small window names the work, shows how far it
+is, and has **Cancel**. Until it is done the rest of the window takes no
+input, so nothing changes under the work; what it made (compiled scripts,
+say) then goes in as one step that Undo takes back. Canceled, it changes
+nothing. The build before saving (Options › General) and the compile
+before a test run wait instead, since saving and testing need their
+result.
+
 ## Verify Module
 
 **Build › Verify Module** writes to the log, as errors and warnings, what

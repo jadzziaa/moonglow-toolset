@@ -125,7 +125,7 @@ pub(crate) type Heard = (ResRef, Vec3, bool);
 
 /// A 2DA's `Resource` for a row (ambientsound.2da, ambientmusic.2da).
 fn resource(app: &Moonglow, table: &str, row: i64) -> Option<ResRef> {
-    let t = app.game.as_ref()?.table(table).ok()?;
+    let t = app.game.as_deref()?.table(table).ok()?;
     let name = t.get(usize::try_from(row).ok()?, "Resource")?;
     ResRef::from_str(name).ok().filter(|r| !r.is_empty())
 }

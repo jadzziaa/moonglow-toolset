@@ -426,7 +426,7 @@ pub(crate) fn tile_command_keeping(
     kept: &[((u32, u32), mg_gff::Struct)],
 ) {
     let (Some(ws), Some(game), Some(tools)) =
-        (app.ws.as_mut(), app.game.as_ref(), view.terrain.as_ref())
+        (app.ws.as_mut(), app.game.as_deref(), view.terrain.as_ref())
     else {
         return;
     };
@@ -989,7 +989,7 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let palette = match app.palette.tile_palettes.get(&tileset) {
         Some(p) => p.clone(),
         None => {
-            let (Some(game), Some(view)) = (app.game.as_ref(), app.area_views.get(&area)) else {
+            let (Some(game), Some(view)) = (app.game.as_deref(), app.area_views.get(&area)) else {
                 return;
             };
             let tools = view.terrain.as_ref().expect("checked");

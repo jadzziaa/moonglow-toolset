@@ -169,7 +169,7 @@ fn no_table(app: &mut Moonglow, ui: &mut Ui, name: Option<String>) {
         ui.weak(format!("Made in {}", dir.display()));
     }
     if ui.add_enabled(problem.is_none(), egui::Button::new("Create")).clicked() {
-        let language = app.game.as_ref().map_or(mg_core::Language::ENGLISH, |g| g.language);
+        let language = app.game.as_deref().map_or(mg_core::Language::ENGLISH, |g| g.language);
         let mut t = Table::create(&new, &dir, language, v.new_feminine);
         match t.save() {
             Ok(()) => {

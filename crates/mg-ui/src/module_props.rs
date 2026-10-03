@@ -216,7 +216,7 @@ fn events(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             }
             let key = ResKey::new(current, ResType::NSS);
             let in_module = app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
-            let in_game = app.game.as_ref().is_some_and(|g| g.resman.contains(&key));
+            let in_game = app.game.as_deref().is_some_and(|g| g.resman.contains(&key));
             let can_edit = !current.is_empty() && (in_module || in_game);
             if ui.add_enabled(can_edit, egui::Button::new("Edit").small()).clicked() {
                 let tab = if in_module { Tab::Script(key) } else { Tab::Resource(key) };

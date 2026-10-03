@@ -34,7 +34,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 }
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
-    let game = f.app.game.as_ref();
+    let game = f.app.game.as_deref();
     let difficulties = game
         .and_then(|g| {
             g.choices("encdifficulty", ChoiceColumns { name: Some("STRREF"), label: Some("LABEL") })

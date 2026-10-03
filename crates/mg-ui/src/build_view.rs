@@ -151,10 +151,6 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             });
         },
     );
-    if build {
-        w.results = run(app, &w);
-        w.selected = None;
-    }
     if export
         && let Some(path) =
             app.dialogs.save_file(FileKind::Any, Some(std::path::Path::new("build.txt")))
@@ -167,8 +163,27 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if let Some(t) = go.and_then(Tab::for_resource) {
         app.actions.push(Action::OpenTab(t));
     }
+    let options = build.then(|| w.clone());
     if open && !done {
         app.build = Some(w);
+    }
+    // The build, in the background; its results come to the window when it
+    // is done (the window's state is back in place by then).
+    if let Some(options) = options {
+        app.start_job(
+            "Build Module",
+            move |job| job.game.as_deref().map(|game| work(&job.module, game, &options)),
+            |app, built| {
+                let results = match built {
+                    Some(built) => finish(app, built),
+                    None => vec![Finding { text: "No module open".into(), about: None }],
+                };
+                if let Some(w) = &mut app.build {
+                    w.results = results;
+                    w.selected = None;
+                }
+            },
+        );
     }
 }
 
@@ -204,27 +219,52 @@ fn is_blueprint(t: ResType) -> bool {
     )
 }
 
-/// Runs the build: the compile passes, as one undoable command, then the
-/// checks. The results are the problems found ("No errors found" if none,
-/// as in Aurora); what each pass did goes to the log.
+/// Runs the build and waits for it (the build before saving): the compile
+/// passes, as one undoable command, then the checks. The results are the
+/// problems found ("No errors found" if none, as in Aurora); what each pass
+/// did goes to the log.
 fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
     app.refresh_module_layer();
-    let line = |text: String, about: Option<ResKey>| Finding { text, about };
-    let (mut out, mut notes) = (Vec::new(), Vec::new());
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else {
-        return vec![line("No module open".into(), None)];
+    let none = || vec![Finding { text: "No module open".into(), about: None }];
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return none() };
+    let built = match ws.snapshot() {
+        Ok(module) => work(&module, game, w),
+        Err(e) => return vec![Finding { text: e.to_string(), about: None }],
     };
-    // What the build makes, as one command; then the checks, on the result.
-    let edits = compile(ws, game, w, &mut out, &mut notes);
+    finish(app, built)
+}
+
+/// What a build made of a module.
+#[derive(Debug)]
+struct Built {
+    /// What the compile passes changed.
+    edits: Vec<mg_edit::Edit>,
+    /// The problems found.
+    out: Vec<Finding>,
+    /// What each pass did.
+    notes: Vec<String>,
+}
+
+/// The build's work, on the module as it is (a job's snapshot): the compile
+/// passes, then the checks on what they made.
+fn work(module: &mg_module::Module, game: &mg_rules::GameData, w: &BuildWindow) -> Built {
+    let (mut out, mut notes) = (Vec::new(), Vec::new());
+    let staged = compile(module, game, w, &mut out, &mut notes);
+    check(&staged, game, w, &mut out, &mut notes);
+    Built { edits: mg_edit::edits_between(module, &staged), out, notes }
+}
+
+/// Puts a build's work into the application: its edits as one command, its
+/// passes and problems in the log (Aurora's: what it is doing, the results,
+/// done); the problems.
+fn finish(app: &mut Moonglow, built: Built) -> Vec<Finding> {
+    let Built { edits, mut out, notes } = built;
+    let line = |text: String, about: Option<ResKey>| Finding { text, about };
     if !edits.is_empty()
         && let Err(e) = app.apply(Command::new("Build Module", edits))
     {
         out.push(line(format!("Error: {e}"), None));
     }
-    if let (Some(ws), Some(game)) = (app.ws.as_ref(), app.game.as_ref()) {
-        check(ws, game, w, &mut out, &mut notes);
-    }
-    // Aurora's log: what it is doing, the results, done.
     app.log.info("Building Module...");
     for n in notes {
         app.log.info(n);
@@ -239,21 +279,17 @@ fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
     out
 }
 
-/// The build's compile passes: the edits that put what they made into the
-/// module, their problems in `out` and what each did in `notes`.
+/// The build's compile passes: the module with what they made, their
+/// problems in `out` and what each did in `notes`.
 fn compile(
-    ws: &mut mg_edit::Workspace,
+    module: &mg_module::Module,
     game: &mg_rules::GameData,
     w: &BuildWindow,
     out: &mut Vec<Finding>,
     notes: &mut Vec<String>,
-) -> Vec<mg_edit::Edit> {
+) -> mg_module::Module {
     let line = |text: String, about: Option<ResKey>| Finding { text, about };
-    if let Err(e) = ws.flush() {
-        out.push(line(e.to_string(), None));
-        return Vec::new();
-    }
-    let mut staged = ws.module.clone();
+    let mut staged = module.clone();
     if w.compile {
         if w.compile_scripts {
             let results = mg_module::build::compile_scripts(
@@ -273,7 +309,7 @@ fn compile(
             notes.push(format!("Build: compiled {} scripts, {failed} with errors", results.len()));
         }
         if w.compile_cr {
-            let item = |r: ResRef| read_gff(&ws.module, game, ResKey::new(r, ResType::UTI));
+            let item = |r: ResRef| read_gff(module, game, ResKey::new(r, ResType::UTI));
             let n = mg_module::build::compile_creature_cr(&mut staged, game, &item);
             notes.push(format!("Build: {n} creature challenge ratings brought up to date"));
         }
@@ -291,13 +327,13 @@ fn compile(
             }
         }
     }
-    ws.edits_to(&staged)
+    staged
 }
 
 /// The build's checks (missing and unused resources), on the module as the
 /// compile passes left it.
 fn check(
-    ws: &mg_edit::Workspace,
+    module: &mg_module::Module,
     game: &mg_rules::GameData,
     w: &BuildWindow,
     out: &mut Vec<Finding>,
@@ -305,7 +341,7 @@ fn check(
 ) {
     let line = |text: String, about: Option<ResKey>| Finding { text, about };
     if w.missing {
-        let missing = mg_module::verify::missing(&ws.module, &game.resman);
+        let missing = mg_module::verify::missing(module, &game.resman);
         let mut n = 0;
         for m in missing.iter().filter(|m| w.missing_of.get(&m.category).copied().unwrap_or(true)) {
             n += 1;
@@ -325,7 +361,7 @@ fn check(
         notes.push(format!("Build: {n} missing resources"));
     }
     if w.unused {
-        let unused: Vec<ResKey> = mg_module::verify::unused(&ws.module)
+        let unused: Vec<ResKey> = mg_module::verify::unused(module)
             .into_iter()
             .filter(|k| match k.restype {
                 ResType::NSS | ResType::NCS => w.unused_scripts,

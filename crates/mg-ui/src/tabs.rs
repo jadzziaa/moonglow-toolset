@@ -270,7 +270,7 @@ impl TabViewer for Viewer<'_> {
 /// Show areas by name).
 fn area_label(app: &mut Moonglow, area: mg_core::ResRef) -> String {
     let Some(ws) = &app.ws else { return area.to_string() };
-    app.area_names.label(ws, app.game.as_ref(), area, app.settings.area_names)
+    app.area_names.label(ws, app.game.as_deref(), area, app.settings.area_names)
 }
 
 /// A placed object's tab title: its tag and where it is.

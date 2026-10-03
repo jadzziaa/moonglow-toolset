@@ -23,6 +23,7 @@ mod gff_view;
 pub mod hak_view;
 mod icons;
 mod images;
+pub mod jobs;
 pub mod journal_view;
 pub mod keys;
 pub mod levelup_view;
@@ -56,6 +57,7 @@ pub mod wizards;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use egui_dock::{DockArea, DockState};
 use mg_core::ResType;
@@ -179,7 +181,9 @@ impl Log {
 pub struct Moonglow {
     pub install: Option<GameInstall>,
     /// The game data, with the open module's haks and module layered in.
-    pub game: Option<GameData>,
+    /// The game's data, shared with the jobs that read it while they run
+    /// (changed only between them: [`exclusive`]).
+    pub game: Option<Arc<GameData>>,
     pub ws: Option<Workspace>,
     pub dock: DockState<Tab>,
     pub log: Log,
@@ -361,6 +365,11 @@ pub struct Moonglow {
     /// shows (and has a width to match). Tests of other windows turn it
     /// off.
     pub open_palette: bool,
+    /// The job under way, if one is (`jobs`).
+    pub(crate) job: Option<jobs::Job>,
+    /// Jobs run while the window keeps drawing (the application turns
+    /// this on); off, starting a job waits for it, as tests want.
+    pub background_jobs: bool,
 }
 
 impl std::fmt::Debug for Moonglow {
@@ -480,6 +489,8 @@ impl Moonglow {
             tree_width: None,
             dock_width: None,
             open_palette: false,
+            job: None,
+            background_jobs: false,
         }
     }
 
@@ -521,7 +532,11 @@ impl Moonglow {
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
-        self.shortcuts(ui);
+        self.poll_job(ui.ctx());
+        // (A running job has the window to itself.)
+        if !self.busy() {
+            self.shortcuts(ui);
+        }
         egui::Panel::top("menu").show(ui, |ui| {
             self.menu(ui);
             self.toolbar(ui);
@@ -605,6 +620,7 @@ impl Moonglow {
                 self.hak_report = None;
             }
         }
+        jobs::window(self, ui.ctx());
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
@@ -1243,7 +1259,7 @@ impl Moonglow {
     /// the game data.
     fn use_module(&mut self, m: Module) {
         self.close();
-        if let (Some(game), Some(gi)) = (&mut self.game, &self.install) {
+        if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
             let haks = m.haks().unwrap_or_default();
             match game.resman.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>()) {
                 Ok(missing) => {
@@ -1285,7 +1301,7 @@ impl Moonglow {
     }
 
     fn load_custom_tlk(&mut self) {
-        let (Some(ws), Some(game)) = (&self.ws, &mut self.game) else { return };
+        let (Some(ws), Some(game)) = (&self.ws, exclusive(&mut self.game)) else { return };
         let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
         if name == self.custom_tlk {
             return;
@@ -1407,7 +1423,7 @@ impl Moonglow {
         self.load_order_changed();
         // (Another module's haks may have other tilesets of these names.)
         self.palette.forget_game_data();
-        if let Some(game) = &mut self.game {
+        if let Some(game) = exclusive(&mut self.game) {
             let module_layers: Vec<String> = game
                 .resman
                 .layers()
@@ -1424,7 +1440,7 @@ impl Moonglow {
 
     /// Refreshes the module layer of the game data after edits.
     pub(crate) fn refresh_module_layer(&mut self) {
-        let (Some(game), Some(ws)) = (&mut self.game, &mut self.ws) else { return };
+        let (Some(game), Some(ws)) = (exclusive(&mut self.game), &mut self.ws) else { return };
         if ws.flush().is_err() {
             return;
         }
@@ -1921,49 +1937,55 @@ impl Moonglow {
         }
     }
 
+    /// Compile All Scripts, as a job: the bytecode that changed is stored
+    /// through one undoable command when it is done.
     fn compile_scripts(&mut self) {
-        self.refresh_module_layer();
-        let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else {
+        if self.ws.is_none() || self.game.is_none() {
             self.log.error("Compiling needs an open module and the game data");
             return;
-        };
-        if let Err(e) = ws.flush() {
-            self.log.error(e.to_string());
-            return;
         }
-        let mut staged = ws.module.clone();
-        let results = mg_module::build::compile_scripts(
-            &mut staged,
-            &game.resman,
-            mg_module::build::ScriptSelection::All,
+        self.start_job(
+            "Compile All Scripts",
+            |job| {
+                let game = job.game.as_deref()?;
+                let mut staged = job.module.clone();
+                let results = mg_module::build::compile_scripts(
+                    &mut staged,
+                    &game.resman,
+                    mg_module::build::ScriptSelection::All,
+                );
+                let edits: Vec<mg_edit::Edit> = staged
+                    .keys_of(ResType::NCS)
+                    .filter(|k| staged.get(k) != job.module.get(k))
+                    .map(|k| mg_edit::Edit::SetResource {
+                        key: *k,
+                        data: staged.get(k).map(<[u8]>::to_vec),
+                    })
+                    .collect();
+                Some((results, edits))
+            },
+            |app, made| {
+                let Some((results, edits)) = made else { return };
+                let failed: Vec<String> = results
+                    .iter()
+                    .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
+                    .collect();
+                for f in &failed {
+                    app.log.error(f.clone());
+                }
+                let changed = edits.len();
+                if !edits.is_empty()
+                    && let Err(e) = app.apply(Command::new("Compile scripts", edits))
+                {
+                    app.log.error(e.to_string());
+                }
+                app.log.info(format!(
+                    "Compiled {} scripts: {} failed, {changed} changed",
+                    results.len(),
+                    failed.len()
+                ));
+            },
         );
-        // Store the new bytecode through one undoable command.
-        let edits: Vec<mg_edit::Edit> = staged
-            .keys_of(ResType::NCS)
-            .filter(|k| staged.get(k) != ws.module.get(k))
-            .map(|k| mg_edit::Edit::SetResource {
-                key: *k,
-                data: staged.get(k).map(<[u8]>::to_vec),
-            })
-            .collect();
-        let failed: Vec<String> = results
-            .iter()
-            .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
-            .collect();
-        for f in &failed {
-            self.log.error(f.clone());
-        }
-        let changed = edits.len();
-        if !edits.is_empty()
-            && let Err(e) = self.apply(Command::new("Compile scripts", edits))
-        {
-            self.log.error(e.to_string());
-        }
-        self.log.info(format!(
-            "Compiled {} scripts: {} failed, {changed} changed",
-            results.len(),
-            failed.len()
-        ));
     }
 
     /// Starts the game on the saved module (Test Module).
@@ -2077,7 +2099,7 @@ impl Moonglow {
     /// Resources), it says when nothing changed.
     pub fn reload_resources(&mut self, asked: bool) {
         use mg_resman::priority as p;
-        let Some(game) = &mut self.game else { return };
+        let Some(game) = exclusive(&mut self.game) else { return };
         // The user's content; the install's own folders don't change.
         let user = |l: &mg_resman::Layer| {
             matches!(
@@ -2117,7 +2139,7 @@ impl Moonglow {
 
     /// What was shown from the game data is shown anew: its layers changed.
     fn game_data_changed(&mut self) {
-        if let Some(game) = &mut self.game {
+        if let Some(game) = exclusive(&mut self.game) {
             game.invalidate();
         }
         self.pictures = Default::default();
@@ -2187,7 +2209,7 @@ impl Moonglow {
         if listed == self.haks_layered {
             return;
         }
-        let (Some(game), Some(gi)) = (&mut self.game, &self.install) else { return };
+        let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) else { return };
         let old: Vec<String> = game
             .resman
             .layers()
@@ -2215,7 +2237,8 @@ impl Moonglow {
     /// Every few seconds, with Options › General's reloading on: the haks
     /// and folders that changed.
     fn reload_timer(&mut self, ui: &egui::Ui) {
-        if self.settings.no_auto_reload || self.game.is_none() {
+        // (Not under a job, which reads the game data.)
+        if self.settings.no_auto_reload || self.game.is_none() || self.busy() {
             return;
         }
         let every = std::time::Duration::from_secs(3);
@@ -2246,49 +2269,66 @@ impl Moonglow {
         }
     }
 
+    /// Verify Module, as a job: what is missing, and what is wrong with the
+    /// custom content, into the log.
     fn verify(&mut self) {
-        self.refresh_module_layer();
-        let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
-        if let Err(e) = ws.flush() {
-            self.log.error(e.to_string());
+        if self.ws.is_none() || self.game.is_none() {
             return;
         }
-        let missing = mg_module::verify::missing(&ws.module, &game.resman);
-        for m in &missing {
-            let what = if m.uncompiled { "is not compiled" } else { "is missing" };
-            let text = format!(
-                "{:?}: {}{} → {} {} {what}",
-                m.category,
-                m.reference.from,
-                m.reference.path,
-                m.reference.kind.name(),
-                m.reference.target
-            );
-            if m.is_error() { self.log.error(text) } else { self.log.warn(text) }
-        }
-        // The custom content: tilesets, 2DAs, materials, objects naming rows
-        // that don't exist.
-        let tlk = mg_module::doctor::TalkTables {
-            base: game.tlk().entries.len(),
-            custom: game.custom_tlk().map(|t| t.entries.len()),
-        };
-        let findings = mg_module::doctor::examine(&ws.module, &game.resman, tlk);
-        for f in &findings {
-            let at = if f.at.is_empty() { String::new() } else { format!(" › {}", f.at) };
-            let text = format!("{} › {}{at}: {}", f.source, f.resource, f.message);
-            match f.severity {
-                mg_module::doctor::Severity::Error => self.log.error(text),
-                mg_module::doctor::Severity::Warning => self.log.warn(text),
-            }
-        }
-        let errors = missing.iter().filter(|m| m.is_error()).count()
-            + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
-        let warnings = missing.len() + findings.len() - errors;
-        self.log.info(format!(
-            "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s))",
-            missing.len(),
-            findings.len()
-        ));
+        self.start_job(
+            "Verify Module",
+            |job| {
+                let game = job.game.as_deref()?;
+                job.progress.say("Looking for what is missing");
+                let missing = mg_module::verify::missing(&job.module, &game.resman);
+                if job.progress.cancelled() {
+                    return None;
+                }
+                // The custom content: tilesets, 2DAs, materials, objects
+                // naming rows that don't exist.
+                job.progress.say("Checking the custom content");
+                let tlk = mg_module::doctor::TalkTables {
+                    base: game.tlk().entries.len(),
+                    custom: game.custom_tlk().map(|t| t.entries.len()),
+                };
+                let findings = mg_module::doctor::examine(&job.module, &game.resman, tlk);
+                Some((missing, findings))
+            },
+            |app, made| {
+                let Some((missing, findings)) = made else { return };
+                for m in &missing {
+                    let what = if m.uncompiled { "is not compiled" } else { "is missing" };
+                    let text = format!(
+                        "{:?}: {}{} → {} {} {what}",
+                        m.category,
+                        m.reference.from,
+                        m.reference.path,
+                        m.reference.kind.name(),
+                        m.reference.target
+                    );
+                    if m.is_error() { app.log.error(text) } else { app.log.warn(text) }
+                }
+                for f in &findings {
+                    let at = if f.at.is_empty() { String::new() } else { format!(" › {}", f.at) };
+                    let text = format!("{} › {}{at}: {}", f.source, f.resource, f.message);
+                    match f.severity {
+                        mg_module::doctor::Severity::Error => app.log.error(text),
+                        mg_module::doctor::Severity::Warning => app.log.warn(text),
+                    }
+                }
+                let errors = missing.iter().filter(|m| m.is_error()).count()
+                    + findings
+                        .iter()
+                        .filter(|f| f.severity == mg_module::doctor::Severity::Error)
+                        .count();
+                let warnings = missing.len() + findings.len() - errors;
+                app.log.info(format!(
+                    "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s))",
+                    missing.len(),
+                    findings.len()
+                ));
+            },
+        );
     }
 
     /// Uses new game and user folders: closes the module and reloads the
@@ -2384,17 +2424,23 @@ impl Moonglow {
 
     /// A resman view for things that need one without a game install (tests).
     pub fn resman(&self) -> Option<&ResMan> {
-        self.game.as_ref().map(|g| &g.resman)
+        self.game.as_deref().map(|g| &g.resman)
     }
 }
 
 /// Loads the game data of an install, logging the outcome.
-fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<GameData> {
+/// The game data to change (its layers, its talk table): only while no job
+/// is reading it, which is whenever the window takes input.
+pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
+    game.as_mut().and_then(Arc::get_mut)
+}
+
+fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameData>> {
     match install {
         Some(gi) => match GameData::open(gi) {
             Ok(g) => {
                 log.info(format!("Game data loaded from {}", gi.root.display()));
-                Some(g)
+                Some(Arc::new(g))
             }
             Err(e) => {
                 log.error(format!("Could not load the game data from {}: {e}", gi.root.display()));

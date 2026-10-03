@@ -98,7 +98,7 @@ impl std::fmt::Display for Source {
 /// What a source looks like: a model, a blueprint's preview, or a placed
 /// object's (its GIT entry has the blueprint's fields, as edited there).
 fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
-    let game = app.game.as_ref().ok_or("No game data.")?;
+    let game = app.game.as_deref().ok_or("No game data.")?;
     let data = |k: &ResKey| {
         app.ws
             .as_ref()
@@ -148,7 +148,7 @@ pub(crate) fn previewable(t: ResType) -> bool {
 /// A preview's models on the GPU, from the module first, then the game.
 fn compose(app: &Moonglow, source: &Source, preview: &Preview) -> Result<Composed, String> {
     let vp = app.viewport.as_ref().ok_or("No GPU: the model viewer needs one.")?;
-    let game = app.game.as_ref().ok_or("No game data.")?;
+    let game = app.game.as_deref().ok_or("No game data.")?;
     let load = |name: &str| -> Option<Arc<Model>> {
         let k = ResKey::parse(name, ResType::MDL)?;
         let data = app
@@ -479,7 +479,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
         background: [0.16, 0.18, 0.21],
         ..Default::default()
     };
-    let resman = app.game.as_ref().map(|g| &g.resman);
+    let resman = app.game.as_deref().map(|g| &g.resman);
     let assets: &dyn mg_render::Assets = match resman {
         Some(rm) => rm,
         None => &mg_render::NoAssets,
@@ -593,7 +593,7 @@ fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::T
     };
     let size = THUMBNAIL;
     let targets = Targets::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, size, size);
-    let resman = app.game.as_ref().map(|g| &g.resman);
+    let resman = app.game.as_deref().map(|g| &g.resman);
     let assets: &dyn mg_render::Assets = match resman {
         Some(rm) => rm,
         None => &mg_render::NoAssets,
@@ -646,7 +646,7 @@ pub(crate) fn render_tile_from_above(
         background: [0.0, 0.0, 0.0],
         ..Default::default()
     };
-    let assets: &dyn mg_render::Assets = match app.game.as_ref() {
+    let assets: &dyn mg_render::Assets = match app.game.as_deref() {
         Some(g) => &g.resman,
         None => &mg_render::NoAssets,
     };

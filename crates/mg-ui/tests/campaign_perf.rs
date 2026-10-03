@@ -123,7 +123,7 @@ fn largest_campaigns_stay_within_budget() {
             check("frame (area view)".into(), median(frames), AREA_FRAME);
         }
         let app = h.state_mut();
-        let (game, ws) = (app.game.as_ref().unwrap(), app.ws.as_mut().unwrap());
+        let (game, ws) = (app.game.as_deref().unwrap(), app.ws.as_mut().unwrap());
         let (result, took) =
             time(|| mg_module::palette::rebuild_custom_palettes(&mut ws.module, game));
         result.unwrap();

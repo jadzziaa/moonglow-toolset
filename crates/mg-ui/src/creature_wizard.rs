@@ -134,14 +134,14 @@ fn item_reader<'a>(app: &'a Moonglow) -> impl Fn(ResRef) -> Option<mg_gff::Struc
             .ws
             .as_ref()
             .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
-            .or_else(|| app.game.as_ref()?.resman.get(&k).ok().map(|d| d.into_owned()))?;
+            .or_else(|| app.game.as_deref()?.resman.get(&k).ok().map(|d| d.into_owned()))?;
         mg_gff::Gff::read(&data).ok().map(|g| g.root)
     }
 }
 
 /// The review: what the creature comes out as.
 fn review(app: &Moonglow, w: &CreatureWizard) -> String {
-    let Some(game) = app.game.as_ref() else { return String::new() };
+    let Some(game) = app.game.as_deref() else { return String::new() };
     let item = item_reader(app);
     let g = blueprints::creature(game, &w.spec(ResRef::EMPTY), &item);
     let c = &g.root;
@@ -490,7 +490,7 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
 /// Finish: the blueprint, as one undoable command.
 fn make(app: &mut Moonglow, w: &CreatureWizard) {
     let (key, bytes) = {
-        let Some(game) = app.game.as_ref() else { return };
+        let Some(game) = app.game.as_deref() else { return };
         let taken = |r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, ResType::UTC)))
         };

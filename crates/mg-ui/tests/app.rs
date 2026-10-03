@@ -416,11 +416,11 @@ fn reload_resources_picks_up_new_files_in_override() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
     let key = ResKey::parse("mg_reload_test", ResType::TWODA).unwrap();
-    assert!(!app.game.as_ref().unwrap().resman.contains(&key));
+    assert!(!app.game.as_deref().unwrap().resman.contains(&key));
     std::fs::write(user.join("override/mg_reload_test.2da"), "2DA V2.0\n\n   Label\n0  x\n")
         .unwrap();
     app.run(mg_ui::Action::ReloadResources);
-    assert!(app.game.as_ref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
+    assert!(app.game.as_deref().unwrap().resman.contains(&key), "{:?}", app.log.entries);
     assert!(app.log.entries.iter().any(|(_, m)| m == "Reloaded override"), "{:?}", app.log.entries);
     app.run(mg_ui::Action::ReloadResources);
     assert!(app.log.entries.iter().any(|(_, m)| m == "Reload Resources: nothing changed"));
@@ -709,7 +709,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
         h.state().ws.as_ref().unwrap().module.custom_tlk().unwrap().unwrap_or_default()
     };
     assert_eq!(named(&mut h), "mg_talk");
-    assert!(h.state().game.as_ref().unwrap().custom_tlk().is_some());
+    assert!(h.state().game.as_deref().unwrap().custom_tlk().is_some());
 
     // A line, typed: one undo takes the typing back.
     h.get_by_label("Add Line").click();
@@ -731,7 +731,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.state_mut().actions.push(mg_ui::Action::Save);
     h.run();
     assert!(!h.state().talk.as_ref().unwrap().is_dirty());
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     assert_eq!(game.string(mg_core::StrRef(16_777_216)).as_deref(), Some("Greetings"));
     let f = mg_tlk::Tlk::read(&std::fs::read(user.join("tlk/mg_talkf.tlk")).unwrap()).unwrap();
     assert_eq!(f.text(mg_core::StrRef(0)).as_deref(), Some("Greetings, lady"));
@@ -805,7 +805,7 @@ fn two_da_view_shows_where_rows_come_from() {
     h.get_by_label("mus_mine");
     // The Description column shows the talk table's text.
     let description = t.get(0, "Description").and_then(|s| s.parse::<u32>().ok()).unwrap();
-    let text = h.state().game.as_ref().unwrap().string(mg_core::StrRef(description)).unwrap();
+    let text = h.state().game.as_deref().unwrap().string(mg_core::StrRef(description)).unwrap();
     assert!(h.query_by_label(&text).is_some(), "{text}");
     // Only override's rows.
     h.state_mut().browser.rows_from = Some(0);
@@ -876,9 +876,9 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     assert!(user.join("tlk/mg_ui.tlk").is_file());
     let key = ResKey::parse("mg_ui_test", ResType::TWODA).unwrap();
-    let has = |h: &Harness<'_, Moonglow>| h.state().game.as_ref().unwrap().resman.contains(&key);
+    let has = |h: &Harness<'_, Moonglow>| h.state().game.as_deref().unwrap().resman.contains(&key);
     assert!(has(&h), "{:?}", log(&h));
-    assert!(h.state().game.as_ref().unwrap().custom_tlk().is_some());
+    assert!(h.state().game.as_deref().unwrap().custom_tlk().is_some());
     // Undone, the hak leaves the game data.
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run();
@@ -903,7 +903,7 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     h.run();
     assert!(!has(&h), "{:?}", log(&h));
     let other = ResKey::parse("mg_ui_other", ResType::TWODA).unwrap();
-    assert!(h.state().game.as_ref().unwrap().resman.contains(&other));
+    assert!(h.state().game.as_deref().unwrap().resman.contains(&other));
 }
 
 #[test]
@@ -1699,7 +1699,7 @@ fn palette_edit_copy_and_delete() {
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     // The standard waypoints: the "Tavern" waypoint (nw_wp_tavern).
-    let tavern = app.game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
     app.palette.filter = "nw_wp_tavern".into();
@@ -1720,7 +1720,7 @@ fn palette_edit_copy_and_delete() {
     let name = mg_module::palette::blueprint_name(
         mg_module::palette::BlueprintKind::Waypoint,
         &gff.root,
-        h.state().game.as_ref().unwrap(),
+        h.state().game.as_deref().unwrap(),
     );
     // (The copy's editor, opened in a window, closed first.)
     close_windows(&mut h);
@@ -1747,7 +1747,7 @@ fn finding_in_a_palette_opens_its_categories() {
     app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     app.palette.tiles = false;
-    let tavern = app.game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    let tavern = app.game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     let mut h = Harness::builder()
         .with_size(egui::vec2(900.0, 700.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -1768,7 +1768,7 @@ fn palette_finds_by_tag_keeps_favorites_and_moves_between_categories() {
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
     // Gate A (tag MG_SECRET_GATE) in Waypoints, Gate B in Custom 1.
     let keys: Vec<ResKey> = ["mg_gate_a", "mg_gate_b"]
@@ -1863,7 +1863,7 @@ fn blueprint_harness(
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named(name, t).unwrap().into_owned();
     let key = ResKey::parse(copy, t).unwrap();
     app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
@@ -2157,7 +2157,7 @@ fn door_editor_sets_appearance_lock_and_transition() {
     h.run();
     // A generic door: its Generic Appearance (and the old byte field).
     let generic = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let cols = mg_rules::ChoiceColumns { name: Some("Name"), label: Some("Label") };
         game.choices("genericdoors", cols).unwrap()
     };
@@ -2263,7 +2263,7 @@ fn visuals_page_sets_replacements_and_misc_visuals() {
     assert_eq!(field(&mut h, &key).child("TextureReplace").unwrap().id, 9, "the game's struct id");
     // The area view and model viewer draw it.
     let chest = field(&mut h, &key);
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let preview = mg_preview::replaced(mg_preview::placeable(game, &chest).unwrap(), &chest);
     assert_eq!(preview.base.textures.get("plc_chest1").map(String::as_str), Some("mg_gold"));
     // Removed: the field goes.
@@ -2309,7 +2309,7 @@ fn classes_page_sets_domains_and_associates() {
     // the game decides).
     assert_eq!(cleric(&mut h).integer("Domain1"), None);
     let animal = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let t = game.table("domains").unwrap();
         game.string(mg_core::StrRef(t.get_int(1, "Name").unwrap() as u32)).unwrap()
     };
@@ -2333,7 +2333,7 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     let cost_of = |h: &mut Harness<'_, Moonglow>| {
         let s = field(h, &key);
         let value = mg_rules::ItemValue::from_gff(&s);
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         (s.integer("Cost"), Some(i64::from(game.item_cost(&value))))
     };
     h.run();
@@ -2380,7 +2380,7 @@ fn creature_editor_levels_and_aligns() {
     let max_hp = |h: &mut Harness<'_, Moonglow>| {
         let s = field(h, &key);
         let sheet = mg_rules::CreatureSheet::from_gff(&s);
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         (s.integer("MaxHitPoints"), i64::from(game.creature_stats(&sheet).max_hit_points))
     };
     h.run();
@@ -2397,7 +2397,7 @@ fn creature_editor_levels_and_aligns() {
     assert_ne!(stored, before);
     // So is the challenge rating, recalculated as Aurora does on OK.
     let s = field(&mut h, &key);
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let item = |r: ResRef| {
         let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
         Gff::read(&data).ok().map(|g| g.root)
@@ -2925,7 +2925,7 @@ fn area_properties_edit_the_area() {
     h.run_steps(2);
     let game_row = 2; // environment.2da ExteriorDark
     let name = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let t = game.table("environment").unwrap();
         let strref = t.get(game_row, "STRREF").unwrap().trim().parse::<u32>().unwrap();
         game.string(mg_core::StrRef(strref)).unwrap()
@@ -3070,7 +3070,7 @@ fn context_menu_sets_states_mutes_and_adds_spawn_points() {
     // A chest, a sound and an encounter, placed.
     {
         let app = h.state_mut();
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let read = |name: &str, t: ResType| {
             Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
         };
@@ -3194,7 +3194,7 @@ fn add_to_palette_create_waypoint_and_set() {
     let git_key = ResKey::new(area, ResType::GIT);
     {
         let app = h.state_mut();
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let read = |name: &str, t: ResType| {
             Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
         };
@@ -3348,7 +3348,7 @@ fn placed_chest_holds_whole_items() {
     let git_key = ResKey::new(area, ResType::GIT);
     {
         let app = h.state_mut();
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let data = game.resman.get(&ResKey::parse("plc_chest1", ResType::UTP).unwrap()).unwrap();
         let mut chest = Gff::read(&data).unwrap().root;
         chest.set("HasInventory", mg_gff::Value::Byte(1));
@@ -3462,7 +3462,7 @@ fn area_viewer_paints_terrain() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("terrain") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let lattice = |h: &mut Harness<'_, Moonglow>| {
@@ -3807,7 +3807,7 @@ fn tiles_copy_and_paste() {
         assert_eq!(pasted.get(label), copied.get(label), "{label}");
     }
     // The tiles around fit it: the area's tiles make one lattice.
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let set = mg_area::tileset(game, ResRef::from_str("tic01").unwrap()).unwrap();
     let index = mg_tiles::TileIndex::new(&set);
     let ws = h.state_mut().ws.as_mut().unwrap();
@@ -3823,7 +3823,7 @@ fn update_instances_remakes_placed_sounds() {
     let Some((mut h, area)) = area_harness("update-instances") else { return };
     // A custom sound blueprint (a copy of hawkcry) placed twice, then its
     // volume changed.
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let data = game.resman.get(&ResKey::parse("hawkcry", ResType::UTS).unwrap()).unwrap();
     let mut bp = Gff::read(&data).unwrap();
     let key = ResKey::parse("mg_hawk", ResType::UTS).unwrap();
@@ -3894,7 +3894,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
     // Two trigger blueprints, each placed once with an outline.
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("trackstrigger", ResType::UTT).unwrap()).unwrap();
     let none = |_: ResRef| None;
     let placing = Placing { game, item: &none };
@@ -3935,7 +3935,7 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     // The blueprints' name in the palette, and their category's title.
     let (a, title) = {
         let app = h.state();
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let kind = mg_module::palette::BlueprintKind::Trigger;
         let gff = mg_module::palette::rebuild_custom_palette(
             &app.ws.as_ref().unwrap().module,
@@ -4008,7 +4008,7 @@ fn several_blueprints_are_edited_together() {
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.open_module(&path);
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
     let keys: Vec<ResKey> =
         ["mg_box_a", "mg_box_b"].iter().map(|n| ResKey::parse(n, ResType::UTP).unwrap()).collect();
@@ -4031,7 +4031,7 @@ fn several_blueprints_are_edited_together() {
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
     let name = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         mg_module::palette::blueprint_name(
             mg_module::palette::BlueprintKind::Placeable,
             &base.root,
@@ -4914,7 +4914,7 @@ fn an_import_warns_of_what_it_shadows() {
     );
     app.open_module(&path);
     // Twelve scripts named as the game's own, and one of the module's.
-    let mut names = app.game.as_ref().unwrap().resman.list(ResType::NSS);
+    let mut names = app.game.as_deref().unwrap().resman.list(ResType::NSS);
     names.sort();
     names.truncate(12);
     let mut w = mg_erf::ErfWriter::new(*b"ERF ");
@@ -4953,7 +4953,7 @@ fn area_marks_screen() {
     use mg_module::instances::{Placement, Placing, instance};
     let Some((mut h, area)) = area_harness("marks") else { return };
     let git = ResKey::new(area, ResType::GIT);
-    let game = h.state().game.as_ref().unwrap();
+    let game = h.state().game.as_deref().unwrap();
     let read = |r: &str, t: ResType| {
         Gff::read(&game.resman.get(&ResKey::parse(r, t).unwrap()).unwrap()).unwrap()
     };
@@ -5351,7 +5351,7 @@ fn the_area_view_plays_the_area_s_sounds() {
     h.state_mut().speaker = Box::new(speaker.clone());
     // The first rows of ambientsound.2da and ambientmusic.2da with a sound.
     let first = |table: &str| -> (i32, ResRef) {
-        let t = h.state().game.as_ref().unwrap().table(table).unwrap();
+        let t = h.state().game.as_deref().unwrap().table(table).unwrap();
         (0..t.len())
             .find_map(|r| {
                 let name = ResRef::from_str(t.get(r, "Resource")?).ok()?;
@@ -5431,12 +5431,12 @@ fn a_creature_s_sound_set_plays_a_sample() {
     assert!(played.is_some(), "{:?}", h.state().log.entries);
     // Female sound sets only: a male one is no longer offered.
     let name = |h: &Harness<'_, Moonglow>, row: usize| -> Option<String> {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let strref = game.table("soundset").unwrap().get_int(row, "STRREF")?;
         game.string(mg_core::StrRef(strref as u32))
     };
     let rows = |h: &Harness<'_, Moonglow>, gender: i32| -> Vec<String> {
-        let t = h.state().game.as_ref().unwrap().table("soundset").unwrap();
+        let t = h.state().game.as_deref().unwrap().table("soundset").unwrap();
         (0..t.len())
             .filter(|&r| t.get_int(r, "GENDER") == Some(gender))
             .filter_map(|r| name(h, r))
@@ -5779,7 +5779,7 @@ fn premium_campaigns_find_their_talk_tables_in_the_install() {
     app.open_module(&path);
     let loaded = app.log.entries.iter().any(|(_, e)| e == "Custom talk table tyrants loaded");
     assert!(loaded, "{:?}", app.log.entries);
-    assert!(app.game.as_ref().unwrap().custom_tlk().is_some());
+    assert!(app.game.as_deref().unwrap().custom_tlk().is_some());
 }
 
 #[test]
@@ -6131,7 +6131,7 @@ fn a_preview_follows_its_blueprint_s_editor() {
     app.set_render_state(rs.clone());
     app.open_module(&path);
     // A human of parts, in the module, its preview open beside its editor.
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap().into_owned();
     let key = ResKey::parse("live_look", ResType::UTC).unwrap();
     let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
@@ -6177,7 +6177,7 @@ fn blueprints_drag_from_the_module_tree_into_the_area() {
     // A waypoint blueprint of the module's own (the game's Tavern's copy).
     let key = ResKey::parse("mg_tree_wp", ResType::UTW).unwrap();
     let tavern = ResKey::parse("nw_wp_tavern", ResType::UTW).unwrap();
-    let data = h.state().game.as_ref().unwrap().resman.get(&tavern).unwrap().into_owned();
+    let data = h.state().game.as_deref().unwrap().resman.get(&tavern).unwrap().into_owned();
     h.state_mut().ws.as_mut().unwrap().module.set(key, data);
     h.run_steps(2);
     let count = |h: &mut Harness<'_, Moonglow>| {
@@ -6231,7 +6231,7 @@ fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
     let Some((mut h, area)) = area_harness("drag-ghost") else { return };
     let key = ResKey::parse("mg_ghost_chest", ResType::UTP).unwrap();
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
-    let data = h.state().game.as_ref().unwrap().resman.get(&chest).unwrap().into_owned();
+    let data = h.state().game.as_deref().unwrap().resman.get(&chest).unwrap().into_owned();
     h.state_mut().ws.as_mut().unwrap().module.set(key, data);
     h.run_steps(2);
     h.get_by_label_contains("Placeables (").click();
@@ -6281,7 +6281,7 @@ fn a_placeable_dragged_over_the_area_shows_its_model_where_it_would_go() {
 fn blueprints_drag_from_the_palette_into_the_area() {
     let Some((mut h, area)) = area_harness("drag-place") else { return };
     // The standard Tavern waypoint, in the palette beside the area.
-    let tavern = h.state().game.as_ref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
     h.state_mut().palette.kind = mg_module::palette::BlueprintKind::Waypoint;
     h.state_mut().palette.tiles = false;
     h.state_mut().palette.filter = "nw_wp_tavern".into();
@@ -6344,7 +6344,7 @@ fn placed_objects_preview_as_placed() {
     // A human of parts, placed in the area.
     let git = ResKey::new(area, ResType::GIT);
     let entry = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         let data = game.resman.get_named("nw_bandit001", ResType::UTC).unwrap();
         let mut bp = Gff::read(&data).unwrap().root;
         bp.set("Appearance_Type", mg_gff::Value::Word(6));
@@ -6861,7 +6861,7 @@ fn the_area_wizard_opens_at_the_top_of_its_tilesets() {
     );
     app.open_module(&path);
     app.open_palette = false;
-    let first = mg_module::new::tilesets(app.game.as_ref().unwrap())[0].name.clone();
+    let first = mg_module::new::tilesets(app.game.as_deref().unwrap())[0].name.clone();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 900.0))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
@@ -6902,7 +6902,7 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("terrain-drag") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let water = index.terrain("Water").unwrap();
@@ -7016,7 +7016,7 @@ fn the_eraser_erases_every_tile_it_is_dragged_across() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("eraser-drag") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let lattice = |h: &mut Harness<'_, Moonglow>| {
@@ -7073,7 +7073,7 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("crosser-right-click") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let lattice = |h: &mut Harness<'_, Moonglow>| {
@@ -7183,7 +7183,7 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("refine-tile") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let grid = |h: &mut Harness<'_, Moonglow>| {
@@ -7231,7 +7231,7 @@ fn a_terrain_drag_with_shift_fills_its_rectangle() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("terrain-fill") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let water = index.terrain("Water").unwrap();
@@ -7283,7 +7283,7 @@ fn a_crosser_drag_with_shift_follows_its_rectangle_s_outline() {
     use mg_tiles::{EAST, NORTH, SOUTH, TileIndex, WEST};
     let Some((mut h, area)) = area_harness("crosser-outline") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let road = index.crosser("Road").unwrap();
@@ -7389,7 +7389,7 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("tile-preview") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let grid = |h: &mut Harness<'_, Moonglow>| {
@@ -7504,7 +7504,7 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
     use mg_tiles::TileIndex;
     let Some((mut h, area)) = area_harness("drag-preview") else { return };
     let index = {
-        let game = h.state().game.as_ref().unwrap();
+        let game = h.state().game.as_deref().unwrap();
         TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
     };
     let grid = |h: &mut Harness<'_, Moonglow>| {

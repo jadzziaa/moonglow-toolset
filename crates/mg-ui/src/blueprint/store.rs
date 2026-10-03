@@ -222,7 +222,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
 /// The base items a store can list (those with a store panel): (row, name),
 /// by name.
 fn base_items(f: &Form<'_>) -> Vec<(i64, String)> {
-    let Some(game) = f.app.game.as_ref() else { return Vec::new() };
+    let Some(game) = f.app.game.as_deref() else { return Vec::new() };
     let Ok(table) = game.table("baseitems") else { return Vec::new() };
     let mut out: Vec<(i64, String)> = (0..table.len())
         .filter(|&row| table.get_int(row, "StorePanel").is_some())

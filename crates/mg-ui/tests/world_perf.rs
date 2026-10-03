@@ -103,7 +103,7 @@ fn persistent_world_stays_within_budget() {
     app.set_render_state(rs.clone());
     let ((), took) = time(|| app.open_module(&w.module));
     let ws = app.ws.as_ref().unwrap();
-    let layers = app.game.as_ref().unwrap().resman.layers().len();
+    let layers = app.game.as_deref().unwrap().resman.layers().len();
     b.check(format!("open ({} resources, {layers} layers)", ws.module.len()), took, S(1));
     for (_, e) in app.log.entries.iter().take(6) {
         println!("    {e}");
@@ -202,7 +202,7 @@ fn persistent_world_stays_within_budget() {
 
     // Whole-module work.
     let app = h.state_mut();
-    let (game, ws) = (app.game.as_ref().unwrap(), app.ws.as_mut().unwrap());
+    let (game, ws) = (app.game.as_deref().unwrap(), app.ws.as_mut().unwrap());
     let (r, took) = time(|| mg_module::palette::rebuild_custom_palettes(&mut ws.module, game));
     r.unwrap();
     b.check("rebuild custom palettes", took, S(1));

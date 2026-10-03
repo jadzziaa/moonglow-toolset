@@ -126,6 +126,20 @@ impl Command {
     }
 }
 
+/// The edits that make module `before` into `after`: a resource set where
+/// `after` has another or a new one, removed where it has none.
+pub fn edits_between(before: &Module, after: &Module) -> Vec<Edit> {
+    let changed = after
+        .keys()
+        .filter(|k| after.get(k) != before.get(k))
+        .map(|k| Edit::SetResource { key: *k, data: after.get(k).map(<[u8]>::to_vec) });
+    let gone = before
+        .keys()
+        .filter(|k| !after.contains(k))
+        .map(|k| Edit::SetResource { key: *k, data: None });
+    changed.chain(gone).collect()
+}
+
 /// An open module with its parsed documents and edit history.
 #[derive(Debug)]
 pub struct Workspace {
@@ -391,16 +405,7 @@ impl Workspace {
     /// ([`Workspace::snapshot`]), then apply the difference as a command.
     /// Flush first; documents changed since are not in the comparison.
     pub fn edits_to(&self, staged: &Module) -> Vec<Edit> {
-        let changed = staged
-            .keys()
-            .filter(|k| staged.get(k) != self.module.get(k))
-            .map(|k| Edit::SetResource { key: *k, data: staged.get(k).map(<[u8]>::to_vec) });
-        let gone = self
-            .module
-            .keys()
-            .filter(|k| !staged.contains(k))
-            .map(|k| Edit::SetResource { key: *k, data: None });
-        changed.chain(gone).collect()
+        edits_between(&self.module, staged)
     }
 
     /// Changes the module outside the edit history, for what is made from

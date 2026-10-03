@@ -519,7 +519,7 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         ui.strong(format!("Tile {i}"));
         let model = t.tiles[i].model.clone();
         let key = ResKey::parse(&model, ResType::MDL);
-        let found = key.is_some_and(|k| app.game.as_ref().is_some_and(|g| g.resman.contains(&k)));
+        let found = key.is_some_and(|k| app.game.as_deref().is_some_and(|g| g.resman.contains(&k)));
         if ui
             .add_enabled(found, egui::Button::new("Preview"))
             .on_disabled_hover_text(
@@ -726,7 +726,7 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc, size: u32) {
     let Some(t) = d.tileset().cloned() else { return };
     // The folder's models and textures, over the game data while rendering.
     const LAYER: &str = "tileset folder";
-    if let Some(game) = &mut app.game {
+    if let Some(game) = crate::exclusive(&mut app.game) {
         game.resman.add(
             mg_resman::priority::TEMP,
             LAYER,
@@ -752,7 +752,7 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc, size: u32) {
             None => failed.push(format!("{}: model not found", tile.model)),
         }
     }
-    if let Some(game) = &mut app.game {
+    if let Some(game) = crate::exclusive(&mut app.game) {
         game.resman.remove(LAYER);
     }
     app.log.info(format!("Rendered {written} minimap pictures into {}", dir.display()));

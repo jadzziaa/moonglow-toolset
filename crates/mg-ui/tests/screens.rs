@@ -28,7 +28,7 @@ fn script_wizard_pages() {
     let app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
     let dir = mg_testkit::scratch_dir("screens");
-    let lists = Arc::new(Lists::load(app.game.as_ref().unwrap()));
+    let lists = Arc::new(Lists::load(app.game.as_deref().unwrap()));
     let key = ResKey::parse("dlg", ResType::DLG).unwrap();
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 760.0))
@@ -140,7 +140,7 @@ fn palette_hover_preview() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
-    let chest = h.state().game.as_ref().unwrap().string(mg_core::StrRef(5348)).unwrap();
+    let chest = h.state().game.as_deref().unwrap().string(mg_core::StrRef(5348)).unwrap();
     let at = h.get_all_by_label(&chest).next().unwrap().rect().center();
     h.hover_at(at);
     h.run_steps(30);
@@ -221,7 +221,7 @@ fn blueprint_editors() {
             Some(GameInstall::new(&root, None, "en")),
             Box::new(NoDialogs::default()),
         );
-        let game = app.game.as_ref().unwrap();
+        let game = app.game.as_deref().unwrap();
         let data = game.resman.get_named(name, t).unwrap().into_owned();
         let mut m = mg_module::Module::new();
         m.set(ResKey::parse(name, t).unwrap(), data);
@@ -250,7 +250,7 @@ fn store_chosen_item() {
     let (name, t) = ("nw_storebar01", ResType::UTM);
     let mut app =
         Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
-    let game = app.game.as_ref().unwrap();
+    let game = app.game.as_deref().unwrap();
     let data = game.resman.get_named(name, t).unwrap().into_owned();
     // A magic armor: statistics and properties.
     let armor = game.resman.get_named("nw_maarcl002", ResType::UTI).unwrap();

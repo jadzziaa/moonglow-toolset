@@ -165,7 +165,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 
 /// Levels the creature up and applies what changed.
 fn level_up(app: &mut Moonglow, w: &LevelupWizard) {
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
     let Ok(doc) = ws.doc(&w.key) else { return };
     let Some(creature) = w.path.get(&doc.root).cloned() else { return };
     let targets: Vec<(u32, u32)> = w.slots.iter().map(|&(c, l, _)| (c, l)).collect();

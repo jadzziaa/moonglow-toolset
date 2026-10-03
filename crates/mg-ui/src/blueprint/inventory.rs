@@ -50,7 +50,7 @@ impl Form<'_> {
     pub(super) fn entry_name(&self, entry: &Struct, names: &HashMap<ResRef, String>) -> String {
         let own = entry
             .locstring("LocalizedName")
-            .and_then(|ls| self.app.game.as_ref().and_then(|g| g.locstring(ls)))
+            .and_then(|ls| self.app.game.as_deref().and_then(|g| g.locstring(ls)))
             .filter(|n| !n.is_empty());
         let r = entry_resref(entry);
         own.or_else(|| names.get(&r).cloned()).unwrap_or_else(|| r.to_string())
@@ -84,7 +84,7 @@ impl Form<'_> {
         let Some(resref) = self.palette_chosen(ui, BlueprintKind::Item) else { return };
         let Some(item) = self.blueprint(BlueprintKind::Item, resref) else { return };
         let icon = self.app.item_icon(ui.ctx(), &item);
-        let Some(game) = self.app.game.as_ref() else { return };
+        let Some(game) = self.app.game.as_deref() else { return };
         let name = item
             .locstring("LocalizedName")
             .and_then(|ls| game.locstring(ls))
@@ -152,7 +152,7 @@ impl Form<'_> {
     }
 
     fn base_item_fit(&self, base: i64) -> ItemFit {
-        let table = self.app.game.as_ref().and_then(|g| g.table("baseitems").ok());
+        let table = self.app.game.as_deref().and_then(|g| g.table("baseitems").ok());
         let cell = |col: &str| {
             let t = table.as_ref()?;
             t.get_int(usize::try_from(base).ok()?, col).and_then(|v| u32::try_from(v).ok())
@@ -168,7 +168,7 @@ impl Form<'_> {
     /// its struct id), as Aurora expands it; `None` if not found.
     pub(super) fn held_item(&mut self, resref: ResRef, id: u32) -> Option<Struct> {
         let bp = self.blueprint(BlueprintKind::Item, resref)?;
-        let game = self.app.game.as_ref()?;
+        let game = self.app.game.as_deref()?;
         let ws = self.app.ws.as_ref();
         let item = |r: ResRef| -> Option<Struct> {
             let k = ResKey::new(r, mg_core::ResType::UTI);
@@ -183,7 +183,7 @@ impl Form<'_> {
 
     pub(super) fn item_fit(&mut self, resref: ResRef) -> ItemFit {
         let base = self.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
-        let table = self.app.game.as_ref().and_then(|g| g.table("baseitems").ok());
+        let table = self.app.game.as_deref().and_then(|g| g.table("baseitems").ok());
         let cell = |col: &str| {
             let t = table.as_ref()?;
             t.get_int(usize::try_from(base?).ok()?, col).and_then(|v| u32::try_from(v).ok())

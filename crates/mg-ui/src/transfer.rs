@@ -57,7 +57,7 @@ impl Moonglow {
             return;
         }
         let empty = ResMan::new();
-        let resman = self.game.as_ref().map_or(&empty, |g| &g.resman);
+        let resman = self.game.as_deref().map_or(&empty, |g| &g.resman);
         match plan_import(&ws.module, &data, resman) {
             Ok(ImportPlan { resources, overwrites, missing }) => {
                 self.import = Some(ImportDraft {
@@ -120,7 +120,7 @@ impl Moonglow {
         let roots: Vec<ResKey> = draft.selected.iter().copied().collect();
         let resources = if draft.dependencies {
             let empty = ResMan::new();
-            let resman = self.game.as_ref().map_or(&empty, |g| &g.resman);
+            let resman = self.game.as_deref().map_or(&empty, |g| &g.resman);
             let plan = plan_export(&ws.module, &roots, resman);
             for r in &plan.missing {
                 self.log.warn(format!(

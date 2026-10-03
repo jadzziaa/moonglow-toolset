@@ -100,7 +100,7 @@ impl Moonglow {
         [ResType::WAV, ResType::BMU].into_iter().find_map(|t| {
             let key = ResKey::new(name, t);
             let module = self.ws.as_ref().and_then(|ws| ws.module.get(&key)).map(Arc::from);
-            module.or_else(|| self.game.as_ref()?.resman.get(&key).ok().map(|d| Arc::from(&*d)))
+            module.or_else(|| self.game.as_deref()?.resman.get(&key).ok().map(|d| Arc::from(&*d)))
         })
     }
 

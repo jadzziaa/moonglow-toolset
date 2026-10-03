@@ -253,7 +253,7 @@ impl Loader<'_> {
 impl Moonglow {
     /// The image loader, while there is game data.
     pub(crate) fn loader(&mut self) -> Option<Loader<'_>> {
-        let game = self.game.as_ref()?;
+        let game = self.game.as_deref()?;
         Some(Loader {
             pictures: &mut self.pictures,
             palettes: &mut self.palettes,

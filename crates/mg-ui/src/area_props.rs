@@ -205,7 +205,7 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
 /// Applies an environment.2da scheme: the area's lighting and weather, and
 /// each tile's lights picked anew from the scheme's colours (one command).
 fn apply_scheme(f: &mut Form<'_>, row: usize) {
-    let Some(game) = f.app.game.as_ref() else { return };
+    let Some(game) = f.app.game.as_deref() else { return };
     let scheme = match mg_module::new::Scheme::read(game, row) {
         Ok(s) => s,
         Err(e) => {

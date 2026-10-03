@@ -41,7 +41,7 @@ pub(crate) fn refresh_costs(
     app: &mut Moonglow,
     objects: Vec<(mg_resman::ResKey, mg_edit::GffPath)>,
 ) {
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
     let mut edits = Vec::new();
     for (key, path) in objects {
         let Ok(g) = ws.doc(&key) else { continue };
@@ -214,7 +214,7 @@ fn general(f: &mut Form<'_>, ui: &mut Ui) {
                 ui,
                 |ui| {
                     for (label, value) in
-                        f.app.game.as_ref().map(|g| statistics(g, &f.root)).unwrap_or_default()
+                        f.app.game.as_deref().map(|g| statistics(g, &f.root)).unwrap_or_default()
                     {
                         crate::widgets::field_label(ui, label);
                         ui.strong(value);
@@ -855,7 +855,7 @@ fn description(f: &mut Form<'_>, ui: &mut Ui) {
     ui.separator();
     f.locstring_memo(ui, "Identified Description", "DescIdentified");
     ui.separator();
-    if let Some(game) = f.app.game.as_ref() {
+    if let Some(game) = f.app.game.as_deref() {
         let row = base_row(f);
         let text = game
             .table("baseitems")

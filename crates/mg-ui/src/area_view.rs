@@ -440,7 +440,7 @@ impl AreaView {
 
 /// Reads the area again when the workspace changed.
 fn refresh(app: &mut Moonglow, view: &mut AreaView) {
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
     if view.revision == Some(ws.revision()) {
         return;
     }
@@ -755,7 +755,7 @@ fn viewport(
     let shift = ui.input(|i| i.modifiers.shift);
     let preview = crate::terrain_mode::preview(app, view, shift);
     let (preview_instances, hidden) =
-        match (preview, view.scene.as_mut(), app.viewport.as_ref(), app.game.as_ref()) {
+        match (preview, view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref()) {
             (Some((tiles, hidden)), Some(scene), Some(vp), Some(game)) => {
                 let instances =
                     scene.preview_tiles(&vp.gpu, game, &tiles, &settings, PREVIEW_OPACITY);
@@ -768,7 +768,7 @@ fn viewport(
             }
         };
     let (ghost_instances, ghost_box) =
-        match (&ghost, view.scene.as_mut(), app.viewport.as_ref(), app.game.as_ref()) {
+        match (&ghost, view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref()) {
             (Some(o), Some(scene), Some(vp), Some(game)) => {
                 let (instances, bounds) = scene.ghost(&vp.gpu, game, o, view.time, GHOST_OPACITY);
                 // Outlined too, to stand out from what is around it.
@@ -777,7 +777,7 @@ fn viewport(
             _ => (Vec::new(), None),
         };
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
-        (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_ref())
+        (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
     else {
         return;
     };
@@ -897,7 +897,7 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         return;
     }
     if view.walkable.is_none() {
-        let walkable = app.game.as_ref().and_then(|g| g.table("surfacemat").ok()).map(|t| {
+        let walkable = app.game.as_deref().and_then(|g| g.table("surfacemat").ok()).map(|t| {
             (0..t.len()).map(|r| t.get_int(r, "Walk").unwrap_or(0) != 0).collect::<Vec<bool>>()
         });
         view.walkable = Some(walkable.unwrap_or_default());
@@ -982,7 +982,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     if !view.object_walkmesh {
         return;
     }
-    let (Some(game), Some(model)) = (app.game.as_ref(), view.model.as_ref()) else { return };
+    let (Some(game), Some(model)) = (app.game.as_deref(), view.model.as_ref()) else { return };
     if view.object_faces.is_none() {
         view.object_faces = Some(view.object_walks.faces(game, model));
     }
@@ -1797,7 +1797,7 @@ fn instance_of(
     relative: &[[f32; 3]],
 ) -> Result<Option<mg_gff::Struct>, String> {
     use mg_module::instances::{Placing, instance};
-    let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return Ok(None) };
+    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return Ok(None) };
     let _ = ws.flush();
     let read = |k: ResKey| -> Option<mg_gff::Struct> {
         let data = ws
@@ -1845,7 +1845,7 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     if view.ghost.as_ref().is_none_or(|(k, _)| *k != key) {
         let placement = mg_module::instances::Placement { position: [0.0; 3], rotation: 0.0 };
         let object = instance_of(app, key, placement, &[]).ok().flatten().and_then(|item| {
-            let game = app.game.as_ref()?;
+            let game = app.game.as_deref()?;
             Some(mg_area::AreaObject::read(game, kind, usize::MAX, &item))
         });
         view.ghost = Some((key, object));
@@ -2541,7 +2541,7 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
 /// (with the items it holds), the object naming it; its editor opens.
 fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: usize) {
     let git = view.git();
-    let (Some(game), Some(ws)) = (app.game.as_ref(), app.ws.as_mut()) else { return };
+    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
     let Some(placed) = ws
         .doc(&git)
         .ok()

@@ -28,7 +28,7 @@ pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
         })
         .unwrap_or_default();
     let row = f.int("TrapType");
-    let table = f.app.game.as_ref().and_then(|g| g.table("traps").ok());
+    let table = f.app.game.as_deref().and_then(|g| g.table("traps").ok());
     let cell = |col: &str| {
         table
             .as_ref()
@@ -145,7 +145,7 @@ fn portrait_image(
 /// choice sets the row, and the resref where the blueprint has one. Its
 /// image shows; … opens Select Portrait (thumbnails, filters).
 pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
-    let Some(table) = f.app.game.as_ref().and_then(|g| g.table("portraits").ok()) else {
+    let Some(table) = f.app.game.as_deref().and_then(|g| g.table("portraits").ok()) else {
         return;
     };
     let base = |row: usize| table.get(row, "BaseResRef").filter(|b| *b != "****");
@@ -202,7 +202,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
     });
     let mut state: PortraitPick = ui.data(|d| d.get_temp(pick_id)).unwrap_or_default();
     if state.open {
-        let game = f.app.game.as_ref();
+        let game = f.app.game.as_deref();
         let names = |t: &str, name: &str, label: &str| {
             game.and_then(|g| {
                 g.choices(t, ChoiceColumns { name: Some(name), label: Some(label) }).ok()

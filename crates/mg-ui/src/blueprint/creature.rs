@@ -79,7 +79,7 @@ pub(crate) fn refresh_hit_points(
     app: &mut Moonglow,
     objects: Vec<(mg_resman::ResKey, mg_edit::GffPath)>,
 ) {
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
+    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return };
     let mut edits = Vec::new();
     for (key, path) in objects {
         let Ok(g) = ws.doc(&key) else { continue };
@@ -141,7 +141,7 @@ fn challenge(game: &GameData, module: &mg_module::Module, creature: &Struct) -> 
 fn rating_text(f: &Form<'_>) -> (String, Option<String>) {
     let stored = f.root.float("ChallengeRating").unwrap_or(0.0);
     let text = Challenge { calculated: stored, rating: stored }.text();
-    let detail = match (f.app.game.as_ref(), f.app.ws.as_ref()) {
+    let detail = match (f.app.game.as_deref(), f.app.ws.as_ref()) {
         (Some(game), Some(ws)) => {
             let c = challenge(game, &ws.module, &f.root);
             Some(format!("Calculated {:.2}, rated {}", c.calculated, c.text()))
@@ -170,7 +170,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                     let race = f.root.integer("Race").unwrap_or(6).max(0) as u32;
                     let gender = f.root.integer("Gender").unwrap_or(0).clamp(0, 255) as u8;
                     let name =
-                        f.app.game.as_ref().and_then(|g| {
+                        f.app.game.as_deref().and_then(|g| {
                             g.random_name(race, gender, last, &mut fastrand::Rng::new())
                         });
                     if let Some(n) = name {
@@ -231,7 +231,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
 
 fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
     let Some(stats) =
-        f.app.game.as_ref().map(|g| g.creature_stats(&CreatureSheet::from_gff(&f.root)))
+        f.app.game.as_deref().map(|g| g.creature_stats(&CreatureSheet::from_gff(&f.root)))
     else {
         return;
     };
@@ -490,7 +490,7 @@ fn classes(f: &mut Form<'_>, ui: &mut Ui) {
     let domains = choices(f, "domains", "Name", "Label");
     let schools = choices(f, "spellschools", "StringRef", "Label");
     // What classes.2da says a class picks or has.
-    let classes_2da = f.app.game.as_ref().and_then(|g| g.table("classes").ok());
+    let classes_2da = f.app.game.as_deref().and_then(|g| g.table("classes").ok());
     let class_int = |class: i64, column: &str| {
         let t = classes_2da.as_ref()?;
         t.get_int(usize::try_from(class).ok()?, column).map(i64::from)
@@ -820,7 +820,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                             });
                         ui.data_mut(|d| d.insert_temp(id, (gender, kind)));
                         let current = f.root.integer("SoundSetFile").unwrap_or(-1);
-                        let table = f.app.game.as_ref().and_then(|g| g.table("soundset").ok());
+                        let table = f.app.game.as_deref().and_then(|g| g.table("soundset").ok());
                         let shown: Vec<_> = sounds
                             .iter()
                             .filter(|c| {
@@ -895,7 +895,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
 /// A sound set's sample (soundset.2da `RESREF`'s soundset file): its
 /// Selected sound, else its first.
 fn sound_set_sample(app: &crate::Moonglow, set: i64) -> Option<ResRef> {
-    let game = app.game.as_ref()?;
+    let game = app.game.as_deref()?;
     let name = game.table("soundset").ok()?.get(usize::try_from(set).ok()?, "RESREF")?.to_string();
     let data = game.resman.get_named(&name, mg_core::ResType::SSF).ok()?;
     let ssf = mg_ssf::Ssf::read(&data).ok()?;
