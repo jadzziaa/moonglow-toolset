@@ -1375,7 +1375,7 @@ File size = 24 + 2·w·h exactly. Sizes seen: body 256², helm 128², cloak 512�
 #### EE per-part colours (armor)
 - GFF (UTI): `APart_<part>_Col_<channel>` BYTE — format string `APart_%d_Col_%d` next to `ModelPart1..3` in nwmain's item loader (nwsitem.cpp strings). part = ITEM_APPR_ARMOR_MODEL_* (0 RFOOT … 17 LHAND, 18 ROBE); channel = ITEM_APPR_ARMOR_COLOR_*: **0 LEATHER1, 1 LEATHER2, 2 CLOTH1, 3 CLOTH2, 4 METAL1, 5 METAL2** (note: differs from PLT layer order). Absent / 255 = use the item-wide colour. No base-game resource uses it (binary grep for "APart_" found nothing).
 - Script index = `6 + part*6 + channel` (e.g. torso cloth1 = 50) (nwscript.nss / Lexicon GetItemAppearance; v74 notes l.282-288). Added 1.74.8150; `GetItemAppearance` per-part since 87.35.
-- VERIFY exact field naming/type by saving a per-part-coloured armor in the EE toolset (open Q).
+- Verified in the engine (`engine_armor_colors.rs`): the name and BYTE type as above, read from a blueprint and written for a script-set colour; no field for a part without one.
 
 ---------------------------------------------------------------------------------------------------
 

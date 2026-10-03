@@ -424,6 +424,25 @@ impl Form<'_> {
         palette: &str,
     ) {
         let current = self.int(label).clamp(0, 175) as u8;
+        let pick = self.palette_pick(ui, game, what, label, palette, current, None);
+        if let Some(v) = pick.filter(|&v| v != current) {
+            self.set_int(what, label, i64::from(v), FieldType::Byte);
+        }
+    }
+
+    /// [`Form::palette_color`]'s chooser alone, showing colour `current`
+    /// (with `text` in place of its number): the colour picked.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn palette_pick(
+        &mut self,
+        ui: &mut Ui,
+        game: Option<&mg_rules::GameData>,
+        what: &str,
+        label: &str,
+        palette: &str,
+        current: u8,
+        text: Option<&str>,
+    ) -> Option<u8> {
         let pal = {
             let app = &mut *self.app;
             let game = game.or(app.game.as_ref());
@@ -445,7 +464,7 @@ impl Form<'_> {
                 crate::images::swatch(ui, rect, &crate::images::tones(p, current));
             }
             egui::ComboBox::from_id_salt(("palette-color", self.key, label))
-                .selected_text(current.to_string())
+                .selected_text(text.map_or_else(|| current.to_string(), str::to_string))
                 .width(56.0)
                 .height(11.0 * 16.0 + 24.0)
                 .show_ui(ui, |ui| {
@@ -461,7 +480,7 @@ impl Form<'_> {
                                 let size = egui::vec2(16.0, 14.0);
                                 let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click());
                                 crate::images::swatch(ui, rect, &crate::images::tones(p, i));
-                                if i == current {
+                                if i == current && text.is_none() {
                                     let stroke = ui.visuals().selection.stroke;
                                     ui.painter().rect_stroke(
                                         rect,
@@ -483,9 +502,7 @@ impl Form<'_> {
                     }
                 });
         });
-        if let Some(v) = pick.filter(|&v| v != current) {
-            self.set_int(what, label, i64::from(v), FieldType::Byte);
-        }
+        pick
     }
 
     /// A choice among 2DA rows (the field holds the row; `default` is its

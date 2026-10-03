@@ -5525,6 +5525,70 @@ fn colours_are_chosen_from_palette_swatches() {
 }
 
 #[test]
+fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
+    use mg_gff::Value;
+    let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "part_colors", ResType::UTI) else {
+        return;
+    };
+    // A color the armor came with (the left hand's Metal 2), as the game
+    // writes it.
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "part color",
+        vec![mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "APart_17_Col_5".into(),
+            value: Some(Value::Byte(171)),
+        }],
+    )));
+    h.run();
+    h.get_by_label("Appearance").click();
+    h.run();
+    if let Ok(img) = h.render() {
+        let _ = img.save(mg_testkit::scratch_dir("ui-part-colors").join("page.png"));
+    }
+    // The torso (shown first) has none of its own: each channel shows the
+    // armor's. Its Cloth 1 is given one.
+    let combo = egui::accesskit::Role::ComboBox;
+    h.get_all_by_value("Armor's")
+        .find(|n| n.accesskit_node().role() == combo)
+        .expect("the torso's Cloth 1")
+        .click();
+    h.run();
+    h.get_by_label("Torso Cloth 1 33").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).get("APart_7_Col_2"), Some(&Value::Byte(33)));
+
+    // Another edit, and a save: both parts' colors are in the saved file.
+    let cloth = field(&mut h, &key).integer("Cloth1Color").unwrap();
+    // (Its colors are in the right column; part numbers, some the same,
+    // in the left.)
+    h.get_all_by_value(&cloth.to_string())
+        .find(|n| n.accesskit_node().role() == combo && n.rect().min.x > 590.0)
+        .expect("the armor's Cloth 1")
+        .click();
+    h.run();
+    let pick = if cloth == 5 { 6 } else { 5 };
+    h.get_by_label(&format!("Cloth 1 {pick}")).click();
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/test-output/ui-bp-part_colors/sample.mod");
+    let saved = mg_module::Module::open(&path).unwrap();
+    let uti = saved.gff(&key).unwrap().unwrap().root;
+    assert_eq!(uti.integer("Cloth1Color"), Some(pick));
+    assert_eq!(uti.get("APart_7_Col_2"), Some(&Value::Byte(33)));
+    assert_eq!(uti.get("APart_17_Col_5"), Some(&Value::Byte(171)));
+
+    // Reset: the part takes the armor's color again, and the field goes.
+    h.get_by_label("Reset Torso Cloth 1").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).get("APart_7_Col_2"), None);
+    assert_eq!(field(&mut h, &key).get("APart_17_Col_5"), Some(&Value::Byte(171)));
+}
+
+#[test]
 fn sound_play_styles_set_aurora_s_fields_and_priority() {
     let Some((mut h, key)) = blueprint_harness("animalcriesday", "sound_styles", ResType::UTS)
     else {

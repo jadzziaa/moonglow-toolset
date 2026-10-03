@@ -48,9 +48,9 @@ Each names what Aurora does, then what Moonglow does instead.
 - **EE data with no field.** Texture, animation and shader replacements,
   highlight colors, cursors and text bubbles (an editor's **Visuals**
   page), area flags past interior, underground and natural, a tile's
-  replacement texture, a creature's familiar, animal companion, domains
-  and school, and stacks past the base item's limit all needed a GFF
-  editor or a script. Moonglow has fields for them, each checked against
+  replacement texture, an armor's per-part colors, a creature's
+  familiar, animal companion, domains and school, and stacks past the
+  base item's limit all needed a GFF editor or a script. Moonglow has fields for them, each checked against
   what the game reads (see [Blueprints](05-blueprints.md)).
 - **One modal dialog at a time**, which can open behind the main window.
   Moonglow's editors are tabs and windows: keep a script, a conversation

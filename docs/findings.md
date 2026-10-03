@@ -573,6 +573,27 @@ game reads parts above 255 was not tested.
 - **Moonglow:** `crates/mg-rules/src/items.rs` (`wide_label`).
 - **Wiki:** missing.
 
+### An armor's per-part colors
+
+An armor (UTI) may give each part its own color per channel, over the
+item-wide `Cloth1Color`…`Metal2Color`: a BYTE field
+`APart_<part>_Col_<channel>`, with `part` an `ITEM_APPR_ARMOR_MODEL_*`
+number (0 right foot … 17 left hand, 18 robe) and `channel` an
+`ITEM_APPR_ARMOR_COLOR_*` number (0 leather 1, 1 leather 2, 2 cloth 1,
+3 cloth 2, 4 metal 1, 5 metal 2: not the order of a PLT's layers). The
+game reads the fields from a blueprint (`GetItemAppearance` with index
+`6 + part × 6 + channel` returns them, and 255 for a part without one),
+and writes exactly these for a color set with `CopyItemAndModify`; a part
+without a color of its own has no field. No base-game item has one, and
+Aurora has no page for them.
+
+- **Checked:** engine, `engine_armor_colors.rs` (names and types from
+  `ObjectToJson`). How the client draws them was not compared; whether
+  Aurora drops them on save was not captured.
+- **Moonglow:** `crates/mg-rules/src/items.rs` (`armor_part_color`); the
+  item editor's Part Colors; `crates/mg-preview/src/creature.rs`.
+- **Wiki:** missing.
+
 ### Conversation script parameters
 
 Entries and replies have `ActionParams`; links (and `StartingList` entries)

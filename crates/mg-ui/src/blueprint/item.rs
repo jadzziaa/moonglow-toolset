@@ -347,6 +347,70 @@ fn colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     });
 }
 
+/// An armor's parts' own colors (EE; Aurora has no such page): a part to
+/// choose, and for each channel its color or the armor's.
+fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
+    use mg_rules::items::{
+        ARMOR_PARTS as PARTS, ArmorChannel, armor_part_color, armor_part_color_label,
+    };
+    let own = |f: &Form<'_>, part: usize| {
+        ArmorChannel::ALL.iter().any(|&c| armor_part_color(&f.root, part, c).is_some())
+    };
+    let id = egui::Id::new(("uti-part-colors", f.key));
+    let mut part: usize = ui.data(|d| d.get_temp(id)).unwrap_or(7);
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Part Colors");
+        // (A part with colors of its own is marked.)
+        let name = |f: &Form<'_>, p: usize| {
+            if own(f, p) { format!("{} *", PARTS[p].1) } else { PARTS[p].1.to_string() }
+        };
+        egui::ComboBox::from_id_salt(id).selected_text(name(f, part)).show_ui(ui, |ui| {
+            for p in 0..PARTS.len() {
+                ui.selectable_value(&mut part, p, name(f, p));
+            }
+        });
+    })
+    .response
+    .on_hover_text("A part takes the armor's color where it has none of its own (*: it has).");
+    ui.data_mut(|d| d.insert_temp(id, part));
+    egui::Grid::new(("uti-part-colors", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
+        ui,
+        |ui| {
+            for (channel, (_, _, palette)) in ArmorChannel::ALL.into_iter().zip(COLORS) {
+                let what = format!("{} {}", PARTS[part].1, channel.name());
+                let label = armor_part_color_label(part, channel);
+                let color = armor_part_color(&f.root, part, channel);
+                ui.label(channel.name());
+                ui.horizontal(|ui| {
+                    // Without one of its own: the armor's, as it shows.
+                    let shown = color.unwrap_or(f.int(channel.field()).clamp(0, 175) as u8);
+                    let text = color.is_none().then_some("Armor's");
+                    if let Some(v) =
+                        f.palette_pick(ui, Some(game), &what, &label, palette, shown, text)
+                        && Some(v) != color
+                    {
+                        f.set(&what, &label, Value::Byte(v));
+                    }
+                    let reset = ui
+                        .add_enabled(color.is_some(), egui::Button::new("Reset").small())
+                        .on_hover_text("Use the armor's color");
+                    reset.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::WidgetType::Button,
+                            true,
+                            format!("Reset {what}"),
+                        )
+                    });
+                    if reset.clicked() {
+                        f.set_opt(&what, &label, None);
+                    }
+                });
+                ui.end_row();
+            }
+        },
+    );
+}
+
 /// The item with another model number (and its EE twin).
 fn with_model(item: &Struct, label: &str, n: u16) -> Struct {
     let mut s = item.clone();
@@ -512,6 +576,8 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                         });
                 }
                 colors(f, &mut cols[1], game);
+                cols[1].separator();
+                part_colors(f, &mut cols[1], game);
             });
         }
         // Simple and layered: one model (layered ones take colours).

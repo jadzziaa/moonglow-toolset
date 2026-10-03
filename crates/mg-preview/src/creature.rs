@@ -13,6 +13,7 @@ use crate::{
 
 /// Per capart.2da `MDLNAME`: the creature's field with its part number and
 /// the armour's. (The creature's right foot really is `ArmorPart_RFoot`.)
+/// In the order of the game's armor parts (`mg_rules::items::ARMOR_PARTS`).
 const PARTS: [(&str, &str, &str); 18] = [
     ("footr", "ArmorPart_RFoot", "ArmorPart_RFoot"),
     ("footl", "BodyPart_LFoot", "ArmorPart_LFoot"),
@@ -33,6 +34,27 @@ const PARTS: [(&str, &str, &str); 18] = [
     ("handr", "BodyPart_RHand", "ArmorPart_RHand"),
     ("handl", "BodyPart_LHand", "ArmorPart_LHand"),
 ];
+
+/// The robe, among the armor's parts.
+const ROBE: usize = 18;
+
+/// `colors` (by PLT layer) with armor part `part`'s own colors over them.
+fn part_colors(armor: &Struct, part: usize, mut colors: [u8; 10]) -> [u8; 10] {
+    use mg_rules::items::ArmorChannel as C;
+    for (layer, channel) in [
+        (2, C::Metal1),
+        (3, C::Metal2),
+        (4, C::Cloth1),
+        (5, C::Cloth2),
+        (6, C::Leather1),
+        (7, C::Leather2),
+    ] {
+        if let Some(c) = mg_rules::items::armor_part_color(armor, part, channel) {
+            colors[layer] = c;
+        }
+    }
+    colors
+}
 
 /// Equipment slots (`Equip_ItemList` struct ids).
 const HEAD: u32 = 0x1;
@@ -185,10 +207,15 @@ pub fn creature(
                 .map(|s| format!("{s}_{name}{sep}{n:03}"))
                 .find(|m| lk.has_model(m))
         };
-        let with = |model: String, attach: Option<&str>, animated: bool| {
+        // `part`: the armor part (an index of `ARMOR_PARTS`), which may
+        // have colors of its own.
+        let with = |model: String, attach: Option<&str>, animated: bool, part: Option<usize>| {
             let mut p = Part::new(model);
             p.attach = attach.map(str::to_ascii_lowercase);
-            p.colors = Some(body_colors);
+            p.colors = Some(match (&armor, part) {
+                (Some(a), Some(part)) => part_colors(a, part, body_colors),
+                _ => body_colors,
+            });
             p.env_map = env.clone();
             p.animated = animated;
             p.textures = plt_fallbacks(&lk, &p.model);
@@ -206,7 +233,7 @@ pub fn creature(
         if robe > 0
             && let Some(m) = part_model("robe", robe, "")
         {
-            preview.parts.push(with(m, None, true));
+            preview.parts.push(with(m, None, true, Some(ROBE)));
         }
 
         let capart = game.table("capart")?;
@@ -221,7 +248,7 @@ pub fn creature(
             if let Some(model) =
                 cell_int(&cloaks, row, "MODEL").and_then(|m| part_model("cloak", m, "_"))
             {
-                let mut p = with(model, None, true);
+                let mut p = with(model, None, true, None);
                 let texture =
                     format!("cloak_{:03}", cell_int(&cloaks, row, "TEXTURE").unwrap_or(1));
                 p.textures =
@@ -236,10 +263,10 @@ pub fn creature(
             let Some(mdlname) = cell(&capart, row, "MDLNAME").map(str::to_ascii_lowercase) else {
                 continue;
             };
-            let Some(&(_, body_field, armor_field)) = PARTS.iter().find(|(n, _, _)| *n == mdlname)
-            else {
+            let Some(part) = PARTS.iter().position(|(n, _, _)| *n == mdlname) else {
                 continue;
             };
+            let (_, body_field, armor_field) = PARTS[part];
             if hidden(&mdlname)
                 || (mdlname == "shol" && hide_shoulders[0])
                 || (mdlname == "shor" && hide_shoulders[1])
@@ -253,7 +280,7 @@ pub fn creature(
             }
             let node = cell(&capart, row, "NODENAME").unwrap_or("rootdummy");
             if let Some(m) = part_model(&mdlname, n, "") {
-                preview.parts.push(with(m, Some(node), false));
+                preview.parts.push(with(m, Some(node), false, Some(part)));
             }
         }
 
@@ -274,7 +301,7 @@ pub fn creature(
             }
             None if !hidden("head") => {
                 if let Some(m) = part_model("head", number(utc, "Appearance_Head").max(1), "") {
-                    preview.parts.push(with(m, Some("head_g"), false));
+                    preview.parts.push(with(m, Some("head_g"), false, None));
                 }
             }
             None => {}

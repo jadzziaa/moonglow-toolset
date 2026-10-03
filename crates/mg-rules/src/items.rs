@@ -241,6 +241,106 @@ pub fn part_number(s: &mg_gff::Struct, label: &str) -> Option<i64> {
     s.integer(&wide_label(label)).or_else(|| s.integer(label))
 }
 
+/// An armor's parts, in the game's order (`ITEM_APPR_ARMOR_MODEL_*`): the
+/// field with each one's part number, and its name.
+pub const ARMOR_PARTS: [(&str, &str); 19] = [
+    ("ArmorPart_RFoot", "Right Foot"),
+    ("ArmorPart_LFoot", "Left Foot"),
+    ("ArmorPart_RShin", "Right Shin"),
+    ("ArmorPart_LShin", "Left Shin"),
+    ("ArmorPart_LThigh", "Left Thigh"),
+    ("ArmorPart_RThigh", "Right Thigh"),
+    ("ArmorPart_Pelvis", "Pelvis"),
+    ("ArmorPart_Torso", "Torso"),
+    ("ArmorPart_Belt", "Belt"),
+    ("ArmorPart_Neck", "Neck"),
+    ("ArmorPart_RFArm", "Right Forearm"),
+    ("ArmorPart_LFArm", "Left Forearm"),
+    ("ArmorPart_RBicep", "Right Bicep"),
+    ("ArmorPart_LBicep", "Left Bicep"),
+    ("ArmorPart_RShoul", "Right Shoulder"),
+    ("ArmorPart_LShoul", "Left Shoulder"),
+    ("ArmorPart_RHand", "Right Hand"),
+    ("ArmorPart_LHand", "Left Hand"),
+    ("ArmorPart_Robe", "Robe"),
+];
+
+/// An armor's color channels, numbered as the game numbers them
+/// (`ITEM_APPR_ARMOR_COLOR_*`): not the order of a PLT's layers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArmorChannel {
+    Leather1 = 0,
+    Leather2 = 1,
+    Cloth1 = 2,
+    Cloth2 = 3,
+    Metal1 = 4,
+    Metal2 = 5,
+}
+
+impl ArmorChannel {
+    pub const ALL: [ArmorChannel; 6] = [
+        ArmorChannel::Cloth1,
+        ArmorChannel::Cloth2,
+        ArmorChannel::Leather1,
+        ArmorChannel::Leather2,
+        ArmorChannel::Metal1,
+        ArmorChannel::Metal2,
+    ];
+
+    /// The item's field with this channel's color for the whole armor.
+    pub fn field(self) -> &'static str {
+        match self {
+            ArmorChannel::Leather1 => "Leather1Color",
+            ArmorChannel::Leather2 => "Leather2Color",
+            ArmorChannel::Cloth1 => "Cloth1Color",
+            ArmorChannel::Cloth2 => "Cloth2Color",
+            ArmorChannel::Metal1 => "Metal1Color",
+            ArmorChannel::Metal2 => "Metal2Color",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ArmorChannel::Leather1 => "Leather 1",
+            ArmorChannel::Leather2 => "Leather 2",
+            ArmorChannel::Cloth1 => "Cloth 1",
+            ArmorChannel::Cloth2 => "Cloth 2",
+            ArmorChannel::Metal1 => "Metal 1",
+            ArmorChannel::Metal2 => "Metal 2",
+        }
+    }
+}
+
+/// The field with armor part `part`'s own color of a channel (EE; a BYTE,
+/// as the engine writes it: `engine_armor_colors.rs`).
+pub fn armor_part_color_label(part: usize, channel: ArmorChannel) -> String {
+    format!("APart_{part}_Col_{}", channel as u8)
+}
+
+/// Armor part `part`'s own color of a channel (`part`: an index of
+/// [`ARMOR_PARTS`]); `None` where it takes the armor's (no field, or 255).
+pub fn armor_part_color(item: &mg_gff::Struct, part: usize, channel: ArmorChannel) -> Option<u8> {
+    let v = item.integer(&armor_part_color_label(part, channel))?;
+    u8::try_from(v).ok().filter(|&v| v != 255)
+}
+
+/// Gives armor part `part` its own color of a channel, or with `None`
+/// takes it away (the field goes: the engine writes none for such a part).
+pub fn set_armor_part_color(
+    item: &mut mg_gff::Struct,
+    part: usize,
+    channel: ArmorChannel,
+    color: Option<u8>,
+) {
+    let label = armor_part_color_label(part, channel);
+    match color.filter(|&c| c != 255) {
+        Some(c) => item.set(&label, mg_gff::Value::Byte(c)),
+        None => {
+            item.remove(&label);
+        }
+    }
+}
+
 /// An item property type (an itempropdef.2da row) and the tables that
 /// qualify it.
 #[derive(Debug, Clone, PartialEq, Eq)]

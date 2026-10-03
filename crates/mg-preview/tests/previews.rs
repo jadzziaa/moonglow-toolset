@@ -12,6 +12,7 @@ use mg_preview::{CreatureLook, Preview, creature, creature_look, door, item, pla
 use mg_render::{AreaLight, Camera, Gpu, Renderer, Scene};
 use mg_resman::GameInstall;
 use mg_rules::GameData;
+use mg_rules::items::{ArmorChannel, set_armor_part_color};
 
 fn game() -> Option<GameData> {
     let root = mg_testkit::nwn_root()?;
@@ -95,6 +96,20 @@ fn blueprints_assemble() {
     let armor = item(&game, &blueprint(&game, "nw_aarcl001", ResType::UTI).root).unwrap();
     assert_eq!(armor.base.model, "pmh0");
     assert!(armor.parts.iter().any(|x| x.model == "pmh0_chest016"));
+    // A part's own colors (EE) are on that part alone: the torso's cloth 1
+    // (PLT layer 4) and the right foot's metal 2 (layer 3).
+    let mut uti = blueprint(&game, "nw_aarcl001", ResType::UTI).root;
+    let cloth = uti.integer("Cloth1Color").unwrap() as u8;
+    set_armor_part_color(&mut uti, 7, ArmorChannel::Cloth1, Some(33));
+    set_armor_part_color(&mut uti, 0, ArmorChannel::Metal2, Some(171));
+    let armor = item(&game, &uti).unwrap();
+    let colors = |model: &str| {
+        armor.parts.iter().find(|x| x.model.starts_with(model)).unwrap().colors.unwrap()
+    };
+    assert_eq!(colors("pmh0_chest")[4], 33);
+    assert_eq!(colors("pmh0_footr")[3], 171);
+    assert_eq!(colors("pmh0_footl")[3], uti.integer("Metal2Color").unwrap() as u8);
+    assert_eq!(colors("pmh0_pelvis")[4], cloth);
 
     // A placeable and doors.
     let armoire = placeable(&game, &blueprint(&game, "plc_armoire", ResType::UTP).root).unwrap();
@@ -131,6 +146,17 @@ fn previews_render() {
     let item_of = items(&game);
     // Creatures and bodies face +Y: seen from the front; held items from
     // the side.
+    // An armor whose torso has colors of its own (EE).
+    let mut parts = blueprint(&game, "nw_aarcl001", ResType::UTI).root;
+    for (channel, color) in [
+        (ArmorChannel::Cloth1, 88),
+        (ArmorChannel::Cloth2, 88),
+        (ArmorChannel::Leather1, 46),
+        (ArmorChannel::Leather2, 46),
+    ] {
+        set_armor_part_color(&mut parts, 7, channel, Some(color));
+    }
+    let mut drawings = std::collections::HashMap::new();
     let cases: Vec<(&str, Preview)> = vec![
         (
             "nw_hen_bod_05",
@@ -143,6 +169,7 @@ fn previews_render() {
                 .unwrap(),
         ),
         ("nw_aarcl001", item(&game, &blueprint(&game, "nw_aarcl001", ResType::UTI).root).unwrap()),
+        ("part_colors", item(&game, &parts).unwrap()),
         ("nw_wswls001", item(&game, &blueprint(&game, "nw_wswls001", ResType::UTI).root).unwrap()),
         ("nw_arhe001", item(&game, &blueprint(&game, "nw_arhe001", ResType::UTI).root).unwrap()),
         (
@@ -183,5 +210,11 @@ fn previews_render() {
             .count();
         eprintln!("{name}: {} instances, {drawn} pixels drawn", scene.instances.len());
         assert!(drawn > 2000, "{name}: little drawn");
+        drawings.insert(name, img.data);
     }
+    // The torso's own colors show: its pixels differ, the rest are the same.
+    let (plain, own) = (&drawings["nw_aarcl001"], &drawings["part_colors"]);
+    let differ = plain.chunks(4).zip(own.chunks(4)).filter(|(a, b)| a != b).count();
+    eprintln!("part colors: {differ} pixels differ");
+    assert!(differ > 300 && differ < 256 * 256 / 8, "{differ} pixels differ");
 }

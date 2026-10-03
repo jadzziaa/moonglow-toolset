@@ -68,6 +68,11 @@ Size: S (an hour or two), M (a day or so), L (several days).
   created item itself, as Moonglow computes the stored Cost (see
   [Findings](findings.md#created-items-are-priced-anew)), so nothing seemed
   to need it. (S to check)
+- **An armor's part colors:** edited and previewed, and the game reads
+  them (`engine_armor_colors.rs`). Not compared with the game client's
+  drawing (on bare parts, say), and the inventory icon is drawn in the
+  armor's own colors; whether the game's icon shows a part's isn't
+  known. (S–M, a client capture)
 - **The Classes page in a narrow window:** the second domain picker
   sits at the window's edge. (S)
 
