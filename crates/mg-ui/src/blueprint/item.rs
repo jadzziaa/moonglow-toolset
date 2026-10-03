@@ -384,7 +384,7 @@ fn part_colors(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                 ui.horizontal(|ui| {
                     // Without one of its own: the armor's, as it shows.
                     let shown = color.unwrap_or(f.int(channel.field()).clamp(0, 175) as u8);
-                    let text = color.is_none().then_some("Armor's");
+                    let text = color.is_none().then_some("Default");
                     if let Some(v) =
                         f.palette_pick(ui, Some(game), &what, &label, palette, shown, text)
                         && Some(v) != color

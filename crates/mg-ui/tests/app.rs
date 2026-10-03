@@ -5550,7 +5550,7 @@ fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     // The torso (shown first) has none of its own: each channel shows the
     // armor's. Its Cloth 1 is given one.
     let combo = egui::accesskit::Role::ComboBox;
-    h.get_all_by_value("Armor's")
+    h.get_all_by_value("Default")
         .find(|n| n.accesskit_node().role() == combo)
         .expect("the torso's Cloth 1")
         .click();
