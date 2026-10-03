@@ -119,6 +119,18 @@ in Tools › Options › Folders. The packages aren't signed yet: Windows'
 SmartScreen and macOS' Gatekeeper ask before the first run (the release notes
 say how to allow it).
 
+### Nix
+
+On NixOS, or anywhere else with Nix and flakes, you can run Moonglow straight
+from this repository:
+
+```sh
+nix run github:jadzziaa/moonglow-toolset
+```
+
+The flake builds from source, so you'll get the latest commit on `develop`
+rather than the last release. `mg` is in the same package.
+
 ### The command line
 
 Every package includes `mg`, the command-line tools, for build pipelines and
