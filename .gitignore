@@ -5,3 +5,4 @@ __pycache__/
 
 # Made from Cargo.lock by packaging/flatpak/cargo_sources.py.
 packaging/flatpak/cargo-sources.json
+/result
