@@ -331,6 +331,10 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         return vec4<f32>(draw.diffuse.rgb, 1.0);
     }
 
+    // A marker: unlit, in its material's colour.
+    if (draw.params.w > 1.5) {
+        return vec4<f32>(color_clamp(gam(color.rgb * draw.diffuse.rgb)), color.a);
+    }
     // Unlit (TXI decal).
     if (draw.params.w > 0.5) {
         return vec4<f32>(color_clamp(gam(color.rgb)), color.a);

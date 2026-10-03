@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.8.1" date="2026-10-03">
+      <description>
+        <p>Merchants and sounds are hidden by what stands in front of them:
+        they were drawn over the view. Merchants stay yellow arrows, or the
+        game's $ sign (Options, Area); sounds are the game's markers for
+        them. The Variables window's name field shows a whole name.</p>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-10-03">
       <description>
         <p>Waypoints show the flags of their appearance; the area view draws

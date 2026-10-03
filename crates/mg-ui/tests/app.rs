@@ -668,6 +668,15 @@ fn module_name_in_every_language_and_variables() {
         v.rows[0].value = "7".into();
     }
     h.run();
+    // The name's field shows a whole name (32 characters), also in a
+    // window just opened.
+    let name_width = h
+        .get_all_by_value("nLevel")
+        .find(|n| n.accesskit_node().role() == egui::accesskit::Role::TextInput)
+        .expect("the name's field")
+        .rect()
+        .width();
+    assert!(name_width >= 250.0, "the name's field is {name_width} wide");
     h.get_by_label("OK").click();
     h.run();
     let vars = info(h.state_mut()).items(&ifo::VAR_TABLE).to_vec();

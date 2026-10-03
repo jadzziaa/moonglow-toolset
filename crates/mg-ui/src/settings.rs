@@ -102,6 +102,9 @@ pub struct Settings {
     /// Options > Area: Show Door Orientation Arrows off (Aurora's default:
     /// on).
     pub no_door_arrows: bool,
+    /// Options > Area: Show merchants as the game's $ sign (its marker
+    /// model, as Aurora shows them) rather than as Moonglow's arrow.
+    pub merchant_signs: bool,
     /// Options > Language: the language text is shown and edited in
     /// (language.2da row); `None`: the default, English.
     pub edit_language: Option<u32>,

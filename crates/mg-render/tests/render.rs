@@ -934,3 +934,35 @@ fn opacity_makes_an_instance_see_through() {
         assert!((ratio - 0.5).abs() < 0.08, "channel {c}: {whole:?} then {half:?}");
     }
 }
+
+/// An unlit instance (an editor's marker) shows its material's colour
+/// whatever the light: in the dark too, where a lit one is black.
+#[test]
+fn unlit_instances_keep_their_colour_in_the_dark() {
+    let Some(gpu) = gpu() else { return };
+    let mut yellow = quad();
+    if let NodeKind::Mesh(m) = &mut yellow.nodes[1].kind {
+        m.diffuse = [240.0 / 255.0, 210.0 / 255.0, 40.0 / 255.0];
+        m.ambient = m.diffuse;
+    }
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(yellow)));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.5, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let dark = AreaLight { ambient: Vec3::ZERO, diffuse: Vec3::ZERO, ..Default::default() };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut shot = |unlit: bool| {
+        let instance = Instance { unlit, ..Instance::new(model.clone(), Mat4::IDENTITY) };
+        let scene = Scene { instances: vec![instance], area: dark, ..Default::default() };
+        r.render_image(&gpu, &NoAssets, &scene, &camera, 32, 32).pixel(16, 16)
+    };
+    let (lit, unlit) = (shot(false), shot(true));
+    assert!(lit[..3].iter().all(|&c| c < 8), "lit, in the dark: {lit:?}");
+    for (c, want) in [240i32, 210, 40].into_iter().enumerate() {
+        assert!((i32::from(unlit[c]) - want).abs() <= 3, "channel {c} of {unlit:?}");
+    }
+}

@@ -66,6 +66,32 @@ pub fn waypoint(game: &GameData, utw: &Struct) -> Result<Preview, PreviewError> 
     Ok(Preview::model(&model))
 }
 
+/// A merchant's marker, as Aurora shows one: the game's `gi_store` model
+/// (a merchant has no appearance).
+pub fn store(game: &GameData) -> Result<Preview, PreviewError> {
+    const MARKER: &str = "gi_store";
+    if !(Lookup { game }).has_model(MARKER) {
+        return Err(PreviewError::NoModel(MARKER.into()));
+    }
+    Ok(Preview::model(MARKER))
+}
+
+/// A sound's marker, as Aurora shows one (UTS fields): the game's
+/// `gi_sound_area` for a sound heard everywhere in the area, `gi_sound_rndm`
+/// for one played from a random position, else `gi_sound_pos`.
+pub fn sound(game: &GameData, uts: &Struct) -> Result<Preview, PreviewError> {
+    let on = |label: &str| uts.integer(label).unwrap_or(0) != 0;
+    let marker = match (on("Positional"), on("RandomPosition")) {
+        (false, _) => "gi_sound_area",
+        (true, true) => "gi_sound_rndm",
+        (true, false) => "gi_sound_pos",
+    };
+    if !(Lookup { game }).has_model(marker) {
+        return Err(PreviewError::NoModel(marker.into()));
+    }
+    Ok(Preview::model(marker))
+}
+
 /// A door blueprint (UTD fields): doortypes.2da `Model` for a tileset door
 /// (`Appearance` ≠ 0), else genericdoors.2da `ModelName` of its
 /// `GenericType_New` (or the older `GenericType`).

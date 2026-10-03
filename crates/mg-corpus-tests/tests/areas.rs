@@ -180,3 +180,38 @@ fn waypoints_show_their_flags() {
     assert_eq!(flag(0), None);
     assert_eq!(flag(200), None);
 }
+
+/// A merchant is drawn as the game's marker for one (`gi_store`), a model
+/// in the scene, so that what stands in front of it hides it.
+#[test]
+fn merchants_show_their_marker() {
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let store = Struct::new(0);
+    let o = mg_area::AreaObject::read(&game, ObjectKind::Store, 0, &store);
+    assert_eq!(o.problem, None);
+    assert_eq!(o.preview.map(|p| p.base.model).as_deref(), Some("gi_store"));
+    assert!(ObjectKind::Store.is_marker() && !ObjectKind::Placeable.is_marker());
+}
+
+/// A sound is drawn as the game's marker for its kind: heard everywhere in
+/// the area, from a random position, or from where it stands.
+#[test]
+fn sounds_show_their_markers() {
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let marker = |positional: u8, random: u8| {
+        let mut s = Struct::new(0);
+        s.set("Positional", mg_gff::Value::Byte(positional));
+        s.set("RandomPosition", mg_gff::Value::Byte(random));
+        let o = mg_area::AreaObject::read(&game, ObjectKind::Sound, 0, &s);
+        assert_eq!(o.problem, None);
+        o.preview.map(|p| p.base.model)
+    };
+    assert_eq!(marker(0, 0).as_deref(), Some("gi_sound_area"));
+    assert_eq!(marker(1, 1).as_deref(), Some("gi_sound_rndm"));
+    assert_eq!(marker(1, 0).as_deref(), Some("gi_sound_pos"));
+    // Sounds have no arrow to fall back to; merchants and waypoints do.
+    assert!(ObjectKind::Sound.is_marker() && !ObjectKind::Sound.has_arrow());
+    assert!(ObjectKind::Store.has_arrow() && ObjectKind::Waypoint.has_arrow());
+}
