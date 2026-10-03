@@ -808,9 +808,23 @@ pub(crate) fn changed_objects(
     out
 }
 
-pub(crate) fn after_apply(app: &mut Moonglow, cmd: &Command) {
-    item::refresh_costs(app, cmd);
-    creature::refresh_hit_points(app, cmd);
+/// The objects whose derived values a command leaves to bring up to date
+/// (worked out before it is applied, which takes the command).
+pub(crate) struct Derived {
+    items: Vec<(ResKey, GffPath)>,
+    creatures: Vec<(ResKey, GffPath)>,
+}
+
+pub(crate) fn derived_of(cmd: &Command) -> Derived {
+    Derived {
+        items: changed_objects(cmd, ResType::UTI, &["Cost"]),
+        creatures: changed_objects(cmd, ResType::UTC, &["MaxHitPoints", "ChallengeRating"]),
+    }
+}
+
+pub(crate) fn after_apply(app: &mut Moonglow, derived: Derived) {
+    item::refresh_costs(app, derived.items);
+    creature::refresh_hit_points(app, derived.creatures);
 }
 
 /// Renames a blueprint everywhere (its resource, its `TemplateResRef` or a

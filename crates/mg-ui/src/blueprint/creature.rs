@@ -75,8 +75,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 /// After a command: the `MaxHitPoints` and `ChallengeRating` of each
 /// creature it changed, recomputed, as part of the same command.
-pub(crate) fn refresh_hit_points(app: &mut Moonglow, cmd: &Command) {
-    let objects = super::changed_objects(cmd, ResType::UTC, &["MaxHitPoints", "ChallengeRating"]);
+pub(crate) fn refresh_hit_points(
+    app: &mut Moonglow,
+    objects: Vec<(mg_resman::ResKey, mg_edit::GffPath)>,
+) {
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
     let mut edits = Vec::new();
     for (key, path) in objects {

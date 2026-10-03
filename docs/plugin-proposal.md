@@ -338,11 +338,16 @@ plugins.
    ([manual](manual/11-command-line.md)); what is read is treated as
    untrusted and property-tested. Left: `--dry-run` on the other
    commands that change a module.
-3. **One way to apply a change (M).** Nine places apply commands
-   directly and skip what the main path does afterward (item costs, hak
-   and talk-table syncing, the shadowing warning); two change the module
-   without the revision counter moving. Events and plugin edits need
-   every change to pass one gate.
+3. **One way to apply a change (M). Done.** Every command goes through
+   `Moonglow::apply` (the nine places that applied their own now do, so
+   an import, a rename or a palette copy warns of what it shadows as an
+   editor's change does), and what is made from the module at save or
+   build goes through `Workspace::derive`, which moves the revision
+   without an undo step. `Workspace::edits_to` turns "run it on a copy,
+   keep the difference" into a command. A test reads the sources and
+   fails on a new way round. Left: the module field itself is still
+   public (about 140 reads); making it private would close the gate in
+   the compiler.
 4. **Jobs (M–L).** Compile All, Verify, Build and Find References run on
    the interface's thread and freeze the window on big modules; only
    NWSync publishing reports progress. A job runner (a thread, progress,

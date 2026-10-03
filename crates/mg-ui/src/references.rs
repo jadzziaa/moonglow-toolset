@@ -153,7 +153,7 @@ impl Moonglow {
             .map(|k| Edit::SetResource { key: k, data: staged.get(&k).map(<[u8]>::to_vec) })
             .collect();
         let new = ResKey::new(to, from.restype);
-        if let Err(e) = ws.apply(Command::new(format!("Rename {from} to {new}"), edits)) {
+        if let Err(e) = self.apply(Command::new(format!("Rename {from} to {new}"), edits)) {
             self.log.error(e.to_string());
             return;
         }

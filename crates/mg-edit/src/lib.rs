@@ -385,6 +385,37 @@ impl Workspace {
         Ok(self.module.clone())
     }
 
+    /// The edits that make the module `staged`: a resource set where
+    /// `staged` has another or a new one, removed where it has none. For an
+    /// operation written to change a module directly: run it on a copy
+    /// ([`Workspace::snapshot`]), then apply the difference as a command.
+    /// Flush first; documents changed since are not in the comparison.
+    pub fn edits_to(&self, staged: &Module) -> Vec<Edit> {
+        let changed = staged
+            .keys()
+            .filter(|k| staged.get(k) != self.module.get(k))
+            .map(|k| Edit::SetResource { key: *k, data: staged.get(k).map(<[u8]>::to_vec) });
+        let gone = self
+            .module
+            .keys()
+            .filter(|k| !staged.contains(k))
+            .map(|k| Edit::SetResource { key: *k, data: None });
+        changed.chain(gone).collect()
+    }
+
+    /// Changes the module outside the edit history, for what is made from
+    /// it when it is saved or built (compiled scripts, custom palettes):
+    /// Undo does not take it back, and it does not count as unsaved work,
+    /// but the revision moves, so that views show it.
+    pub fn derive<R>(&mut self, make: impl FnOnce(&mut Module) -> R) -> Result<R, EditError> {
+        self.flush()?;
+        let made = make(&mut self.module);
+        // (They are read again from what `make` left.)
+        self.docs.clear();
+        self.revision += 1;
+        Ok(made)
+    }
+
     /// Counts the module as changed since it was saved (recovered work
     /// that is not in its file yet).
     pub fn mark_modified(&mut self) {
@@ -472,6 +503,63 @@ mod tests {
         let root = &ws.doc(&k).unwrap().root;
         assert_eq!(root.items(&git::CREATURE_LIST).len(), 1);
         assert!(!root.items(&git::CREATURE_LIST)[0].contains("Tag"));
+    }
+
+    #[test]
+    fn a_changed_copy_becomes_one_command() {
+        let mut ws = workspace();
+        ws.flush().unwrap();
+        let before = ws.module.clone();
+        // An operation written to change a module: on a copy.
+        let mut staged = ws.snapshot().unwrap();
+        staged.set(key("new", ResType::NSS), b"void main() { }".to_vec());
+        staged.remove(&key("area", ResType::GIT));
+        let mut info = staged.info().unwrap();
+        info.root.write(&ifo::MOD_XP_SCALE, 75);
+        staged.set_info(&info).unwrap();
+        let edits = ws.edits_to(&staged);
+        assert_eq!(edits.len(), 3, "{edits:?}");
+        ws.apply(Command::new("Operation", edits)).unwrap();
+        ws.flush().unwrap();
+        let keys = |m: &Module| m.keys().copied().collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(keys(&ws.module), keys(&staged));
+        assert!(keys(&staged).iter().all(|k| ws.module.get(k) == staged.get(k)));
+        // Nothing to do: nothing.
+        assert!(ws.edits_to(&staged).is_empty());
+        ws.undo().unwrap();
+        ws.flush().unwrap();
+        assert_eq!(keys(&ws.module), keys(&before));
+        assert!(keys(&before).iter().all(|k| ws.module.get(k) == before.get(k)));
+    }
+
+    #[test]
+    fn what_is_made_from_the_module_is_outside_its_history() {
+        let mut ws = workspace();
+        let k = key("module", ResType::IFO);
+        ws.apply(Command::new(
+            "XP scale",
+            vec![Edit::SetField {
+                key: k,
+                path: GffPath::root(),
+                label: "Mod_XPScale".into(),
+                value: Some(Value::Byte(50)),
+            }],
+        ))
+        .unwrap();
+        let (revision, compiled) = (ws.revision(), key("made", ResType::NCS));
+        // It sees the edits made so far, and may replace what is cached.
+        let scale = ws
+            .derive(|m| {
+                m.set(compiled, vec![1, 2, 3]);
+                m.info().unwrap().root.read(&ifo::MOD_XP_SCALE)
+            })
+            .unwrap();
+        assert_eq!(scale, 50);
+        assert!(ws.revision() > revision, "views are told");
+        assert_eq!(ws.can_undo(), Some("XP scale"), "no step of its own");
+        ws.undo().unwrap();
+        assert_eq!(ws.doc(&k).unwrap().root.read(&ifo::MOD_XP_SCALE), 10);
+        assert_eq!(ws.module.get(&compiled), Some(&[1u8, 2, 3][..]), "and Undo leaves it");
     }
 
     #[test]

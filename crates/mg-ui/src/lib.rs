@@ -1373,15 +1373,8 @@ impl Moonglow {
                     return;
                 }
             };
-        let edits: Vec<mg_edit::Edit> = staged
-            .keys()
-            .filter(|k| staged.get(k) != ws.module.get(k))
-            .map(|k| mg_edit::Edit::SetResource {
-                key: *k,
-                data: staged.get(k).map(<[u8]>::to_vec),
-            })
-            .collect();
-        match ws.apply(Command::new(format!("New area {area}"), edits)) {
+        let edits = ws.edits_to(&staged);
+        match self.apply(Command::new(format!("New area {area}"), edits)) {
             Ok(()) => {
                 self.log.info(format!(
                     "Created area {area} ({}, {}×{})",
@@ -1584,19 +1577,9 @@ impl Moonglow {
                 }
             }
             Action::Apply(cmd) => {
-                self.warn_shadowing(&cmd);
-                let Some(ws) = &mut self.ws else { return };
-                let custom_tlk = cmd.edits.iter().any(|e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"));
-                let edits = cmd.clone();
-                match ws.apply(cmd) {
-                    Ok(()) => blueprint::after_apply(self, &edits),
-                    Err(e) => self.log.error(e.to_string()),
+                if let Err(e) = self.apply(cmd) {
+                    self.log.error(e.to_string());
                 }
-                let Some(ws) = &mut self.ws else { return };
-                if custom_tlk && ws.flush().is_ok() {
-                    self.load_custom_tlk();
-                }
-                self.sync_haks();
             }
             Action::OpenTab(tab) => {
                 // A tab docked in an area's pane (Module Properties, docked
@@ -1744,15 +1727,48 @@ impl Moonglow {
                 warnings.push(format!("{key} replaces the game's own"));
             }
         }
-        for w in warnings {
+        // (An import can bring hundreds: the first few say what to look for.)
+        const MOST: usize = 8;
+        let more = warnings.len().saturating_sub(MOST);
+        for w in warnings.into_iter().take(MOST) {
             self.log.warn(w);
         }
+        if more > 0 {
+            self.log.warn(format!(
+                "… and {more} more like these (Module Properties › Custom Content › \
+                 Check for Conflicts lists what haks override)"
+            ));
+        }
+    }
+
+    /// Applies a command to the open module: the one way a change gets
+    /// into it, whoever makes it (an editor, a wizard, an import, a build).
+    /// It warns of new resources that shadow others, brings the values
+    /// derived from what changed up to date as part of the command (an
+    /// item's cost, a creature's hit points), and follows a changed hak list
+    /// or talk table. On failure nothing is changed.
+    pub(crate) fn apply(&mut self, cmd: Command) -> Result<(), mg_edit::EditError> {
+        self.warn_shadowing(&cmd);
+        let Some(ws) = &mut self.ws else { return Ok(()) };
+        let custom_tlk = cmd.edits.iter().any(
+            |e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"),
+        );
+        let derived = blueprint::derived_of(&cmd);
+        ws.apply(cmd)?;
+        blueprint::after_apply(self, derived);
+        if custom_tlk && self.ws.as_mut().is_some_and(|ws| ws.flush().is_ok()) {
+            self.load_custom_tlk();
+        }
+        self.sync_haks();
+        Ok(())
     }
 
     /// Puts the script editors' unsaved text into the module (one undoable
     /// command).
     pub(crate) fn store_script_text(&mut self) {
-        let Some(ws) = &mut self.ws else { return };
+        if self.ws.is_none() {
+            return;
+        }
         let mut edits = Vec::new();
         for (key, buf) in self.scripts.iter_mut().filter(|(_, b)| b.is_dirty()) {
             buf.saved = buf.text.clone();
@@ -1763,7 +1779,7 @@ impl Moonglow {
         }
         if !edits.is_empty() {
             let n = edits.len();
-            if let Err(e) = ws.apply(Command::new(format!("Save {n} script(s)"), edits)) {
+            if let Err(e) = self.apply(Command::new(format!("Save {n} script(s)"), edits)) {
                 self.log.error(e.to_string());
             }
         }
@@ -1785,9 +1801,9 @@ impl Moonglow {
         // them.
         if let Some(game) = &self.game {
             let rebuilt = ws
-                .flush()
+                .derive(|module| mg_module::palette::rebuild_custom_palettes(module, game))
                 .map_err(|e| e.to_string())
-                .and_then(|()| mg_module::palette::rebuild_custom_palettes(&mut ws.module, game));
+                .and_then(|made| made);
             if let Err(e) = rebuilt {
                 self.log.error(format!("Custom palettes: {e}"));
             }
@@ -1890,14 +1906,15 @@ impl Moonglow {
     /// holds none).
     fn compile_uncompiled(&mut self) {
         let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
-        if ws.flush().is_err() {
+        let Ok(results) = ws.derive(|module| {
+            mg_module::build::compile_scripts(
+                module,
+                &game.resman,
+                mg_module::build::ScriptSelection::Uncompiled,
+            )
+        }) else {
             return;
-        }
-        let results = mg_module::build::compile_scripts(
-            &mut ws.module,
-            &game.resman,
-            mg_module::build::ScriptSelection::Uncompiled,
-        );
+        };
         let failed = results.iter().filter(|r| r.result.is_err()).count();
         if failed > 0 {
             self.log.warn(format!("{failed} script(s) didn't compile; see Build › Compile"));
@@ -1938,7 +1955,7 @@ impl Moonglow {
         }
         let changed = edits.len();
         if !edits.is_empty()
-            && let Err(e) = ws.apply(Command::new("Compile scripts", edits))
+            && let Err(e) = self.apply(Command::new("Compile scripts", edits))
         {
             self.log.error(e.to_string());
         }

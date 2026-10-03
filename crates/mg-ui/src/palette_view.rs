@@ -131,7 +131,7 @@ fn edit_copy(app: &mut Moonglow, key: ResKey) -> Option<ResKey> {
         format!("Edit copy of {key}"),
         vec![Edit::SetResource { key: new, data: Some(gff.to_bytes().ok()?) }],
     );
-    match ws.apply(cmd) {
+    match app.apply(cmd) {
         Ok(()) => Some(new),
         Err(e) => {
             app.log.error(e.to_string());
@@ -401,14 +401,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
             }
             Pick::Delete(key) => {
-                if let Some(ws) = &mut app.ws {
-                    let cmd = Command::new(
-                        format!("Delete {key}"),
-                        vec![Edit::SetResource { key, data: None }],
-                    );
-                    if let Err(e) = ws.apply(cmd) {
-                        app.log.error(e.to_string());
-                    }
+                let cmd = Command::new(
+                    format!("Delete {key}"),
+                    vec![Edit::SetResource { key, data: None }],
+                );
+                if let Err(e) = app.apply(cmd) {
+                    app.log.error(e.to_string());
                 }
             }
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),

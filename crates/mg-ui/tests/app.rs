@@ -4896,6 +4896,54 @@ fn a_script_named_as_the_game_s_own_is_warned_about() {
     assert!(!warned.iter().any(|m| m.contains("mg_mine")), "{warned:?}");
 }
 
+/// However a resource arrives, it goes in through the same gate: an import
+/// warns of what it shadows as an editor's change does (the first few, and
+/// how many more).
+#[test]
+fn an_import_warns_of_what_it_shadows() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-import-warning");
+    let path = sample_module(&dir);
+    let erf = dir.join("scripts.erf");
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs { open: vec![erf.clone()], ..Default::default() }),
+    );
+    app.open_module(&path);
+    // Twelve scripts named as the game's own, and one of the module's.
+    let mut names = app.game.as_ref().unwrap().resman.list(ResType::NSS);
+    names.sort();
+    names.truncate(12);
+    let mut w = mg_erf::ErfWriter::new(*b"ERF ");
+    for n in &names {
+        w.add(*n, ResType::NSS, b"void main() {}".to_vec()).unwrap();
+    }
+    w.add(ResRef::from_str("mg_mine").unwrap(), ResType::NSS, b"void main() {}".to_vec()).unwrap();
+    std::fs::write(&erf, w.to_bytes().unwrap()).unwrap();
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::ImportDialog);
+    h.run();
+    h.get_by_label("Import").click();
+    h.run();
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(names.iter().all(|n| ws.module.contains(&ResKey::new(*n, ResType::NSS))));
+    let warned: Vec<&String> = h
+        .state()
+        .log
+        .entries
+        .iter()
+        .filter(|(l, _)| *l == mg_ui::Level::Warning)
+        .map(|(_, m)| m)
+        .collect();
+    let shadows = warned.iter().filter(|m| m.contains("replaces the game's own")).count();
+    assert_eq!(shadows, 8, "{warned:?}");
+    assert!(warned.iter().any(|m| m.contains("and 4 more like these")), "{warned:?}");
+    assert!(!warned.iter().any(|m| m.contains("mg_mine")), "{warned:?}");
+}
+
 /// A look at Options › Area's marks: a door's orientation arrow and an
 /// encounter's spawn point posts. Writes
 /// `target/test-output/ui-area-marks/marks.png`; run by hand.

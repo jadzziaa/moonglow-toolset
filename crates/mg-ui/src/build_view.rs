@@ -210,10 +210,20 @@ fn is_blueprint(t: ResType) -> bool {
 fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
     app.refresh_module_layer();
     let line = |text: String, about: Option<ResKey>| Finding { text, about };
+    let (mut out, mut notes) = (Vec::new(), Vec::new());
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else {
         return vec![line("No module open".into(), None)];
     };
-    let (mut out, notes) = build(ws, game, w);
+    // What the build makes, as one command; then the checks, on the result.
+    let edits = compile(ws, game, w, &mut out, &mut notes);
+    if !edits.is_empty()
+        && let Err(e) = app.apply(Command::new("Build Module", edits))
+    {
+        out.push(line(format!("Error: {e}"), None));
+    }
+    if let (Some(ws), Some(game)) = (app.ws.as_ref(), app.game.as_ref()) {
+        check(ws, game, w, &mut out, &mut notes);
+    }
     // Aurora's log: what it is doing, the results, done.
     app.log.info("Building Module...");
     for n in notes {
@@ -229,16 +239,19 @@ fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
     out
 }
 
-/// The build's problems, and what each pass did.
-fn build(
+/// The build's compile passes: the edits that put what they made into the
+/// module, their problems in `out` and what each did in `notes`.
+fn compile(
     ws: &mut mg_edit::Workspace,
     game: &mg_rules::GameData,
     w: &BuildWindow,
-) -> (Vec<Finding>, Vec<String>) {
-    let (mut out, mut notes) = (Vec::new(), Vec::new());
+    out: &mut Vec<Finding>,
+    notes: &mut Vec<String>,
+) -> Vec<mg_edit::Edit> {
     let line = |text: String, about: Option<ResKey>| Finding { text, about };
     if let Err(e) = ws.flush() {
-        return (vec![line(e.to_string(), None)], notes);
+        out.push(line(e.to_string(), None));
+        return Vec::new();
     }
     let mut staged = ws.module.clone();
     if w.compile {
@@ -277,24 +290,20 @@ fn build(
                 Err(e) => out.push(line(format!("Error: palettes: {e}"), None)),
             }
         }
-        let edits: Vec<mg_edit::Edit> = staged
-            .keys()
-            .chain(ws.module.keys())
-            .copied()
-            .collect::<std::collections::BTreeSet<ResKey>>()
-            .into_iter()
-            .filter(|k| staged.get(k) != ws.module.get(k))
-            .map(|k| mg_edit::Edit::SetResource {
-                key: k,
-                data: staged.get(&k).map(<[u8]>::to_vec),
-            })
-            .collect();
-        if !edits.is_empty()
-            && let Err(e) = ws.apply(Command::new("Build Module", edits))
-        {
-            out.push(line(format!("Error: {e}"), None));
-        }
     }
+    ws.edits_to(&staged)
+}
+
+/// The build's checks (missing and unused resources), on the module as the
+/// compile passes left it.
+fn check(
+    ws: &mg_edit::Workspace,
+    game: &mg_rules::GameData,
+    w: &BuildWindow,
+    out: &mut Vec<Finding>,
+    notes: &mut Vec<String>,
+) {
+    let line = |text: String, about: Option<ResKey>| Finding { text, about };
     if w.missing {
         let missing = mg_module::verify::missing(&ws.module, &game.resman);
         let mut n = 0;
@@ -329,7 +338,6 @@ fn build(
         }
         notes.push(format!("Build: {} unused resources", unused.len()));
     }
-    (out, notes)
 }
 
 /// A GFF resource from the module, else the game.

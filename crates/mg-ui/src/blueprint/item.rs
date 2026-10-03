@@ -37,8 +37,10 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 /// After a command: the `Cost` of each item it changed, recomputed, as part
 /// of the same command.
-pub(crate) fn refresh_costs(app: &mut Moonglow, cmd: &Command) {
-    let objects = super::changed_objects(cmd, ResType::UTI, &["Cost"]);
+pub(crate) fn refresh_costs(
+    app: &mut Moonglow,
+    objects: Vec<(mg_resman::ResKey, mg_edit::GffPath)>,
+) {
     let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_ref()) else { return };
     let mut edits = Vec::new();
     for (key, path) in objects {
