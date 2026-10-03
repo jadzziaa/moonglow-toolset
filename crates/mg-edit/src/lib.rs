@@ -12,6 +12,8 @@ use mg_module::{Module, ModuleError};
 use mg_resman::ResKey;
 use thiserror::Error;
 
+pub mod wire;
+
 #[derive(Debug, Error)]
 pub enum EditError {
     #[error("{0} is not in the module")]
@@ -86,9 +88,10 @@ impl fmt::Display for GffPath {
             return f.write_str("/");
         }
         for step in &self.0 {
+            // (Written so that it reads back: `wire`'s `FromStr`.)
             match step {
-                Step::Field(l) => write!(f, "/{l}")?,
-                Step::Item(l, i) => write!(f, "/{l}[{i}]")?,
+                Step::Field(l) => write!(f, "/{}", wire::escape(l))?,
+                Step::Item(l, i) => write!(f, "/{}[{i}]", wire::escape(l))?,
             }
         }
         Ok(())

@@ -1940,11 +1940,14 @@ dependencies = [
 name = "mg-edit"
 version = "0.7.1"
 dependencies = [
+ "base64",
  "mg-core",
  "mg-gff",
  "mg-module",
  "mg-resman",
  "mg-schema",
+ "proptest",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 

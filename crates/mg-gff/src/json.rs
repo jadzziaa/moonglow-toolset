@@ -31,7 +31,7 @@ fn err<T>(path: &str, message: impl Into<String>) -> Result<T, JsonError> {
 /// Fails if a struct has two fields with the same label (JSON objects cannot
 /// hold both) or a float is NaN or infinite.
 pub fn to_json(gff: &Gff, codepage: Codepage) -> Result<Json, JsonError> {
-    let mut obj = struct_to_json(&gff.root, codepage, "")?;
+    let mut obj = struct_map(&gff.root, codepage, "")?;
     obj.insert(
         "__data_type".into(),
         Json::String(String::from_utf8_lossy(&gff.file_type).into_owned()),
@@ -43,7 +43,18 @@ pub fn to_json(gff: &Gff, codepage: Codepage) -> Result<Json, JsonError> {
     Ok(Json::Object(out))
 }
 
-fn struct_to_json(s: &Struct, cp: Codepage, path: &str) -> Result<Map<String, Json>, JsonError> {
+/// A struct on its own (a list's item, say) as nwn-lib JSON, with its
+/// `"__struct_id"`.
+pub fn struct_to_json(s: &Struct, codepage: Codepage) -> Result<Json, JsonError> {
+    struct_map(s, codepage, "").map(Json::Object)
+}
+
+/// A field's value on its own as nwn-lib JSON: `{"type": .., "value": ..}`.
+pub fn value_to_json(value: &Value, codepage: Codepage) -> Result<Json, JsonError> {
+    field_map(value, codepage, "").map(Json::Object)
+}
+
+fn struct_map(s: &Struct, cp: Codepage, path: &str) -> Result<Map<String, Json>, JsonError> {
     let mut obj = Map::new();
     if s.id != ROOT_STRUCT_ID {
         // nwn_gff keeps struct ids as signed 32-bit numbers.
@@ -55,51 +66,56 @@ fn struct_to_json(s: &Struct, cp: Codepage, path: &str) -> Result<Map<String, Js
         if obj.contains_key(&label) {
             return err(&fpath, "duplicate label cannot be represented in JSON");
         }
-        let mut field = Map::new();
-        field.insert("type".into(), json!(f.value.field_type().json_name()));
-        let float = |v: f64| {
-            if v.is_finite() { Ok(json!(v)) } else { err(&fpath, "NaN or infinite float") }
-        };
-        match &f.value {
-            Value::Byte(v) => _ = field.insert("value".into(), json!(v)),
-            Value::Char(v) => _ = field.insert("value".into(), json!(v)),
-            Value::Word(v) => _ = field.insert("value".into(), json!(v)),
-            Value::Short(v) => _ = field.insert("value".into(), json!(v)),
-            Value::Dword(v) => _ = field.insert("value".into(), json!(v)),
-            Value::Int(v) => _ = field.insert("value".into(), json!(v)),
-            Value::Dword64(v) => _ = field.insert("value".into(), json!(v)),
-            Value::Int64(v) => _ = field.insert("value".into(), json!(v)),
-            Value::Float(v) => _ = field.insert("value".into(), float(*v as f64)?),
-            Value::Double(v) => _ = field.insert("value".into(), float(*v)?),
-            Value::String(v) => _ = field.insert("value".into(), json!(cp.decode(v))),
-            Value::ResRef(v) => _ = field.insert("value".into(), json!(cp.decode(v))),
-            Value::LocString(ls) => {
-                let mut entries = Map::new();
-                for (key, text) in &ls.strings {
-                    entries.insert(key.0.to_string(), json!(cp.decode(text)));
-                }
-                if !ls.strref.is_none() {
-                    entries.insert("id".into(), json!(ls.strref.0));
-                }
-                field.insert("value".into(), Json::Object(entries));
-            }
-            Value::Void(v) => _ = field.insert("value64".into(), json!(BASE64.encode(v))),
-            Value::Struct(child) => {
-                field.insert("__struct_id".into(), json!(child.id as i32));
-                field.insert("value".into(), Json::Object(struct_to_json(child, cp, &fpath)?));
-            }
-            Value::List(items) => {
-                let list = items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, s)| struct_to_json(s, cp, &format!("{fpath}[{i}]")).map(Json::Object))
-                    .collect::<Result<Vec<_>, _>>()?;
-                field.insert("value".into(), Json::Array(list));
-            }
-        }
-        obj.insert(label, Json::Object(field));
+        obj.insert(label, Json::Object(field_map(&f.value, cp, &fpath)?));
     }
     Ok(obj)
+}
+
+/// A field's `{"type": .., "value": ..}`; `fpath` is where it is, for errors.
+fn field_map(value: &Value, cp: Codepage, fpath: &str) -> Result<Map<String, Json>, JsonError> {
+    let mut field = Map::new();
+    field.insert("type".into(), json!(value.field_type().json_name()));
+    let float = |v: f64| {
+        if v.is_finite() { Ok(json!(v)) } else { err(fpath, "NaN or infinite float") }
+    };
+    match value {
+        Value::Byte(v) => _ = field.insert("value".into(), json!(v)),
+        Value::Char(v) => _ = field.insert("value".into(), json!(v)),
+        Value::Word(v) => _ = field.insert("value".into(), json!(v)),
+        Value::Short(v) => _ = field.insert("value".into(), json!(v)),
+        Value::Dword(v) => _ = field.insert("value".into(), json!(v)),
+        Value::Int(v) => _ = field.insert("value".into(), json!(v)),
+        Value::Dword64(v) => _ = field.insert("value".into(), json!(v)),
+        Value::Int64(v) => _ = field.insert("value".into(), json!(v)),
+        Value::Float(v) => _ = field.insert("value".into(), float(*v as f64)?),
+        Value::Double(v) => _ = field.insert("value".into(), float(*v)?),
+        Value::String(v) => _ = field.insert("value".into(), json!(cp.decode(v))),
+        Value::ResRef(v) => _ = field.insert("value".into(), json!(cp.decode(v))),
+        Value::LocString(ls) => {
+            let mut entries = Map::new();
+            for (key, text) in &ls.strings {
+                entries.insert(key.0.to_string(), json!(cp.decode(text)));
+            }
+            if !ls.strref.is_none() {
+                entries.insert("id".into(), json!(ls.strref.0));
+            }
+            field.insert("value".into(), Json::Object(entries));
+        }
+        Value::Void(v) => _ = field.insert("value64".into(), json!(BASE64.encode(v))),
+        Value::Struct(child) => {
+            field.insert("__struct_id".into(), json!(child.id as i32));
+            field.insert("value".into(), Json::Object(struct_map(child, cp, fpath)?));
+        }
+        Value::List(items) => {
+            let list = items
+                .iter()
+                .enumerate()
+                .map(|(i, s)| struct_map(s, cp, &format!("{fpath}[{i}]")).map(Json::Object))
+                .collect::<Result<Vec<_>, _>>()?;
+            field.insert("value".into(), Json::Array(list));
+        }
+    }
+    Ok(field)
 }
 
 /// Reads nwn-lib JSON into a GFF.
@@ -112,16 +128,24 @@ pub fn from_json(json: &Json, codepage: Codepage) -> Result<Gff, JsonError> {
         Ok(t) => t,
         Err(_) => return err("/__data_type", "must be exactly 4 characters"),
     };
-    let mut root = struct_from_json(obj, codepage, "")?;
+    let mut root = struct_read(obj, codepage, "")?;
     root.id = ROOT_STRUCT_ID;
     Ok(Gff { file_type, version: Gff::VERSION, root })
 }
 
-fn struct_from_json(
-    obj: &Map<String, Json>,
-    cp: Codepage,
-    path: &str,
-) -> Result<Struct, JsonError> {
+/// Reads a struct on its own (a list's item) from nwn-lib JSON.
+pub fn struct_from_json(json: &Json, codepage: Codepage) -> Result<Struct, JsonError> {
+    let Json::Object(obj) = json else { return err("", "expected an object") };
+    struct_read(obj, codepage, "")
+}
+
+/// Reads a field's value on its own from its `{"type": .., "value": ..}`.
+pub fn value_from_json(json: &Json, codepage: Codepage) -> Result<Value, JsonError> {
+    let Json::Object(field) = json else { return err("", "field must be an object") };
+    field_read(field, codepage, "")
+}
+
+fn struct_read(obj: &Map<String, Json>, cp: Codepage, path: &str) -> Result<Struct, JsonError> {
     let id = match obj.get("__struct_id") {
         None => ROOT_STRUCT_ID,
         // Signed, as nwn_gff writes them, or unsigned.
@@ -137,107 +161,114 @@ fn struct_from_json(
         }
         let fpath = format!("{path}/{label}");
         let Json::Object(field) = field else { return err(&fpath, "field must be an object") };
-        let Some(Json::String(ty)) = field.get("type") else {
-            return err(&fpath, "missing \"type\"");
-        };
-        let Some(ty) = FieldType::from_json_name(ty) else {
-            return err(&fpath, format!("unknown field type {ty:?}"));
-        };
-        let value = field.get("value");
-        let need = || {
-            value.ok_or_else(|| JsonError::Invalid {
-                path: fpath.clone(),
-                message: "missing \"value\"".into(),
-            })
-        };
-        let int = |min: i128, max: i128| -> Result<i128, JsonError> {
-            let v = as_int(need()?, &fpath)?;
-            if v < min || v > max { err(&fpath, format!("{v} out of range")) } else { Ok(v) }
-        };
-        let text = || -> Result<Vec<u8>, JsonError> {
-            let Json::String(s) = need()? else { return err(&fpath, "expected a string") };
-            match cp.encode(s) {
-                Some(b) => Ok(b.into_owned()),
-                None => err(&fpath, "text has characters the codepage cannot represent"),
-            }
-        };
-        let v = match ty {
-            FieldType::Byte => Value::Byte(int(0, u8::MAX as i128)? as u8),
-            FieldType::Char => Value::Char(int(i8::MIN as i128, i8::MAX as i128)? as i8),
-            FieldType::Word => Value::Word(int(0, u16::MAX as i128)? as u16),
-            FieldType::Short => Value::Short(int(i16::MIN as i128, i16::MAX as i128)? as i16),
-            FieldType::Dword => Value::Dword(int(0, u32::MAX as i128)? as u32),
-            FieldType::Int => Value::Int(int(i32::MIN as i128, i32::MAX as i128)? as i32),
-            FieldType::Dword64 => Value::Dword64(int(0, u64::MAX as i128)? as u64),
-            FieldType::Int64 => Value::Int64(int(i64::MIN as i128, i64::MAX as i128)? as i64),
-            FieldType::Float => Value::Float(as_float(need()?, &fpath)? as f32),
-            FieldType::Double => Value::Double(as_float(need()?, &fpath)?),
-            FieldType::String => Value::String(text()?),
-            FieldType::ResRef => Value::ResRef(text()?),
-            FieldType::Void => match (field.get("value64"), value) {
-                (Some(Json::String(b64)), _) => match BASE64.decode(b64) {
-                    Ok(b) => Value::Void(b),
-                    Err(e) => return err(&fpath, format!("bad base64: {e}")),
-                },
-                (_, Some(Json::String(raw))) => Value::Void(raw.as_bytes().to_vec()),
-                _ => return err(&fpath, "void needs \"value64\""),
-            },
-            FieldType::LocString => {
-                let Json::Object(entries) = need()? else {
-                    return err(&fpath, "expected an object");
-                };
-                // The strref used to live next to "value"; nwn_gff still reads it there.
-                let mut ls = LocString::from_strref(match field.get("id") {
-                    Some(id) => StrRef(as_int(id, &fpath)? as u32),
-                    None => StrRef::NONE,
-                });
-                for (k, v) in entries {
-                    if k == "id" {
-                        ls.strref = StrRef(as_int(v, &fpath)? as u32);
-                        continue;
-                    }
-                    let Ok(key) = k.parse::<u32>() else {
-                        return err(&fpath, format!("bad localized string key {k:?}"));
-                    };
-                    let Json::String(s) = v else { return err(&fpath, "expected a string") };
-                    let Some(bytes) = cp.encode(s) else {
-                        return err(&fpath, "text has characters the codepage cannot represent");
-                    };
-                    ls.strings.push((LocStringKey(key), bytes.into_owned()));
-                }
-                Value::LocString(ls)
-            }
-            FieldType::Struct => {
-                let Json::Object(o) = need()? else { return err(&fpath, "expected an object") };
-                let mut child = struct_from_json(o, cp, &fpath)?;
-                if !o.contains_key("__struct_id") {
-                    child.id = match field.get("__struct_id") {
-                        Some(v) => as_int(v, &fpath)? as i64 as u32,
-                        None => 0,
-                    };
-                }
-                Value::Struct(child)
-            }
-            FieldType::List => {
-                let Json::Array(items) = need()? else { return err(&fpath, "expected an array") };
-                let list = items
-                    .iter()
-                    .enumerate()
-                    .map(|(i, item)| {
-                        let p = format!("{fpath}[{i}]");
-                        match item {
-                            Json::Object(o) => struct_from_json(o, cp, &p),
-                            _ => err(&p, "list items must be objects"),
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                Value::List(list)
-            }
-        };
+        let v = field_read(field, cp, &fpath)?;
         let Ok(label) = Label::new(label) else { return err(&fpath, "label longer than 16 bytes") };
         s.fields.push(Field { label, value: v });
     }
     Ok(s)
+}
+
+/// A field's value from its `{"type": .., "value": ..}`; `fpath` is where
+/// it is, for errors.
+fn field_read(field: &Map<String, Json>, cp: Codepage, fpath: &str) -> Result<Value, JsonError> {
+    let Some(Json::String(ty)) = field.get("type") else {
+        return err(fpath, "missing \"type\"");
+    };
+    let Some(ty) = FieldType::from_json_name(ty) else {
+        return err(fpath, format!("unknown field type {ty:?}"));
+    };
+    let value = field.get("value");
+    let need = || {
+        value.ok_or_else(|| JsonError::Invalid {
+            path: fpath.to_string(),
+            message: "missing \"value\"".into(),
+        })
+    };
+    let int = |min: i128, max: i128| -> Result<i128, JsonError> {
+        let v = as_int(need()?, fpath)?;
+        if v < min || v > max { err(fpath, format!("{v} out of range")) } else { Ok(v) }
+    };
+    let text = || -> Result<Vec<u8>, JsonError> {
+        let Json::String(s) = need()? else { return err(fpath, "expected a string") };
+        match cp.encode(s) {
+            Some(b) => Ok(b.into_owned()),
+            None => err(fpath, "text has characters the codepage cannot represent"),
+        }
+    };
+    let v = match ty {
+        FieldType::Byte => Value::Byte(int(0, u8::MAX as i128)? as u8),
+        FieldType::Char => Value::Char(int(i8::MIN as i128, i8::MAX as i128)? as i8),
+        FieldType::Word => Value::Word(int(0, u16::MAX as i128)? as u16),
+        FieldType::Short => Value::Short(int(i16::MIN as i128, i16::MAX as i128)? as i16),
+        FieldType::Dword => Value::Dword(int(0, u32::MAX as i128)? as u32),
+        FieldType::Int => Value::Int(int(i32::MIN as i128, i32::MAX as i128)? as i32),
+        FieldType::Dword64 => Value::Dword64(int(0, u64::MAX as i128)? as u64),
+        FieldType::Int64 => Value::Int64(int(i64::MIN as i128, i64::MAX as i128)? as i64),
+        FieldType::Float => Value::Float(as_float(need()?, fpath)? as f32),
+        FieldType::Double => Value::Double(as_float(need()?, fpath)?),
+        FieldType::String => Value::String(text()?),
+        FieldType::ResRef => Value::ResRef(text()?),
+        FieldType::Void => match (field.get("value64"), value) {
+            (Some(Json::String(b64)), _) => match BASE64.decode(b64) {
+                Ok(b) => Value::Void(b),
+                Err(e) => return err(fpath, format!("bad base64: {e}")),
+            },
+            (_, Some(Json::String(raw))) => Value::Void(raw.as_bytes().to_vec()),
+            _ => return err(fpath, "void needs \"value64\""),
+        },
+        FieldType::LocString => {
+            let Json::Object(entries) = need()? else {
+                return err(fpath, "expected an object");
+            };
+            // The strref used to live next to "value"; nwn_gff still reads it there.
+            let mut ls = LocString::from_strref(match field.get("id") {
+                Some(id) => StrRef(as_int(id, fpath)? as u32),
+                None => StrRef::NONE,
+            });
+            for (k, v) in entries {
+                if k == "id" {
+                    ls.strref = StrRef(as_int(v, fpath)? as u32);
+                    continue;
+                }
+                let Ok(key) = k.parse::<u32>() else {
+                    return err(fpath, format!("bad localized string key {k:?}"));
+                };
+                let Json::String(s) = v else { return err(fpath, "expected a string") };
+                let Some(bytes) = cp.encode(s) else {
+                    return err(fpath, "text has characters the codepage cannot represent");
+                };
+                ls.strings.push((LocStringKey(key), bytes.into_owned()));
+            }
+            Value::LocString(ls)
+        }
+        FieldType::Struct => {
+            let Json::Object(o) = need()? else { return err(fpath, "expected an object") };
+            let mut child = struct_read(o, cp, fpath)?;
+            if !o.contains_key("__struct_id") {
+                child.id = match field.get("__struct_id") {
+                    Some(v) => as_int(v, fpath)? as i64 as u32,
+                    None => 0,
+                };
+            }
+            Value::Struct(child)
+        }
+        FieldType::List => {
+            let Json::Array(items) = need()? else { return err(fpath, "expected an array") };
+            let list = items
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    let p = format!("{fpath}[{i}]");
+                    match item {
+                        Json::Object(o) => struct_read(o, cp, &p),
+                        _ => err(&p, "list items must be objects"),
+                    }
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Value::List(list)
+        }
+    };
+    Ok(v)
 }
 
 /// How [`to_json_text`] lays JSON out.
