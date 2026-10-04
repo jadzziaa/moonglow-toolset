@@ -186,6 +186,46 @@ impl Viewed {
     }
 }
 
+/// A resource's bytes as something to read: a GFF's fields, text, or the
+/// first bytes in hexadecimal.
+#[derive(Debug)]
+pub(crate) enum Plain {
+    Gff(Box<Gff>),
+    Text(String),
+    Error(String),
+}
+
+/// What `data`, a resource of `key`'s type, shows as.
+pub(crate) fn plain(key: ResKey, data: &[u8]) -> Plain {
+    if key.restype.is_gff() {
+        match Gff::read(data) {
+            Ok(g) => Plain::Gff(Box::new(g)),
+            Err(e) => Plain::Error(e.to_string()),
+        }
+    } else if is_text(key.restype, data) {
+        // (Its bytes as Latin-1 where they aren't UTF-8.)
+        let latin = || data.iter().map(|&b| b as char).collect();
+        Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()))
+    } else {
+        Plain::Text(hex(&data[..data.len().min(512)]))
+    }
+}
+
+/// Draws a [`Plain`] view, scrolling.
+pub(crate) fn plain_ui(ui: &mut Ui, key: ResKey, view: &Plain) {
+    egui::ScrollArea::both().id_salt(("plain", key)).auto_shrink([false, false]).show(ui, |ui| {
+        match view {
+            Plain::Gff(g) => gff_tree(ui, &g.root, &key.to_string()),
+            Plain::Text(text) => {
+                ui.monospace(text);
+            }
+            Plain::Error(e) => {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+            }
+        }
+    });
+}
+
 /// Read-only view of a resource from the load order.
 pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let Some(game) = &app.game else { return };

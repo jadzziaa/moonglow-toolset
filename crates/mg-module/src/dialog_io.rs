@@ -421,7 +421,7 @@ pub fn to_text(g: &Gff) -> String {
 
 // ---------------------------------------------------------------- CSV
 
-fn csv_field(s: &str) -> String {
+pub(crate) fn csv_field(s: &str) -> String {
     if s.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", s.replace('"', "\"\""))
     } else {

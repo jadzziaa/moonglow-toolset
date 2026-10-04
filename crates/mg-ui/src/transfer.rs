@@ -156,6 +156,15 @@ impl Moonglow {
         } else {
             keys
         };
+        // A script changed since it was compiled is compiled first.
+        let scripts: Vec<ResKey> =
+            roots.iter().filter(|k| k.restype == mg_core::ResType::NSS).copied().collect();
+        let (compiled, broken) = crate::script_view::compile_stale(self, &scripts);
+        let Some(ws) = &mut self.ws else { return };
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return;
+        }
         let mut resources: Vec<ResKey> = Vec::new();
         for k in &roots {
             for f in mg_module::transfer::file_set(&ws.module, k) {
@@ -199,6 +208,18 @@ impl Moonglow {
                     crate::transfer::listed(&names),
                     dir.display()
                 ));
+                if !compiled.is_empty() {
+                    self.log.info(format!(
+                        "Compiled first (changed since last compiled): {}",
+                        crate::transfer::listed(&compiled)
+                    ));
+                }
+                if !broken.is_empty() {
+                    self.log.warn(format!(
+                        "No longer compiles (the .ncs written is older than the script): {}",
+                        crate::transfer::listed(&broken)
+                    ));
+                }
                 if !uncompiled.is_empty() {
                     self.log.warn(format!(
                         "Not compiled (no .ncs written; compile first): {}",

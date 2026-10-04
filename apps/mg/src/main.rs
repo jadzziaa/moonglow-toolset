@@ -230,8 +230,11 @@ enum Cmd {
         /// a visual transform, or have a script, a conversation, a trap,
         /// an inventory or an animation switched on. The game loads and
         /// draws static placeables more cheaply.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "dynamic_placeables")]
         static_placeables: bool,
+        /// Make every static placeable of each area dynamic.
+        #[arg(long)]
+        dynamic_placeables: bool,
         /// Change every area of the module (needed when no area is named
         /// and no filter given).
         #[arg(long)]
@@ -1039,6 +1042,7 @@ fn run(cli: &Cli) -> Result<Output> {
             vars,
             remove_var,
             static_placeables,
+            dynamic_placeables,
             all,
             dry_run,
         } => {
@@ -1065,6 +1069,9 @@ fn run(cli: &Cli) -> Result<Output> {
             changes.extend(remove_var.iter().cloned().map(Change::RemoveVar));
             if *static_placeables {
                 changes.push(Change::StaticPlaceables);
+            }
+            if *dynamic_placeables {
+                changes.push(Change::DynamicPlaceables);
             }
             let mut m = Module::open(module)?;
             let listed = areas::list(&m);

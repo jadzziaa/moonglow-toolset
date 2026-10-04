@@ -522,33 +522,37 @@ impl Form<'_> {
             .map_or_else(|| format!("({current})"), |c| c.text.clone());
         let filter_id = self.id(&format!("{label}#filter"));
         let mut pick = None;
-        egui::ComboBox::from_id_salt(self.id(label)).selected_text(shown).width(220.0).show_ui(
-            ui,
-            |ui| {
-                // A long list by name; a short one as the table orders it.
-                let sorted;
-                let choices = if choices.len() > mg_rules::ORDERED_CHOICES {
-                    sorted = mg_rules::by_name(choices.to_vec());
-                    sorted.as_slice()
-                } else {
-                    choices
-                };
-                let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-                if choices.len() > 30 {
-                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
-                    ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
+        // (Open until a choice is made or a click lands outside: a click in
+        // its Filter field must not close it.)
+        let combo = egui::ComboBox::from_id_salt(self.id(label))
+            .selected_text(shown)
+            .width(220.0)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        combo.show_ui(ui, |ui| {
+            // A long list by name; a short one as the table orders it.
+            let sorted;
+            let choices = if choices.len() > mg_rules::ORDERED_CHOICES {
+                sorted = mg_rules::by_name(choices.to_vec());
+                sorted.as_slice()
+            } else {
+                choices
+            };
+            let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+            if choices.len() > 30 {
+                ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
+                ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
+            }
+            let filter = filter.to_lowercase();
+            for c in choices
+                .iter()
+                .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
+            {
+                if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
+                    pick = Some(c.row as i64);
+                    ui.close();
                 }
-                let filter = filter.to_lowercase();
-                for c in choices
-                    .iter()
-                    .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
-                {
-                    if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
-                        pick = Some(c.row as i64);
-                    }
-                }
-            },
-        );
+            }
+        });
         if let Some(v) = pick.filter(|&v| v != current) {
             self.set_int(what, label, v, default);
         }

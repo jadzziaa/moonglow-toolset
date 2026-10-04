@@ -26,6 +26,9 @@ pub struct TalkView {
     /// New Talk Table: its name and whether it has a feminine table.
     pub new_name: String,
     pub new_feminine: bool,
+    /// The pointer is over the editor: Ctrl+Z and Ctrl+Y are the table's
+    /// there.
+    pub(crate) hovered: bool,
 }
 
 impl TalkView {
@@ -112,7 +115,57 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         no_table(app, ui, name);
         return;
     }
+    app.talk_view.hovered = ui.rect_contains_pointer(ui.max_rect());
     table(app, ui);
+}
+
+/// Undo (or redo) in the talk table, when the pointer is over its editor
+/// and it has something to undo: whether it did.
+pub(crate) fn undo(app: &mut Moonglow, redo: bool) -> bool {
+    let Some(t) = app.talk.as_mut().filter(|_| app.talk_view.hovered) else { return false };
+    if !(if redo { t.can_redo() } else { t.can_undo() }) {
+        return false;
+    }
+    if redo {
+        t.redo()
+    } else {
+        t.undo()
+    }
+    app.talk_view.changed();
+    true
+}
+
+/// Export CSV: the table's lines to a file, for a spreadsheet. Import CSV:
+/// lines read from one, by their StrRefs, as one undoable step.
+pub(crate) fn csv(app: &mut Moonglow, import: bool) {
+    let Some(t) = app.talk.as_mut() else { return };
+    let start = t.source.file().and_then(|f| f.parent()).map(|d| d.join(format!("{}.csv", t.name)));
+    if import {
+        let Some(path) = app.dialogs.open_file(crate::dialogs::FileKind::Any, start.as_deref())
+        else {
+            return;
+        };
+        let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+        match read.and_then(|text| t.import_csv(&text)) {
+            Ok((changed, added)) => {
+                app.talk_view.changed();
+                app.log.info(format!(
+                    "Read {}: {changed} lines changed, {added} added",
+                    path.display()
+                ));
+            }
+            Err(e) => app.log.error(format!("{}: {e}", path.display())),
+        }
+    } else {
+        let Some(path) = app.dialogs.save_file(crate::dialogs::FileKind::Any, start.as_deref())
+        else {
+            return;
+        };
+        match std::fs::write(&path, t.to_csv()) {
+            Ok(()) => app.log.info(format!("Wrote {} lines to {}", t.len(), path.display())),
+            Err(e) => app.log.error(format!("{}: {e}", path.display())),
+        }
+    }
 }
 
 /// The module has no talk table, or one the game can't find: make one.
@@ -245,8 +298,8 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
                 t.remove_last();
                 changed = true;
             }
-            // The table's own: the toolbar's and Ctrl+Z undo the module.
-            let hint = "In the talk table (Ctrl+Z undoes the module)";
+            // The table's own (the toolbar's Undo is the module's).
+            let hint = "In the talk table (Ctrl+Z, with the pointer over it)";
             if ui.add_enabled(t.can_undo(), egui::Button::new("Undo")).on_hover_text(hint).clicked()
             {
                 t.undo();
@@ -262,6 +315,23 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
                 actions.push(Action::SaveTalkTable);
             }
         });
+    });
+    // To and from a spreadsheet.
+    ui.horizontal(|ui| {
+        let import = ui.add_enabled(editable, egui::Button::new("Import CSV…")).on_hover_text(
+            "Lines from a spreadsheet saved as CSV (as Export CSV writes it): each row sets the \
+             line of its StrRef; rows past the end add lines",
+        );
+        if import.clicked() {
+            actions.push(Action::TalkCsv(true));
+        }
+        if ui
+            .button("Export CSV…")
+            .on_hover_text("The lines as a CSV file, for a spreadsheet or a translator")
+            .clicked()
+        {
+            actions.push(Action::TalkCsv(false));
+        }
     });
     if changed {
         v.changed();

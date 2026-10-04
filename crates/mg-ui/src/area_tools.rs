@@ -27,6 +27,10 @@ pub struct AdjustLocation {
     /// The visual transform (EE), and whether it was changed.
     pub visual: mg_area::VisualTransform,
     pub visual_changed: bool,
+    /// Some object chosen takes a visual transform (creatures, items,
+    /// doors and placeables that aren't static): else it isn't offered, as
+    /// in Aurora.
+    pub shaped: bool,
 }
 
 /// Adjust Location for the selection of an area's view (showing the first
@@ -42,6 +46,11 @@ pub(crate) fn adjust(view: &crate::area_view::AreaView) -> Option<AdjustLocation
         changed: [false; 4],
         visual: first.visual.unwrap_or_default(),
         visual_changed: false,
+        shaped: view
+            .selection
+            .iter()
+            .filter_map(|&(k, i)| model.object(k, i))
+            .any(|o| o.takes_visual_transform()),
     })
 }
 
@@ -81,38 +90,45 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                 a.changed[3] |= r.changed();
                 ui.end_row();
             });
-            ui.add_space(crate::widgets::SECTION_GAP);
-            crate::widgets::section_heading(ui, "Visual Transforms");
-            egui::Grid::new("adjust-visual").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
-                crate::widgets::field_label(ui, "Scale");
-                let mut scale = a.visual.scale.x;
-                let r = ui.add(
-                    egui::DragValue::new(&mut scale)
-                        .speed(0.01)
-                        .range(0.01..=100.0)
-                        .max_decimals(2),
-                );
-                if r.changed() {
-                    a.visual.scale = Vec3::splat(scale);
-                    a.visual_changed = true;
-                }
-                ui.end_row();
-                for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                    ui.label(format!("{axis} Rotation"));
+            if a.shaped {
+                ui.add_space(crate::widgets::SECTION_GAP);
+                crate::widgets::section_heading(ui, "Visual Transforms");
+            }
+            let visual = egui::Grid::new("adjust-visual").num_columns(4).spacing([12.0, 6.0]);
+            if a.shaped {
+                visual.show(ui, |ui| {
+                    crate::widgets::field_label(ui, "Scale");
+                    let mut scale = a.visual.scale.x;
                     let r = ui.add(
-                        egui::DragValue::new(&mut a.visual.rotate[i]).speed(1.0).max_decimals(1),
-                    );
-                    a.visual_changed |= r.changed();
-                    ui.label(format!("{axis} Translation"));
-                    let r = ui.add(
-                        egui::DragValue::new(&mut a.visual.translate[i])
+                        egui::DragValue::new(&mut scale)
                             .speed(0.01)
+                            .range(0.01..=100.0)
                             .max_decimals(2),
                     );
-                    a.visual_changed |= r.changed();
+                    if r.changed() {
+                        a.visual.scale = Vec3::splat(scale);
+                        a.visual_changed = true;
+                    }
                     ui.end_row();
-                }
-            });
+                    for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
+                        ui.label(format!("{axis} Rotation"));
+                        let r = ui.add(
+                            egui::DragValue::new(&mut a.visual.rotate[i])
+                                .speed(1.0)
+                                .max_decimals(1),
+                        );
+                        a.visual_changed |= r.changed();
+                        ui.label(format!("{axis} Translation"));
+                        let r = ui.add(
+                            egui::DragValue::new(&mut a.visual.translate[i])
+                                .speed(0.01)
+                                .max_decimals(2),
+                        );
+                        a.visual_changed |= r.changed();
+                        ui.end_row();
+                    }
+                });
+            }
             ui.horizontal(|ui| {
                 if ui.button("OK").clicked() || crate::widgets::enter(ui) {
                     done = Some(true);
@@ -163,11 +179,7 @@ fn apply_location(app: &mut Moonglow, a: &AdjustLocation) {
         }
         let rotation = if a.changed[3] { a.bearing.to_radians() } else { o.rotation };
         edits.extend(mg_area::edit::move_edits(git, o, s, p, rotation));
-        let shaped = matches!(
-            kind,
-            ObjectKind::Creature | ObjectKind::Placeable | ObjectKind::Door | ObjectKind::Item
-        );
-        if a.visual_changed && shaped {
+        if a.visual_changed && o.takes_visual_transform() {
             edits.extend(mg_area::edit::visual_transform_edits(git, o, s, a.visual));
         }
     }
@@ -248,6 +260,11 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
         a.sort();
         a
     });
+    // Areas by name, when the module tree lists them so (Options ›
+    // General).
+    let labels: std::collections::HashMap<ResRef, String> =
+        areas.iter().map(|a| (*a, crate::tabs::area_label(app, *a))).collect();
+    let label = |a: &ResRef| labels.get(a).cloned().unwrap_or_else(|| a.to_string());
     egui::Window::new("Find Instance").open(&mut open).default_width(460.0).show(ui.ctx(), |ui| {
         ui.horizontal_wrapped(|ui| {
             crate::widgets::field_label(ui, "Search For");
@@ -257,11 +274,11 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
         });
         egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
             crate::widgets::field_label(ui, "In Area");
-            let shown = f.area.map_or_else(|| "(all areas)".to_string(), |a| a.to_string());
+            let shown = f.area.map_or_else(|| "(all areas)".to_string(), |a| label(&a));
             egui::ComboBox::from_id_salt("find-area").selected_text(shown).show_ui(ui, |ui| {
                 ui.selectable_value(&mut f.area, None, "(all areas)");
                 for a in &areas {
-                    ui.selectable_value(&mut f.area, Some(*a), a.to_string());
+                    ui.selectable_value(&mut f.area, Some(*a), label(a));
                 }
             });
             ui.end_row();
@@ -291,7 +308,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
                 }
                 ui.end_row();
                 for r in &f.results {
-                    let row = [format!("{:?}", r.kind), r.tag.clone(), r.area.to_string()];
+                    let row = [format!("{:?}", r.kind), r.tag.clone(), label(&r.area)];
                     let mut double = false;
                     for text in row {
                         double |= ui.selectable_label(false, text).double_clicked();
@@ -427,7 +444,7 @@ fn store_stock(app: &mut Moonglow, ui: &mut Ui, store: &mg_gff::Struct) {
 }
 
 /// A blueprint from the module, else the game.
-fn blueprint(app: &Moonglow, key: ResKey) -> Option<mg_gff::Gff> {
+pub(crate) fn blueprint(app: &Moonglow, key: ResKey) -> Option<mg_gff::Gff> {
     let data = app
         .ws
         .as_ref()

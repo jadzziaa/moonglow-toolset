@@ -24,10 +24,16 @@ use crate::{Action, Moonglow};
 pub(super) const PAGES: [&str; 6] =
     ["General", "Appearance", "Properties", "Visuals", "Description", "Comments"];
 
+/// The width of the Appearance page's fields beside the model.
+const APPEARANCE_SIDE: f32 = 460.0;
+
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {
         "General" => general(f, ui),
-        "Appearance" => with_game(f, |f, game| appearance(f, ui, game)),
+        "Appearance" => with_game(f, |f, game| {
+            let fields = |f: &mut Form<'_>, ui: &mut Ui| appearance(f, ui, game);
+            super::situated::beside_model(f, ui, APPEARANCE_SIDE, true, fields);
+        }),
         "Properties" => with_game(f, |f, game| properties(f, ui, game)),
         "Visuals" => super::visuals::page(f, ui, true),
         "Description" => description(f, ui),

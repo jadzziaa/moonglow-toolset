@@ -120,6 +120,8 @@ pub enum Change {
     /// Makes the area's placeables static where nothing is lost by it
     /// ([`static_plan`]).
     StaticPlaceables,
+    /// Makes every static placeable of the area dynamic.
+    DynamicPlaceables,
 }
 
 impl Change {
@@ -445,6 +447,21 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
                         git_changed = true;
                     }
                 }
+                Change::DynamicPlaceables => {
+                    let Some(list) = git.as_mut().and_then(|g| g.root.list_mut("Placeable List"))
+                    else {
+                        continue;
+                    };
+                    for (i, p) in list.iter_mut().enumerate() {
+                        if p.integer("Static").unwrap_or(0) != 0 {
+                            p.set("Static", Value::Byte(0));
+                            let tag = String::from_utf8_lossy(p.string("Tag").unwrap_or_default());
+                            let what = format!("placeable {i} {tag} Static");
+                            note(what, Some("1".into()), Some("0".into()));
+                            git_changed = true;
+                        }
+                    }
+                }
                 Change::RemoveVar(name) => {
                     let mut vars = are.root.list("VarTable").unwrap_or(&[]).to_vec();
                     let at = vars.iter().position(|v| v.string("Name") == Some(name.as_bytes()));
@@ -650,6 +667,12 @@ mod tests {
         assert!(list[3].contains("VisTransformList"), "the leaning one keeps its tilt");
         // Again: nothing left to do.
         assert_eq!(apply(&mut m, &areas, &[Change::StaticPlaceables]).unwrap(), []);
+        // And back: every static one, the wall that was static before too.
+        let done = apply(&mut m, &areas, &[Change::DynamicPlaceables]).unwrap();
+        assert_eq!(done.len(), 3);
+        let git = m.gff(&key).unwrap().unwrap();
+        let list = git.root.list("Placeable List").unwrap();
+        assert!(list.iter().all(|p| p.integer("Static") == Some(0)));
     }
 
     #[test]

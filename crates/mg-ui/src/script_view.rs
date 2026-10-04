@@ -987,7 +987,10 @@ fn open_external(app: &mut Moonglow, key: ResKey, editor: &std::path::Path) {
     let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
     buf.external = Some((path.clone(), modified));
     match std::process::Command::new(editor).arg(&path).spawn() {
-        Ok(_) => app.log.info(format!("{key}: editing in {}", editor.display())),
+        Ok(running) => {
+            crate::test_module::let_run(running);
+            app.log.info(format!("{key}: editing in {}", editor.display()));
+        }
         Err(e) => app.log.error(format!("{}: {e}", editor.display())),
     }
 }
@@ -1061,6 +1064,48 @@ fn compile_with_debug(
     });
     c.set_debug_output(debug);
     c.compile(&name).map(|out| (out.ncs, out.ndb))
+}
+
+/// Compiles again, into the module, those of `scripts` whose compiled
+/// script isn't what their source compiles to now (changed since, or an
+/// include of theirs was), so that what goes out with them is current.
+/// Returns the names of those compiled again, and of those that have a
+/// compiled script but no longer compile (theirs is older than the
+/// source). Without the game's data nothing can be compiled, and nothing
+/// is said.
+pub(crate) fn compile_stale(app: &mut Moonglow, scripts: &[ResKey]) -> (Vec<String>, Vec<String>) {
+    let (mut compiled, mut broken) = (Vec::new(), Vec::new());
+    if app.game.is_none() {
+        return (compiled, broken);
+    }
+    let mut edits = Vec::new();
+    for &key in scripts {
+        let Some(ws) = app.ws.as_ref() else { break };
+        let Some(text) = ws.module.get(&key).map(decode) else { continue };
+        let ncs = ResKey::new(key.resref, ResType::NCS);
+        let old = ws.module.get(&ncs).map(<[u8]>::to_vec);
+        match compile_with_debug(app, key, &text, app.settings.debug_info) {
+            Ok((new, ndb)) if old.as_deref() != Some(&new[..]) => {
+                edits.push(Edit::SetResource { key: ncs, data: Some(new) });
+                if let Some(ndb) = ndb {
+                    let key = ResKey::new(key.resref, ResType::NDB);
+                    edits.push(Edit::SetResource { key, data: Some(ndb) });
+                }
+                compiled.push(key.resref.to_string());
+            }
+            Ok(_) => {}
+            // (One without a compiled script is an include, or is named
+            // by the caller as not compiled.)
+            Err(_) if old.is_some() => broken.push(key.resref.to_string()),
+            Err(_) => {}
+        }
+    }
+    if !edits.is_empty()
+        && let Err(e) = app.apply(Command::new("Compile for export", edits))
+    {
+        app.log.error(e.to_string());
+    }
+    (compiled, broken)
 }
 
 /// Compiles one script (its text as in the editor) and stores the bytecode.

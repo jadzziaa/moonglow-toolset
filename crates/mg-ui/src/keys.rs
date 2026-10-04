@@ -97,6 +97,12 @@ pub enum Cmd {
     RenameSymbol,
     AddLine,
     DeleteLine,
+    /// The conversation editor's Search pane, its Find What field ready.
+    DialogFind,
+    /// The conversation editor's search, run again.
+    DialogFindNext,
+    /// File › Close.
+    Close,
 }
 
 const CTRL: Modifiers = Modifiers::COMMAND;
@@ -104,7 +110,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 46] = [
+    pub const ALL: [Cmd; 49] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -151,6 +157,9 @@ impl Cmd {
         Cmd::RenameSymbol,
         Cmd::AddLine,
         Cmd::DeleteLine,
+        Cmd::DialogFind,
+        Cmd::DialogFindNext,
+        Cmd::Close,
     ];
 
     /// The id the settings keep it by, its name and where it works.
@@ -203,6 +212,9 @@ impl Cmd {
             Cmd::RenameSymbol => ("rename-symbol", "Rename Symbol", Script),
             Cmd::AddLine => ("add-line", "Add Line", Conversation),
             Cmd::DeleteLine => ("delete-line", "Delete Line", Conversation),
+            Cmd::DialogFind => ("dialog-find", "Find and Replace", Conversation),
+            Cmd::DialogFindNext => ("dialog-find-next", "Find Next", Conversation),
+            Cmd::Close => ("close", "Close", General),
         }
     }
 
@@ -273,6 +285,11 @@ impl Cmd {
             Cmd::RenameSymbol => vec![k(CTRL | SHIFT, Key::R)],
             Cmd::AddLine => vec![k(CTRL, Key::A)],
             Cmd::DeleteLine => vec![k(NONE, Key::Delete)],
+            // Aurora's: Ctrl+F finds, Ctrl+R replaces (one pane here), F3
+            // finds again; Ctrl+F4 closes the module.
+            Cmd::DialogFind => vec![k(CTRL, Key::F), k(CTRL, Key::R)],
+            Cmd::DialogFindNext => vec![k(NONE, Key::F3)],
+            Cmd::Close => vec![k(CTRL, Key::F4)],
         }
     }
 

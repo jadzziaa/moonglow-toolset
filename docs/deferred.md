@@ -53,6 +53,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **Choose Character:** Test Module, Choose Character uses the game's
   `+LoadNewModule` (from nwn.wiki), never run in the game client. (S)
+- **Programs Moonglow starts:** the game (Test Module) and the external
+  script editor are waited for on a thread each, so they leave no
+  "defunct" process; checked on Linux only. (S)
 - **Aurora's F9 problems:** laggy combat, AI timing errors and damaged
   modules after a crash. Moonglow launches the game as the wiki recommends
   to avoid them; nothing has checked that they're gone. (S–M)
@@ -97,8 +100,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Make Placeables Static against the game:** that static placeables
   load and draw more cheaply is from the wiki (the client merges them
   into the tiles' mesh); no load times were measured. (S)
-- **No way back in bulk:** there is no "make every placeable dynamic";
-  undo, or Make Dynamic one selection at a time. (S)
 
 - **Lists across several blueprints:** Edit Together leaves out the
   pages that edit lists (inventories, classes, skills, feats, spells,
@@ -148,9 +149,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
 ## Palettes
 
 - **Pictures for the rest:** sounds, triggers, encounters, stores and
-  waypoints have no picture on hover (all but waypoints have no model;
-  a waypoint's flag, which the area view draws, could be its picture);
-  an icon or a summary could stand in. (S)
+  waypoints say what they are on hover, in a line or two; a waypoint's
+  flag, which the area view draws, could be its picture. (S)
 - **Favorites and Recent** are Moonglow's, not the module's: a custom
   blueprint's favorite shows only in the module that has it. Per-module
   lists could live beside the module. (S)
@@ -165,15 +165,13 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Talk tables in a hak or the module** are read-only: Moonglow edits
   only tables in the `tlk` folder. A table kept in the module could be
   edited and saved with it. (S)
+- **Talk tables as CSV only:** Export CSV and Import CSV; nwn_tlk's
+  JSON isn't read or written, and `mg` has no command for either. (S)
 - **One language:** the editor edits the table in its own language;
   translated tables (the same name in other languages' folders) aren't
   shown side by side. (M)
-- **No talk-table import or export** (CSV or nwn_tlk's JSON, for
-  spreadsheets and git); neverwinter.nim's `nwn_tlk` does it. (S)
 - **Where a StrRef is used:** Find References doesn't find the 2DA cells,
   blueprints and conversations that name a talk-table line. (M)
-- **Ctrl+Z in the talk table** undoes the module, not the table (its own
-  Undo is in its toolbar). (S)
 - **Inserting or removing lines in the middle** isn't offered: it
   renumbers every later line, and renumbering their users too would
   need where-used first. (M)
@@ -183,27 +181,27 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Haks in the GUI
 
-- **No viewing inside the hak editor:** to look at a resource, extract it, or
-  see it in the resource browser once the module uses the hak. (S)
-- **Build Hak from Folder doesn't remember the folder:** rebuilding after
-  changing the folder is Build again (or `mg pack`). A remembered folder
-  could update the hak in one click. (S)
 - **No zip, 7z or rar:** content downloaded as an archive is unpacked
   first; Add Haks and Talk Table takes the haks and talk table. (S, a new
   dependency)
 - **Hak order advice:** Moonglow doesn't know which haks go above which
   (CEP, PRC and the like each document theirs); the conflict report shows
   what each hak hides. (M)
-- **Sorting** the hak editor's list by size or type, and shift+click
-  ranges. (S)
+- **Shift+click ranges** in the hak editor's list. (S)
+- **Viewing in the hak editor** shows fields, text or the first bytes:
+  no pictures, models or sounds, and a 2DA as its text. (S)
+- **Update from Folder** takes the folder's files in place of the hak's
+  (two undo steps: the removal, then the adding); a hak that was built
+  from several folders, or added to by hand, loses what the folder
+  hasn't. (S)
 - **ERF version:** haks are saved as `V1.0`; EE's compressed `E1.0` is
   read but not written. (S–M)
 
 ## Options and lists
 
-- **Areas by name elsewhere:** Show areas by name names areas in the
-  module tree and in tab titles; other lists of areas (Find Instance,
-  references, the transition pickers, the log) still show ResRefs. (S)
+- **Areas by name elsewhere:** areas are by name in the module tree, tab
+  titles, Find Instance and the area transition's destinations; the
+  references list shows files (`town.git`) and the log ResRefs. (S)
 - **The Options window as a tab:** it is a floating window of a fixed
   size (resizable, the size kept while Moonglow runs), not a tab in the
   dock. (S)
@@ -228,17 +226,18 @@ a light theme. Left:
   find it. (S)
 - **Scripts and conversations by name:** they have no names; the tree
   lists them by ResRef. (—)
-- **The model in other editors' pages:** placeables, doors and items
-  still show theirs through Preview. (S)
-- **Special abilities' flags:** uses are grouped by spell, caster level
-  and flags; the flags (ready, spontaneous) aren't shown or set. (S)
+- **The model in other editors' pages:** a placeable's and a door's
+  Basic page and an item's Appearance page show it beside their fields
+  where the window is wide enough for both; narrower, Preview shows it
+  (a creature's Appearance page stacks them instead). (S)
+- **Special abilities' flags against the game:** Ready, Spontaneous and
+  Unlimited are named from BioWare's creature format document; what the
+  game does with each was not run. (S)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays
   are drawn for the 3D view. A pass with a builder who uses it would
   settle the rest. (S–M)
-- **A spawn point's facing can't be turned in the area view:** it is a
-  field of the encounter (the fields view sets it). (S)
 
 ## Raw fields
 
@@ -252,10 +251,8 @@ a light theme. Left:
 
 ## Getting files out
 
-- **Stale compiled scripts:** Export as Files and Copy to Scratch
-  Folder write the `.ncs` the module has; a script changed since it was
-  compiled isn't compiled first, nor flagged (only one with no `.ncs` at
-  all is). The script editor's To Scratch compiles first. (S)
+- **Compiling before export** needs the game's data (for nwscript):
+  without it scripts go out as they are, unremarked. (S)
 - **One at a time from the tree:** the tree exports one resource at a
   time (the Export window takes several). The area view's To Scratch
   copies the area alone, not the blueprints or scripts it uses. (S)
@@ -283,8 +280,9 @@ a light theme. Left:
 - **Sound ranges:** level circles at the sound's height, not spheres; a
   sound's random position range (`RandomRangeX`, `RandomRangeY`) isn't
   drawn. (S)
-- **Lighting, Sound Ranges and the camera's height** are each view's and
-  last until its tab closes; they aren't kept in the settings. (S)
+- **The camera's height** is each view's and lasts until its tab closes.
+  (Lighting and Sound Ranges are kept: a view opens as they were last
+  left, and one already open keeps its own.) (S)
 - **Minimap pictures for tilesets without them:** Moonglow exports the
   pictures the tileset has; rendering tiles from above to make them
   (NeverBlender's minimap tool) isn't offered. (M)
@@ -297,16 +295,20 @@ a light theme. Left:
 - **Several objects:** each turns about itself, as Shift + right drag
   does, with the ring around the first; turning a group about its
   middle (positions swinging round too) is not done. (S–M)
-- **Behind things:** the ring is painted over the view, not hidden by
-  what stands in front of it. (S)
-- **The ring over another object:** the ring wins the press, so an
-  object under its line can't be picked there while the selection
+- **Behind things:** the rings and arrows are painted over the view, not
+  hidden by what stands in front of them (as 3D editors draw theirs:
+  left so). (—)
+- **The ring over another object:** a click on the ring picks the
+  object under it, but a drag from there turns the selection: an object
+  under the ring's line can't be dragged from there while the selection
   lasts. (S)
-- **Tilt rings edge-on:** a tilt ring seen edge-on (from straight above,
-  both are) can't be led round; a 3D editor would fall back to the
-  pointer's travel along the ring's tangent. (S)
-- **An arrow pointing at the camera:** it can't be led (looking straight
-  down, the blue one; Alt + drag still raises). (S)
+- **Led by the screen:** a tilt ring seen nearly edge-on and an arrow
+  pointing nearly at the camera follow the pointer's travel on screen
+  (from where they were taken), not the point under it; the change of
+  one way of leading for the other, as the view turns, is at a fixed
+  angle and can be felt. (S)
+- **A spawn point's place:** its arrow's tip turns it; the point itself
+  isn't dragged in the area view. (S)
 - **The arrows' axes:** east, north and up, the area's; arrows along the
   object's own facing are not offered. The tilt rings, in the same red
   and green, are about the model's own axes. (S)
@@ -314,8 +316,6 @@ a light theme. Left:
   as Moonglow does (the order of the three angles, and that a static
   placeable's transform is ignored) is taken from Aurora's output and
   the wiki, not from a client screenshot. (S)
-- **Adjust Location and static placeables:** the window still offers the
-  visual transform for a static placeable, which Aurora doesn't. (S)
 - **Escape during a drag** drops it now (it used to put the object down
   where it was); Aurora's behavior was not checked. (S)
 
@@ -325,9 +325,10 @@ a light theme. Left:
   Delete in the area view, the script editor's numbered bookmarks, and
   mouse bindings (drags, Ctrl+click) are fixed. (S)
 - **Aurora's keys Moonglow lacks:** Plot Wizard (Ctrl+Alt+P; no plot
-  wizard), Refresh (F5), the script editor's Save As (Ctrl+Alt+S, now
-  New Script's), Close (Ctrl+F4), and the conversation editor's Find and
-  Replace (Ctrl+F, F3, Ctrl+R). (S)
+  wizard), Refresh (F5: it is the script editor's Bookmark here, and a
+  key of the whole window would take it from there; Reload Resources
+  can be given a key in Options), and the script editor's Save As
+  (Ctrl+Alt+S, now New Script's). (S)
 - **Sharing key sets:** no import or export of the keys (they're in the
   settings file). (S)
 
@@ -413,6 +414,16 @@ a light theme. Left:
   warns. (S, needs a certificate)
 
 ## From the research notes
+
+- **A skin's bones that are no nodes:** a skinned mesh whose bone map
+  names nodes past the model's last (custom content; it crashed 1.4.0 on
+  loading a module) is drawn with those bones unmoved. What the game
+  does with such a model wasn't looked at, and the model itself wasn't
+  seen: the fix is from the crash report. (S, needs the model)
+- **One bad model takes the window down:** a panic while a model is
+  loaded or drawn ends Moonglow (with a crash report); catching it, and
+  showing the object as a box with a problem noted, would keep the
+  module open. (M)
 
 - **TGA, right-to-left:** the game ignores a TGA's top-left origin (bit
   5; measured in the client), and Moonglow now does. Whether it also

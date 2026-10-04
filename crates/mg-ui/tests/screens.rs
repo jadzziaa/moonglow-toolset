@@ -241,6 +241,41 @@ fn blueprint_editors() {
     }
 }
 
+/// The model beside the fields, in a window wide enough for both.
+#[test]
+#[ignore]
+fn model_beside_the_fields() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-model-beside");
+    for (name, t, page) in [
+        ("plc_chest1", ResType::UTP, "Basic"),
+        ("nw_door_ttr_01", ResType::UTD, "Basic"),
+        ("nw_wswmls010", ResType::UTI, "Appearance"),
+    ] {
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        let game = app.game.as_deref().unwrap();
+        let data = game.resman.get_named(name, t).unwrap().into_owned();
+        let mut m = mg_module::Module::new();
+        m.set(ResKey::parse(name, t).unwrap(), data);
+        let path = dir.join(format!("{name}.mod"));
+        m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+        app.open_module(&path);
+        let key = ResKey::parse(name, t).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(key)));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1500.0, 860.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        h.state_mut().blueprint_pages.insert((key, mg_edit::GffPath::root()), page);
+        h.run();
+        shoot(&mut h, &dir, &format!("{name}-{}", page.to_lowercase()));
+    }
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {

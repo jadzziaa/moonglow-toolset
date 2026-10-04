@@ -289,7 +289,7 @@ impl TabViewer for Viewer<'_> {
 
 /// An area in a tab's title: its ResRef, or its name (Options › General:
 /// Show areas by name).
-fn area_label(app: &mut Moonglow, area: mg_core::ResRef) -> String {
+pub(crate) fn area_label(app: &mut Moonglow, area: mg_core::ResRef) -> String {
     let Some(ws) = &app.ws else { return area.to_string() };
     app.area_names.label(ws, app.game.as_deref(), area, app.settings.area_names)
 }

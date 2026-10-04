@@ -151,14 +151,22 @@ enum Drag {
     /// Moves them along one axis (0 east, 1 north, 2 up) as that axis's
     /// arrow is led along it: by the pointer's travel along the line
     /// through `pivot` since `grip` (a distance along it).
-    Slide { axis: usize, pivot: Vec3, grip: f32, by: f32 },
+    /// With `screen`, by the pointer's travel on screen from where it was
+    /// pressed instead (each point of it times this): for an arrow that
+    /// points at the camera, whose line the pointer can't follow.
+    Slide { axis: usize, pivot: Vec3, grip: f32, by: f32, screen: Option<(Pos2, egui::Vec2)> },
     /// Tilts their models (the visual transform's rotation about X or Y)
     /// as a tilt ring is led round: by the angle the pointer has gone
     /// round it, in the ring's plane, since `grip`.
-    Tilt { ring: TiltRing, grip: f32, angle: f32 },
+    /// `screen`, as for an arrow: for a ring seen edge-on, the pointer's
+    /// travel along the ring's line on screen.
+    Tilt { ring: TiltRing, grip: f32, angle: f32, screen: Option<(Pos2, egui::Vec2)> },
     /// Raises or lowers the selection (not creatures: they stand on the
     /// ground).
     Lift { by: f32 },
+    /// Turns spawn point `point` of the encounter at `object` (its place
+    /// in the model) to face the pointer: `facing`, radians.
+    FaceSpawn { object: usize, point: usize, pivot: Vec3, facing: f32 },
     /// Selects what is inside the box.
     Box { from: Pos2, to: Pos2 },
 }
@@ -676,6 +684,78 @@ impl AreaView {
         (t > 0.0 && d.length() > 1e-3).then(|| d.dot(ring.v).atan2(d.dot(ring.u)))
     }
 
+    /// The spawn point whose arrow's tip is under `pos`, of a selected
+    /// encounter: the encounter's place in the model, the point's in its
+    /// list, and where the point is.
+    fn spawn_arrow_at(&self, pos: Pos2) -> Option<(usize, usize, Vec3)> {
+        let model = self.model.as_ref()?;
+        model
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(i, o)| {
+                o.kind == ObjectKind::Encounter
+                    && self.selected(*i)
+                    && !o.locked
+                    && self.show[o.kind.index()]
+            })
+            .flat_map(|(i, o)| o.spawn_points.iter().enumerate().map(move |(k, p)| (i, o, k, *p)))
+            .find(|(_, o, k, p)| {
+                let facing = o.spawn_facings.get(*k).copied().unwrap_or(0.0);
+                self.screen_pos(spawn_arrow_tip(*p, facing))
+                    .is_some_and(|tip| tip.distance(pos) <= RING_REACH)
+            })
+            .map(|(i, _, k, p)| (i, k, p))
+    }
+
+    /// How a press at `pos` leads a tilt ring: the angle taken hold of,
+    /// and, for a ring seen too nearly edge-on to follow in its plane, how
+    /// the pointer's travel on screen turns it (along the ring's line
+    /// there).
+    fn tilt_grip(&self, ring: &TiltRing, pos: Pos2) -> Option<(f32, Option<(Pos2, egui::Vec2)>)> {
+        let facing = self.ray(pos)?.dir.normalize_or_zero().dot(ring.u.cross(ring.v)).abs();
+        if facing >= 0.3
+            && let Some(grip) = self.angle_on(ring, pos)
+        {
+            return Some((grip, None));
+        }
+        // The ring's point nearest the pointer, and its line there.
+        let step = std::f32::consts::TAU / RING_SEGMENTS as f32;
+        let (grip, at) = (0..RING_SEGMENTS)
+            .map(|k| k as f32 * step)
+            .filter_map(|a| Some((a, self.screen_pos(ring.point(a))?)))
+            .min_by(|a, b| a.1.distance(pos).total_cmp(&b.1.distance(pos)))?;
+        let ahead = self.screen_pos(ring.point(grip + 0.05))?;
+        let per_radian = (ahead - at) / 0.05;
+        (per_radian.length() > 2.0)
+            .then(|| (grip, Some((pos, per_radian / per_radian.length_sq()))))
+    }
+
+    /// How a press at `pos` leads an arrow: the distance along it taken
+    /// hold of, and, for an arrow pointing too nearly at the camera, how
+    /// the pointer's travel on screen moves it (along the arrow there, or
+    /// up and down the screen for one seen end on).
+    fn slide_grip(&self, arrow: &AxisArrow, pos: Pos2) -> (f32, Option<(Pos2, egui::Vec2)>) {
+        let along = arrow.along();
+        let toward = self.ray(pos).map_or(1.0, |r| r.dir.normalize_or_zero().dot(along).abs());
+        if toward < 0.92
+            && let Some(grip) = self.distance_along(arrow.pivot, along, pos)
+        {
+            return (grip, None);
+        }
+        let per_meter = self
+            .screen_pos(arrow.pivot)
+            .zip(self.screen_pos(arrow.pivot + along))
+            .map(|(a, b)| b - a)
+            .filter(|v| v.length() > 8.0);
+        let per_point = match per_meter {
+            Some(v) => v / v.length_sq(),
+            // End on: up the screen is along it, as Alt + drag raises.
+            None => egui::vec2(0.0, -self.orbit.map_or(0.02, |o| o.distance * 0.002)),
+        };
+        (0.0, Some((pos, per_point)))
+    }
+
     /// Each selected object's visual transform with the tilt drag applied.
     fn tilted(&self) -> Vec<(usize, mg_area::VisualTransform)> {
         let (Some(model), Some(Drag::Tilt { ring, angle, .. })) = (&self.model, self.drag) else {
@@ -726,7 +806,8 @@ impl AreaView {
     /// Where each selected object stands and turns with the drag applied.
     fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
         let Some(model) = &self.model else { return Vec::new() };
-        let moves = |d: &Drag| !matches!(d, Drag::Box { .. } | Drag::Tilt { .. });
+        let moves =
+            |d: &Drag| !matches!(d, Drag::Box { .. } | Drag::Tilt { .. } | Drag::FaceSpawn { .. });
         let Some(mut drag) = self.drag.filter(moves) else {
             return Vec::new();
         };
@@ -776,11 +857,19 @@ impl AreaView {
                         let by = if lifts(o.kind) { by } else { 0.0 };
                         (i, o.position + Vec3::Z * by, o.rotation)
                     }
-                    Drag::Box { .. } | Drag::Tilt { .. } => (i, o.position, o.rotation),
+                    Drag::Box { .. } | Drag::Tilt { .. } | Drag::FaceSpawn { .. } => {
+                        (i, o.position, o.rotation)
+                    }
                 }
             })
             .collect()
     }
+}
+
+/// The tip of a spawn point's arrow (a meter along its facing, a little
+/// above the ground).
+fn spawn_arrow_tip(point: Vec3, facing: f32) -> Vec3 {
+    point + Vec3::Z * 0.1 + Vec3::new(facing.cos(), facing.sin(), 0.0)
 }
 
 /// Whether objects of `kind` are raised and lowered: not creatures, which
@@ -867,7 +956,13 @@ fn start_on_ground(app: &mut Moonglow, view: &AreaView) -> Option<(Vec3, f32)> {
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
-    let mut view = app.area_views.remove(&area).unwrap_or_else(|| AreaView::new(area));
+    let mut view = app.area_views.remove(&area).unwrap_or_else(|| {
+        // Lighting and Sound Ranges as they were last left.
+        let mut view = AreaView::new(area);
+        view.lit = !app.settings.unlit_areas;
+        view.sound_ranges = app.settings.sound_ranges;
+        view
+    });
     refresh(app, &mut view);
     app.palette.area = Some(area);
     view.snap = (
@@ -932,9 +1027,16 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         ui.separator();
         ui.toggle_value(&mut view.night, labelled(icons::NIGHT, "Night"))
             .on_hover_text("Show the area at night");
-        ui.toggle_value(&mut view.lit, "💡 Lighting").on_hover_text(
-            "Use the area's lighting; off, everything is evenly lit (for working in dark areas)",
-        );
+        if ui
+            .toggle_value(&mut view.lit, "💡 Lighting")
+            .on_hover_text(
+                "Use the area's lighting; off, everything is evenly lit (for working in dark \
+                 areas)",
+            )
+            .changed()
+        {
+            app.settings.unlit_areas = !view.lit;
+        }
         ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
         let mut animated = !app.settings.still_objects;
         if ui
@@ -959,10 +1061,16 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.no_placed_sounds = !placed;
         }
-        ui.toggle_value(&mut view.sound_ranges, "◎ Sound Ranges").on_hover_text(
-            "Where each placed sound is heard: at full volume inside the inner circle, not at \
-             all outside the outer one",
-        );
+        if ui
+            .toggle_value(&mut view.sound_ranges, "◎ Sound Ranges")
+            .on_hover_text(
+                "Where each placed sound is heard: at full volume inside the inner circle, not \
+                 at all outside the outer one",
+            )
+            .changed()
+        {
+            app.settings.sound_ranges = view.sound_ranges;
+        }
         ui.toggle_value(&mut app.settings.ambient_sound, labelled(icons::AMBIENT, "Ambient"))
             .on_hover_text("Play ambient sound in area");
         ui.toggle_value(&mut app.settings.ambient_music, labelled(icons::MUSIC, "Music"))
@@ -1193,6 +1301,11 @@ fn viewport(
     }
     for (i, v) in view.tilted() {
         shown.to_mut().objects[i].visual = Some(v);
+    }
+    if let Some(Drag::FaceSpawn { object, point, facing, .. }) = view.drag
+        && let Some(f) = shown.to_mut().objects[object].spawn_facings.get_mut(point)
+    {
+        *f = facing;
     }
     let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
     frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
@@ -1479,6 +1592,34 @@ fn overlays(
                     line(base, tip, stroke);
                     line(tip, tip - ahead * 0.4 + side, stroke);
                     line(tip, tip - ahead * 0.4 - side, stroke);
+                    // Selected, the tip is a handle: led round, it turns
+                    // the way what spawns there faces.
+                    if let (true, Some(c)) = (selected && !o.locked, at(spawn_arrow_tip(p, facing)))
+                    {
+                        let held = matches!(view.drag, Some(Drag::FaceSpawn { object, point, .. })
+                            if object == i && point == k);
+                        let over = view.drag.is_none()
+                            && ui
+                                .ctx()
+                                .pointer_hover_pos()
+                                .is_some_and(|q| q.distance(c) <= RING_REACH);
+                        let fill = if held || over { Color32::WHITE } else { stroke.color };
+                        painter.circle(
+                            c,
+                            4.5,
+                            fill,
+                            Stroke::new(1.5, Color32::from_black_alpha(200)),
+                        );
+                        if held {
+                            painter.text(
+                                c + egui::vec2(10.0, -10.0),
+                                egui::Align2::LEFT_BOTTOM,
+                                format!("{:.0}°", facing.to_degrees().rem_euclid(360.0)),
+                                egui::FontId::proportional(13.0),
+                                Color32::WHITE,
+                            );
+                        }
+                    }
                 }
             }
             continue;
@@ -1634,7 +1775,7 @@ fn overlays(
                 line(a, b, stroke);
             }
         }
-        if let Some(Drag::Tilt { ring, grip, angle }) = view.drag
+        if let Some(Drag::Tilt { ring, grip, angle, .. }) = view.drag
             && let Some(c) = at(ring.point(grip + angle))
             && let Some((_, visual)) = view.tilted().first()
         {
@@ -1910,12 +2051,15 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         view.outline.clear();
     }
 
-    // Selection. (A click on the turning ring leaves it be.)
+    // Selection. (A click on a ring or an arrow with nothing under it
+    // leaves the selection be; with an object under it, it picks that.)
     if response.clicked()
         && let Some(pos) = response.interact_pointer_pos()
-        && view.ring_at(pos).is_none()
-        && !(shift && view.tilt_ring_at(pos).is_some())
-        && !(shift && view.axis_arrow_at(pos).is_some())
+        && (view.pick(pos).is_some()
+            || !(view.spawn_arrow_at(pos).is_some()
+                || view.ring_at(pos).is_some_and(|_| !shift)
+                || (shift && view.tilt_ring_at(pos).is_some())
+                || (shift && view.axis_arrow_at(pos).is_some())))
     {
         let hit = view.pick(pos).and_then(|i| {
             let o = &view.model.as_ref()?.objects[i];
@@ -1972,15 +2116,22 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         let handle = view.ring_at(pos).filter(|_| !alt && !shift);
         let tilt = view.tilt_ring_at(pos).filter(|_| shift && !alt);
         let arrow = view.axis_arrow_at(pos).filter(|_| shift && !alt);
-        view.drag = if let Some(arrow) = arrow {
-            view.distance_along(arrow.pivot, arrow.along(), pos).map(|grip| Drag::Slide {
-                axis: arrow.axis,
-                pivot: arrow.pivot,
-                grip,
-                by: 0.0,
-            })
+        let spawn =
+            view.spawn_arrow_at(pos).filter(|_| !shift && !alt && !app.settings.no_spawn_markers);
+        view.drag = if let Some((object, point, pivot)) = spawn {
+            let facing =
+                view.model.as_ref().and_then(|m| m.objects[object].spawn_facings.get(point));
+            Some(Drag::FaceSpawn { object, point, pivot, facing: facing.copied().unwrap_or(0.0) })
+        } else if let Some(arrow) = arrow {
+            let (grip, screen) = view.slide_grip(&arrow, pos);
+            Some(Drag::Slide { axis: arrow.axis, pivot: arrow.pivot, grip, by: 0.0, screen })
         } else if let Some(ring) = tilt {
-            view.angle_on(&ring, pos).map(|grip| Drag::Tilt { ring, grip, angle: 0.0 })
+            view.tilt_grip(&ring, pos).map(|(grip, screen)| Drag::Tilt {
+                ring,
+                grip,
+                angle: 0.0,
+                screen,
+            })
         } else if let Some(ring) = handle {
             view.angle_about(ring.pivot, pos).map(|grip| Drag::Spin {
                 pivot: ring.pivot,
@@ -2035,17 +2186,34 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.drag = Some(Drag::Spin { pivot, grip, angle });
             }
         }
-        Some(Drag::Slide { axis, pivot, grip, .. }) if held.by(button) => {
-            let along = Vec3::AXES[axis];
-            if let Some(now) = pointer.and_then(|p| view.distance_along(pivot, along, p)) {
-                view.drag = Some(Drag::Slide { axis, pivot, grip, by: now - grip });
+        Some(Drag::FaceSpawn { object, point, pivot, .. }) if held.by(button) => {
+            if let Some(to) = pointer.and_then(|p| view.angle_about(pivot, p)) {
+                let facing = mg_area::arrange::snap_rotation(to, view.snap.1);
+                view.drag = Some(Drag::FaceSpawn { object, point, pivot, facing });
             }
         }
-        Some(Drag::Tilt { ring, grip, .. }) if held.by(button) => {
-            if let Some(now) = pointer.and_then(|p| view.angle_on(&ring, p)) {
-                let angle = (now - grip + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
-                    - std::f32::consts::PI;
-                view.drag = Some(Drag::Tilt { ring, grip, angle });
+        Some(Drag::Slide { axis, pivot, grip, screen, .. }) if held.by(button) => {
+            let along = Vec3::AXES[axis];
+            let by = match (screen, pointer) {
+                (Some((from, per_point)), Some(p)) => Some((p - from).dot(per_point)),
+                (None, Some(p)) => view.distance_along(pivot, along, p).map(|now| now - grip),
+                _ => None,
+            };
+            if let Some(by) = by {
+                view.drag = Some(Drag::Slide { axis, pivot, grip, by, screen });
+            }
+        }
+        Some(Drag::Tilt { ring, grip, screen, .. }) if held.by(button) => {
+            let half = std::f32::consts::PI;
+            let angle = match (screen, pointer) {
+                (Some((from, per_point)), Some(p)) => Some((p - from).dot(per_point)),
+                (None, Some(p)) => view.angle_on(&ring, p).map(|now| now - grip),
+                _ => None,
+            };
+            if let Some(angle) = angle {
+                // The short way round from where it was taken.
+                let angle = (angle + half).rem_euclid(std::f32::consts::TAU) - half;
+                view.drag = Some(Drag::Tilt { ring, grip, angle, screen });
             }
         }
         Some(Drag::Turn { angle }) if held.by(button) => {
@@ -2068,6 +2236,22 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     if !view.selection.contains(&h) {
                         view.selection.push(h);
                     }
+                }
+            }
+            Some(Drag::FaceSpawn { object, point, facing, .. }) => {
+                if let Some(o) = view.model.as_ref().map(|m| &m.objects[object])
+                    && o.spawn_facings.get(point).is_some_and(|was| *was != facing)
+                {
+                    let path = mg_edit::GffPath::root()
+                        .item(o.kind.list(), o.index)
+                        .item("SpawnPointList", point);
+                    let edit = mg_edit::Edit::SetField {
+                        key: view.git(),
+                        path,
+                        label: "Orientation".into(),
+                        value: Some(mg_gff::Value::Float(facing)),
+                    };
+                    app.actions.push(Action::Apply(Command::new("Turn Spawn Point", vec![edit])));
                 }
             }
             Some(drag @ Drag::Tilt { .. }) => {

@@ -173,9 +173,11 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
             if let Some(b) = current.and_then(base) {
                 portrait_image(f, ui, &b.to_lowercase(), 'm', 32.0, egui::Sense::hover());
             }
+            // (A click in its Filter field must not close it.)
             egui::ComboBox::from_id_salt(("portrait", f.key))
                 .selected_text(shown)
                 .width(200.0)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .show_ui(ui, |ui| {
                     let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
                     ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
@@ -186,6 +188,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                     {
                         if ui.selectable_label(current == Some(*row), *b).clicked() {
                             pick = Some(*row);
+                            ui.close();
                         }
                     }
                 });
@@ -416,6 +419,12 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "");
         // Aurora's Setup Area Transition: a door or waypoint in an area.
         let dests = destinations(f);
+        // (Areas by name, when the module tree lists them so.)
+        let mut areas: std::collections::HashMap<_, String> = Default::default();
+        for (area, _, _) in &dests {
+            let named = area.parse().map(|r| crate::tabs::area_label(f.app, r));
+            areas.entry(area.clone()).or_insert_with(|| named.unwrap_or_else(|_| area.clone()));
+        }
         let mut pick = None;
         egui::ComboBox::from_id_salt(("utt-setup", f.key))
             .selected_text("Setup Area Transition…")
@@ -426,6 +435,7 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
                 }
                 for (area, tag, flags) in &dests {
                     let kind = if *flags == 1 { "door" } else { "waypoint" };
+                    let area = &areas[area];
                     if ui.selectable_label(false, format!("{area}: {tag} ({kind})")).clicked() {
                         pick = Some((tag.clone(), *flags));
                     }
@@ -617,6 +627,58 @@ pub(super) fn inline_preview(f: &mut Form<'_>, ui: &mut Ui, size: egui::Vec2) {
         }
     });
 }
+
+/// A page that shows the object's model beside its fields, which take a
+/// column `side` wide; the model has the rest of the window.
+///
+/// `model_first`: the model on the left (a page about how the object
+/// looks), else the fields (a page of names and tags that happens to
+/// choose the appearance). A window too narrow for both, the model at
+/// least [`MODEL_LEAST`] wide, has the fields alone, where they were:
+/// Preview shows the model.
+pub(super) fn beside_model(
+    f: &mut Form<'_>,
+    ui: &mut Ui,
+    side: f32,
+    model_first: bool,
+    fields: impl FnOnce(&mut Form<'_>, &mut Ui),
+) {
+    let gap = ui.spacing().item_spacing.x;
+    // What is left of the page's visible height, and its width. (The
+    // visible width: a page once wider than the window would keep that.)
+    let room = egui::vec2(
+        ui.available_width().min(ui.clip_rect().right() - ui.cursor().left()),
+        (ui.clip_rect().bottom() - ui.cursor().top()).max(MODEL_LEAST.y),
+    );
+    if room.x < side + gap + MODEL_LEAST.x {
+        fields(f, ui);
+        return;
+    }
+    // (The fields keep their width, their scroll bar included.)
+    let width = room.x - side - 3.0 * gap - ui.spacing().scroll.bar_width;
+    let size = egui::vec2(width, room.y - gap);
+    let column = |f: &mut Form<'_>, ui: &mut Ui| {
+        ui.vertical(|ui| {
+            ui.set_width(side);
+            egui::ScrollArea::vertical()
+                .id_salt(("beside-model", f.key))
+                .auto_shrink([false, false])
+                .show(ui, |ui| fields(f, ui));
+        });
+    };
+    ui.horizontal_top(|ui| {
+        if model_first {
+            ui.vertical(|ui| inline_preview(f, ui, size));
+            column(f, ui);
+        } else {
+            column(f, ui);
+            ui.vertical(|ui| inline_preview(f, ui, size));
+        }
+    });
+}
+
+/// The least the model takes of a page that shows it.
+pub(super) const MODEL_LEAST: egui::Vec2 = egui::vec2(340.0, 300.0);
 
 /// Preview: the blueprint's model in the model viewer (Aurora shows it in
 /// the dialog).

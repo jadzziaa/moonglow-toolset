@@ -26,12 +26,14 @@ looking straight down at their middle, north up, as in Aurora.
   on), in every area view; it stays as you leave it.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
+  Areas opened later open as you left it.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
   area's ambient sound and its music, heard from where the camera looks.
 - **◎ Sound Ranges**: two circles around each placed sound that is heard
   from where it stands: at full volume inside the inner one (its minimum
   distance), not at all outside the outer one (its maximum). The
   selection's are brighter; a sound heard everywhere in the area has none.
+  Areas opened later open as you left it.
 - **Walkmesh**: the ground's walkmesh over the area (Aurora's Render AABB
   Nodes): walkable faces green, the others red.
 - **Object Walkmeshes**: where placeables (their `.pwk`, orange) and doors
@@ -119,7 +121,8 @@ right-click menu has **Make Dynamic** to clear Static. A dynamic one's
 has **Make Static**, which also takes its visual transform away, as
 Aurora does. (The game draws static placeables, and finds paths around
 them, more cheaply: keep scenery that needn't tilt static.) A ring
-seen edge-on can't be led round: turn the camera to see it as a circle.
+seen edge-on (from straight above, both are lines over the object) is
+led along its line.
 
 **The arrows**: with **Shift** held, three arrows stand out from the
 selected object: red to the east, green to the north and blue upward.
@@ -129,7 +132,15 @@ meters. East and north keep it as high above the ground as it was, and
 **Snap** snaps along the axis; up raises or lowers it, as Alt + drag
 does. They move the object itself, so they work for static placeables
 too; creatures stand on the ground and have no blue arrow. An arrow
-pointing at the camera can't be led: turn the view.
+pointing at the camera (the blue one, from straight above) is led up and
+down the screen.
+
+A click on a ring or an arrow selects the object under it, if there is
+one; the selection stays otherwise.
+
+**An encounter's spawn points**: with the encounter selected, the tip of
+each spawn point's arrow is a handle. Lead it round the point and what
+spawns there faces that way (**Turn** snaps it).
 
 What you are dragging stays in hand while another button turns the
 camera (hold the middle button too and swing the view), until you let go
@@ -151,7 +162,8 @@ places and turns around it.
   changes in all of them.
 - **Adjust Location…**: an exact position and bearing, and the visual
   transform that EE added (scale, rotation about each axis and offset)
-  for creatures, placeables, doors and items.
+  for creatures, doors, items and placeables that aren't Static (a static
+  placeable has none, as in Aurora).
 - **Drop to Ground** (G): puts raised objects back on the ground under
   them.
 - **Arrange** (several selected; the first selected leads):
@@ -339,8 +351,10 @@ it left. Left dynamic are placeables that:
   can't be destroyed.
 
 One a script destroys or animates by its tag can't be told from the
-rest: make it dynamic again from its menu in the area view. From the
-command line, `mg areas --static-placeables` does the same.
+rest: make it dynamic again from its menu in the area view. **Make
+Placeables Dynamic**, on the same menus, clears Static on every
+placeable of the area or the module. From the command line, `mg areas
+--static-placeables` and `--dynamic-placeables` do the same.
 
 ## Area sounds
 

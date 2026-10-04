@@ -130,6 +130,10 @@ pub enum Action {
     ExportMinimap(mg_core::ResRef),
     /// Makes these areas' placeables static, where nothing is lost by it.
     StaticPlaceables(Vec<mg_core::ResRef>),
+    /// The talk table's lines to a CSV file, or (true) read from one.
+    TalkCsv(bool),
+    /// Makes every static placeable of these areas dynamic.
+    DynamicPlaceables(Vec<mg_core::ResRef>),
     Apply(Command),
     OpenTab(Tab),
     /// Closes a tab's window (Escape over a model's window).
@@ -627,6 +631,8 @@ impl Moonglow {
             self.dock_width = Some(ui.available_width());
             // (The dock is out of reach while its tabs are drawn: the model
             // windows open, for a page that shows a model unless one is.)
+            // (Set again by the talk table's editor, if it is drawn.)
+            self.talk_view.hovered = false;
             self.open_models = self
                 .dock
                 .iter_all_tabs()
@@ -1079,16 +1085,20 @@ impl Moonglow {
     /// Runs one action now. Actions that would discard unsaved work ask
     /// first (see [`Moonglow::confirm_discard`]).
     pub fn run(&mut self, action: Action) {
-        let discards = matches!(
-            action,
-            Action::NewModuleDialog
-                | Action::OpenModuleDialog
-                | Action::OpenFolderDialog
-                | Action::OpenModule(_)
-                | Action::ApplyOptions(_)
-                | Action::Close
-                | Action::Quit
-        );
+        let discards = match &action {
+            // Options discard nothing unless they choose other folders: the
+            // module is opened again from its file then.
+            Action::ApplyOptions(draft) => self.options_reload(draft),
+            other => matches!(
+                other,
+                Action::NewModuleDialog
+                    | Action::OpenModuleDialog
+                    | Action::OpenFolderDialog
+                    | Action::OpenModule(_)
+                    | Action::Close
+                    | Action::Quit
+            ),
+        };
         if discards && self.has_unsaved_work() {
             self.confirm_discard = Some(action);
             return;
@@ -1207,6 +1217,10 @@ impl Moonglow {
             }
             Action::Close => self.close(),
             Action::Undo | Action::Redo => {
+                // (Over the talk table's editor, its own.)
+                if talk_view::undo(self, action == Action::Redo) {
+                    return;
+                }
                 let Some(ws) = &mut self.ws else { return };
                 let r = if action == Action::Undo { ws.undo() } else { ws.redo() };
                 match r {
@@ -1322,6 +1336,8 @@ impl Moonglow {
             }
             Action::ExportMinimap(area) => self.export_minimap(area),
             Action::StaticPlaceables(areas) => self.static_placeables(&areas),
+            Action::DynamicPlaceables(areas) => self.dynamic_placeables(&areas),
+            Action::TalkCsv(import) => talk_view::csv(self, import),
             Action::PlacePrefab(name) => self.place_prefab(&name),
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
@@ -1847,6 +1863,41 @@ impl Moonglow {
         }
     }
 
+    /// Makes every static placeable of `areas` dynamic, as one command.
+    fn dynamic_placeables(&mut self, areas: &[mg_core::ResRef]) {
+        let Some(ws) = self.ws.as_mut() else { return };
+        let mut edits = Vec::new();
+        let mut within = 0;
+        for &area in areas {
+            let key = ResKey::new(area, ResType::GIT);
+            let Ok(git) = ws.doc(&key) else { continue };
+            let before = edits.len();
+            for (i, p) in git.root.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
+                if p.integer("Static").unwrap_or(0) != 0 {
+                    edits.push(mg_edit::Edit::SetField {
+                        key,
+                        path: mg_edit::GffPath::root().item("Placeable List", i),
+                        label: "Static".into(),
+                        value: Some(mg_gff::Value::Byte(0)),
+                    });
+                }
+            }
+            within += usize::from(edits.len() > before);
+        }
+        if edits.is_empty() {
+            self.log.info("No static placeables to make dynamic");
+            return;
+        }
+        let made = edits.len();
+        match self.apply(Command::new("Make Placeables Dynamic", edits)) {
+            Ok(()) => {
+                let (s, a) = (if made == 1 { "" } else { "s" }, if within == 1 { "" } else { "s" });
+                self.log.info(format!("Made {made} placeable{s} dynamic in {within} area{a}"));
+            }
+            Err(e) => self.log.error(e.to_string()),
+        }
+    }
+
     /// Writes an area's minimap (as it is now, unsaved tiles included) to a
     /// PNG the user chooses.
     fn export_minimap(&mut self, area: mg_core::ResRef) {
@@ -1955,7 +2006,8 @@ impl Moonglow {
         choose: bool,
     ) {
         match test_module::command(client, user, name, choose).spawn() {
-            Ok(_) => {
+            Ok(game) => {
+                test_module::let_run(game);
                 self.log.info(format!("Testing {name}"));
                 // Options > General: Minimize Toolset on test module.
                 self.minimize_requested = self.settings.minimize_on_test;
@@ -2099,14 +2151,39 @@ impl Moonglow {
         written
     }
 
-    fn apply_options(&mut self, draft: OptionsDraft) {
+    /// Whether these options choose another game or user folder: the
+    /// game's data is read again then, and the module with it.
+    fn options_reload(&self, draft: &OptionsDraft) -> bool {
         let settings = draft.apply(&self.settings);
-        self.close();
+        settings.game_root != self.settings.game_root || settings.user_dir != self.settings.user_dir
+    }
+
+    /// Options › OK. The module stays open: only another game or user
+    /// folder has the game's data read again, and then the module is opened
+    /// again from its file (the caller has asked about unsaved work).
+    fn apply_options(&mut self, draft: OptionsDraft) {
+        let reload = self.options_reload(&draft);
+        let settings = draft.apply(&self.settings);
+        let language = settings.edit_language != self.settings.edit_language;
         set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
+        if !reload {
+            self.settings = settings;
+            if language {
+                // Names are shown in the language chosen: read them again.
+                self.area_names = Default::default();
+                self.palette.forget_game_data();
+            }
+            return;
+        }
+        let module = self.module_path();
+        self.close();
         self.settings = settings;
         self.install = self.settings.install();
         self.game = load_game(self.install.as_ref(), &mut self.log);
         self.load_order_changed();
+        if let Some(path) = module {
+            self.open_module(&path);
+        }
     }
 
     /// A script editor's current text.

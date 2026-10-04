@@ -57,9 +57,38 @@ pub fn command(client: &Path, user_dir: &Path, module: &str, choose: bool) -> Co
 /// each time).
 pub const FROM_HERE: &str = "moonglow-test";
 
+/// Lets a program Moonglow started run on its own: a thread waits for it
+/// to end, so that the system forgets it then. (A program its parent never
+/// waits for stays listed, as a "defunct" process, until the parent ends:
+/// the game, after Test Module, for as long as Moonglow ran.)
+pub(crate) fn let_run(mut child: std::process::Child) {
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A program let run leaves nothing behind when it ends: no "defunct"
+    /// entry waiting for Moonglow to collect it.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_program_let_run_is_forgotten_when_it_ends() {
+        let child = Command::new("true").spawn().unwrap();
+        let entry = std::path::PathBuf::from(format!("/proc/{}", child.id()));
+        let_run(child);
+        // (It ends at once; the thread that waits for it runs soon after.)
+        for _ in 0..200 {
+            if !entry.exists() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let state = std::fs::read_to_string(entry.join("stat")).unwrap_or_default();
+        panic!("still listed: {state}");
+    }
 
     #[test]
     fn the_module_is_named_from_the_modules_folder() {

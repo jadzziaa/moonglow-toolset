@@ -112,6 +112,9 @@ struct Change {
     /// Typing into a field of a line (the caller's number for it): the
     /// next such change to the same field merges into this one.
     typing: Option<u8>,
+    /// Changes made as one (an import's): undone and redone together.
+    /// 0: on its own.
+    batch: u64,
 }
 
 /// A talk table open for editing: its file (and the feminine table's, if
@@ -311,7 +314,7 @@ impl Table {
             return Ok(());
         }
         let before = self.current(row);
-        self.apply(Change { row, before, after, typing });
+        self.apply(Change { row, before, after, typing, batch: 0 });
         Ok(())
     }
 
@@ -319,7 +322,7 @@ impl Table {
     pub fn add_line(&mut self, line: &Line) -> Result<usize, String> {
         let row = self.len();
         let after = self.entries(line, row)?;
-        self.apply(Change { row, before: (None, None), after, typing: None });
+        self.apply(Change { row, before: (None, None), after, typing: None, batch: 0 });
         Ok(row)
     }
 
@@ -328,7 +331,7 @@ impl Table {
     pub fn remove_last(&mut self) {
         let Some(row) = self.len().checked_sub(1) else { return };
         let before = self.current(row);
-        self.apply(Change { row, before, after: (None, None), typing: None });
+        self.apply(Change { row, before, after: (None, None), typing: None, batch: 0 });
     }
 
     pub fn can_undo(&self) -> bool {
@@ -340,17 +343,143 @@ impl Table {
     }
 
     pub fn undo(&mut self) {
-        if let Some(c) = self.undo.pop() {
+        while let Some(c) = self.undo.pop() {
             self.put(c.row, c.before.clone());
+            let batch = c.batch;
             self.redo.push(c);
+            // (The rest of an import with it.)
+            if batch == 0 || self.undo.last().is_none_or(|next| next.batch != batch) {
+                break;
+            }
         }
     }
 
     pub fn redo(&mut self) {
-        if let Some(c) = self.redo.pop() {
+        while let Some(c) = self.redo.pop() {
             self.put(c.row, c.after.clone());
+            let batch = c.batch;
             self.undo.push(c);
+            if batch == 0 || self.redo.last().is_none_or(|next| next.batch != batch) {
+                break;
+            }
         }
+    }
+
+    /// The table as CSV, for a spreadsheet or a translator: a heading row,
+    /// then a row for each line: its StrRef, its text (and the feminine
+    /// table's, when there is one), its sound and the sound's length.
+    pub fn to_csv(&self) -> String {
+        use crate::dialog_io::csv_field;
+        let feminine = self.feminine.is_some();
+        let mut out = String::from(if feminine {
+            "StrRef,Text,Feminine,Sound,SoundLength\n"
+        } else {
+            "StrRef,Text,Sound,SoundLength\n"
+        });
+        for row in 0..self.len() {
+            let line = self.line(row);
+            let mut cells = vec![Table::strref(row).0.to_string(), csv_field(&line.text)];
+            if feminine {
+                cells.push(csv_field(line.feminine.as_deref().unwrap_or_default()));
+            }
+            cells.push(csv_field(&line.sound));
+            let length = line.sound_length;
+            cells.push(if length == 0.0 { String::new() } else { length.to_string() });
+            out.push_str(&cells.join(","));
+            out.push('\n');
+        }
+        out
+    }
+
+    /// Reads lines from CSV as [`to_csv`](Self::to_csv) writes it (its
+    /// columns found by their headings, in any order; a StrRef is the
+    /// game's, 16777216 and up, or the line's number in the table). A row
+    /// sets the line of its StrRef, which keeps what the row has no column
+    /// for; rows past the table's end add lines, empty ones between if
+    /// they leave a gap. Nothing changes unless every row can be read, and
+    /// one undo takes the import back. Returns how many lines changed and
+    /// how many were added.
+    pub fn import_csv(&mut self, text: &str) -> Result<(usize, usize), String> {
+        let rows = crate::dialog_io::read_csv(text)?;
+        let Some((headings, rows)) = rows.split_first() else {
+            return Err("the file is empty".into());
+        };
+        let column = |name: &str| headings.iter().position(|h| h.trim().eq_ignore_ascii_case(name));
+        let strref = column("StrRef").ok_or("no StrRef column")?;
+        let (text, feminine) = (column("Text"), column("Feminine"));
+        let (sound, length) = (column("Sound"), column("SoundLength"));
+        if text.is_none() && feminine.is_none() && sound.is_none() && length.is_none() {
+            return Err("no Text, Feminine, Sound or SoundLength column".into());
+        }
+        // Each row as the line it makes of the line that is there (or of
+        // an empty one), by its place in the table.
+        let empty = Line {
+            text: String::new(),
+            feminine: self.feminine.as_ref().map(|_| String::new()),
+            sound: String::new(),
+            sound_length: 0.0,
+        };
+        let mut lines: std::collections::BTreeMap<usize, Line> = Default::default();
+        for (n, cells) in rows.iter().enumerate() {
+            if cells.iter().all(|c| c.trim().is_empty()) {
+                continue;
+            }
+            let at = format!("row {}", n + 2);
+            let cell = |i: Option<usize>| i.and_then(|i| cells.get(i));
+            let number: u32 = cell(Some(strref))
+                .and_then(|c| c.trim().parse().ok())
+                .ok_or_else(|| format!("{at}: its StrRef is not a number"))?;
+            let row = number.checked_sub(CUSTOM).unwrap_or(number) as usize;
+            if row >= (CUSTOM as usize) {
+                return Err(format!("{at}: StrRef {number} is past what a table holds"));
+            }
+            let mut line = match lines.remove(&row) {
+                Some(line) => line,
+                None if row < self.len() => self.line(row),
+                None => empty.clone(),
+            };
+            if let Some(t) = cell(text) {
+                line.text.clone_from(t);
+            }
+            if let (Some(t), Some(f)) = (cell(feminine), line.feminine.as_mut()) {
+                f.clone_from(t);
+            }
+            if let Some(s) = cell(sound) {
+                line.sound = s.trim().to_string();
+            }
+            if let Some(l) = cell(length) {
+                line.sound_length = match l.trim() {
+                    "" => 0.0,
+                    l => l.parse().map_err(|_| format!("{at}: its SoundLength is not a number"))?,
+                };
+            }
+            lines.insert(row, line);
+        }
+        // Every line must be one the table can hold, before any is set.
+        for (row, line) in &lines {
+            self.entries(line, *row)
+                .map_err(|e| format!("StrRef {}: {e}", CUSTOM as usize + row))?;
+        }
+        let batch = self.undo.last().map_or(1, |c| c.batch + 1).max(1);
+        let from = self.undo.len();
+        let (mut changed, mut added) = (0, 0);
+        for (row, line) in lines {
+            while self.len() < row {
+                self.add_line(&empty)?;
+            }
+            if row < self.len() {
+                let before = self.undo.len();
+                self.set_line(row, &line, None)?;
+                changed += usize::from(self.undo.len() > before);
+            } else {
+                self.add_line(&line)?;
+                added += 1;
+            }
+        }
+        for c in &mut self.undo[from..] {
+            c.batch = batch;
+        }
+        Ok((changed, added))
     }
 
     /// The lines whose text (either table's) has every word, ignoring case,
@@ -403,6 +532,47 @@ impl Table {
 mod tests {
     use super::*;
     use mg_resman::{LayerClass, MemContainer, priority};
+
+    #[test]
+    fn csv_goes_out_and_comes_back_as_one_undoable_import() {
+        let dir = std::env::temp_dir();
+        let mut t = Table::create("csv", &dir, Language::ENGLISH, true);
+        let line = |text: &str, feminine: &str, sound: &str| Line {
+            text: text.into(),
+            feminine: Some(feminine.into()),
+            sound: sound.into(),
+            sound_length: 0.0,
+        };
+        t.add_line(&line("Hello, \"friend\"", "Hello, \"sister\"", "vs_hello")).unwrap();
+        t.add_line(&line("Two\nlines", "", "")).unwrap();
+        let csv = t.to_csv();
+        assert!(csv.starts_with("StrRef,Text,Feminine,Sound,SoundLength\n16777216,"), "{csv}");
+        assert!(csv.contains("\"Hello, \"\"friend\"\"\""), "{csv}");
+        // Read back as it is: nothing changes.
+        assert_eq!(t.import_csv(&csv), Ok((0, 0)));
+
+        // A translator's sheet: the text of line 1 changed, line 3 added
+        // (line 2 left out: an empty one between), by StrRef or by number.
+        let sheet = "Text,StrRef\nZwei Zeilen,16777217\nNeu,3\n";
+        let depth = t.undo.len();
+        assert_eq!(t.import_csv(sheet), Ok((1, 1)));
+        assert_eq!(t.len(), 4);
+        assert_eq!(t.line(1).text, "Zwei Zeilen");
+        assert_eq!(t.line(1).feminine.as_deref(), Some(""), "what it has no column for stays");
+        assert_eq!((t.line(2).text.as_str(), t.line(3).text.as_str()), ("", "Neu"));
+        // One undo takes the whole import back; redo brings it again.
+        t.undo();
+        assert_eq!((t.len(), t.undo.len()), (2, depth));
+        assert_eq!(t.line(1).text, "Two\nlines");
+        t.redo();
+        assert_eq!((t.len(), t.line(3).text.as_str()), (4, "Neu"));
+
+        // A row that can't be read changes nothing.
+        let before = t.to_csv();
+        assert!(t.import_csv("StrRef,Text\n1,ok\nx,bad\n").is_err());
+        assert!(t.import_csv("Text\nno strref\n").is_err());
+        assert_eq!(t.to_csv(), before);
+    }
 
     #[test]
     fn haks_then_the_module_then_the_folder() {

@@ -24,7 +24,9 @@ The palette pane (right) shows the blueprints by type:
 
 Choose a blueprint to place it in an area, or drag it there. Hover over
 one to see its resref, tag and, for creatures, doors, items and
-placeables, a picture.
+placeables, a picture; for the others, what there is to say of them (a
+sound's sounds, a trigger's kind, an encounter's creatures, a store's
+prices, a waypoint's map note).
 
 **Find** (the box above the palette) shows the blueprints that have every
 word you type in their name, resref or tag, in any order (`chest secret`).
@@ -44,6 +46,10 @@ The palette's buttons:
 - **Edit Copy**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it.
 - **Delete**: remove a custom blueprint from the module.
+- **The model in the page:** a placeable's and a door's Basic page and
+  an item's Appearance page show the model beside their fields, in a
+  window wide enough for both (a creature's Appearance page always has
+  it). A change shows as you make it.
 - **Preview**: show the blueprint in the model viewer. A blueprint
   without a model (a merchant, a sound, a trigger, a waypoint, an
   encounter) shows its fields instead, and a merchant what it sells, page
@@ -148,7 +154,8 @@ every change, as Aurora does on OK.
   spells' talent categories (harmful ranged, beneficial healing…).
 - **Special Abilities** lists each ability as the game has it: so many
   **Uses** of a spell at a **Caster Level**. Clicking a spell adds a use;
-  the same spell at another caster level is another ability.
+  the same spell at another caster level is another ability. **Flags**
+  are the ability's own: Ready, Spontaneous, Unlimited.
 
 The game reads a familiar only when one of the creature's classes has
 one (an arcane class whose `MinAssociateLevel` in `classes.2da` isn't

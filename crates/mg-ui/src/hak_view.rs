@@ -25,7 +25,25 @@ pub struct HakDoc {
     description: Option<String>,
     /// Bumped on every change, for the cached rows.
     revision: u64,
-    rows: Option<(String, u64, Vec<usize>)>,
+    rows: Option<(String, Sort, u64, Vec<usize>)>,
+    /// The order of the list.
+    pub sort: Sort,
+    /// The resource shown under the list, as something to read.
+    viewing: Option<(ResKey, crate::browser::Plain)>,
+    /// The folder the hak was built from: Update from Folder reads it
+    /// again.
+    pub folder: Option<PathBuf>,
+}
+
+/// The order of a hak's list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Sort {
+    #[default]
+    Name,
+    /// By type, then name.
+    Type,
+    /// The largest first.
+    Size,
 }
 
 impl HakDoc {
@@ -39,6 +57,9 @@ impl HakDoc {
             description: None,
             revision: 0,
             rows: None,
+            sort: Sort::Name,
+            viewing: None,
+            folder: None,
         }
     }
 
@@ -52,19 +73,28 @@ impl HakDoc {
         format!("{name}{}", if self.hak.is_dirty() { " *" } else { "" })
     }
 
-    /// The items shown, sorted by name: indices into the hak's items.
+    /// The items shown, in the list's order: indices into the hak's items.
     fn rows(&mut self) -> Vec<usize> {
         let filter = self.filter.trim().to_ascii_lowercase();
-        let fresh = self.rows.as_ref().is_some_and(|(f, r, _)| *f == filter && *r == self.revision);
+        let fresh = self
+            .rows
+            .as_ref()
+            .is_some_and(|(f, s, r, _)| *f == filter && *s == self.sort && *r == self.revision);
         if !fresh {
             let items = self.hak.items();
             let mut rows: Vec<usize> = (0..items.len())
                 .filter(|&i| filter.is_empty() || items[i].key.to_string().contains(&filter))
                 .collect();
             rows.sort_by_key(|&i| items[i].key.to_string());
-            self.rows = Some((filter, self.revision, rows));
+            match self.sort {
+                Sort::Name => {}
+                // (Stable: by name within a type or a size.)
+                Sort::Type => rows.sort_by_key(|&i| items[i].key.restype.to_string()),
+                Sort::Size => rows.sort_by_key(|&i| std::cmp::Reverse(items[i].size)),
+            }
+            self.rows = Some((filter, self.sort, self.revision, rows));
         }
-        self.rows.as_ref().map(|r| r.2.clone()).unwrap_or_default()
+        self.rows.as_ref().map(|r| r.3.clone()).unwrap_or_default()
     }
 
     fn changed(&mut self) {
@@ -72,6 +102,7 @@ impl HakDoc {
         self.description = None;
         let keys: BTreeSet<ResKey> = self.hak.items().iter().map(|i| i.key).collect();
         self.selected.retain(|k| keys.contains(k));
+        self.viewing = None;
     }
 }
 
@@ -106,7 +137,12 @@ pub fn open_hak(app: &mut Moonglow) {
     }
     match Hak::open(&path) {
         Ok(h) => {
-            open_tab(app, h);
+            let id = open_tab(app, h);
+            // (Built from a folder before: Update from Folder knows it.)
+            let folder = app.settings.hak_folder(&path).map(std::path::Path::to_path_buf);
+            if let Some(doc) = app.haks.iter_mut().find(|d| d.id == id) {
+                doc.folder = folder;
+            }
         }
         Err(e) => app.log.error(format!("Could not open {}: {e}", path.display())),
     }
@@ -121,7 +157,10 @@ pub fn build_from_folder(app: &mut Moonglow) {
     report(app, &added);
     // Saved by default in the user's hak folder, named after the folder.
     let name = dir.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-    open_tab(app, hak);
+    let id = open_tab(app, hak);
+    if let Some(doc) = app.haks.iter_mut().find(|d| d.id == id) {
+        doc.folder = Some(dir.clone());
+    }
     app.suggested_hak = hak_dir(app).map(|d| d.join(format!("{name}.hak")));
 }
 
@@ -163,6 +202,9 @@ pub(crate) fn save(app: &mut Moonglow, id: u32, ask: bool) -> bool {
         Ok(()) => {
             doc.changed();
             let path = doc.hak.path.clone().expect("saved");
+            if let Some(folder) = &doc.folder {
+                app.settings.remember_hak_folder(&path, folder);
+            }
             let past = doc.hak.past_read_limit();
             app.log.info(format!("Saved {} ({} resources)", path.display(), doc.hak.items().len()));
             if let Some(first) = past.first() {
@@ -225,6 +267,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         AddFolder,
         Extract(Vec<ResKey>),
         Save(bool),
+        View(ResKey),
+        UpdateFromFolder,
     }
     let mut todo = None;
     // The game's own haks are never written: Save As makes a copy.
@@ -242,6 +286,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         let where_ =
             doc.hak.path.as_ref().map_or("not saved yet".into(), |p| p.display().to_string());
         ui.strong(format!("{} resources, {}", doc.hak.items().len(), size(doc.hak.size())));
+        let folder = doc.folder.as_ref().map(|f| f.display().to_string());
+        if ui
+            .add_enabled(folder.is_some(), egui::Button::new("Update from Folder"))
+            .on_hover_text(match &folder {
+                Some(f) => format!("The hak's files again from {f}: what the folder has now"),
+                None => "For a hak built with Build Hak from Folder".into(),
+            })
+            .clicked()
+        {
+            todo = Some(Do::UpdateFromFolder);
+        }
         ui.weak(where_);
     });
     ui.horizontal(|ui| {
@@ -327,7 +382,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                 .desired_width(200.0)
                 .hint_text("name or .type"),
         );
-        ui.weak("Click to select, Ctrl+click to add to it; right-click for more");
+        egui::ComboBox::from_id_salt(("hak-sort", id))
+            .selected_text(match doc.sort {
+                Sort::Name => "By name",
+                Sort::Type => "By type",
+                Sort::Size => "By size",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut doc.sort, Sort::Name, "By name");
+                ui.selectable_value(&mut doc.sort, Sort::Type, "By type");
+                ui.selectable_value(&mut doc.sort, Sort::Size, "By size")
+                    .on_hover_text("The largest first");
+            });
+        ui.weak("Click to select, Ctrl+click to add; double-click to view; right-click for more");
     });
     if changed {
         doc.changed();
@@ -336,66 +403,85 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     let rows = doc.rows();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let mut rename_done = None;
-    egui::ScrollArea::vertical().id_salt(("hak-rows", id)).auto_shrink([false, false]).show_rows(
-        ui,
-        row_height,
-        rows.len(),
-        |ui, range| {
-            for &r in &rows[range] {
-                let item = doc.hak.items()[r].clone();
-                ui.horizontal(|ui| {
-                    if let Some((key, name)) = doc.rename.as_mut().filter(|(k, _)| *k == item.key) {
-                        let edit = ui.add(egui::TextEdit::singleline(name).desired_width(160.0));
-                        edit.request_focus();
-                        ui.label(format!(".{}", key.restype));
-                        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                            rename_done = Some(None);
-                        } else if edit.lost_focus() {
-                            rename_done = Some(Some((*key, name.clone())));
-                        }
-                        return;
+    // The resource being viewed takes the lower part of the tab.
+    let list_height = match doc.viewing {
+        Some(_) => (ui.available_height() * 0.45).max(120.0),
+        None => ui.available_height(),
+    };
+    let list = egui::ScrollArea::vertical().id_salt(("hak-rows", id)).max_height(list_height);
+    list.auto_shrink([false, false]).show_rows(ui, row_height, rows.len(), |ui, range| {
+        for &r in &rows[range] {
+            let item = doc.hak.items()[r].clone();
+            ui.horizontal(|ui| {
+                if let Some((key, name)) = doc.rename.as_mut().filter(|(k, _)| *k == item.key) {
+                    let edit = ui.add(egui::TextEdit::singleline(name).desired_width(160.0));
+                    edit.request_focus();
+                    ui.label(format!(".{}", key.restype));
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        rename_done = Some(None);
+                    } else if edit.lost_focus() {
+                        rename_done = Some(Some((*key, name.clone())));
                     }
-                    let selected = doc.selected.contains(&item.key);
-                    let name = egui::RichText::new(item.key.to_string()).monospace();
-                    let layout = egui::Layout::left_to_right(egui::Align::Center);
-                    let r = ui
-                        .allocate_ui_with_layout(egui::vec2(240.0, row_height), layout, |ui| {
-                            ui.set_min_width(240.0);
-                            ui.add(egui::Button::selectable(selected, name))
-                        })
-                        .inner;
-                    if r.clicked() {
-                        if ui.input(|i| i.modifiers.command) {
-                            if !doc.selected.remove(&item.key) {
-                                doc.selected.insert(item.key);
-                            }
-                        } else {
-                            doc.selected = [item.key].into();
+                    return;
+                }
+                let selected = doc.selected.contains(&item.key);
+                let name = egui::RichText::new(item.key.to_string()).monospace();
+                let layout = egui::Layout::left_to_right(egui::Align::Center);
+                let r = ui
+                    .allocate_ui_with_layout(egui::vec2(240.0, row_height), layout, |ui| {
+                        ui.set_min_width(240.0);
+                        ui.add(egui::Button::selectable(selected, name))
+                    })
+                    .inner;
+                if r.clicked() {
+                    if ui.input(|i| i.modifiers.command) {
+                        if !doc.selected.remove(&item.key) {
+                            doc.selected.insert(item.key);
                         }
+                    } else {
+                        doc.selected = [item.key].into();
                     }
-                    r.context_menu(|ui| {
-                        if ui.button("Rename…").clicked() {
-                            doc.rename = Some((item.key, item.key.resref.to_string()));
-                        }
-                        if ui.button("Extract…").clicked() {
-                            todo = Some(Do::Extract(vec![item.key]));
-                        }
-                        if ui.button("Remove").clicked() {
-                            doc.hak.remove(&[item.key]);
-                            changed = true;
-                        }
-                    });
-                    ui.add_sized([90.0, row_height], egui::Label::new(size(item.size)));
-                    match &item.source {
-                        Source::Archive => {}
-                        Source::File(p) => {
-                            ui.weak(format!("from {}", p.display()));
-                        }
+                }
+                if r.double_clicked() {
+                    todo = Some(Do::View(item.key));
+                }
+                r.context_menu(|ui| {
+                    if ui.button("View").clicked() {
+                        todo = Some(Do::View(item.key));
+                    }
+                    if ui.button("Rename…").clicked() {
+                        doc.rename = Some((item.key, item.key.resref.to_string()));
+                    }
+                    if ui.button("Extract…").clicked() {
+                        todo = Some(Do::Extract(vec![item.key]));
+                    }
+                    if ui.button("Remove").clicked() {
+                        doc.hak.remove(&[item.key]);
+                        changed = true;
                     }
                 });
-            }
-        },
-    );
+                ui.add_sized([90.0, row_height], egui::Label::new(size(item.size)));
+                match &item.source {
+                    Source::Archive => {}
+                    Source::File(p) => {
+                        ui.weak(format!("from {}", p.display()));
+                    }
+                }
+            });
+        }
+    });
+    let mut close_view = false;
+    if let Some((key, view)) = &doc.viewing {
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.strong(key.to_string());
+            close_view = ui.small_button("Close").clicked();
+        });
+        crate::browser::plain_ui(ui, *key, view);
+    }
+    if close_view {
+        doc.viewing = None;
+    }
     if let Some(done) = rename_done {
         if let Some((key, name)) = done.filter(|(k, n)| *n != k.resref.to_string()) {
             match doc.hak.rename(key, name.trim()) {
@@ -437,6 +523,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         }
         Some(Do::Save(ask)) => {
             save(app, id, ask);
+        }
+        Some(Do::View(key)) => {
+            let doc = &mut app.haks[i];
+            match doc.hak.data(key) {
+                Ok(data) => doc.viewing = Some((key, crate::browser::plain(key, &data))),
+                Err(e) => app.log.error(format!("{key}: {e}")),
+            }
+        }
+        Some(Do::UpdateFromFolder) => {
+            // What the folder has now: its files in place of the hak's.
+            let doc = &mut app.haks[i];
+            if let Some(dir) = doc.folder.clone() {
+                let all: Vec<ResKey> = doc.hak.items().iter().map(|i| i.key).collect();
+                doc.hak.remove(&all);
+                let added = doc.hak.add_folder(&dir);
+                doc.changed();
+                app.log.info(format!("Read {} again", dir.display()));
+                report(app, &added);
+            }
         }
     }
 }

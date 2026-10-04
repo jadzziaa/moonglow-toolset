@@ -101,6 +101,10 @@ pub struct DialogSearch {
     pub all_files: bool,
     /// Conversation, line, and its text.
     pub results: Vec<(ResKey, Kind, u32, String)>,
+    /// Asked for by a key: the Find What field takes the keyboard.
+    focus: bool,
+    /// Asked for by a key: find again.
+    again: bool,
 }
 
 /// What Copy and Cut put aside (shared by all conversations, like Aurora's
@@ -202,6 +206,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let pressed = |c: crate::keys::Cmd| here && ui.input(|i| keymap.pressed(i, c));
     let (key_add, key_delete) =
         (pressed(crate::keys::Cmd::AddLine), pressed(crate::keys::Cmd::DeleteLine));
+    let (key_find, key_find_next) =
+        (pressed(crate::keys::Cmd::DialogFind), pressed(crate::keys::Cmd::DialogFindNext));
     let (key_copy, key_cut, key_paste) = if here {
         ui.input(|i| {
             let event = |f: fn(&egui::Event) -> bool| i.events.iter().any(f);
@@ -389,6 +395,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui,
         |ui| {
             let words = g.root.dword("NumWords").unwrap_or(0);
+            // Find and Replace, and Find Next (Options › Keyboard): the
+            // Search pane.
+            if key_find || key_find_next {
+                view.bottom = Bottom::Search;
+                view.search.focus = key_find;
+                view.search.again = key_find_next;
+            }
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut view.bottom, Bottom::Data, "Data");
                 ui.selectable_value(&mut view.bottom, Bottom::Bookmarks, "Bookmarks");
@@ -1299,6 +1312,9 @@ fn search_pane(
         crate::widgets::field_label(ui, "Find What");
         let field = ui.text_edit_singleline(&mut s.find);
         crate::widgets::autofocus(ui, &field);
+        if std::mem::take(&mut s.focus) {
+            field.request_focus();
+        }
         ui.end_row();
         crate::widgets::field_label(ui, "Replace With");
         ui.text_edit_singleline(&mut s.replace);
@@ -1313,6 +1329,7 @@ fn search_pane(
     let mut replace_all = false;
     ui.horizontal(|ui| {
         find = ui.add_enabled(!s.find.is_empty(), egui::Button::new("Find")).clicked();
+        find |= std::mem::take(&mut s.again) && !s.find.is_empty();
         replace_all = ui
             .add_enabled(!s.find.is_empty() && !s.all_files, egui::Button::new("Replace All"))
             .clicked();

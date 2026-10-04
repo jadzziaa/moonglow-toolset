@@ -278,6 +278,13 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                             {
                                 app.actions.push(Action::StaticPlaceables(vec![k.resref]));
                             }
+                            if ui
+                                .button("Make Placeables Dynamic")
+                                .on_hover_text("Clears Static on every placeable of the area")
+                                .clicked()
+                            {
+                                app.actions.push(Action::DynamicPlaceables(vec![k.resref]));
+                            }
                             for t in [ResType::ARE, ResType::GIT] {
                                 let g = ResKey::new(k.resref, t);
                                 if ui.button(format!("Fields of {g}")).clicked() {
@@ -340,6 +347,15 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                 {
                     let areas = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
                     app.actions.push(Action::StaticPlaceables(areas));
+                }
+                if types.contains(&ResType::ARE)
+                    && ui
+                        .button("Make Placeables Dynamic in Every Area")
+                        .on_hover_text("Clears Static on every placeable of the module")
+                        .clicked()
+                {
+                    let areas = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
+                    app.actions.push(Action::DynamicPlaceables(areas));
                 }
             });
         }

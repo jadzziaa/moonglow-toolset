@@ -367,6 +367,7 @@ impl Id {
             Id::Manual => Cmd::Manual,
             Id::CommandPalette => Cmd::CommandPalette,
             Id::FullScreen => Cmd::FullScreen,
+            Id::Close => Cmd::Close,
             _ => return None,
         })
     }
@@ -435,8 +436,15 @@ impl Id {
             | Id::PreviewWindow
             | Id::FullScreen => true,
             Id::InstallPlugin => app.plugin_dir.is_some(),
-            Id::Undo => app.ws.as_ref().is_some_and(|ws| ws.can_undo().is_some()),
-            Id::Redo => app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some()),
+            // (The talk table's own, with the pointer over its editor.)
+            Id::Undo => {
+                app.ws.as_ref().is_some_and(|ws| ws.can_undo().is_some())
+                    || (app.talk_view.hovered && app.talk.as_ref().is_some_and(|t| t.can_undo()))
+            }
+            Id::Redo => {
+                app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())
+                    || (app.talk_view.hovered && app.talk.as_ref().is_some_and(|t| t.can_redo()))
+            }
             Id::ResizeArea | Id::RotateArea | Id::AreaStatistics => shown_area(app).is_some(),
             Id::PackTarget => self.shown(app),
             Id::Save

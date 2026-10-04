@@ -200,8 +200,16 @@ module's talk table:
   in a 2DA or a script.
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
-- **Undo** and **Redo** in its toolbar undo the table's changes. The
-  table is a file of its own, so Ctrl+Z still undoes the module's.
+- **Undo** and **Redo** in its toolbar undo the table's changes, as do
+  Ctrl+Z and Ctrl+Y with the pointer over the editor. (The table is a
+  file of its own: elsewhere, and in the main toolbar, Undo is the
+  module's.)
+- **Export CSV…** writes the lines to a file for a spreadsheet or a
+  translator: each line's StrRef, text (and feminine text), sound and
+  sound length. **Import CSV…** reads such a file back: each row sets
+  the line of its StrRef, which keeps what the file has no column for;
+  rows past the table's end add lines. Nothing changes unless every row
+  can be read, and one Undo takes the import back.
 - **Saving**: **Save** saves the table, as does saving the module.
 
 With no talk table, the editor makes one in the user folder's `tlk` (with
@@ -227,8 +235,15 @@ first few and how many more.
 folder's files, subfolders included, to look over and save.
 - **The list:** every resource with its size, and for files just added,
   where they come from. **Find** narrows it by name or type. Click to
-  select, Ctrl+click to add to the selection; right-click for **Rename…**,
-  **Extract…** and **Remove**.
+  select, Ctrl+click to add to the selection; right-click for **View**,
+  **Rename…**, **Extract…** and **Remove**. The list is by name, by type
+  or by size (the largest first).
+- **Viewing:** **View**, or a double click, shows a resource under the
+  list: a GFF's fields, a text file's text, else its first bytes.
+- **Update from Folder:** a hak built with Build Hak from Folder
+  remembers the folder (from one session to the next, once saved):
+  **Update from Folder** takes the folder's files again in place of the
+  hak's, as they are now.
 - **Adding:** **Add Files…** and **Add Folder…** add files, replacing
   resources of the same name. A file the game couldn't read by its name
   is left out, and the log says why: a name over 16 characters (other hak
@@ -270,9 +285,10 @@ Closing a hak with unsaved changes asks first.
   resources: compile a script, send it to scratch, and a running server
   or game has the fix. (Aurora users pick such files out of its `temp0`
   folder; Moonglow keeps a module in memory, so it hands them over
-  instead.) From the tree, a script that hasn't been compiled goes without
-  an `.ncs`, and the log says so; the script editor's To Scratch compiles
-  first.
+  instead.) A script changed since it was compiled is compiled
+  first, wherever it is sent from, and the log names it; one that no
+  longer compiles goes with the compiled script it has, and the log says
+  that too.
 - A module opened as a folder (**File › Open Folder…**) or kept as a
   nasher project has its resources as files already.
 - **File › Import…** adds an `.erf`'s resources to the module; for those

@@ -104,6 +104,30 @@ pub struct GpuModel {
     pub rest: Vec<Mat4>,
 }
 
+/// A skin's inverse bind pose for each of its bones, in the space of the
+/// skin's node `skin_node`: as the model stores it (binary models), else
+/// from the rest pose.
+///
+/// A bone that is no node of the model (custom content whose bone map was
+/// left from another model names nodes past the model's last) holds the
+/// mesh where it is: the renderer poses such a bone as unmoved.
+fn inverse_binds(skin: &mg_mdl::Skin, rest: &[Mat4], skin_node: usize) -> Vec<Mat4> {
+    let stored = skin.inverse_bind.len() == rest.len();
+    let here = rest.get(skin_node).copied().unwrap_or(Mat4::IDENTITY);
+    skin.bones
+        .iter()
+        .map(|&b| match (rest.get(b), skin.inverse_bind.get(b)) {
+            (Some(_), Some(&(q, t))) if stored => {
+                let q = Quat::from_array(q);
+                let q = if q.length_squared() > 1e-12 { q.normalize() } else { Quat::IDENTITY };
+                Mat4::from_rotation_translation(q, Vec3::from(t))
+            }
+            (Some(bone), _) => bone.inverse() * here,
+            (None, _) => here,
+        })
+        .collect()
+}
+
 impl GpuModel {
     /// Uploads the meshes that render (walkmeshes and `render 0` shadow
     /// meshes are skipped).
@@ -153,25 +177,7 @@ impl GpuModel {
                             weights: w.map(|(_, x)| x),
                         })
                         .collect();
-                    let stored = s.inverse_bind.len() == model.nodes.len();
-                    let inverse_bind = s
-                        .bones
-                        .iter()
-                        .map(|&b| {
-                            if stored {
-                                let (q, t) = s.inverse_bind[b];
-                                let q = Quat::from_array(q);
-                                let q = if q.length_squared() > 1e-12 {
-                                    q.normalize()
-                                } else {
-                                    Quat::IDENTITY
-                                };
-                                Mat4::from_rotation_translation(q, Vec3::from(t))
-                            } else {
-                                rest[b].inverse() * rest[i]
-                            }
-                        })
-                        .collect();
+                    let inverse_bind = inverse_binds(s, &rest, i);
                     Some(GpuSkin {
                         bones: s.bones.clone(),
                         inverse_bind,
@@ -252,4 +258,37 @@ pub fn rest_pose(model: &Model) -> Vec<Mat4> {
         out.push(world);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A skin whose bone map names a node the model doesn't have (custom
+    /// content with a bone map left from another model: bone 36 of a model
+    /// of 3 nodes crashed Moonglow 1.4.0 on loading the module) is given a
+    /// bind pose that holds the mesh where it is.
+    #[test]
+    fn a_skin_s_bone_that_is_no_node_holds_the_mesh_still() {
+        let rest = [
+            Mat4::IDENTITY,
+            Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+            Mat4::from_translation(Vec3::new(2.0, 0.0, 1.0)),
+        ];
+        let skin = mg_mdl::Skin { bones: vec![1, 36], ..Default::default() };
+        let binds = inverse_binds(&skin, &rest, 2);
+        assert_eq!(binds.len(), 2);
+        // A bone the model has: its rest pose undone, in the skin's space.
+        assert_eq!(binds[0], rest[1].inverse() * rest[2]);
+        // One it doesn't: posed as unmoved, the mesh stays at its rest.
+        assert_eq!(rest[2].inverse() * Mat4::IDENTITY * binds[1], Mat4::IDENTITY);
+
+        // The same with the bind poses the model stores (binary models).
+        let stored = vec![([0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0]); 3];
+        let skin = mg_mdl::Skin { bones: vec![1, 36], inverse_bind: stored, ..Default::default() };
+        let binds = inverse_binds(&skin, &rest, 2);
+        assert_eq!((binds[0], binds[1]), (Mat4::IDENTITY, rest[2]));
+        // And a skin node that is itself out of range doesn't panic either.
+        assert_eq!(inverse_binds(&skin, &rest, 9).len(), 2);
+    }
 }

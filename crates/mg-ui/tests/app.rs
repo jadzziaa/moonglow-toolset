@@ -545,6 +545,69 @@ fn options_choose_the_game_folder() {
     );
 }
 
+/// Options › OK leaves the module open, its unsaved work with it, and asks
+/// nothing: only another game or user folder has it read again, and then
+/// it is opened again.
+#[test]
+fn options_leave_the_module_open() {
+    let dir = mg_testkit::scratch_dir("ui-options-open");
+    let path = sample_module(&dir);
+    let other = dir.join("elsewhere");
+    std::fs::create_dir_all(&other).unwrap();
+    let dialogs = NoDialogs { folders: vec![other.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Unsaved work: the module's tag changed.
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let edit = mg_edit::Edit::SetField {
+        key: ifo,
+        path: mg_edit::GffPath::root(),
+        label: "Mod_Tag".into(),
+        value: Some(mg_gff::Value::String(b"CHANGED".to_vec())),
+    };
+    let command = mg_edit::Command::new("Tag", vec![edit]);
+    h.state_mut().actions.push(mg_ui::Action::Apply(command));
+    h.run();
+    assert!(h.state().has_unsaved_work());
+
+    // A switch changed, OK: applied, the module and its change still there.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_by_label("General").click();
+    h.run();
+    h.get_by_label("Light theme").click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(h.state().settings.light_theme);
+    assert!(h.state().confirm_discard.is_none(), "nothing to ask");
+    assert!(h.state().has_unsaved_work(), "the change is kept");
+    assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tag"));
+
+    // Another game folder: unsaved work is asked about first.
+    h.state_mut().actions.push(mg_ui::Action::OptionsDialog);
+    h.run();
+    h.get_all_by_label("Browse…").next().unwrap().click();
+    h.run();
+    h.get_by_label("OK").click();
+    h.run();
+    assert!(h.state().confirm_discard.is_some(), "asked before the module is read again");
+    assert_eq!(h.state().settings.game_root, None, "not applied until answered");
+    // Saved, the same options reopen the module where it was.
+    let ask = h.state_mut().confirm_discard.take().unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    h.state_mut().actions.push(ask);
+    h.run();
+    assert_eq!(h.state().settings.game_root.as_deref(), Some(other.as_path()));
+    assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()), "opened again");
+    assert!(!h.state().has_unsaved_work());
+}
+
 #[test]
 fn export_then_import_into_another_module() {
     let dir = mg_testkit::scratch_dir("ui-transfer");
@@ -704,7 +767,11 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     std::fs::create_dir_all(&user).unwrap();
     let path = sample_module(&dir);
     let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (Export CSV and Import CSV are answered with the same file.)
+    let csv = dir.join("lines.csv");
+    let dialogs =
+        NoDialogs { open: vec![csv.clone()], save: vec![csv.clone()], ..Default::default() };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
     app.open_module(&path);
@@ -745,6 +812,29 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.get_by_label("Redo").click();
     h.run();
     assert!(h.state().has_unsaved_work());
+    // Ctrl+Z, with the pointer over the editor, is the table's too.
+    let over = h.get_by_label("Add Line").rect().center();
+    h.hover_at(over);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(line(&h).feminine.as_deref(), Some(""), "the table's undo");
+    h.get_by_label("Redo").click();
+    h.run();
+    assert_eq!(line(&h).feminine.as_deref(), Some("Greetings, lady"));
+
+    // The lines go out as CSV; changed in a spreadsheet, they come back.
+    h.get_by_label("Export CSV…").click();
+    h.run();
+    let sheet = std::fs::read_to_string(&csv).unwrap();
+    assert!(sheet.contains("16777216,Greetings,\"Greetings, lady\""), "{sheet}");
+    std::fs::write(&csv, sheet.replace("16777216,Greetings,", "16777216,Well met,")).unwrap();
+    h.get_by_label("Import CSV…").click();
+    h.run();
+    assert_eq!(line(&h).text, "Well met");
+    h.get_by_label("Undo").click();
+    h.run();
+    assert_eq!(line(&h).text, "Greetings", "the import is one undo");
 
     // Saving the module saves the table, and the game data reads it.
     h.state_mut().actions.push(mg_ui::Action::Save);
@@ -925,6 +1015,41 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     assert!(!has(&h), "{:?}", log(&h));
     let other = ResKey::parse("mg_ui_other", ResType::TWODA).unwrap();
     assert!(h.state().game.as_deref().unwrap().resman.contains(&other));
+
+    // Opened again, the hak knows the folder it was built from: Update
+    // from Folder has what the folder has now (the removed table back, a
+    // new file with it).
+    assert_eq!(h.state().haks[0].folder.as_deref(), Some(content.as_path()));
+    std::fs::write(content.join("mg_ui_new.2da"), "2DA V2.0\n\n   Label\n0  a longer one\n")
+        .unwrap();
+    h.get_by_label("Update from Folder").click();
+    h.run();
+    let names = |h: &Harness<'_, Moonglow>| -> Vec<String> {
+        h.state().haks[0].hak.items().iter().map(|i| i.key.to_string()).collect()
+    };
+    let mut have = names(&h);
+    have.sort();
+    assert_eq!(have, ["mg_ui_new.2da", "mg_ui_other.2da", "mg_ui_test.2da"]);
+    // By size, the largest is listed first.
+    h.state_mut().haks[0].sort = mg_ui::hak_view::Sort::Size;
+    h.run();
+    let first = |h: &Harness<'_, Moonglow>| {
+        let rows: Vec<_> = h.query_all_by_label_contains(".2da").collect();
+        rows.iter()
+            .map(|n| (n.rect().top(), n.accesskit_node().label()))
+            .fold((f32::MAX, None), |best, row| if row.0 < best.0 { row } else { best })
+    };
+    assert_eq!(first(&h).1.as_deref(), Some("mg_ui_new.2da"));
+    // View (or a double click) shows a resource under the list.
+    assert!(h.query_by_label_contains("a longer one").is_none());
+    h.get_by_label("mg_ui_new.2da").click_secondary();
+    h.run();
+    h.get_by_label("View").click();
+    h.run();
+    assert!(h.query_by_label_contains("a longer one").is_some(), "its text is shown");
+    h.get_by_label("Close").click();
+    h.run();
+    assert!(h.query_by_label_contains("a longer one").is_none());
 }
 
 #[test]
@@ -1588,10 +1713,25 @@ fn conversation_search_bookmarks_and_test() {
         h.run();
     };
 
-    // Search finds the line and selects it in the tree.
-    click(&mut h, "Search");
+    // Search finds the line and selects it in the tree. Ctrl+F, with the
+    // pointer over the editor, opens the Search pane; F3 finds.
+    assert!(h.query_by_label("Find What").is_none());
+    let over = h.get_by_label("Test").rect().center();
+    h.hover_at(over);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run();
+    h.get_by_label("Find What");
     h.state_mut().dialog_views.get_mut(&key).unwrap().search.find = "traveller".into();
     h.run();
+    // (The Find What field has the keyboard: let it go, for F3.)
+    h.key_press(egui::Key::Escape);
+    h.run();
+    h.hover_at(over);
+    h.key_press(egui::Key::F3);
+    h.run();
+    let results = h.state().dialog_views[&key].search.results.clone();
+    assert_eq!(results.len(), 1, "F3 finds");
     click(&mut h, "Find");
     let results = h.state().dialog_views[&key].search.results.clone();
     assert_eq!(results.len(), 1);
@@ -2077,6 +2217,41 @@ fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
     h.run();
     h.get(egui_kittest::kittest::by().predicate(by_hint)).type_text(text);
     h.run();
+}
+
+/// A dropdown with a Filter field stays open while the field is clicked
+/// and typed in, and closes when a choice is made.
+#[test]
+fn a_dropdown_s_filter_field_can_be_typed_in() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_filter", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let before = field(&mut h, &key).integer("Appearance").unwrap();
+    // The Appearance Type dropdown: it shows "Chest".
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let appearance = |h: &Harness<'_, Moonglow>| {
+        h.query_all(combo.clone())
+            .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("Chest")))
+            .map(|n| n.rect().center())
+            .expect("the Appearance Type dropdown")
+    };
+    let at = appearance(&h);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run();
+    // Its Filter field, clicked and typed in: the list narrows, still open.
+    type_into_hint(&mut h, "Filter", "Armoire");
+    let found = h.query_all_by_label_contains("Armoire").count();
+    assert!(found > 0, "the dropdown is still open, and filtered");
+    assert!(h.query_by_label("Altar").is_none(), "what doesn't match is left out");
+    // A choice closes it and sets the appearance.
+    h.get_all_by_label_contains("Armoire").next().unwrap().click();
+    h.run();
+    assert_ne!(field(&mut h, &key).integer("Appearance"), Some(before));
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_none(), "closed");
 }
 
 #[test]
@@ -2571,6 +2746,15 @@ fn creature_editor_lists() {
     h.get_all_by_label("Fireball").next().unwrap().click();
     h.run();
     assert_eq!(count(&mut h, "SpecAbilityList"), specials + 1);
+    // Its flags: Ready as added; Unlimited is set on its every use.
+    let flags = |h: &mut Harness<'_, Moonglow>| {
+        let list = field(h, &key).list("SpecAbilityList").unwrap().to_vec();
+        list.last().unwrap().integer("SpellFlags")
+    };
+    assert_eq!(flags(&mut h), Some(1));
+    h.get_all_by_label("Unlimited").last().unwrap().click();
+    h.run();
+    assert_eq!(flags(&mut h), Some(5));
     // Armor, chosen in the palette, equipped in the armor slot (the second).
     h.get_by_label("Inventory").click();
     h.run();
@@ -7168,6 +7352,224 @@ fn an_area_s_placeables_are_made_static_together() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
     assert_eq!(fixed(&mut h), [0, 0, 0], "one undo");
+
+    // And back, every one at once.
+    h.state_mut().actions.push(mg_ui::Action::StaticPlaceables(vec![area]));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::DynamicPlaceables(vec![area]));
+    h.run_steps(3);
+    assert_eq!(fixed(&mut h), [0, 0, 0]);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Make Placeables Dynamic"));
+    assert_eq!(h.state().log.entries.last().unwrap().1, "Made 1 placeable dynamic in 1 area");
+}
+
+/// From straight above, where a tilt ring is seen edge-on and the up arrow
+/// end on, both are still led, by the pointer's travel on screen. Adjust
+/// Location offers a static placeable no visual transform. The Lighting
+/// switch is kept in the settings.
+#[test]
+fn rings_and_arrows_are_led_from_straight_above() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("from-above") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let mut edits = Vec::new();
+        for (x, y, fixed) in [(28.0, 30.0, 1), (12.0, 30.0, 0)] {
+            let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+            let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+            item.set("Static", mg_gff::Value::Byte(fixed));
+            edits.push(mg_edit::Edit::InsertItem {
+                key: git_key,
+                path: mg_edit::GffPath::root(),
+                list: "Placeable List".into(),
+                index: 0,
+                item,
+            });
+        }
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let chest = |h: &mut Harness<'_, Moonglow>, index: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[index].clone()
+    };
+    let adjust = |h: &mut Harness<'_, Moonglow>, at: Vec3| -> bool {
+        let at = screen(h, area, at + Vec3::Z * 0.3);
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+        h.get_by_label("Adjust Location…").click();
+        h.run_steps(3);
+        let offered = h.query_by_label("Visual Transforms").is_some();
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        offered
+    };
+    assert!(!adjust(&mut h, Vec3::new(28.0, 30.0, 0.0)), "a static placeable has none");
+    let pivot = Vec3::new(12.0, 30.0, 0.0);
+    assert!(adjust(&mut h, pivot), "a dynamic one has");
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Placeable, 0)]);
+
+    // Shift + the arrow or ring at `from`, led to `to`.
+    let lead = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2| {
+        let shift = egui::Modifiers::SHIFT;
+        let left = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: shift,
+        };
+        h.event(egui::Event::ModifiersChanged(shift));
+        h.hover_at(from);
+        h.run_steps(1);
+        h.event(left(from, true));
+        for k in 1..=5 {
+            h.hover_at(from + (to - from) * (k as f32 / 5.0));
+        }
+        h.run_steps(1);
+        h.event(left(to, false));
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(3);
+    };
+    // The camera looks straight down, as the view opens.
+    let eye = h.state().area_views[&area].orbit.unwrap().camera().eye;
+    let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+
+    // The up arrow, end on: up the screen raises the chest.
+    let head = screen(&h, area, pivot + Vec3::Z * radius * 1.45);
+    lead(&mut h, head, head + egui::vec2(0.0, -40.0));
+    let z = chest(&mut h, 0).float("Z").unwrap();
+    assert!(z > 0.05, "raised to {z}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Raise"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+
+    // The ring about X, edge-on (a line north and south over the chest):
+    // led along that line, it tilts the model.
+    let ring = |a: f32| pivot + Vec3::new(0.0, a.cos(), a.sin()) * radius;
+    let (from, to) = (screen(&h, area, ring(1.05)), screen(&h, area, ring(0.52)));
+    lead(&mut h, from, to);
+    let tilted = mg_area::VisualTransform::read(&chest(&mut h, 0)).expect("a visual transform");
+    assert!((-40.0..-10.0).contains(&tilted.rotate.x), "tilted {:?}", tilted.rotate);
+    assert_eq!((tilted.rotate.y, tilted.rotate.z), (0.0, 0.0));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tilt"));
+
+    // Lighting, switched off, stays off for views opened later.
+    assert!(!h.state().settings.unlit_areas);
+    h.get_by_label("💡 Lighting").click();
+    h.run_steps(2);
+    assert!(h.state().settings.unlit_areas);
+}
+
+/// A selected encounter's spawn points: the tip of a point's arrow, led
+/// round, turns the way what spawns there faces.
+#[test]
+fn a_spawn_point_s_arrow_turns_its_facing() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("spawn-facing") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("nw_giantevil", ResType::UTE).unwrap();
+        let blueprint = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let outline = [[-3.0, -3.0, 0.0], [3.0, -3.0, 0.0], [3.0, 3.0, 0.0], [-3.0, 3.0, 0.0]];
+        let at = Placement { position: [12.0, 30.0, 0.0], rotation: 0.0 };
+        let mut enc = instance(&placing, ResType::UTE, &blueprint, at, &outline).unwrap();
+        let mut point = mg_gff::Struct::new(2);
+        for (label, v) in [("X", 12.0), ("Y", 30.0), ("Z", 0.0), ("Orientation", 0.0)] {
+            point.set(label, mg_gff::Value::Float(v));
+        }
+        enc.set("SpawnPointList", mg_gff::Value::List(vec![point]));
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Encounter List".into(),
+            index: 0,
+            item: enc,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Encounter, 0)];
+    h.run_steps(2);
+    let facing = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let enc = &git.root.list("Encounter List").unwrap()[0];
+        enc.list("SpawnPointList").unwrap()[0].float("Orientation").unwrap()
+    };
+    let at = Vec3::new(12.0, 30.0, 0.1);
+    let tip = |a: f32| at + Vec3::new(a.cos(), a.sin(), 0.0);
+    let none = egui::Modifiers::NONE;
+    let from = screen(&h, area, tip(0.0));
+    h.hover_at(from);
+    h.run_steps(1);
+    press(&h, from, true, none);
+    let mut to = from;
+    for k in 1..=6 {
+        to = screen(&h, area, tip(std::f32::consts::FRAC_PI_2 * k as f32 / 6.0));
+        h.hover_at(to);
+    }
+    h.run_steps(1);
+    press(&h, to, false, none);
+    h.run_steps(3);
+    let turned = facing(&mut h);
+    assert!((turned - std::f32::consts::FRAC_PI_2).abs() < 0.03, "faces {turned}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Turn Spawn Point"));
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Encounter, 0)]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(facing(&mut h), 0.0, "one undo");
+}
+
+/// The palette's hover says something of a blueprint that has no model to
+/// show: an encounter's creatures, here.
+#[test]
+fn the_palette_s_hover_tells_of_blueprints_without_a_model() {
+    let Some(mut h) = game_harness("palette-about") else { return };
+    {
+        let app = h.state_mut();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        app.palette.kind = mg_module::palette::BlueprintKind::Encounter;
+        app.palette.tiles = false;
+        app.palette.custom = false;
+        app.palette.filter = "nw_verminbeet".into();
+    }
+    h.run();
+    // The one blueprint found: the row under the search's.
+    let rows: Vec<_> = h.query_all_by_role(egui::accesskit::Role::Button).collect();
+    let row = rows
+        .iter()
+        .filter(|n| n.accesskit_node().label().is_some_and(|l| l.contains("Beetle")))
+        .map(|n| n.rect().center())
+        .next_back()
+        .expect("the encounter's row");
+    assert!(h.query_by_label_contains("Spawns ").is_none());
+    h.hover_at(row);
+    // (A tooltip waits a moment.)
+    h.run_steps(60);
+    assert!(h.query_by_label_contains("Spawns ").is_some(), "its creatures are named");
+    assert!(h.query_by_label_contains(" creatures; ").is_some());
 }
 
 #[test]
@@ -8780,6 +9182,51 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     h.run_steps(3);
     assert!(h.state().script_tools.messages.last().is_some_and(|m| m.error));
     assert!(!scratch.join("hello.nss").exists());
+}
+
+/// A script changed since it was compiled goes out, from the module tree,
+/// with what it compiles to now, not with the older compiled script.
+#[test]
+fn a_stale_compiled_script_is_compiled_before_it_goes_out() {
+    let Some((mut h, _)) = area_harness("stale-ncs") else { return };
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let ncs = ResKey::parse("hello", ResType::NCS).unwrap();
+    let scratch = mg_testkit::scratch_dir("ui-stale-ncs").join("scratch");
+    h.state_mut().settings.scratch_dir = Some(scratch.clone());
+    let set = |h: &mut Harness<'_, Moonglow>, k: ResKey, data: &[u8]| {
+        let edit = mg_edit::Edit::SetResource { key: k, data: Some(data.to_vec()) };
+        let command = mg_edit::Command::new("Setup", vec![edit]);
+        h.state_mut().actions.push(mg_ui::Action::Apply(command));
+        h.run_steps(2);
+    };
+    // The script, and a compiled script that isn't its own.
+    set(&mut h, key, b"void main() { SpeakString(\"new\"); }\n");
+    set(&mut h, ncs, b"NCS V1.0 old");
+    let out = |h: &mut Harness<'_, Moonglow>| {
+        let export =
+            mg_ui::Action::ExportFiles { keys: vec![key], dependencies: false, scratch: true };
+        h.state_mut().actions.push(export);
+        h.run_steps(3);
+        std::fs::read(scratch.join("hello.ncs")).unwrap()
+    };
+    let written = out(&mut h);
+    assert_ne!(written, b"NCS V1.0 old", "compiled first");
+    assert!(written.starts_with(b"NCS V1.0"));
+    let said = |h: &Harness<'_, Moonglow>, text: &str| {
+        h.state().log.entries.iter().any(|e| e.1.contains(text))
+    };
+    assert!(said(&h, "Compiled first (changed since last compiled): hello"));
+    let module = h.state().ws.as_ref().unwrap().module.get(&ncs).map(<[u8]>::to_vec);
+    assert_eq!(module, Some(written.clone()), "and kept in the module");
+    // Again: it is current, and nothing is compiled.
+    let entries = h.state().log.entries.len();
+    assert_eq!(out(&mut h), written);
+    let later = &h.state().log.entries[entries..];
+    assert!(!later.iter().any(|e| e.1.contains("Compiled first")), "{later:?}");
+    // One that no longer compiles goes out with what it has, and is named.
+    set(&mut h, key, b"void main() { x = 1; }\n");
+    assert_eq!(out(&mut h), written);
+    assert!(said(&h, "No longer compiles (the .ncs written is older than the script): hello"));
 }
 
 /// The area view's To Scratch: the area as it is now (its .are, .git and

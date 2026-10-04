@@ -41,9 +41,18 @@ pub struct Settings {
     /// The area opened last in each module (its path and the area's
     /// ResRef), most recent first: opened again with the module.
     pub last_areas: Vec<(PathBuf, String)>,
+    /// The area view's Lighting switch is off (an even working light), in
+    /// views opened from now on.
+    pub unlit_areas: bool,
+    /// The area view's Sound Ranges switch is on, in views opened from
+    /// now on.
+    pub sound_ranges: bool,
     /// The area view's Animations switch is off: creatures and other
     /// placed objects hold still.
     pub still_objects: bool,
+    /// The folder each hak was built from (the hak's path, the folder's),
+    /// most recent first: Update from Folder reads it again.
+    pub hak_folders: Vec<(PathBuf, PathBuf)>,
     /// Options > General: Open a module on the area opened last is off.
     pub no_last_area: bool,
     /// The plugins enabled, by id (one installed is off until it is here).
@@ -206,6 +215,18 @@ impl Settings {
         self.last_areas.retain(|(m, _)| m != module);
         self.last_areas.insert(0, (module.to_path_buf(), area.to_owned()));
         self.last_areas.truncate(LAST_AREAS_MAX);
+    }
+
+    /// Notes `folder` as what the hak at `hak` was built from.
+    pub fn remember_hak_folder(&mut self, hak: &Path, folder: &Path) {
+        self.hak_folders.retain(|(h, _)| h != hak);
+        self.hak_folders.insert(0, (hak.to_path_buf(), folder.to_path_buf()));
+        self.hak_folders.truncate(LAST_AREAS_MAX);
+    }
+
+    /// The folder the hak at `hak` was built from.
+    pub fn hak_folder(&self, hak: &Path) -> Option<&Path> {
+        self.hak_folders.iter().find(|(h, _)| h == hak).map(|(_, f)| f.as_path())
     }
 
     /// The area opened last in the module at `module`.

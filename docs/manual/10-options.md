@@ -8,7 +8,10 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
 
 # Options
 
-**Tools › Options…** has Aurora's pages. **OK** applies the changes.
+**Tools › Options…** has Aurora's pages. **OK** applies the changes; the
+module stays open. Only another game or user folder (the Folders page)
+has the game's data read again: unsaved work is asked about first, and
+the module is opened again from its file.
 
 ## Folders
 
@@ -51,7 +54,8 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
   [Modules](03-modules.md)).
 - **List areas and blueprints by name** in the module tree, rather than
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
-  tree and the palettes).
+  tree and the palettes). Areas are by name in Find Instance and the
+  area transition's destinations too.
 - **Show challenge ratings in the creature palette**: on by default.
 - **Reload haks, override and development when they change**: on by
   default. Moonglow checks every few seconds and rereads what changed

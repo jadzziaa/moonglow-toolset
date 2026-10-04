@@ -39,6 +39,10 @@ pub struct PaletteView {
     pub selected: Option<ResKey>,
     /// The hovered blueprint's thumbnail, once rendered.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
+    /// What there is to say of the hovered blueprint, where it has no
+    /// model to show (a sound, a trigger, an encounter, a store, a
+    /// waypoint).
+    about: Option<(ResKey, Vec<String>)>,
     /// The last search's finds: (palette, search, revision), blueprints,
     /// and how found.
     #[allow(clippy::type_complexity)]
@@ -84,6 +88,7 @@ impl Default for PaletteView {
             custom_cache: HashMap::new(),
             selected: None,
             thumb: None,
+            about: None,
             found: None,
             tags: HashMap::new(),
             chosen: Vec::new(),
@@ -353,6 +358,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .filter_map(|f| ResRef::from_str(f.strip_prefix(&format!("{ext}:"))?).ok())
             .collect(),
         thumb: view.thumb,
+        about: view.about.as_ref().map(|(k, lines)| (*k, lines.as_slice())),
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
         picks: Vec::new(),
         hovered: None,
@@ -384,6 +390,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     {
         let id = crate::model_view::thumbnail(app, key);
         app.palette.thumb = Some((key, id));
+        ui.ctx().request_repaint();
+    }
+    if let Some(key) = hovered
+        && app.palette.about.as_ref().is_none_or(|(k, _)| *k != key)
+    {
+        let lines = about(app, key);
+        app.palette.about = Some((key, lines));
         ui.ctx().request_repaint();
     }
 
@@ -524,6 +537,8 @@ struct Tree<'a> {
     favorites: std::collections::HashSet<ResRef>,
     /// The thumbnail ready for the blueprint hovered last frame.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
+    /// And what there is to say of it.
+    about: Option<(ResKey, &'a [String])>,
     sel: Selection,
     picks: Vec<Pick>,
     /// The blueprint hovered now.
@@ -641,6 +656,7 @@ impl Tree<'_> {
             self.hovered = Some(key);
         }
         let thumb = self.thumb.filter(|(k, _)| *k == key).and_then(|(_, t)| t);
+        let about = self.about.filter(|(k, _)| *k == key).map_or(&[][..], |(_, lines)| lines);
         let tags = self.tags;
         let r = r.on_hover_ui(|ui| {
             ui.strong(&name);
@@ -651,6 +667,9 @@ impl Tree<'_> {
             if let Some(id) = thumb {
                 let size = crate::model_view::THUMBNAIL as f32;
                 ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
+            }
+            for line in about {
+                ui.label(line);
             }
         });
         if r.clicked() {
@@ -759,6 +778,83 @@ impl Tree<'_> {
                 }
             });
     }
+}
+
+/// What a palette's hover says of a blueprint that has no model to show:
+/// a sound's sounds, a trigger's kind, an encounter's creatures, a store's
+/// prices, a waypoint's map note. Nothing for the kinds that have a
+/// picture.
+fn about(app: &Moonglow, key: ResKey) -> Vec<String> {
+    use mg_core::ResType as T;
+    if !matches!(key.restype, T::UTS | T::UTT | T::UTE | T::UTM | T::UTW) {
+        return Vec::new();
+    }
+    let Some(gff) = crate::area_tools::blueprint(app, key) else { return Vec::new() };
+    let s = &gff.root;
+    let int = |label: &str| s.integer(label).unwrap_or(0);
+    let on = |label: &str| int(label) != 0;
+    // Up to four names, and how many more.
+    let listed = |names: Vec<String>| {
+        let more = names.len().saturating_sub(4);
+        let mut text = names.into_iter().take(4).collect::<Vec<_>>().join(", ");
+        if more > 0 {
+            text.push_str(&format!(" and {more} more"));
+        }
+        text
+    };
+    let resrefs = |list: &str, label: &str| -> Vec<String> {
+        let items = s.list(list).unwrap_or(&[]);
+        items.iter().filter_map(|i| i.resref(label)).map(|r| r.to_string()).collect()
+    };
+    let mut out = Vec::new();
+    match key.restype {
+        T::UTS => {
+            let sounds = resrefs("Sounds", "Sound");
+            if !sounds.is_empty() {
+                out.push(format!("Plays {}", listed(sounds)));
+            }
+            let place =
+                if on("Positional") { "from where it stands" } else { "everywhere in the area" };
+            let how = if on("Continuous") { "without a pause" } else { "at intervals" };
+            out.push(format!("Heard {place}, {how}; volume {}", int("Volume")));
+        }
+        T::UTT => out.push(match int("Type") {
+            1 => "An area transition".into(),
+            2 => format!("A trap (type {})", int("TrapType")),
+            _ => "A generic trigger".into(),
+        }),
+        T::UTE => {
+            let creatures = resrefs("CreatureList", "ResRef");
+            if !creatures.is_empty() {
+                out.push(format!("Spawns {}", listed(creatures)));
+            }
+            out.push(format!(
+                "{} to {} creatures; {}",
+                int("RecCreatures"),
+                int("MaxCreatures"),
+                if on("SpawnOption") { "spawns once" } else { "spawns again" }
+            ));
+        }
+        T::UTM => {
+            out.push(format!("Sells at {}%, buys at {}%", int("MarkUp"), int("MarkDown")));
+            let items: usize = s
+                .list("StoreList")
+                .unwrap_or(&[])
+                .iter()
+                .map(|page| page.list("ItemList").map_or(0, <[_]>::len))
+                .sum();
+            out.push(format!("{items} items for sale"));
+        }
+        T::UTW => {
+            let note = s.locstring("MapNote").and_then(|l| app.game.as_deref()?.locstring(l));
+            match note.filter(|n| on("HasMapNote") && !n.is_empty()) {
+                Some(n) => out.push(format!("Map note: {n}")),
+                None => out.push("No map note".into()),
+            }
+        }
+        _ => {}
+    }
+    out
 }
 
 #[cfg(test)]

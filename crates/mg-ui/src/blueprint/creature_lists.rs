@@ -510,6 +510,10 @@ fn set_uses(
     }
 }
 
+/// A special ability's `SpellFlags`: (bit, name), as BioWare's creature
+/// format documents them.
+const ABILITY_FLAGS: [(i64, &str); 3] = [(0x1, "Ready"), (0x2, "Spontaneous"), (0x4, "Unlimited")];
+
 pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
@@ -580,10 +584,14 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             // As the game has them: so many uses of a spell at a caster
             // level (the file keeps an entry for each use).
             ui.strong("Special Abilities");
-            egui::Grid::new(("utc-special", key)).num_columns(4).striped(true).show(ui, |ui| {
+            egui::Grid::new(("utc-special", key)).num_columns(5).striped(true).show(ui, |ui| {
                 ui.strong("Ability");
                 ui.strong("Uses");
                 ui.strong("Caster Level");
+                ui.strong("Flags").on_hover_text(
+                    "As BioWare's creature format has them: Ready (it can be used), \
+                     Spontaneous (cast without preparing), Unlimited (using it doesn't use it up)",
+                );
                 ui.label("");
                 ui.end_row();
                 for g in &groups {
@@ -602,6 +610,21 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                         };
                         edits.push(("Caster level", g.entries.iter().map(set).collect()));
                     }
+                    ui.horizontal(|ui| {
+                        for (bit, name) in ABILITY_FLAGS {
+                            let mut on = g.flags & bit != 0;
+                            if ui.checkbox(&mut on, name).changed() {
+                                let flags = if on { g.flags | bit } else { g.flags & !bit };
+                                let set = |&i: &usize| Edit::SetField {
+                                    key,
+                                    path: base.clone().item("SpecAbilityList", i),
+                                    label: "SpellFlags".into(),
+                                    value: Some(Value::Byte(flags as u8)),
+                                };
+                                edits.push((name, g.entries.iter().map(set).collect()));
+                            }
+                        }
+                    });
                     if ui.small_button("Remove").clicked() {
                         edits.push((
                             "Remove special ability",
