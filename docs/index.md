@@ -21,6 +21,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 # Proposal
 
 * [Plugins: a proposal](plugin-proposal.md) - The proposal for Moonglow's plugins, accepted 2026-10-03 - what plugins are for and can add, how one runs (sandboxed Luau), the API, safety, runtimes compared, the groundwork, documentation and testing, and where the work stands.
+* [Proposed corrections to nwn.wiki](wiki-proposal.md) - Proposed corrections to fifteen nwn.wiki pages that say something the game or Aurora does differently - for each, what the page says, what it should say and how that was checked - in order of how much trouble the current text causes.
 
 # Subdirectories
 

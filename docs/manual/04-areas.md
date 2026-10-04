@@ -121,7 +121,8 @@ places and turns around it.
   kind selected, one window edits them together: a field changed there
   changes in all of them.
 - **Adjust Location…**: an exact position and bearing, and the visual
-  transform (scale and offset) that EE added.
+  transform that EE added (scale, rotation about each axis and offset)
+  for creatures, placeables, doors and items.
 - **Drop to Ground** (G): puts raised objects back on the ground under
   them.
 - **Arrange** (several selected; the first selected leads):

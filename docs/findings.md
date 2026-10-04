@@ -36,7 +36,8 @@ compare with files Aurora wrote. Aurora's captures and the game's data are
 not in the repository; the tests read them from the tester's machine.
 
 The wiki was searched through a local mirror (synced 2026-09-29) and the
-NWN Lexicon. BioWare's format PDFs, linked from the wiki, could not be
+NWN Lexicon. Where a finding contradicts the wiki, `docs/wiki-proposal.md`
+proposes the correction, page by page. BioWare's format PDFs, linked from the wiki, could not be
 searched; a few facts here may be in them.
 
 ## Items and costs
