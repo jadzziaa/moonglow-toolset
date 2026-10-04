@@ -840,7 +840,33 @@ impl Moonglow {
                 let remembered = m.location.as_ref().map(|l| l.path().to_path_buf());
                 self.use_module(m);
                 self.take_project_warnings();
-                self.settings.remember(remembered.as_deref().unwrap_or(path));
+                let path = remembered.as_deref().unwrap_or(path);
+                self.settings.remember(path);
+                // The area opened last in it, if it still has it; else the
+                // first the module tree lists (remembered from then on).
+                let last =
+                    self.settings.last_area(path).and_then(|a| a.parse::<mg_core::ResRef>().ok());
+                let by_name = self.settings.area_names;
+                if let Some(ws) = self.ws.as_ref().filter(|_| !self.settings.no_last_area) {
+                    let has = |area: &mg_core::ResRef| {
+                        ws.module.contains(&ResKey::new(*area, ResType::ARE))
+                    };
+                    let first = || {
+                        let mut areas = mg_module::areas::list(&ws.module);
+                        if by_name {
+                            areas.sort_by_cached_key(|a| {
+                                let named = !a.name.trim().is_empty();
+                                let shown =
+                                    if named { a.name.clone() } else { a.resref.to_string() };
+                                (shown.to_lowercase(), a.resref)
+                            });
+                        }
+                        areas.first().map(|a| a.resref)
+                    };
+                    if let Some(area) = last.filter(has).or_else(first) {
+                        self.actions.push(Action::OpenTab(Tab::Area(area)));
+                    }
+                }
             }
             Err(e) => self.log.error(format!("Could not open {}: {e}", path.display())),
         }
@@ -1205,6 +1231,10 @@ impl Moonglow {
                 }
             }
             Action::OpenTab(tab) => {
+                // The area opened last is opened again with the module.
+                if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
+                    self.settings.remember_area(&module, &area.to_string());
+                }
                 // A tab docked in an area's pane (Module Properties, docked
                 // when the module opened) moves to a window of its own
                 // rather than come to the front over the area.

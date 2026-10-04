@@ -288,6 +288,20 @@ a light theme. Left:
 - **The ring over another object:** the ring wins the press, so an
   object under its line can't be picked there while the selection
   lasts. (S)
+- **Tilt rings edge-on:** a tilt ring seen edge-on (from straight above,
+  both are) can't be led round; a 3D editor would fall back to the
+  pointer's travel along the ring's tangent. (S)
+- **An arrow pointing at the camera:** it can't be led (looking straight
+  down, the blue one; Alt + drag still raises). (S)
+- **The arrows' axes:** east, north and up, the area's; arrows along the
+  object's own facing are not offered. The tilt rings, in the same red
+  and green, are about the model's own axes. (S)
+- **Tilting against the game:** that the client draws a tilted placeable
+  as Moonglow does (the order of the three angles, and that a static
+  placeable's transform is ignored) is taken from Aurora's output and
+  the wiki, not from a client screenshot. (S)
+- **Adjust Location and static placeables:** the window still offers the
+  visual transform for a static placeable, which Aurora doesn't. (S)
 - **Escape during a drag** drops it now (it used to put the object down
   where it was); Aurora's behavior was not checked. (S)
 

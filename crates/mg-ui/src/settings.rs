@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 /// How many recent modules File > Recent Modules keeps.
 pub const RECENT_MAX: usize = 10;
 
+/// How many modules' last areas are kept.
+const LAST_AREAS_MAX: usize = 50;
+
 /// The script editor's syntax elements, in the order of
 /// [`ScriptStyle::colors`] (Aurora's Options > Script Editor list).
 pub const SCRIPT_ELEMENTS: [&str; 8] =
@@ -35,6 +38,11 @@ impl Default for ScriptStyle {
 pub struct Settings {
     /// Recently opened or saved modules, most recent first.
     pub recent: Vec<PathBuf>,
+    /// The area opened last in each module (its path and the area's
+    /// ResRef), most recent first: opened again with the module.
+    pub last_areas: Vec<(PathBuf, String)>,
+    /// Options > General: Open a module on the area opened last is off.
+    pub no_last_area: bool,
     /// The plugins enabled, by id (one installed is off until it is here).
     pub plugins_enabled: Vec<String>,
     /// The game install, when not the detected one.
@@ -120,8 +128,8 @@ pub struct Settings {
     /// Options > Area: Show merchants as the game's $ sign (its marker
     /// model, as Aurora shows them) rather than as Moonglow's arrow.
     pub merchant_signs: bool,
-    /// Options > Area: Show the turning ring around selected objects is
-    /// off.
+    /// Options > Area: Show the turning and tilt rings around selected
+    /// objects is off.
     pub no_turn_ring: bool,
     /// Options > Language: the language text is shown and edited in
     /// (language.2da row); `None`: the default, English.
@@ -187,6 +195,21 @@ impl Settings {
         self.recent.truncate(RECENT_MAX);
     }
 
+    /// Notes `area` as the one opened last in the module at `module`.
+    pub fn remember_area(&mut self, module: &Path, area: &str) {
+        if self.last_area(module) == Some(area) {
+            return;
+        }
+        self.last_areas.retain(|(m, _)| m != module);
+        self.last_areas.insert(0, (module.to_path_buf(), area.to_owned()));
+        self.last_areas.truncate(LAST_AREAS_MAX);
+    }
+
+    /// The area opened last in the module at `module`.
+    pub fn last_area(&self, module: &Path) -> Option<&str> {
+        self.last_areas.iter().find(|(m, _)| m == module).map(|(_, a)| a.as_str())
+    }
+
     /// The game install these settings choose: the configured folders, or
     /// what is detected.
     pub fn install(&self) -> Option<GameInstall> {
@@ -226,5 +249,19 @@ mod tests {
         }
         assert_eq!(s.recent.len(), RECENT_MAX);
         assert_eq!(s.recent[0], PathBuf::from("19.mod"));
+    }
+
+    #[test]
+    fn each_module_s_last_area_is_kept() {
+        let mut s = Settings::default();
+        s.remember_area(Path::new("a.mod"), "town");
+        s.remember_area(Path::new("b.mod"), "cave");
+        s.remember_area(Path::new("a.mod"), "inn");
+        assert_eq!(s.last_area(Path::new("a.mod")), Some("inn"));
+        assert_eq!(s.last_area(Path::new("b.mod")), Some("cave"));
+        assert_eq!(s.last_area(Path::new("c.mod")), None);
+        assert_eq!(s.last_areas.len(), 2);
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back, s);
     }
 }

@@ -85,6 +85,8 @@ field).
 | Drag the selection | move it over the ground |
 | Shift + right drag | turn the selected objects |
 | Drag the ring around them | turn them as the pointer goes round |
+| Shift + drag a tilt ring | tilt their models about X (red) or Y (green) |
+| Shift + drag an arrow | move them along one axis alone: east (red), north (green) or up (blue) |
 | Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
 | G | drop them to the ground |
 | Alt + drag | raise or lower them (not creatures, which stand on the ground) |
@@ -101,6 +103,30 @@ ring anywhere along it (near it is enough) and lead it round: the object
 turns with the pointer, its facing shown in degrees; with several
 selected, each turns about itself by the same angle. **Turn** on the
 toolbar snaps it. **Tools › Options › Area** switches the ring off.
+
+**The tilt rings**: hold **Shift** and two upright rings take the turning
+ring's place, red and green. Lead the red one round to tilt the model
+about its X axis, the green one about its Y axis; the angle shows in
+degrees, and **Turn** snaps it. This is the rotation of EE's visual
+transform (the one **Adjust Location…** has as numbers), so it is the
+model that tilts, not the object: what it blocks stays as it was.
+Creatures, items, doors and placeables that aren't **Static** have the
+rings; a static placeable has no visual transform in the game, and its
+right-click menu has **Make Dynamic** to clear Static. A dynamic one's
+has **Make Static**, which also takes its visual transform away, as
+Aurora does. (The game draws static placeables, and finds paths around
+them, more cheaply: keep scenery that needn't tilt static.) A ring
+seen edge-on can't be led round: turn the camera to see it as a circle.
+
+**The arrows**: with **Shift** held, three arrows stand out from the
+selected object: red to the east, green to the north and blue upward.
+Take an arrow's head and lead it along: the object moves along that axis
+alone, however the pointer strays, with its place on the axis shown in
+meters. East and north keep it as high above the ground as it was, and
+**Snap** snaps along the axis; up raises or lowers it, as Alt + drag
+does. They move the object itself, so they work for static placeables
+too; creatures stand on the ground and have no blue arrow. An arrow
+pointing at the camera can't be led: turn the view.
 
 What you are dragging stays in hand while another button turns the
 camera (hold the middle button too and swing the view), until you let go

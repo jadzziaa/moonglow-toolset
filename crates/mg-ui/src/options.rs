@@ -36,6 +36,7 @@ pub struct OptionsDraft {
     pub script_style: ScriptStyle,
     pub build_on_save: bool,
     pub area_names: bool,
+    pub last_area: bool,
     pub name_resrefs: bool,
     pub palette_cr: bool,
     pub light_theme: bool,
@@ -106,6 +107,7 @@ impl OptionsDraft {
             script_style: s.script_style.clone(),
             build_on_save: s.build_on_save,
             area_names: s.area_names,
+            last_area: !s.no_last_area,
             name_resrefs: s.name_resrefs,
             palette_cr: !s.palette_no_cr,
             light_theme: s.light_theme,
@@ -155,6 +157,7 @@ impl OptionsDraft {
             script_style: self.script_style.clone(),
             build_on_save: self.build_on_save,
             area_names: self.area_names,
+            no_last_area: !self.last_area,
             name_resrefs: self.name_resrefs,
             palette_no_cr: !self.palette_cr,
             light_theme: self.light_theme,
@@ -386,6 +389,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     );
                             });
                             ui.checkbox(&mut draft.light_theme, "Light theme");
+                            ui.checkbox(
+                                &mut draft.last_area,
+                                "Open a module on the area opened last",
+                            )
+                            .on_hover_text(
+                                "The first time, on the first area the module tree lists",
+                            );
                             ui.checkbox(&mut draft.area_names, "List areas and blueprints by name")
                                 .on_hover_text(
                                     "In the module tree, by their names rather than their ResRefs \
@@ -493,10 +503,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
                             ui.checkbox(
                                 &mut draft.turn_ring,
-                                "Show the turning ring around selected objects",
+                                "Show the turning and tilt rings around selected objects",
                             )
                             .on_hover_text(
-                                "A ring around the selection: drag it round to turn the objects",
+                                "A ring around the selection: drag it round to turn the objects. \
+                                 With Shift held, two rings that tilt their models \
+                                 and arrows that move them along one axis",
                             );
                             ui.checkbox(&mut draft.merchant_signs, "Show merchants as $ signs")
                                 .on_hover_text(

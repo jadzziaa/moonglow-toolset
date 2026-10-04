@@ -29,9 +29,11 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
   of that size, and an arrow the way what spawns there faces.
 - **Show merchants as $ signs**: the game's marker for a merchant, rather
   than an arrow along its facing.
-- **Show the turning ring around selected objects**: the ring that
-  turns the selection when dragged round (see [Areas](04-areas.md)). On
-  by default.
+- **Show the turning and tilt rings around selected objects**: the ring
+  that turns the selection when dragged round, and the two that tilt
+  its models, with the arrows that move it along one axis, while Shift
+  is held (see [Areas](04-areas.md)). On by
+  default.
 - **Show Door Orientation Arrows**.
 
 ## General
@@ -44,6 +46,9 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
 - **Interface size**: the whole interface, text and all, from 90% to 200%
   of its usual size.
 - **Light theme**: dark text on light, rather than the dark theme.
+- **Open a module on the area opened last**: on by default; the first
+  time, the first area the module tree lists (see
+  [Modules](03-modules.md)).
 - **List areas and blueprints by name** in the module tree, rather than
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
   tree and the palettes).

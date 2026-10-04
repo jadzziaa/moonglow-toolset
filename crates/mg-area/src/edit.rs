@@ -198,6 +198,7 @@ mod tests {
             problem: None,
             outline: Vec::new(),
             visual: None,
+            is_static: false,
             trigger_type: 0,
             conversation: None,
             spawn_points: Vec::new(),

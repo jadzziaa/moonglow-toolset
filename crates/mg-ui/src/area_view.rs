@@ -148,6 +148,14 @@ enum Drag {
     /// Turns them as the ring is led around `pivot`: by the
     /// angle the pointer has gone round it since `grip`.
     Spin { pivot: Vec3, grip: f32, angle: f32 },
+    /// Moves them along one axis (0 east, 1 north, 2 up) as that axis's
+    /// arrow is led along it: by the pointer's travel along the line
+    /// through `pivot` since `grip` (a distance along it).
+    Slide { axis: usize, pivot: Vec3, grip: f32, by: f32 },
+    /// Tilts their models (the visual transform's rotation about X or Y)
+    /// as a tilt ring is led round: by the angle the pointer has gone
+    /// round it, in the ring's plane, since `grip`.
+    Tilt { ring: TiltRing, grip: f32, angle: f32 },
     /// Raises or lowers the selection (not creatures: they stand on the
     /// ground).
     Lift { by: f32 },
@@ -164,6 +172,72 @@ struct TurnRing {
     radius: f32,
     /// The way the object faces: a mark on the ring is there.
     facing: f32,
+}
+
+/// A ring for tilting the selection's models: upright around the first
+/// one's, about the axis its visual transform turns it on. Shown while
+/// Shift is held.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct TiltRing {
+    /// 0: about X, 1: about Y (of the visual transform's rotation).
+    axis: usize,
+    pivot: Vec3,
+    radius: f32,
+    /// The ring's plane: `u` × `v` is the axis it turns about.
+    u: Vec3,
+    v: Vec3,
+}
+
+impl TiltRing {
+    fn point(&self, angle: f32) -> Vec3 {
+        self.pivot + (self.u * angle.cos() + self.v * angle.sin()) * self.radius
+    }
+
+    fn segment(&self, k: usize) -> (Vec3, Vec3) {
+        let at = |k: usize| self.point(std::f32::consts::TAU * k as f32 / RING_SEGMENTS as f32);
+        (at(k), at(k + 1))
+    }
+
+    fn color(&self) -> Color32 {
+        // Red about X, green about Y, as 3D editors have them.
+        if self.axis == 0 {
+            Color32::from_rgb(240, 90, 90)
+        } else {
+            Color32::from_rgb(130, 215, 90)
+        }
+    }
+}
+
+/// An arrow for moving the selection along one axis alone: east (red),
+/// north (green) or up (blue), from the first selected object, taken by
+/// its head. Shown while Shift is held, with the tilt rings.
+#[derive(Debug, Clone, Copy)]
+struct AxisArrow {
+    /// 0 east, 1 north, 2 up.
+    axis: usize,
+    pivot: Vec3,
+    radius: f32,
+}
+
+impl AxisArrow {
+    fn along(&self) -> Vec3 {
+        Vec3::AXES[self.axis]
+    }
+
+    /// Its head's ends: clear of the rings, which reach the radius.
+    fn head(&self) -> (Vec3, Vec3) {
+        let along = self.along() * self.radius;
+        (self.pivot + along * 1.2, self.pivot + along * 1.7)
+    }
+
+    /// Red, green and blue, as 3D editors have X, Y and Z.
+    fn color(&self) -> Color32 {
+        [
+            Color32::from_rgb(240, 90, 90),
+            Color32::from_rgb(130, 215, 90),
+            Color32::from_rgb(90, 150, 255),
+        ][self.axis]
+    }
 }
 
 /// How near the ring's line the pointer takes it, points: it is a thin
@@ -505,17 +579,140 @@ impl AreaView {
     }
 
     fn on_ring(&self, ring: &TurnRing, pos: Pos2) -> bool {
-        (0..RING_SEGMENTS).any(|k| {
-            let (a, b) = ring.segment(k);
+        self.on_line(&|k| ring.segment(k), pos)
+    }
+
+    /// The rings for tilting the selection's models, about X and about Y:
+    /// around the first selected object whose model tilts (as `model` has
+    /// it). Each lies across the axis its angle turns the model on, with
+    /// the angles before it applied (Z, then Y, then X).
+    fn tilt_rings(&self, model: &AreaModel) -> Option<[TiltRing; 2]> {
+        let camera = self.camera().filter(|_| self.turn_ring)?;
+        let o = self
+            .selection
+            .iter()
+            .filter_map(|&(k, i)| model.objects.iter().find(|o| o.kind == k && o.index == i))
+            .find(|o| o.takes_visual_transform() && self.show[o.kind.index()] && !o.locked)?;
+        let visual = o.visual.unwrap_or_default();
+        let r = visual.rotate * (std::f32::consts::PI / 180.0);
+        let stands = glam::Quat::from_rotation_z(o.rotation);
+        let about_y = stands * glam::Quat::from_rotation_z(r.z);
+        let about_x = about_y * glam::Quat::from_rotation_y(r.y);
+        let pivot = o.transform().transform_point3(visual.translate);
+        let radius = ((camera.eye - pivot).length() * 0.0765).max(0.5);
+        let ring = |axis: usize, n: Vec3| {
+            let u = n.any_orthonormal_vector();
+            TiltRing { axis, pivot, radius, u, v: n.cross(u) }
+        };
+        Some([ring(0, about_x * Vec3::X), ring(1, about_y * Vec3::Y)])
+    }
+
+    /// The arrows for moving the selection along an axis (as `model` has
+    /// it): east and north from the first selected object, and up from the
+    /// first that lifts (not creatures, which stand on the ground, nor
+    /// outlines).
+    fn axis_arrows(&self, model: &AreaModel) -> Vec<AxisArrow> {
+        let Some(camera) = self.camera().filter(|_| self.turn_ring) else { return Vec::new() };
+        let chosen = || {
+            self.selection
+                .iter()
+                .filter_map(|&(k, i)| model.objects.iter().find(|o| o.kind == k && o.index == i))
+                .filter(|o| self.show[o.kind.index()] && !o.locked)
+        };
+        let arrow = |axis: usize, o: &mg_area::AreaObject| {
+            let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
+            AxisArrow { axis, pivot: o.position, radius }
+        };
+        let mut arrows = Vec::new();
+        if let Some(o) = chosen().next() {
+            arrows.extend([arrow(0, o), arrow(1, o)]);
+        }
+        arrows.extend(chosen().find(|o| lifts(o.kind)).map(|o| arrow(2, o)));
+        arrows
+    }
+
+    /// The arrow whose head `pos` is on.
+    fn axis_arrow_at(&self, pos: Pos2) -> Option<AxisArrow> {
+        self.axis_arrows(self.model.as_ref()?).into_iter().find(|arrow| {
+            let (a, b) = arrow.head();
             let (Some(a), Some(b)) = (self.screen_pos(a), self.screen_pos(b)) else { return false };
-            // The nearest point of the piece.
-            let (ab, ap) = (b - a, pos - a);
-            let t = if ab.length_sq() > 0.0 {
-                (ap.dot(ab) / ab.length_sq()).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            (a + ab * t).distance(pos) <= RING_REACH
+            near_segment(a, b, pos) <= RING_REACH
+        })
+    }
+
+    /// How far along the line from `pivot` the way `along` goes its point
+    /// nearest the pointer's ray is (`None` looking straight down it).
+    fn distance_along(&self, pivot: Vec3, along: Vec3, pos: Pos2) -> Option<f32> {
+        let ray = self.ray(pos)?;
+        let dir = ray.dir.normalize_or_zero();
+        let (b, w) = (along.dot(dir), pivot - ray.origin);
+        let across = 1.0 - b * b;
+        (across > 0.02).then(|| (b * dir.dot(w) - along.dot(w)) / across)
+    }
+
+    /// The tilt ring whose line `pos` is on (the nearer the camera sees
+    /// more of, when on both).
+    fn tilt_ring_at(&self, pos: Pos2) -> Option<TiltRing> {
+        let rings = self.tilt_rings(self.model.as_ref()?)?;
+        let ray = self.ray(pos)?;
+        rings.into_iter().filter(|r| self.on_line(&|k| r.segment(k), pos)).max_by(|a, b| {
+            let facing = |r: &TiltRing| r.u.cross(r.v).dot(ray.dir).abs();
+            facing(a).total_cmp(&facing(b))
+        })
+    }
+
+    /// The angle around a tilt ring of the point under `pos`, in the
+    /// ring's plane.
+    fn angle_on(&self, ring: &TiltRing, pos: Pos2) -> Option<f32> {
+        let ray = self.ray(pos)?;
+        let n = ring.u.cross(ring.v);
+        let toward = ray.dir.dot(n);
+        // (Seen edge-on, the plane has no point under the pointer.)
+        if toward.abs() < 0.05 {
+            return None;
+        }
+        let t = (ring.pivot - ray.origin).dot(n) / toward;
+        let d = ray.origin + ray.dir * t - ring.pivot;
+        (t > 0.0 && d.length() > 1e-3).then(|| d.dot(ring.v).atan2(d.dot(ring.u)))
+    }
+
+    /// Each selected object's visual transform with the tilt drag applied.
+    fn tilted(&self) -> Vec<(usize, mg_area::VisualTransform)> {
+        let (Some(model), Some(Drag::Tilt { ring, angle, .. })) = (&self.model, self.drag) else {
+            return Vec::new();
+        };
+        let tilts: Vec<usize> = self
+            .selection
+            .iter()
+            .filter_map(|&(k, i)| self.object_at(k, i))
+            .filter(|&i| model.objects[i].takes_visual_transform() && !model.objects[i].locked)
+            .collect();
+        // Snapping turns the first to the angle; the others by as much.
+        let mut by = angle.to_degrees();
+        if let (Some(&first), Some(_)) = (tilts.first(), self.snap.1) {
+            let was = model.objects[first].visual.unwrap_or_default().rotate[ring.axis];
+            let to = mg_area::arrange::snap_rotation((was + by).to_radians(), self.snap.1);
+            by = to.to_degrees() - was;
+        }
+        tilts
+            .into_iter()
+            .map(|i| {
+                let mut v = model.objects[i].visual.unwrap_or_default();
+                // Within half a turn either way, to a hundredth of a degree.
+                let to = (v.rotate[ring.axis] + by + 180.0).rem_euclid(360.0) - 180.0;
+                v.rotate[ring.axis] = (to * 100.0).round() / 100.0;
+                (i, v)
+            })
+            .collect()
+    }
+
+    /// Whether `pos` is on the line of the pieces `segment` gives (or
+    /// within [`RING_REACH`] of it).
+    fn on_line(&self, segment: &dyn Fn(usize) -> (Vec3, Vec3), pos: Pos2) -> bool {
+        (0..RING_SEGMENTS).any(|k| {
+            let (a, b) = segment(k);
+            let (Some(a), Some(b)) = (self.screen_pos(a), self.screen_pos(b)) else { return false };
+            near_segment(a, b, pos) <= RING_REACH
         })
     }
 
@@ -529,11 +726,22 @@ impl AreaView {
     /// Where each selected object stands and turns with the drag applied.
     fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
         let Some(model) = &self.model else { return Vec::new() };
-        let Some(mut drag) = self.drag.filter(|d| !matches!(d, Drag::Box { .. })) else {
+        let moves = |d: &Drag| !matches!(d, Drag::Box { .. } | Drag::Tilt { .. });
+        let Some(mut drag) = self.drag.filter(moves) else {
             return Vec::new();
         };
         if let Drag::Spin { angle, .. } = drag {
             drag = Drag::Turn { angle };
+        }
+        // An arrow's drag: along its axis alone.
+        let mut locked = None;
+        if let Drag::Slide { axis, pivot, by, .. } = drag {
+            drag = if axis == 2 {
+                Drag::Lift { by }
+            } else {
+                locked = Some(axis);
+                Drag::Move { from: pivot, offset: Vec3::AXES[axis].truncate() * by }
+            };
         }
         // Snapping moves and turns the first selected object to the grid or
         // angle; the others keep their places and turns relative to it.
@@ -544,6 +752,9 @@ impl AreaView {
                 Drag::Move { offset, .. } if self.snap.0.is_some() => {
                     let to = snap_point(o.position.truncate() + *offset, self.snap.0);
                     *offset = to - o.position.truncate();
+                    if let Some(axis) = locked {
+                        offset[1 - axis] = 0.0;
+                    }
                 }
                 Drag::Turn { angle } if self.snap.1.is_some() => {
                     *angle = snap_rotation(o.rotation + *angle, self.snap.1) - o.rotation;
@@ -561,16 +772,28 @@ impl AreaView {
                     Drag::Turn { angle } | Drag::Spin { angle, .. } => {
                         (i, o.position, if turns(o.kind) { o.rotation + angle } else { o.rotation })
                     }
-                    Drag::Lift { by } => {
-                        let lifts = o.kind != ObjectKind::Creature && !o.kind.has_outline();
-                        let by = if lifts { by } else { 0.0 };
+                    Drag::Lift { by } | Drag::Slide { by, .. } => {
+                        let by = if lifts(o.kind) { by } else { 0.0 };
                         (i, o.position + Vec3::Z * by, o.rotation)
                     }
-                    Drag::Box { .. } => (i, o.position, o.rotation),
+                    Drag::Box { .. } | Drag::Tilt { .. } => (i, o.position, o.rotation),
                 }
             })
             .collect()
     }
+}
+
+/// Whether objects of `kind` are raised and lowered: not creatures, which
+/// stand on the ground, nor outlines.
+fn lifts(kind: ObjectKind) -> bool {
+    kind != ObjectKind::Creature && !kind.has_outline()
+}
+
+/// How far `pos` is from the piece from `a` to `b`.
+fn near_segment(a: Pos2, b: Pos2, pos: Pos2) -> f32 {
+    let (ab, ap) = (b - a, pos - a);
+    let t = if ab.length_sq() > 0.0 { (ap.dot(ab) / ab.length_sq()).clamp(0.0, 1.0) } else { 0.0 };
+    (a + ab * t).distance(pos)
 }
 
 /// Reads the area again when the workspace changed.
@@ -950,6 +1173,9 @@ fn viewport(
         o.outline.iter_mut().for_each(|q| *q += delta);
         o.position = p;
         o.rotation = r;
+    }
+    for (i, v) in view.tilted() {
+        shown.to_mut().objects[i].visual = Some(v);
     }
     let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
     frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
@@ -1361,7 +1587,97 @@ fn overlays(
     }
     // The ring for turning the selection: brighter under the pointer and
     // while it is led round, a mark on it the way the object faces.
-    if !matches!(view.drag, Some(Drag::Box { .. } | Drag::Move { .. } | Drag::Lift { .. }))
+    // With Shift held, the rings for tilting its model instead: red about
+    // X, green about Y.
+    let tilting = match view.drag {
+        Some(Drag::Tilt { .. }) => true,
+        Some(_) => false,
+        None => ui.input(|i| i.modifiers.shift && !i.modifiers.command && !i.modifiers.alt),
+    };
+    if tilting && let Some(rings) = view.tilt_rings(shown) {
+        let held = match view.drag {
+            Some(Drag::Tilt { ring, .. }) => Some(ring.axis),
+            _ => None,
+        };
+        let over = ui
+            .ctx()
+            .pointer_hover_pos()
+            .filter(|_| view.drag.is_none())
+            .and_then(|p| view.tilt_ring_at(p))
+            .map(|r| r.axis);
+        for ring in rings {
+            let lit = held == Some(ring.axis) || over == Some(ring.axis);
+            let stroke = if lit {
+                Stroke::new(2.5, ring.color())
+            } else {
+                Stroke::new(1.5, ring.color().gamma_multiply(0.7))
+            };
+            for k in 0..RING_SEGMENTS {
+                let (a, b) = ring.segment(k);
+                line(a, b, stroke);
+            }
+        }
+        if let Some(Drag::Tilt { ring, grip, angle }) = view.drag
+            && let Some(c) = at(ring.point(grip + angle))
+            && let Some((_, visual)) = view.tilted().first()
+        {
+            painter.circle_filled(c, 3.5, ring.color());
+            let degrees = visual.rotate[ring.axis];
+            painter.text(
+                c + egui::vec2(10.0, -10.0),
+                egui::Align2::LEFT_BOTTOM,
+                format!("{} {degrees:.0}°", ["X", "Y"][ring.axis]),
+                egui::FontId::proportional(13.0),
+                Color32::WHITE,
+            );
+        }
+    }
+    // And the arrows for moving it along one axis: east red, north green,
+    // up blue.
+    let sliding = match view.drag {
+        Some(Drag::Slide { axis, .. }) => Some(axis),
+        _ => None,
+    };
+    if sliding.is_some() || (tilting && view.drag.is_none()) {
+        let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+        let over = pointer.and_then(|p| view.axis_arrow_at(p)).map(|a| a.axis);
+        for arrow in view.axis_arrows(shown) {
+            if sliding.is_some_and(|axis| axis != arrow.axis) {
+                continue;
+            }
+            let lit = sliding.is_some() || over == Some(arrow.axis);
+            let stroke = if lit {
+                Stroke::new(3.0, arrow.color())
+            } else {
+                Stroke::new(2.0, arrow.color().gamma_multiply(0.75))
+            };
+            let (neck, tip) = arrow.head();
+            line(arrow.pivot, neck, Stroke::new(1.0, stroke.color));
+            line(neck, tip, stroke);
+            let (Some(n), Some(t)) = (at(neck), at(tip)) else { continue };
+            // The head's barbs, on screen.
+            let along = (t - n).normalized();
+            let side = egui::vec2(-along.y, along.x);
+            for s in [-1.0, 1.0] {
+                painter.line_segment([t, t - along * 9.0 + side * 5.0 * s], stroke);
+            }
+            if sliding.is_some() {
+                let name = ["X", "Y", "Z"][arrow.axis];
+                painter.text(
+                    t + egui::vec2(10.0, -4.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    format!("{name} {:.2} m", arrow.pivot[arrow.axis]),
+                    egui::FontId::proportional(13.0),
+                    Color32::WHITE,
+                );
+            }
+        }
+    }
+    if !tilting
+        && !matches!(
+            view.drag,
+            Some(Drag::Box { .. } | Drag::Move { .. } | Drag::Lift { .. } | Drag::Slide { .. })
+        )
         && let Some(ring) = view.turn_ring(shown)
     {
         let spinning = matches!(view.drag, Some(Drag::Spin { .. }));
@@ -1581,6 +1897,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     if response.clicked()
         && let Some(pos) = response.interact_pointer_pos()
         && view.ring_at(pos).is_none()
+        && !(shift && view.tilt_ring_at(pos).is_some())
+        && !(shift && view.axis_arrow_at(pos).is_some())
     {
         let hit = view.pick(pos).and_then(|i| {
             let o = &view.model.as_ref()?.objects[i];
@@ -1634,8 +1952,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && let Some(pos) = origin
     {
         let hit = view.pick(pos);
-        let handle = view.ring_at(pos).filter(|_| !alt);
-        view.drag = if let Some(ring) = handle {
+        let handle = view.ring_at(pos).filter(|_| !alt && !shift);
+        let tilt = view.tilt_ring_at(pos).filter(|_| shift && !alt);
+        let arrow = view.axis_arrow_at(pos).filter(|_| shift && !alt);
+        view.drag = if let Some(arrow) = arrow {
+            view.distance_along(arrow.pivot, arrow.along(), pos).map(|grip| Drag::Slide {
+                axis: arrow.axis,
+                pivot: arrow.pivot,
+                grip,
+                by: 0.0,
+            })
+        } else if let Some(ring) = tilt {
+            view.angle_on(&ring, pos).map(|grip| Drag::Tilt { ring, grip, angle: 0.0 })
+        } else if let Some(ring) = handle {
             view.angle_about(ring.pivot, pos).map(|grip| Drag::Spin {
                 pivot: ring.pivot,
                 grip,
@@ -1689,6 +2018,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.drag = Some(Drag::Spin { pivot, grip, angle });
             }
         }
+        Some(Drag::Slide { axis, pivot, grip, .. }) if held.by(button) => {
+            let along = Vec3::AXES[axis];
+            if let Some(now) = pointer.and_then(|p| view.distance_along(pivot, along, p)) {
+                view.drag = Some(Drag::Slide { axis, pivot, grip, by: now - grip });
+            }
+        }
+        Some(Drag::Tilt { ring, grip, .. }) if held.by(button) => {
+            if let Some(now) = pointer.and_then(|p| view.angle_on(&ring, p)) {
+                let angle = (now - grip + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                    - std::f32::consts::PI;
+                view.drag = Some(Drag::Tilt { ring, grip, angle });
+            }
+        }
         Some(Drag::Turn { angle }) if held.by(button) => {
             view.drag = Some(Drag::Turn { angle: angle - held.delta.x * 0.01 });
         }
@@ -1711,12 +2053,18 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                     }
                 }
             }
+            Some(drag @ Drag::Tilt { .. }) => {
+                view.drag = Some(drag);
+                let tilted = view.tilted();
+                view.drag = None;
+                commit_tilts(app, view, &tilted);
+            }
             Some(drag) => {
                 view.drag = Some(drag);
                 let moved = view.dragged();
                 let label = match drag {
                     Drag::Turn { .. } | Drag::Spin { .. } => "Rotate",
-                    Drag::Lift { .. } => "Raise",
+                    Drag::Lift { .. } | Drag::Slide { axis: 2, .. } => "Raise",
                     _ => "Move",
                 };
                 view.drag = None;
@@ -2119,6 +2467,23 @@ fn commit_moves(app: &mut Moonglow, view: &AreaView, moved: &[(usize, Vec3, f32)
     }
 }
 
+/// One command that gives each object (by its position in the model) the
+/// visual transform a tilt left it.
+fn commit_tilts(app: &mut Moonglow, view: &AreaView, tilted: &[(usize, mg_area::VisualTransform)]) {
+    let (Some(model), Some(ws)) = (&view.model, app.ws.as_mut()) else { return };
+    let git = view.git();
+    let Ok(doc) = ws.doc(&git) else { return };
+    let mut edits = Vec::new();
+    for &(i, visual) in tilted {
+        let o = &model.objects[i];
+        let Some(s) = doc.root.list(o.kind.list()).and_then(|l| l.get(o.index)) else { continue };
+        edits.extend(mg_area::edit::visual_transform_edits(git, o, s, visual));
+    }
+    if !edits.is_empty() {
+        app.actions.push(Action::Apply(Command::new("Tilt", edits)));
+    }
+}
+
 /// Opens (or shows) the Properties of the placed object `index` of `kind`.
 fn open_properties(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: usize) {
     let path = mg_edit::GffPath::root().item(kind.list(), index);
@@ -2343,6 +2708,58 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     }
     if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
         drop_to_ground(app, view);
+        ui.close();
+    }
+    // Placeables: static (part of the scenery; the game gives those no
+    // visual transform, so they don't tilt) or dynamic.
+    let placeables: Vec<(usize, bool, bool)> = view.model.as_ref().map_or_else(Vec::new, |m| {
+        m.objects
+            .iter()
+            .filter(|o| o.kind == ObjectKind::Placeable)
+            .filter(|o| view.selection.contains(&(o.kind, o.index)))
+            .map(|o| (o.index, o.is_static, o.visual.is_some()))
+            .collect()
+    });
+    let path = |i: usize| mg_edit::GffPath::root().item(ObjectKind::Placeable.list(), i);
+    let set = |i: usize, label: &str, value: Option<mg_gff::Value>| mg_edit::Edit::SetField {
+        key: view.git(),
+        path: path(i),
+        label: label.into(),
+        value,
+    };
+    if placeables.iter().any(|p| p.1)
+        && ui
+            .button("Make Dynamic")
+            .on_hover_text(
+                "Clears Static, so that the placeable's model can be tilted and scaled. \
+                 A static placeable is part of the scenery: the game draws it and finds \
+                 paths around it more cheaply",
+            )
+            .clicked()
+    {
+        let fixed = placeables.iter().filter(|p| p.1);
+        let edits = fixed.map(|p| set(p.0, "Static", Some(mg_gff::Value::Byte(0)))).collect();
+        app.actions.push(Action::Apply(Command::new("Make Dynamic", edits)));
+        ui.close();
+    }
+    if placeables.iter().any(|p| !p.1)
+        && ui
+            .button("Make Static")
+            .on_hover_text(
+                "Sets Static: part of the scenery, which can't be used, tilted or scaled \
+                 (its visual transform goes, as in Aurora)",
+            )
+            .clicked()
+    {
+        let mut edits = Vec::new();
+        for p in placeables.iter().filter(|p| !p.1) {
+            edits.push(set(p.0, "Static", Some(mg_gff::Value::Byte(1))));
+            if p.2 {
+                edits.push(set(p.0, "VisTransformList", None));
+                edits.push(set(p.0, "VisualTransform", None));
+            }
+        }
+        app.actions.push(Action::Apply(Command::new("Make Static", edits)));
         ui.close();
     }
     ui.add_enabled_ui(view.selection.len() > 1, |ui| {

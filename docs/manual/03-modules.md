@@ -16,7 +16,10 @@ a directory), nasher projects (see below) and the game's campaign files
 
 - **File › Open Module…** (Ctrl+O), **File › Open Folder…** (a module
   folder or a nasher project), **File › Recent Modules**, or a module named
-  on the command line (`moonglow path/to/module.mod`).
+  on the command line (`moonglow path/to/module.mod`). A module opens on
+  the area you opened last in it; the first time, or when that area is
+  gone, on the first the module tree lists (Options › General switches
+  this off).
 - **File › Save** (Ctrl+S) writes the module where it came from, as an
   archive or a folder. **Save As…** writes it as a `.mod` elsewhere. A new
   module is offered as `<name>.mod` in the user folder's `modules`, where

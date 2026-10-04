@@ -291,6 +291,9 @@ pub struct AreaObject {
     pub outline: Vec<Vec3>,
     /// Its model's visual transform.
     pub visual: Option<VisualTransform>,
+    /// A placeable's `Static`: part of the scenery. The game gives a
+    /// static placeable no visual transform (Aurora resets it).
+    pub is_static: bool,
     /// A trigger's `Type` (0 generic, 1 area transition, 2 trap).
     pub trigger_type: i64,
     /// Its conversation (`Conversation`), if it has one.
@@ -370,6 +373,7 @@ impl AreaObject {
             problem,
             outline,
             visual: VisualTransform::read(s),
+            is_static: kind == ObjectKind::Placeable && s.integer("Static").unwrap_or(0) != 0,
             trigger_type: if kind == ObjectKind::Trigger {
                 s.integer("Type").unwrap_or(0)
             } else {
@@ -410,6 +414,16 @@ impl AreaObject {
         match &self.visual {
             Some(v) => self.transform() * v.matrix(),
             None => self.transform(),
+        }
+    }
+
+    /// Whether its model takes a visual transform: creatures, items,
+    /// doors and placeables that aren't static.
+    pub fn takes_visual_transform(&self) -> bool {
+        match self.kind {
+            ObjectKind::Creature | ObjectKind::Item | ObjectKind::Door => true,
+            ObjectKind::Placeable => !self.is_static,
+            _ => false,
         }
     }
 

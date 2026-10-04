@@ -74,6 +74,8 @@ fn edit_undo_save_reopen() {
     let dir = mg_testkit::scratch_dir("ui-edit");
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
+    // (The module opens on its Properties, not on an area.)
+    app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
@@ -142,6 +144,8 @@ fn multi_line_text_keeps_its_line_ends() {
     let dir = mg_testkit::scratch_dir("ui-crlf");
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
+    // (The module opens on its Properties, not on an area.)
+    app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
@@ -504,6 +508,8 @@ fn recent_modules_reopen_from_the_welcome_page() {
     let dir = mg_testkit::scratch_dir("ui-recent");
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
+    // (The module opens on its Properties, not on an area.)
+    app.settings.no_last_area = true;
     app.open_module(&path);
     assert_eq!(app.settings.recent, std::slice::from_ref(&path));
     app.close();
@@ -627,6 +633,8 @@ fn module_name_in_every_language_and_variables() {
     let dir = mg_testkit::scratch_dir("ui-loc-vars");
     let path = sample_module(&dir);
     let mut app = app_with(Vec::new());
+    // (The module opens on its Properties, not on an area.)
+    app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
@@ -697,6 +705,8 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     let path = sample_module(&dir);
     let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (The module opens on its Properties, not on an area.)
+    app.settings.no_last_area = true;
     app.open_module(&path);
     app.open_palette = false;
     let mut h = Harness::builder()
@@ -846,6 +856,8 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
         open: vec![hak.clone()],
     };
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    // (The module opens on its Properties, not on an area.)
+    app.settings.no_last_area = true;
     app.open_module(&path);
     let mut h = Harness::builder()
         .with_size(egui::vec2(1200.0, 800.0))
@@ -5163,6 +5175,8 @@ fn speaker_tags_come_from_the_module_s_creatures() {
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
 
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    // (The module opens on its Properties, not on an area.)
+    app.settings.no_last_area = true;
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
     let mut h = Harness::builder()
@@ -6838,6 +6852,249 @@ fn the_turning_ring_spins_the_selection() {
     assert!((facing(&mut h) - before).abs() < 1e-4, "no ring, no turn");
 }
 
+/// With Shift held, the rings for tilting a model: one led round turns
+/// the visual transform about its axis, as one Tilt. A static placeable
+/// has none.
+#[test]
+fn a_tilt_ring_tilts_a_placeable_s_model_while_shift_is_held() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("tilt-ring") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        // Two chests: the first static, the second (put before it) not.
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let mut edits = Vec::new();
+        for (x, y, fixed) in [(28.0, 30.0, 1), (12.0, 20.0, 0)] {
+            let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+            let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+            item.set("Static", mg_gff::Value::Byte(fixed));
+            edits.push(mg_edit::Edit::InsertItem {
+                key: git_key,
+                path: mg_edit::GffPath::root(),
+                list: "Placeable List".into(),
+                index: 0,
+                item,
+            });
+        }
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let rotate = |h: &mut Harness<'_, Moonglow>, index: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let chest = &git.root.list("Placeable List").unwrap()[index];
+        mg_area::VisualTransform::read(chest).map(|v| v.rotate)
+    };
+    let look_at = |h: &mut Harness<'_, Moonglow>, index: usize, target: Vec3| {
+        // From the east and above: the ring about X faces the camera.
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection = vec![(ObjectKind::Placeable, index)];
+        let o = view.orbit.as_mut().unwrap();
+        (o.target, o.yaw, o.pitch, o.distance) = (target, 0.3, 0.5, 14.0);
+    };
+    // Leads the ring about X a twelfth of the way round, Shift held.
+    let lead = |h: &mut Harness<'_, Moonglow>, pivot: Vec3, shot: bool| {
+        let eye = h.state().area_views[&area].orbit.unwrap().camera().eye;
+        let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+        let ring = |a: f32| pivot + Vec3::new(0.0, a.cos(), a.sin()) * radius;
+        let shift = egui::Modifiers::SHIFT;
+        h.event(egui::Event::ModifiersChanged(shift));
+        let mut at = screen(h, area, ring(1.0));
+        h.hover_at(at);
+        h.run_steps(1);
+        let left = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: shift,
+        };
+        h.event(left(at, true));
+        for k in 1..=6 {
+            at = screen(h, area, ring(1.0 + std::f32::consts::FRAC_PI_6 * k as f32 / 6.0));
+            h.hover_at(at);
+        }
+        h.run_steps(1);
+        if shot {
+            let img = h.render().expect("render");
+            img.save(mg_testkit::scratch_dir("ui-area-tilt-ring").join("tilt_ring.png")).unwrap();
+        }
+        h.event(left(at, false));
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(3);
+    };
+
+    let pivot = Vec3::new(12.0, 20.0, 0.0);
+    look_at(&mut h, 0, pivot);
+    h.run_steps(2);
+    assert_eq!(rotate(&mut h, 0), None, "no visual transform yet");
+    lead(&mut h, pivot, true);
+    let tilted = rotate(&mut h, 0).expect("a visual transform");
+    assert!((tilted.x - 30.0).abs() < 1.0, "tilted {tilted:?}");
+    assert_eq!((tilted.y, tilted.z), (0.0, 0.0), "about X alone");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tilt"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(rotate(&mut h, 0), None, "one undo");
+
+    // The static chest has no rings: the same drag tilts nothing.
+    let pivot = Vec3::new(28.0, 30.0, 0.0);
+    look_at(&mut h, 1, pivot);
+    h.run_steps(2);
+    lead(&mut h, pivot, false);
+    assert_eq!(rotate(&mut h, 1), None, "a static placeable is not tilted");
+
+    // (Without rings, the drag was the usual one: it moved the chest.)
+    if h.state().ws.as_ref().unwrap().can_undo() == Some("Move") {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        h.run_steps(2);
+    }
+
+    // Its menu makes it dynamic; then it tilts.
+    let at = screen(&h, area, pivot + Vec3::Z * 0.3);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Make Static").is_none(), "it is static");
+    h.get_by_label("Make Dynamic").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Make Dynamic"));
+    look_at(&mut h, 1, pivot);
+    h.run_steps(2);
+    lead(&mut h, pivot, false);
+    let tilted = rotate(&mut h, 1).expect("a visual transform");
+    assert!((tilted.x - 30.0).abs() < 1.0, "tilted {tilted:?}");
+
+    // The arrow over it, Shift held: led up a meter, the chest rises one.
+    let height = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        git.root.list("Placeable List").unwrap()[1].float("Z").unwrap()
+    };
+    let z0 = height(&mut h);
+    let eye = h.state().area_views[&area].orbit.unwrap().camera().eye;
+    let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+    let shift = egui::Modifiers::SHIFT;
+    let left = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: shift,
+    };
+    h.event(egui::Event::ModifiersChanged(shift));
+    let head = pivot + Vec3::Z * radius * 1.45;
+    let mut at = screen(&h, area, head);
+    h.hover_at(at);
+    h.run_steps(1);
+    h.event(left(at, true));
+    for k in 1..=5 {
+        at = screen(&h, area, head + Vec3::Z * (k as f32 / 5.0));
+        h.hover_at(at);
+    }
+    h.run_steps(1);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-tilt-ring").join("height_arrow.png")).unwrap();
+    h.event(left(at, false));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(3);
+    let z = height(&mut h);
+    assert!((z - z0 - 1.0).abs() < 0.03, "raised from {z0} to {z}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Raise"));
+
+    // The green arrow, north of it: led 2 m along, the chest goes north
+    // and nowhere else.
+    let place = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let chest = &git.root.list("Placeable List").unwrap()[1];
+        (chest.float("X").unwrap(), chest.float("Y").unwrap(), chest.float("Z").unwrap())
+    };
+    let (x0, y0, z0) = place(&mut h);
+    let stands = Vec3::new(x0, y0, z0);
+    h.event(egui::Event::ModifiersChanged(shift));
+    let head = stands + Vec3::Y * radius * 1.45;
+    let mut at = screen(&h, area, head);
+    h.hover_at(at);
+    h.run_steps(2);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-shift-tools").join("shift_tools.png")).unwrap();
+    h.event(left(at, true));
+    for k in 1..=5 {
+        at = screen(&h, area, head + Vec3::Y * (2.0 * k as f32 / 5.0));
+        h.hover_at(at);
+    }
+    h.run_steps(1);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-tilt-ring").join("axis_arrow.png")).unwrap();
+    h.event(left(at, false));
+    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+    h.run_steps(3);
+    let (x, y, z) = place(&mut h);
+    assert!((y - y0 - 2.0).abs() < 0.05, "north from {y0} to {y}");
+    assert_eq!(x, x0, "not east or west");
+    assert!((z - z0).abs() < 1e-3, "as high above the ground as before: {z0} to {z}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move"));
+    let pivot = Vec3::new(x, y, 0.0);
+
+    // Dynamic now, its menu makes it static again: the tilt goes.
+    let at = screen(&h, area, pivot + Vec3::Z * 1.3);
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Make Dynamic").is_none(), "it is dynamic");
+    h.get_by_label("Make Static").click();
+    h.run_steps(3);
+    assert_eq!(rotate(&mut h, 1), None, "a static placeable has no visual transform");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&git_key).unwrap();
+    let chest = &git.root.list("Placeable List").unwrap()[1];
+    assert_eq!(chest.integer("Static"), Some(1));
+}
+
+/// A module opens with the area that was opened last in it.
+#[test]
+fn a_module_opens_on_the_area_opened_last_in_it() {
+    let Some((mut h, area)) = area_harness("last-area") else { return };
+    let path = h.state().module_path().expect("saved");
+    assert_eq!(h.state().settings.last_area(&path), Some("field"));
+    h.state_mut().open_module(&path);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none(), "opened anew");
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the area is open again");
+    // Without one remembered (a module opened for the first time, or its
+    // area gone), the first the tree lists, remembered from then on.
+    for forgotten in [Some("gone"), None] {
+        match forgotten {
+            Some(gone) => h.state_mut().settings.last_areas[0].1 = gone.into(),
+            None => h.state_mut().settings.last_areas.clear(),
+        }
+        h.state_mut().open_module(&path);
+        h.run_steps(3);
+        assert!(h.state().dock.find_tab(&Tab::Area(area)).is_some(), "the first area");
+        assert_eq!(h.state().settings.last_area(&path), Some("field"));
+    }
+}
+
 #[test]
 fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     use glam::Vec3;
@@ -8421,6 +8678,8 @@ fn a_script_goes_to_the_scratch_folder_compiled() {
     let open = |module: &std::path::Path, scratch: &std::path::Path| {
         let install = mg_resman::GameInstall::new(&root, None, "en");
         let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        // (The module opens on its Properties, not on an area.)
+        app.settings.no_last_area = true;
         app.settings.scratch_dir = Some(scratch.into());
         app.open_module(module);
         app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
