@@ -278,6 +278,19 @@ a light theme. Left:
   and Area Transition setup picks its target from a list rather than a
   map. (S–M)
 
+## The turning ring
+
+- **Several objects:** each turns about itself, as Shift + right drag
+  does, with the ring around the first; turning a group about its
+  middle (positions swinging round too) is not done. (S–M)
+- **Behind things:** the ring is painted over the view, not hidden by
+  what stands in front of it. (S)
+- **The ring over another object:** the ring wins the press, so an
+  object under its line can't be picked there while the selection
+  lasts. (S)
+- **Escape during a drag** drops it now (it used to put the object down
+  where it was); Aurora's behavior was not checked. (S)
+
 ## Remappable keys
 
 - **Not every key:** text editing, Escape and Enter, Copy, Cut and Paste,

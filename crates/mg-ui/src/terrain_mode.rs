@@ -515,12 +515,13 @@ pub(crate) fn input(
         Brush::Crosser(c) => {
             let press = ui.input(|i| i.pointer.press_origin());
             if response.drag_started_by(egui::PointerButton::Primary)
+                && view.crossing.is_empty()
                 && let Some(s) = press.and_then(|p| at(view, p))
             {
                 view.crossing = vec![(s.cell, s.edge)];
                 view.crossing_at = Some(s.point);
             }
-            if response.dragged_by(egui::PointerButton::Primary)
+            if view.held.by(egui::PointerButton::Primary)
                 && let Some(s) = view.spot
                 && let Some(from) = view.crossing_at
             {
@@ -535,7 +536,7 @@ pub(crate) fn input(
                 view.crossing_at = Some(s.point);
                 view.crossing_outline = shift.then_some(s.cell);
             }
-            if response.drag_stopped() && !view.crossing.is_empty() {
+            if !view.held.by(egui::PointerButton::Primary) && !view.crossing.is_empty() {
                 view.crossing_at = None;
                 let edges = crossing_shown(view);
                 view.crossing.clear();
@@ -610,7 +611,7 @@ fn terrain_drag(
 ) -> bool {
     let Some(model) = view.model.as_ref() else { return false };
     let (w, h) = (model.width, model.height);
-    if response.drag_started_by(egui::PointerButton::Primary) {
+    if response.drag_started_by(egui::PointerButton::Primary) && view.terrain_drag.is_none() {
         let press = response.ctx.input(|i| i.pointer.press_origin());
         let from = press.and_then(|p| view.ground_at(p, 0.0));
         let tiles = brush.brush == Brush::Eraser;
@@ -629,7 +630,7 @@ fn terrain_drag(
         drag.at = Some(to);
         drag.here = view.spot.map(|s| drag.mark(s));
     }
-    if response.dragged_by(egui::PointerButton::Primary) {
+    if view.held.by(egui::PointerButton::Primary) {
         drag.fill = response.ctx.input(|i| i.modifiers.shift);
         view.terrain_drag = Some(drag);
         return true;

@@ -84,6 +84,7 @@ field).
 | Drag on the ground | select the objects in the box |
 | Drag the selection | move it over the ground |
 | Shift + right drag | turn the selected objects |
+| Drag the ring around them | turn them as the pointer goes round |
 | Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
 | G | drop them to the ground |
 | Alt + drag | raise or lower them (not creatures, which stand on the ground) |
@@ -93,6 +94,17 @@ field).
 
 Every move, turn and deletion is one undoable step. The view's corner
 shows the pointer's position in the area, to the centimeter.
+
+**The turning ring**: an orange ring lies around the
+selected object, with a mark on it the way the object faces. Take the
+ring anywhere along it (near it is enough) and lead it round: the object
+turns with the pointer, its facing shown in degrees; with several
+selected, each turns about itself by the same angle. **Turn** on the
+toolbar snaps it. **Tools › Options › Area** switches the ring off.
+
+What you are dragging stays in hand while another button turns the
+camera (hold the middle button too and swing the view), until you let go
+of the button that holds it. **Escape** drops the drag: nothing moves.
 
 **Snapping** (the toolbar's **Snap** and **Turn**):
 - **Snap** moves objects to a grid of 0.25 to 5 m as you drag, place or

@@ -29,6 +29,9 @@ generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
   of that size, and an arrow the way what spawns there faces.
 - **Show merchants as $ signs**: the game's marker for a merchant, rather
   than an arrow along its facing.
+- **Show the turning ring around selected objects**: the ring that
+  turns the selection when dragged round (see [Areas](04-areas.md)). On
+  by default.
 - **Show Door Orientation Arrows**.
 
 ## General

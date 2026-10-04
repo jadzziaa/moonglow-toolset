@@ -71,20 +71,22 @@ pub(crate) fn input(
         return false;
     }
     let (command, shift) = ui.input(|i| (i.modifiers.command, i.modifiers.shift));
-    if response.drag_started_by(egui::PointerButton::Primary) && !command {
+    if response.drag_started_by(egui::PointerButton::Primary) && view.tile_box.is_none() && !command
+    {
         let from = ui.input(|i| i.pointer.press_origin()).unwrap_or_default();
         view.tile_box = Some((from, from));
     }
     if let Some((from, _)) = view.tile_box {
-        if let Some(now) = response.interact_pointer_pos() {
+        // (Until the left button is let go, whatever the others do.)
+        let held = view.held;
+        if let Some(now) = held.pos() {
             view.tile_box = Some((from, now));
         }
-        if response.drag_stopped() {
+        if held.cancelled() {
             view.tile_box = None;
-            let (a, b) = (
-                tile_at(view, from),
-                response.interact_pointer_pos().and_then(|p| tile_at(view, p)),
-            );
+        } else if !held.by(egui::PointerButton::Primary) {
+            view.tile_box = None;
+            let (a, b) = (tile_at(view, from), held.pos().and_then(|p| tile_at(view, p)));
             if let (Some(a), Some(b)) = (a, b) {
                 view.tile_selection.clear();
                 for y in a.1.min(b.1)..=a.1.max(b.1) {

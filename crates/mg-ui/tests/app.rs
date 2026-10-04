@@ -6706,6 +6706,138 @@ fn a_right_drag_turns_the_camera_and_w_a_s_d_fly_while_held() {
     assert!(h.query_by_label("Properties").is_none(), "no context menu after a drag");
 }
 
+/// An object held with the left button stays in hand while the middle
+/// button swings the camera, and after that button is let go.
+#[test]
+fn a_held_object_stays_in_hand_through_a_camera_swing() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("held-swing") else { return };
+    let orbit = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap();
+    let (x0, y0, _) = waypoint(&mut h, area, 0).unwrap();
+    let none = egui::Modifiers::NONE;
+    let button = |h: &Harness<'_, Moonglow>, pos, button, pressed| {
+        h.event(egui::Event::PointerButton { pos, button, pressed, modifiers: none });
+    };
+    let (left, middle) = (egui::PointerButton::Primary, egui::PointerButton::Middle);
+    let mut at = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    button(&h, at, left, true);
+    h.run_steps(1);
+    for _ in 0..4 {
+        at += egui::vec2(6.0, 0.0);
+        h.event(egui::Event::PointerMoved(at));
+        h.run_steps(1);
+    }
+    // The middle button too: a hard swing, to and fro.
+    let before = orbit(&h);
+    button(&h, at, middle, true);
+    h.run_steps(1);
+    for step in [egui::vec2(90.0, -40.0), egui::vec2(120.0, -60.0), egui::vec2(-150.0, 70.0)] {
+        at += step;
+        h.event(egui::Event::PointerMoved(at));
+        h.run_steps(1);
+    }
+    assert!((orbit(&h).yaw - before.yaw).abs() > 0.3, "the camera swung");
+    button(&h, at, middle, false);
+    h.run_steps(2);
+    assert_eq!(waypoint(&mut h, area, 0).map(|w| (w.0, w.1)), Some((x0, y0)), "still held");
+    // Still in hand: it goes on following the pointer, and is put down
+    // under it when the left button is let go.
+    let swung = orbit(&h);
+    at += egui::vec2(-30.0, 20.0);
+    h.event(egui::Event::PointerMoved(at));
+    h.run_steps(1);
+    assert_eq!(orbit(&h).yaw, swung.yaw, "the camera is let go");
+    button(&h, at, left, false);
+    h.run_steps(3);
+    let (x, y, _) = waypoint(&mut h, area, 0).unwrap();
+    let view = &h.state().area_views[&area];
+    let model = view.model.as_ref().unwrap();
+    let z = model.objects.iter().find(|o| o.index == 0).unwrap().position.z;
+    let shown = view.screen_pos(Vec3::new(x, y, z)).expect("in view");
+    assert!((shown - at).length() < 3.0, "put down at {shown:?}, the pointer at {at:?}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(waypoint(&mut h, area, 0).map(|w| (w.0, w.1)), Some((x0, y0)), "one move");
+}
+
+/// The ring around a selected object: taken anywhere on it (or just off
+/// it) and led round, it turns the object with the pointer, as one Rotate.
+#[test]
+fn the_turning_ring_spins_the_selection() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("turn-ring") else { return };
+    let facing = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let w = &git.root.list("WaypointList").unwrap()[0];
+        w.float("YOrientation").unwrap().atan2(w.float("XOrientation").unwrap())
+    };
+    let none = egui::Modifiers::NONE;
+    let on = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(on);
+    press(&h, on, true, none);
+    press(&h, on, false, none);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+
+    // A place on the ring, away from where the waypoint faces.
+    let before = facing(&mut h);
+    let view = &h.state().area_views[&area];
+    let pivot =
+        view.model.as_ref().unwrap().objects.iter().find(|o| o.index == 0).unwrap().position;
+    let eye = view.orbit.unwrap().camera().eye;
+    let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+    // (A little outside its line.)
+    let ring = |a: f32| pivot + Vec3::new(a.cos(), a.sin(), 0.0) * radius * 1.06;
+    let from = before + 2.0;
+    let handle = screen(&h, area, ring(from));
+    // A click on it keeps the selection.
+    h.hover_at(handle);
+    press(&h, handle, true, none);
+    press(&h, handle, false, none);
+    h.run_steps(2);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 0)]);
+
+    // Led a quarter of the way round: the waypoint faces there.
+    let quarter = std::f32::consts::FRAC_PI_2;
+    press(&h, handle, true, none);
+    let mut at = handle;
+    for k in 1..=6 {
+        at = screen(&h, area, ring(from + quarter * k as f32 / 6.0));
+        h.hover_at(at);
+    }
+    h.run_steps(1);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-turn-ring").join("turn_ring.png")).unwrap();
+    press(&h, at, false, none);
+    h.run_steps(3);
+    let after = facing(&mut h);
+    let turned = (after - before).rem_euclid(std::f32::consts::TAU);
+    assert!((turned - quarter).abs() < 0.03, "turned {turned} from {before} to {after}");
+    assert_eq!(waypoint(&mut h, area, 0).map(|w| (w.0, w.1)), Some((20.0, 20.0)), "in place");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Rotate"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!((facing(&mut h) - before).abs() < 1e-4, "one undo");
+
+    // Switched off in Options › Area: the same drag turns nothing.
+    h.state_mut().settings.no_turn_ring = true;
+    h.run_steps(2);
+    h.hover_at(handle);
+    press(&h, handle, true, none);
+    for k in 1..=6 {
+        at = screen(&h, area, ring(from + quarter * k as f32 / 6.0));
+        h.hover_at(at);
+    }
+    press(&h, at, false, none);
+    h.run_steps(3);
+    assert!((facing(&mut h) - before).abs() < 1e-4, "no ring, no turn");
+}
+
 #[test]
 fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     use glam::Vec3;

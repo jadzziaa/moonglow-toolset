@@ -85,6 +85,58 @@ pub struct ObjectClip {
     pub anchor: Vec3,
 }
 
+/// The press the view has. egui ends a widget's drag when any button is
+/// let go, so the release of a second button (the middle one's, after a
+/// swing of the camera) would end what the first is doing: here a press
+/// goes on until every button is up.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Held {
+    on: bool,
+    /// The left, right and middle buttons.
+    down: [bool; 3],
+    /// How far the pointer moved this frame.
+    delta: egui::Vec2,
+    pos: Option<Pos2>,
+    /// Escape ended it: what was being done is dropped.
+    cancelled: bool,
+}
+
+impl Held {
+    fn read(ui: &egui::Ui, response: &egui::Response, was: Held) -> Held {
+        use egui::PointerButton::{Middle, Primary, Secondary};
+        ui.input(|i| {
+            let escape = i.key_pressed(egui::Key::Escape);
+            let on = response.dragged() || (was.on && i.pointer.any_down() && !escape);
+            Held {
+                on,
+                down: [Primary, Secondary, Middle].map(|b| on && i.pointer.button_down(b)),
+                delta: if on { i.pointer.delta() } else { egui::Vec2::ZERO },
+                pos: i.pointer.latest_pos(),
+                cancelled: was.on && escape,
+            }
+        })
+    }
+
+    /// The press goes on with `button` down.
+    pub(crate) fn by(&self, button: egui::PointerButton) -> bool {
+        match button {
+            egui::PointerButton::Primary => self.down[0],
+            egui::PointerButton::Secondary => self.down[1],
+            egui::PointerButton::Middle => self.down[2],
+            _ => false,
+        }
+    }
+
+    /// Where the pointer is.
+    pub(crate) fn pos(&self) -> Option<Pos2> {
+        self.pos
+    }
+
+    pub(crate) fn cancelled(&self) -> bool {
+        self.cancelled
+    }
+}
+
 /// What a drag does.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Drag {
@@ -93,11 +145,44 @@ enum Drag {
     Move { from: Vec3, offset: Vec2 },
     /// Turns each selected object about itself.
     Turn { angle: f32 },
+    /// Turns them as the ring is led around `pivot`: by the
+    /// angle the pointer has gone round it since `grip`.
+    Spin { pivot: Vec3, grip: f32, angle: f32 },
     /// Raises or lowers the selection (not creatures: they stand on the
     /// ground).
     Lift { by: f32 },
     /// Selects what is inside the box.
     Box { from: Pos2, to: Pos2 },
+}
+
+/// The ring around the selection for turning it: taken anywhere on it and
+/// led round with the pointer.
+#[derive(Debug, Clone, Copy)]
+struct TurnRing {
+    /// The object's place: the ring lies level around it.
+    pivot: Vec3,
+    radius: f32,
+    /// The way the object faces: a mark on the ring is there.
+    facing: f32,
+}
+
+/// How near the ring's line the pointer takes it, points: it is a thin
+/// target otherwise.
+const RING_REACH: f32 = 11.5;
+
+/// The straight pieces the ring is drawn (and taken) as.
+const RING_SEGMENTS: usize = 48;
+
+impl TurnRing {
+    fn point(&self, angle: f32) -> Vec3 {
+        self.pivot + Vec3::new(angle.cos(), angle.sin(), 0.0) * self.radius
+    }
+
+    /// The ends of its `k`th piece.
+    fn segment(&self, k: usize) -> (Vec3, Vec3) {
+        let at = |k: usize| self.point(std::f32::consts::TAU * k as f32 / RING_SEGMENTS as f32);
+        (at(k), at(k + 1))
+    }
 }
 
 /// A brush cursor's outlines (their points on the ground) and colours.
@@ -166,6 +251,10 @@ pub struct AreaView {
     pub show: [bool; 9],
     pub show_start: bool,
     drag: Option<Drag>,
+    /// The press on the view, as of this frame.
+    pub(crate) held: Held,
+    /// Options › Area: the turning ring shows around the selection.
+    pub turn_ring: bool,
     /// The outline being drawn for a trigger or encounter.
     pub outline: Vec<Vec3>,
     /// The copied objects follow the pointer, to be placed with a click.
@@ -263,6 +352,8 @@ impl AreaView {
             show: [true; 9],
             show_start: true,
             drag: None,
+            held: Held::default(),
+            turn_ring: true,
             outline: Vec::new(),
             pasting: false,
             ghost: None,
@@ -393,12 +484,57 @@ impl AreaView {
         xy.extend(z)
     }
 
+    /// The ring for turning the selection, around the first selected object
+    /// that turns (as `model` has it): about the same size on screen
+    /// however far the camera is.
+    fn turn_ring(&self, model: &AreaModel) -> Option<TurnRing> {
+        let camera = self.camera().filter(|_| self.turn_ring)?;
+        let o = self
+            .selection
+            .iter()
+            .filter_map(|&(k, i)| model.objects.iter().find(|o| o.kind == k && o.index == i))
+            .find(|o| turns(o.kind) && self.show[o.kind.index()] && !o.locked)?;
+        let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
+        Some(TurnRing { pivot: o.position, radius, facing: o.facing() })
+    }
+
+    /// The ring, when `pos` is on its line (or within [`RING_REACH`] of it).
+    fn ring_at(&self, pos: Pos2) -> Option<TurnRing> {
+        let ring = self.turn_ring(self.model.as_ref()?)?;
+        self.on_ring(&ring, pos).then_some(ring)
+    }
+
+    fn on_ring(&self, ring: &TurnRing, pos: Pos2) -> bool {
+        (0..RING_SEGMENTS).any(|k| {
+            let (a, b) = ring.segment(k);
+            let (Some(a), Some(b)) = (self.screen_pos(a), self.screen_pos(b)) else { return false };
+            // The nearest point of the piece.
+            let (ab, ap) = (b - a, pos - a);
+            let t = if ab.length_sq() > 0.0 {
+                (ap.dot(ab) / ab.length_sq()).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            (a + ab * t).distance(pos) <= RING_REACH
+        })
+    }
+
+    /// The angle around `pivot` of the point under `pos` (on the level
+    /// plane through it).
+    fn angle_about(&self, pivot: Vec3, pos: Pos2) -> Option<f32> {
+        let d = self.ray(pos)?.at_height(pivot.z)? - pivot;
+        (d.truncate().length() > 1e-3).then(|| d.y.atan2(d.x))
+    }
+
     /// Where each selected object stands and turns with the drag applied.
     fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
         let Some(model) = &self.model else { return Vec::new() };
         let Some(mut drag) = self.drag.filter(|d| !matches!(d, Drag::Box { .. })) else {
             return Vec::new();
         };
+        if let Drag::Spin { angle, .. } = drag {
+            drag = Drag::Turn { angle };
+        }
         // Snapping moves and turns the first selected object to the grid or
         // angle; the others keep their places and turns relative to it.
         let first = self.selection.first().and_then(|&(k, i)| self.object_at(k, i));
@@ -422,9 +558,8 @@ impl AreaView {
                 let o = &model.objects[i];
                 match drag {
                     Drag::Move { offset, .. } => (i, self.moved(o, offset), o.rotation),
-                    Drag::Turn { angle } => {
-                        let turns = !o.kind.has_outline() && o.kind != ObjectKind::Sound;
-                        (i, o.position, if turns { o.rotation + angle } else { o.rotation })
+                    Drag::Turn { angle } | Drag::Spin { angle, .. } => {
+                        (i, o.position, if turns(o.kind) { o.rotation + angle } else { o.rotation })
                     }
                     Drag::Lift { by } => {
                         let lifts = o.kind != ObjectKind::Creature && !o.kind.has_outline();
@@ -756,6 +891,7 @@ fn viewport(
     view: &mut AreaView,
     start: Option<(Vec3, f32)>,
 ) {
+    view.turn_ring = !app.settings.no_turn_ring;
     if let Some(scene) = view.scene.as_mut() {
         scene.merchant_signs = app.settings.merchant_signs;
         scene.spawn_markers = !app.settings.no_spawn_markers;
@@ -1223,6 +1359,40 @@ fn overlays(
             );
         }
     }
+    // The ring for turning the selection: brighter under the pointer and
+    // while it is led round, a mark on it the way the object faces.
+    if !matches!(view.drag, Some(Drag::Box { .. } | Drag::Move { .. } | Drag::Lift { .. }))
+        && let Some(ring) = view.turn_ring(shown)
+    {
+        let spinning = matches!(view.drag, Some(Drag::Spin { .. }));
+        let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+        let lit = spinning || pointer.is_some_and(|p| view.on_ring(&ring, p));
+        let color = Color32::from_rgb(255, 170, 60);
+        let stroke = if lit {
+            Stroke::new(2.5, Color32::from_rgb(255, 225, 150))
+        } else {
+            Stroke::new(1.5, color.gamma_multiply(0.8))
+        };
+        for k in 0..RING_SEGMENTS {
+            let (a, b) = ring.segment(k);
+            line(a, b, stroke);
+        }
+        let ahead = ring.point(ring.facing);
+        line(ring.pivot, ahead, Stroke::new(1.0, stroke.color));
+        if let Some(c) = at(ahead) {
+            painter.circle_filled(c, 3.5, stroke.color);
+            if spinning {
+                let degrees = ring.facing.to_degrees().rem_euclid(360.0);
+                painter.text(
+                    c + egui::vec2(10.0, -10.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    format!("{degrees:.0}°"),
+                    egui::FontId::proportional(13.0),
+                    Color32::WHITE,
+                );
+            }
+        }
+    }
     if let Some(Drag::Box { from, to }) = view.drag {
         let r = Rect::from_two_pos(from, to);
         painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::YELLOW), egui::StrokeKind::Inside);
@@ -1259,6 +1429,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // Painting tiles, Shift is the brush's (a drag's rectangle or outline):
     // the camera moves as it does without it.
     let painting = crate::terrain_mode::active(app, view).is_some();
+    view.held = Held::read(ui, response, view.held);
     camera_input(ui, view, response, shift && !painting, command, &app.keymap);
     if let Some(dragged) = response.dnd_release_payload::<crate::palette_view::Dragged>() {
         drop_blueprint(app, view, response, dragged.0);
@@ -1406,9 +1577,10 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         view.outline.clear();
     }
 
-    // Selection.
+    // Selection. (A click on the turning ring leaves it be.)
     if response.clicked()
         && let Some(pos) = response.interact_pointer_pos()
+        && view.ring_at(pos).is_none()
     {
         let hit = view.pick(pos).and_then(|i| {
             let o = &view.model.as_ref()?.objects[i];
@@ -1451,14 +1623,25 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     response.context_menu(|ui| context_menu(app, view, ui));
 
     // Moving, turning, raising; selecting by a box. A drag starts once the
-    // pointer has moved: pick where it was pressed.
+    // pointer has moved: pick where it was pressed. It goes on until its
+    // own button is let go, whatever another does meanwhile (the middle
+    // one, swinging the camera).
+    let held = view.held;
     let origin = ui.input(|i| i.pointer.press_origin());
     if response.drag_started_by(egui::PointerButton::Primary)
+        && view.drag.is_none()
         && !command
         && let Some(pos) = origin
     {
         let hit = view.pick(pos);
-        view.drag = if alt {
+        let handle = view.ring_at(pos).filter(|_| !alt);
+        view.drag = if let Some(ring) = handle {
+            view.angle_about(ring.pivot, pos).map(|grip| Drag::Spin {
+                pivot: ring.pivot,
+                grip,
+                angle: 0.0,
+            })
+        } else if alt {
             (!view.selection.is_empty()).then_some(Drag::Lift { by: 0.0 })
         } else if let Some(i) = hit {
             let o = view.model.as_ref().map(|m| m.objects[i].clone()).expect("picked");
@@ -1471,34 +1654,51 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         };
     }
     if response.drag_started_by(egui::PointerButton::Secondary)
+        && view.drag.is_none()
         && shift
         && !command
         && !view.selection.is_empty()
     {
         view.drag = Some(Drag::Turn { angle: 0.0 });
     }
-    let pointer = response.interact_pointer_pos();
+    let pointer = held.pos;
+    let button = match view.drag {
+        Some(Drag::Turn { .. }) => egui::PointerButton::Secondary,
+        _ => egui::PointerButton::Primary,
+    };
     match view.drag {
-        Some(Drag::Move { from, .. }) if response.dragged_by(egui::PointerButton::Primary) => {
+        Some(Drag::Move { from, .. }) if held.by(button) => {
             if let Some(now) = pointer.and_then(|p| view.ground_at(p, from.z)) {
                 view.drag = Some(Drag::Move { from, offset: (now - from).truncate() });
             }
         }
-        Some(Drag::Lift { by }) if response.dragged_by(egui::PointerButton::Primary) => {
+        Some(Drag::Lift { by }) if held.by(button) => {
             let scale = view.orbit.map_or(0.02, |o| o.distance * 0.002);
-            view.drag = Some(Drag::Lift { by: by - response.drag_delta().y * scale });
+            view.drag = Some(Drag::Lift { by: by - held.delta.y * scale });
         }
-        Some(Drag::Box { from, .. }) if response.dragged_by(egui::PointerButton::Primary) => {
+        Some(Drag::Box { from, .. }) if held.by(button) => {
             if let Some(to) = pointer {
                 view.drag = Some(Drag::Box { from, to });
             }
         }
-        Some(Drag::Turn { angle }) if response.dragged_by(egui::PointerButton::Secondary) => {
-            view.drag = Some(Drag::Turn { angle: angle - response.drag_delta().x * 0.01 });
+        Some(Drag::Spin { pivot, grip, .. }) if held.by(button) => {
+            if let Some(now) = pointer.and_then(|p| view.angle_about(pivot, p)) {
+                // The short way round from where it was taken.
+                let angle = (now - grip + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                    - std::f32::consts::PI;
+                view.drag = Some(Drag::Spin { pivot, grip, angle });
+            }
+        }
+        Some(Drag::Turn { angle }) if held.by(button) => {
+            view.drag = Some(Drag::Turn { angle: angle - held.delta.x * 0.01 });
         }
         _ => {}
     }
-    if response.drag_stopped() {
+    if held.cancelled() {
+        // Escape: nothing moves.
+        view.drag = None;
+    }
+    if !held.by(button) {
         match view.drag.take() {
             Some(Drag::Box { from, to }) => {
                 let inside = boxed(view, Rect::from_two_pos(from, to));
@@ -1515,7 +1715,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.drag = Some(drag);
                 let moved = view.dragged();
                 let label = match drag {
-                    Drag::Turn { .. } => "Rotate",
+                    Drag::Turn { .. } | Drag::Spin { .. } => "Rotate",
                     Drag::Lift { .. } => "Raise",
                     _ => "Move",
                 };
@@ -1566,23 +1766,24 @@ fn camera_input(
         ui.data_mut(|d| d.insert_temp(last, view.area));
     }
     let active = ui.data(|d| d.get_temp::<ResRef>(last)) == Some(view.area);
+    let held = view.held;
     let Some(o) = &mut view.orbit else { return };
-    let d = response.drag_delta();
+    let d = held.delta;
     // A right drag turns it too, as in most 3D views (Shift + right drag
     // turns the selection, as in Aurora; a right click is still the menu).
-    let turning = (response.dragged_by(egui::PointerButton::Middle) && !shift)
-        || (!shift && response.dragged_by(egui::PointerButton::Secondary));
+    let turning = (held.by(egui::PointerButton::Middle) && !shift)
+        || (!shift && held.by(egui::PointerButton::Secondary));
     // What a pixel is on the ground at the target.
     let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan() / rect.height().max(1.0);
-    if command && shift && response.dragged_by(egui::PointerButton::Middle) {
+    if command && shift && held.by(egui::PointerButton::Middle) {
         // Ctrl + Shift + middle drag: up and down, the view following the
         // pointer.
         raise(o, d.y * per_pixel);
     } else if turning {
         o.yaw -= d.x * 0.01;
         o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, MAX_PITCH);
-    } else if (command && response.dragged_by(egui::PointerButton::Primary))
-        || (shift && response.dragged_by(egui::PointerButton::Middle))
+    } else if (command && held.by(egui::PointerButton::Primary))
+        || (shift && held.by(egui::PointerButton::Middle))
     {
         // The ground follows the pointer.
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);

@@ -64,6 +64,7 @@ pub struct OptionsDraft {
     pub spawn_marker_size: (u8, u8),
     pub door_arrows: bool,
     pub merchant_signs: bool,
+    pub turn_ring: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
     pub dialog_pc_color: Option<[u8; 3]>,
     pub dialog_text_popup: bool,
@@ -131,6 +132,7 @@ impl OptionsDraft {
             spawn_marker_size: s.spawn_marker_size.unwrap_or(crate::area_view::SPAWN_MARKER),
             door_arrows: !s.no_door_arrows,
             merchant_signs: s.merchant_signs,
+            turn_ring: !s.no_turn_ring,
             dialog_npc_color: s.dialog_npc_color,
             dialog_pc_color: s.dialog_pc_color,
             dialog_text_popup: !s.dialog_no_text_popup,
@@ -181,6 +183,7 @@ impl OptionsDraft {
                 .then_some(self.spawn_marker_size),
             no_door_arrows: !self.door_arrows,
             merchant_signs: self.merchant_signs,
+            no_turn_ring: !self.turn_ring,
             dialog_npc_color: self.dialog_npc_color,
             dialog_pc_color: self.dialog_pc_color,
             dialog_no_text_popup: !self.dialog_text_popup,
@@ -488,6 +491,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 });
                             });
                             ui.checkbox(&mut draft.door_arrows, "Show Door Orientation Arrows");
+                            ui.checkbox(
+                                &mut draft.turn_ring,
+                                "Show the turning ring around selected objects",
+                            )
+                            .on_hover_text(
+                                "A ring around the selection: drag it round to turn the objects",
+                            );
                             ui.checkbox(&mut draft.merchant_signs, "Show merchants as $ signs")
                                 .on_hover_text(
                                     "The game's marker for a merchant, as Aurora shows them, \
@@ -868,6 +878,7 @@ mod tests {
         let mut d = OptionsDraft::from_settings(&s);
         assert!(d.spawn_markers && d.door_arrows, "on by default, as in Aurora");
         assert!(!d.merchant_signs, "merchants are arrows unless asked");
+        assert!(d.turn_ring, "the turning ring shows unless switched off");
         assert_eq!(d.area_background, None, "the fog color by default");
         (d.spawn_markers, d.area_background) = (false, Some([192, 192, 192]));
         let t = d.apply(&s);
