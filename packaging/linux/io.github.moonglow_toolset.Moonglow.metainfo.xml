@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.2.0" date="2026-10-03">
+      <description>
+        <p>From builders' reviews: the fields view names what a number stands
+        for (an area's music, a creature's feats); the module tree lists
+        blueprints by name and makes new ones from its menus; feats and
+        spells are found by category; special abilities are uses of a spell;
+        a creature's model shows in its Appearance page; encounters' spawn
+        points show their facing; a light theme and an interface size.</p>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-10-03">
       <description>
         <p>Files out of the toolset: To Scratch in the script editor (the
