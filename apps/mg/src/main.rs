@@ -225,6 +225,13 @@ enum Cmd {
         /// A scripting variable to delete from each area.
         #[arg(long)]
         remove_var: Vec<String>,
+        /// Make each area's placeables static, where nothing is lost by
+        /// it: not those that are Useable, are tilted, scaled or moved by
+        /// a visual transform, or have a script, a conversation, a trap,
+        /// an inventory or an animation switched on. The game loads and
+        /// draws static placeables more cheaply.
+        #[arg(long)]
+        static_placeables: bool,
         /// Change every area of the module (needed when no area is named
         /// and no filter given).
         #[arg(long)]
@@ -1031,6 +1038,7 @@ fn run(cli: &Cli) -> Result<Output> {
             sets,
             vars,
             remove_var,
+            static_placeables,
             all,
             dry_run,
         } => {
@@ -1055,6 +1063,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 changes.push(Change::parse_var(v).map_err(anyhow::Error::msg)?);
             }
             changes.extend(remove_var.iter().cloned().map(Change::RemoveVar));
+            if *static_placeables {
+                changes.push(Change::StaticPlaceables);
+            }
             let mut m = Module::open(module)?;
             let listed = areas::list(&m);
             for a in &filter.only {

@@ -111,3 +111,47 @@ fn areas_are_listed_and_changed_together() {
     assert_eq!(json["changes"][0]["field"], "Underground");
     assert_eq!(are("inn").root.integer("Flags"), Some(0x3));
 }
+
+/// `--static-placeables`: the placeables that lose nothing by it are made
+/// static; a dry run changes nothing.
+#[test]
+fn placeables_are_made_static_in_the_areas_chosen() {
+    let dir = mg_testkit::scratch_dir("mg-areas-static");
+    let path = dir.join("caves.mod");
+    module(&path);
+    let git_key = key("inn", ResType::GIT);
+    let mut m = Module::open(&path).unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let placeable = |tag: &str, useable: u8| {
+        let mut p = Struct::new(9);
+        p.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        p.set("Static", Value::Byte(0));
+        p.set("Useable", Value::Byte(useable));
+        p
+    };
+    git.root.set("Placeable List", Value::List(vec![placeable("ROCK", 0), placeable("CHEST", 1)]));
+    m.set_gff(git_key, &git).unwrap();
+    m.save().unwrap();
+    let run = |args: &[&str]| {
+        let out =
+            Command::new(env!("CARGO_BIN_EXE_mg")).arg("areas").arg(&path).args(args).output();
+        let out = out.unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.success(), text(&out.stdout), text(&out.stderr))
+    };
+    let fixed = || -> Vec<i64> {
+        let git = Module::open(&path).unwrap().gff(&git_key).unwrap().unwrap();
+        let list = git.root.list("Placeable List").unwrap();
+        list.iter().map(|p| p.integer("Static").unwrap()).collect()
+    };
+
+    let (ok, out, err) = run(&["--all", "--static-placeables", "--dry-run"]);
+    assert!(ok, "{err}");
+    assert!(out.contains("inn\tplaceable 0 ROCK Static\t0 -> 1"), "{out}");
+    assert!(!out.contains("CHEST"), "{out}");
+    assert_eq!(fixed(), [0, 0], "a dry run changes nothing");
+
+    let (ok, _, err) = run(&["--all", "--static-placeables"]);
+    assert!(ok, "{err}");
+    assert_eq!(fixed(), [1, 0], "the Useable chest stays dynamic");
+}

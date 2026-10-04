@@ -7095,6 +7095,81 @@ fn a_module_opens_on_the_area_opened_last_in_it() {
     }
 }
 
+/// Make Placeables Static: those that lose nothing by it, as one command.
+#[test]
+fn an_area_s_placeables_are_made_static_together() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("static-placeables") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        // Three chests: plain, Useable, and tilted.
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let mut edits = Vec::new();
+        for (index, useable) in [(0, 0), (1, 1), (2, 0)] {
+            let at = Placement { position: [10.0 + 5.0 * index as f32, 20.0, 0.0], rotation: 0.0 };
+            let mut item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+            for (label, value) in [("Static", 0), ("Useable", useable), ("HasInventory", 0)] {
+                item.set(label, mg_gff::Value::Byte(value));
+            }
+            // (The blueprint's scripts would keep it dynamic.)
+            let scripts: Vec<String> = item
+                .fields
+                .iter()
+                .filter(|f| matches!(f.value, mg_gff::Value::ResRef(_)))
+                .map(|f| f.label.to_string())
+                .filter(|l| l.starts_with("On"))
+                .collect();
+            for label in scripts {
+                item.set(&label, mg_gff::Value::resref(ResRef::EMPTY));
+            }
+            item.set("Conversation", mg_gff::Value::resref(ResRef::EMPTY));
+            item.set("AnimationState", mg_gff::Value::Byte(0));
+            item.set("TrapFlag", mg_gff::Value::Byte(0));
+            edits.push(mg_edit::Edit::InsertItem {
+                key: git_key,
+                path: mg_edit::GffPath::root(),
+                list: "Placeable List".into(),
+                index,
+                item,
+            });
+        }
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let s = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[2].clone();
+        let game = h.state().game.as_deref().unwrap();
+        let o = mg_area::AreaObject::read(game, mg_area::ObjectKind::Placeable, 2, &s);
+        let tilt = mg_area::VisualTransform { rotate: glam::Vec3::X * 20.0, ..Default::default() };
+        let edits = mg_area::edit::visual_transform_edits(git_key, &o, &s, tilt);
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tilt", edits)));
+    }
+    h.run_steps(3);
+    let fixed = |h: &mut Harness<'_, Moonglow>| -> Vec<i64> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let list = git.root.list("Placeable List").unwrap();
+        list.iter().map(|p| p.integer("Static").unwrap()).collect()
+    };
+    assert_eq!(fixed(&mut h), [0, 0, 0]);
+    h.state_mut().actions.push(mg_ui::Action::StaticPlaceables(vec![area]));
+    h.run_steps(3);
+    assert_eq!(fixed(&mut h), [1, 0, 0], "the Useable and the tilted ones stay dynamic");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Make Placeables Static"));
+    let said = &h.state().log.entries.last().unwrap().1;
+    assert!(said.starts_with("Made 1 placeable static in 1 area"), "{said}");
+    assert!(said.contains("1 Useable, 1 with a visual transform"), "{said}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(fixed(&mut h), [0, 0, 0], "one undo");
+}
+
 #[test]
 fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     use glam::Vec3;

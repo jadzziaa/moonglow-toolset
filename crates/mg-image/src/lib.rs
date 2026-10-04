@@ -4,7 +4,8 @@
 //! Every image keeps the game's row order: the first row is the bottom of
 //! the picture, which is texture coordinate v = 0. That is how TGA (with its
 //! default bottom-left origin) and DDS store their rows, and the game uploads
-//! them as stored; only top-left-origin TGAs are flipped. [`Rgba::top_down`]
+//! them as stored, a TGA that declares a top-left origin too (the game
+//! ignores that: `client_minimap.rs`). [`Rgba::top_down`]
 //! gives the picture the other way up for display.
 //!
 //! DDS data stays compressed ([`Texture::mips`]) for the GPU;

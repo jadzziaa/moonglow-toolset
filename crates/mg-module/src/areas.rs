@@ -117,6 +117,9 @@ pub enum Change {
     Var { name: String, kind: Option<u32>, value: String },
     /// A scripting variable to delete.
     RemoveVar(String),
+    /// Makes the area's placeables static where nothing is lost by it
+    /// ([`static_plan`]).
+    StaticPlaceables,
 }
 
 impl Change {
@@ -146,6 +149,72 @@ impl Change {
         }
         Ok(Change::Var { name: name.trim().into(), kind, value: value.into() })
     }
+}
+
+/// Which of an area's placeables can be made static, and why the others
+/// are left: the game merges static placeables into the area's tiles when
+/// it loads, so they cost less to load and draw, but they can't be used,
+/// tilted or scaled, play no animations and can't be destroyed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StaticPlan {
+    /// To make static: their places in `Placeable List`.
+    pub convert: Vec<usize>,
+    /// Static already.
+    pub already: usize,
+    /// Left dynamic: Useable.
+    pub useable: usize,
+    /// Left dynamic: tilted, scaled or moved by a visual transform.
+    pub transformed: usize,
+    /// Left dynamic: with a script, a conversation, a trap or an
+    /// inventory, or switched on (its animation state).
+    pub active: usize,
+}
+
+/// Whether a placed object's visual transform (EE's `VisTransformList`,
+/// or the older `VisualTransform`) changes how its model shows.
+fn transforms(s: &Struct) -> bool {
+    const AXES: [(&str, f32); 3] = [("Scale", 1.0), ("Rotate", 0.0), ("Translate", 0.0)];
+    let changed = |get: &dyn Fn(&str) -> Option<f32>| {
+        AXES.iter().any(|(prefix, rest)| {
+            ["X", "Y", "Z"].iter().any(|a| get(&format!("{prefix}{a}")).unwrap_or(*rest) != *rest)
+        })
+    };
+    let listed =
+        s.list("VisTransformList").unwrap_or(&[]).iter().any(|entry| {
+            changed(&|label: &str| entry.child(label).and_then(|c| c.float("ValueTo")))
+        });
+    listed || s.child("VisualTransform").is_some_and(|v| changed(&|label: &str| v.float(label)))
+}
+
+/// What making an area's placeables static would do (`git`: the area's
+/// GIT root).
+pub fn static_plan(git: &Struct) -> StaticPlan {
+    let mut plan = StaticPlan::default();
+    let on = |s: &Struct, label: &str| s.integer(label).unwrap_or(0) != 0;
+    for (i, p) in git.list("Placeable List").unwrap_or(&[]).iter().enumerate() {
+        let named = |label: &str| p.resref(label).is_some_and(|r| !r.is_empty());
+        let scripted = p.fields.iter().any(|f| {
+            let empty = matches!(&f.value, Value::ResRef(r) if r.is_empty());
+            f.label.as_bytes().starts_with(b"On") && matches!(f.value, Value::ResRef(_)) && !empty
+        });
+        if on(p, "Static") {
+            plan.already += 1;
+        } else if on(p, "Useable") {
+            plan.useable += 1;
+        } else if transforms(p) {
+            plan.transformed += 1;
+        } else if scripted
+            || named("Conversation")
+            || on(p, "TrapFlag")
+            || on(p, "HasInventory")
+            || on(p, "AnimationState")
+        {
+            plan.active += 1;
+        } else {
+            plan.convert.push(i);
+        }
+    }
+    plan
 }
 
 /// What a change did to one area.
@@ -356,6 +425,26 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
                         note(format!("var {name}"), from, Some(to));
                     }
                 }
+                Change::StaticPlaceables => {
+                    let Some(git) = git.as_mut() else { continue };
+                    let plan = static_plan(&git.root);
+                    let Some(list) = git.root.list_mut("Placeable List") else { continue };
+                    for &i in &plan.convert {
+                        let p = &mut list[i];
+                        p.set("Static", Value::Byte(1));
+                        // (One that changes nothing: static placeables
+                        // have none.)
+                        p.remove("VisTransformList");
+                        p.remove("VisualTransform");
+                        let tag = String::from_utf8_lossy(p.string("Tag").unwrap_or_default());
+                        note(
+                            format!("placeable {i} {tag} Static"),
+                            Some("0".into()),
+                            Some("1".into()),
+                        );
+                        git_changed = true;
+                    }
+                }
                 Change::RemoveVar(name) => {
                     let mut vars = are.root.list("VarTable").unwrap_or(&[]).to_vec();
                     let at = vars.iter().position(|v| v.string("Name") == Some(name.as_bytes()));
@@ -498,6 +587,69 @@ mod tests {
         assert_eq!((fog[0].from.as_deref(), fog[0].to.as_deref()), (Some("2"), Some("9")));
         // Again: nothing to change.
         assert!(apply(&mut m, &caves, &changes).unwrap().is_empty());
+    }
+
+    /// A placed placeable with these fields.
+    fn placeable(tag: &str, fields: &[(&str, Value)]) -> Struct {
+        let mut p = Struct::new(9);
+        p.set("Tag", Value::String(tag.as_bytes().to_vec()));
+        p.set("Static", Value::Byte(0));
+        p.set("Useable", Value::Byte(0));
+        p.set("OnHeartbeat", Value::resref(ResRef::EMPTY));
+        for (label, value) in fields {
+            p.set(label, value.clone());
+        }
+        p
+    }
+
+    /// A `VisTransformList` whose X rotation is `degrees`.
+    fn tilt(degrees: f32) -> Value {
+        let mut entry = Struct::new(6);
+        for (label, rest) in [("ScaleX", 1.0), ("RotateX", degrees), ("TranslateZ", 0.0)] {
+            let mut axis = Struct::new(0);
+            axis.set("ValueTo", Value::Float(rest));
+            entry.set(label, Value::Struct(axis));
+        }
+        Value::List(vec![entry])
+    }
+
+    #[test]
+    fn placeables_are_made_static_where_nothing_is_lost() {
+        let mut m = module();
+        let key = ResKey::new(r("inn"), ResType::GIT);
+        let mut git = m.gff(&key).unwrap().unwrap();
+        let script = Value::resref(r("pulse"));
+        git.root.set(
+            "Placeable List",
+            Value::List(vec![
+                placeable("ROCK", &[]),
+                placeable("WALL", &[("Static", Value::Byte(1))]),
+                placeable("CHEST", &[("Useable", Value::Byte(1))]),
+                placeable("LEANING", &[("VisTransformList", tilt(30.0))]),
+                placeable("UPRIGHT", &[("VisTransformList", tilt(0.0))]),
+                placeable("PULSING", &[("OnHeartbeat", script)]),
+                placeable("TALKER", &[("Conversation", Value::resref(r("hello")))]),
+                placeable("TORCH", &[("AnimationState", Value::Byte(1))]),
+            ]),
+        );
+        m.set_gff(key, &git).unwrap();
+        let plan = static_plan(&git.root);
+        assert_eq!(plan.convert, [0, 4]);
+        assert_eq!((plan.already, plan.useable, plan.transformed, plan.active), (1, 1, 1, 3));
+
+        let areas = [r("cave1"), r("inn")];
+        let done = apply(&mut m, &areas, &[Change::StaticPlaceables]).unwrap();
+        let what: Vec<&str> = done.iter().map(|c| c.what.as_str()).collect();
+        assert_eq!(what, ["placeable 0 ROCK Static", "placeable 4 UPRIGHT Static"]);
+        assert!(done.iter().all(|c| c.area == r("inn")), "the cave has no placeables");
+        let git = m.gff(&key).unwrap().unwrap();
+        let list = git.root.list("Placeable List").unwrap();
+        let fixed: Vec<i64> = list.iter().map(|p| p.integer("Static").unwrap()).collect();
+        assert_eq!(fixed, [1, 1, 0, 0, 1, 0, 0, 0]);
+        assert!(!list[4].contains("VisTransformList"), "a static placeable has none");
+        assert!(list[3].contains("VisTransformList"), "the leaning one keeps its tilt");
+        // Again: nothing left to do.
+        assert_eq!(apply(&mut m, &areas, &[Change::StaticPlaceables]).unwrap(), []);
     }
 
     #[test]

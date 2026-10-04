@@ -33,6 +33,9 @@ pub struct View {
     pub lit: bool,
     /// Which kinds of object are drawn, by [`ObjectKind::index`].
     pub show: [bool; 9],
+    /// Placed objects play their animations (a creature's idle loop);
+    /// else they hold still, as at their start. Tiles animate either way.
+    pub animate: bool,
 }
 
 impl View {
@@ -45,6 +48,7 @@ impl View {
             fog: false,
             lit: true,
             show: [true; 9],
+            animate: true,
         }
     }
 
@@ -370,7 +374,8 @@ impl AreaScene {
             // A waypoint's flag, a merchant's sign and a sound's speaker
             // are markers: in their own colours, unlit.
             let unlit = o.kind.is_marker();
-            let drawn = c.instances(c.idle.as_deref(), view.time, transform);
+            let time = if view.animate { view.time } else { 0.0 };
+            let drawn = c.instances(c.idle.as_deref(), time, transform);
             instances.extend(drawn.into_iter().map(|i| Instance { unlit, ..i }));
             lights.extend(c.point_lights(transform));
         }

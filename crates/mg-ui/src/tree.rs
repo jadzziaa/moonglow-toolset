@@ -11,6 +11,12 @@ use mg_rules::GameData;
 
 use crate::{Action, Moonglow, Tab};
 
+/// What Make Placeables Static does, for its menu items.
+const STATIC_TIP: &str = "Sets Static on the placeables that lose nothing by it: the game loads and \
+    draws static placeables more cheaply. Left dynamic: those that are Useable, are tilted, \
+    scaled or moved by a visual transform, or have a script, a conversation, a trap, an \
+    inventory or an animation switched on";
+
 const GROUPS: &[(&str, &[ResType])] = &[
     ("Areas", &[ResType::ARE]),
     ("Conversations", &[ResType::DLG]),
@@ -265,6 +271,13 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                             {
                                 app.actions.push(Action::ExportMinimap(k.resref));
                             }
+                            if ui
+                                .button("Make Placeables Static")
+                                .on_hover_text(STATIC_TIP)
+                                .clicked()
+                            {
+                                app.actions.push(Action::StaticPlaceables(vec![k.resref]));
+                            }
                             for t in [ResType::ARE, ResType::GIT] {
                                 let g = ResKey::new(k.resref, t);
                                 if ui.button(format!("Fields of {g}")).clicked() {
@@ -318,6 +331,15 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
             header.header_response.context_menu(|ui| {
                 if ui.button(label).clicked() {
                     make = Some(id);
+                }
+                if types.contains(&ResType::ARE)
+                    && ui
+                        .button("Make Placeables Static in Every Area")
+                        .on_hover_text(STATIC_TIP)
+                        .clicked()
+                {
+                    let areas = ws.module.keys_of(ResType::ARE).map(|k| k.resref).collect();
+                    app.actions.push(Action::StaticPlaceables(areas));
                 }
             });
         }

@@ -95,10 +95,10 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
             line.as_chunks_mut::<4>().0.reverse();
         }
     }
-    if descriptor & 0x20 != 0 {
-        // Top-left origin: make the bottom row first.
-        img = img.top_down();
-    }
+    // (A top-left origin, bit 5, changes nothing: the game takes the rows
+    // as stored, the first as the bottom, whatever the file declares. A
+    // picture saved top row first, as Krita saves it, shows upside down in
+    // the game, and so here: `client_minimap.rs`.)
     let has_alpha = match kind {
         Kind::True => bits == 32 || (bits == 16 && descriptor & 0x0F != 0),
         Kind::Grey => bpp == 2,
@@ -157,16 +157,17 @@ mod tests {
     }
 
     #[test]
-    fn top_left_origin_is_flipped_and_rle_decodes() {
+    fn a_top_left_origin_is_ignored_as_in_the_game_and_rle_decodes() {
         // Two rows of two pixels: a run of 2 red, then 2 raw pixels.
         let mut f = header(10, 2, 2, 32, 0x28);
         f.extend_from_slice(&[0x81, 0, 0, 255, 255]);
         f.extend_from_slice(&[0x01, 255, 0, 0, 128, 0, 255, 0, 64]);
         let img = read(&f).unwrap().to_rgba();
-        // Stored first (the top) is red; bottom-first puts it second.
-        assert_eq!(img.pixel(0, 1), [255, 0, 0, 255]);
-        assert_eq!(img.pixel(0, 0), [0, 0, 255, 128]);
-        assert_eq!(img.pixel(1, 0), [0, 255, 0, 64]);
+        // The rows as stored, the first the bottom, though the file says
+        // its first row is the top.
+        assert_eq!(img.pixel(0, 0), [255, 0, 0, 255]);
+        assert_eq!(img.pixel(0, 1), [0, 0, 255, 128]);
+        assert_eq!(img.pixel(1, 1), [0, 255, 0, 64]);
     }
 
     #[test]

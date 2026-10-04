@@ -484,7 +484,9 @@ a model's front is its +Y axis.
 The map draws each tile's `ImageMap2D` turned a quarter counter-clockwise
 per `Tile_Orientation` step, Tile_List row 0 at the bottom (south); a tile
 without a picture is black. In TGA and DDS alike the first stored row is
-the picture's bottom.
+the picture's bottom, also in a TGA that declares a top-left origin
+(descriptor bit 5): the game ignores it, so a picture saved top row
+first, as Krita saves it, shows upside down.
 
 - **Checked:** game client, `client_minimap.rs`
   `minimaps_are_laid_out_as_the_client_draws_them`.

@@ -936,6 +936,17 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             "Use the area's lighting; off, everything is evenly lit (for working in dark areas)",
         );
         ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
+        let mut animated = !app.settings.still_objects;
+        if ui
+            .toggle_value(&mut animated, "▶ Animations")
+            .on_hover_text(
+                "Creatures and other placed objects play their animations; off, they hold \
+                 still (in every area view)",
+            )
+            .changed()
+        {
+            app.settings.still_objects = !animated;
+        }
         ui.toggle_value(&mut view.grid, labelled(icons::GRID, "Grid"))
             .on_hover_text("Display Grid");
         // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
@@ -1124,8 +1135,14 @@ fn viewport(
     view.ghost_shown.clone_from(&ghost);
     // What a tile brush's click would make, under the pointer: the tiles in
     // place of those they replace.
-    let settings =
-        View { time: view.time, night: view.night, fog: view.fog, lit: view.lit, show: view.show };
+    let settings = View {
+        time: view.time,
+        night: view.night,
+        fog: view.fog,
+        lit: view.lit,
+        show: view.show,
+        animate: !app.settings.still_objects,
+    };
     let shift = ui.input(|i| i.modifiers.shift);
     let preview = crate::terrain_mode::preview(app, view, shift);
     let (preview_instances, hidden) =

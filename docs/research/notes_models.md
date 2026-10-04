@@ -1501,7 +1501,7 @@ Sources: nwn.wiki "Textures" (https://nwn.wiki/spaces/NWN1/pages/38174958/Textur
 - No colour-mapped TGAs; 5 files have a non-zero image-ID length (skip `idLength` bytes after the 18-byte header).
 - Non-power-of-two TGAs exist (44): NUI/GUI images, minimaps (mi_tss13_* 153x153, 204x204), **palettes pal_*.tga 256x176**, ssky0005 900x900, a few odd textures (pmh0_neck006 12x12, tde01_statue1 88x108). Wiki says textures "must be powers of 2" - engine evidently copes (GL NPOT); support NPOT.
 - Wiki: greyscale TGAs don't work in some PBR slots (convert to RGB). TGAs get no stored mipmaps (engine generates; fixed in 1.80.8193.6 for uncompressed).
-- Orientation: NWN textures are stored bottom-up (TGA default); OpenGL UV (0,0) = first row in memory => bottom-left TGA rows upload directly. Top-left-origin TGAs must be flipped.
+- Orientation: NWN textures are stored bottom-up (TGA default); OpenGL UV (0,0) = first row in memory => bottom-left TGA rows upload directly. ~~Top-left-origin TGAs must be flipped.~~ **Measured in the client (2026-10-04, `client_minimap.rs`): the game ignores the origin bit** and takes the rows as stored, so a top-left-origin TGA whose rows are stored top first (what Krita writes) shows upside down in the game; Moonglow does the same.
 
 ### E.4 DDS
 **BioWare DDS (6,736 of 6,737 shipped)** - no magic; 20-byte header then compressed data:

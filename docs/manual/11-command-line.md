@@ -78,7 +78,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg replace MODULE FIND WITH` | replace text in the module's names, descriptions, conversations and journal and save (`--match-case`, `--whole-word`, `--only names,journal,…`, `--dry-run` to list the strings only) |
 | `mg set MODULE NAME.EXT FIELD=VALUE…` | set fields of a resource and save: a field is a path from the resource's root (`Tag`, `/ClassList[0]/ClassLevel`) and keeps its type; `--remove FIELD`; `--dry-run` prints the change and makes none |
 | `mg apply MODULE EDITS.json` | apply a file of edits (below) and save: all of them, or none if one does not apply; `-` reads standard input; `--dry-run` only checks |
-| `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`; with `--set FIELD=VALUE`, `--var NAME=VALUE` or `--remove-var NAME`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area) |
+| `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`; with `--set FIELD=VALUE`, `--var NAME=VALUE`, `--remove-var NAME` or `--static-placeables`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area) |
 
 A module is a `.mod` archive, a module folder or a nasher project. `mg
 compile` and `mg import` write the module in place; an archive's previous
@@ -156,7 +156,13 @@ mg areas mymodule.mod --underground
 mg areas mymodule.mod --underground --set MusicDay=57 --set MusicNight=57 --dry-run
 mg areas mymodule.mod --tileset tdc01 --set SunFogAmount=8 --set SunFogColor=0x201810
 mg areas mymodule.mod cave1 cave2 --var nSpawnLevel=4 --remove-var bOld --set Natural=yes
+mg areas mymodule.mod --all --static-placeables --dry-run
 ```
+
+- **`--static-placeables`**: sets Static on each area's placeables that
+  lose nothing by it (not the Useable ones, those a visual transform
+  changes, nor those with a script, conversation, trap, inventory or
+  animation switched on); see [Areas](04-areas.md).
 
 - **`--set FIELD=VALUE`**: a field of the area's `.are` by its label
   (`SunAmbientColor`, `MoonFogAmount`, `ChanceRain`, `OnEnter`,

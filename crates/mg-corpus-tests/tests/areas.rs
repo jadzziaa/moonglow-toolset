@@ -215,3 +215,53 @@ fn sounds_show_their_markers() {
     assert!(ObjectKind::Sound.is_marker() && !ObjectKind::Sound.has_arrow());
     assert!(ObjectKind::Store.has_arrow() && ObjectKind::Waypoint.has_arrow());
 }
+
+/// The area view's Animations switch: off, a placed creature holds the
+/// pose its idle animation starts with, whatever the time.
+#[test]
+fn placed_objects_hold_still_when_not_animated() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let root = corpus!();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(3);
+    let mut m = new_module(&game, "Still", &mut rng).unwrap();
+    let tileset = ResRef::from_str("ttr01").unwrap();
+    let spec = AreaSpec { name: "Field".into(), tileset, width: 2, height: 2 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::parse("nw_bandit001", ResType::UTC).unwrap();
+    let bandit = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+    let items = |r: ResRef| {
+        Gff::read(&game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?).ok().map(|g| g.root)
+    };
+    let placing = Placing { game: &game, item: &items };
+    let at = Placement { position: [10.0, 10.0, 0.0], rotation: 0.0 };
+    let placed = instance(&placing, ResType::UTC, &bandit, at, &[]).unwrap();
+    let mut git = m.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+    git.root.set(ObjectKind::Creature.list(), mg_gff::Value::List(vec![placed]));
+    let are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+    let set = mg_area::tileset(&game, tileset).unwrap();
+    let model = AreaModel::read(&game, &are.root, &git.root, Some(&set));
+    assert_eq!(model.objects.len(), 1);
+    let loaded = AreaScene::new(&gpu, &game, &model);
+    // The poses of what is drawn where the creature stands.
+    let poses = |time: f32, animate: bool| -> Vec<Vec<glam::Mat4>> {
+        let view = View { time, animate, fog: false, ..View::of(&model) };
+        let here = glam::Vec3::new(10.0, 10.0, 0.0);
+        let scene = loaded.scene(&model, &view);
+        let stands = scene
+            .instances
+            .iter()
+            .filter(|i| i.transform.transform_point3(glam::Vec3::ZERO).distance(here) < 0.01);
+        stands.filter_map(|i| i.pose.as_deref().cloned()).collect()
+    };
+    assert!(!poses(0.0, true).is_empty(), "the creature is posed");
+    assert_ne!(poses(0.4, true), poses(1.3, true), "animated, its pose changes with the time");
+    assert_eq!(poses(0.4, false), poses(1.3, false), "still, it doesn't");
+    assert_eq!(poses(1.3, false), poses(0.0, true), "it holds its animation's start");
+}

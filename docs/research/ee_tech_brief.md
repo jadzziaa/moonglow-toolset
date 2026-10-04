@@ -622,7 +622,7 @@ Aurora's own preview menu [T]: doors Closed / Closing1/2 / Opened1/2 / Opening1/
 
 ### 5.6 Textures
 - **Lookup for a mesh texture name:** `name.mtr` first. Then image KTX > DDS > PLT > TGA *within* a location; DDS/TGA are interleaved across locations (§3). The `.txi` of the same name is always applied. A missing texture renders white.
-- **TGA:** types 2, 10 (RLE), 3 (grey), 24/32 bpp. Upload bottom-left rows as stored; flip only top-left-origin files (10 files). NPOT exists (palettes 256×176, minimaps). 789 32-bpp files declare 0 alpha bits: treat the 4th byte as alpha [I].
+- **TGA:** types 2, 10 (RLE), 3 (grey), 24/32 bpp. Upload the rows as stored, the first as the bottom; the game ignores a top-left origin (10 files declare one; measured in the client, `client_minimap.rs`). NPOT exists (palettes 256×176, minimaps). 789 32-bpp files declare 0 alpha bits: treat the 4th byte as alpha [I].
 - **BioWare DDS** (no magic):
   - header `u32 w, u32 h, u32 channels (3 = DXT1, 4 = **DXT5**), u32 top-mip size, f32 alphamean`
   - full mip chain; non-square allowed; up to 2048

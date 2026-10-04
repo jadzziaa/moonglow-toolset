@@ -48,6 +48,13 @@ pub(crate) struct LaidOut {
 }
 
 /// Underlines (wavy red, as editors mark errors) what is on a 0-based line.
+/// The room a side list's row takes beside its name: the scroll bar and
+/// the panel's and the row's margins.
+const SIDE_MARGINS: f32 = 44.0;
+
+/// The longest name the side lists open wide enough for, characters.
+const LONG_NAME: usize = 44;
+
 fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) {
     let start = if line == 0 {
         0
@@ -517,9 +524,27 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // At most half the tab, so a narrow tab keeps room for the text (and the
     // lists stay inside it).
     let half = (ui.available_width() / 2.0).max(120.0);
+    // Wide enough, to begin with, for the longest name the lists have (with
+    // the scroll bar and the margins beside it): but for the few constants
+    // longer than any function's name (`PLAYER_DEVICE_PROPERTY_…`), which
+    // would take half the window; those end in "…" until the panel is
+    // widened.
+    // (Measured: the longest few, since letters differ in width.)
+    let mut longest: Vec<&str> = symbols
+        .iter()
+        .map(|s| s.name.as_str())
+        .filter(|n| n.chars().count() <= LONG_NAME)
+        .collect();
+    longest.sort_unstable_by_key(|n| std::cmp::Reverse(n.len()));
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let widest = longest.iter().take(16).fold(0.0_f32, |widest, name| {
+        let text = (*name).to_owned();
+        let galley = ui.fonts_mut(|f| f.layout_no_wrap(text, font.clone(), egui::Color32::WHITE));
+        widest.max(galley.size().x + SIDE_MARGINS)
+    });
     egui::Panel::right(egui::Id::new(("script-side", key)))
         .resizable(true)
-        .default_size(260.0_f32.min(half))
+        .default_size(widest.max(260.0).min(half))
         .max_size(half)
         .show(ui, |ui| {
             let t = &mut app.script_tools;
@@ -546,7 +571,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     app.install.as_ref(),
                     app.settings.script_templates.as_deref(),
                 );
-                egui::ScrollArea::vertical().id_salt("templates").show(ui, |ui| {
+                // (As wide as the panel: the scroll bar stays at its edge.)
+                let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+                area.id_salt("templates").show(ui, |ui| {
                     for (name, path) in
                         templates.iter().filter(|(n, _)| n.to_ascii_lowercase().contains(&filter))
                     {
@@ -573,37 +600,36 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     })
                     .collect();
                 list.sort_by(|a, b| a.name.cmp(&b.name));
-                egui::ScrollArea::vertical().id_salt(("symbols", kind)).show_rows(
-                    ui,
-                    row,
-                    list.len(),
-                    |ui, range| {
-                        for s in &list[range] {
-                            let text = if s.custom {
-                                egui::RichText::new(&s.name).strong()
-                            } else {
-                                egui::RichText::new(&s.name)
-                            };
-                            let r = ui
-                                .selectable_label(
-                                    t.help.as_ref().is_some_and(|h| h.name == s.name),
-                                    text,
-                                )
-                                .on_hover_text(&s.signature);
-                            if r.clicked() {
-                                t.help = Some((*s).clone());
-                                t.info = InfoTab::Help;
-                            }
-                            if r.double_clicked() {
-                                insert_text = Some(if s.kind == SymbolKind::Function {
-                                    format!("{}(", s.name)
-                                } else {
-                                    s.name.clone()
-                                });
-                            }
+                let area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+                area.id_salt(("symbols", kind)).show_rows(ui, row, list.len(), |ui, range| {
+                    // (Each row as wide as the list, so that its
+                    // width doesn't change with the names in view.)
+                    ui.set_min_width(ui.available_width());
+                    for s in &list[range] {
+                        let text = if s.custom {
+                            egui::RichText::new(&s.name).strong()
+                        } else {
+                            egui::RichText::new(&s.name)
+                        };
+                        let r = ui
+                            .selectable_label(
+                                t.help.as_ref().is_some_and(|h| h.name == s.name),
+                                text,
+                            )
+                            .on_hover_text(&s.signature);
+                        if r.clicked() {
+                            t.help = Some((*s).clone());
+                            t.info = InfoTab::Help;
                         }
-                    },
-                );
+                        if r.double_clicked() {
+                            insert_text = Some(if s.kind == SymbolKind::Function {
+                                format!("{}(", s.name)
+                            } else {
+                                s.name.clone()
+                            });
+                        }
+                    }
+                });
             }
         });
 
@@ -807,6 +833,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     egui::ScrollArea::both().id_salt(("script-scroll", key)).auto_shrink([false, false]).show(
         ui,
         |ui| {
+            // The editor fills the room down to the pane under it, however
+            // short the script.
+            let room = ui.available_height();
             ui.horizontal_top(|ui| {
                 ui.add(
                     egui::Label::new(egui::RichText::new(numbers).font(palette.font()).weak())
@@ -815,7 +844,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 let out = egui::TextEdit::multiline(&mut buf.text)
                     .code_editor()
                     .desired_width(f32::INFINITY)
-                    .desired_rows(30)
+                    .desired_rows(1)
+                    .min_size(egui::vec2(0.0, room))
                     .id(editor_id(key))
                     .layouter(&mut layouter)
                     .show(ui);

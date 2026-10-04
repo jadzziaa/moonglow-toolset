@@ -128,6 +128,8 @@ pub enum Action {
     SaveTalkTable,
     /// An area's minimap, saved as a PNG.
     ExportMinimap(mg_core::ResRef),
+    /// Makes these areas' placeables static, where nothing is lost by it.
+    StaticPlaceables(Vec<mg_core::ResRef>),
     Apply(Command),
     OpenTab(Tab),
     /// Closes a tab's window (Escape over a model's window).
@@ -1319,6 +1321,7 @@ impl Moonglow {
                 talk_view::save(self);
             }
             Action::ExportMinimap(area) => self.export_minimap(area),
+            Action::StaticPlaceables(areas) => self.static_placeables(&areas),
             Action::PlacePrefab(name) => self.place_prefab(&name),
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
@@ -1787,6 +1790,61 @@ impl Moonglow {
             view.reload();
         }
         self.load_order_changed();
+    }
+
+    /// Makes the placeables of `areas` static, as one command, where
+    /// nothing is lost by it (`mg_module::areas::static_plan`: not the
+    /// Useable ones, those a visual transform changes, nor those with
+    /// scripts and the like), and says in the log what was left.
+    fn static_placeables(&mut self, areas: &[mg_core::ResRef]) {
+        let Some(ws) = self.ws.as_mut() else { return };
+        let mut edits = Vec::new();
+        let (mut made, mut within) = (0, 0);
+        let mut left = [0usize; 3];
+        for &area in areas {
+            let key = ResKey::new(area, ResType::GIT);
+            let Ok(git) = ws.doc(&key) else { continue };
+            let plan = mg_module::areas::static_plan(&git.root);
+            let list = git.root.list("Placeable List").unwrap_or(&[]);
+            for &i in &plan.convert {
+                let path = mg_edit::GffPath::root().item("Placeable List", i);
+                let set = |label: &str, value: Option<mg_gff::Value>| mg_edit::Edit::SetField {
+                    key,
+                    path: path.clone(),
+                    label: label.into(),
+                    value,
+                };
+                edits.push(set("Static", Some(mg_gff::Value::Byte(1))));
+                // (One that changes nothing: static placeables have none.)
+                for label in ["VisTransformList", "VisualTransform"] {
+                    if list[i].contains(label) {
+                        edits.push(set(label, None));
+                    }
+                }
+            }
+            made += plan.convert.len();
+            within += usize::from(!plan.convert.is_empty());
+            for (n, more) in left.iter_mut().zip([plan.useable, plan.transformed, plan.active]) {
+                *n += more;
+            }
+        }
+        let kept = format!(
+            "left dynamic: {} Useable, {} with a visual transform, {} with a script, \
+             conversation, trap, inventory or animation",
+            left[0], left[1], left[2]
+        );
+        if edits.is_empty() {
+            self.log.info(format!("No placeables to make static ({kept})"));
+            return;
+        }
+        match self.apply(Command::new("Make Placeables Static", edits)) {
+            Ok(()) => {
+                let (s, a) = (if made == 1 { "" } else { "s" }, if within == 1 { "" } else { "s" });
+                self.log
+                    .info(format!("Made {made} placeable{s} static in {within} area{a} ({kept})"));
+            }
+            Err(e) => self.log.error(e.to_string()),
+        }
     }
 
     /// Writes an area's minimap (as it is now, unsaved tiles included) to a

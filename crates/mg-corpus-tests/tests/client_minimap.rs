@@ -12,7 +12,8 @@
 //! quarter's color there must be the color of the same quarter in
 //! Moonglow's minimap (but for the quarter or two the player's arrow
 //! covers). Run once with TGA pictures and once with DDS (DXT1), whose rows
-//! are stored the other way up.
+//! are stored the other way up, and once with TGA pictures that declare a
+//! top-left origin (as Krita writes them).
 //!
 //! Needs the game, a GPU and the off-screen display; run by hand:
 //! `DISPLAY=:1 cargo test -p mg-corpus-tests --test client_minimap -- --ignored --nocapture`.
@@ -75,6 +76,19 @@ fn color_at(q: &[[u8; 3]; 4], x: u32, y: u32) -> [u8; 3] {
 fn tga(q: &[[u8; 3]; 4]) -> Vec<u8> {
     let mut out = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 16, 0, 24, 0];
     for y in 0..16 {
+        for x in 0..16 {
+            let [r, g, b] = color_at(q, x, y);
+            out.extend([b, g, r]);
+        }
+    }
+    out
+}
+
+/// The same picture as a TGA that declares a top-left origin (bit 5 of its
+/// descriptor), its rows stored top first: what Krita writes.
+fn tga_top_left(q: &[[u8; 3]; 4]) -> Vec<u8> {
+    let mut out = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16, 0, 16, 0, 24, 0x20];
+    for y in (0..16).rev() {
         for x in 0..16 {
             let [r, g, b] = color_at(q, x, y);
             out.extend([b, g, r]);
@@ -233,7 +247,9 @@ fn minimaps_are_laid_out_as_the_client_draws_them() {
     mg_testkit::gpu::hold();
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let mut failures = Vec::new();
-    for (format, restype) in [("tga", ResType::TGA), ("dds", ResType::DDS)] {
+    for (format, restype) in
+        [("tga", ResType::TGA), ("tga_top_left", ResType::TGA), ("dds", ResType::DDS)]
+    {
         let dir = scratch_dir(&format!("client_minimap_{format}"));
         let user = dir.join("user");
         std::fs::create_dir_all(user.join("override")).unwrap();
@@ -280,7 +296,11 @@ fn minimaps_are_laid_out_as_the_client_draws_them() {
             let Some(name) = t.image_map_2d.as_ref().filter(|n| !n.is_empty()) else { continue };
             let marked = name.eq_ignore_ascii_case(&picture(marker));
             let q = quarters(marked);
-            let data = if restype == ResType::TGA { tga(&q) } else { dds(&q) };
+            let data = match format {
+                "tga" => tga(&q),
+                "tga_top_left" => tga_top_left(&q),
+                _ => dds(&q),
+            };
             std::fs::write(user.join(format!("override/{}.{ext}", name.to_lowercase())), data)
                 .unwrap();
         }

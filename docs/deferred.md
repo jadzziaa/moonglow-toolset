@@ -16,6 +16,11 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Script intelligence (`mg lsp`, the script editor)
 
+- **The longest constants in the side lists:** the lists open wide
+  enough for names of up to 44 characters (every function, all but some
+  160 constants, `PLAYER_DEVICE_PROPERTY_…` and the like, of up to 67);
+  those end in "…" until the panel is widened. (S)
+
 - **Struct members:** go to definition, references and rename don't
   follow `p.nX` to the struct's declaration. (M)
 - **Incremental compiles:** Compile All recompiles everything. It could
@@ -85,6 +90,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
   sits at the window's edge. (S)
 
 ## Bulk editing
+
+- **Make Placeables Static, what it can't see:** a placeable that a
+  script destroys, animates or makes usable by its tag looks like scenery
+  and is made static; nothing scans the scripts for its tag. (M)
+- **Make Placeables Static against the game:** that static placeables
+  load and draw more cheaply is from the wiki (the client merges them
+  into the tiles' mesh); no load times were measured. (S)
+- **No way back in bulk:** there is no "make every placeable dynamic";
+  undo, or Make Dynamic one selection at a time. (S)
 
 - **Lists across several blueprints:** Edit Together leaves out the
   pages that edit lists (inventories, classes, skills, feats, spells,
@@ -399,6 +413,14 @@ a light theme. Left:
   warns. (S, needs a certificate)
 
 ## From the research notes
+
+- **TGA, right-to-left:** the game ignores a TGA's top-left origin (bit
+  5; measured in the client), and Moonglow now does. Whether it also
+  ignores right-to-left (bit 4), which Moonglow still honors, was not
+  measured; no game file sets it. (S)
+- **A custom creature's animation "off" (GitHub issue 3):** the report's
+  Mindwitness also poses differently than in Aurora and the game; not
+  reproduced without the model. (needs the files)
 
 - **Index lists against the client:** that the game draws a compiled
   mesh's index list where it has more triangles than the face list

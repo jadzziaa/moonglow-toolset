@@ -21,6 +21,9 @@ looking straight down at their middle, north up, as in Aurora.
   the tile grid. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
   farther off isn't lost in it.
+- **▶ Animations**: creatures and other placed objects play their
+  animations. Switched off, they hold still (tiles' water and flames go
+  on), in every area view; it stays as you leave it.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
 - **🔊 Sounds**, **Ambient**, **Music**: play the placed sound objects, the
@@ -317,6 +320,27 @@ ticked, shown as the first of them:
 To give every underground area the same music: Underground in the
 chooser, Tick Shown, Edit Together, then Audio. From the command line,
 `mg areas` does the same (see [Command-line tools](11-command-line.md)).
+
+## Static placeables, many at once
+
+The game merges an area's **static** placeables into its tiles when the
+area loads, so they cost less to load and draw than dynamic ones. An
+area's right-click menu in the module tree has **Make Placeables
+Static**, and the **Areas** group's has **Make Placeables Static in Every
+Area**: each sets Static on the placeables that lose nothing by it, as
+one undoable step, and the log says how many it made static and how many
+it left. Left dynamic are placeables that:
+
+- are **Useable**;
+- are tilted, scaled or moved by a visual transform (a static placeable
+  has none);
+- have a script, a conversation, a trap or an inventory, or an animation
+  switched on (a lit torch): a static placeable plays no animations and
+  can't be destroyed.
+
+One a script destroys or animates by its tag can't be told from the
+rest: make it dynamic again from its menu in the area view. From the
+command line, `mg areas --static-placeables` does the same.
 
 ## Area sounds
 

@@ -353,6 +353,36 @@ fn script_beside_the_palette_pane() {
 
 #[test]
 #[ignore]
+fn script_editor() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    m.set(ResKey::parse("hello", ResType::NSS).unwrap(), b"void main()\n{\n\n}\n".to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1700.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let script = mg_ui::Tab::Script(ResKey::parse("hello", ResType::NSS).unwrap());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(script));
+    h.state_mut().script_tools.side = mg_ui::script_tools::SideTab::Constants;
+    h.state_mut().script_tools.filter = "PROPERTY_".into();
+    h.run();
+    h.run();
+    shoot(&mut h, &dir, "script-editor");
+}
+
+#[test]
+#[ignore]
 fn creature_wizard() {
     use egui_kittest::kittest::Queryable;
     mg_testkit::gpu::hold();

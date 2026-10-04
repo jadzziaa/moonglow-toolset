@@ -41,6 +41,9 @@ pub struct Settings {
     /// The area opened last in each module (its path and the area's
     /// ResRef), most recent first: opened again with the module.
     pub last_areas: Vec<(PathBuf, String)>,
+    /// The area view's Animations switch is off: creatures and other
+    /// placed objects hold still.
+    pub still_objects: bool,
     /// Options > General: Open a module on the area opened last is off.
     pub no_last_area: bool,
     /// The plugins enabled, by id (one installed is off until it is here).

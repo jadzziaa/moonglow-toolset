@@ -151,7 +151,10 @@ fn textures_match_pillow() {
             }
             let ours = dir.join(format!("{}.{}.rgba", k.resref, t.extension().unwrap_or("bin")));
             // Pillow gives a TGA top row first, and a DDS in stored order.
-            let rgba = if t == ResType::DDS { tex.to_rgba() } else { tex.to_rgba().top_down() };
+            // (It honors a TGA's top-left origin, which the game and
+            // Moonglow ignore: such a file's rows are already top first.)
+            let stored_top_first = t == ResType::DDS || data.get(17).is_some_and(|d| d & 0x20 != 0);
+            let rgba = if stored_top_first { tex.to_rgba() } else { tex.to_rgba().top_down() };
             std::fs::write(&ours, rgba.data).unwrap();
             let alpha = if tex.has_alpha { 1 } else { 0 };
             writeln!(list, "{k} {} {} {alpha}", src.display(), ours.display()).unwrap();
