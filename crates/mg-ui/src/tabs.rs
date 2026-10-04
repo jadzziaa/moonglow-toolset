@@ -176,6 +176,15 @@ impl TabViewer for Viewer<'_> {
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
+        // Escape closes a model's window (opened to look, and in the way
+        // after), while the pointer is over it and nothing is being typed.
+        if matches!(tab, Tab::Model(_) | Tab::InstanceModel { .. })
+            && ui.rect_contains_pointer(ui.max_rect())
+            && ui.memory(|m| m.focused().is_none())
+            && ui.input(|i| i.key_pressed(egui::Key::Escape))
+        {
+            self.app.actions.push(crate::Action::CloseTab(tab.clone()));
+        }
         match tab {
             Tab::Welcome => welcome(self.app, ui),
             Tab::ModuleProperties => module_props::ui(self.app, ui),

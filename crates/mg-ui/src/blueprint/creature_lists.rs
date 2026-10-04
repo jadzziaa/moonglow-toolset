@@ -53,6 +53,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         .and_then(|g| {
             g.choices("feat", ChoiceColumns { name: Some("FEAT"), label: Some("LABEL") }).ok()
         })
+        .map(mg_rules::by_name)
         .unwrap_or_default();
     let list: Vec<i64> =
         f.root.list("FeatList").unwrap_or(&[]).iter().filter_map(|s| s.integer("Feat")).collect();
@@ -103,6 +104,7 @@ fn class_spells(game: &GameData, class: usize) -> Vec<(usize, String, usize)> {
     };
     let names = game
         .choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") })
+        .map(mg_rules::by_name)
         .unwrap_or_default();
     let Ok(spells) = game.table("spells") else { return Vec::new() };
     names
@@ -371,6 +373,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
         .and_then(|g| {
             g.choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") }).ok()
         })
+        .map(mg_rules::by_name)
         .unwrap_or_default();
     let name_of = |row: i64| {
         names

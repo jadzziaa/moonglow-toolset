@@ -130,6 +130,8 @@ pub enum Action {
     ExportMinimap(mg_core::ResRef),
     Apply(Command),
     OpenTab(Tab),
+    /// Closes a tab's window (Escape over a model's window).
+    CloseTab(Tab),
     /// Renames a blueprint (and points its editor at the new name).
     /// Build › Test Module, Choose Character: the game's character
     /// selection for the module.
@@ -316,6 +318,8 @@ pub struct Moonglow {
     pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
+    /// The interface size was set from the settings (to set it back).
+    scaled: bool,
     /// The folder Export as Files last wrote to (offered again).
     pub(crate) export_dir: Option<PathBuf>,
     /// The Update Instances window.
@@ -474,6 +478,7 @@ impl Moonglow {
             prefab_save: None,
             update_draft: None,
             export_dir: None,
+            scaled: false,
             area_chooser: None,
             text_replace: None,
             prefab_dir: None,
@@ -561,6 +566,20 @@ impl Moonglow {
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         widgets::install_fonts(ui.ctx());
+        // Options › General › Interface size (when chosen; else the size is
+        // egui's own, which Ctrl with + and - change).
+        match self.settings.ui_scale {
+            Some(scale) => {
+                let zoom = f32::from(scale) / 100.0;
+                if (ui.ctx().zoom_factor() - zoom).abs() > 0.001 {
+                    ui.ctx().set_zoom_factor(zoom);
+                }
+                self.scaled = true;
+            }
+            // Set back to the usual size: once.
+            None if std::mem::take(&mut self.scaled) => ui.ctx().set_zoom_factor(1.0),
+            None => {}
+        }
         self.screen = Some(ui.ctx().content_rect());
         if std::mem::take(&mut self.minimize_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Minimized(true));
@@ -1161,6 +1180,11 @@ impl Moonglow {
             Action::Apply(cmd) => {
                 if let Err(e) = self.apply(cmd) {
                     self.log.error(e.to_string());
+                }
+            }
+            Action::CloseTab(tab) => {
+                if let Some(path) = self.dock.find_tab(&tab) {
+                    self.dock.remove_tab(path);
                 }
             }
             Action::OpenTab(tab) => {

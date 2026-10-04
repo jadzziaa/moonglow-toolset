@@ -758,6 +758,7 @@ fn viewport(
 ) {
     if let Some(scene) = view.scene.as_mut() {
         scene.merchant_signs = app.settings.merchant_signs;
+        scene.spawn_markers = !app.settings.no_spawn_markers;
     }
     // The blueprint about to be placed, see-through where it would go.
     let ghost = ghost(app, ui, view);
@@ -1085,11 +1086,20 @@ fn overlays(
                 line(o.outline[k], o.outline[(k + 1) % n], stroke);
             }
             if let Some((height, width)) = marks.spawn_points {
-                for &p in &o.spawn_points {
+                for (k, &p) in o.spawn_points.iter().enumerate() {
                     let (top, half) = (p + Vec3::Z * height, width / 2.0);
                     line(p, top, stroke);
                     line(top - Vec3::X * half, top + Vec3::X * half, stroke);
                     line(top - Vec3::Y * half, top + Vec3::Y * half, stroke);
+                    // The way what spawns there faces: an arrow on the
+                    // ground.
+                    let facing = o.spawn_facings.get(k).copied().unwrap_or(0.0);
+                    let ahead = Vec3::new(facing.cos(), facing.sin(), 0.0);
+                    let side = Vec3::new(-ahead.y, ahead.x, 0.0) * 0.3;
+                    let (base, tip) = (p + Vec3::Z * 0.1, p + Vec3::Z * 0.1 + ahead);
+                    line(base, tip, stroke);
+                    line(tip, tip - ahead * 0.4 + side, stroke);
+                    line(tip, tip - ahead * 0.4 - side, stroke);
                 }
             }
             continue;

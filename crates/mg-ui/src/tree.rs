@@ -120,6 +120,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         app.actions.push(Action::OpenTab(Tab::ModuleProperties));
     }
     let mut open = None;
+    let mut make = None;
     let mut listed = 0;
     for (name, types) in GROUPS {
         let mut keys: Vec<ResKey> =
@@ -141,7 +142,11 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                 || k.to_string().contains(&filter)
                 || names.get(k).is_some_and(|n| n.to_lowercase().contains(&filter))
         });
-        egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
+        // What makes a new resource of the group (its wizard, or the New
+        // window): on the group's and its resources' right-click menus.
+        let new = new_command(types);
+        let new_label = new.map(|id| new_label(&id.name()));
+        let header = egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
             .id_salt(name)
             .default_open(*name == "Areas")
             // Filtering opens every group with a match, whatever was open.
@@ -171,6 +176,12 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                         open = Some(k);
                     }
                     r.context_menu(|ui| {
+                        if let (Some(id), Some(label)) = (new, &new_label) {
+                            if ui.button(label).clicked() {
+                                make = Some(id);
+                            }
+                            ui.separator();
+                        }
                         if k.restype == ResType::ARE {
                             if ui
                                 .button("Edit Areas Together…")
@@ -244,10 +255,75 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 }
             });
+        if let (Some(id), Some(label)) = (new, &new_label) {
+            header.header_response.context_menu(|ui| {
+                if ui.button(label).clicked() {
+                    make = Some(id);
+                }
+            });
+        }
     }
     let others = ws.module.len() - listed;
     ui.weak(format!("{others} other resources"));
     if let Some(k) = open.and_then(Tab::for_resource) {
         app.actions.push(Action::OpenTab(k));
+    }
+    if let Some(id) = make {
+        id.run(app, ui.ctx());
+    }
+}
+
+/// The menu entry for a command that makes something new, from its name:
+/// "Area Wizard" is "New Area…", "New Script" is "New Script…".
+fn new_label(command: &str) -> String {
+    let what = command.trim_end_matches(" Wizard");
+    if what.starts_with("New ") { format!("{what}…") } else { format!("New {what}…") }
+}
+
+/// The command that makes a new resource of a tree group's types: the
+/// Wizards menu's for it.
+fn new_command(types: &[ResType]) -> Option<crate::commands::Id> {
+    use crate::commands::Id;
+    use mg_module::palette::BlueprintKind;
+    Some(match *types.first()? {
+        ResType::ARE => Id::AreaWizard,
+        ResType::DLG => Id::NewConversation,
+        ResType::NSS => Id::NewScript,
+        ResType::UTC => Id::CreatureWizard,
+        ResType::UTD => Id::Wizard(BlueprintKind::Door),
+        ResType::UTE => Id::Wizard(BlueprintKind::Encounter),
+        ResType::UTI => Id::Wizard(BlueprintKind::Item),
+        ResType::UTM => Id::Wizard(BlueprintKind::Store),
+        ResType::UTP => Id::Wizard(BlueprintKind::Placeable),
+        ResType::UTS => Id::Wizard(BlueprintKind::Sound),
+        ResType::UTT => Id::Wizard(BlueprintKind::Trigger),
+        ResType::UTW => Id::Wizard(BlueprintKind::Waypoint),
+        _ => return None,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_group_of_resources_has_its_new_command() {
+        use crate::commands::Id;
+        let label = |types: &[ResType]| new_command(types).map(|id| new_label(&id.name()));
+        assert_eq!(label(&[ResType::ARE]).as_deref(), Some("New Area…"));
+        assert_eq!(label(&[ResType::UTC]).as_deref(), Some("New Creature…"));
+        assert_eq!(label(&[ResType::UTM]).as_deref(), Some("New Store…"));
+        assert_eq!(label(&[ResType::NSS]).as_deref(), Some("New Script…"));
+        assert_eq!(label(&[ResType::DLG]).as_deref(), Some("New Conversation…"));
+        // The journal and factions are one of each: nothing to make.
+        assert_eq!(new_command(&[ResType::JRL, ResType::FAC]), None);
+        // Every group of blueprints has one.
+        for (_, types) in GROUPS.iter().filter(|(n, _)| *n != "Journal and factions") {
+            assert!(new_command(types).is_some(), "{types:?}");
+        }
+        assert_eq!(
+            new_command(&[ResType::UTI]),
+            Some(Id::Wizard(mg_module::palette::BlueprintKind::Item))
+        );
     }
 }

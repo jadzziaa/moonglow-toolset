@@ -17,7 +17,10 @@
 
 - **Background Color** of the area viewer (Custom, or the default).
 - **Show Encounter Spawnpoint Markers**, and their **Height** and
-  **Width**.
+  **Width**: at each spawn point, the game's marker (see-through), a post
+  of that size, and an arrow the way what spawns there faces.
+- **Show merchants as $ signs**: the game's marker for a merchant, rather
+  than an arrow along its facing.
 - **Show Door Orientation Arrows**.
 
 ## General
@@ -27,6 +30,8 @@
 - **Build module on save**: run Build Module (with its defaults) before
   each save.
 - **Minimize Toolset on test module**.
+- **Interface size**: the whole interface, text and all, from 90% to 200%
+  of its usual size.
 - **Reload haks, override and development when they change**: on by
   default. Moonglow checks every few seconds and rereads what changed
   (see [Build, verify and test](09-build-and-test.md)).

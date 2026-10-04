@@ -55,6 +55,13 @@ several chosen, the right-click menu offers:
 A custom category's right-click menu updates the instances of every
 blueprint in it.
 
+Long lists are in the order of their names: a creature's feats and
+spells, and dropdowns of more than a dozen choices (appearances, base
+items, sound sets…). Short ones keep the game's order, where it means
+something (movement rates, difficulties). The Creature Wizard offers the
+racial types that have a name, and a monster's portraits whatever its
+gender.
+
 ### Update Instances
 
 Update Instances remakes each object placed from a blueprint, as Aurora's

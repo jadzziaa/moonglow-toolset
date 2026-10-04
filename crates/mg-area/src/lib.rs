@@ -297,6 +297,9 @@ pub struct AreaObject {
     pub conversation: Option<ResRef>,
     /// An encounter's spawn points (`SpawnPointList`), world space.
     pub spawn_points: Vec<Vec3>,
+    /// Each spawn point's facing (`Orientation`): radians anticlockwise
+    /// from east, the way what spawns there faces.
+    pub spawn_facings: Vec<f32>,
     /// Locked in the area editor ([`LOCKED`]): not picked by clicks or boxes.
     pub locked: bool,
     /// A door's or placeable's `AnimationState` (a door: 0 closed, 1 and 2
@@ -384,6 +387,12 @@ impl AreaObject {
                         Vec3::new(f("X"), f("Y"), f("Z"))
                     })
                     .collect()
+            } else {
+                Vec::new()
+            },
+            spawn_facings: if kind == ObjectKind::Encounter {
+                let points = s.list("SpawnPointList").unwrap_or(&[]);
+                points.iter().map(|p| p.float("Orientation").unwrap_or(0.0)).collect()
             } else {
                 Vec::new()
             },
@@ -709,6 +718,26 @@ mod tests {
         let o = AreaObject::read(&game, ObjectKind::Creature, 0, &c);
         assert!(close(o.rotation, -FRAC_PI_2));
         assert!(o.preview.is_none() && o.problem.is_some(), "no game data: no appearance");
+    }
+
+    #[test]
+    fn an_encounters_spawn_points_have_their_facings() {
+        let game = game();
+        let point = |x: f32, facing: f32| {
+            let mut p = Struct::new(2);
+            for (label, v) in [("X", x), ("Y", 2.0), ("Z", 0.5), ("Orientation", facing)] {
+                p.set(label, Value::Float(v));
+            }
+            p
+        };
+        let mut e = object(&[("XPosition", 10.0), ("YPosition", 20.0)]);
+        e.set("SpawnPointList", Value::List(vec![point(1.0, 0.0), point(3.0, 1.5)]));
+        let o = AreaObject::read(&game, ObjectKind::Encounter, 0, &e);
+        assert_eq!(o.spawn_points, [Vec3::new(1.0, 2.0, 0.5), Vec3::new(3.0, 2.0, 0.5)]);
+        assert_eq!(o.spawn_facings, [0.0, 1.5]);
+        // Only encounters have them.
+        let w = AreaObject::read(&game, ObjectKind::Waypoint, 0, &e);
+        assert!(w.spawn_points.is_empty() && w.spawn_facings.is_empty());
     }
 
     #[test]

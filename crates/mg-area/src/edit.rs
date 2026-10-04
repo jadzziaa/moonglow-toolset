@@ -201,6 +201,7 @@ mod tests {
             trigger_type: 0,
             conversation: None,
             spawn_points: Vec::new(),
+            spawn_facings: Vec::new(),
             locked: false,
             state: 0,
         }

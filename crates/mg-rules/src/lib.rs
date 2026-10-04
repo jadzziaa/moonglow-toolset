@@ -47,6 +47,19 @@ pub struct Choice {
     pub text: String,
 }
 
+/// Choices in the order of their names (whatever their case; rows of one
+/// name in the table's order): long lists are found by name, not by where
+/// the table has them.
+pub fn by_name(mut choices: Vec<Choice>) -> Vec<Choice> {
+    choices.sort_by_cached_key(|c| (c.text.to_lowercase(), c.row));
+    choices
+}
+
+/// Lists of at most this many choices keep the table's order, which means
+/// something there (speeds from slow to fast, difficulties from easy to
+/// hard); longer ones are shown by name.
+pub const ORDERED_CHOICES: usize = 12;
+
 /// Which columns of a 2DA name its rows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChoiceColumns<'a> {
@@ -206,6 +219,14 @@ mod tests {
         assert_eq!(gd.locstring(&ls).as_deref(), Some("Longsword"));
         ls.set_text(Language::ENGLISH, Gender::Male, "Mine");
         assert_eq!(gd.locstring(&ls).as_deref(), Some("Mine"));
+    }
+
+    #[test]
+    fn choices_are_put_in_their_names_order() {
+        let c = |row, text: &str| Choice { row, text: text.into() };
+        let sorted =
+            by_name(vec![c(0, "Toughness"), c(1, "alertness"), c(2, "Dodge"), c(3, "Dodge")]);
+        assert_eq!(sorted, [c(1, "alertness"), c(2, "Dodge"), c(3, "Dodge"), c(0, "Toughness")]);
     }
 
     #[test]

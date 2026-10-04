@@ -525,6 +525,14 @@ impl Form<'_> {
         egui::ComboBox::from_id_salt(self.id(label)).selected_text(shown).width(220.0).show_ui(
             ui,
             |ui| {
+                // A long list by name; a short one as the table orders it.
+                let sorted;
+                let choices = if choices.len() > mg_rules::ORDERED_CHOICES {
+                    sorted = mg_rules::by_name(choices.to_vec());
+                    sorted.as_slice()
+                } else {
+                    choices
+                };
                 let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
                 if choices.len() > 30 {
                     ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));

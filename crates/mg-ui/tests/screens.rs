@@ -982,6 +982,53 @@ fn raw_fields_with_row_names() {
 
 #[test]
 #[ignore]
+fn spawn_point_markers() {
+    // An encounter's spawn points: the game's marker, its post and the
+    // arrow of its facing.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    let ws = app.ws.as_mut().unwrap();
+    let areas = ws.module.areas().unwrap();
+    let spawn = |ws: &mut mg_edit::Workspace, a: mg_core::ResRef| {
+        let git = ws.doc(&ResKey::new(a, ResType::GIT)).unwrap();
+        let p = git
+            .root
+            .list("Encounter List")?
+            .iter()
+            .find_map(|e| e.list("SpawnPointList")?.first())?;
+        Some(glam::Vec3::new(p.float("X")?, p.float("Y")?, p.float("Z")?))
+    };
+    let (area, at) = areas.iter().find_map(|a| spawn(ws, *a).map(|p| (*a, p))).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.lit = false;
+        if let Some(o) = &mut view.orbit {
+            o.target = at;
+            o.pitch = 40f32.to_radians();
+            o.distance = 8.0;
+        }
+    }
+    h.run_steps(5);
+    shoot(&mut h, &dir, "spawn-points");
+}
+
+#[test]
+#[ignore]
 fn crosser_cursor() {
     // The Road brush's quarter under a pointer resting on the ground of a
     // rural area.

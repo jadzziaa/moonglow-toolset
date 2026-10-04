@@ -113,6 +113,10 @@ pub struct AreaScene {
     arrow: Option<Arc<GpuModel>>,
     /// Merchants as the game's marker for one (a $) rather than as arrows.
     pub merchant_signs: bool,
+    /// The game's marker for an encounter's spawn point (`spawnpoint`).
+    spawn_point: Option<Arc<GpuModel>>,
+    /// Encounters' spawn points are marked (Options › Area).
+    pub spawn_markers: bool,
 }
 
 /// Loads models (and their supermodels) by name, each once.
@@ -196,6 +200,9 @@ impl AreaScene {
     pub fn update(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel) {
         if self.arrow.is_none() {
             self.arrow = Some(Arc::new(GpuModel::new(gpu, Arc::new(crate::marker::arrow()))));
+            self.spawn_point = Models { game, cache: RefCell::new(HashMap::new()) }
+                .load("spawnpoint")
+                .map(|m| Arc::new(GpuModel::new(gpu, m)));
         }
         let models = Models { game, cache: RefCell::new(HashMap::new()) };
         // A skybox chosen anew (Area Properties).
@@ -337,6 +344,21 @@ impl AreaScene {
         for (o, shown) in area.objects.iter().zip(&self.objects) {
             if !view.shows(o.kind) {
                 continue;
+            }
+            // An encounter's spawn points: the game's marker at each,
+            // turned the way what spawns there faces.
+            if let (true, Some(marker)) = (self.spawn_markers, &self.spawn_point) {
+                for (p, facing) in o.spawn_points.iter().zip(&o.spawn_facings) {
+                    let turn = Mat4::from_rotation_z(facing - std::f32::consts::FRAC_PI_2);
+                    let at = Mat4::from_translation(*p) * turn;
+                    // (See-through: a prism as tall as a creature, which
+                    // would hide what stands behind it.)
+                    instances.push(Instance {
+                        unlit: true,
+                        opacity: SPAWN_POINT_OPACITY,
+                        ..Instance::new(marker.clone(), at)
+                    });
+                }
             }
             let transform = o.model_transform();
             if self.as_arrow(o, shown.as_ref()) {
@@ -547,6 +569,9 @@ fn area_light(sky: crate::Sky, lit: bool) -> AreaLight {
         working_light()
     }
 }
+
+/// How opaque an encounter's spawn point markers are.
+const SPAWN_POINT_OPACITY: f32 = 0.35;
 
 /// The light of a view with the area's lighting off: bright and white
 /// from everywhere, with enough from the sun's side to show shapes.

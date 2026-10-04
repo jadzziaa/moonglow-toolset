@@ -39,6 +39,9 @@ pub struct CreatureWizard {
     pub gender: u8,
     pub appearance: u16,
     pub portrait: Option<u16>,
+    /// The racial type and gender chosen have no portraits to choose from
+    /// (a custom race without any): the wizard goes on without one.
+    pub no_portraits: bool,
     pub faction: u16,
     pub first_name: String,
     pub last_name: String,
@@ -56,6 +59,7 @@ impl Default for CreatureWizard {
             gender: 0,
             appearance: 0,
             portrait: None,
+            no_portraits: false,
             faction: 1,
             first_name: String::new(),
             last_name: String::new(),
@@ -69,17 +73,40 @@ fn choices(game: &GameData, table: &str, name: &str, label: &str) -> Vec<Choice>
     game.choices(table, ChoiceColumns { name: Some(name), label: Some(label) }).unwrap_or_default()
 }
 
-/// The portraits of a race and gender (portraits.2da, not plot ones).
+/// The portraits of a race and gender (portraits.2da, not plot ones):
+/// those of the gender, then those of no gender (`Sex` 2 both, 3 other, 4
+/// none), which are all that monsters' races have (an outsider's are all
+/// `Sex` 4).
 fn portraits(game: &GameData, race: u32, gender: u8) -> Vec<(u16, String)> {
     let Ok(t) = game.table("portraits") else { return Vec::new() };
-    (0..t.len())
-        .filter(|&r| {
-            t.get_int(r, "Race") == Some(race as i32)
-                && t.get_int(r, "Sex") == Some(i32::from(gender))
-                && t.get_int(r, "Plot").unwrap_or(0) == 0
-        })
+    let of = |any_gender: bool| {
+        let t = t.clone();
+        (0..t.len())
+            .filter(move |&r| {
+                let sex = t.get_int(r, "Sex");
+                let fits = if any_gender {
+                    sex.is_some_and(|s| s >= 2)
+                } else {
+                    sex == Some(i32::from(gender))
+                };
+                t.get_int(r, "Race") == Some(race as i32)
+                    && fits
+                    && t.get_int(r, "Plot").unwrap_or(0) == 0
+            })
+            .collect::<Vec<_>>()
+    };
+    of(false)
+        .into_iter()
+        .chain(of(true))
         .filter_map(|r| Some((r as u16, t.get(r, "BaseResRef")?.to_string())))
         .collect()
+}
+
+/// The racial types a creature can be given: racialtypes.2da's rows that
+/// have a name (its `DELETED` and `INVALID_RACE` rows have none).
+fn races(game: &GameData) -> Vec<Choice> {
+    game.choices("racialtypes", ChoiceColumns { name: Some("Name"), label: None })
+        .unwrap_or_default()
 }
 
 impl CreatureWizard {
@@ -103,7 +130,7 @@ impl CreatureWizard {
         match self.page {
             1 => self.race.is_some(),
             2 => !self.classes.is_empty(),
-            3 => self.portrait.is_some(),
+            3 => self.portrait.is_some() || self.no_portraits,
             5 => !self.first_name.trim().is_empty(),
             6 => self.category.is_some(),
             _ => true,
@@ -254,7 +281,7 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                  Creature.",
             );
             egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
-                for c in choices(game, "racialtypes", "Name", "Label") {
+                for c in races(game) {
                     if ui.selectable_label(w.race == Some(c.row as u32), &c.text).clicked() {
                         w.choose_race(game, c.row as u32);
                     }
@@ -340,7 +367,8 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                 }
                 ui.end_row();
                 crate::widgets::field_label(ui, "Appearance");
-                let appearances = choices(game, "appearance", "STRING_REF", "LABEL");
+                let appearances =
+                    mg_rules::by_name(choices(game, "appearance", "STRING_REF", "LABEL"));
                 let shown = appearances
                     .iter()
                     .find(|c| c.row == usize::from(w.appearance))
@@ -359,6 +387,13 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
             // The race's and gender's portraits as pictures, the chosen one
             // large beside them (as Select Portrait shows them).
             let list = portraits(game, w.race.unwrap_or(6), w.gender);
+            w.no_portraits = list.is_empty();
+            if list.is_empty() {
+                ui.weak(
+                    "This racial type has no portraits: choose one in Creature Properties \
+                     (Portraits…) afterwards.",
+                );
+            }
             // The first chosen until another is, so the page opens with one.
             if w.portrait.is_none_or(|p| !list.iter().any(|(r, _)| *r == p)) {
                 w.portrait = list.first().map(|(r, _)| *r);

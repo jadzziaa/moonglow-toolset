@@ -36,6 +36,8 @@ pub struct OptionsDraft {
     pub script_style: ScriptStyle,
     pub build_on_save: bool,
     pub area_names: bool,
+    /// Per cent.
+    pub ui_scale: u16,
     pub minimize_on_test: bool,
     pub auto_reload: bool,
     pub backups: bool,
@@ -100,6 +102,7 @@ impl OptionsDraft {
             script_style: s.script_style.clone(),
             build_on_save: s.build_on_save,
             area_names: s.area_names,
+            ui_scale: s.ui_scale.unwrap_or(100),
             minimize_on_test: s.minimize_on_test,
             auto_reload: !s.no_auto_reload,
             backups: !s.no_backups,
@@ -144,6 +147,7 @@ impl OptionsDraft {
             script_style: self.script_style.clone(),
             build_on_save: self.build_on_save,
             area_names: self.area_names,
+            ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
             minimize_on_test: self.minimize_on_test,
             no_auto_reload: !self.auto_reload,
             no_backups: !self.backups,
@@ -191,6 +195,9 @@ impl OptionsDraft {
         path(&self.game_root) != s.game_root || path(&self.user_dir) != s.user_dir
     }
 }
+
+/// Options › General › Interface size: the sizes offered, per cent.
+pub(crate) const UI_SCALES: [u16; 7] = [90, 100, 110, 125, 150, 175, 200];
 
 /// The Options window's size when first opened.
 const WINDOW_SIZE: [f32; 2] = [780.0, 540.0];
@@ -347,6 +354,25 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 &mut draft.minimize_on_test,
                                 "Minimize Toolset on test module",
                             );
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "Interface size");
+                                egui::ComboBox::from_id_salt("ui-scale")
+                                    .selected_text(format!("{}%", draft.ui_scale))
+                                    .show_ui(ui, |ui| {
+                                        for s in UI_SCALES {
+                                            ui.selectable_value(
+                                                &mut draft.ui_scale,
+                                                s,
+                                                format!("{s}%"),
+                                            );
+                                        }
+                                    })
+                                    .response
+                                    .on_hover_text(
+                                        "The whole interface, text and all, larger or smaller \
+                                         (set when you choose OK)",
+                                    );
+                            });
                             ui.checkbox(&mut draft.area_names, "Show areas by name").on_hover_text(
                                 "List areas (and title their tabs) by their names rather \
                                      than their ResRefs; the ResRef shows on hover",
@@ -796,11 +822,14 @@ mod tests {
         (d.build_on_save, d.minimize_on_test, d.auto_compile, d.debug_info) =
             (true, true, true, true);
         d.area_names = true;
+        d.ui_scale = 125;
         d.script_templates = " /tmp/templates ".into();
         d.scratch_dir = "/tmp/scratch".into();
         let t = d.apply(&s);
         assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
         assert!(t.area_names && !s.area_names, "areas by ResRef unless asked");
+        assert_eq!((t.ui_scale, s.ui_scale), (Some(125), None), "the usual size unless asked");
+        assert_eq!(OptionsDraft::from_settings(&s).apply(&s).ui_scale, None);
         assert_eq!(t.script_templates, Some(PathBuf::from("/tmp/templates")));
         assert_eq!(t.scratch_dir, Some(PathBuf::from("/tmp/scratch")));
         assert_eq!(s.scratch_dir, None, "asked for the first time");

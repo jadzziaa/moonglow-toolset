@@ -8369,3 +8369,86 @@ fn raw_fields_name_their_2da_rows() {
         assert!(shown.contains(&name), "{field} is shown as {name:?}: {shown:?}");
     }
 }
+
+/// The Creature Wizard offers the racial types that have a name (not
+/// racialtypes.2da's DELETED and INVALID_RACE rows), and a monster's race,
+/// whose portraits are of no gender, has portraits to choose from.
+#[test]
+fn the_creature_wizard_offers_real_races_and_monsters_portraits() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-creature-wizard-races");
+    let path = sample_module(&dir);
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    app.creature_wizard = Some(Default::default());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let next = |h: &mut Harness<'_, Moonglow>| {
+        h.get_by_label("Next >").click();
+        h.run();
+    };
+    next(&mut h);
+    assert!(h.query_by_label("DELETED").is_none() && h.query_by_label("INVALID_RACE").is_none());
+    h.get_by_label("Outsider").click();
+    h.run();
+    next(&mut h);
+    next(&mut h);
+    // Appearance and Portrait: one is chosen, and Next goes on.
+    let w = h.state().creature_wizard.as_ref().unwrap();
+    assert_eq!(w.race, Some(20));
+    assert!(w.portrait.is_some() && !w.no_portraits, "an outsider has portraits");
+    next(&mut h);
+    assert_eq!(h.state().creature_wizard.as_ref().unwrap().page, 4);
+}
+
+/// Options › General › Interface size: the whole interface larger, and
+/// back to the usual size when set back.
+#[test]
+fn the_interface_size_is_set_in_options() {
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run();
+    assert_eq!(h.ctx.zoom_factor(), 1.0);
+    h.state_mut().settings.ui_scale = Some(150);
+    h.run();
+    assert_eq!(h.ctx.zoom_factor(), 1.5);
+    h.state_mut().settings.ui_scale = None;
+    h.run();
+    assert_eq!(h.ctx.zoom_factor(), 1.0);
+}
+
+/// Escape closes a model's window while the pointer is over it.
+#[test]
+fn escape_closes_a_models_window() {
+    let dir = mg_testkit::scratch_dir("ui-model-escape");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let model = Tab::Model(ResKey::parse("nothing", ResType::UTW).unwrap());
+    app.actions.push(mg_ui::Action::OpenTab(model.clone()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(h.state().dock.find_tab(&model).is_some());
+    // Away from the window: Escape is someone else's.
+    h.hover_at(egui::pos2(2.0, 2.0));
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.state().dock.find_tab(&model).is_some());
+    // Over the window (where it says the blueprint isn't there).
+    let inside = h.get_by_label_contains("not found").rect().center();
+    h.hover_at(inside);
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.state().dock.find_tab(&model).is_none(), "closed");
+}

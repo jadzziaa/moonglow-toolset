@@ -221,7 +221,8 @@ fn row_ui(
         .show_ui(ui, |ui| {
             // (Read only while the list is open.)
             let columns = ChoiceColumns { name: table.name, label: table.label };
-            for c in game.choices(table.table, columns).unwrap_or_default() {
+            let choices = game.choices(table.table, columns).unwrap_or_default();
+            for c in mg_rules::by_name(choices) {
                 let text = format!("{}  ({})", c.text, c.row);
                 if ui.selectable_label(c.row as i64 == row, text).clicked() {
                     picked = Some(c.row as i64);

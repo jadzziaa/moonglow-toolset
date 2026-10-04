@@ -77,6 +77,10 @@ blueprint, **Find References** and **Rename…** (see
 [Modules](03-modules.md)); on any resource, **Export…**, **Export as
 Files…** and **Copy to Scratch Folder**.
 
+A right click on a group (Areas, Scripts, Creatures…) or on one of its
+resources offers **New …**: the group's wizard, or the New Script or New
+Conversation window, as the Wizards menu has them.
+
 The raw fields view lists every field of a resource, each editable. A
 number that is a row of one of the game's tables is shown with the row's
 name beside it, in a list to choose another by name: an area's music and
@@ -93,7 +97,8 @@ and Journal Editors, the resource browser, this manual) opens in a window
 of its own over the area, sized for what it shows, so the area view stays
 put. Drag a window by its tab into the main pane, or beside another, to
 dock it; drag a tab out to float it again. The palettes keep their pane on
-the right. Right-click a tab for **Eject** and **Close**, and for an area,
+the right. **Escape** closes a model's window while the pointer is over
+it. Right-click a tab for **Eject** and **Close**, and for an area,
 script, conversation or blueprint of the module, **Rename…**: it is renamed
 everywhere the module names it (an area with its instances and its entry in
 the module's area list), and its tab with it.

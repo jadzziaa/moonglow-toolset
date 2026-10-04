@@ -189,6 +189,30 @@ Size: S (an hour or two), M (a day or so), L (several days).
   keep the plain strong style; only section headings were made larger.
   (—)
 
+## From a senior builder's review (October 2026)
+
+Done from it: New… in the module tree's menus, the Creature Wizard's
+races and monsters' portraits, Escape closing a model's window, lists by
+name, Interface size, spawn points' markers and facings. Left for a
+decision or later:
+
+- **The tree by name for every type:** only areas can be listed by name
+  (Show areas by name); blueprints, scripts and conversations are by
+  ResRef, where "Name (resref)" was asked for. (S)
+- **Creature Properties' layout:** overlapping elements were reported
+  (not reproduced: which page isn't known), and an appearance preview in
+  the editor rather than in a window of its own. (M)
+- **Feats and spells by category:** filters by talent category; ResRefs
+  and challenge ratings in the palette as options. (S–M)
+- **Special abilities as uses:** each slot is listed as the file has it;
+  Aurora shows "N uses of a spell at caster level X". Grouping equal
+  entries would read so; entries of different caster levels must stay
+  apart. (S–M)
+- **A light theme:** colours are set for the dark theme in many places.
+  (M)
+- **A spawn point's facing can't be turned in the area view:** it is a
+  field of the encounter (the fields view sets it). (S)
+
 ## Raw fields
 
 - **Rows the fields view doesn't name yet:** an item property's subtype,
