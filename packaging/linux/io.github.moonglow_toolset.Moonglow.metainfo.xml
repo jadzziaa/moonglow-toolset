@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.5.0" date="2026-10-04">
+      <description>
+        <p>Make Placeables Static sets Static on an area's or the module's
+        placeables that lose nothing by it. Textures saved with a top-left
+        origin (by Krita) show as in the game. An Animations switch holds
+        creatures still in the area view. The script editor fills its pane
+        and its lists open wide enough for their names.</p>
+      </description>
+    </release>
     <release version="1.4.0" date="2026-10-04">
       <description>
         <p>With Shift held, the selected object in the area view shows two
