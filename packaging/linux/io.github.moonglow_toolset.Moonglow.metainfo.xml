@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.3.0" date="2026-10-04">
+      <description>
+        <p>A turning ring around the selected object in the area view: take
+        it anywhere and lead it round to turn the selection (Options, Area
+        switches it off). An object held while the middle button swings the
+        camera stays in hand when that button is let go, and Escape drops a
+        drag.</p>
+      </description>
+    </release>
     <release version="1.2.0" date="2026-10-03">
       <description>
         <p>From builders' reviews: the fields view names what a number stands
