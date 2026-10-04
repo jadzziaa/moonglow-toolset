@@ -278,8 +278,11 @@ mod tests {
         assert_eq!(body("# Keys\n\n---\n\nMore.\n"), "# Keys\n\n---\n\nMore.\n");
         assert_eq!(body("---\nnever closed\n"), "---\nnever closed\n");
         for (file, text) in CHAPTERS {
-            assert!(text.starts_with("---\n"), "{file} has frontmatter");
+            // (A Windows checkout has the chapters with CRLF line ends.)
+            assert!(body(text).len() < text.len(), "{file} has frontmatter");
             assert!(body(text).starts_with("# "), "{file} is shown from its heading");
+            let crlf = text.replace("\r\n", "\n").replace('\n', "\r\n");
+            assert!(body(&crlf).starts_with("# "), "{file} is shown from its heading (CRLF)");
             assert!(!title(text).is_empty(), "{file}");
         }
     }
