@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.4.0" date="2026-10-04">
+      <description>
+        <p>With Shift held, the selected object in the area view shows two
+        rings that tilt its model and three arrows that move it along one
+        axis alone. A placeable's menu makes it static or dynamic. A module
+        opens on the area you opened last in it.</p>
+      </description>
+    </release>
     <release version="1.3.0" date="2026-10-04">
       <description>
         <p>A turning ring around the selected object in the area view: take
