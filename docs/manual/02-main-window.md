@@ -77,6 +77,14 @@ blueprint, **Find References** and **Rename…** (see
 [Modules](03-modules.md)); on any resource, **Export…**, **Export as
 Files…** and **Copy to Scratch Folder**.
 
+The raw fields view lists every field of a resource, each editable. A
+number that is a row of one of the game's tables is shown with the row's
+name beside it, in a list to choose another by name: an area's music and
+ambient sounds, a creature's race, classes, feats and spells, an item's
+base item and properties, an object's appearance, a trap's type, a loading
+screen. A creature's skills are named in their list, and a talk-table
+string's text is shown beside its number.
+
 ## Tabs and windows
 
 Areas open as tabs in the main pane. Everything else (blueprint and object

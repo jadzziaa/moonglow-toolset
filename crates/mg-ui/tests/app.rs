@@ -8340,3 +8340,32 @@ fn an_area_goes_to_the_scratch_folder() {
     let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().to_bytes().unwrap();
     assert_eq!(std::fs::read(scratch.join(format!("{area}.are"))).unwrap(), are);
 }
+
+/// The raw fields view names what a number stands for: an area's music,
+/// ambient sounds and audio environment are shown by name (their rows of
+/// ambientmusic.2da, ambientsound.2da and soundeax.2da), each in a list to
+/// choose another by name.
+#[test]
+fn raw_fields_name_their_2da_rows() {
+    let Some((mut h, area)) = area_harness("gff-rows") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Gff(git)));
+    h.run_steps(3);
+    // AreaProperties is the GIT's first struct.
+    h.get_all_by_label_contains(" fields").next().expect("AreaProperties").click();
+    h.run_steps(3);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let props = ws.doc(&git).unwrap().root.child("AreaProperties").unwrap().clone();
+    let shown: Vec<String> = h
+        .query_all_by_role(egui::accesskit::Role::ComboBox)
+        .filter_map(|n| n.accesskit_node().value())
+        .collect();
+    let game = h.state().game.clone().unwrap();
+    for field in
+        ["AmbientSndDay", "AmbientSndNight", "EnvAudio", "MusicBattle", "MusicDay", "MusicNight"]
+    {
+        let table = mg_rules::rows::row_table("GIT ", &["AreaProperties"], field).unwrap();
+        let name = game.row_name(&table, props.integer(field).unwrap()).expect(field);
+        assert!(shown.contains(&name), "{field} is shown as {name:?}: {shown:?}");
+    }
+}

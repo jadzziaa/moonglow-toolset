@@ -189,6 +189,16 @@ Size: S (an hour or two), M (a day or so), L (several days).
   keep the plain strong style; only section headings were made larger.
   (—)
 
+## Raw fields
+
+- **Rows the fields view doesn't name yet:** an item property's subtype,
+  cost and parameter (their table depends on the property), a creature's
+  or object's faction (the module's `repute.fac`, not a 2DA), a
+  conversation's animations, a store's categories, and fields that hold
+  a talk-table number as a plain int. (S–M)
+- **Only in the window:** `mg gff`, `mg find --where` and `mg areas`
+  print and take the numbers; names aren't shown or accepted there. (S)
+
 ## Getting files out
 
 - **Stale compiled scripts:** Export as Files and Copy to Scratch
