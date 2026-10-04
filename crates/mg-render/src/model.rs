@@ -132,6 +132,7 @@ impl GpuModel {
     /// Uploads the meshes that render (walkmeshes and `render 0` shadow
     /// meshes are skipped).
     pub fn new(gpu: &Gpu, model: Arc<Model>) -> GpuModel {
+        crate::guard::fail_if_asked(&model.name);
         let rest = rest_pose(&model);
         let mut meshes = Vec::new();
         for (i, node) in model.nodes.iter().enumerate() {

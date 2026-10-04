@@ -113,6 +113,9 @@ pub struct AreaScene {
     colors: Vec<Vec3>,
     /// Models named by tiles or previews that could not be loaded.
     pub missing: Vec<String>,
+    /// The loaded tiles and objects that failed while posed (by where they
+    /// are kept): left out from then on.
+    failed: RefCell<std::collections::HashSet<usize>>,
     /// Moonglow's arrow ([`crate::marker`]).
     arrow: Option<Arc<GpuModel>>,
     /// Merchants as the game's marker for one (a $) rather than as arrows.
@@ -214,10 +217,15 @@ impl AreaScene {
             self.load_sky(gpu, &models, game, area);
         }
         let load = |name: &str| models.load(name);
+        // (A model that is read and then breaks what builds it is left out,
+        // as a missing one is: the toolset carries on.)
         let loaded = |name: &str| -> Option<Loaded> {
-            let model = load(name)?;
-            let anims = anim::animations(&model, &load);
-            Some(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims })
+            mg_render::guard::guarded(name, || {
+                let model = load(name)?;
+                let anims = anim::animations(&model, &load);
+                Some(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims })
+            })
+            .flatten()
         };
         let mut missing = Vec::new();
         let tile_cache = &mut self.tile_cache;
@@ -304,9 +312,12 @@ impl AreaScene {
                 .tile_cache
                 .entry(name.clone())
                 .or_insert_with(|| {
-                    let model = load(name)?;
-                    let anims = anim::animations(&model, &load);
-                    Some(Arc::new(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims }))
+                    mg_render::guard::guarded(name, || {
+                        let model = load(name)?;
+                        let anims = anim::animations(&model, &load);
+                        Some(Arc::new(Loaded { gpu: Arc::new(GpuModel::new(gpu, model)), anims }))
+                    })
+                    .flatten()
                 })
                 .clone();
             if let Some(l) = loaded {
@@ -341,9 +352,29 @@ impl AreaScene {
     pub fn scene_hiding(&self, area: &AreaModel, view: &View, hidden: &[usize]) -> Scene {
         let mut instances = Vec::new();
         let mut lights = Vec::new();
+        // What fails while it is posed is drawn no more (once noted), so
+        // that it doesn't fail again every frame.
+        let failed = |key: usize| self.failed.borrow().contains(&key);
         for (i, (tile, loaded)) in area.tiles.iter().zip(&self.tiles).enumerate() {
             let Some(loaded) = loaded.as_ref().filter(|_| !hidden.contains(&i)) else { continue };
-            self.tile(tile, loaded, view, &mut instances, &mut lights);
+            let key = Arc::as_ptr(loaded) as usize;
+            if failed(key) {
+                continue;
+            }
+            let (mut drawn, mut lit) = (Vec::new(), Vec::new());
+            let name = tile.model.as_deref().unwrap_or("a tile");
+            let posed = mg_render::guard::guarded(name, || {
+                self.tile(tile, loaded, view, &mut drawn, &mut lit);
+            });
+            match posed {
+                Some(()) => {
+                    instances.extend(drawn);
+                    lights.extend(lit);
+                }
+                None => {
+                    self.failed.borrow_mut().insert(key);
+                }
+            }
         }
         for (o, shown) in area.objects.iter().zip(&self.objects) {
             if !view.shows(o.kind) {
@@ -375,9 +406,20 @@ impl AreaScene {
             // are markers: in their own colours, unlit.
             let unlit = o.kind.is_marker();
             let time = if view.animate { view.time } else { 0.0 };
-            let drawn = c.instances(c.idle.as_deref(), time, transform);
+            let key = Arc::as_ptr(shown) as usize;
+            if failed(key) {
+                continue;
+            }
+            let name = o.preview.as_ref().map_or("an object", |p| p.base.model.as_str());
+            let posed = mg_render::guard::guarded(name, || {
+                (c.instances(c.idle.as_deref(), time, transform), c.point_lights(transform))
+            });
+            let Some((drawn, lit)) = posed else {
+                self.failed.borrow_mut().insert(key);
+                continue;
+            };
             instances.extend(drawn.into_iter().map(|i| Instance { unlit, ..i }));
-            lights.extend(c.point_lights(transform));
+            lights.extend(lit);
         }
         if !view.lit {
             lights.clear();

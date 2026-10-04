@@ -265,3 +265,66 @@ fn placed_objects_hold_still_when_not_animated() {
     assert_eq!(poses(0.4, false), poses(1.3, false), "still, it doesn't");
     assert_eq!(poses(1.3, false), poses(0.0, true), "it holds its animation's start");
 }
+
+/// A model that breaks what builds it is left out, the failure noted, and
+/// the rest of the area drawn: one model can't take the toolset down.
+#[test]
+fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let root = corpus!();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(3);
+    let mut m = new_module(&game, "Fails", &mut rng).unwrap();
+    let tileset = ResRef::from_str("ttr01").unwrap();
+    let spec = AreaSpec { name: "Field".into(), tileset, width: 2, height: 2 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [10.0, 10.0, 0.0], rotation: 0.0 };
+    let placed = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+    let mut git = m.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+    git.root.set(ObjectKind::Placeable.list(), mg_gff::Value::List(vec![placed]));
+    let are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+    let set = mg_area::tileset(&game, tileset).unwrap();
+    let model = AreaModel::read(&game, &are.root, &git.root, Some(&set));
+    let name = model.objects[0].preview.as_ref().expect("the chest's model").base.model.clone();
+    let here = glam::Vec3::new(10.0, 10.0, 0.0);
+    let drawn_here = |scene: &AreaScene| {
+        let view = View { fog: false, ..View::of(&model) };
+        let frame = scene.scene(&model, &view);
+        let at = |i: &&mg_render::scene::Instance| {
+            i.transform.transform_point3(glam::Vec3::ZERO).distance(here) < 0.01
+        };
+        (frame.instances.iter().filter(at).count(), frame.instances.len())
+    };
+    // As it should be: the chest is drawn.
+    let sound = AreaScene::new(&gpu, &game, &model);
+    let (chest_drawn, all) = drawn_here(&sound);
+    assert!(chest_drawn > 0 && all > chest_drawn);
+    let _ = mg_render::guard::take_failures();
+
+    // (Back to no failing model, whatever the test does.)
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            mg_render::guard::fail_on(None);
+        }
+    }
+    let _reset = Reset;
+    mg_render::guard::fail_on(Some(&name));
+    let broken = AreaScene::new(&gpu, &game, &model);
+    let (chest_drawn, tiles) = drawn_here(&broken);
+    assert_eq!(chest_drawn, 0, "the chest is left out");
+    assert_eq!(tiles, all - 1, "the tiles are drawn as before");
+    let failures = mg_render::guard::take_failures();
+    assert_eq!(failures, [format!("{name}: made to fail")]);
+    assert!(mg_render::guard::take_failures().is_empty(), "told once");
+}

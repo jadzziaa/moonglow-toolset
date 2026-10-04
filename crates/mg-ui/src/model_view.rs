@@ -440,7 +440,10 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
                     .as_ref()
                     .and_then(|g| g.resman.get_named(&c.model, ResType::MDL).ok())
                     .and_then(|d| Model::read(&d).ok())?;
-                Some(Arc::new(GpuModel::new(&vp.gpu, Arc::new(m))))
+                // (One that breaks what builds it is left out.)
+                let name = c.model.clone();
+                let gpu = &vp.gpu;
+                mg_render::guard::guarded(&name, || Arc::new(GpuModel::new(gpu, Arc::new(m))))
             })
             .clone();
         if let Some(gm) = gm {

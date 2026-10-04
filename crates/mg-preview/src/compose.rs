@@ -36,9 +36,23 @@ pub struct Composed {
     pub lights: Vec<PreviewLight>,
     /// Models named by the preview that could not be loaded.
     pub missing: Vec<String>,
+    /// Posing it failed once: it is drawn no more (rather than fail again
+    /// every frame).
+    failed: std::sync::atomic::AtomicBool,
 }
 
 fn place(
+    gpu: &Gpu,
+    part: &crate::Part,
+    base: Option<&Model>,
+    load: &dyn Fn(&str) -> Option<Arc<Model>>,
+) -> Option<Placed> {
+    // (A model that is read and then breaks what builds it is shown as a
+    // missing one: the toolset carries on.)
+    mg_render::guard::guarded(&part.model, || place_unguarded(gpu, part, base, load)).flatten()
+}
+
+fn place_unguarded(
     gpu: &Gpu,
     part: &crate::Part,
     base: Option<&Model>,
@@ -97,6 +111,7 @@ impl Composed {
             idle: preview.idle.clone(),
             lights: preview.lights.clone(),
             missing,
+            failed: Default::default(),
         })
     }
 
@@ -117,7 +132,23 @@ impl Composed {
 
     /// Instances at time `t` of `animation` (none: the rest pose), placed
     /// by `transform`.
+    ///
+    /// A model that breaks what poses it gives nothing, from then on: the
+    /// failure is noted (`mg_render::guard`) and the toolset carries on.
     pub fn instances(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
+        use std::sync::atomic::Ordering;
+        if self.failed.load(Ordering::Relaxed) {
+            return Vec::new();
+        }
+        let name = &self.base.gpu.model.name;
+        let posed = mg_render::guard::guarded(name, || self.posed(animation, t, transform));
+        posed.unwrap_or_else(|| {
+            self.failed.store(true, Ordering::Relaxed);
+            Vec::new()
+        })
+    }
+
+    fn posed(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
         fn find<'a>(anims: &'a [(String, Arc<Model>)], name: &str) -> Option<&'a Animation> {
             anims
                 .iter()

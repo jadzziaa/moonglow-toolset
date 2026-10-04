@@ -71,6 +71,8 @@ use mg_rules::GameData;
 
 pub use browser::Browser;
 pub use dialogs::{Dialogs, FileKind, NoDialogs};
+/// Carrying on when one model fails (for the application's panic hook).
+pub use mg_render::guard as model_guard;
 pub use options::OptionsDraft;
 pub use settings::Settings;
 pub use tabs::Tab;
@@ -575,6 +577,15 @@ impl Moonglow {
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         widgets::install_fonts(ui.ctx());
+        // Models that broke what builds or poses them, last frame: left out
+        // of what is drawn, and said so.
+        for failure in mg_render::guard::take_failures() {
+            self.log.error(format!(
+                "A model could not be shown and is left out ({failure}). The module is unharmed; \
+                 a report was written for the report of the problem (Help › User Manual, \
+                 Troubleshooting)"
+            ));
+        }
         // Options › General › Interface size (when chosen; else the size is
         // egui's own, which Ctrl with + and - change).
         // Options › General › Light theme (dark unless chosen).

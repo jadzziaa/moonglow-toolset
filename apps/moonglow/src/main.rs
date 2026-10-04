@@ -112,12 +112,21 @@ fn crash_reports() {
             [] => "none".to_string(),
             enabled => enabled.join(", "),
         };
+        // A model that failed is left out and Moonglow carries on: the
+        // report says so, and is named apart from a crash's.
+        let carried_on = mg_ui::model_guard::guarding();
+        let what = if carried_on {
+            "could not show a model, left it out and carried on"
+        } else {
+            "crashed"
+        };
         let report = format!(
-            "Moonglow Toolset {} crashed.\n\n{info}\n\nPlugins enabled: {plugins}\n\nBacktrace:\n{}\n",
+            "Moonglow Toolset {} {what}.\n\n{info}\n\nPlugins enabled: {plugins}\n\nBacktrace:\n{}\n",
             env!("CARGO_PKG_VERSION"),
             std::backtrace::Backtrace::force_capture()
         );
-        let path = dir.join(format!("crash-{time}.txt"));
+        let name = if carried_on { "model-failure" } else { "crash" };
+        let path = dir.join(format!("{name}-{time}.txt"));
         if std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, report)).is_ok() {
             eprintln!("A crash report was written to {}", path.display());
         }

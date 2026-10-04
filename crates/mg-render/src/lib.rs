@@ -6,6 +6,7 @@ pub mod anim;
 pub mod assets;
 pub mod dangly;
 mod gpu;
+pub mod guard;
 pub mod model;
 pub mod particles;
 mod renderer;

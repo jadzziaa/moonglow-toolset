@@ -45,6 +45,16 @@ Sounds need a sound device. On Linux, Moonglow plays through ALSA
 (PulseAudio and PipeWire provide it). The area's sounds also need
 **🔊 Sounds**, **Ambient** or **Music** on in the area viewer's toolbar.
 
+## A model is left out
+
+A model that Moonglow reads but can't build or pose (custom content with
+something in it no model has had before) is left out of what is drawn:
+its object shows without it, as one whose model is missing does, and the
+log says "A model could not be shown and is left out", with its name.
+The module is unharmed and stays open. A report (`model-failure-<time>.txt`)
+is written in Moonglow's data folder, beside the crash reports: please
+send it, with the model if you can, when you report the problem.
+
 ## After a crash
 
 Moonglow writes a crash report (`crash-<time>.txt`) in its data folder.

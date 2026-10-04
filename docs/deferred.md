@@ -420,10 +420,15 @@ a light theme. Left:
   loading a module) is drawn with those bones unmoved. What the game
   does with such a model wasn't looked at, and the model itself wasn't
   seen: the fix is from the crash report. (S, needs the model)
-- **One bad model takes the window down:** a panic while a model is
-  loaded or drawn ends Moonglow (with a crash report); catching it, and
-  showing the object as a box with a problem noted, would keep the
-  module open. (M)
+- **A model that fails while it is drawn:** a model that breaks what
+  builds or poses it is left out and the module stays open
+  (`mg_render::guard`: tiles, objects, the model viewer, thumbnails). A
+  failure inside the renderer's own drawing (uploading its textures, the
+  GPU's calls) is not caught and still ends Moonglow, with a crash
+  report. (M)
+- **Left out for the session:** a model that failed stays out until its
+  area is opened again; the object shows no box in its place beyond what
+  a missing model has. (S)
 
 - **TGA, right-to-left:** the game ignores a TGA's top-left origin (bit
   5; measured in the client), and Moonglow now does. Whether it also
