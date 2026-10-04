@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: 'nasher source trees: what nasher writes and reads'
+description: What nasher 1.1.3 writes and reads in a source tree (a GFF resource's text, other files, where files go, nasher.cfg), what Moonglow does differently, and packing.
+tags: [nasher, source-trees, gff-json]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T02:00:03Z }
+---
+
 # nasher source trees: what nasher writes and reads
 
 nasher 1.1.3 (August 2026) with neverwinter.nim 2.3.1, read from their

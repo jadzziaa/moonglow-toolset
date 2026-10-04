@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Getting started
+description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
+tags: [manual, installing]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T23:02:42Z }
+---
+
 # Getting started
 
 ## What you need

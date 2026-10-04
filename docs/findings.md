@@ -1,3 +1,24 @@
+---
+type: Finding
+title: Findings
+description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
+tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:08:34Z }
+sources:
+  - id: engine
+    resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
+    title: Checks in the game
+  - id: aurora
+    resource: The Aurora toolset 89.8193.37 (EE 1.89) under Wine, its output compared field by field; tests aurora_* in crates/mg-corpus-tests/tests
+    title: Checks against Aurora
+  - id: neverwinter-nim
+    resource: https://github.com/niv/neverwinter.nim
+    title: neverwinter.nim's tools (differential checks)
+  - id: nwn-wiki
+    resource: https://nwn.wiki
+    title: nwn.wiki, searched through the local mirror synced 2026-09-29
+---
+
 # Findings
 
 What Moonglow's authors learned about Neverwinter Nights: Enhanced Edition

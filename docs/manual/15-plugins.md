@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Plugins
+description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
+tags: [manual, plugins]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+---
+
 # Plugins
 
 A plugin adds to Moonglow what a team or a builder needs that Moonglow

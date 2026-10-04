@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate the Aurora Toolset UI inventory markdown from parsed DFMs + TLK tables + hand mapping."""
-import json, struct, re, sys, collections
+import datetime, json, struct, re, sys, collections
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -459,8 +459,24 @@ def render_form(fn, out, parent_note=None, level='####'):
         out.append('')
 
 
+# docs/ is an Open Knowledge Format bundle: the inventory is a concept in it,
+# so it opens with frontmatter ({AT}: when this run wrote it).
+FRONTMATTER = """---
+type: Reference
+title: Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory
+description: Every form and user-facing control of the Aurora Toolset (nwtoolset.exe, NWN:EE), generated from its 105 VCL forms - runtime captions, the GFF field, 2DA or behaviour each control maps to, event handlers and keyboard shortcuts. The reimplementation checklist for Moonglow.
+tags: [aurora, parity, ui, inventory, generated]
+generated: { by: process:aurora-uiinv-gen, at: {AT} }
+sources:
+  - id: nwtoolset
+    resource: nwtoolset.exe of NWN:EE 89.8193.37 (its embedded DFM forms and per-form localisation tables), dialog.tlk, base-game 2DAs and sample GFFs; decoded by tools/aurora/uiinv
+    title: The Aurora toolset's executable and the game's data
+---
+"""
+
+
 def main():
-    out = []
+    out = FRONTMATTER.replace('{AT}', datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')).split('\n')
     nres = sum(1 for fn in forms if base_for(fn) is not None)
     out.extend(M.HEADER.strip('\n').replace('{LOCSTATS}', f'The StrRef table was resolved for {nres} of {len(forms)} forms').split('\n'))
     out.append('')

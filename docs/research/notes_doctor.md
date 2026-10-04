@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: 'The content doctor: what it checks, and how it was calibrated'
+description: What Moonglow's content doctor checks in a module's custom content, where each check comes from, and how the checks were calibrated on shipped content.
+tags: [doctor, custom-content, checks]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:53:59Z }
+---
+
 # The content doctor: what it checks, and how it was calibrated
 
 October 2026. `crates/mg-module/src/doctor.rs` reports problems in a

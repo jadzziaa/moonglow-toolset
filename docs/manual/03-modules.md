@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Modules
+description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
+tags: [manual, modules, haks, nasher]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:47:13Z }
+---
+
 # Modules
 
 ## Opening and saving

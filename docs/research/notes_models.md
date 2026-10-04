@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: 'NWN:EE model and texture formats: research notes for Moonglow Toolset'
+description: NWN:EE model and texture formats for the renderer - ASCII and binary MDL, animations and supermodels, part-based creatures and PLT, textures and materials, special nodes, walkmeshes, lights, limits - with citations, open questions and where the wiki and the data disagree.
+tags: [models, mdl, textures, plt, renderer]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:09:56Z }
+---
+
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
 
 Target: NWN:EE 89.8193.37-17 (Steam, Linux). Written 2026-09-30 for the renderer (areas, placeables, doors, creatures, items in the palette preview). A later writer will condense this.

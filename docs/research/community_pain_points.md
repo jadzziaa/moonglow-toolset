@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: Aurora Toolset pain points, and where Moonglow goes next
+description: Survey of 2026-10-01 of what builders most want changed in the Aurora Toolset, Moonglow 0.2.0 measured against each pain point, the resulting map of improvements and the survey's gaps.
+tags: [survey, community, aurora, roadmap]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T12:51:56Z }
+---
+
 # Aurora Toolset pain points, and where Moonglow goes next
 
 Surveyed 2026-10-01, after Moonglow 0.2.0. The question: now that Moonglow

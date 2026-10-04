@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: 'Moonglow Toolset: prior-art brief'
+description: Survey of 2026-09-30 of existing NWN tools and libraries (rollnw, neverwinter.nim, nwn-lib-rs, NWNExplorer and others), focused on terrain painting, EE lighting and libraries Moonglow could depend on, with recommendations.
+tags: [prior-art, survey, libraries]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:38:36Z }
+---
+
 # Moonglow Toolset: prior-art brief
 
 Surveyed 2026-09-30. Repository metadata (license, last commit, releases) comes from the GitHub, GitLab

@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Troubleshooting
+description: Troubleshooting - the game is not found, no GPU in the area viewer, Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
+tags: [manual, troubleshooting]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:00:08Z }
+---
+
 # Troubleshooting
 
 ## Moonglow does not find the game

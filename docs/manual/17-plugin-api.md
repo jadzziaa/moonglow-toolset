@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Plugin API reference
+description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, logging, progress and UI, ctx.plugin, Luau, limits and what the API doesn't have yet.
+tags: [manual, plugins, api]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+---
+
 # Plugin API reference
 
 Everything a plugin's code can use, for plugin API 0.1. The API is

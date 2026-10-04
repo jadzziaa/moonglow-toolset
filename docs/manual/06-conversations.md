@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Conversations
+description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
+tags: [manual, conversations]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T23:02:42Z }
+---
+
 # Conversations
 
 **Tools › New Conversation…** makes a conversation (`.dlg`); double-click

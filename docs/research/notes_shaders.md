@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
+description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
+tags: [rendering, shaders, lighting, renderer]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T20:29:24Z }
+---
+
 # NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)
 
 Scope: what a from-scratch area renderer for Moonglow Toolset needs to match NWN:EE visuals.

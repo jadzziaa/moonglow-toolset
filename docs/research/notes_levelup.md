@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: Levelling up by package, and the Creature Wizard (Aurora's)
+description: How Aurora's Levelup Wizard and Creature Wizard level a creature by its classes' packages, worked out from creatures made in Aurora 89.8193.37 and checked against them.
+tags: [creatures, levelup, packages, aurora, rules]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T06:01:42Z }
+---
+
 # Levelling up by package, and the Creature Wizard (Aurora's)
 
 Aurora's Levelup Wizard (a creature's Classes page, or its context menu in

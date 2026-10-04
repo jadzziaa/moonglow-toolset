@@ -1,3 +1,11 @@
+---
+type: Changelog
+title: Plugin API changes
+description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
+tags: [plugins, api, changelog]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+---
+
 # Plugin API changes
 
 A plugin's manifest names the API it was written for (`api = "0.1"`).

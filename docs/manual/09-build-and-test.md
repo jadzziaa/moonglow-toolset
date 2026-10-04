@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Build, verify and test
+description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
+tags: [manual, build, verify, test, nwsync]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:00:08Z }
+---
+
 # Build, verify and test
 
 ## Build Module

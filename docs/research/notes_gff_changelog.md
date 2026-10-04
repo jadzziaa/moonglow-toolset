@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: NWN:EE GFF resources authored by the toolset + EE toolset changelog — research notes for Moonglow Toolset
+description: Field reference for the GFF resource types the toolset authors (NWN:EE 89.8193.37), toolset-only data in a module, the EE-added fields, and the EE toolset's changes in order and by topic, with citations and open questions.
+tags: [gff, fields, ee, changelog]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:38:36Z }
+---
+
 # NWN:EE GFF resources authored by the toolset + EE toolset changelog — research notes for Moonglow Toolset
 
 Game: 89.8193.37-17 (bin/win32/build.txt: commit 26c6e57, 2025-10-06). nwtoolset.exe = **PE32 i386** (still 32-bit; Delphi UI + C++ engine code), nwmain = PE32+ x64.

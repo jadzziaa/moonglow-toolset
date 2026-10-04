@@ -1,3 +1,11 @@
+---
+type: Manual
+title: 'Moonglow Toolset: User Manual'
+description: Front page and contents of the Moonglow Toolset user manual, which is also built into the program (Help, User Manual).
+tags: [manual]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:00:08Z }
+---
+
 # Moonglow Toolset: User Manual
 
 Moonglow is a module toolset for **Neverwinter Nights: Enhanced Edition**:

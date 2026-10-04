@@ -1,3 +1,11 @@
+---
+type: Backlog
+title: 'Deferred: what was left out, for a decision later'
+description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
+tags: [backlog, deferred, after-parity]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
+---
+
 # Deferred: what was left out, for a decision later
 
 What the post-parity work (`PLAN.md`, "After parity") left undone, in

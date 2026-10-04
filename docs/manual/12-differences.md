@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Differences from Aurora
+description: Where Moonglow deliberately departs from Aurora.
+tags: [manual, aurora, differences]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T20:24:06Z }
+---
+
 # Differences from Aurora
 
 Moonglow aims to do what Aurora does and write what Aurora writes. Where

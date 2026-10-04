@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: Conversation Editor options (Aurora's)
+description: What each of Aurora's Conversation Editor options does, worked out on a probe conversation, with Aurora's defaults.
+tags: [conversations, options, aurora]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T07:22:02Z }
+---
+
 # Conversation Editor options (Aurora's)
 
 Options › Conversation Editor, worked out in Aurora 89.8193.37 on a probe

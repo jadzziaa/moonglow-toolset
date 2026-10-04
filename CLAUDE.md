@@ -58,6 +58,17 @@ window. To read what the client actually computes, put a patched copy of the
 game's own shader include in the scratch user directory's `override` (as
 `light_uniforms_match_the_client` does): no tracing tools needed.
 
+## Documents
+
+`docs/` is an Open Knowledge Format (OKF v0.2) bundle (the user-level `okf`
+skill): start at `docs/index.md`. Every document opens with frontmatter
+(`type`, `title`, `description`, `generated`, `sources`...), and `okf lint
+docs --links` stays clean. After adding or changing one: `okf index docs`
+and an entry in `docs/log.md`. Manual chapters carry frontmatter too; the
+app shows them without it (`mg-ui/src/manual.rs`, whose tests require it).
+The two generated documents get theirs from their generators
+(`tools/aurora/uiinv/gen.py`, `crates/mg-corpus-tests/examples/observed_schema.rs`).
+
 ## Rules
 
 - **Never write to the real NWN user folder** (`~/.local/share/Neverwinter

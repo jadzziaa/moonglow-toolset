@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: The main window
+description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
+tags: [manual, window, shortcuts]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
+---
+
 # The main window
 
 From top to bottom: the **menus**, the **toolbar**, then the module tree

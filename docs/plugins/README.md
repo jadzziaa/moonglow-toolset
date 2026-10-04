@@ -1,3 +1,11 @@
+---
+type: Guide
+title: 'Plugins: for authors'
+description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, running and packing one.
+tags: [plugins, authors, examples]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+---
+
 # Plugins: for authors
 
 Plugins are experimental: the plugin API is at 0.1, and a later release

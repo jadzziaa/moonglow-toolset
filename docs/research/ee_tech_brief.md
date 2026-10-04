@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: 'Moonglow Toolset: NWN:EE technical research brief'
+description: Technical brief on NWN:EE 89.8193.37 for the toolset - file formats, GFF resource types, resource loading order, tilesets, models and textures, the EE lighting model, script compilation, Test Module, Aurora's known bugs and limits - every claim tagged with its evidence.
+tags: [nwn-ee, formats, gff, rendering, tilesets, aurora]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T23:52:52Z }
+---
+
 # Moonglow Toolset: NWN:EE technical research brief
 
 - **Target:** NWN:EE **89.8193.37-17** (Steam, Linux install; `bin/win32/build.txt` commit 26c6e57, 2025-10-06). Compiled 2026-09-30.

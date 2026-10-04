@@ -1,3 +1,11 @@
+---
+type: Plan
+title: 'Moonglow Toolset: Plan'
+description: The plan of Moonglow Toolset with its current status - what of Aurora it reproduces, the landscape, principles, crate architecture, key designs, phases, testing strategy, licensing and risks.
+tags: [plan, architecture, testing, parity]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:00:26Z }
+---
+
 # Moonglow Toolset: Plan
 
 Moonglow is a from-scratch, cross-platform reimplementation of the Neverwinter

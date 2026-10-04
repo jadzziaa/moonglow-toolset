@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Blueprints
+description: Blueprints - palettes, the blueprint editors and wizards, and instances.
+tags: [manual, blueprints, palettes]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
+---
+
 # Blueprints
 
 A **blueprint** is a template for an object: a creature (`.utc`), door

@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: The EE data Aurora has no fields for
+description: The data Enhanced Edition added to the game's objects that Aurora has no fields for - what the game stores and reads - and what Moonglow leaves undone.
+tags: [ee, gff, fields, aurora]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T23:33:50Z }
+---
+
 # The EE data Aurora has no fields for
 
 October 2026. Item 9 of `community_pain_points.md`. Enhanced Edition

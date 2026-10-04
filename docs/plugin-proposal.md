@@ -1,3 +1,11 @@
+---
+type: Proposal
+title: 'Plugins: a proposal'
+description: The proposal for Moonglow's plugins, accepted 2026-10-03 - what plugins are for and can add, how one runs (sandboxed Luau), the API, safety, runtimes compared, the groundwork, documentation and testing, and where the work stands.
+tags: [plugins, proposal, luau, api]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+---
+
 # Plugins: a proposal
 
 Status: accepted on 2026-10-03 (see [Decisions](#decisions)). Phase 0

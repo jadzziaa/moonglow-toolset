@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Coming from Aurora
+description: For builders who know Aurora - the Aurora problems Moonglow doesn't have, the habits to change, what is easy to miss, and going back to Aurora.
+tags: [manual, aurora]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:48:17Z }
+---
+
 # Coming from Aurora
 
 Moonglow is meant to feel like Aurora. The palettes, property pages,

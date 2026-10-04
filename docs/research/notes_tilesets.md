@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: 'NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)'
+description: The NWN:EE tileset system for the area editor - the SET format, the corner and edge model and terrain painting, ARE and GIT tile data, walkmesh and pathing, tile lights, minimap and palette - with citations and open questions.
+tags: [tilesets, set, terrain, areas]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T03:14:24Z }
+---
+
 # NWN:EE tileset system: research notes for Moonglow (area editor / terrain painting)
 
 Game build checked: 89.8193.37-17 (Steam install, read-only). Date: 2026-09-30.

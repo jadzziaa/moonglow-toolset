@@ -1,3 +1,15 @@
+---
+type: Reference
+title: Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory
+description: Every form and user-facing control of the Aurora Toolset (nwtoolset.exe, NWN:EE), generated from its 105 VCL forms - runtime captions, the GFF field, 2DA or behaviour each control maps to, event handlers and keyboard shortcuts. The reimplementation checklist for Moonglow.
+tags: [aurora, parity, ui, inventory, generated]
+generated: { by: process:aurora-uiinv-gen, at: 2026-09-30T13:38:36Z }
+sources:
+  - id: nwtoolset
+    resource: nwtoolset.exe of NWN:EE 89.8193.37 (its embedded DFM forms and per-form localisation tables), dialog.tlk, base-game 2DAs and sample GFFs; decoded by tools/aurora/uiinv
+    title: The Aurora toolset's executable and the game's data
+---
+
 # Aurora Toolset (nwtoolset.exe, NWN:EE) — UI Feature Inventory
 
 Reimplementation checklist for **Moonglow Toolset**. Generated from the 105 VCL forms (DFM/TPF0 resources) embedded in

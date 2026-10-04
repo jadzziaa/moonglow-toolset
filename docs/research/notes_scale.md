@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: 'Persistent-world scale: budgets, and haks over 2 GiB'
+description: Persistent-world scale - where builders report Aurora slows or fails, Moonglow's measurements on a large world and what they found, and haks over 2 GiB.
+tags: [performance, scale, persistent-worlds, haks]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T05:53:59Z }
+---
+
 # Persistent-world scale: budgets, and haks over 2 GiB
 
 October 2026. Item 8 of `community_pain_points.md`: builders report that

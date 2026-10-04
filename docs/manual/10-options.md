@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Options
+description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
+tags: [manual, options]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
+---
+
 # Options
 
 **Tools › Options…** has Aurora's pages. **OK** applies the changes.

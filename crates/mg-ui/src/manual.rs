@@ -29,9 +29,27 @@ pub(crate) const CHAPTERS: [(&str, &str); 18] = [
     ("17-plugin-api.md", include_str!("../../../docs/manual/17-plugin-api.md")),
 ];
 
+/// A chapter without its frontmatter. The manual is part of an Open
+/// Knowledge Format bundle (`docs/index.md`): each chapter opens with a
+/// YAML block between `---` lines, which is for tools and not for the
+/// reader.
+pub(crate) fn body(text: &str) -> &str {
+    let mut end = 0;
+    for (i, line) in text.split_inclusive('\n').enumerate() {
+        end += line.len();
+        match (i, line.trim_end() == "---") {
+            (0, false) => return text,
+            (0, true) => {}
+            (_, true) => return text[end..].trim_start(),
+            _ => {}
+        }
+    }
+    text
+}
+
 /// A chapter's title: its first heading.
 pub(crate) fn title(text: &str) -> &str {
-    text.lines().find_map(|l| l.strip_prefix("# ")).unwrap_or_default()
+    body(text).lines().find_map(|l| l.strip_prefix("# ")).unwrap_or_default()
 }
 
 /// The manual tab's state.
@@ -190,7 +208,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     // (Made again when the page is wider or narrower by a step.)
                     let step = (width / 20.0) as u32;
                     if !matches!(&m.shown, Some((c, s, _)) if (*c, *s) == (chapter, step)) {
-                        let text = fitted(CHAPTERS[chapter].1, step as f32 * 20.0);
+                        let text = fitted(body(CHAPTERS[chapter].1), step as f32 * 20.0);
                         m.shown = Some((chapter, step, text));
                     }
                     let text = m.shown.as_ref().map_or("", |(_, _, t)| t.as_str());
@@ -250,7 +268,21 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
 
 #[cfg(test)]
 mod tests {
-    use super::{CHAPTERS, cells, fitted};
+    use super::{CHAPTERS, body, cells, fitted, title};
+
+    /// A chapter is shown from its heading, not from its frontmatter.
+    #[test]
+    fn a_chapter_is_shown_without_its_frontmatter() {
+        assert_eq!(body("---\ntype: Manual Page\n---\n\n# Keys\n"), "# Keys\n");
+        assert_eq!(body("---\r\ntitle: a\r\n---\r\n# Keys\r\n"), "# Keys\r\n");
+        assert_eq!(body("# Keys\n\n---\n\nMore.\n"), "# Keys\n\n---\n\nMore.\n");
+        assert_eq!(body("---\nnever closed\n"), "---\nnever closed\n");
+        for (file, text) in CHAPTERS {
+            assert!(text.starts_with("---\n"), "{file} has frontmatter");
+            assert!(body(text).starts_with("# "), "{file} is shown from its heading");
+            assert!(!title(text).is_empty(), "{file}");
+        }
+    }
 
     /// A table the page has room for stays one; a wider one is a list,
     /// and what is in a code block is left alone.
@@ -274,7 +306,7 @@ mod tests {
     #[test]
     fn every_chapter_fits_the_page() {
         for (file, text) in CHAPTERS {
-            let shown = fitted(text, 680.0);
+            let shown = fitted(body(text), 680.0);
             for line in shown.lines().filter(|l| l.starts_with('|')) {
                 let needs: f32 = cells(line).iter().map(|c| super::drawn_width(c) + 10.0).sum();
                 assert!(needs <= 680.0, "{file}: {line}");
@@ -290,7 +322,8 @@ mod tests {
         let mut files: Vec<String> = std::fs::read_dir(dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
-            .filter(|f| f.ends_with(".md"))
+            // (`index.md` and `log.md` are the bundle's listing and history, not chapters.)
+            .filter(|f| f.ends_with(".md") && f != "index.md" && f != "log.md")
             .collect();
         files.sort();
         let mut built: Vec<String> = CHAPTERS.iter().map(|(f, _)| f.to_string()).collect();

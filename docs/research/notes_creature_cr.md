@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: Creature challenge rating (Aurora's calculation)
+description: How Aurora computes a creature's challenge rating (the engine only returns the stored value), worked out from probe creatures and checked against Aurora; implemented in mg_rules::challenge.
+tags: [creatures, challenge-rating, aurora, rules]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T04:34:01Z }
+---
+
 # Creature challenge rating (Aurora's calculation)
 
 Aurora computes a creature's `ChallengeRating` when its Creature Properties

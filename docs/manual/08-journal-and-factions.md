@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Journal and factions
+description: The Journal Editor and the Faction Editor.
+tags: [manual, journal, factions]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T23:02:42Z }
+---
+
 # Journal and factions
 
 ## The Journal Editor

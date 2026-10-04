@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Areas
+description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
+tags: [manual, areas, terrain, tiles]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:47:13Z }
+---
+
 # Areas
 
 Double-click an area in the module tree (or right-click it › **View

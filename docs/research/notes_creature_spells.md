@@ -1,3 +1,11 @@
+---
+type: Research Note
+title: Creature spell and inventory warnings (Aurora's)
+description: Aurora's two creature warnings, invalid spell assignments and inventory, worked out from probe creatures in Aurora 89.8193.37 and checked against its captures.
+tags: [creatures, spells, inventory, aurora, rules]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-01T07:05:06Z }
+---
+
 # Creature spell and inventory warnings (Aurora's)
 
 Options › General has two creature warnings: "Show invalid creature spell

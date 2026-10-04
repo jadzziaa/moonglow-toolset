@@ -1,3 +1,11 @@
+---
+type: Manual Page
+title: Writing plugins
+description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, checks, several files, trying and testing, editor types and versions.
+tags: [manual, plugins, luau]
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+---
+
 # Writing plugins
 
 A plugin is a folder with a manifest (`plugin.cfg`: who it is and what it
