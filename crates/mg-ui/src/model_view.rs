@@ -291,6 +291,17 @@ fn load_super(
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
+    show(app, ui, source, false);
+}
+
+/// The viewer in an editor's page (`embedded`): its toolbar without the
+/// model's statistics (the page is narrower than a window), and with Pop
+/// Out among its buttons. Whether Pop Out was clicked.
+pub(crate) fn embedded(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) -> bool {
+    show(app, ui, source, true)
+}
+
+fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -> bool {
     let key = source.clone();
     if !app.model_views.contains_key(&key) {
         // The editors' working copies, which the preview reads.
@@ -307,21 +318,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
         Err(e) => {
             ui.colored_label(ui.visuals().error_fg_color, e);
             app.model_views.insert(key, view);
-            return;
+            return false;
         }
     };
 
     // Animations: the model's own, then its supermodels'.
     let anims = anim::animations(&model.model, &|n| load_super(app, &view.supermodels, n));
     // Wrapping in a narrow window, so none of it is cut off.
+    let mut pop_out = false;
     ui.horizontal_wrapped(|ui| {
-        ui.label(format!(
-            "{}: {} nodes, {} meshes",
-            model.model.name,
-            model.model.nodes.len(),
-            model.meshes.len()
-        ));
-        if let Some(c) = view.composed.as_ref().filter(|c| c.part_count() > 0) {
+        if !embedded {
+            ui.label(format!(
+                "{}: {} nodes, {} meshes",
+                model.model.name,
+                model.model.nodes.len(),
+                model.meshes.len()
+            ));
+        }
+        if let Some(c) = view.composed.as_ref().filter(|c| c.part_count() > 0 && !embedded) {
             ui.weak(format!("+ {} parts", c.part_count()))
                 .on_hover_text("Body parts, equipment, wings and tails from the blueprint");
             if !c.missing.is_empty() {
@@ -332,10 +346,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
                 .on_hover_text(c.missing.join("\n"));
             }
         }
-        if let Some(s) = &model.model.supermodel {
+        if let Some(s) = model.model.supermodel.as_ref().filter(|_| !embedded) {
             ui.weak(format!("supermodel {s}"));
         }
-        ui.separator();
+        if !embedded {
+            ui.separator();
+        }
         let current = view.animation.clone().unwrap_or_else(|| "(rest pose)".into());
         egui::ComboBox::new(("anim", &key), "Animation").selected_text(current).show_ui(ui, |ui| {
             if ui.selectable_label(view.animation.is_none(), "(rest pose)").clicked() {
@@ -356,12 +372,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
         }
         ui.checkbox(&mut view.model_lights, "Lights")
             .on_hover_text("Light the model with its own light nodes");
+        if embedded {
+            pop_out =
+                ui.button("Pop Out").on_hover_text("Show it in a window of its own").clicked();
+        }
     });
 
     let Some(vp) = app.viewport.as_mut() else {
         ui.label("No GPU.");
         app.model_views.insert(key, view);
-        return;
+        return false;
     };
     let size = ui.available_size().max(egui::vec2(32.0, 32.0));
     let ppp = ui.ctx().pixels_per_point();
@@ -523,6 +543,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, source: Source) {
         }
     }
     app.model_views.insert(key, view);
+    pop_out
 }
 
 /// Pictures of blueprints as they look (the palette's hover preview),

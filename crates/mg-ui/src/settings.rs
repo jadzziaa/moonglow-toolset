@@ -45,6 +45,14 @@ pub struct Settings {
     pub script_style: ScriptStyle,
     /// Options > General: Build module on save (Aurora's `Verify On Save`).
     pub build_on_save: bool,
+    /// Options > General: Show ResRefs beside names: `Name (resref)` in
+    /// the module tree (where it lists by name) and the palettes.
+    pub name_resrefs: bool,
+    /// Options > General: Show challenge ratings in the creature palette,
+    /// off (the default: shown).
+    pub palette_no_cr: bool,
+    /// Options > General: Light theme (the default: dark).
+    pub light_theme: bool,
     /// Options > General: Interface size, per cent of the usual (`None`:
     /// 100): the whole interface, text and all, larger.
     pub ui_scale: Option<u16>,

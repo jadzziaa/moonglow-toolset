@@ -339,6 +339,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let game = app.game.as_deref().expect("checked");
     let favorites = app.settings.palette_favorites.clone();
     let recent = app.settings.palette_recent.clone();
+    let (resrefs, cr) = (app.settings.name_resrefs, !app.settings.palette_no_cr);
     let ext = kind.restype().extension().unwrap_or_default();
     let mut tree = Tree {
         game,
@@ -355,6 +356,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
         picks: Vec::new(),
         hovered: None,
+        resrefs,
+        cr,
     };
     if find.fuzzy {
         ui.weak("No exact matches: close ones");
@@ -525,6 +528,23 @@ struct Tree<'a> {
     picks: Vec<Pick>,
     /// The blueprint hovered now.
     hovered: Option<ResKey>,
+    /// Options › General: ResRefs beside names, and creatures' challenge
+    /// ratings.
+    resrefs: bool,
+    cr: bool,
+}
+
+/// A blueprint's row: its name, its ResRef in parentheses and a creature's
+/// challenge rating, where each is asked for.
+fn blueprint_label(name: &str, resref: Option<ResRef>, cr: Option<f32>) -> String {
+    let mut label = name.to_string();
+    if let Some(r) = resref {
+        label.push_str(&format!(" ({r})"));
+    }
+    if let Some(cr) = cr {
+        label.push_str(&format!("  (CR {cr})"));
+    }
+    label
 }
 
 /// A blueprint as Favorites and Recent remember it: `utp:plc_chest1`.
@@ -609,10 +629,8 @@ impl Tree<'_> {
         let name = b.name.text(self.game);
         let key = ResKey::new(b.resref, kind.restype());
         let favorite = self.favorites.contains(&b.resref);
-        let label = match b.cr {
-            Some(cr) => format!("{name}  (CR {cr})"),
-            None => name.clone(),
-        };
+        let label =
+            blueprint_label(&name, self.resrefs.then_some(b.resref), b.cr.filter(|_| self.cr));
         let label = if favorite { format!("★ {label}") } else { label };
         // Dragged into an area view, it is placed where it is dropped; onto
         // a custom category, it moves there.
@@ -746,6 +764,15 @@ impl Tree<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_blueprints_row_names_what_is_asked_for() {
+        let r = ResRef::from_str("nw_goblina").unwrap();
+        assert_eq!(blueprint_label("Goblin", None, None), "Goblin");
+        assert_eq!(blueprint_label("Goblin", Some(r), None), "Goblin (nw_goblina)");
+        assert_eq!(blueprint_label("Goblin", None, Some(0.5)), "Goblin  (CR 0.5)");
+        assert_eq!(blueprint_label("Goblin", Some(r), Some(1.0)), "Goblin (nw_goblina)  (CR 1)");
+    }
 
     #[test]
     fn finds_words_anywhere_or_letters_in_order() {

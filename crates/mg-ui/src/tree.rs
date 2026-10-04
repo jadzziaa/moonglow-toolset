@@ -46,6 +46,30 @@ pub(crate) struct AreaNames {
     /// By area: the stored ARE read (where its data is and its length:
     /// replaced data is elsewhere) and what it says.
     read: HashMap<ResRef, ((usize, usize), AreaInfo)>,
+    /// Blueprints' names, likewise.
+    names: HashMap<ResKey, ((usize, usize), String)>,
+}
+
+/// A blueprint's name in the editing language, else as the game shows it:
+/// a creature's first and last names, another's `LocalizedName` or
+/// `LocName`.
+fn blueprint_name(game: Option<&GameData>, root: &mg_gff::Struct) -> String {
+    let text = |label: &str| {
+        root.locstring(label).map_or(String::new(), |name| {
+            let edited = crate::text::edited_text(name);
+            if !edited.is_empty() {
+                return edited;
+            }
+            game.and_then(|g| g.locstring(name)).unwrap_or_default()
+        })
+    };
+    let full = [text("FirstName"), text("LastName")];
+    let full: Vec<&str> = full.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+    if !full.is_empty() {
+        return full.join(" ");
+    }
+    let name = text("LocalizedName");
+    if name.trim().is_empty() { text("LocName") } else { name }
 }
 
 impl AreaNames {
@@ -85,6 +109,29 @@ impl AreaNames {
         info
     }
 
+    /// A blueprint's name (empty when it has none), read once as the
+    /// areas' are.
+    pub(crate) fn blueprint(
+        &mut self,
+        ws: &Workspace,
+        game: Option<&GameData>,
+        key: ResKey,
+    ) -> String {
+        if let Some(doc) = ws.loaded(&key) {
+            return blueprint_name(game, &doc.root);
+        }
+        let Some(data) = ws.module.get(&key) else { return String::new() };
+        let stamp = (data.as_ptr() as usize, data.len());
+        if let Some((s, name)) = self.names.get(&key)
+            && *s == stamp
+        {
+            return name.clone();
+        }
+        let name = Gff::read(data).map(|g| blueprint_name(game, &g.root)).unwrap_or_default();
+        self.names.insert(key, (stamp, name.clone()));
+        name
+    }
+
     /// The area's name in the editing language, else as the game shows it
     /// (its talk-table string); empty when it has none.
     pub(crate) fn name(&mut self, ws: &Workspace, game: Option<&GameData>, area: ResRef) -> String {
@@ -107,7 +154,7 @@ impl AreaNames {
 
 pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     let Some(ws) = &app.ws else { return };
-    let by_name = app.settings.area_names;
+    let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
     let filter_id = egui::Id::new("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
     ui.horizontal(|ui| {
@@ -130,12 +177,24 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         // Areas by name (Options › General): named, and in the names'
         // order; the filter finds a name or a ResRef.
         let mut names: HashMap<ResKey, String> = HashMap::new();
-        if by_name && types == &[ResType::ARE] {
+        let named = types == &[ResType::ARE]
+            || types.iter().all(|t| mg_area::ObjectKind::from_restype(*t).is_some());
+        if by_name && named {
+            let game = app.game.as_deref();
             for k in &keys {
-                let name = app.area_names.label(ws, app.game.as_deref(), k.resref, true);
-                names.insert(*k, name);
+                let name = if k.restype == ResType::ARE {
+                    app.area_names.name(ws, game, k.resref)
+                } else {
+                    app.area_names.blueprint(ws, game, *k)
+                };
+                // (One without a name keeps its ResRef.)
+                if !name.trim().is_empty() {
+                    names.insert(*k, named_label(&name, k.resref, resrefs));
+                }
             }
-            keys.sort_by_cached_key(|k| (names[k].to_lowercase(), *k));
+            let shown =
+                |k: &ResKey| names.get(k).map_or_else(|| k.resref.to_string(), String::clone);
+            keys.sort_by_cached_key(|k| (shown(k).to_lowercase(), *k));
         }
         keys.retain(|k| {
             filter.is_empty()
@@ -271,6 +330,12 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     if let Some(id) = make {
         id.run(app, ui.ctx());
     }
+}
+
+/// A named resource in the tree: its name, and its ResRef in parentheses
+/// when asked for (Options › General).
+fn named_label(name: &str, resref: ResRef, resrefs: bool) -> String {
+    if resrefs { format!("{name} ({resref})") } else { name.to_string() }
 }
 
 /// The menu entry for a command that makes something new, from its name:

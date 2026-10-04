@@ -852,6 +852,8 @@ fn areas_by_name_and_area_properties() {
     app.set_render_state(rs.clone());
     app.open_module(&root.join("data/nwm/Chapter1.nwm"));
     app.settings.area_names = true;
+    app.settings.name_resrefs = true;
+    app.settings.light_theme = std::env::var_os("MG_LIGHT").is_some();
     let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
     let mut h = Harness::builder()
@@ -1025,6 +1027,35 @@ fn spawn_point_markers() {
     }
     h.run_steps(5);
     shoot(&mut h, &dir, "spawn-points");
+}
+
+#[test]
+#[ignore]
+fn creature_appearance_inline() {
+    // A creature's Appearance page with its model in the page.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.open_palette = false;
+    let utc = ResKey::parse("m1q1faribeth", ResType::UTC).unwrap();
+    app.blueprint_pages.insert((utc, mg_edit::GffPath::root()), "Appearance");
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Blueprint(utc)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 1000.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(4);
+    place(&mut h, &mg_ui::Tab::Blueprint(utc), (250.0, 60.0), (800.0, 900.0));
+    h.run_steps(20);
+    shoot(&mut h, &dir, "creature-appearance");
 }
 
 #[test]

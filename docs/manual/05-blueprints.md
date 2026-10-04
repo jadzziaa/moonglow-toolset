@@ -130,6 +130,18 @@ Advanced, Comments.
 Moonglow recomputes the creature's hit points and challenge rating with
 every change, as Aurora does on OK.
 
+- **Appearance** opens with the creature's model, as it looks now and as
+  large as the window has room for; its wings, tail and colors, and its
+  body parts, are to the right, so a change shows as you make it. **Pop
+  Out**, among the viewer's buttons, moves the model to a window of its
+  own (to keep beside other pages); **Bring Back** returns it to the page.
+- **Feats** and **Spells** are found by name (**Find**) and by category:
+  the toolset's categories of feats (combat, defensive, magical…), and
+  spells' talent categories (harmful ranged, beneficial healing…).
+- **Special Abilities** lists each ability as the game has it: so many
+  **Uses** of a spell at a **Caster Level**. Clicking a spell adds a use;
+  the same spell at another caster level is another ability.
+
 The game reads a familiar only when one of the creature's classes has
 one (an arcane class whose `MinAssociateLevel` in `classes.2da` isn't
 255: Wizard, Sorcerer), and an animal companion only for a divine class

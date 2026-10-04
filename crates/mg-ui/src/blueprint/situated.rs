@@ -579,16 +579,50 @@ pub(super) fn pick(
     pick.filter(|&v| v != current)
 }
 
+/// The model viewer's tab for the form's object: a placed object as it is
+/// placed (its GIT entry), else the blueprint.
+fn preview_tab(f: &Form<'_>) -> crate::Tab {
+    if f.key.restype == ResType::GIT {
+        crate::Tab::InstanceModel { area: f.key.resref, path: f.path.clone() }
+    } else {
+        crate::Tab::Model(f.key)
+    }
+}
+
+/// The model viewer in the page, `size` large, as Aurora shows a creature
+/// in its Appearance page; Pop Out, among its buttons, moves it to a window
+/// of its own (to keep beside other pages). While it is there, the page
+/// says so and offers to bring it back.
+pub(super) fn inline_preview(f: &mut Form<'_>, ui: &mut Ui, size: egui::Vec2) {
+    let tab = preview_tab(f);
+    let size = size.max(egui::vec2(120.0, 120.0));
+    let popped = f.app.open_models.contains(&tab);
+    let source = match &tab {
+        crate::Tab::InstanceModel { area, path } => {
+            crate::model_view::Source::Instance { area: *area, path: path.clone() }
+        }
+        _ => crate::model_view::Source::Resource(f.key),
+    };
+    ui.allocate_ui(size, |ui| {
+        ui.set_min_size(size);
+        ui.set_max_size(size);
+        if popped {
+            ui.weak("The preview is in a window of its own.");
+            if ui.button("Bring Back").on_hover_text("Close its window and show it here").clicked()
+            {
+                f.app.actions.push(crate::Action::CloseTab(tab));
+            }
+        } else if crate::model_view::embedded(f.app, ui, source) {
+            f.app.actions.push(crate::Action::OpenTab(tab));
+        }
+    });
+}
+
 /// Preview: the blueprint's model in the model viewer (Aurora shows it in
 /// the dialog).
 pub(super) fn preview_button(f: &mut Form<'_>, ui: &mut Ui) {
     if ui.button("Preview").on_hover_text("Show the model").clicked() {
-        // A placed object as it is placed (its GIT entry), else the blueprint.
-        let tab = if f.key.restype == ResType::GIT {
-            crate::Tab::InstanceModel { area: f.key.resref, path: f.path.clone() }
-        } else {
-            crate::Tab::Model(f.key)
-        };
+        let tab = preview_tab(f);
         f.app.actions.push(crate::Action::OpenTab(tab));
     }
 }

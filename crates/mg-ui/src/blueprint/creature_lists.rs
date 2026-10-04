@@ -43,6 +43,73 @@ fn filter(ui: &mut Ui, id: egui::Id) -> String {
     text.to_lowercase()
 }
 
+/// feat.2da `TOOLSCATEGORIES`: the toolset's categories of feats.
+const FEAT_CATEGORIES: [(i32, &str); 6] = [
+    (1, "Combat"),
+    (2, "Active Combat"),
+    (3, "Defensive"),
+    (4, "Magical"),
+    (5, "Class / Racial"),
+    (6, "Other"),
+];
+
+/// A talent category's name as a list shows it: categories.2da's
+/// `Harmful_AOE_Discriminant` and `TALENT_CATEGORY_BENEFICIAL_SUMMON` are
+/// "Harmful AOE Discriminant" and "Beneficial Summon".
+pub(crate) fn category_name(label: &str) -> String {
+    let label = label.trim();
+    let label =
+        label.strip_prefix("TALENT_CATEGORY_").or(label.strip_prefix("TALENT_")).unwrap_or(label);
+    label
+        .split('_')
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            // (Acronyms stay as they are: AOE.)
+            if w.len() <= 3 && w.chars().all(|c| c.is_ascii_uppercase()) {
+                return w.to_string();
+            }
+            let mut c = w.chars();
+            let first = c.next().map(|f| f.to_ascii_uppercase()).unwrap_or_default();
+            format!("{first}{}", c.as_str().to_ascii_lowercase())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The talent categories spells have (categories.2da), by name.
+fn spell_categories(game: &GameData) -> Vec<(i32, String)> {
+    let Ok(t) = game.table("categories") else { return Vec::new() };
+    let mut out: Vec<(i32, String)> = (0..t.len())
+        .filter_map(|r| {
+            let label =
+                t.get(r, "Category").map(str::trim).filter(|l| !l.is_empty() && *l != "****")?;
+            Some((r as i32, category_name(label)))
+        })
+        .collect();
+    out.sort_by_key(|(_, name)| name.to_lowercase());
+    out
+}
+
+/// A list's category filter, kept per page: any, or one of `categories`.
+fn category_filter(ui: &mut Ui, id: egui::Id, categories: &[(i32, String)]) -> Option<i32> {
+    let mut chosen: Option<i32> = ui.data(|d| d.get_temp(id)).unwrap_or(None);
+    let name = |c: Option<i32>| match c {
+        None => "Any category".to_string(),
+        Some(c) => categories
+            .iter()
+            .find(|(n, _)| *n == c)
+            .map_or_else(|| c.to_string(), |(_, name)| name.clone()),
+    };
+    egui::ComboBox::from_id_salt(id).selected_text(name(chosen)).width(200.0).show_ui(ui, |ui| {
+        ui.selectable_value(&mut chosen, None, name(None));
+        for (c, text) in categories {
+            ui.selectable_value(&mut chosen, Some(*c), text);
+        }
+    });
+    ui.data_mut(|d| d.insert_temp(id, chosen));
+    chosen
+}
+
 pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
@@ -59,20 +126,32 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         f.root.list("FeatList").unwrap_or(&[]).iter().filter_map(|s| s.integer("Feat")).collect();
     let id = egui::Id::new(("utc-feats", key));
     let mut assigned_only: bool = ui.data(|d| d.get_temp(id.with("only"))).unwrap_or(false);
-    let needle = ui
-        .horizontal(|ui| {
+    let feat_table = f.app.game.as_ref().and_then(|g| g.table("feat").ok());
+    let categories: Vec<(i32, String)> =
+        FEAT_CATEGORIES.iter().map(|(c, n)| (*c, n.to_string())).collect();
+    let (needle, category) = ui
+        .horizontal_wrapped(|ui| {
             let t = filter(ui, id);
+            let c = category_filter(ui, id.with("category"), &categories);
             ui.checkbox(&mut assigned_only, "Assigned only");
             ui.label(format!("{} feats assigned", list.len()));
-            t
+            (t, c)
         })
         .inner;
+    let in_category = |row: usize| {
+        category.is_none_or(|c| {
+            feat_table.as_ref().and_then(|t| t.get_int(row, "TOOLSCATEGORIES")) == Some(c)
+        })
+    };
     ui.data_mut(|d| d.insert_temp(id.with("only"), assigned_only));
     let mut toggle = None;
     egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).show(ui, |ui| {
         for c in &all {
             let on = list.contains(&(c.row as i64));
-            if (assigned_only && !on) || !c.text.to_lowercase().contains(&needle) {
+            if (assigned_only && !on)
+                || !c.text.to_lowercase().contains(&needle)
+                || !in_category(c.row)
+            {
                 continue;
             }
             let mut v = on;
@@ -215,7 +294,16 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
         if prepares { "Prepared" } else { "Known" },
         if summary.is_empty() { "none".to_string() } else { summary.join(", ") }
     ));
-    let needle = filter(ui, id.with("find"));
+    let categories = spell_categories(game);
+    let (needle, category) = ui
+        .horizontal_wrapped(|ui| {
+            let t = filter(ui, id.with("find"));
+            (t, category_filter(ui, id.with("category"), &categories))
+        })
+        .inner;
+    let in_category = |row: usize| {
+        category.is_none_or(|c| innate.as_ref().and_then(|t| t.get_int(row, "Category")) == Some(c))
+    };
     let path = base.clone().item("ClassList", index);
     let mut change: Option<(usize, usize, i64)> = None; // (spell, level, delta)
     egui::ScrollArea::vertical().id_salt(("utc-spell-list", key)).show(ui, |ui| {
@@ -229,7 +317,10 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.strong("Level");
                 ui.end_row();
                 for (row, name, l) in &spells {
-                    if level.is_some_and(|x| x != *l) || !name.to_lowercase().contains(&needle) {
+                    if level.is_some_and(|x| x != *l)
+                        || !name.to_lowercase().contains(&needle)
+                        || !in_category(*row)
+                    {
                         continue;
                     }
                     let count = lists[*l].iter().filter(|&&s| s == *row as i64).count() as i64;
@@ -363,6 +454,62 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     }
 }
 
+/// Special abilities as the game has them: a spell used so many times at
+/// a caster level. The file keeps an entry for each use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AbilityGroup {
+    pub spell: i64,
+    pub caster_level: i64,
+    pub flags: i64,
+    /// The entries of `SpecAbilityList` that are its uses.
+    pub entries: Vec<usize>,
+}
+
+/// The list's entries grouped into abilities, in the order each first
+/// appears: entries of one spell, caster level and flags are uses of one
+/// ability.
+pub(crate) fn ability_groups(list: &[Struct]) -> Vec<AbilityGroup> {
+    let mut groups: Vec<AbilityGroup> = Vec::new();
+    for (i, s) in list.iter().enumerate() {
+        let n = |label: &str, default: i64| s.integer(label).unwrap_or(default);
+        let (spell, caster_level, flags) =
+            (n("Spell", 0), n("SpellCasterLevel", 1), n("SpellFlags", 1));
+        match groups
+            .iter_mut()
+            .find(|g| (g.spell, g.caster_level, g.flags) == (spell, caster_level, flags))
+        {
+            Some(g) => g.entries.push(i),
+            None => groups.push(AbilityGroup { spell, caster_level, flags, entries: vec![i] }),
+        }
+    }
+    groups
+}
+
+/// The edits that make an ability of `entries` (its uses now) have `uses`:
+/// more are copies of `first` after its last, fewer drop its last ones (0
+/// removes it).
+fn set_uses(
+    key: ResKey,
+    base: &GffPath,
+    first: &Struct,
+    entries: &[usize],
+    uses: usize,
+) -> Vec<Edit> {
+    if uses >= entries.len() {
+        let after = entries.last().map_or(0, |i| i + 1);
+        (0..uses - entries.len())
+            .map(|k| insert(key, base.clone(), "SpecAbilityList", after + k, first.clone()))
+            .collect()
+    } else {
+        // From the last, so the entries before keep their places.
+        entries[uses..]
+            .iter()
+            .rev()
+            .map(|&i| remove(key, base.clone(), "SpecAbilityList", i))
+            .collect()
+    }
+}
+
 pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
@@ -390,53 +537,75 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
         .filter_map(|c| c.integer("ClassLevel"))
         .sum::<i64>()
         .max(1);
-    let mut edits: Vec<(&str, Edit)> = Vec::new();
+    let categories = f.app.game.as_deref().map(spell_categories).unwrap_or_default();
+    let spell_table = f.app.game.as_ref().and_then(|g| g.table("spells").ok());
+    let groups = ability_groups(&list);
+    let mut edits: Vec<(&str, Vec<Edit>)> = Vec::new();
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
             ui.strong("Spells");
-            let needle = filter(ui, egui::Id::new(("utc-special-find", key)));
+            let id = egui::Id::new(("utc-special-find", key));
+            let needle = filter(ui, id);
+            let category = category_filter(ui, id.with("category"), &categories);
+            let in_category = |row: usize| {
+                category.is_none_or(|c| {
+                    spell_table.as_ref().and_then(|t| t.get_int(row, "Category")) == Some(c)
+                })
+            };
             egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
                 ui,
                 |ui| {
-                    for c in names.iter().filter(|c| c.text.to_lowercase().contains(&needle)) {
-                        if ui.selectable_label(false, &c.text).on_hover_text("Add").clicked() {
+                    for c in names
+                        .iter()
+                        .filter(|c| c.text.to_lowercase().contains(&needle) && in_category(c.row))
+                    {
+                        if ui
+                            .selectable_label(false, &c.text)
+                            .on_hover_text("Add a use of it")
+                            .clicked()
+                        {
                             let mut s = Struct::new(SPECIAL_ID);
                             s.set("Spell", Value::Word(c.row as u16));
                             s.set("SpellCasterLevel", Value::Byte(level.min(255) as u8));
                             s.set("SpellFlags", Value::Byte(1));
                             edits.push((
                                 "Add special ability",
-                                insert(key, base.clone(), "SpecAbilityList", list.len(), s),
+                                vec![insert(key, base.clone(), "SpecAbilityList", list.len(), s)],
                             ));
                         }
                     }
                 },
             );
         } else {
+            // As the game has them: so many uses of a spell at a caster
+            // level (the file keeps an entry for each use).
             ui.strong("Special Abilities");
-            egui::Grid::new(("utc-special", key)).num_columns(3).striped(true).show(ui, |ui| {
+            egui::Grid::new(("utc-special", key)).num_columns(4).striped(true).show(ui, |ui| {
                 ui.strong("Ability");
+                ui.strong("Uses");
                 ui.strong("Caster Level");
                 ui.label("");
                 ui.end_row();
-                for (i, s) in list.iter().enumerate() {
-                    ui.label(name_of(s.integer("Spell").unwrap_or(0)));
-                    let lvl = s.integer("SpellCasterLevel").unwrap_or(1);
-                    if let Some(v) = commit_number(ui, lvl, 1..=60) {
-                        edits.push((
-                            "Caster level",
-                            Edit::SetField {
-                                key,
-                                path: base.clone().item("SpecAbilityList", i),
-                                label: "SpellCasterLevel".into(),
-                                value: Some(Value::Byte(v as u8)),
-                            },
-                        ));
+                for g in &groups {
+                    let first = &list[g.entries[0]];
+                    ui.label(name_of(g.spell));
+                    let uses = g.entries.len() as i64;
+                    if let Some(v) = commit_number(ui, uses, 1..=99) {
+                        edits.push(("Uses", set_uses(key, &base, first, &g.entries, v as usize)));
+                    }
+                    if let Some(v) = commit_number(ui, g.caster_level, 1..=60) {
+                        let set = |&i: &usize| Edit::SetField {
+                            key,
+                            path: base.clone().item("SpecAbilityList", i),
+                            label: "SpellCasterLevel".into(),
+                            value: Some(Value::Byte(v as u8)),
+                        };
+                        edits.push(("Caster level", g.entries.iter().map(set).collect()));
                     }
                     if ui.small_button("Remove").clicked() {
                         edits.push((
                             "Remove special ability",
-                            remove(key, base.clone(), "SpecAbilityList", i),
+                            set_uses(key, &base, first, &g.entries, 0),
                         ));
                     }
                     ui.end_row();
@@ -445,7 +614,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
         }
     });
     for (what, e) in edits {
-        apply(f, what, vec![e]);
+        apply(f, what, e);
     }
 }
 
@@ -710,5 +879,65 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     }
     for (what, e) in edits {
         apply(f, what, vec![e]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mg_core::ResType;
+
+    fn ability(spell: u16, level: u8) -> Struct {
+        let mut s = Struct::new(SPECIAL_ID);
+        s.set("Spell", Value::Word(spell));
+        s.set("SpellCasterLevel", Value::Byte(level));
+        s.set("SpellFlags", Value::Byte(1));
+        s
+    }
+
+    #[test]
+    fn special_abilities_are_uses_of_a_spell_at_a_caster_level() {
+        // Three entries of one spell at one level are three uses of it; the
+        // same spell at another level is another ability.
+        let list = [ability(10, 5), ability(20, 5), ability(10, 5), ability(10, 9), ability(10, 5)];
+        let groups = ability_groups(&list);
+        let shape: Vec<(i64, i64, &[usize])> =
+            groups.iter().map(|g| (g.spell, g.caster_level, g.entries.as_slice())).collect();
+        assert_eq!(shape, [(10, 5, &[0, 2, 4][..]), (20, 5, &[1]), (10, 9, &[3])]);
+
+        let key = ResKey::parse("c", ResType::UTC).unwrap();
+        let base = GffPath::root();
+        let entries = &groups[0].entries;
+        // More uses: copies after its last entry.
+        let more = set_uses(key, &base, &list[0], entries, 5);
+        let inserted: Vec<usize> = more
+            .iter()
+            .map(|e| match e {
+                Edit::InsertItem { index, item, .. } if *item == list[0] => *index,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(inserted, [5, 6]);
+        // Fewer: its last entries go, the last first.
+        let fewer = set_uses(key, &base, &list[0], entries, 1);
+        let removed: Vec<usize> = fewer
+            .iter()
+            .map(|e| match e {
+                Edit::RemoveItem { index, .. } => *index,
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(removed, [4, 2]);
+        // None: all of them; as many: nothing.
+        assert_eq!(set_uses(key, &base, &list[0], entries, 0).len(), 3);
+        assert!(set_uses(key, &base, &list[0], entries, 3).is_empty());
+    }
+
+    #[test]
+    fn talent_categories_are_named_for_people() {
+        assert_eq!(category_name("Harmful_AOE_Discriminant"), "Harmful AOE Discriminant");
+        assert_eq!(category_name("TALENT_CATEGORY_BENEFICIAL_SUMMON"), "Beneficial Summon");
+        assert_eq!(category_name("TALENT_CATEGORY_HARMFUL_MELEE "), "Harmful Melee");
+        assert_eq!(category_name("TALENT_DISPEL"), "Dispel");
     }
 }

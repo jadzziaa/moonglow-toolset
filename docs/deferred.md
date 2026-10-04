@@ -193,23 +193,28 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 Done from it: New… in the module tree's menus, the Creature Wizard's
 races and monsters' portraits, Escape closing a model's window, lists by
-name, Interface size, spawn points' markers and facings. Left for a
-decision or later:
+name, Interface size, spawn points' markers and facings, areas and
+blueprints by name with ResRefs in parentheses, the palette's ResRefs and
+challenge ratings as options, category filters for feats and spells,
+special abilities as uses, the creature's model in its Appearance page,
+a light theme. Left:
 
-- **The tree by name for every type:** only areas can be listed by name
-  (Show areas by name); blueprints, scripts and conversations are by
-  ResRef, where "Name (resref)" was asked for. (S)
-- **Creature Properties' layout:** overlapping elements were reported
-  (not reproduced: which page isn't known), and an appearance preview in
-  the editor rather than in a window of its own. (M)
-- **Feats and spells by category:** filters by talent category; ResRefs
-  and challenge ratings in the palette as options. (S–M)
-- **Special abilities as uses:** each slot is listed as the file has it;
-  Aurora shows "N uses of a spell at caster level X". Grouping equal
-  entries would read so; entries of different caster levels must stay
-  apart. (S–M)
-- **A light theme:** colours are set for the dark theme in many places.
-  (M)
+- **Creature Properties' overlapping elements:** reported, not
+  reproduced: every page is checked for widgets drawn over each other at
+  four window sizes (`blueprint_editor_pages_draw_nothing_over_anything_else`)
+  and none are. A screenshot, or the page and the interface size, would
+  find it. (S)
+- **Scripts and conversations by name:** they have no names; the tree
+  lists them by ResRef. (—)
+- **The model in other editors' pages:** placeables, doors and items
+  still show theirs through Preview. (S)
+- **Special abilities' flags:** uses are grouped by spell, caster level
+  and flags; the flags (ready, spontaneous) aren't shown or set. (S)
+- **The light theme's own colors:** it is egui's light theme; the script
+  editor's syntax colors follow it, but conversation and faction colors
+  are the dark theme's (legible on both), and the area view's overlays
+  are drawn for the 3D view. A pass with a builder who uses it would
+  settle the rest. (S–M)
 - **A spawn point's facing can't be turned in the area view:** it is a
   field of the encounter (the fields view sets it). (S)
 

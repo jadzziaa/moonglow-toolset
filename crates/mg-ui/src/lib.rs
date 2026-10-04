@@ -320,6 +320,8 @@ pub struct Moonglow {
     pub prefab_save: Option<(String, area_view::ObjectClip)>,
     /// The interface size was set from the settings (to set it back).
     scaled: bool,
+    /// The models' windows open as the frame began.
+    pub(crate) open_models: Vec<Tab>,
     /// The folder Export as Files last wrote to (offered again).
     pub(crate) export_dir: Option<PathBuf>,
     /// The Update Instances window.
@@ -478,6 +480,7 @@ impl Moonglow {
             prefab_save: None,
             update_draft: None,
             export_dir: None,
+            open_models: Vec::new(),
             scaled: false,
             area_chooser: None,
             text_replace: None,
@@ -568,6 +571,11 @@ impl Moonglow {
         widgets::install_fonts(ui.ctx());
         // Options › General › Interface size (when chosen; else the size is
         // egui's own, which Ctrl with + and - change).
+        // Options › General › Light theme (dark unless chosen).
+        let theme = if self.settings.light_theme { egui::Theme::Light } else { egui::Theme::Dark };
+        if ui.ctx().theme() != theme {
+            ui.ctx().set_theme(theme);
+        }
         match self.settings.ui_scale {
             Some(scale) => {
                 let zoom = f32::from(scale) / 100.0;
@@ -615,6 +623,15 @@ impl Moonglow {
         self.heard = None;
         egui::CentralPanel::default().show(ui, |ui| {
             self.dock_width = Some(ui.available_width());
+            // (The dock is out of reach while its tabs are drawn: the model
+            // windows open, for a page that shows a model unless one is.)
+            self.open_models = self
+                .dock
+                .iter_all_tabs()
+                .map(|(_, t)| t)
+                .filter(|t| matches!(t, Tab::Model(_) | Tab::InstanceModel { .. }))
+                .cloned()
+                .collect();
             let mut dock = std::mem::replace(&mut self.dock, DockState::new(Vec::new()));
             {
                 let mut viewer = tabs::Viewer { app: self };

@@ -8452,3 +8452,56 @@ fn escape_closes_a_models_window() {
     h.run();
     assert!(h.state().dock.find_tab(&model).is_none(), "closed");
 }
+
+/// List areas and blueprints by name: a blueprint is listed by its name
+/// (a creature by its first and last names), with its ResRef in
+/// parentheses when asked for; one without a name keeps its ResRef.
+#[test]
+fn blueprints_are_listed_by_name_when_asked() {
+    let dir = mg_testkit::scratch_dir("ui-blueprint-names");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let text = |t: &str| {
+        mg_gff::Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, t))
+    };
+    let mut guard = Gff::new(*b"UTC ");
+    guard.root.set("FirstName", text("Hent"));
+    guard.root.set("LastName", text("Fynolds"));
+    m.set(ResKey::parse("creature007", ResType::UTC).unwrap(), guard.to_bytes().unwrap());
+    m.set(ResKey::parse("nameless", ResType::UTC).unwrap(), Gff::new(*b"UTC ").to_bytes().unwrap());
+    let mut chest = Gff::new(*b"UTP ");
+    chest.root.set("LocName", text("Old Chest"));
+    m.set(ResKey::parse("plc001", ResType::UTP).unwrap(), chest.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // Open the groups (the filter opens every group with a match).
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+    h.run();
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("e");
+    h.run();
+    h.get_by_label("creature007.utc");
+    h.state_mut().settings.area_names = true;
+    h.run();
+    h.get_by_label("Hent Fynolds");
+    h.get_by_label("Old Chest");
+    h.get_by_label("nameless.utc");
+    assert!(h.query_by_label("creature007.utc").is_none());
+    h.state_mut().settings.name_resrefs = true;
+    h.run();
+    h.get_by_label("Hent Fynolds (creature007)");
+    h.get_by_label("Old Chest (plc001)");
+}
+
+/// Options › General › Light theme.
+#[test]
+fn the_theme_is_set_in_options() {
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run();
+    assert_eq!(h.ctx.theme(), egui::Theme::Dark);
+    h.state_mut().settings.light_theme = true;
+    h.run();
+    assert_eq!(h.ctx.theme(), egui::Theme::Light);
+}

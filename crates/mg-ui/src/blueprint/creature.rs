@@ -401,71 +401,102 @@ fn set_part(f: &mut Form<'_>, what: &str, label: &str, v: i64) {
     f.set_many(what, &[(label, v.min(255), FieldType::Byte), (&wide, v, FieldType::Word)]);
 }
 
+/// The Appearance page: the creature as it looks now, as large as the
+/// window has room for; to its right the wings, tail and colors, and the
+/// body parts where the appearance has them; beneath it, what there is to
+/// say about the appearance. A narrow window stacks them.
 fn appearance(f: &mut Form<'_>, ui: &mut Ui) {
-    let Some(game) = f.app.game.take() else { return };
+    let Some(game) = f.app.game.clone() else { return };
     let prefix = body_prefix(f, &game);
+    let gap = ui.spacing().item_spacing.x;
+    // What is left of the page's visible height, and its width.
+    // (The visible width: a page once wider than the window would keep
+    // that width.)
+    let room = egui::vec2(
+        ui.available_width().min(ui.clip_rect().right() - ui.cursor().left()),
+        (ui.clip_rect().bottom() - ui.cursor().top()).max(APPEARANCE_PREVIEW.y),
+    );
+    let beside = room.x >= APPEARANCE_SIDE + gap + APPEARANCE_PREVIEW.x;
+    let note = |ui: &mut Ui| {
+        if prefix.is_none() {
+            ui.weak("This appearance is a single model: it has no body parts.");
+        }
+    };
+    if beside {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                // (Room beneath for the note.)
+                let line = ui.text_style_height(&egui::TextStyle::Body) + 2.0 * gap;
+                // (The fields keep their width, their scroll bar included.)
+                let width = room.x - APPEARANCE_SIDE - 3.0 * gap - ui.spacing().scroll.bar_width;
+                let size = egui::vec2(width, room.y - line);
+                situated::inline_preview(f, ui, size);
+                note(ui);
+            });
+            ui.vertical(|ui| {
+                ui.set_width(APPEARANCE_SIDE);
+                egui::ScrollArea::vertical()
+                    .id_salt(("utc-appearance-side", f.key))
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| appearance_fields(f, ui, &game, prefix.as_deref()));
+            });
+        });
+    } else {
+        situated::inline_preview(f, ui, egui::vec2(room.x, APPEARANCE_PREVIEW.y));
+        note(ui);
+        ui.add_space(crate::widgets::SECTION_GAP);
+        appearance_fields(f, ui, &game, prefix.as_deref());
+    }
+}
+
+/// The least the model takes of the Appearance page, and the width of the
+/// fields beside it.
+const APPEARANCE_PREVIEW: egui::Vec2 = egui::vec2(340.0, 300.0);
+const APPEARANCE_SIDE: f32 = 350.0;
+
+/// The Appearance page's fields: wings, tail and colors, then the body
+/// parts of an appearance that has them (`prefix`: its parts' models).
+fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Option<&str>) {
     let wings = game
         .choices("wingmodel", ChoiceColumns { name: None, label: Some("LABEL") })
         .unwrap_or_default();
     let tails = game
         .choices("tailmodel", ChoiceColumns { name: None, label: Some("LABEL") })
         .unwrap_or_default();
-    crate::widgets::two_columns(ui, 340.0, |ui, col| {
-        if col == 0 {
-            match &prefix {
-                Some(prefix) => {
-                    egui::Grid::new(("utc-parts", f.key)).num_columns(2).spacing([12.0, 4.0]).show(
-                        ui,
-                        |ui| {
-                            for (text, label, part) in BODY_PARTS {
-                                let numbers = part_numbers(ui, &game, &format!("{prefix}_{part}"));
-                                let current = part_number(&f.root, label).unwrap_or(0);
-                                let choices: Vec<Choice> = numbers
-                                    .iter()
-                                    .map(|&n| Choice { row: n as usize, text: n.to_string() })
-                                    .collect();
-                                crate::widgets::field_label(ui, text);
-                                if let Some(v) = situated::pick(ui, f.key, label, &choices, current)
-                                {
-                                    set_part(f, text, label, v);
-                                }
-                                ui.end_row();
-                            }
-                        },
-                    );
-                }
-                None => {
-                    ui.weak("This appearance is a single model: it has no body parts.");
-                }
-            }
-        } else {
-            egui::Grid::new(("utc-extras", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
-                ui,
-                |ui| {
-                    crate::widgets::field_label(ui, "Wings");
-                    f.choice(ui, "Wings", "Wings_New", &wings, FieldType::Dword);
-                    ui.end_row();
-                    crate::widgets::field_label(ui, "Tail");
-                    f.choice(ui, "Tail", "Tail_New", &tails, FieldType::Dword);
-                    ui.end_row();
-                    for (text, label, palette) in [
-                        ("Skin Color", "Color_Skin", "pal_skin01"),
-                        ("Hair Color", "Color_Hair", "pal_hair01"),
-                        ("Tattoo 1 Color", "Color_Tattoo1", "pal_tattoo01"),
-                        ("Tattoo 2 Color", "Color_Tattoo2", "pal_tattoo01"),
-                    ] {
-                        crate::widgets::field_label(ui, text);
-                        f.palette_color(ui, Some(&game), text, label, palette);
-                        ui.end_row();
-                    }
-                    ui.label("");
-                    situated::preview_button(f, ui);
-                    ui.end_row();
-                },
-            );
+    egui::Grid::new(("utc-extras", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+        crate::widgets::field_label(ui, "Wings");
+        f.choice(ui, "Wings", "Wings_New", &wings, FieldType::Dword);
+        ui.end_row();
+        crate::widgets::field_label(ui, "Tail");
+        f.choice(ui, "Tail", "Tail_New", &tails, FieldType::Dword);
+        ui.end_row();
+        for (text, label, palette) in [
+            ("Skin Color", "Color_Skin", "pal_skin01"),
+            ("Hair Color", "Color_Hair", "pal_hair01"),
+            ("Tattoo 1 Color", "Color_Tattoo1", "pal_tattoo01"),
+            ("Tattoo 2 Color", "Color_Tattoo2", "pal_tattoo01"),
+        ] {
+            crate::widgets::field_label(ui, text);
+            f.palette_color(ui, Some(game), text, label, palette);
+            ui.end_row();
         }
     });
-    f.app.game = Some(game);
+    let Some(prefix) = prefix else { return };
+    ui.add_space(crate::widgets::SECTION_GAP);
+    crate::widgets::section_heading(ui, "Body Parts");
+    egui::Grid::new(("utc-parts", f.key)).num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+        for (text, label, part) in BODY_PARTS {
+            let numbers = part_numbers(ui, game, &format!("{prefix}_{part}"));
+            let current = part_number(&f.root, label).unwrap_or(0);
+            let choices: Vec<Choice> =
+                numbers.iter().map(|&n| Choice { row: n as usize, text: n.to_string() }).collect();
+            crate::widgets::field_label(ui, text);
+            if let Some(v) = situated::pick(ui, f.key, label, &choices, current) {
+                set_part(f, text, label, v);
+            }
+            ui.end_row();
+        }
+    });
 }
 
 /// Alignment presets: (name, `GoodEvil`, `LawfulChaotic`).

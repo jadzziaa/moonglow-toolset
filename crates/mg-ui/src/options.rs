@@ -36,6 +36,9 @@ pub struct OptionsDraft {
     pub script_style: ScriptStyle,
     pub build_on_save: bool,
     pub area_names: bool,
+    pub name_resrefs: bool,
+    pub palette_cr: bool,
+    pub light_theme: bool,
     /// Per cent.
     pub ui_scale: u16,
     pub minimize_on_test: bool,
@@ -102,6 +105,9 @@ impl OptionsDraft {
             script_style: s.script_style.clone(),
             build_on_save: s.build_on_save,
             area_names: s.area_names,
+            name_resrefs: s.name_resrefs,
+            palette_cr: !s.palette_no_cr,
+            light_theme: s.light_theme,
             ui_scale: s.ui_scale.unwrap_or(100),
             minimize_on_test: s.minimize_on_test,
             auto_reload: !s.no_auto_reload,
@@ -147,6 +153,9 @@ impl OptionsDraft {
             script_style: self.script_style.clone(),
             build_on_save: self.build_on_save,
             area_names: self.area_names,
+            name_resrefs: self.name_resrefs,
+            palette_no_cr: !self.palette_cr,
+            light_theme: self.light_theme,
             ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
             minimize_on_test: self.minimize_on_test,
             no_auto_reload: !self.auto_reload,
@@ -373,9 +382,20 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                          (set when you choose OK)",
                                     );
                             });
-                            ui.checkbox(&mut draft.area_names, "Show areas by name").on_hover_text(
-                                "List areas (and title their tabs) by their names rather \
-                                     than their ResRefs; the ResRef shows on hover",
+                            ui.checkbox(&mut draft.light_theme, "Light theme");
+                            ui.checkbox(&mut draft.area_names, "List areas and blueprints by name")
+                                .on_hover_text(
+                                    "In the module tree, by their names rather than their ResRefs \
+                                 (in the names' order; the ResRef shows on hover)",
+                                );
+                            ui.checkbox(&mut draft.name_resrefs, "Show ResRefs beside names")
+                                .on_hover_text(
+                                    "Name (resref) in the module tree's lists by name and in \
+                                     the palettes: for telling apart blueprints of one name",
+                                );
+                            ui.checkbox(
+                                &mut draft.palette_cr,
+                                "Show challenge ratings in the creature palette",
                             );
                             ui.checkbox(
                                 &mut draft.auto_reload,
@@ -823,12 +843,17 @@ mod tests {
             (true, true, true, true);
         d.area_names = true;
         d.ui_scale = 125;
+        (d.name_resrefs, d.palette_cr, d.light_theme) = (true, false, true);
         d.script_templates = " /tmp/templates ".into();
         d.scratch_dir = "/tmp/scratch".into();
         let t = d.apply(&s);
         assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
         assert!(t.area_names && !s.area_names, "areas by ResRef unless asked");
         assert_eq!((t.ui_scale, s.ui_scale), (Some(125), None), "the usual size unless asked");
+        assert!(t.name_resrefs && t.palette_no_cr && t.light_theme);
+        // Unless asked: names alone, challenge ratings shown, the dark theme.
+        let plain = OptionsDraft::from_settings(&s);
+        assert!(!plain.name_resrefs && plain.palette_cr && !plain.light_theme);
         assert_eq!(OptionsDraft::from_settings(&s).apply(&s).ui_scale, None);
         assert_eq!(t.script_templates, Some(PathBuf::from("/tmp/templates")));
         assert_eq!(t.scratch_dir, Some(PathBuf::from("/tmp/scratch")));

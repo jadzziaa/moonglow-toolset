@@ -32,6 +32,11 @@
 - **Minimize Toolset on test module**.
 - **Interface size**: the whole interface, text and all, from 90% to 200%
   of its usual size.
+- **Light theme**: dark text on light, rather than the dark theme.
+- **List areas and blueprints by name** in the module tree, rather than
+  by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
+  tree and the palettes).
+- **Show challenge ratings in the creature palette**: on by default.
 - **Reload haks, override and development when they change**: on by
   default. Moonglow checks every few seconds and rereads what changed
   (see [Build, verify and test](09-build-and-test.md)).
