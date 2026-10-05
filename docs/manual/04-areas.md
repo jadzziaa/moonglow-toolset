@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:05:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:55:57Z }
 ---
 
 # Areas
@@ -104,6 +104,7 @@ field).
 | Shift + right drag | turn the selected objects |
 | Drag the ring around them | turn them as the pointer goes round |
 | Shift + drag a tilt ring | tilt their models about X (red) or Y (green) |
+| Shift + drag the square handle | scale their models: away from the object larger, toward it smaller |
 | Shift + drag an arrow | move them along one axis alone: east (red), north (green) or up (blue) |
 | Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
 | G | drop them to the ground |
@@ -140,6 +141,17 @@ Aurora does. (The game draws static placeables, and finds paths around
 them, more cheaply: keep scenery that needn't tilt static.) A ring
 seen edge-on (from straight above, both are lines over the object) is
 led along its line.
+
+**The scale handle**: with **Shift** held, a white square stands on a
+stalk up and to the right of the selected object. Pull it away from the
+object to make the model larger and push it toward the object to make it
+smaller: twice as far from the object's feet, twice the size. The size
+shows beside the pointer as you drag; with **Snap** on it goes in steps
+of 0.05. The model grows from its feet, so it stays on the ground, and
+every way alike (Adjust Location's Scale is the same number). Like the
+tilt, it is the model that changes, for the objects a tilt works on;
+several selected objects each scale about their own feet. Escape drops
+the drag.
 
 **The arrows**: with **Shift** held, three arrows stand out from the
 selected object: red to the east, green to the north and blue upward.

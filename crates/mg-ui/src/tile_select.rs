@@ -378,6 +378,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut cancel = false;
     let mut done = None;
     egui::Window::new("Tile Properties")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .collapsible(false)
         .resizable(false)
         .open(crate::widgets::open_unless_escape(ctx, "Tile Properties", &mut open))
@@ -478,6 +480,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         };
         let mut keep = true;
         egui::Window::new("Select A Color")
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
             .collapsible(false)
             .resizable(false)
             .open(crate::widgets::open_unless_escape(ctx, "Select A Color", &mut keep))

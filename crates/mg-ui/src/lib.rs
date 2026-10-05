@@ -832,6 +832,8 @@ impl Moonglow {
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
+                .pivot(egui::Align2::CENTER_CENTER)
+                .default_pos(ui.ctx().content_rect().center())
                 .open(crate::widgets::open_unless_escape(
                     ui.ctx(),
                     "Hak Pak Conflict Analysis",

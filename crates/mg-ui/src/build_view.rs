@@ -82,6 +82,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let (mut build, mut done, mut export, mut go) = (false, false, false, None);
     egui::Window::new("Build Module")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .open(crate::widgets::open_unless_escape(ctx, "Build Module", &mut open))
         .collapsible(false)
         .default_width(560.0)

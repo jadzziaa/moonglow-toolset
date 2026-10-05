@@ -67,6 +67,8 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
     let mut done = None;
     egui::Window::new("Adjust Location")
         .open(crate::widgets::open_unless_escape(ui.ctx(), "Adjust Location", &mut open))
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ui.ctx().content_rect().center())
         .resizable(false)
         .collapsible(false)
         .show(ui.ctx(), |ui| {
@@ -113,14 +115,14 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     ui.end_row();
                     for (i, axis) in ["X", "Y", "Z"].into_iter().enumerate() {
-                        ui.label(format!("{axis} Rotation"));
+                        crate::widgets::field_label(ui, format!("{axis} Rotation"));
                         let r = ui.add(
                             egui::DragValue::new(&mut a.visual.rotate[i])
                                 .speed(1.0)
                                 .max_decimals(1),
                         );
                         a.visual_changed |= r.changed();
-                        ui.label(format!("{axis} Translation"));
+                        crate::widgets::field_label(ui, format!("{axis} Translation"));
                         let r = ui.add(
                             egui::DragValue::new(&mut a.visual.translate[i])
                                 .speed(0.01)
@@ -267,6 +269,8 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
         areas.iter().map(|a| (*a, crate::tabs::area_label(app, *a))).collect();
     let label = |a: &ResRef| labels.get(a).cloned().unwrap_or_else(|| a.to_string());
     egui::Window::new("Find Instance")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ui.ctx().content_rect().center())
         .open(crate::widgets::open_unless_escape(ui.ctx(), "Find Instance", &mut open))
         .default_width(460.0)
         .show(ui.ctx(), |ui| {
@@ -345,6 +349,8 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
     let mut open = true;
     let key = app.palette.selected;
     egui::Window::new("Preview")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ui.ctx().content_rect().center())
         .open(crate::widgets::open_unless_escape(ui.ctx(), "Preview", &mut open))
         .default_size([360.0, 460.0])
         .show(ui.ctx(), |ui| {

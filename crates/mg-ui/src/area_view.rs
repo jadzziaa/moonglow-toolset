@@ -161,6 +161,11 @@ enum Drag {
     /// `screen`, as for an arrow: for a ring seen edge-on, the pointer's
     /// travel along the ring's line on screen.
     Tilt { ring: TiltRing, grip: f32, angle: f32, screen: Option<(Pos2, egui::Vec2)> },
+    /// Scales their models (the visual transform's scale), each about its
+    /// feet, as a scale handle is pulled from the object or pushed toward
+    /// it: by `factor`, how far the pointer is from `pivot` on screen
+    /// against how far it was when pressed at `from`.
+    Scale { pivot: Vec3, from: Pos2, factor: f32 },
     /// Raises or lowers the selection (not creatures: they stand on the
     /// ground).
     Lift { by: f32 },
@@ -258,6 +263,9 @@ const TOOLS_MAX: usize = 32;
 /// How near the ring's line the pointer takes it, points: it is a thin
 /// target otherwise.
 const RING_REACH: f32 = 11.5;
+
+/// Half the side of a scale handle's square, points.
+const SCALE_HANDLE: f32 = 5.0;
 
 /// The straight pieces the ring is drawn (and taken) as.
 const RING_SEGMENTS: usize = 48;
@@ -664,6 +672,61 @@ impl AreaView {
             .collect()
     }
 
+    /// The handles for scaling the selection's models: one beside each
+    /// selected object whose model scales (as `model` has it), up and to
+    /// the camera's right of its feet. Each is the object's place and the
+    /// handle's.
+    fn scale_handles(&self, model: &AreaModel) -> Vec<(Vec3, Vec3)> {
+        let Some(camera) = self.camera().filter(|_| self.turn_ring) else { return Vec::new() };
+        let right = (camera.target - camera.eye).cross(Vec3::Z).try_normalize().unwrap_or(Vec3::X);
+        let out = (right + Vec3::Z).normalize();
+        self.chosen(model)
+            .filter(|o| o.takes_visual_transform() && !o.locked)
+            .map(|o| {
+                let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
+                (o.position, o.position + out * radius * 1.25)
+            })
+            .collect()
+    }
+
+    /// The scale handle `pos` is on: its object's place.
+    fn scale_handle_at(&self, pos: Pos2) -> Option<Vec3> {
+        let handles = self.scale_handles(self.model.as_ref()?);
+        let near = |h: &&(Vec3, Vec3)| {
+            self.screen_pos(h.1).is_some_and(|at| (at - pos).length() <= SCALE_HANDLE + 3.0)
+        };
+        handles.iter().find(near).map(|h| h.0)
+    }
+
+    /// How much a scale drag from `from` to `pos` scales by: the
+    /// pointer's distance from the object on screen, against what it was.
+    fn scale_factor(&self, pivot: Vec3, from: Pos2, pos: Pos2) -> Option<f32> {
+        let middle = self.screen_pos(pivot)?;
+        let was = (from - middle).length().max(4.0);
+        Some(((pos - middle).length() / was).clamp(0.01, 100.0))
+    }
+
+    /// Each selected object's visual transform with the scale drag
+    /// applied: scaled by its factor, to a hundredth (with the snapping
+    /// grid on, to a twentieth), within what Adjust Location takes.
+    fn scaled(&self) -> Vec<(usize, mg_area::VisualTransform)> {
+        let (Some(model), Some(Drag::Scale { factor, .. })) = (&self.model, self.drag) else {
+            return Vec::new();
+        };
+        let step = if self.snap.0.is_some() { 0.05 } else { 0.01 };
+        self.selection
+            .iter()
+            .filter_map(|&(k, i)| self.object_at(k, i))
+            .filter(|&i| model.objects[i].takes_visual_transform() && !model.objects[i].locked)
+            .map(|i| {
+                let mut v = model.objects[i].visual.unwrap_or_default();
+                let to = ((v.scale.x * factor / step).round() * step).clamp(0.01, 100.0);
+                v.scale = Vec3::splat(to);
+                (i, v)
+            })
+            .collect()
+    }
+
     /// The arrows for moving the selection along an axis (as `model` has
     /// it): east and north from each selected object, and up from each
     /// that lifts (not creatures, which stand on the ground, nor
@@ -881,7 +944,11 @@ impl AreaView {
         let moves = |d: &Drag| {
             !matches!(
                 d,
-                Drag::Box { .. } | Drag::Tilt { .. } | Drag::FaceSpawn { .. } | Drag::Start { .. }
+                Drag::Box { .. }
+                    | Drag::Tilt { .. }
+                    | Drag::Scale { .. }
+                    | Drag::FaceSpawn { .. }
+                    | Drag::Start { .. }
             )
         };
         let Some(mut drag) = self.drag.filter(moves) else {
@@ -935,6 +1002,7 @@ impl AreaView {
                     }
                     Drag::Box { .. }
                     | Drag::Tilt { .. }
+                    | Drag::Scale { .. }
                     | Drag::FaceSpawn { .. }
                     | Drag::Start { .. } => (i, o.position, o.rotation),
                 }
@@ -1516,7 +1584,7 @@ fn viewport(
         o.position = p;
         o.rotation = r;
     }
-    for (i, v) in view.tilted() {
+    for (i, v) in view.tilted().into_iter().chain(view.scaled()) {
         shown.to_mut().objects[i].visual = Some(v);
     }
     if let Some(Drag::FaceSpawn { object, point, facing, .. }) = view.drag
@@ -1996,6 +2064,45 @@ fn overlays(
         Some(_) => false,
         None => ui.input(|i| i.modifiers.shift && !i.modifiers.command && !i.modifiers.alt),
     };
+    // With them, the handle for scaling its model: a square on a stalk
+    // from its feet, pulled away to grow it and pushed in to shrink it.
+    let scaling = matches!(view.drag, Some(Drag::Scale { .. }));
+    if scaling || (tilting && view.drag.is_none()) {
+        let over = ui
+            .ctx()
+            .pointer_hover_pos()
+            .filter(|_| view.drag.is_none())
+            .and_then(|p| view.scale_handle_at(p));
+        let white = Color32::from_rgb(240, 240, 240);
+        for (pivot, handle) in view.scale_handles(shown) {
+            let lit = scaling || over == Some(pivot);
+            let color = if lit { white } else { white.gamma_multiply(0.75) };
+            line(pivot, handle, Stroke::new(1.0, color));
+            if let Some(c) = at(handle) {
+                let half = if lit { SCALE_HANDLE + 1.0 } else { SCALE_HANDLE };
+                let square = Rect::from_center_size(c, egui::Vec2::splat(half * 2.0));
+                painter.rect_filled(square, 1.0, color);
+                painter.rect_stroke(
+                    square,
+                    1.0,
+                    Stroke::new(1.0, Color32::BLACK),
+                    egui::StrokeKind::Outside,
+                );
+            }
+        }
+        if scaling
+            && let Some(c) = ui.ctx().pointer_latest_pos()
+            && let Some((_, visual)) = view.scaled().first()
+        {
+            painter.text(
+                c + egui::vec2(12.0, -12.0),
+                egui::Align2::LEFT_BOTTOM,
+                format!("scale {:.2}", visual.scale.x),
+                egui::FontId::proportional(13.0),
+                Color32::WHITE,
+            );
+        }
+    }
     let rings = if tilting { view.tilt_rings(shown) } else { Vec::new() };
     if !rings.is_empty() {
         let held = match view.drag {
@@ -2415,12 +2522,15 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         let handle = view.ring_at(pos).filter(|_| !alt && !shift);
         let tilt = view.tilt_ring_at(pos).filter(|_| shift && !alt);
         let arrow = view.axis_arrow_at(pos).filter(|_| shift && !alt);
+        let scale = view.scale_handle_at(pos).filter(|_| shift && !alt);
         let spawn =
             view.spawn_arrow_at(pos).filter(|_| !shift && !alt && !app.settings.no_spawn_markers);
         view.drag = if let Some((object, point, pivot)) = spawn {
             let facing =
                 view.model.as_ref().and_then(|m| m.objects[object].spawn_facings.get(point));
             Some(Drag::FaceSpawn { object, point, pivot, facing: facing.copied().unwrap_or(0.0) })
+        } else if let Some(pivot) = scale {
+            Some(Drag::Scale { pivot, from: pos, factor: 1.0 })
         } else if let Some(arrow) = arrow {
             let (grip, screen) = view.slide_grip(&arrow, pos);
             Some(Drag::Slide { axis: arrow.axis, pivot: arrow.pivot, grip, by: 0.0, screen })
@@ -2540,6 +2650,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.drag = Some(Drag::Tilt { ring, grip, angle, screen });
             }
         }
+        Some(Drag::Scale { pivot, from, .. }) if held.by(button) => {
+            if let Some(factor) = pointer.and_then(|p| view.scale_factor(pivot, from, p)) {
+                view.drag = Some(Drag::Scale { pivot, from, factor });
+            }
+        }
         Some(Drag::Turn { angle }) if held.by(button) => {
             view.drag = Some(Drag::Turn { angle: angle - held.delta.x * 0.01 });
         }
@@ -2589,7 +2704,20 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.drag = Some(drag);
                 let tilted = view.tilted();
                 view.drag = None;
-                commit_tilts(app, view, &tilted);
+                commit_visuals(app, view, "Tilt", &tilted);
+            }
+            Some(drag @ Drag::Scale { .. }) => {
+                view.drag = Some(drag);
+                let scaled = view.scaled();
+                view.drag = None;
+                // (Let go where it was taken: nothing to change.)
+                let model = view.model.as_ref();
+                let changed = scaled.iter().any(|(i, v)| {
+                    model.is_some_and(|m| m.objects[*i].visual.unwrap_or_default() != *v)
+                });
+                if changed {
+                    commit_visuals(app, view, "Scale", &scaled);
+                }
             }
             Some(drag) => {
                 view.drag = Some(drag);
@@ -3000,8 +3128,13 @@ fn commit_moves(app: &mut Moonglow, view: &AreaView, moved: &[(usize, Vec3, f32)
 }
 
 /// One command that gives each object (by its position in the model) the
-/// visual transform a tilt left it.
-fn commit_tilts(app: &mut Moonglow, view: &AreaView, tilted: &[(usize, mg_area::VisualTransform)]) {
+/// visual transform a tilt or a scaling left it.
+fn commit_visuals(
+    app: &mut Moonglow,
+    view: &AreaView,
+    what: &str,
+    tilted: &[(usize, mg_area::VisualTransform)],
+) {
     let (Some(model), Some(ws)) = (&view.model, app.ws.as_mut()) else { return };
     let git = view.git();
     let Ok(doc) = ws.doc(&git) else { return };
@@ -3012,7 +3145,7 @@ fn commit_tilts(app: &mut Moonglow, view: &AreaView, tilted: &[(usize, mg_area::
         edits.extend(mg_area::edit::visual_transform_edits(git, o, s, visual));
     }
     if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new("Tilt", edits)));
+        app.actions.push(Action::Apply(Command::new(what, edits)));
     }
 }
 
@@ -3769,6 +3902,8 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let mut done = false;
     let mut cancel = false;
     egui::Window::new("Create Set")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ui.ctx().content_rect().center())
         .collapsible(false)
         .resizable(false)
         .open(crate::widgets::open_unless_escape(ui.ctx(), "Create Set", &mut open))
@@ -3864,6 +3999,8 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let mut done = false;
     egui::Window::new("Resources Used")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .open(crate::widgets::open_unless_escape(ctx, "Resources Used", &mut open))
         .collapsible(false)
         .resizable(false)

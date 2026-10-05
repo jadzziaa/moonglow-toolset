@@ -1220,6 +1220,8 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let mut find_all = false;
         let title = if s.replace_mode { "Replace Text" } else { "Find Text" };
         egui::Window::new(title)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
             .collapsible(false)
             .resizable(false)
             .open(crate::widgets::open_unless_escape(&ctx, title, &mut s.open))
@@ -1304,81 +1306,94 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
 
     if let Some((from, mut name)) = app.script_save_as.clone() {
         let mut close = false;
-        egui::Window::new("Save Script As").collapsible(false).resizable(false).show(&ctx, |ui| {
-            ui.label("New name (up to 16 characters)");
-            let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
-            crate::widgets::autofocus(ui, &field);
-            let key = mg_core::ResRef::from_str(name.trim())
-                .ok()
-                .filter(|r| !r.is_empty())
-                .map(|r| ResKey::new(r, ResType::NSS));
-            let exists =
-                key.is_some_and(|k| app.ws.as_ref().is_some_and(|w| w.module.contains(&k)));
-            if exists {
-                ui.colored_label(
-                    ui.visuals().warn_fg_color,
-                    "The module has a script of this name; it will be replaced.",
-                );
-            }
-            ui.horizontal(|ui| {
-                if (ui.add_enabled(key.is_some(), egui::Button::new("Save")).clicked()
-                    || (key.is_some() && crate::widgets::enter(ui)))
-                    && let Some(k) = key
-                {
-                    let text = app.scripts.get(&from).map(|b| b.text.clone()).unwrap_or_default();
-                    app.actions.push(Action::Apply(Command::new(
-                        format!("Save {from} as {k}"),
-                        vec![Edit::SetResource { key: k, data: Some(encode(&text)) }],
-                    )));
-                    app.actions.push(Action::OpenTab(Tab::Script(k)));
-                    close = true;
+        egui::Window::new("Save Script As")
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
+                ui.label("New name (up to 16 characters)");
+                let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
+                crate::widgets::autofocus(ui, &field);
+                let key = mg_core::ResRef::from_str(name.trim())
+                    .ok()
+                    .filter(|r| !r.is_empty())
+                    .map(|r| ResKey::new(r, ResType::NSS));
+                let exists =
+                    key.is_some_and(|k| app.ws.as_ref().is_some_and(|w| w.module.contains(&k)));
+                if exists {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        "The module has a script of this name; it will be replaced.",
+                    );
                 }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
+                ui.horizontal(|ui| {
+                    if (ui.add_enabled(key.is_some(), egui::Button::new("Save")).clicked()
+                        || (key.is_some() && crate::widgets::enter(ui)))
+                        && let Some(k) = key
+                    {
+                        let text =
+                            app.scripts.get(&from).map(|b| b.text.clone()).unwrap_or_default();
+                        app.actions.push(Action::Apply(Command::new(
+                            format!("Save {from} as {k}"),
+                            vec![Edit::SetResource { key: k, data: Some(encode(&text)) }],
+                        )));
+                        app.actions.push(Action::OpenTab(Tab::Script(k)));
+                        close = true;
+                    }
+                    if crate::widgets::cancel(ui) {
+                        close = true;
+                    }
+                });
             });
-        });
         app.script_save_as = if close { None } else { Some((from, name)) };
     }
 
     if let Some(mut name) = app.new_script.clone() {
         let mut close = false;
-        egui::Window::new("New Script").collapsible(false).resizable(false).show(&ctx, |ui| {
-            ui.label("Name (up to 16 characters)");
-            let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
-            crate::widgets::autofocus(ui, &field);
-            let key = mg_core::ResRef::from_str(name.trim())
-                .ok()
-                .filter(|r| !r.is_empty())
-                .map(|r| ResKey::new(r, ResType::NSS));
-            let exists =
-                key.is_some_and(|k| app.ws.as_ref().is_some_and(|w| w.module.contains(&k)));
-            if exists {
-                ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    "The module already has a script of this name.",
-                );
-            }
-            ui.horizontal(|ui| {
-                if (ui.add_enabled(key.is_some() && !exists, egui::Button::new("Create")).clicked()
-                    || (key.is_some() && !exists && crate::widgets::enter(ui)))
-                    && let Some(k) = key
-                {
-                    app.actions.push(Action::Apply(Command::new(
-                        format!("New script {k}"),
-                        vec![Edit::SetResource {
-                            key: k,
-                            data: Some(NEW_SCRIPT.as_bytes().to_vec()),
-                        }],
-                    )));
-                    app.actions.push(Action::OpenTab(Tab::Script(k)));
-                    close = true;
+        egui::Window::new("New Script")
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
+                ui.label("Name (up to 16 characters)");
+                let field = ui.add(egui::TextEdit::singleline(&mut name).char_limit(16));
+                crate::widgets::autofocus(ui, &field);
+                let key = mg_core::ResRef::from_str(name.trim())
+                    .ok()
+                    .filter(|r| !r.is_empty())
+                    .map(|r| ResKey::new(r, ResType::NSS));
+                let exists =
+                    key.is_some_and(|k| app.ws.as_ref().is_some_and(|w| w.module.contains(&k)));
+                if exists {
+                    ui.colored_label(
+                        ui.visuals().error_fg_color,
+                        "The module already has a script of this name.",
+                    );
                 }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
+                ui.horizontal(|ui| {
+                    if (ui
+                        .add_enabled(key.is_some() && !exists, egui::Button::new("Create"))
+                        .clicked()
+                        || (key.is_some() && !exists && crate::widgets::enter(ui)))
+                        && let Some(k) = key
+                    {
+                        app.actions.push(Action::Apply(Command::new(
+                            format!("New script {k}"),
+                            vec![Edit::SetResource {
+                                key: k,
+                                data: Some(NEW_SCRIPT.as_bytes().to_vec()),
+                            }],
+                        )));
+                        app.actions.push(Action::OpenTab(Tab::Script(k)));
+                        close = true;
+                    }
+                    if crate::widgets::cancel(ui) {
+                        close = true;
+                    }
+                });
             });
-        });
         app.new_script = if close { None } else { Some(name) };
     }
 }

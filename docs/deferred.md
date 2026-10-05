@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:30:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:55:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -350,6 +350,9 @@ objects in the area view, Fade Geometry. Left:
   frame margin and their tabs' contents are given one instead. (—)
 - **Copy… of a script** copies the source only: the copy is compiled
   when the module is built or the script saved. (S)
+- **The scale handle** scales every way alike, as Adjust Location's
+  field does; the file keeps a scale for each axis. It stands where it
+  was taken while it is dragged, rather than follow the pointer. (S)
 - **Deleting a prefab** isn't undone. (—)
 
 ## Raw fields

@@ -10579,3 +10579,100 @@ fn effect_placeables_show_their_particles_in_the_area() {
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-area-particles").join("particles.png")).unwrap();
 }
+
+/// With Shift held, a selected placeable has a handle that scales its
+/// model about its feet: pulled twice as far from the object, twice the
+/// size, in one undoable step; Escape drops the drag.
+#[test]
+fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("scale-handle") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let pivot = Vec3::new(12.0, 20.0, 0.0);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [pivot.x, pivot.y, 0.0], rotation: 0.0 };
+        let item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    let scale = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let chest = &git.root.list("Placeable List").unwrap()[0];
+        mg_area::VisualTransform::read(chest).map(|v| v.scale)
+    };
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection = vec![(ObjectKind::Placeable, 0)];
+        let o = view.orbit.as_mut().unwrap();
+        (o.target, o.yaw, o.pitch, o.distance) = (pivot, 0.3, 0.5, 14.0);
+    }
+    h.run_steps(2);
+    // The handle: up and to the camera's right of the chest's feet.
+    let camera = h.state().area_views[&area].orbit.unwrap().camera();
+    let radius = ((camera.eye - pivot).length() * 0.0765).max(0.5);
+    let right = (camera.target - camera.eye).cross(Vec3::Z).normalize();
+    let handle = screen(&h, area, pivot + (right + Vec3::Z).normalize() * radius * 1.25);
+    let middle = screen(&h, area, pivot);
+    let shift = egui::Modifiers::SHIFT;
+    let left = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: shift,
+    };
+    // Pulled to `times` as far from the chest; let go, or dropped.
+    let pull = |h: &mut Harness<'_, Moonglow>, times: f32, escape: bool, shot: bool| {
+        h.event(egui::Event::ModifiersChanged(shift));
+        h.hover_at(handle);
+        h.run_steps(1);
+        h.event(left(handle, true));
+        let to = middle + (handle - middle) * times;
+        for k in 1..=6 {
+            h.hover_at(handle + (to - handle) * (k as f32 / 6.0));
+            h.run_steps(1);
+        }
+        if shot {
+            let img = h.render().expect("render");
+            img.save(mg_testkit::scratch_dir("ui-area-scale").join("scale_handle.png")).unwrap();
+        }
+        if escape {
+            h.key_press(egui::Key::Escape);
+            h.run_steps(1);
+        }
+        h.event(left(to, false));
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(3);
+    };
+    assert_eq!(scale(&mut h), None, "no visual transform yet");
+    pull(&mut h, 2.0, true, false);
+    assert_eq!(scale(&mut h), None, "Escape dropped it");
+    pull(&mut h, 2.0, false, true);
+    let twice = scale(&mut h).expect("a visual transform");
+    assert!((twice.x - 2.0).abs() < 0.05, "scaled {twice:?}");
+    assert_eq!((twice.y, twice.z), (twice.x, twice.x), "the same every way");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Scale"));
+    // Pushed halfway in: half of that, from what it has.
+    pull(&mut h, 0.5, false, false);
+    let back = scale(&mut h).unwrap();
+    assert!((back.x - 1.0).abs() < 0.05, "scaled back {back:?}");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(scale(&mut h), None, "an undo each");
+}

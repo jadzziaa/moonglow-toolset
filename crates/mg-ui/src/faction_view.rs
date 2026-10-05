@@ -239,37 +239,45 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     if let Some(mut add) = view.adding.clone() {
         let mut close = false;
-        egui::Window::new("Add Faction").collapsible(false).resizable(false).show(&ctx, |ui| {
-            ui.label("Name");
-            let field = ui.text_edit_singleline(&mut add.name);
-            crate::widgets::autofocus(ui, &field);
-            ui.checkbox(&mut add.global, "Global Effect");
-            ui.label("Parent (its reputations are copied)");
-            for p in 1..STANDARD.len() as u32 {
-                ui.selectable_value(&mut add.parent, p, &f.factions[p as usize].name);
-            }
-            ui.horizontal(|ui| {
-                let ok = !add.name.trim().is_empty();
-                if ui.add_enabled(ok, egui::Button::new("OK")).clicked()
-                    || (ok && crate::widgets::enter(ui))
-                {
-                    let id = f.add(add.name.trim(), add.global, add.parent);
-                    view.selected = id;
-                    changed = Some(format!("Add faction {}", add.name.trim()));
-                    close = true;
+        egui::Window::new("Add Faction")
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
+                ui.label("Name");
+                let field = ui.text_edit_singleline(&mut add.name);
+                crate::widgets::autofocus(ui, &field);
+                ui.checkbox(&mut add.global, "Global Effect");
+                ui.label("Parent (its reputations are copied)");
+                for p in 1..STANDARD.len() as u32 {
+                    ui.selectable_value(&mut add.parent, p, &f.factions[p as usize].name);
                 }
-                if crate::widgets::cancel(ui) {
-                    close = true;
-                }
+                ui.horizontal(|ui| {
+                    let ok = !add.name.trim().is_empty();
+                    if ui.add_enabled(ok, egui::Button::new("OK")).clicked()
+                        || (ok && crate::widgets::enter(ui))
+                    {
+                        let id = f.add(add.name.trim(), add.global, add.parent);
+                        view.selected = id;
+                        changed = Some(format!("Add faction {}", add.name.trim()));
+                        close = true;
+                    }
+                    if crate::widgets::cancel(ui) {
+                        close = true;
+                    }
+                });
             });
-        });
         view.adding = if close { None } else { Some(add) };
     }
     if let Some((id, mut name)) = view.renaming.clone() {
         let mut close = false;
-        egui::Window::new("Change Faction Name").collapsible(false).resizable(false).show(
-            &ctx,
-            |ui| {
+        egui::Window::new("Change Faction Name")
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
                 let field = ui.text_edit_singleline(&mut name);
                 crate::widgets::autofocus(ui, &field);
                 ui.horizontal(|ui| {
@@ -284,8 +292,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         close = true;
                     }
                 });
-            },
-        );
+            });
         view.renaming = if close { None } else { Some((id, name)) };
     }
 

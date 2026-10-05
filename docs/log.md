@@ -17,3 +17,4 @@
 * **Update**: [The main window](manual/02-main-window.md): Escape closes the window in front; [the deferred list](deferred.md): a second builder's review, what was done from it and what is left.
 * **Update**: [The main window](manual/02-main-window.md) (Copy…, a window's bar), [areas](manual/04-areas.md) (Fade Geometry, particles, deleting a prefab), [blueprints](manual/05-blueprints.md) (View, Edit Copy…, the wizards' ResRef and Tag), [journal and factions](manual/08-journal-and-factions.md); [the deferred list](deferred.md): builders' reports after 1.10.1.
 * **Update**: [The deferred list](deferred.md): issue 5's body parts and werebat fixed with the reporter's files; number fields' limits measured in Aurora.
+* **Update**: [Areas](manual/04-areas.md): the scale handle; [the deferred list](deferred.md).

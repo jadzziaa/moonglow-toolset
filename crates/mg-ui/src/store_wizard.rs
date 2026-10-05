@@ -136,100 +136,109 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let faction_names: Vec<String> = factions(app)
         .map(|f| f.factions.iter().map(|x| x.name.clone()).collect())
         .unwrap_or_else(|| mg_module::factions::STANDARD.iter().map(|s| s.to_string()).collect());
-    egui::Window::new("Store Setup Wizard").collapsible(false).resizable(false).show(ctx, |ui| {
-        match w.page {
-            Page::Conversation => {
-                ui.heading("Conversation");
-                ui.label("Enter the conversation text for the shopkeeper.");
-                ui.label("What does the shopkeeper say when the conversation begins?");
-                let field = ui.add(egui::TextEdit::multiline(&mut w.greeting).desired_rows(2));
-                crate::widgets::autofocus(ui, &field);
-                ui.label("What does the player say when the player wishes to see the store?");
-                ui.text_edit_singleline(&mut w.yes);
-                ui.label("What does the player say when the player is not interested?");
-                ui.text_edit_singleline(&mut w.no);
-                ui.checkbox(&mut w.appraise, "Use appraise checks");
-                ui.label("(optional) Enter the filename for the shopkeeper's conversation");
-                ui.add(egui::TextEdit::singleline(&mut w.dialog).char_limit(16));
-                ui.label("(optional) Enter the filename for the script that will open the store");
-                ui.add(egui::TextEdit::singleline(&mut w.script).char_limit(16));
-            }
-            Page::Store => {
-                ui.heading("Choose Store");
-                ui.label("Choose the store to use.");
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut w.custom, false, "Standard");
-                    ui.selectable_value(&mut w.custom, true, "Custom");
-                    ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Find"));
-                });
-                let needle = w.filter.to_lowercase();
-                egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                    for (r, name) in &choices {
-                        let label = format!("{name} ({r})");
-                        if !label.to_lowercase().contains(&needle) {
-                            continue;
-                        }
-                        if ui.selectable_label(w.store == Some(*r), label).clicked() {
-                            w.store = Some(*r);
-                        }
-                    }
-                });
-            }
-            Page::Finish => {
-                ui.heading("Finish");
-                ui.label("The Store Setup Wizard is now ready to create the store.");
-                ui.label("Click Finish to finish setting up the store.");
-                ui.label(
-                    "Tip: If you wish to move the store or the storekeeper later, it is \
-                     strongly recommended that you move both of them together.",
-                );
-                if w.hostile {
-                    ui.separator();
+    egui::Window::new("Store Setup Wizard")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
+            match w.page {
+                Page::Conversation => {
+                    ui.heading("Conversation");
+                    ui.label("Enter the conversation text for the shopkeeper.");
+                    ui.label("What does the shopkeeper say when the conversation begins?");
+                    let field = ui.add(egui::TextEdit::multiline(&mut w.greeting).desired_rows(2));
+                    crate::widgets::autofocus(ui, &field);
+                    ui.label("What does the player say when the player wishes to see the store?");
+                    ui.text_edit_singleline(&mut w.yes);
+                    ui.label("What does the player say when the player is not interested?");
+                    ui.text_edit_singleline(&mut w.no);
+                    ui.checkbox(&mut w.appraise, "Use appraise checks");
+                    ui.label("(optional) Enter the filename for the shopkeeper's conversation");
+                    ui.add(egui::TextEdit::singleline(&mut w.dialog).char_limit(16));
                     ui.label(
-                        "Note: the shopkeeper's faction is hostile to player characters. It is \
-                         strongly recommended that you change it to the Merchant faction.",
+                        "(optional) Enter the filename for the script that will open the store",
                     );
-                    ui.checkbox(&mut w.use_faction, "Use selected faction instead:");
-                    let current =
-                        faction_names.get(w.faction as usize).cloned().unwrap_or_default();
-                    egui::ComboBox::from_id_salt("store-faction").selected_text(current).show_ui(
-                        ui,
-                        |ui| {
-                            for (i, name) in faction_names.iter().enumerate() {
-                                ui.selectable_value(&mut w.faction, i as u32, name);
+                    ui.add(egui::TextEdit::singleline(&mut w.script).char_limit(16));
+                }
+                Page::Store => {
+                    ui.heading("Choose Store");
+                    ui.label("Choose the store to use.");
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut w.custom, false, "Standard");
+                        ui.selectable_value(&mut w.custom, true, "Custom");
+                        ui.add(egui::TextEdit::singleline(&mut w.filter).hint_text("Find"));
+                    });
+                    let needle = w.filter.to_lowercase();
+                    egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                        for (r, name) in &choices {
+                            let label = format!("{name} ({r})");
+                            if !label.to_lowercase().contains(&needle) {
+                                continue;
                             }
-                        },
+                            if ui.selectable_label(w.store == Some(*r), label).clicked() {
+                                w.store = Some(*r);
+                            }
+                        }
+                    });
+                }
+                Page::Finish => {
+                    ui.heading("Finish");
+                    ui.label("The Store Setup Wizard is now ready to create the store.");
+                    ui.label("Click Finish to finish setting up the store.");
+                    ui.label(
+                        "Tip: If you wish to move the store or the storekeeper later, it is \
+                     strongly recommended that you move both of them together.",
                     );
+                    if w.hostile {
+                        ui.separator();
+                        ui.label(
+                            "Note: the shopkeeper's faction is hostile to player characters. It is \
+                         strongly recommended that you change it to the Merchant faction.",
+                        );
+                        ui.checkbox(&mut w.use_faction, "Use selected faction instead:");
+                        let current =
+                            faction_names.get(w.faction as usize).cloned().unwrap_or_default();
+                        egui::ComboBox::from_id_salt("store-faction")
+                            .selected_text(current)
+                            .show_ui(ui, |ui| {
+                                for (i, name) in faction_names.iter().enumerate() {
+                                    ui.selectable_value(&mut w.faction, i as u32, name);
+                                }
+                            });
+                    }
                 }
             }
-        }
-        ui.separator();
-        let names_ok = ResRef::from_str(w.dialog.trim()).is_ok_and(|r| r != ResRef::EMPTY)
-            && ResRef::from_str(w.script.trim()).is_ok_and(|r| r != ResRef::EMPTY);
-        ui.horizontal(|ui| {
-            if ui.add_enabled(w.page != Page::Conversation, egui::Button::new("< Back")).clicked() {
-                w.page = if w.page == Page::Finish { Page::Store } else { Page::Conversation };
-            }
-            let next_ok = match w.page {
-                Page::Conversation => names_ok,
-                Page::Store => w.store.is_some(),
-                Page::Finish => false,
-            };
-            if ui.add_enabled(next_ok, egui::Button::new("Next >")).clicked()
-                || (next_ok && crate::widgets::enter(ui))
-            {
-                w.page = if w.page == Page::Conversation { Page::Store } else { Page::Finish };
-            }
-            if ui.add_enabled(w.page == Page::Finish, egui::Button::new("Finish")).clicked()
-                || (w.page == Page::Finish && crate::widgets::enter(ui))
-            {
-                finish = true;
-            }
-            if crate::widgets::cancel(ui) {
-                close = true;
-            }
+            ui.separator();
+            let names_ok = ResRef::from_str(w.dialog.trim()).is_ok_and(|r| r != ResRef::EMPTY)
+                && ResRef::from_str(w.script.trim()).is_ok_and(|r| r != ResRef::EMPTY);
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(w.page != Page::Conversation, egui::Button::new("< Back"))
+                    .clicked()
+                {
+                    w.page = if w.page == Page::Finish { Page::Store } else { Page::Conversation };
+                }
+                let next_ok = match w.page {
+                    Page::Conversation => names_ok,
+                    Page::Store => w.store.is_some(),
+                    Page::Finish => false,
+                };
+                if ui.add_enabled(next_ok, egui::Button::new("Next >")).clicked()
+                    || (next_ok && crate::widgets::enter(ui))
+                {
+                    w.page = if w.page == Page::Conversation { Page::Store } else { Page::Finish };
+                }
+                if ui.add_enabled(w.page == Page::Finish, egui::Button::new("Finish")).clicked()
+                    || (w.page == Page::Finish && crate::widgets::enter(ui))
+                {
+                    finish = true;
+                }
+                if crate::widgets::cancel(ui) {
+                    close = true;
+                }
+            });
         });
-    });
     if finish {
         match build(app, &w) {
             Ok(edits) => app.actions.push(Action::Apply(Command::new("Setup Store", edits))),
@@ -337,29 +346,34 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
     let exists = name.is_some_and(|r| {
         app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(r, ResType::DLG)))
     });
-    egui::Window::new("Add Popup Text").collapsible(false).resizable(false).show(ctx, |ui| {
-        ui.label("Popup Text");
-        let field = ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(4));
-        crate::widgets::autofocus(ui, &field);
-        ui.label("Conversation File");
-        ui.add(egui::TextEdit::singleline(&mut p.name).char_limit(16));
-        if exists {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                "A conversation of that name is replaced.",
-            );
-        }
-        ui.separator();
-        ui.horizontal(|ui| {
-            let ready = name.is_some() && !p.text.trim().is_empty();
-            ok = ui
-                .add_enabled(ready, egui::Button::new("OK"))
-                .on_hover_text("Accept changes")
-                .clicked()
-                || (ready && crate::widgets::enter(ui));
-            close = crate::widgets::cancel_discard(ui);
+    egui::Window::new("Add Popup Text")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.label("Popup Text");
+            let field = ui.add(egui::TextEdit::multiline(&mut p.text).desired_rows(4));
+            crate::widgets::autofocus(ui, &field);
+            ui.label("Conversation File");
+            ui.add(egui::TextEdit::singleline(&mut p.name).char_limit(16));
+            if exists {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    "A conversation of that name is replaced.",
+                );
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                let ready = name.is_some() && !p.text.trim().is_empty();
+                ok = ui
+                    .add_enabled(ready, egui::Button::new("OK"))
+                    .on_hover_text("Accept changes")
+                    .clicked()
+                    || (ready && crate::widgets::enter(ui));
+                close = crate::widgets::cancel_discard(ui);
+            });
         });
-    });
     if ok && let Some(name) = name {
         let git = ResKey::new(p.area, ResType::GIT);
         match store_setup::popup(&p.text).to_bytes() {

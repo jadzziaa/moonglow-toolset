@@ -299,6 +299,8 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
     let mut open = true;
     let (mut recover, mut discard, mut later) = (None, None, false);
     egui::Window::new("Recover Unsaved Work")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ui.ctx().content_rect().center())
         .open(crate::widgets::open_unless_escape(ui.ctx(), "Recover Unsaved Work", &mut open))
         .collapsible(false)
         .show(ui.ctx(), |ui| {

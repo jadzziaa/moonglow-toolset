@@ -84,7 +84,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             .map_or_else(|| format!("({class})"), |c| c.text.clone())
     };
     let (mut ok, mut cancel) = (false, false);
-    egui::Window::new("Creature Levelup Wizard").collapsible(false).resizable(false).show(ctx, |ui| {
+    egui::Window::new("Creature Levelup Wizard")
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center()).collapsible(false).resizable(false).show(ctx, |ui| {
         ui.heading("Add Classes and Levels");
         ui.label("Please choose 1 to 8 classes for this creature and select the level for each class.");
         ui.label(

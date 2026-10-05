@@ -45,6 +45,8 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let (mut ok, mut cancel) = (false, false);
     egui::Window::new("Resize Area")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .open(crate::widgets::open_unless_escape(ctx, "Resize Area", &mut open))
         .collapsible(false)
         .resizable(false)
@@ -90,6 +92,8 @@ fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let (mut ok, mut cancel) = (false, false);
     egui::Window::new("Rotate Area")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .open(crate::widgets::open_unless_escape(ctx, "Rotate Area", &mut open))
         .collapsible(false)
         .resizable(false)
