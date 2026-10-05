@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:55:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T22:05:39Z }
 ---
 
 # Areas
@@ -35,7 +35,8 @@ looking straight down at their middle, north up, as in Aurora.
 - **▶ Animations**: creatures and other placed objects play their
   animations, and those with particles show them (a campfire's flames,
   magic sparks, a portal: placeables that are only an effect show
-  nothing otherwise). Switched off, they hold still (tiles' water and
+  nothing otherwise), as do the tiles: a chimney smokes with its
+  animation loop on in Tile Properties. Switched off, they hold still (tiles' water and
   flames go on), in every area view; it stays as you leave it.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
@@ -78,7 +79,7 @@ Options › Keyboard):
 | --- | --- |
 | Ctrl + drag | move the camera over the area |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
-| Shift + middle drag | move the camera |
+| Alt + middle drag | move the camera |
 | Wheel | zoom (slowly with Shift or Ctrl; when painting tiles, Shift is the brush's) |
 | Arrow keys, W A S D, or numpad 4, 6, 8, 2 | move the camera |
 | Numpad 7, 9 | turn |
@@ -101,7 +102,7 @@ field).
 | Ctrl + click | add it to the selection, or take it out |
 | Drag on the ground | select the objects in the box |
 | Drag the selection | move it over the ground |
-| Shift + right drag | turn the selected objects |
+| Alt + right drag | turn the selected objects |
 | Drag the ring around them | turn them as the pointer goes round |
 | Shift + drag a tilt ring | tilt their models about X (red) or Y (green) |
 | Shift + drag the square handle | scale their models: away from the object larger, toward it smaller |

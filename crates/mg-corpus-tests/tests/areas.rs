@@ -373,3 +373,48 @@ fn fade_geometry_leaves_out_the_fading_meshes() {
     assert_eq!((shown, all), (0, all_faded), "nothing left out unless asked");
     assert!(faded > 0 && faded < all, "{faded} of {all} meshes fade");
 }
+
+/// A tile's emitters emit as its animation loops have them: a chimney's
+/// smoke with Tile Properties' first loop on, none with it off (a builder
+/// saw placeables' particles and not the tiles').
+#[test]
+fn a_tile_s_emitters_follow_its_animation_loops() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let root = corpus!();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(3);
+    let mut m = new_module(&game, "Smoke", &mut rng).unwrap();
+    let tileset = ResRef::from_str("tcn01").unwrap();
+    let spec = AreaSpec { name: "Street".into(), tileset, width: 2, height: 2 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let git = m.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+    let are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+    let set = mg_area::tileset(&game, tileset).unwrap();
+    let smoking = set.tiles.iter().position(|t| t.model.eq_ignore_ascii_case("tcn01_c01_03"));
+    let smoking = smoking.expect("the tile with a chimney") as i32;
+    let particles = |on: u8| -> usize {
+        let mut are = are.clone();
+        // (Every tile the chimney's, so nothing else emits.)
+        for tile in are.root.list_mut("Tile_List").unwrap() {
+            tile.set("Tile_ID", mg_gff::Value::Int(smoking));
+            tile.set("Tile_AnimLoop1", mg_gff::Value::Byte(on));
+        }
+        let model = AreaModel::read(&game, &are.root, &git.root, Some(&set));
+        let loaded = AreaScene::new(&gpu, &game, &model);
+        let mut sims = std::collections::HashMap::new();
+        let mut view = View::of(&model);
+        let mut drawn = Vec::new();
+        for _ in 0..40 {
+            view.time += 0.1;
+            drawn = loaded.particles(&model, &view, &mut sims, 0.1, glam::Mat4::IDENTITY);
+        }
+        drawn.iter().map(|b| b.vertices.len() / 4).sum()
+    };
+    assert_eq!(particles(0), 0, "the loop off: no smoke");
+    assert!(particles(1) > 0, "the loop on: smoke");
+}

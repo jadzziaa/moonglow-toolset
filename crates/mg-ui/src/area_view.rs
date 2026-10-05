@@ -1446,7 +1446,7 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
     } else if view.selection.len() > 1 {
         format!("{} objects selected", view.selection.len())
     } else {
-        "Click to select, drag to move or to select in a box, Shift + right drag to turn, \
+        "Click to select, drag to move or to select in a box, Alt + right drag to turn, \
          Alt + drag to raise; Ctrl + drag moves the view, Ctrl + right drag turns it."
             .to_string()
     };
@@ -2297,11 +2297,8 @@ fn overlays(
 fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
-    // Painting tiles, Shift is the brush's (a drag's rectangle or outline):
-    // the camera moves as it does without it.
-    let painting = crate::terrain_mode::active(app, view).is_some();
     view.held = Held::read(ui, response, view.held);
-    camera_input(ui, view, response, shift && !painting, command, &app.keymap);
+    camera_input(ui, view, response, (alt, shift), command, &app.keymap);
     if let Some(dragged) = response.dnd_release_payload::<crate::palette_view::Dragged>() {
         drop_blueprint(app, view, response, dragged.0);
         return;
@@ -2571,7 +2568,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     if response.drag_started_by(egui::PointerButton::Secondary)
         && view.drag.is_none()
-        && shift
+        && alt
         && !command
         && !view.selection.is_empty()
     {
@@ -2755,14 +2752,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 }
 
 /// The camera: Ctrl + drag moves it, Ctrl + right or middle drag (or a
-/// middle drag) turns it, Shift + middle drag moves it, the wheel zooms,
+/// middle drag) turns it, Alt + middle drag moves it, the wheel zooms,
 /// Ctrl + Shift + the wheel or a middle drag moves it up and down;
 /// the keys of Options › Keyboard (WASD, the arrows and the number keys).
 fn camera_input(
     ui: &egui::Ui,
     view: &mut AreaView,
     response: &egui::Response,
-    shift: bool,
+    (alt, shift): (bool, bool),
     command: bool,
     keys: &crate::keys::Keymap,
 ) {
@@ -2777,10 +2774,12 @@ fn camera_input(
     let held = view.held;
     let Some(o) = &mut view.orbit else { return };
     let d = held.delta;
-    // A right drag turns it too, as in most 3D views (Shift + right drag
-    // turns the selection, as in Aurora; a right click is still the menu).
-    let turning = (held.by(egui::PointerButton::Middle) && !shift)
-        || (!shift && held.by(egui::PointerButton::Secondary));
+    // A right drag turns it too, as in most 3D views (Alt + right drag
+    // turns the selection; a right click is still the menu). With Shift
+    // held it turns as without: Shift shows the selection's handles, and
+    // the view is turned to get at them.
+    let turning = (held.by(egui::PointerButton::Middle) && !alt)
+        || (!alt && held.by(egui::PointerButton::Secondary));
     // What a pixel is on the ground at the target.
     let per_pixel = 2.0 * o.distance * (o.camera().fov_y / 2.0).tan() / rect.height().max(1.0);
     if command && shift && held.by(egui::PointerButton::Middle) {
@@ -2791,7 +2790,7 @@ fn camera_input(
         o.yaw -= d.x * 0.01;
         o.pitch = (o.pitch + d.y * 0.01).clamp(0.05, MAX_PITCH);
     } else if (command && held.by(egui::PointerButton::Primary))
-        || (shift && held.by(egui::PointerButton::Middle))
+        || (alt && held.by(egui::PointerButton::Middle))
     {
         // The ground follows the pointer.
         pan(o, Vec2::new(-d.x, d.y) * per_pixel);

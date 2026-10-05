@@ -123,6 +123,16 @@ in Tools › Options › Folders. The packages aren't signed yet: Windows'
 SmartScreen and macOS' Gatekeeper ask before the first run (the release notes
 say how to allow it).
 
+### Scoop (Windows)
+
+With [Scoop](https://scoop.sh), this repository is the bucket; `scoop update
+moonglow` then follows the releases:
+
+```powershell
+scoop bucket add moonglow https://github.com/jadzziaa/moonglow-toolset
+scoop install moonglow
+```
+
 ### Nix
 
 On NixOS, you can run Moonglow straight from this repository:

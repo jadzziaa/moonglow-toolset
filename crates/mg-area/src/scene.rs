@@ -25,6 +25,9 @@ use crate::{AreaModel, AreaObject, AreaTile, Lighting, ObjectKind, TILE_SIZE};
 /// of hundreds of torches still draws at once).
 const MAX_PARTICLE_OBJECTS: usize = 96;
 
+/// And how many tiles'.
+const MAX_PARTICLE_TILES: usize = 128;
+
 /// How to show the area.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct View {
@@ -357,8 +360,8 @@ impl AreaScene {
     /// nothing without them), moved on by `dt` seconds and drawn for a
     /// camera with the view matrix `camera`. `sims` keeps each object's
     /// particles from frame to frame, by its place in the area's list and
-    /// its model; those of objects no longer shown are dropped. Tiles'
-    /// emitters are not simulated.
+    /// its model; those of objects no longer shown are dropped. The
+    /// tiles' emitters follow.
     pub fn particles(
         &self,
         area: &AreaModel,
@@ -400,8 +403,85 @@ impl AreaScene {
                 }
             }
         }
+        // The tiles' own: a fountain's water, a forge's sparks. They emit
+        // as the animations playing on the tile have them (its animation
+        // loops switched on in Tile Properties, day or night).
+        let mut tiles = 0;
+        for (i, (tile, loaded)) in area.tiles.iter().zip(&self.tiles).enumerate() {
+            let Some(loaded) = loaded else { continue };
+            let model = &*loaded.gpu.model;
+            let emits = |n: &mg_mdl::Node| matches!(n.kind, mg_mdl::NodeKind::Emitter(_));
+            if tiles >= MAX_PARTICLE_TILES || !model.nodes.iter().any(emits) {
+                continue;
+            }
+            // (Told apart from the objects' by counting down from the top.)
+            let key = (usize::MAX - i, Arc::as_ptr(loaded) as usize);
+            if self.failed.borrow().contains(&key.1) {
+                continue;
+            }
+            let name = tile.model.as_deref().unwrap_or("a tile");
+            let transform = tile.transform();
+            let drawn = mg_render::guard::guarded(name, || {
+                let layers = self.tile_layers(tile, loaded, view);
+                let pose = if layers.is_empty() {
+                    loaded.gpu.rest.clone()
+                } else {
+                    anim::pose_layers(model, &layers, view.time)
+                };
+                // One animation of the emitters' keys, the later layer's
+                // first (the one that has its say).
+                let keys = (!layers.is_empty()).then(|| Animation {
+                    length: layers.iter().map(|a| a.length).fold(0.0, f32::max),
+                    nodes: layers
+                        .iter()
+                        .rev()
+                        .flat_map(|a| a.nodes.iter())
+                        .filter(|n| {
+                            model
+                                .nodes
+                                .iter()
+                                .any(|m| emits(m) && m.name.eq_ignore_ascii_case(&n.name))
+                        })
+                        .cloned()
+                        .collect(),
+                    ..Animation::default()
+                });
+                let sim =
+                    sims.entry(key).or_insert_with(|| mg_render::particles::Particles::new(model));
+                sim.ground = transform.w_axis.z;
+                sim.update(model, keys.as_ref(), view.time, dt, &pose, transform);
+                sim.batches(model, keys.as_ref(), view.time, &pose, transform, camera)
+            });
+            match drawn {
+                Some(batches) => {
+                    tiles += 1;
+                    seen.push(key);
+                    out.extend(batches);
+                }
+                None => {
+                    self.failed.borrow_mut().insert(key.1);
+                }
+            }
+        }
         sims.retain(|k, _| seen.contains(k));
         out
+    }
+
+    /// The animations playing on a tile, later ones over earlier: its
+    /// default, day or night, and the animation loops switched on.
+    fn tile_layers<'a>(
+        &self,
+        tile: &AreaTile,
+        loaded: &'a Loaded,
+        view: &View,
+    ) -> Vec<&'a Animation> {
+        let mut names = vec!["tiledefault", if view.night { "night" } else { "day" }];
+        for (on, name) in tile.anim_loops.iter().zip(["animloop01", "animloop02", "animloop03"]) {
+            if *on {
+                names.push(name);
+            }
+        }
+        names.iter().filter_map(|n| loaded.animation(n)).collect()
     }
 
     /// The scene of `area` (the model these models were loaded for) as
@@ -522,13 +602,7 @@ impl AreaScene {
     ) {
         let model = &loaded.gpu.model;
         let transform = tile.transform();
-        let mut names = vec!["tiledefault", if view.night { "night" } else { "day" }];
-        for (on, name) in tile.anim_loops.iter().zip(["animloop01", "animloop02", "animloop03"]) {
-            if *on {
-                names.push(name);
-            }
-        }
-        let layers: Vec<&Animation> = names.iter().filter_map(|n| loaded.animation(n)).collect();
+        let layers = self.tile_layers(tile, loaded, view);
         let pose = if layers.is_empty() {
             loaded.gpu.rest.clone()
         } else {

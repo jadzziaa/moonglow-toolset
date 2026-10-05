@@ -18,3 +18,4 @@
 * **Update**: [The main window](manual/02-main-window.md) (Copy…, a window's bar), [areas](manual/04-areas.md) (Fade Geometry, particles, deleting a prefab), [blueprints](manual/05-blueprints.md) (View, Edit Copy…, the wizards' ResRef and Tag), [journal and factions](manual/08-journal-and-factions.md); [the deferred list](deferred.md): builders' reports after 1.10.1.
 * **Update**: [The deferred list](deferred.md): issue 5's body parts and werebat fixed with the reporter's files; number fields' limits measured in Aurora.
 * **Update**: [Areas](manual/04-areas.md): the scale handle; [the deferred list](deferred.md).
+* **Update**: [Areas](manual/04-areas.md): tiles' particles; Alt, not Shift, turns the selection and moves the camera; [the deferred list](deferred.md).

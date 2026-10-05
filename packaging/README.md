@@ -89,6 +89,27 @@ entry and, optionally, a desktop icon and the `.mod` association.
 The programs carry the C runtime (`.cargo/config.toml`), so no Visual C++
 Redistributable is needed.
 
+### Scoop
+
+The repository is its own [Scoop](https://scoop.sh) bucket: `bucket/moonglow.json`
+installs the release's installer (unpacked, without running it), puts `mg`
+on the PATH and adds a Start menu entry.
+
+```powershell
+scoop bucket add moonglow https://github.com/jadzziaa/moonglow-toolset
+scoop install moonglow
+scoop update moonglow
+```
+
+After publishing a release, point the manifest at it and commit it:
+
+```sh
+packaging/scoop/update-manifest.sh <version>
+```
+
+It takes the installer's SHA-256 from the release on GitHub. Until the
+manifest is committed, Scoop users stay on the release before.
+
 ## macOS: app and disk image
 
 ```sh

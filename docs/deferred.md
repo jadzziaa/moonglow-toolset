@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T21:55:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T22:05:39Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -341,10 +341,17 @@ objects in the area view, Fade Geometry. Left:
   Only and Always; and that the meshes with `tilefade` 2 (the black
   caps) stay while those with 1 and 4 go was taken from the game's tiles
   and their names, not compared with Aurora or the game. (S)
-- **Particles in the area:** of placed objects only (not the tiles' own
-  emitters: torches, fountains), of at most 96 objects, and only while
-  Animations is on. Magic Sparks show faintly from above; not compared
-  with the client. (S–M)
+- **Particles in the area:** of at most 96 objects and 128 tiles, and
+  only while Animations is on. A tile's emitters take their keys from
+  the animations playing on it as one animation as long as the longest
+  (keys that change over a shorter loop would run slow; the game's are
+  constant). Magic Sparks show faintly from above; not compared with
+  the client. (S)
+- **Alt for the camera and the selection:** Alt + right drag turns the
+  selection and Alt + middle drag moves the camera (they were Shift's,
+  which now leaves the camera alone while the handles show). Aurora
+  turns the selection with Shift + right drag; and some desktops take
+  Alt + drag to move the window. Not in Options › Keyboard. (S)
 - **A window's bar:** egui_dock gives a folded window the height of its
   tab bar, frame included, so the dock's windows are drawn without a
   frame margin and their tabs' contents are given one instead. (—)
@@ -503,7 +510,7 @@ objects in the area view, Fade Geometry. Left:
 
 - **Several objects:** each has its ring (and with Shift its tilt rings
   and arrows), up to 32 of the selection; each turns about itself, as
-  Shift + right drag does. Turning a group about its middle (positions
+  Alt + right drag does. Turning a group about its middle (positions
   swinging round too) is not done. (S–M)
 - **Behind things:** the rings and arrows are painted over the view, not
   hidden by what stands in front of them (as 3D editors draw theirs:

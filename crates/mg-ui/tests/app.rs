@@ -3398,24 +3398,38 @@ fn area_viewer_places_draws_boxes_and_turns() {
     selected.sort();
     assert_eq!(selected, [(ObjectKind::Waypoint, 0), (ObjectKind::Waypoint, 1)]);
 
-    // Shift + right drag turns them: one command, orientations only.
+    // Alt + right drag turns them: one command, orientations only. With
+    // Shift (which shows their handles) a right drag turns the view, as
+    // without it.
     let before = git_list(&mut h, "WaypointList");
     let (from, to) = (a, a + egui::vec2(-80.0, 0.0));
-    h.event(egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
-    h.hover_at(from);
-    let right = |pressed, pos| egui::Event::PointerButton {
-        pos,
-        button: egui::PointerButton::Secondary,
-        pressed,
-        modifiers: egui::Modifiers::SHIFT,
+    let right_drag = |h: &mut Harness<'_, Moonglow>, modifiers: egui::Modifiers| {
+        h.event(egui::Event::ModifiersChanged(modifiers));
+        h.hover_at(from);
+        let right = |pressed, pos| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers,
+        };
+        h.event(right(true, from));
+        for k in 1..=4 {
+            h.hover_at(from + (to - from) * (k as f32 / 4.0));
+            h.run_steps(1);
+        }
+        h.event(right(false, to));
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(3);
     };
-    h.event(right(true, from));
-    for k in 1..=4 {
-        h.hover_at(from + (to - from) * (k as f32 / 4.0));
-    }
-    h.event(right(false, to));
-    h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
-    h.run_steps(3);
+    let yaw = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().yaw;
+    let (undo, was) = (h.state().ws.as_ref().unwrap().can_undo().map(str::to_string), yaw(&h));
+    right_drag(&mut h, egui::Modifiers::SHIFT);
+    assert!((yaw(&h) - was).abs() > 0.1, "Shift + right drag turns the view");
+    let now = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    assert_eq!(now, undo, "and nothing else");
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().yaw = was;
+    h.run_steps(2);
+    right_drag(&mut h, egui::Modifiers::ALT);
     let after = git_list(&mut h, "WaypointList");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Rotate"));
     for i in 0..2 {
