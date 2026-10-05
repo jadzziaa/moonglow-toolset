@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.10.1" date="2026-10-05">
+      <description>
+        <p>Fixes blue-white patches round plants and along shores in the
+        area view, seen at a slant. The area view's readout names the tile
+        under the pointer.</p>
+      </description>
+    </release>
     <release version="1.10.0" date="2026-10-05">
       <description>
         <p>The module tree can no longer take the whole window. A nasher
