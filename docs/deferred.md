@@ -312,14 +312,18 @@ a light theme. Left:
   it are left as they are, with no warning of them; one resource at a
   time; no Delete key in the tree. That Aurora refuses to delete the
   start area was not checked against Aurora (Moonglow refuses). (S)
-- **Pale rims round transparent textures** (a builder's report, 1.8.0:
-  plants and tile edges with blue-white patches round them at some
-  angles): the smaller levels Moonglow makes of an uncompressed texture
-  now leave transparent pixels' colors out. Not confirmed on the
-  reporter's module (their content wasn't to hand), and not compared with
-  the client. A compressed DDS's own smaller levels are used as stored;
-  blended meshes still write depth and are sorted whole, so one can hide
-  what is behind its see-through parts. (S–M)
+- **See-through meshes** are drawn in two parts: what is nearly opaque
+  of them (alpha from 0.95) with the depth written, then the rest over
+  everything solid, back to front, writing none. (A builder's report:
+  blue-white patches round plants and along shores at a slant, in a
+  base-game tileset: a plant's soft edge drawn before the ground behind
+  it kept the ground from showing, and the water under it showed. Shown
+  in a renderer test; not confirmed on the reporter's area, nor compared
+  with the client.) Two see-through surfaces crossing each other still
+  sort by their middles. Each see-through mesh costs two draws. The
+  smaller levels made of an uncompressed texture leave transparent
+  pixels' colors out; a compressed DDS's own levels are used as stored.
+  (S–M)
 - **Edit on a script that doesn't exist** makes it and says so in the
   log; Aurora shows a message box first ("Resource not found. Creating
   new script."). A mistyped name makes a script (Undo takes it back). (S)

@@ -108,7 +108,10 @@ field).
 | Double-click | the object's Properties |
 
 Every move, turn and deletion is one undoable step. The view's corner
-shows the pointer's position in the area, to the centimeter.
+shows the pointer's position in the area, to the centimeter, and the
+tile there: its model's name (`ttr01_a01_01`), its column and row, and its
+height and turn when it has them. With one tile selected (Select Tiles),
+it names that tile too.
 
 **The turning ring**: an orange ring lies around the
 selected object, with a mark on it the way the object faces. Take the

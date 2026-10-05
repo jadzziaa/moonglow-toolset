@@ -13,3 +13,4 @@
 * **Update**: [Modules](manual/03-modules.md): a nasher project's files changed outside are read again; [conversations](manual/06-conversations.md): tokens by language; [options](manual/10-options.md); [the deferred list](deferred.md).
 * **Update**: [Options](manual/10-options.md): the game's own text is read in the language edited; [the deferred list](deferred.md).
 * **Update**: [Troubleshooting](manual/13-troubleshooting.md) and [the deferred list](deferred.md): the module tree held to its share of the window (a builder's report resolved).
+* **Update**: [Areas](manual/04-areas.md): the readout names the tile; [the deferred list](deferred.md): see-through meshes drawn in two parts.

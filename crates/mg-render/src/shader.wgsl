@@ -58,13 +58,17 @@ struct Draw {
     maps2: vec4<f32>,
     // Custom specular colour (linear), w = 1 when set.
     spec_color: vec4<f32>,
-    // x = the environment map is a cube map
+    // x = the environment map is a cube map; w = the part of a see-through
+    // mesh drawn: 1 its solid part, 2 the rest (0: all of it)
     extra: vec4<f32>,
     // x = number of lights for this draw, y = 1 if skinned, z = first bone
     light_count: vec4<u32>,
     // Up to 32 light indices.
     light_index: array<vec4<u32>, 8>,
 };
+
+// From this alpha a see-through mesh's surface counts as solid.
+const SOLID_ALPHA: f32 = 0.95;
 
 @group(0) @binding(0) var<uniform> frame: Frame;
 @group(0) @binding(1) var<storage, read> lights: array<Light>;
@@ -322,6 +326,18 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     } else {
         color = color * vec4<f32>(lin(tex.rgb), tex.a);
         if (color.a <= draw.params.x) {
+            discard;
+        }
+    }
+
+    // A see-through mesh in two parts: what is nearly opaque of it first
+    // (hiding what is behind), the rest afterwards (hiding nothing).
+    if (draw.extra.w > 1.5) {
+        if (color.a >= SOLID_ALPHA) {
+            discard;
+        }
+    } else if (draw.extra.w > 0.5) {
+        if (color.a < SOLID_ALPHA) {
             discard;
         }
     }

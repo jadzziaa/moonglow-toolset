@@ -519,6 +519,22 @@ impl AreaView {
         (!model.objects[found].locked).then_some(found)
     }
 
+    /// The tile at a column and row, for the view's readout: its model's
+    /// name (the tileset's tile), its height and its turn.
+    pub fn tile_named(&self, column: u32, row: u32) -> Option<String> {
+        let tile =
+            self.model.as_ref()?.tiles.iter().find(|t| t.column == column && t.row == row)?;
+        let model = tile.model.clone().unwrap_or_else(|| format!("tile {} (no model)", tile.id));
+        let mut out = format!("{model} at {column}, {row}");
+        if tile.height != 0 {
+            out.push_str(&format!(", height {}", tile.height));
+        }
+        if tile.orientation != 0 {
+            out.push_str(&format!(", turned {}°", u32::from(tile.orientation) * 90));
+        }
+        Some(out)
+    }
+
     /// The ground point under the pointer: on the walkmesh, else on the
     /// plane at height `z`.
     pub(crate) fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
@@ -1567,7 +1583,21 @@ fn viewport(
         .and_then(|p| view.ground_at(p, 0.0));
     if let Some(p) = view.pointer {
         let painter = ui.painter_at(view.rect);
-        let text = format!("{:.2}, {:.2}, {:.2}", p.x, p.y, p.z);
+        let mut text = format!("{:.2}, {:.2}, {:.2}", p.x, p.y, p.z);
+        // The tile there (Aurora names a selected tile's model in its
+        // status bar), and the tile selected, if it is one.
+        let (column, row) = ((p.x / TILE_SIZE).floor(), (p.y / TILE_SIZE).floor());
+        if column >= 0.0
+            && row >= 0.0
+            && let Some(tile) = view.tile_named(column as u32, row as u32)
+        {
+            text.push_str(&format!("   {tile}"));
+        }
+        if let [(column, row)] = view.tile_selection[..]
+            && let Some(tile) = view.tile_named(column, row)
+        {
+            text.push_str(&format!("   selected: {tile}"));
+        }
         let font = egui::FontId::monospace(12.0);
         let at = view.rect.left_bottom() + egui::vec2(8.0, -8.0);
         let galley = painter.layout_no_wrap(text, font, Color32::WHITE);

@@ -10267,3 +10267,14 @@ fn the_module_tree_never_takes_the_window() {
     let palette = s.dock.iter_leaves().find(|(p, _)| at(p)).unwrap().1.rect;
     assert!(palette.width() > 60.0, "the palettes keep some room: {palette:?}");
 }
+
+/// The view's readout names the tile under the pointer: its model, as
+/// Aurora's status bar does.
+#[test]
+fn the_area_s_readout_names_the_tile() {
+    let Some((h, area)) = area_harness("tile-name") else { return };
+    let view = &h.state().area_views[&area];
+    let named = view.tile_named(1, 2).expect("a tile there");
+    assert!(named.starts_with("ttr01_") && named.contains(" at 1, 2"), "{named}");
+    assert_eq!(view.tile_named(40, 40), None, "outside the area");
+}

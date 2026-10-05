@@ -966,3 +966,58 @@ fn unlit_instances_keep_their_colour_in_the_dark() {
         assert!((i32::from(unlit[c]) - want).abs() <= 3, "channel {c} of {unlit:?}");
     }
 }
+
+/// A see-through mesh never hides what is behind its see-through parts,
+/// whatever order the meshes are drawn in: a plant's soft edge over ground
+/// whose own texture has an alpha channel, with water under the ground.
+/// (Drawn in order of their middles, the plant came first here, and
+/// through its edge the water showed instead of the ground: blue-white
+/// patches round plants and along shores, at a slant.)
+#[test]
+fn a_see_through_edge_does_not_hide_the_ground_behind_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    let solid = |assets: &mut TestAssets, name: &str, rgba: [u8; 4], alpha: bool| {
+        let t = mg_image::Rgba { width: 4, height: 4, data: rgba.repeat(16) }.into_texture(alpha);
+        assets.textures.insert(name.into(), t);
+    };
+    solid(&mut assets, "water", [0, 0, 255, 255], false);
+    // (Opaque, but with an alpha channel: drawn with the see-through.)
+    solid(&mut assets, "ground", [200, 0, 0, 255], true);
+    solid(&mut assets, "plant", [0, 200, 0, 128], true);
+    let model = |bitmap: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.source_uv = vec![0, 1, 2, 3];
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let at = |p: Vec3, scale: f32| Mat4::from_translation(p) * Mat4::from_scale(Vec3::splat(scale));
+    // Seen at a slant: the ground's middle is nearer than the plant on it.
+    let plant = Vec3::new(0.0, 0.0, 0.6);
+    let camera =
+        Camera { eye: Vec3::new(0.0, -8.0, 3.0), target: plant, fov_y: 0.6, near: 0.1, far: 100.0 };
+    solid(&mut assets, "lava", [255, 255, 0, 255], false);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut shot = |under: &str| {
+        let scene = Scene {
+            instances: vec![
+                Instance::new(model(under), at(Vec3::ZERO, 20.0)),
+                Instance::new(model("ground"), at(Vec3::new(0.0, -5.5, 0.5), 6.0)),
+                Instance::new(model("plant"), at(plant, 0.5)),
+            ],
+            area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+            ..Default::default()
+        };
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64)
+    };
+    // What is under the ground makes no difference to the plant on it...
+    let (over_water, over_lava) = (shot("water"), shot("lava"));
+    assert_eq!(over_water.pixel(32, 32), over_lava.pixel(32, 32), "through the plant");
+    // ...though it shows beyond the ground (the test sees it).
+    assert!(
+        (0..64).any(|y| over_water.pixel(32, y) != over_lava.pixel(32, y)),
+        "beyond the ground's far edge"
+    );
+}

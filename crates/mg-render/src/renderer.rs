@@ -83,7 +83,14 @@ enum Pass {
     Sky,
     SkyFade,
     Opaque,
+    /// A see-through mesh's solid parts (what is nearly opaque of it),
+    /// which hide what is behind them.
     Blend,
+    /// The rest of a see-through mesh, over everything solid, back to
+    /// front, hiding nothing: drawn with it, an edge or a pane that came
+    /// before what is behind it kept that from showing (a plant's soft
+    /// edge before the ground: the water under the ground showed).
+    Fringe,
     Additive,
 }
 
@@ -130,6 +137,7 @@ struct Slots {
 type SlotKey = (Option<String>, [Option<String>; 3], Option<String>, bool);
 
 /// One draw, ready to sort.
+#[derive(Clone)]
 struct Draw {
     pass: Pass,
     depth: f32,
@@ -305,14 +313,15 @@ impl Renderer {
             immediate_size: 0,
         });
         let mut pipelines = HashMap::new();
-        for (pass, skinned) in [Pass::Sky, Pass::SkyFade, Pass::Opaque, Pass::Blend, Pass::Additive]
-            .into_iter()
-            .flat_map(|p| [(p, false), (p, true)])
-        {
+        let passes =
+            [Pass::Sky, Pass::SkyFade, Pass::Opaque, Pass::Blend, Pass::Fringe, Pass::Additive];
+        for (pass, skinned) in passes.into_iter().flat_map(|p| [(p, false), (p, true)]) {
             let sky = matches!(pass, Pass::Sky | Pass::SkyFade);
             let blend = match pass {
                 Pass::Sky | Pass::Opaque => None,
-                Pass::SkyFade | Pass::Blend => Some(wgpu::BlendState::ALPHA_BLENDING),
+                Pass::SkyFade | Pass::Blend | Pass::Fringe => {
+                    Some(wgpu::BlendState::ALPHA_BLENDING)
+                }
                 Pass::Additive => Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::One,
@@ -342,7 +351,9 @@ impl Renderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(!sky && pass != Pass::Additive),
+                    depth_write_enabled: Some(
+                        !sky && !matches!(pass, Pass::Additive | Pass::Fringe),
+                    ),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
                     bias: Default::default(),
@@ -883,7 +894,7 @@ impl Renderer {
                     light_index[j / 4][j % 4] = *i;
                 }
                 let normal = model_view.inverse().transpose();
-                draws.push(Draw {
+                let draw = Draw {
                     pass,
                     depth: -view.transform_point3(centre).z,
                     hint: mat.transparency_hint,
@@ -929,6 +940,7 @@ impl Renderer {
                         spec_color: slots
                             .specular_color
                             .map_or([0.0; 4], |c| c.extend(1.0).to_array()),
+                        // (w: which part of a see-through mesh, below.)
                         extra: [flag(env_cube), flag(is_sky), flag(fade_color.is_some()), 0.0],
                         light_count: [
                             chosen.len() as u32,
@@ -948,7 +960,20 @@ impl Renderer {
                     skin: mesh.skin.as_ref().map(|s| s.vertices.clone()),
                     indices: mesh.indices.clone(),
                     count: mesh.index_count,
-                });
+                };
+                // A see-through mesh is drawn in two parts: what is solid
+                // of it, then the rest.
+                if pass == Pass::Blend {
+                    let mut solid = draw.clone();
+                    solid.uniform.extra[3] = 1.0;
+                    draws.push(solid);
+                    let mut rest = draw;
+                    rest.pass = Pass::Fringe;
+                    rest.uniform.extra[3] = 2.0;
+                    draws.push(rest);
+                } else {
+                    draws.push(draw);
+                }
             }
         }
         // Opaque (any order), then blended back to front by hint then depth,
@@ -959,7 +984,8 @@ impl Renderer {
                 Pass::SkyFade => 1,
                 Pass::Opaque => 2,
                 Pass::Blend => 3,
-                Pass::Additive => 4,
+                Pass::Fringe => 4,
+                Pass::Additive => 5,
             };
             rank(a.pass).cmp(&rank(b.pass)).then_with(|| {
                 if matches!(a.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
