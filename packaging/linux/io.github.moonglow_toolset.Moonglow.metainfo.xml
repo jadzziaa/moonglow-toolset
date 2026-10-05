@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.12.1" date="2026-10-05">
+      <description>
+        <p>Fixes cloaks drawn over the face of elves and other bodies that
+        aren't a human's size. On Windows, a zip of the programs beside the
+        installer, which Scoop installs.</p>
+      </description>
+    </release>
     <release version="1.12.0" date="2026-10-05">
       <description>
         <p>A handle scales a selected object's model in the area view;
