@@ -383,6 +383,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                                 app.actions.push(Action::RenameDialog(k));
                             }
                         }
+                        if ui.button("Delete…").clicked() {
+                            app.actions.push(Action::DeleteDialog(k));
+                        }
                         if ui.button("Export…").clicked() {
                             app.actions.push(Action::ExportDialog(vec![k]));
                         }

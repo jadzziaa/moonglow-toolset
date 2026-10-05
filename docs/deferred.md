@@ -300,10 +300,22 @@ a light theme. Left:
 - **Sound ranges:** level circles at the sound's height, not spheres; a
   sound's random position range (`RandomRangeX`, `RandomRangeY`) isn't
   drawn. (S)
-- **The start location is set, not dragged:** Set Start Location Here
-  puts it where the menu was opened, facing as the view looks; its marker
-  can't be dragged or turned in the view, and Aurora's palette entry for
-  it isn't there. (S)
+- **The start location in the view:** set from the menu, and its marker
+  dragged (ring, shaft) and turned (arrow's tip). Aurora's palette entry
+  for it isn't there; selected, it is no object, so the keys (Q and E,
+  the arrows) and Adjust Location don't act on it; a drag stays in its
+  area; the pointer doesn't change over it. (S)
+- **Deleting from the module tree:** Delete… removes the resource (an
+  area with its GIT and GIC and its area-list entry, a script with its
+  NCS) and nothing else: transitions, scripts and conversations that name
+  it are left as they are, with no warning of them; one resource at a
+  time; no Delete key in the tree. That Aurora refuses to delete the
+  start area was not checked against Aurora (Moonglow refuses). (S)
+- **Loading screen pictures** are put together as the game's stock
+  `pnl_loadscreen` model maps them (two halves of a square texture); a
+  module with its own `pnl_loadscreen` model, or a texture that isn't
+  laid out so, shows wrong. Aurora's small `<name>s` preview isn't used.
+  The picture isn't in the list itself, only on hover. (S)
 - **An area's objects in the module tree:** listed by name, kind by
   kind; no menus on them (delete, copy), no filter by the tree's Filter
   box, and a kind with thousands of objects lays out every row. (S–M)

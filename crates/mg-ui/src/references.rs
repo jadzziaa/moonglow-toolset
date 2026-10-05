@@ -240,6 +240,75 @@ impl Moonglow {
         }
     }
 
+    /// Why `key` can't be deleted, if it can't: the area the module starts
+    /// in stays.
+    pub(crate) fn undeletable(&mut self, key: ResKey) -> Option<String> {
+        let ws = self.ws.as_mut()?;
+        let info = ws.doc(&ResKey::parse("module", ResType::IFO)?).ok()?;
+        let start = info.root.resref("Mod_Entry_Area")?;
+        (key.restype == ResType::ARE && start == key.resref).then(|| {
+            "The module's start location is in this area: set it in another area first \
+             (Set Start Location Here in that area's view)."
+                .to_string()
+        })
+    }
+
+    /// Deletes `key` from the module, as one command: an area with its
+    /// objects (its GIT and GIC) and its entry in the module's area list,
+    /// a script with its compiled one. Its tabs close.
+    pub(crate) fn delete_resource(&mut self, key: ResKey) {
+        if let Some(why) = self.undeletable(key) {
+            self.log.warn(why);
+            return;
+        }
+        let Some(ws) = self.ws.as_mut() else { return };
+        let with: &[ResType] = match key.restype {
+            ResType::ARE => &[ResType::GIT, ResType::GIC],
+            ResType::NSS => &[ResType::NCS],
+            _ => &[],
+        };
+        let mut edits = Vec::new();
+        if key.restype == ResType::ARE
+            && let Some(ifo) = ResKey::parse("module", ResType::IFO)
+            && let Ok(info) = ws.doc(&ifo)
+            && let Some(index) = info
+                .root
+                .list("Mod_Area_list")
+                .and_then(|l| l.iter().position(|a| a.resref("Area_Name") == Some(key.resref)))
+        {
+            edits.push(Edit::RemoveItem {
+                key: ifo,
+                path: mg_edit::GffPath::root(),
+                list: "Mod_Area_list".into(),
+                index,
+            });
+        }
+        edits.extend(
+            std::iter::once(key)
+                .chain(with.iter().map(|t| ResKey::new(key.resref, *t)))
+                .filter(|k| ws.module.contains(k))
+                .map(|k| Edit::SetResource { key: k, data: None }),
+        );
+        if let Err(e) = self.apply(Command::new(format!("Delete {key}"), edits)) {
+            self.log.error(e.to_string());
+            return;
+        }
+        let area = (key.restype == ResType::ARE).then_some(key.resref);
+        self.dock.retain_tabs(|t| match t {
+            Tab::Script(k) | Tab::Gff(k) | Tab::Dialog(k) | Tab::Blueprint(k) => {
+                *k != key && !(area == Some(k.resref) && with.contains(&k.restype))
+            }
+            Tab::Area(r) | Tab::AreaProperties(r) => area != Some(*r),
+            Tab::Instance { area: r, .. }
+            | Tab::Instances { area: r, .. }
+            | Tab::InstanceModel { area: r, .. } => area != Some(*r),
+            _ => true,
+        });
+        if let Some(area) = area {
+            self.area_views.remove(&area);
+        }
+    }
+
     /// Opens what a usage names, at the place.
     pub(crate) fn go_to_usage(&mut self, u: &Usage) {
         if let Some((list, index)) = u.instance() {
@@ -452,6 +521,46 @@ fn places(n: usize) -> String {
 }
 
 /// The Rename window.
+/// The module tree's Delete…: asks first (the area's objects go with it).
+pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(key) = app.confirm_delete else { return };
+    let why_not = app.undeletable(key);
+    let mut open = true;
+    egui::Window::new("Delete from Module")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            if let Some(why) = &why_not {
+                ui.label(why);
+                if ui.button("OK").clicked() {
+                    open = false;
+                }
+                return;
+            }
+            ui.label(match key.restype {
+                ResType::ARE => {
+                    format!("Delete the area {} and everything placed in it?", key.resref)
+                }
+                ResType::NSS => format!("Delete {key} and its compiled script?"),
+                _ => format!("Delete {key}?"),
+            });
+            ui.weak("Edit › Undo brings it back.");
+            ui.horizontal(|ui| {
+                if ui.button("Delete").clicked() {
+                    app.actions.push(Action::DeleteResource(key));
+                    open = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    open = false;
+                }
+            });
+        });
+    if !open {
+        app.confirm_delete = None;
+    }
+}
+
 pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut draft) = app.rename.take() else { return };
     let mut open = true;

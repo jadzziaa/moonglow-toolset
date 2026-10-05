@@ -408,7 +408,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         f.choice(ui, "Player vs. player", "PlayerVsPlayer", &pvp, FieldType::Byte);
         ui.end_row();
         crate::widgets::field_label(ui, "Loading Screen");
-        f.choice(ui, "Loading screen", "LoadScreenID", &screens, FieldType::Word);
+        f.load_screen(ui, &screens);
         ui.end_row();
         crate::widgets::field_label(ui, "");
         f.check(ui, "No Rest", "NoRest");

@@ -21,7 +21,10 @@ looking straight down at their middle, north up, as in Aurora.
   is marked as in Aurora: a blue ring on the ground with a red arrow the
   way the character faces. To set it, right-click the ground where it
   should be and choose **Set Start Location Here**: it faces the way the
-  view looks. **Go to Start Location** brings the view to it.
+  view looks. Click the marker to select it (a yellow box, as round an
+  object). Drag it by its ring or its arrow to move it; selected, the
+  arrow's tip has a round handle that turns it (both follow the snapping grid and
+  angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it.
 - **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
   the tile grid. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
@@ -338,6 +341,9 @@ ticked, shown as the first of them:
   (each area's tiles get its lights) and environment, fog, weather, day
   and night, the ambient sounds and music, the event scripts, the check
   modifiers, player vs. player, the loading screen and No Rest.
+- **Loading Screen** (Advanced, and a door's or trigger's Area
+  Transition page) shows the chosen screen's picture under the list, and
+  each screen's when the pointer rests on its name in the list.
 - Interior, natural, underground and the shader flags change alone: each
   area keeps its other flags.
 - **Variables**: the variables you add or change are set on each area,

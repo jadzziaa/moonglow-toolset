@@ -165,6 +165,12 @@ pub enum Action {
     FindTag(String),
     /// The Rename window for a resource.
     RenameDialog(ResKey),
+    /// Asks whether to delete a resource of the module (the module tree's
+    /// Delete…).
+    DeleteDialog(ResKey),
+    /// Deletes a resource of the module (an area with its objects, a
+    /// script with its compiled one).
+    DeleteResource(ResKey),
     RenameBlueprint {
         from: ResKey,
         to: mg_core::ResRef,
@@ -371,6 +377,8 @@ pub struct Moonglow {
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
+    /// A resource waiting for the answer to "delete it?".
+    pub confirm_delete: Option<ResKey>,
     pub quit_requested: bool,
     /// Test Module asked to minimize the window (Options › General).
     pub minimize_requested: bool,
@@ -529,6 +537,7 @@ impl Moonglow {
             viewed: HashMap::new(),
             import: None,
             confirm_discard: None,
+            confirm_delete: None,
             quit_requested: false,
             minimize_requested: false,
             conversation_backups: std::env::temp_dir().join("moonglow-backups"),
@@ -697,6 +706,7 @@ impl Moonglow {
         store_wizard::window(self, ui.ctx());
         store_wizard::popup_window(self, ui.ctx());
         references::rename_window(self, ui.ctx());
+        references::delete_window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
         palette_categories::window(self, ui.ctx());
@@ -1349,6 +1359,8 @@ impl Moonglow {
             Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
             Action::FindTag(t) => self.find_references(references::Query::Tag(t)),
             Action::RenameDialog(k) => self.rename_dialog(k),
+            Action::DeleteDialog(k) => self.confirm_delete = Some(k),
+            Action::DeleteResource(k) => self.delete_resource(k),
             Action::CompileScripts => self.compile_scripts(),
             Action::Verify => self.verify(),
             Action::TestModule => self.test_module(false),

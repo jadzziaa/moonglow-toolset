@@ -455,7 +455,7 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         }
         ui.end_row();
         crate::widgets::field_label(ui, "Loading Screen");
-        f.choice(ui, "Loading screen", "LoadScreenID", &loadscreens, FieldType::Word);
+        f.load_screen(ui, &loadscreens);
         ui.end_row();
     });
 }

@@ -167,6 +167,10 @@ enum Drag {
     /// Turns spawn point `point` of the encounter at `object` (its place
     /// in the model) to face the pointer: `facing`, radians.
     FaceSpawn { object: usize, point: usize, pivot: Vec3, facing: f32 },
+    /// Moves the start location (held by its ring or its arrow's shaft,
+    /// `grip` from its middle) or, held by the arrow's tip, turns it:
+    /// where it is and faces now, and where it was.
+    Start { turn: bool, grip: Vec2, at: Vec3, facing: f32, was: (Vec3, f32) },
     /// Selects what is inside the box.
     Box { from: Pos2, to: Pos2 },
 }
@@ -335,6 +339,8 @@ pub struct AreaView {
     /// Which kinds of object are shown, by [`ObjectKind::index`].
     pub show: [bool; 9],
     pub show_start: bool,
+    /// Whether the start location's marker is selected (with no object).
+    pub start_selected: bool,
     drag: Option<Drag>,
     /// The press on the view, as of this frame.
     pub(crate) held: Held,
@@ -438,6 +444,7 @@ impl AreaView {
             grid: true,
             show: [true; 9],
             show_start: true,
+            start_selected: false,
             drag: None,
             held: Held::default(),
             turn_ring: true,
@@ -715,6 +722,38 @@ impl AreaView {
             .map(|(i, _, k, p)| (i, k, p))
     }
 
+    /// Whether the start location's marker is what is selected.
+    fn start_is_selected(&self) -> bool {
+        self.start_selected && self.selection.is_empty()
+    }
+
+    /// How a press at `pos` takes hold of the start location's marker, at
+    /// `p` facing `facing`: by the arrow's tip to turn it (true), by the
+    /// ring or the arrow's lines to move it.
+    fn start_grab(&self, (p, facing): (Vec3, f32), pos: Pos2) -> Option<bool> {
+        if !self.show_start {
+            return None;
+        }
+        let m = StartMarker::new(p, facing);
+        // (The tip is a handle once the marker is selected.)
+        if self.start_is_selected()
+            && self.screen_pos(m.tip).is_some_and(|tip| tip.distance(pos) <= RING_REACH)
+        {
+            return Some(true);
+        }
+        let near = |a: Vec3, b: Vec3| {
+            self.screen_pos(a)
+                .zip(self.screen_pos(b))
+                .is_some_and(|(a, b)| near_segment(a, b, pos) <= RING_REACH)
+        };
+        let step = std::f32::consts::TAU / RING_SEGMENTS as f32;
+        let ring = |k: usize| m.around(k as f32 * step);
+        (near(m.tail, m.tip)
+            || near(m.guard.0, m.guard.1)
+            || (0..RING_SEGMENTS).any(|k| near(ring(k), ring(k + 1))))
+        .then_some(false)
+    }
+
     /// How a press at `pos` leads a tilt ring: the angle taken hold of,
     /// and, for a ring seen too nearly edge-on to follow in its plane, how
     /// the pointer's travel on screen turns it (along the ring's line
@@ -813,8 +852,12 @@ impl AreaView {
     /// Where each selected object stands and turns with the drag applied.
     fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
         let Some(model) = &self.model else { return Vec::new() };
-        let moves =
-            |d: &Drag| !matches!(d, Drag::Box { .. } | Drag::Tilt { .. } | Drag::FaceSpawn { .. });
+        let moves = |d: &Drag| {
+            !matches!(
+                d,
+                Drag::Box { .. } | Drag::Tilt { .. } | Drag::FaceSpawn { .. } | Drag::Start { .. }
+            )
+        };
         let Some(mut drag) = self.drag.filter(moves) else {
             return Vec::new();
         };
@@ -864,12 +907,48 @@ impl AreaView {
                         let by = if lifts(o.kind) { by } else { 0.0 };
                         (i, o.position + Vec3::Z * by, o.rotation)
                     }
-                    Drag::Box { .. } | Drag::Tilt { .. } | Drag::FaceSpawn { .. } => {
-                        (i, o.position, o.rotation)
-                    }
+                    Drag::Box { .. }
+                    | Drag::Tilt { .. }
+                    | Drag::FaceSpawn { .. }
+                    | Drag::Start { .. } => (i, o.position, o.rotation),
                 }
             })
             .collect()
+    }
+}
+
+/// The start location's marker: a ring on the ground and an arrow the way
+/// the player faces, with a cross-guard.
+struct StartMarker {
+    middle: Vec3,
+    tail: Vec3,
+    tip: Vec3,
+    ahead: Vec3,
+    side: Vec3,
+    guard: (Vec3, Vec3),
+}
+
+impl StartMarker {
+    /// The arrow's barbs and half its cross-guard, meters.
+    const BARB: f32 = START_RING * 0.35;
+
+    fn new(p: Vec3, facing: f32) -> Self {
+        let middle = p + Vec3::Z * 0.05;
+        let ahead = Vec3::new(facing.cos(), facing.sin(), 0.0);
+        let side = Vec3::new(-ahead.y, ahead.x, 0.0);
+        Self {
+            middle,
+            tail: middle - ahead * START_RING * 0.75,
+            tip: middle + ahead * START_RING * 0.75,
+            ahead,
+            side,
+            guard: (middle - side * Self::BARB, middle + side * Self::BARB),
+        }
+    }
+
+    /// The ring's point at angle `a`.
+    fn around(&self, a: f32) -> Vec3 {
+        self.middle + Vec3::new(a.cos(), a.sin(), 0.0) * START_RING
     }
 }
 
@@ -1427,6 +1506,11 @@ fn viewport(
         door_arrows: !app.settings.no_door_arrows,
         ghost_box,
     };
+    // The start location where it is being dragged to.
+    let start = match view.drag {
+        Some(Drag::Start { at, facing, .. }) => Some((at, facing)),
+        _ => start,
+    };
     overlays(ui, view, &shown, start, app.object_clip.as_ref(), door_brush, marks);
     sound_range_overlay(app, ui, view, &shown);
     // Where the pointer is, to the centimeter (Aurora shows whole meters).
@@ -1951,26 +2035,55 @@ fn overlays(
     // The start location, as Aurora marks it: a blue ring on the ground
     // and a red arrow the way the player faces on arriving.
     if let (true, Some((p, facing))) = (view.show_start, start) {
-        let p = p + Vec3::Z * 0.05;
-        let ring = Stroke::new(3.0, Color32::from_rgb(70, 130, 255));
+        let m = StartMarker::new(p, facing);
+        // Brighter while it is held.
+        let held = matches!(view.drag, Some(Drag::Start { .. }));
+        let width = if held { 4.0 } else { 3.0 };
+        let ring = Stroke::new(width, Color32::from_rgb(70, 130, 255));
         const PIECES: usize = 24;
-        let around = |k: usize| {
-            let a = std::f32::consts::TAU * k as f32 / PIECES as f32;
-            p + Vec3::new(a.cos(), a.sin(), 0.0) * START_RING
-        };
+        let around = |k: usize| m.around(std::f32::consts::TAU * k as f32 / PIECES as f32);
         for k in 0..PIECES {
             line(around(k), around(k + 1), ring);
         }
-        let arrow = Stroke::new(3.0, Color32::from_rgb(235, 40, 40));
-        let ahead = Vec3::new(facing.cos(), facing.sin(), 0.0);
-        let side = Vec3::new(-ahead.y, ahead.x, 0.0);
-        let (tail, tip) = (p - ahead * START_RING * 0.75, p + ahead * START_RING * 0.75);
-        line(tail, tip, arrow);
-        let barb = START_RING * 0.35;
-        line(tip, tip - ahead * barb + side * barb, arrow);
-        line(tip, tip - ahead * barb - side * barb, arrow);
+        let arrow = Stroke::new(width, Color32::from_rgb(235, 40, 40));
+        line(m.tail, m.tip, arrow);
+        let barb = StartMarker::BARB;
+        line(m.tip, m.tip - m.ahead * barb + m.side * barb, arrow);
+        line(m.tip, m.tip - m.ahead * barb - m.side * barb, arrow);
         // (And its cross-guard.)
-        line(p - side * barb, p + side * barb, arrow);
+        line(m.guard.0, m.guard.1, arrow);
+        // Selected, a box round it as round an object: where a character
+        // would stand.
+        let selected = view.start_is_selected();
+        if selected {
+            let t = glam::Mat4::from_translation(p) * glam::Mat4::from_rotation_z(facing);
+            let (min, max) = (Vec3::new(-1.0, -1.0, 0.0), Vec3::new(1.0, 1.0, 1.8));
+            for (a, b) in box_edges(t, min * START_RING, max * START_RING) {
+                line(a, b, Stroke::new(2.0, Color32::YELLOW));
+            }
+        }
+        // Selected, the arrow's tip is a handle: led round, it turns the
+        // marker.
+        if let (true, Some(c)) = (selected, at(m.tip)) {
+            let turning = matches!(view.drag, Some(Drag::Start { turn: true, .. }));
+            let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
+            let lit = turning || pointer.is_some_and(|q| q.distance(c) <= RING_REACH);
+            let (radius, fill) = if lit {
+                (7.5, Color32::from_rgb(255, 225, 150))
+            } else {
+                (6.0, Color32::from_rgb(255, 170, 60))
+            };
+            painter.circle(c, radius, fill, Stroke::new(1.5, Color32::from_black_alpha(220)));
+            if turning {
+                painter.text(
+                    c + egui::vec2(12.0, -10.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    format!("{:.0}°", facing.to_degrees().rem_euclid(360.0)),
+                    egui::FontId::proportional(13.0),
+                    Color32::WHITE,
+                );
+            }
+        }
     }
 }
 
@@ -2130,7 +2243,15 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
 
     // Selection. (A click on a ring or an arrow with nothing under it
     // leaves the selection be; with an object under it, it picks that.)
+    // A click on the start location's marker selects it, alone.
     if response.clicked()
+        && let Some(pos) = response.interact_pointer_pos()
+        && view.pick(pos).is_none()
+        && start_on_ground(app, view).is_some_and(|s| view.start_grab(s, pos).is_some())
+    {
+        view.selection.clear();
+        view.start_selected = true;
+    } else if response.clicked()
         && let Some(pos) = response.interact_pointer_pos()
         && (view.pick(pos).is_some()
             || !(view.spawn_arrow_at(pos).is_some()
@@ -2154,6 +2275,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             (None, true) => {}
             (None, false) => view.selection.clear(),
         }
+        view.start_selected = false;
     }
     if response.secondary_clicked()
         && let Some(pos) = response.interact_pointer_pos()
@@ -2223,6 +2345,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.selection = vec![(o.kind, o.index)];
             }
             view.ground_at(pos, o.position.z).map(|from| Drag::Move { from, offset: Vec2::ZERO })
+        } else if let Some((was, turn)) = start_on_ground(app, view)
+            .filter(|_| !shift && !alt)
+            .and_then(|s| Some((s, view.start_grab(s, pos)?)))
+        {
+            // The start location, by its marker's lines (what stands on
+            // it comes first).
+            let grip = view.ground_at(pos, was.0.z).map_or(Vec2::ZERO, |g| (g - was.0).truncate());
+            view.selection.clear();
+            view.start_selected = true;
+            Some(Drag::Start { turn, grip, at: was.0, facing: was.1, was })
         } else {
             Some(Drag::Box { from: pos, to: pos })
         };
@@ -2267,6 +2399,21 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             if let Some(to) = pointer.and_then(|p| view.angle_about(pivot, p)) {
                 let facing = mg_area::arrange::snap_rotation(to, view.snap.1);
                 view.drag = Some(Drag::FaceSpawn { object, point, pivot, facing });
+            }
+        }
+        Some(Drag::Start { turn: true, grip, at, was, .. }) if held.by(button) => {
+            if let Some(to) = pointer.and_then(|p| view.angle_about(at, p)) {
+                let facing = mg_area::arrange::snap_rotation(to, view.snap.1);
+                view.drag = Some(Drag::Start { turn: true, grip, at, facing, was });
+            }
+        }
+        Some(Drag::Start { turn: false, grip, facing, was, .. }) if held.by(button) => {
+            if let Some(now) = pointer.and_then(|p| view.ground_at(p, was.0.z)) {
+                // On the ground there, as the marker is shown.
+                let to = view.snapped((now.truncate() - grip).extend(now.z));
+                let z = view.ground.as_ref().and_then(|g| g.height(to.truncate(), to.z));
+                let at = to.with_z(z.unwrap_or(to.z));
+                view.drag = Some(Drag::Start { turn: false, grip, at, facing, was });
             }
         }
         Some(Drag::Slide { axis, pivot, grip, screen, .. }) if held.by(button) => {
@@ -2329,6 +2476,13 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                         value: Some(mg_gff::Value::Float(facing)),
                     };
                     app.actions.push(Action::Apply(Command::new("Turn Spawn Point", vec![edit])));
+                }
+            }
+            Some(Drag::Start { turn, at, facing, was, .. }) => {
+                if turn && facing != was.1 {
+                    turn_start_location(app, facing);
+                } else if !turn && at != was.0 {
+                    move_start_location(app, at);
                 }
             }
             Some(drag @ Drag::Tilt { .. }) => {
@@ -3305,23 +3459,49 @@ const START_RING: f32 = 1.0;
 /// IFO's `Mod_Entry_*`), facing `facing` radians counter-clockwise from
 /// east, as one command.
 fn set_start_location(app: &mut Moonglow, view: &mut AreaView, at: Vec3, facing: f32) {
-    let key = ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO);
-    let set = |label: &str, value: Value| mg_edit::Edit::SetField {
-        key,
+    let mut edits = vec![start_field("Mod_Entry_Area", Value::resref(view.area))];
+    edits.extend(start_at(at));
+    edits.extend(start_facing(facing));
+    app.actions.push(Action::Apply(Command::new("Set start location", edits)));
+    view.show_start = true;
+}
+
+/// Moves the start location to `at`, in the area it is in (a drag of its
+/// marker).
+fn move_start_location(app: &mut Moonglow, at: Vec3) {
+    let edits = start_at(at).to_vec();
+    app.actions.push(Action::Apply(Command::new("Move Start Location", edits)));
+}
+
+/// Turns the start location to face `facing` (a drag of its arrow's tip).
+fn turn_start_location(app: &mut Moonglow, facing: f32) {
+    let edits = start_facing(facing).to_vec();
+    app.actions.push(Action::Apply(Command::new("Turn Start Location", edits)));
+}
+
+/// An edit of one of the IFO's fields.
+fn start_field(label: &str, value: Value) -> mg_edit::Edit {
+    mg_edit::Edit::SetField {
+        key: ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO),
         path: mg_edit::GffPath::root(),
         label: label.into(),
         value: Some(value),
-    };
-    let edits = vec![
-        set("Mod_Entry_Area", Value::resref(view.area)),
-        set("Mod_Entry_X", Value::Float(at.x)),
-        set("Mod_Entry_Y", Value::Float(at.y)),
-        set("Mod_Entry_Z", Value::Float(at.z)),
-        set("Mod_Entry_Dir_X", Value::Float(facing.cos())),
-        set("Mod_Entry_Dir_Y", Value::Float(facing.sin())),
-    ];
-    app.actions.push(Action::Apply(Command::new("Set start location", edits)));
-    view.show_start = true;
+    }
+}
+
+fn start_at(at: Vec3) -> [mg_edit::Edit; 3] {
+    [
+        start_field("Mod_Entry_X", Value::Float(at.x)),
+        start_field("Mod_Entry_Y", Value::Float(at.y)),
+        start_field("Mod_Entry_Z", Value::Float(at.z)),
+    ]
+}
+
+fn start_facing(facing: f32) -> [mg_edit::Edit; 2] {
+    [
+        start_field("Mod_Entry_Dir_X", Value::Float(facing.cos())),
+        start_field("Mod_Entry_Dir_Y", Value::Float(facing.sin())),
+    ]
 }
 
 /// Sets a field on every selected object (one command).

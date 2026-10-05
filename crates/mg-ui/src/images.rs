@@ -106,6 +106,23 @@ pub(crate) fn item_icon_names(game: &GameData, item: &Struct) -> Vec<String> {
     }
 }
 
+/// The two halves of a loading screen's square texture (rows from the
+/// bottom, as stored), side by side.
+fn stitched(whole: &mg_image::Rgba) -> Option<mg_image::Rgba> {
+    let n = whole.width as usize;
+    if n < 2 || whole.height as usize != n || whole.data.len() != n * n * 4 {
+        return None;
+    }
+    let (w, h) = (n * 25 / 32, n / 2);
+    let mut data = Vec::with_capacity(2 * w * h * 4);
+    for y in 0..h {
+        let row = |y: usize, from: usize| &whole.data[(y * n + from) * 4..(y * n + from + w) * 4];
+        data.extend_from_slice(row(y, 0));
+        data.extend_from_slice(row(n - h + y, n - w));
+    }
+    Some(mg_image::Rgba { width: (2 * w) as u32, height: h as u32, data })
+}
+
 impl Loader<'_> {
     /// A resource's bytes: the module's, else the game's.
     fn data(&self, key: ResKey) -> Option<Arc<[u8]>> {
@@ -167,6 +184,25 @@ impl Loader<'_> {
         let rgba = ResRef::from_str(&key).ok().and_then(|r| {
             let (t, data) = self.texture(r)?;
             Some(mg_image::read(t, &data).ok()?.to_rgba())
+        });
+        self.keep(ctx, key, rgba)
+    }
+
+    /// A loading screen's picture as the game shows it, loaded once. The
+    /// texture is square and holds the wide picture in two halves, as the
+    /// game's `pnl_loadscreen` model maps them: the left half in the
+    /// texture's lower half from its left edge, the right half in its
+    /// upper half up to its right edge, each 25/32 of its width. A texture
+    /// that isn't square is shown as it is.
+    pub(crate) fn load_screen(&mut self, ctx: &egui::Context, name: &str) -> Option<Picture> {
+        let key = format!("{}#loadscreen", name.to_ascii_lowercase());
+        if let Some(p) = self.pictures.get(&key) {
+            return p.clone();
+        }
+        let rgba = ResRef::from_str(name).ok().and_then(|r| {
+            let (t, data) = self.texture(r)?;
+            let whole = mg_image::read(t, &data).ok()?.to_rgba();
+            Some(stitched(&whole).unwrap_or(whole))
         });
         self.keep(ctx, key, rgba)
     }

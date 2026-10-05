@@ -72,6 +72,35 @@ pub fn pages(t: ResType) -> &'static [&'static str] {
 pub type Pages = HashMap<(ResKey, GffPath), &'static str>;
 
 /// A blueprint's fields, laid out.
+/// Shows something of a 2DA row (a picture) in a choice's list.
+type Shown = fn(&mut Moonglow, &mut Ui, usize);
+
+/// A loading screen's picture (loadscreens.2da's `BMPResRef`), small; a
+/// line instead where the row has none (the first: a random one of the
+/// area's tileset) or it isn't found.
+fn load_screen_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
+    const WIDTH: f32 = 260.0;
+    let name = app.game.as_deref().and_then(|g| {
+        let t = g.table("loadscreens").ok()?;
+        t.get(row, "BMPResRef").filter(|n| *n != "****" && !n.is_empty()).map(str::to_owned)
+    });
+    let Some(name) = name else {
+        if row == 0 {
+            ui.weak("A random one of the area's tileset");
+        }
+        return;
+    };
+    match app.loader().and_then(|mut l| l.load_screen(ui.ctx(), &name)) {
+        Some(p) if p.size.x > 0.0 => {
+            let size = egui::vec2(WIDTH, WIDTH * p.size.y / p.size.x);
+            ui.add(egui::Image::new((p.texture.id(), size))).on_hover_text(name);
+        }
+        _ => {
+            ui.weak(format!("({name}: no picture found)"));
+        }
+    }
+}
+
 pub(crate) struct Form<'a> {
     pub app: &'a mut Moonglow,
     /// The document: the blueprint, or the area's GIT for a placed object.
@@ -515,6 +544,40 @@ impl Form<'_> {
         choices: &[Choice],
         default: FieldType,
     ) {
+        self.choice_shown(ui, what, label, choices, default, None);
+    }
+
+    /// The loading screen (a loadscreens.2da row): its picture shows under
+    /// the choice, and each one's on the row the pointer rests on.
+    pub(crate) fn load_screen(&mut self, ui: &mut Ui, choices: &[Choice]) {
+        ui.vertical(|ui| {
+            let show: Shown = load_screen_picture;
+            self.choice_shown(
+                ui,
+                "Loading screen",
+                "LoadScreenID",
+                choices,
+                FieldType::Word,
+                Some(show),
+            );
+            let row = self.int("LoadScreenID");
+            if let Ok(row) = usize::try_from(row) {
+                load_screen_picture(self.app, ui, row);
+            }
+        });
+    }
+
+    /// [`choice`](Self::choice), with what `about` shows of a row beside
+    /// the one the pointer rests on.
+    fn choice_shown(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        choices: &[Choice],
+        default: FieldType,
+        about: Option<Shown>,
+    ) {
         let current = self.int(label);
         let shown = choices
             .iter()
@@ -547,7 +610,12 @@ impl Form<'_> {
                 .iter()
                 .filter(|c| filter.is_empty() || c.text.to_lowercase().contains(&filter))
             {
-                if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
+                let mut r = ui.selectable_label(c.row as i64 == current, &c.text);
+                if let Some(about) = about {
+                    let app = &mut *self.app;
+                    r = r.on_hover_ui_at_pointer(|ui| about(app, ui, c.row));
+                }
+                if r.clicked() {
                     pick = Some(c.row as i64);
                     ui.close();
                 }

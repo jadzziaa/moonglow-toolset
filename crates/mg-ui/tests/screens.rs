@@ -1387,6 +1387,14 @@ fn area_properties_advanced() {
     app.open_palette = false;
     let are = ResKey::new(area, ResType::ARE);
     app.blueprint_pages.insert((are, GffPath::root()), "Advanced");
+    // (A loading screen with a picture, to see it under the choice.)
+    let edit = mg_edit::Edit::SetField {
+        key: are,
+        path: GffPath::root(),
+        label: "LoadScreenID".into(),
+        value: Some(mg_gff::Value::Word(2)),
+    };
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 800.0))

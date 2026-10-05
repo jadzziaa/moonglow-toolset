@@ -92,8 +92,14 @@ area's view is placed there, as from the palette. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields
 of its `.are` and `.git` files; on a script, area, conversation or
 blueprint, **Find References** and **Rename…** (see
-[Modules](03-modules.md)); on any resource, **Export…**, **Export as
-Files…** and **Copy to Scratch Folder**.
+[Modules](03-modules.md)); on any resource, **Delete…**, **Export…**,
+**Export as Files…** and **Copy to Scratch Folder**.
+
+**Delete…** asks first, and Undo brings back what it deleted. An area goes
+with everything placed in it and leaves the module's area list; a script
+goes with its compiled script. The area the module's start location is in
+can't be deleted: set the start location in another area first. Nothing
+that names what is deleted is changed (check **Find References** first).
 
 A right click on a group (Areas, Scripts, Creatures…) or on one of its
 resources offers **New …**: the group's wizard, or the New Script or New

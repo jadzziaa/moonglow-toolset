@@ -7823,6 +7823,138 @@ fn the_start_location_is_set_from_the_area_s_menu() {
     assert_eq!((x, y), (x0, y0), "one undo");
 }
 
+/// The start location's marker is dragged by its ring and turned by its
+/// arrow's tip.
+#[test]
+fn the_start_location_is_dragged_and_turned_in_the_view() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("drag-start") else { return };
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    {
+        let set = |label: &str, value: mg_gff::Value| mg_edit::Edit::SetField {
+            key: ifo,
+            path: mg_edit::GffPath::root(),
+            label: label.into(),
+            value: Some(value),
+        };
+        let edits = vec![
+            set("Mod_Entry_Area", mg_gff::Value::resref(area)),
+            set("Mod_Entry_X", mg_gff::Value::Float(12.0)),
+            set("Mod_Entry_Y", mg_gff::Value::Float(31.0)),
+            set("Mod_Entry_Dir_X", mg_gff::Value::Float(1.0)),
+            set("Mod_Entry_Dir_Y", mg_gff::Value::Float(0.0)),
+        ];
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    }
+    h.run_steps(3);
+    let entry = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let r = ws.doc(&ifo).unwrap().root.clone();
+        let f = |label: &str| r.float(label).unwrap();
+        (f("Mod_Entry_X"), f("Mod_Entry_Y"), f("Mod_Entry_Dir_Y").atan2(f("Mod_Entry_Dir_X")))
+    };
+    let none = egui::Modifiers::NONE;
+    let drag = |h: &mut Harness<'_, Moonglow>, path: &[Vec3]| {
+        let from = screen(h, area, path[0]);
+        h.hover_at(from);
+        h.run_steps(1);
+        press(h, from, true, none);
+        let mut to = from;
+        for p in &path[1..] {
+            to = screen(h, area, *p);
+            h.hover_at(to);
+            h.run_steps(1);
+        }
+        press(h, to, false, none);
+        h.run_steps(3);
+    };
+    // By the ring's west side, four meters east and north.
+    let west = Vec3::new(11.0, 31.0, 0.0);
+    let steps: Vec<Vec3> = (0..=4).map(|k| west + Vec3::new(k as f32, k as f32, 0.0)).collect();
+    drag(&mut h, &steps);
+    let (x, y, facing) = entry(&mut h);
+    assert!((x - 16.0).abs() < 0.15 && (y - 35.0).abs() < 0.15, "moved to {x}, {y}");
+    assert!(facing.abs() < 1e-3, "faces as it did: {facing}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move Start Location"));
+    assert!(h.state().area_views[&area].start_selected, "held, it is selected");
+    // A click on the ground lets it go; one on its ring selects it.
+    let click = |h: &mut Harness<'_, Moonglow>, p: Vec3| {
+        let pos = screen(h, area, p);
+        h.hover_at(pos);
+        h.run_steps(1);
+        press(h, pos, true, none);
+        press(h, pos, false, none);
+        h.run_steps(2);
+    };
+    click(&mut h, Vec3::new(x + 6.0, y, 0.0));
+    assert!(!h.state().area_views[&area].start_selected);
+    click(&mut h, Vec3::new(x - 1.0, y, 0.0));
+    assert!(h.state().area_views[&area].start_selected, "selected by a click");
+    assert_eq!(entry(&mut h).0, x, "a click moves nothing");
+    // By the arrow's tip, a quarter turn to the north (it is selected).
+    let middle = Vec3::new(x, y, 0.0);
+    let tip = |a: f32| middle + Vec3::new(a.cos(), a.sin(), 0.0) * 0.75;
+    let round: Vec<Vec3> =
+        (0..=6).map(|k| tip(std::f32::consts::FRAC_PI_2 * k as f32 / 6.0)).collect();
+    drag(&mut h, &round);
+    let (x1, y1, facing) = entry(&mut h);
+    assert_eq!((x1, y1), (x, y), "turned where it is");
+    assert!((facing - std::f32::consts::FRAC_PI_2).abs() < 0.05, "faces {facing}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Turn Start Location"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(entry(&mut h).2.abs() < 1e-3, "one undo");
+    // With the marker hidden, there is nothing to take hold of.
+    h.state_mut().area_views.get_mut(&area).unwrap().show_start = false;
+    h.run_steps(2);
+    let steps: Vec<Vec3> = (0..=4).map(|k| Vec3::new(15.0 + k as f32, 35.0, 0.0)).collect();
+    drag(&mut h, &steps);
+    assert_eq!(entry(&mut h).0, x, "not moved");
+}
+
+/// The module tree's Delete… takes an area out of the module with its
+/// objects and its entry in the area list, but not the area the module
+/// starts in.
+#[test]
+fn an_area_is_deleted_from_the_module_tree() {
+    let Some((mut h, area)) = area_harness("delete-area") else { return };
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let (are, git) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+    let listed = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let has = ws.module.contains(&are) && ws.module.contains(&git);
+        (has, ws.doc(&ifo).unwrap().root.list("Mod_Area_list").unwrap().len())
+    };
+    assert_eq!(listed(&mut h), (true, 1));
+    // The start location is in it: it stays.
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(are));
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("start location is in this area").is_some());
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::DeleteResource(are));
+    h.run_steps(2);
+    assert_eq!(listed(&mut h), (true, 1), "not deleted");
+    // With the start elsewhere, it goes, asked first.
+    let edit = mg_edit::Edit::SetField {
+        key: ifo,
+        path: mg_edit::GffPath::root(),
+        label: "Mod_Entry_Area".into(),
+        value: Some(mg_gff::Value::resref(ResRef::from_str("elsewhere").unwrap())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::DeleteDialog(are));
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("everything placed in it").is_some());
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    assert_eq!(listed(&mut h), (false, 0));
+    assert!(h.state().dock.find_tab(&Tab::Area(area)).is_none(), "its view is closed");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(listed(&mut h), (true, 1), "one undo");
+}
+
 /// Options › Script Editor › Open scripts in the external editor: a
 /// script opened from the module tree goes to the external editor too.
 #[cfg(unix)]
