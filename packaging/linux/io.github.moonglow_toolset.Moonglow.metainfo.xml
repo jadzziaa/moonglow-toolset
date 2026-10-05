@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.9.0" date="2026-10-05">
+      <description>
+        <p>Custom creatures from the Vault and CEP are drawn right: scaled
+        models, bodies without some parts, heads and dragons that showed
+        untextured, torn skins. Pale rims round transparent textures are
+        gone. Edit beside a script's name makes a script that doesn't
+        exist yet. Expand All and Collapse All in the module tree and the
+        palettes.</p>
+      </description>
+    </release>
     <release version="1.8.0" date="2026-10-05">
       <description>
         <p>The start location's marker is dragged and turned in the area
