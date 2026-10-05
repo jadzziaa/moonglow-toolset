@@ -79,6 +79,14 @@ filter finds either, and the ResRef shows when the pointer rests on one.
 **Show ResRefs beside names** adds it in parentheses, `Name (resref)`,
 there and in the palettes: for telling apart resources of one name.
 
+**What is placed in an area:** the arrow before an area opens it out to
+its objects, kind by kind as Aurora lists them (Creatures, Doors,
+Encounters…), each by its name (its tag, without one). Click an object to
+go to it in the area's view, selected; double-click for its Properties.
+A double click on a script opens its editor (and, with **Tools › Options
+› Script Editor › Open scripts in the external editor**, your own editor
+too).
+
 A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields

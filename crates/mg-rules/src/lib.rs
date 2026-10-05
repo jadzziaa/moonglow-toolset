@@ -80,6 +80,11 @@ pub struct GameData {
     tables: RwLock<HashMap<ResRef, Arc<TwoDa>>>,
 }
 
+/// The column of a name written out in a table, used where a row's
+/// talk-table string is blank: ambientmusic.2da has it for music a hak
+/// adds.
+pub const DISPLAY_NAME: &str = "DisplayName";
+
 impl GameData {
     /// Opens the base stack of an install and its `dialog.tlk`.
     pub fn open(install: &GameInstall) -> Result<GameData, RulesError> {
@@ -167,6 +172,9 @@ impl GameData {
         let t = self.table(table)?;
         let name_col = cols.name.and_then(|c| t.column(c));
         let label_col = cols.label.and_then(|c| t.column(c));
+        // A name written out in the table, for a row without a talk-table
+        // string (ambientmusic.2da's `DisplayName`, for custom music).
+        let display_col = t.column(DISPLAY_NAME);
         let mut out = Vec::new();
         for row in 0..t.len() {
             let name = name_col
@@ -174,7 +182,13 @@ impl GameData {
                 .and_then(mg_2da::parse_int)
                 .and_then(|v| self.string(StrRef(v as u32)))
                 .filter(|s| !s.is_empty());
-            let text = name.or_else(|| label_col.and_then(|c| t.cell(row, c)).map(str::to_string));
+            let display = || {
+                let cell = display_col.and_then(|c| t.cell(row, c)).map(str::trim);
+                cell.filter(|v| !v.is_empty() && *v != "****").map(str::to_string)
+            };
+            let text = name
+                .or_else(display)
+                .or_else(|| label_col.and_then(|c| t.cell(row, c)).map(str::to_string));
             if let Some(text) = text {
                 out.push(Choice { row, text });
             }

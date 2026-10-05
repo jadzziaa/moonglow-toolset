@@ -17,6 +17,11 @@ looking straight down at their middle, north up, as in Aurora.
 
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
   object and the start location marker; **All** and **None**.
+- **The start location** (where a player's character enters the module)
+  is marked as in Aurora: a blue ring on the ground with a red arrow the
+  way the character faces. To set it, right-click the ground where it
+  should be and choose **Set Start Location Here**: it faces the way the
+  view looks. **Go to Start Location** brings the view to it.
 - **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
   the tile grid. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
@@ -106,7 +111,8 @@ shows the pointer's position in the area, to the centimeter.
 selected object, with a mark on it the way the object faces. Take the
 ring anywhere along it (near it is enough) and lead it round: the object
 turns with the pointer, its facing shown in degrees; with several
-selected, each turns about itself by the same angle. **Turn** on the
+selected, each has its ring (and with Shift its tilt rings and arrows),
+any of which leads them all: each turns about itself by the same angle. **Turn** on the
 toolbar snaps it. **Tools › Options › Area** switches the ring off.
 
 **The tilt rings**: hold **Shift** and two upright rings take the turning
@@ -180,7 +186,8 @@ places and turns around it.
   (`MG_Locked`), which the game ignores. Aurora drops it when it saves,
   unlocking the object.
 - **Save as Prefab…**: the selected objects, kept under a name to place
-  again (see below).
+  again (see below): a group of placeables to copy around, in this area
+  or another.
 - Doors: **Reverse Door**, **Initial State** (open or closed, locked).
   Placeables: **Initial State** (open, active…). Sounds: **Mute** or
   **Turn On**. Triggers and encounters: **Redraw Polygon**; encounters:
@@ -214,12 +221,20 @@ to close the outline.
 **Edit › Find Instance…** lists the placed objects across the module by
 kind, area, blueprint and tag; double-click one to go to it.
 
-**Prefabs** are groups of placed objects saved under a name (**Save as
-Prefab…** on the selection), such as a camp, a market stall or a furnished
-room.
-- **Placing one:** choose it under **Edit › Prefabs**. It follows the
-  pointer like a paste. A click places it, with the objects in their
-  places around each other and at their heights above the ground.
+**Prefabs** are groups of placed objects saved under a name, such as a
+camp, a market stall or a furnished room: the way to copy a group of
+placeables around.
+- **Saving one:** select the objects (a click, Ctrl+click for more, or a
+  box dragged around them), then **Save N as Prefab…** on the area's
+  toolbar (it shows when several are selected), **Save as Prefab…** on
+  the selection's right-click menu, or **Save Selection as Prefab…** in
+  the palette's **Prefabs**.
+- **Placing one:** choose it in the palette's **🗐 Prefabs** (beside the
+  blueprint types), or under **Edit › Prefabs**. It follows the pointer
+  like a paste. A click places it, with the objects in their places
+  around each other and at their heights above the ground.
+- **Copy and paste** do the same without a name: Ctrl+C on a selection,
+  Ctrl+V in this area or another.
 - **Any area, any module:** prefabs are kept in Moonglow's data folder, in
   `prefabs` (see [Troubleshooting](13-troubleshooting.md)). Copy the
   `.prefab.json` files to share them.

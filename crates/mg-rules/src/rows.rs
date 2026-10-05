@@ -153,6 +153,7 @@ impl GameData {
             .and_then(mg_2da::parse_int)
             .and_then(|v| self.string(StrRef(u32::try_from(v).ok()?)))
             .filter(|s| !s.trim().is_empty())
+            .or_else(|| cell(Some(crate::DISPLAY_NAME)).map(str::to_string))
             .or_else(|| cell(table.label).map(str::to_string))
     }
 }
@@ -170,7 +171,7 @@ mod tests {
         let mut mem = MemContainer::new();
         mem.insert(
             ResKey::parse("ambientmusic", ResType::TWODA).unwrap(),
-            &b"2DA V2.0\n\n  Description Resource\n0 **** ****\n1 1 mus_ruralday1\n2 99 mus_cave\n3 **** ****\n"[..],
+            &b"2DA V2.0\n\n  Description Resource DisplayName\n0 **** **** ****\n1 1 mus_ruralday1 ****\n2 99 mus_cave ****\n3 **** **** ****\n4 **** mus_mine \"My Theme\"\n"[..],
         );
         let mut rm = ResMan::new();
         rm.add(priority::KEY, "mem", LayerClass::Key, mem);
@@ -182,6 +183,15 @@ mod tests {
         assert_eq!(game.row_name(&music, 1).as_deref(), Some("Rural Day 1"));
         // A string the talk table lacks: the label.
         assert_eq!(game.row_name(&music, 2).as_deref(), Some("mus_cave"));
+        // No talk-table string, but a name written out (custom music).
+        assert_eq!(game.row_name(&music, 4).as_deref(), Some("My Theme"));
+        let listed = game
+            .choices(
+                "ambientmusic",
+                crate::ChoiceColumns { name: Some("Description"), label: Some("Resource") },
+            )
+            .unwrap();
+        assert_eq!(listed.iter().find(|c| c.row == 4).map(|c| c.text.as_str()), Some("My Theme"));
         // A blank row, one past the table, a negative number: no name.
         for row in [0, 3, 40, -1] {
             assert_eq!(game.row_name(&music, row), None, "row {row}");

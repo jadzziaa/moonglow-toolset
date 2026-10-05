@@ -22,6 +22,30 @@ The palette pane (right) shows the blueprints by type:
 - **Custom**: the module's own blueprints, in the categories you give
   them.
 
+**Categories…** (beside New…) edits the categories blueprints of the type
+shown go in: **Add Category**, **Add Group** (a branch that holds
+categories), **Rename** and **Remove**, in the group chosen or at the
+top. The game's categories are the starting point; with a change the
+module gets a list of its own, kept in the module (`placeablepal.itp` for
+placeables, and so on: the palette skeleton that content packs ship in
+their haks), and the blueprints' Category lists and the custom palette
+follow it.
+- **Drag a row** to move it: onto another's upper half to go before it,
+  onto its lower half to go after it, or into it if it is a group; held
+  near the list's top or bottom, it scrolls the list, as the wheel does
+  while you hold it. The
+  module's own categories show in the order you give them, in the
+  palette and in the blueprints' Category lists (the game's show by
+  name, as in Aurora).
+- A renamed category keeps its blueprints; one with blueprints of the
+  module in it isn't removed until they are given another.
+- **Use the Game's Categories** drops the module's list.
+- Aurora reads its categories from the game's files and haks: to have
+  the same ones there, put the module's skeleton in a hak (right-click it
+  in the resource browser or export it as a file). Whether Aurora shows a
+  category that has a name written out rather than a talk-table string
+  was not tried.
+
 Choose a blueprint to place it in an area, or drag it there. Hover over
 one to see its resref, tag and, for creatures, doors, items and
 placeables, a picture; for the others, what there is to say of them (a
@@ -152,6 +176,8 @@ every change, as Aurora does on OK.
 - **Feats** and **Spells** are found by name (**Find**) and by category:
   the toolset's categories of feats (combat, defensive, magical…), and
   spells' talent categories (harmful ranged, beneficial healing…).
+- **Descriptions:** rest the pointer on a skill, a feat, a spell or a
+  special ability to read what the game says of it (Aurora's F1).
 - **Special Abilities** lists each ability as the game has it: so many
   **Uses** of a spell at a **Caster Level**. Clicking a spell adds a use;
   the same spell at another caster level is another ability. **Flags**

@@ -54,6 +54,7 @@ pub struct OptionsDraft {
     pub standard_warning: bool,
     pub auto_compile: bool,
     pub debug_info: bool,
+    pub scripts_external: bool,
     pub script_templates: String,
     pub scratch_dir: String,
     pub external_editor: String,
@@ -124,6 +125,7 @@ impl OptionsDraft {
             standard_warning: !s.no_standard_warning,
             auto_compile: s.auto_compile,
             debug_info: s.debug_info,
+            scripts_external: s.scripts_external,
             script_templates: text(&s.script_templates),
             scratch_dir: text(&s.scratch_dir),
             external_editor: text(&s.external_editor),
@@ -175,6 +177,7 @@ impl OptionsDraft {
             no_standard_warning: !self.standard_warning,
             auto_compile: self.auto_compile,
             debug_info: self.debug_info,
+            scripts_external: self.scripts_external,
             script_templates: path(&self.script_templates),
             scratch_dir: path(&self.scratch_dir),
             external_editor: path(&self.external_editor),
@@ -651,6 +654,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     browse = Some(Browse::Editor);
                                 }
                             });
+                            ui.add_enabled(
+                                !draft.external_editor.trim().is_empty(),
+                                egui::Checkbox::new(
+                                    &mut draft.scripts_external,
+                                    "Open scripts in the external editor",
+                                ),
+                            )
+                            .on_hover_text(
+                                "A script opened from the module tree opens in the external \
+                                 editor too; what it saves comes back into Moonglow's editor",
+                            )
+                            .on_disabled_hover_text("Choose an external script editor first");
                             ui.add_space(6.0);
                             script_style(ui, &mut draft.script_style);
                         }

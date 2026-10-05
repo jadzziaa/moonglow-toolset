@@ -10,7 +10,7 @@ use mg_gff::{Gff, Struct, Value};
 use mg_rules::GameData;
 
 use crate::Module;
-use crate::new::{custom_palette, word_sort_key};
+use crate::new::word_sort_key;
 
 /// A blueprint type with a palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -114,6 +114,222 @@ impl BlueprintKind {
     pub fn custom_key(self) -> mg_resman::ResKey {
         mg_resman::ResKey::parse(&format!("{}palcus", self.name()), ResType::ITP).expect("valid")
     }
+
+    /// The palette skeleton (`<type>pal.itp`): the categories blueprints
+    /// of the type go in. The game has one; a module (or a hak) may have
+    /// its own, with categories of its own.
+    pub fn skeleton_key(self) -> mg_resman::ResKey {
+        mg_resman::ResKey::parse(&format!("{}pal", self.name()), ResType::ITP).expect("valid")
+    }
+}
+
+/// The palette skeleton of `kind` the module's blueprints are sorted by:
+/// the module's own if it has one, else the one the game's load order has
+/// (a hak's, or the game's).
+pub fn skeleton(module: &Module, game: &GameData, kind: BlueprintKind) -> Result<Gff, String> {
+    let key = kind.skeleton_key();
+    if let Some(own) = module.gff(&key) {
+        return own.map_err(|e| format!("{key}: {e}"));
+    }
+    let data = game.resman.get(&key).map_err(|e| e.to_string())?;
+    Gff::read(&data).map_err(|e| e.to_string())
+}
+
+/// A place in a skeleton: the node's position at each level, from `MAIN`
+/// down through the `LIST`s.
+pub type NodePath = Vec<usize>;
+
+/// The most categories a skeleton has: a blueprint's category is a byte,
+/// and 255 hides it.
+pub const CATEGORIES_MAX: u32 = 255;
+
+/// The skeleton's "assign to new category" placeholder (`TYPE` 0), which
+/// is no category.
+pub fn is_placeholder(node: &Struct) -> bool {
+    node.integer("TYPE") == Some(0) && node.integer("ID").is_none()
+}
+
+fn skeleton_node<'a>(skeleton: &'a mut Gff, path: &[usize]) -> Option<&'a mut Struct> {
+    let (first, rest) = path.split_first()?;
+    let mut node = skeleton.root.list_mut("MAIN")?.get_mut(*first)?;
+    for i in rest {
+        node = node.list_mut("LIST")?.get_mut(*i)?;
+    }
+    Some(node)
+}
+
+/// The list a new node goes in: `MAIN`, or the `LIST` of the node at
+/// `parent` (made if it has none).
+fn skeleton_list<'a>(skeleton: &'a mut Gff, parent: &[usize]) -> Option<&'a mut Vec<Struct>> {
+    if parent.is_empty() {
+        if skeleton.root.list("MAIN").is_none() {
+            skeleton.root.set("MAIN", Value::List(Vec::new()));
+        }
+        return skeleton.root.list_mut("MAIN");
+    }
+    let node = skeleton_node(skeleton, parent)?;
+    if node.list("LIST").is_none() {
+        node.set("LIST", Value::List(Vec::new()));
+    }
+    node.list_mut("LIST")
+}
+
+/// A name written out: `NAME` (what EE reads), and `DELETE_ME`, BioWare's
+/// older field of the same use. A talk-table name goes.
+fn set_name(node: &mut Struct, name: &str) {
+    node.remove("STRREF");
+    node.set("NAME", Value::String(name.as_bytes().to_vec()));
+    node.set("DELETE_ME", Value::String(name.as_bytes().to_vec()));
+}
+
+fn checked_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() { Err("a category needs a name".into()) } else { Ok(name) }
+}
+
+/// Adds a category named `name` to the skeleton, in the group at `parent`
+/// (empty: at the top), with the next id the skeleton has free. Returns
+/// where it is and its id.
+pub fn add_category(
+    skeleton: &mut Gff,
+    parent: &[usize],
+    name: &str,
+) -> Result<(NodePath, u8), String> {
+    let name = checked_name(name)?;
+    // The id after every one in use, and after the skeleton's own count.
+    let used = Palette::read(skeleton).ids().into_iter().max().map_or(0, |m| u32::from(m) + 1);
+    let next = skeleton.root.integer("NEXT_USEABLE_ID").unwrap_or(0).max(0) as u32;
+    let id = used.max(next);
+    if id >= CATEGORIES_MAX {
+        return Err(format!("a palette has at most {CATEGORIES_MAX} categories"));
+    }
+    let list = skeleton_list(skeleton, parent).ok_or("there is no such group")?;
+    let mut node = Struct::new(1);
+    set_name(&mut node, name);
+    node.set("ID", Value::Byte(id as u8));
+    list.push(node);
+    let mut path = parent.to_vec();
+    path.push(list.len() - 1);
+    skeleton.root.set("NEXT_USEABLE_ID", Value::Byte((id + 1) as u8));
+    Ok((path, id as u8))
+}
+
+/// Adds a group (a branch that holds categories, and is none itself) named
+/// `name`, in the group at `parent` (empty: at the top).
+pub fn add_group(skeleton: &mut Gff, parent: &[usize], name: &str) -> Result<NodePath, String> {
+    let name = checked_name(name)?;
+    let list = skeleton_list(skeleton, parent).ok_or("there is no such group")?;
+    let mut node = Struct::new(1);
+    set_name(&mut node, name);
+    node.set("LIST", Value::List(Vec::new()));
+    list.push(node);
+    let mut path = parent.to_vec();
+    path.push(list.len() - 1);
+    Ok(path)
+}
+
+/// Renames the group or category at `path`.
+pub fn rename_category(skeleton: &mut Gff, path: &[usize], name: &str) -> Result<(), String> {
+    let name = checked_name(name)?;
+    let node = skeleton_node(skeleton, path).ok_or("there is no such category")?;
+    set_name(node, name);
+    Ok(())
+}
+
+/// Removes the group or category at `path`, with what is in it. Returns
+/// the ids of the categories removed: blueprints in them are in no
+/// category of the skeleton any more.
+pub fn remove_category(skeleton: &mut Gff, path: &[usize]) -> Result<Vec<u8>, String> {
+    let (last, parent) = path.split_last().ok_or("there is no such category")?;
+    let list = if parent.is_empty() {
+        skeleton.root.list_mut("MAIN")
+    } else {
+        skeleton_node(skeleton, parent).and_then(|n| n.list_mut("LIST"))
+    };
+    let list = list.filter(|l| *last < l.len()).ok_or("there is no such category")?;
+    let removed = list.remove(*last);
+    let mut holder = Gff::new(*b"ITP ");
+    holder.root.set("MAIN", Value::List(vec![removed]));
+    Ok(Palette::read(&holder).ids())
+}
+
+/// Moves the group or category at `from` into the group at `parent`
+/// (empty: the top), before what is at `index` there now (past the end:
+/// last). Returns where it is afterwards. A group can't go into itself.
+pub fn move_category(
+    skeleton: &mut Gff,
+    from: &[usize],
+    parent: &[usize],
+    index: usize,
+) -> Result<NodePath, String> {
+    let (&at, old_parent) = from.split_last().ok_or("there is no such category")?;
+    if parent.starts_with(from) {
+        return Err("a group can't be moved into itself".into());
+    }
+    if skeleton_node(skeleton, from).is_none() {
+        return Err("there is no such category".into());
+    }
+    if !parent.is_empty() && skeleton_node(skeleton, parent).is_none() {
+        return Err("there is no such group".into());
+    }
+    let old = if old_parent.is_empty() {
+        skeleton.root.list_mut("MAIN")
+    } else {
+        skeleton_node(skeleton, old_parent).and_then(|n| n.list_mut("LIST"))
+    };
+    let node = old.ok_or("there is no such category")?.remove(at);
+    // Taken out, what came after it in its list is one place up: the new
+    // place too, if it is in that list or under one of those.
+    let mut parent = parent.to_vec();
+    let mut index = index;
+    if parent == old_parent {
+        if index > at {
+            index -= 1;
+        }
+    } else if parent.starts_with(old_parent) && parent[old_parent.len()] > at {
+        parent[old_parent.len()] -= 1;
+    }
+    let list = skeleton_list(skeleton, &parent).ok_or("there is no such group")?;
+    let index = index.min(list.len());
+    list.insert(index, node);
+    parent.push(index);
+    Ok(parent)
+}
+
+/// Puts every level of the skeleton in the order of its names (Windows'
+/// word sort, as Aurora lists them), the placeholder first: how the
+/// game's categories show before a module arranges its own. `name` looks
+/// up a StrRef.
+pub fn sort_by_name(skeleton: &mut Gff, name: &dyn Fn(u32) -> String) {
+    fn sort(list: &mut [Struct], name: &dyn Fn(u32) -> String) {
+        list.sort_by_cached_key(|n| {
+            let shown = match (n.string("NAME"), n.integer("STRREF")) {
+                (Some(text), _) => String::from_utf8_lossy(text).into_owned(),
+                (None, Some(s)) => u32::try_from(s).map(name).unwrap_or_default(),
+                (None, None) => String::new(),
+            };
+            (!is_placeholder(n), word_sort_key(&shown))
+        });
+        for node in list {
+            if let Some(children) = node.list_mut("LIST") {
+                sort(children, name);
+            }
+        }
+    }
+    if let Some(main) = skeleton.root.list_mut("MAIN") {
+        sort(main, name);
+    }
+}
+
+/// How many of the module's blueprints of `kind` are in each of the
+/// categories `ids`.
+pub fn blueprints_in(module: &Module, kind: BlueprintKind, ids: &[u8]) -> usize {
+    module
+        .keys_of(kind.restype())
+        .filter_map(|key| module.gff(key)?.ok())
+        .filter_map(|g| g.root.integer(kind.palette_field()).and_then(|v| u8::try_from(v).ok()))
+        .filter(|id| ids.contains(id))
+        .count()
 }
 
 /// A category's or blueprint's name in a palette.
@@ -163,7 +379,12 @@ fn name_of(s: &Struct) -> PaletteName {
     match (s.string("NAME"), s.integer("STRREF")) {
         (Some(t), _) => PaletteName::Text(String::from_utf8_lossy(t).into_owned()),
         (None, Some(r)) => PaletteName::StrRef(u32::try_from(r).unwrap_or(u32::MAX)),
-        (None, None) => PaletteName::Text(String::new()),
+        // (A skeleton's node with neither: BioWare's older name field.)
+        (None, None) => PaletteName::Text(
+            s.string("DELETE_ME")
+                .map(|t| String::from_utf8_lossy(t).into_owned())
+                .unwrap_or_default(),
+        ),
     }
 }
 
@@ -199,6 +420,19 @@ impl Palette {
             out
         }
         Palette { nodes: nodes(g.root.list("MAIN").unwrap_or(&[])) }
+    }
+
+    /// Every category id of the palette.
+    pub fn ids(&self) -> Vec<u8> {
+        fn walk(n: &[PaletteNode], out: &mut Vec<u8>) {
+            for node in n {
+                out.extend(node.id);
+                walk(&node.children, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.nodes, &mut out);
+        out
     }
 
     /// Every blueprint with its category id.
@@ -250,10 +484,12 @@ pub fn rebuild_custom_palette(
     game: &GameData,
     kind: BlueprintKind,
 ) -> Result<Gff, String> {
-    let skeleton_name = format!("{}pal", kind.name());
-    let data = game.resman.get_named(&skeleton_name, ResType::ITP).map_err(|e| e.to_string())?;
-    let skeleton = Gff::read(&data).map_err(|e| e.to_string())?;
-    let mut palette = custom_palette(&skeleton, |s| game.string(StrRef(s)).unwrap_or_default());
+    // (The module's own categories, if it has a skeleton of its own: in
+    // the order it has them. The game's are by name, as Aurora lists them.)
+    let own = module.contains(&kind.skeleton_key());
+    let skeleton = skeleton(module, game, kind)?;
+    let name = |s: u32| game.string(StrRef(s)).unwrap_or_default();
+    let mut palette = crate::new::custom_palette_in(&skeleton, name, !own);
     let factions: Vec<String> = module
         .gff(&mg_resman::ResKey::parse("repute", ResType::FAC).expect("valid"))
         .and_then(Result::ok)
@@ -341,4 +577,125 @@ pub fn rebuild_custom_palettes(module: &mut Module, game: &GameData) -> Result<u
         }
     }
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A skeleton as the game's: the placeholder, a group of two
+    /// categories, a category.
+    fn a_skeleton() -> Gff {
+        let node =
+            |strref: u32, id: Option<u8>, kind: Option<u8>, children: Option<Vec<Struct>>| {
+                let mut s = Struct::new(1);
+                s.set("STRREF", Value::Dword(strref));
+                if let Some(id) = id {
+                    s.set("ID", Value::Byte(id));
+                }
+                if let Some(kind) = kind {
+                    s.set("TYPE", Value::Byte(kind));
+                }
+                if let Some(children) = children {
+                    s.set("LIST", Value::List(children));
+                }
+                s
+            };
+        let special = vec![node(6688, Some(0), None, None), node(6689, Some(1), None, None)];
+        let mut g = Gff::new(*b"ITP ");
+        g.root.set(
+            "MAIN",
+            Value::List(vec![
+                node(6733, None, Some(0), None),
+                node(6687, None, Some(2), Some(special)),
+                node(6782, Some(6), None, None),
+            ]),
+        );
+        g.root.set("NEXT_USEABLE_ID", Value::Byte(7));
+        g
+    }
+
+    #[test]
+    fn categories_are_added_renamed_and_removed() {
+        let mut g = a_skeleton();
+        assert!(is_placeholder(&g.root.list("MAIN").unwrap()[0]));
+        assert!(!is_placeholder(&g.root.list("MAIN").unwrap()[1]));
+        // A category at the top: the next id, and the count moves on.
+        let (path, id) = add_category(&mut g, &[], " Ruins ").unwrap();
+        assert_eq!((path.as_slice(), id), (&[3][..], 7));
+        assert_eq!(g.root.integer("NEXT_USEABLE_ID"), Some(8));
+        let ruins = &g.root.list("MAIN").unwrap()[3];
+        assert_eq!(ruins.string("NAME"), Some(&b"Ruins"[..]));
+        assert_eq!(ruins.string("DELETE_ME"), Some(&b"Ruins"[..]), "BioWare's older field too");
+        assert_eq!(ruins.integer("ID"), Some(7));
+        // A group, and a category in it.
+        let group = add_group(&mut g, &[], "Planar").unwrap();
+        assert_eq!(group, [4]);
+        let (path, id) = add_category(&mut g, &group, "Abyss").unwrap();
+        assert_eq!((path.as_slice(), id), (&[4, 0][..], 8));
+        // One in a group of the game's.
+        let (path, id) = add_category(&mut g, &[1], "Custom 3").unwrap();
+        assert_eq!((path.as_slice(), id), (&[1, 2][..], 9));
+        assert_eq!(Palette::read(&g).ids(), [0, 1, 9, 6, 7, 8]);
+        // Renamed: its talk-table name goes.
+        rename_category(&mut g, &[2], "Chests").unwrap();
+        let chests = &g.root.list("MAIN").unwrap()[2];
+        assert_eq!((chests.string("NAME"), chests.get("STRREF")), (Some(&b"Chests"[..]), None));
+        assert_eq!(chests.integer("ID"), Some(6), "its id stays: blueprints keep their category");
+        // Removed, a group takes its categories with it.
+        assert_eq!(remove_category(&mut g, &[4]), Ok(vec![8]));
+        assert_eq!(remove_category(&mut g, &[1]), Ok(vec![0, 1, 9]));
+        assert_eq!(Palette::read(&g).ids(), [6, 7]);
+        // An id is never given twice, whatever was removed.
+        assert_eq!(add_category(&mut g, &[], "New").unwrap().1, 10);
+
+        // What can't be done changes nothing.
+        let before = g.clone();
+        assert!(add_category(&mut g, &[], "  ").is_err());
+        assert!(add_category(&mut g, &[9], "Nowhere").is_err());
+        assert!(rename_category(&mut g, &[9], "Nothing").is_err());
+        assert!(remove_category(&mut g, &[]).is_err());
+        assert!(remove_category(&mut g, &[9]).is_err());
+        assert_eq!(g, before);
+        g.root.set("NEXT_USEABLE_ID", Value::Byte(255));
+        assert!(add_category(&mut g, &[], "One too many").is_err());
+    }
+
+    #[test]
+    fn categories_are_moved_and_put_in_order() {
+        let ids = |g: &Gff| Palette::read(g).ids();
+        let mut g = a_skeleton();
+        assert_eq!(ids(&g), [0, 1, 6]);
+        // Within the top: the last before the group.
+        assert_eq!(move_category(&mut g, &[2], &[], 1), Ok(vec![1]));
+        assert_eq!(ids(&g), [6, 0, 1]);
+        // Down its own list: the place counted as it was before the move.
+        assert_eq!(move_category(&mut g, &[1], &[], 3), Ok(vec![2]));
+        assert_eq!(ids(&g), [0, 1, 6]);
+        // Into a group that comes after it, whose place moves up by one.
+        assert_eq!(move_category(&mut g, &[2], &[], 1), Ok(vec![1]));
+        assert_eq!(move_category(&mut g, &[1], &[2], 1), Ok(vec![1, 1]));
+        assert_eq!(ids(&g), [0, 6, 1]);
+        // Out again, to the end.
+        assert_eq!(move_category(&mut g, &[1, 1], &[], 9), Ok(vec![2]));
+        assert_eq!(ids(&g), [0, 1, 6]);
+        // Not into itself, nor from or to nowhere.
+        let before = g.clone();
+        assert!(move_category(&mut g, &[1], &[1], 0).is_err());
+        assert!(move_category(&mut g, &[7], &[], 0).is_err());
+        assert!(move_category(&mut g, &[2], &[7], 0).is_err());
+        assert_eq!(g, before);
+
+        // By name: the placeholder stays first.
+        let name = |s: u32| match s {
+            6687 => "Special".into(),
+            6688 => "Zeta".into(),
+            6689 => "Alpha".into(),
+            6782 => "Containers".into(),
+            _ => "Assign".into(),
+        };
+        sort_by_name(&mut g, &name);
+        assert!(is_placeholder(&g.root.list("MAIN").unwrap()[0]));
+        assert_eq!(ids(&g), [6, 1, 0], "Containers, then Special's Alpha and Zeta");
+    }
 }

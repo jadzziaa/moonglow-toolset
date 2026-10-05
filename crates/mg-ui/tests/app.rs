@@ -2254,6 +2254,222 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_none(), "closed");
 }
 
+/// Hovering a skill shows what the game says of it (Aurora's F1).
+#[test]
+fn a_skill_s_description_shows_on_hover() {
+    let Some((mut h, _)) = blueprint_harness("nw_bartender", "skill_help", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Skills").click();
+    h.run();
+    assert!(h.query_by_label_contains("opposed test").is_none());
+    let hide = h.get_by_label("Hide").rect().center();
+    h.hover_at(hide);
+    // (A tooltip waits a moment.)
+    h.run_steps(60);
+    assert!(
+        h.query_by_label_contains("Spot check").is_some(),
+        "the game's description of Hide is shown"
+    );
+}
+
+/// Palette › Categories…: a category of the module's own, which its
+/// blueprints can then be given; one with blueprints in it isn't removed.
+#[test]
+fn a_module_gets_palette_categories_of_its_own() {
+    use mg_module::palette::BlueprintKind;
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_cat", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let skeleton = BlueprintKind::Placeable.skeleton_key();
+    let own = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&skeleton).ok().map(mg_module::palette::Palette::read)
+    };
+    assert!(own(&mut h).is_none(), "the game's categories, to begin with");
+    {
+        let app = h.state_mut();
+        // (The chest's editor, a window, would lie over the palette.)
+        close_tab(app, &Tab::Blueprint(key));
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        app.palette.kind = BlueprintKind::Placeable;
+        app.palette.tiles = false;
+        app.palette.custom = true;
+    }
+    h.run();
+    h.get_by_label("Categories…").click();
+    h.run();
+    h.get_by_label("The game's categories. A change gives the module categories of its own.");
+    // Nothing to keep yet.
+    type_into_hint(&mut h, "a category's or group's name", "Ruins");
+    h.get_by_label("Add Category").click();
+    h.run();
+    let ruins = h.state().palette_categories.as_ref().unwrap().selected.clone().expect("chosen");
+    // With a row chosen and the pointer resting on it, the wheel still
+    // scrolls the list.
+    let top_of = |h: &Harness<'_, Moonglow>, label: &str| {
+        h.query_all_by_label_contains("  (")
+            .find(|n| n.accesskit_node().label().is_some_and(|l| l == label))
+            .map(|n| n.rect().top())
+    };
+    let (third, third_rect) = {
+        let mut rows: Vec<(String, egui::Rect)> = h
+            .query_all_by_label_contains("  (")
+            .filter_map(|n| Some((n.accesskit_node().label()?, n.rect())))
+            .collect();
+        rows.sort_by(|a, b| a.1.top().total_cmp(&b.1.top()));
+        rows[2].clone()
+    };
+    let chosen = h.state().palette_categories.as_ref().unwrap().selected.clone();
+    h.hover_at(third_rect.center());
+    h.event(egui::Event::PointerButton {
+        pos: third_rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.event(egui::Event::PointerButton {
+        pos: third_rect.center(),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    // (Long enough for a tooltip, had the row one.)
+    h.run_steps(90);
+    assert_ne!(h.state().palette_categories.as_ref().unwrap().selected, chosen, "chosen");
+    let was = top_of(&h, &third).unwrap();
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -120.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(30);
+    let now = top_of(&h, &third).unwrap();
+    assert!(now < was - 40.0, "the list scrolled: {was} to {now}");
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 400.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(30);
+    // (The category added last is chosen again, for what follows.)
+    h.state_mut().palette_categories.as_mut().unwrap().selected = chosen;
+    h.run();
+
+    // A row dragged onto the upper half of the first goes before it.
+    let rows = |h: &Harness<'_, Moonglow>| -> Vec<(String, egui::Rect)> {
+        let mut rows: Vec<(String, egui::Rect)> = h
+            .query_all_by_label_contains("  (")
+            .filter_map(|n| Some((n.accesskit_node().label()?, n.rect())))
+            .collect();
+        rows.sort_by(|a, b| a.1.top().total_cmp(&b.1.top()));
+        rows
+    };
+    let before = rows(&h);
+    // (The second of the list: the new category is at its end, out of
+    // sight until the list is scrolled.)
+    let (moved, dragged) = before[1].clone();
+    let first = before[0].1;
+    let button = egui::PointerButton::Primary;
+    let modifiers = egui::Modifiers::NONE;
+    let (from, to) = (dragged.center(), first.center() - egui::vec2(0.0, first.height() * 0.3));
+    h.hover_at(from);
+    h.run();
+    h.event(egui::Event::PointerButton { pos: from, button, pressed: true, modifiers });
+    h.run_steps(2);
+    // (Held near the list's edge, a dragged row keeps it scrolling: frames
+    // are counted, not waited out.)
+    for k in 1..=4 {
+        h.hover_at(from + (to - from) * (k as f32 / 4.0));
+        h.run_steps(2);
+    }
+    h.event(egui::Event::PointerButton { pos: to, button, pressed: false, modifiers });
+    h.run_steps(3);
+
+    // Dragged to the list's lower edge and held there, a row scrolls the
+    // list: what was out of sight below comes up.
+    let seen = |h: &Harness<'_, Moonglow>| top_of(h, &third).unwrap();
+    let (top, grab) = {
+        let r = rows(&h);
+        (seen(&h), r[1].1.center())
+    };
+    let edge = egui::pos2(grab.x, grab.y + 400.0);
+    h.hover_at(grab);
+    h.run_steps(2);
+    h.event(egui::Event::PointerButton { pos: grab, button, pressed: true, modifiers });
+    h.run_steps(2);
+    for k in 1..=4 {
+        h.hover_at(grab + (edge - grab) * (k as f32 / 4.0));
+        h.run_steps(2);
+    }
+    h.run_steps(20);
+    assert!(seen(&h) < top - 60.0, "the list scrolled as the row was held at its edge");
+    // Still held, away from the edges, the wheel scrolls the list too.
+    let middle = egui::pos2(grab.x, grab.y + 150.0);
+    h.hover_at(middle);
+    h.run_steps(3);
+    let scrolled = seen(&h);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, 200.0),
+        phase: egui::TouchPhase::Move,
+        modifiers,
+    });
+    h.run_steps(20);
+    assert!(seen(&h) > scrolled + 40.0, "the wheel scrolls the list while a row is held");
+    // (Let go where nothing takes it: the order stays.)
+    h.key_press(egui::Key::Escape);
+    h.event(egui::Event::PointerButton { pos: middle, button, pressed: false, modifiers });
+    h.run_steps(3);
+    let after = rows(&h);
+    assert_eq!(after[0].0, moved, "moved to the top");
+    assert_eq!(after[1].0, before[0].0);
+    let first_category = moved.split("  (").next().unwrap().to_string();
+    h.get_by_label("OK").click();
+    h.run();
+    let palette = own(&mut h).expect("the module has its own skeleton now");
+    let game = h.state().game.clone().unwrap();
+    let categories = palette.categories(&game);
+    let id = categories.iter().find(|(_, name)| name == "Ruins").expect("the new category").0;
+    assert_eq!(categories[0].1, first_category, "the Category lists follow the order given");
+    assert!(categories.iter().any(|(_, name)| name.ends_with("Custom 1")), "the game's stay");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Palette categories"));
+
+    // The chest, given the category: listed under it in the custom palette.
+    let edit = mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: "PaletteID".into(),
+        value: Some(mg_gff::Value::Byte(id)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Category", vec![edit])));
+    h.run();
+    assert!(h.query_by_label("Ruins (1)").is_some(), "the custom palette has the category");
+
+    // With a blueprint in it, it isn't removed.
+    h.get_by_label("Categories…").click();
+    h.run();
+    h.get_by_label("This module's own categories, kept in the module.");
+    {
+        let w = h.state_mut().palette_categories.as_mut().unwrap();
+        w.selected = Some(ruins);
+    }
+    h.run();
+    h.get_by_label("Remove").click();
+    h.run();
+    let w = h.state().palette_categories.as_ref().unwrap();
+    assert!(
+        w.error.as_deref().is_some_and(|e| e.starts_with("1 of the module's blueprint is in it"))
+    );
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(own(&mut h).unwrap().ids().contains(&id));
+}
+
 #[test]
 fn trigger_editor_sets_the_type_and_trap() {
     let Some((mut h, key)) = blueprint_harness("trackstrigger", "trigger_copy", ResType::UTT)
@@ -7570,6 +7786,246 @@ fn the_palette_s_hover_tells_of_blueprints_without_a_model() {
     h.run_steps(60);
     assert!(h.query_by_label_contains("Spawns ").is_some(), "its creatures are named");
     assert!(h.query_by_label_contains(" creatures; ").is_some());
+}
+
+/// The area's menu sets the module's start location where it was opened.
+#[test]
+fn the_start_location_is_set_from_the_area_s_menu() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("set-start") else { return };
+    let entry = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let info = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap().root.clone();
+        let f = |label: &str| info.float(label).unwrap();
+        (info.resref("Mod_Entry_Area").unwrap(), f("Mod_Entry_X"), f("Mod_Entry_Y"))
+    };
+    let (_, x0, y0) = entry(&mut h);
+    let at = screen(&h, area, Vec3::new(12.0, 31.0, 0.0));
+    h.hover_at(at);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Set Start Location Here").click();
+    h.run_steps(3);
+    let (in_area, x, y) = entry(&mut h);
+    assert_eq!(in_area, area);
+    assert!((x - 12.0).abs() < 0.1 && (y - 31.0).abs() < 0.1, "at {x}, {y}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Set start location"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    let (_, x, y) = entry(&mut h);
+    assert_eq!((x, y), (x0, y0), "one undo");
+}
+
+/// Options › Script Editor › Open scripts in the external editor: a
+/// script opened from the module tree goes to the external editor too.
+#[cfg(unix)]
+#[test]
+fn a_script_opened_from_the_tree_goes_to_the_external_editor() {
+    let Some((mut h, _)) = area_harness("script-external") else { return };
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.state_mut().settings.external_editor = Some("/bin/true".into());
+    h.run_steps(3);
+    // (As a double click on it in the module tree does.)
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OpenResource(key));
+        h.run_steps(4);
+    };
+    let said = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().filter(|e| e.1.contains("editing in /bin/true")).count()
+    };
+    // Without the option: Moonglow's editor alone.
+    open(&mut h);
+    assert!(h.state().dock.find_tab(&Tab::Script(key)).is_some());
+    assert_eq!(said(&h), 0);
+    // With it: the external editor is started as well.
+    let tab = h.state().dock.find_tab(&Tab::Script(key)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.state_mut().settings.scripts_external = true;
+    h.run_steps(2);
+    open(&mut h);
+    assert!(h.state().dock.find_tab(&Tab::Script(key)).is_some());
+    assert_eq!(said(&h), 1, "{:?}", h.state().log.entries.last());
+}
+
+/// An area opens out, in the module tree, to what is placed in it, kind
+/// by kind; a click on an object goes to it in the area's view.
+#[test]
+fn the_module_tree_lists_what_is_placed_in_an_area() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-contents") else { return };
+    assert!(h.query_by_label("Waypoints (2)").is_none());
+    h.get_by_label("⏵").click();
+    h.run_steps(3);
+    // Every kind, with how many; the empty ones too.
+    // (The tree's own Creatures group, of blueprints, reads the same.)
+    assert_eq!(h.query_all_by_label("Creatures (0)").count(), 2);
+    h.get_by_label("Waypoints (2)").click();
+    h.run_steps(3);
+    // Its two waypoints, by name.
+    let rows: Vec<_> = h.query_all_by_label("Waypoint").map(|n| n.rect().center()).collect();
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert!(h.state().area_views[&area].selection.is_empty());
+    let second = rows[1];
+    h.hover_at(second);
+    press(&h, second, true, egui::Modifiers::NONE);
+    press(&h, second, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)]);
+    // What is placed later is listed too.
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ResKey::new(area, ResType::GIT);
+    let copy = ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].clone();
+    let edit = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: "WaypointList".into(),
+        index: 2,
+        item: copy,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.run_steps(4);
+    h.get_by_label("Waypoints (3)");
+}
+
+/// Prefabs are found where builders look: a button on the area's toolbar
+/// when several objects are selected, and a Prefabs section in the palette
+/// that lists them, places them and says how to make one.
+#[test]
+fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
+    use mg_area::ObjectKind::Waypoint;
+    let Some((mut h, area)) = area_harness("prefab-found") else { return };
+    let prefabs = mg_testkit::scratch_dir("ui-prefab-found");
+    h.state_mut().prefab_dir = Some(prefabs.clone());
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    // The palette's Prefabs: none yet, and how to make one.
+    h.get_by_label("🗐 Prefabs").click();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("No prefabs yet").is_some());
+    assert!(h.query_by_label_contains("Save 2 as Prefab").is_none());
+
+    // Two objects selected: the toolbar offers to save them.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 0), (Waypoint, 1)];
+    h.run_steps(2);
+    h.get_by_label("Save 2 as Prefab…").click();
+    h.run_steps(2);
+    let (_, clip) = h.state().prefab_save.clone().expect("the Save as Prefab window");
+    assert_eq!(clip.objects.len(), 2);
+    h.state_mut().prefab_save = None;
+    // The palette's button does the same.
+    h.get_by_label("Save Selection as Prefab…").click();
+    h.run_steps(2);
+    assert!(h.state().prefab_save.is_some());
+    h.state_mut().prefab_save = None;
+    h.state_mut().save_prefab("Camp", &clip).unwrap();
+    h.run_steps(2);
+
+    // Saved, it is listed in the palette; a click takes it up to place.
+    assert!(h.query_by_label_contains("No prefabs yet").is_none());
+    h.get_by_label("Camp").click();
+    h.run_steps(3);
+    assert!(h.state().area_views[&area].pasting, "it follows the pointer, to be placed");
+    assert!(h.state().log.entries.iter().any(|e| e.1.contains("Prefab Camp: click in the area")));
+    // Over the area, its objects show see-through where they would go.
+    let over = screen(&h, area, glam::Vec3::new(12.0, 30.0, 0.0));
+    h.hover_at(over);
+    h.run_steps(3);
+    assert_eq!(h.state().area_views[&area].pasted_shown, 2);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-prefab-ghost").join("prefab_ghost.png")).unwrap();
+}
+
+/// Every selected object has its turning ring: the ring of any of them,
+/// led round, turns them all.
+#[test]
+fn each_selected_object_has_a_ring_and_any_turns_them_all() {
+    use glam::Vec3;
+    use mg_area::ObjectKind::Waypoint;
+    let Some((mut h, area)) = area_harness("rings-all") else { return };
+    let facings = |h: &mut Harness<'_, Moonglow>| -> Vec<f32> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let list = git.root.list("WaypointList").unwrap();
+        let facing = |w: &mg_gff::Struct| {
+            w.float("YOrientation").unwrap().atan2(w.float("XOrientation").unwrap())
+        };
+        list.iter().map(facing).collect()
+    };
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(Waypoint, 0), (Waypoint, 1)];
+    h.run_steps(2);
+    let before = facings(&mut h);
+    // The ring around the second waypoint (the first selected is the
+    // other), taken away from where it faces.
+    let view = &h.state().area_views[&area];
+    let second = view.model.as_ref().unwrap().objects.iter().find(|o| o.index == 1).unwrap();
+    let pivot = second.position;
+    let eye = view.orbit.unwrap().camera().eye;
+    let radius = ((eye - pivot).length() * 0.0765).max(0.5);
+    let ring = |a: f32| pivot + Vec3::new(a.cos(), a.sin(), 0.0) * radius;
+    let from = before[1] + 2.0;
+    let quarter = std::f32::consts::FRAC_PI_2;
+    let none = egui::Modifiers::NONE;
+    let mut at = screen(&h, area, ring(from));
+    h.hover_at(at);
+    press(&h, at, true, none);
+    for k in 1..=6 {
+        at = screen(&h, area, ring(from + quarter * k as f32 / 6.0));
+        h.hover_at(at);
+    }
+    h.run_steps(1);
+    press(&h, at, false, none);
+    h.run_steps(3);
+    let after = facings(&mut h);
+    for (was, now) in before.iter().zip(&after) {
+        let turned = (now - was).rem_euclid(std::f32::consts::TAU);
+        assert!((turned - quarter).abs() < 0.03, "turned {turned}: {before:?} to {after:?}");
+    }
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Rotate"));
+}
+
+/// The wheel over a window that lies on the area view is the window's:
+/// the area's camera stays where it is.
+#[test]
+fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
+    use mg_module::palette::BlueprintKind;
+    let Some((mut h, area)) = area_harness("wheel-window") else { return };
+    {
+        let app = h.state_mut();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+        app.palette.kind = BlueprintKind::Placeable;
+        app.palette.tiles = false;
+    }
+    h.run_steps(3);
+    h.get_by_label("Categories…").click();
+    h.run_steps(3);
+    let distance = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().distance;
+    let before = distance(&h);
+    // (A row of the window, which lies over the area's view.)
+    let view = h.state().area_views[&area].rect;
+    let row = h
+        .query_all_by_label_contains("  (category")
+        .map(|n| n.rect().center())
+        .find(|p| view.contains(*p))
+        .expect("a row over the view");
+    h.hover_at(row);
+    h.run_steps(3);
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Line,
+        delta: egui::vec2(0.0, -3.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(20);
+    assert_eq!(distance(&h), before, "the area isn't zoomed from under the window");
 }
 
 #[test]

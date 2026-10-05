@@ -58,6 +58,9 @@ pub struct PaletteView {
     pub chosen: Vec<ResKey>,
     /// The tileset palette is shown, rather than blueprints.
     pub tiles: bool,
+    /// The prefabs are shown (groups of placed objects saved to place
+    /// again), rather than blueprints.
+    pub prefabs: bool,
     /// The tileset brush chosen.
     pub tile_brush: Option<crate::terrain_mode::TileBrush>,
     /// The area shown last: its tileset's palette is the one shown.
@@ -93,6 +96,7 @@ impl Default for PaletteView {
             tags: HashMap::new(),
             chosen: Vec::new(),
             tiles: false,
+            prefabs: false,
             tile_brush: None,
             area: None,
             tile_palettes: HashMap::new(),
@@ -279,22 +283,46 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         let tiles = labelled(TILES, "Tiles");
         if ui.selectable_label(view.tiles, tiles).on_hover_text("The area's tileset").clicked() {
             view.tiles = true;
+            view.prefabs = false;
         }
         for kind in BlueprintKind::ALL {
             let label = labelled(blueprint(kind), kind.label());
-            if ui.selectable_label(!view.tiles && view.kind == kind, label).clicked() {
+            let shown = !view.tiles && !view.prefabs && view.kind == kind;
+            if ui.selectable_label(shown, label).clicked() {
                 view.kind = kind;
                 view.tiles = false;
+                view.prefabs = false;
             }
         }
+        if ui
+            .selectable_label(view.prefabs, labelled(crate::icons::PREFABS, "Prefabs"))
+            .on_hover_text(
+                "Groups of placed objects saved under a name (a camp, a furnished room), to \
+                 place again in any area or module",
+            )
+            .clicked()
+        {
+            view.prefabs = true;
+            view.tiles = false;
+            // (No blueprint is about to be placed any more.)
+            view.selected = None;
+            view.chosen.clear();
+        }
     });
+    if view.prefabs {
+        ui.separator();
+        app.palette = view;
+        prefabs_ui(app, ui);
+        return;
+    }
     if view.tiles {
         ui.separator();
         app.palette = view;
         crate::terrain_mode::palette_ui(app, ui);
         return;
     }
-    ui.horizontal(|ui| {
+    let mut categories = None;
+    ui.horizontal_wrapped(|ui| {
         ui.selectable_value(&mut view.custom, false, "Standard");
         ui.add_enabled_ui(app.ws.is_some(), |ui| {
             ui.selectable_value(&mut view.custom, true, "Custom");
@@ -315,7 +343,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     Some(crate::blueprint_wizard::BlueprintWizard::new(view.kind));
             }
         }
+        if ui
+            .add_enabled(app.ws.is_some(), egui::Button::new("Categories…"))
+            .on_hover_text(
+                "Add, rename and remove the categories this module's blueprints of this kind \
+                 go in",
+            )
+            .clicked()
+        {
+            categories = Some(view.kind);
+        }
     });
+    if let Some(kind) = categories {
+        app.palette = std::mem::take(&mut view);
+        crate::palette_categories::open(app, kind);
+        view = std::mem::take(&mut app.palette);
+    }
     ui.separator();
 
     // The palette to show.
@@ -855,6 +898,48 @@ fn about(app: &Moonglow, key: ResKey) -> Vec<String> {
         _ => {}
     }
     out
+}
+
+/// The palette's Prefabs: the groups of objects saved, each placed with a
+/// click, and how to save one.
+fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
+    let names = crate::prefabs::list(app.prefab_dir.as_deref());
+    let area = app.palette.area.filter(|a| app.area_views.contains_key(a));
+    let chosen = area.and_then(|a| app.area_views.get(&a)).map_or(0, |v| v.selection.len());
+    ui.label(
+        "A prefab is a group of placed objects kept under a name: a camp, a market stall, a \
+         furnished room. It is placed as one, in any area of any module.",
+    );
+    let save = ui
+        .add_enabled(chosen > 0, egui::Button::new("Save Selection as Prefab…"))
+        .on_hover_text("The objects selected in the area shown, kept as a prefab")
+        .on_disabled_hover_text(
+            "Select the objects in an area first (a click, Ctrl+click for more, or a box \
+             dragged around them)",
+        );
+    if save.clicked()
+        && let Some(area) = area
+    {
+        crate::area_view::save_selection_as_prefab(app, area);
+    }
+    ui.separator();
+    if names.is_empty() {
+        ui.weak("No prefabs yet. Select objects in an area, then Save Selection as Prefab….");
+        return;
+    }
+    egui::ScrollArea::vertical().id_salt("palette-prefabs").auto_shrink([false, false]).show(
+        ui,
+        |ui| {
+            for name in names {
+                let r = ui
+                    .selectable_label(false, &name)
+                    .on_hover_text("Click, then click in the area to place it");
+                if r.clicked() {
+                    app.actions.push(Action::PlacePrefab(name));
+                }
+            }
+        },
+    );
 }
 
 #[cfg(test)]

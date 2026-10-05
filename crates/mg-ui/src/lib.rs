@@ -33,6 +33,7 @@ pub mod model_view;
 pub mod module_props;
 pub mod nwsync_view;
 mod options;
+pub mod palette_categories;
 pub mod palette_view;
 pub mod plugins;
 pub mod prefabs;
@@ -132,6 +133,9 @@ pub enum Action {
     ExportMinimap(mg_core::ResRef),
     /// Makes these areas' placeables static, where nothing is lost by it.
     StaticPlaceables(Vec<mg_core::ResRef>),
+    /// Opens a resource's editor, as a double click in the module tree
+    /// does: a script in the external editor too, if Options say so.
+    OpenResource(ResKey),
     /// The talk table's lines to a CSV file, or (true) read from one.
     TalkCsv(bool),
     /// Makes every static placeable of these areas dynamic.
@@ -282,7 +286,12 @@ pub struct Moonglow {
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// The areas' names as last read (Options › General: Show areas by
     /// name).
+    /// The Palette Categories window, when open.
+    pub palette_categories: Option<palette_categories::PaletteCategories>,
     pub(crate) area_names: tree::AreaNames,
+    /// What is placed in the areas opened out in the module tree, each as
+    /// read at a revision of the workspace.
+    pub(crate) area_contents: HashMap<mg_core::ResRef, (u64, tree::AreaContents)>,
     /// Open area viewers, by area.
     pub area_views: HashMap<mg_core::ResRef, area_view::AreaView>,
     /// The Adjust Location window.
@@ -477,7 +486,9 @@ impl Moonglow {
             next_tileset: 0,
             tileset_closing: None,
             model_views: HashMap::new(),
+            palette_categories: None,
             area_names: Default::default(),
+            area_contents: Default::default(),
             area_views: HashMap::new(),
             adjust: None,
             find_instance: None,
@@ -688,6 +699,7 @@ impl Moonglow {
         references::rename_window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
+        palette_categories::window(self, ui.ctx());
         bulk::update_window(self, ui.ctx());
         area_props::chooser_window(self, ui.ctx());
         hak_view::closing_window(self, ui.ctx());
@@ -911,6 +923,7 @@ impl Moonglow {
         }
         self.ws = Some(Workspace::new(m));
         self.area_names = Default::default();
+        self.area_contents.clear();
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
         self.open_palette = true;
         // On the area's tiles: what a new module needs first.
@@ -1349,6 +1362,18 @@ impl Moonglow {
             Action::StaticPlaceables(areas) => self.static_placeables(&areas),
             Action::DynamicPlaceables(areas) => self.dynamic_placeables(&areas),
             Action::TalkCsv(import) => talk_view::csv(self, import),
+            Action::OpenResource(key) => {
+                let Some(tab) = Tab::for_resource(key) else { return };
+                // Options › Script Editor: scripts open in the external
+                // editor (once Moonglow's editor has the script).
+                if key.restype == ResType::NSS
+                    && self.settings.scripts_external
+                    && self.settings.external_editor.is_some()
+                {
+                    self.script_tools.open_externally.insert(key);
+                }
+                self.run_now(Action::OpenTab(tab));
+            }
             Action::PlacePrefab(name) => self.place_prefab(&name),
             Action::Quit => {
                 // Saved or discarded by now: no recovery copy.
@@ -2182,6 +2207,7 @@ impl Moonglow {
             if language {
                 // Names are shown in the language chosen: read them again.
                 self.area_names = Default::default();
+                self.area_contents.clear();
                 self.palette.forget_game_data();
             }
             return;

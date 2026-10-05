@@ -27,6 +27,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
   compile only what changed and the scripts that include it, as Arelith's
   ARE_Compile does. A full compile of 4,000 scripts takes 1.4 s, so this
   matters less than expected. (M)
+- **Scripts in the external editor only:** Open scripts in the external
+  editor opens Moonglow's editor too (it holds the script and takes the
+  external editor's saves back); opening the external one alone isn't
+  offered. (S)
 - **Editor setups:** the manual's Neovim and Helix snippets are untried
   in those editors. On Windows, `mg lsp` is checked only by CI's
   tests. (S)
@@ -125,6 +129,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
   other plain text fields aren't searched (Find References covers tags,
   Find in Files covers scripts), and there are no regular expressions.
   (S–M)
+- **Prefabs in the palette:** listed by name and placed with a click;
+  no preview of what one holds, no rename or delete there (they are
+  files in the data folder), no folders. (S)
 - **Variable sets** hold int, float and string variables only, as the
   Variables window edits; object and location variables aren't kept. (S)
 
@@ -151,6 +158,19 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Pictures for the rest:** sounds, triggers, encounters, stores and
   waypoints say what they are on hover, in a line or two; a waypoint's
   flag, which the area view draws, could be its picture. (S)
+- **Palette categories against Aurora:** a module's own categories
+  (Palette › Categories…) are a skeleton kept in the module, with names
+  written out (`NAME`, and BioWare's `DELETE_ME`). That Aurora reads a
+  skeleton from the module rather than only from haks, and shows a name
+  written out, was not captured; the game's DM palette reads the
+  `palcus.itp` built from it. (S, an Aurora capture)
+- **Palette categories, what the editor lacks:** no translated names
+  (one text for every language), and Remove refuses a category in use
+  rather than offer to move its blueprints. (S–M)
+- **A module's categories in its own order:** the palette and the
+  `palcus.itp` built on save keep the order a module's own skeleton has
+  (the game's are by name, as Aurora writes them). What Aurora makes of
+  a `palcus.itp` in another order wasn't captured. (S)
 - **Favorites and Recent** are Moonglow's, not the module's: a custom
   blueprint's favorite shows only in the module that has it. Per-module
   lists could live beside the module. (S)
@@ -280,6 +300,13 @@ a light theme. Left:
 - **Sound ranges:** level circles at the sound's height, not spheres; a
   sound's random position range (`RandomRangeX`, `RandomRangeY`) isn't
   drawn. (S)
+- **The start location is set, not dragged:** Set Start Location Here
+  puts it where the menu was opened, facing as the view looks; its marker
+  can't be dragged or turned in the view, and Aurora's palette entry for
+  it isn't there. (S)
+- **An area's objects in the module tree:** listed by name, kind by
+  kind; no menus on them (delete, copy), no filter by the tree's Filter
+  box, and a kind with thousands of objects lays out every row. (S–M)
 - **The camera's height** is each view's and lasts until its tab closes.
   (Lighting and Sound Ranges are kept: a view opens as they were last
   left, and one already open keeps its own.) (S)
@@ -292,9 +319,10 @@ a light theme. Left:
 
 ## The turning ring
 
-- **Several objects:** each turns about itself, as Shift + right drag
-  does, with the ring around the first; turning a group about its
-  middle (positions swinging round too) is not done. (S–M)
+- **Several objects:** each has its ring (and with Shift its tilt rings
+  and arrows), up to 32 of the selection; each turns about itself, as
+  Shift + right drag does. Turning a group about its middle (positions
+  swinging round too) is not done. (S–M)
 - **Behind things:** the rings and arrows are painted over the view, not
   hidden by what stands in front of them (as 3D editors draw theirs:
   left so). (—)

@@ -689,13 +689,14 @@ impl Form<'_> {
             return;
         }
         let Some(game) = self.app.game.as_deref() else { return };
-        let categories = game
-            .resman
-            .get_named(&format!("{}pal", kind.name()), ResType::ITP)
-            .ok()
-            .and_then(|d| mg_gff::Gff::read(&d).ok())
-            .map(|g| Palette::read(&g).categories(game))
-            .unwrap_or_default();
+        // The module's own categories (Palette › Categories…), else the
+        // game's.
+        let own = self.app.ws.as_mut().and_then(|ws| ws.doc(&kind.skeleton_key()).ok().cloned());
+        let skeleton = own.or_else(|| {
+            let data = game.resman.get(&kind.skeleton_key()).ok()?;
+            mg_gff::Gff::read(&data).ok()
+        });
+        let categories = skeleton.map(|g| Palette::read(&g).categories(game)).unwrap_or_default();
         let label = kind.palette_field();
         let current = self.int(label);
         let shown = categories

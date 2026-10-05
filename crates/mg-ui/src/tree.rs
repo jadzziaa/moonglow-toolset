@@ -158,8 +158,67 @@ impl AreaNames {
     }
 }
 
+/// What is placed in an area, for the module tree: each kind of object
+/// and its objects' names (by their place in the area's list).
+pub(crate) type AreaContents = Vec<(mg_area::ObjectKind, Vec<String>)>;
+
+/// What is placed in an area, as the workspace has it now: every kind,
+/// its objects by name (a tag for one without a name).
+fn area_contents(ws: &mut Workspace, game: Option<&GameData>, area: ResRef) -> AreaContents {
+    let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { return Vec::new() };
+    mg_area::ObjectKind::ALL
+        .into_iter()
+        .map(|kind| {
+            let names = git.root.list(kind.list()).unwrap_or(&[]).iter().map(|o| {
+                let name = blueprint_name(game, o);
+                let tag = || String::from_utf8_lossy(o.string("Tag").unwrap_or_default()).into();
+                if name.trim().is_empty() { tag() } else { name }
+            });
+            (kind, names.collect())
+        })
+        .collect()
+}
+
+/// An area's placed objects under its row of the module tree, kind by
+/// kind as Aurora lists them. A click goes to the object in the area's
+/// view; a double click opens its Properties.
+fn contents_ui(
+    ui: &mut Ui,
+    area: ResRef,
+    contents: &AreaContents,
+    go: &mut Option<(ResRef, mg_area::ObjectKind, usize, bool)>,
+) {
+    ui.indent(("area-contents", area), |ui| {
+        for (kind, names) in contents {
+            let title = format!("{} ({})", kind.plural(), names.len());
+            if names.is_empty() {
+                ui.weak(title);
+                continue;
+            }
+            egui::CollapsingHeader::new(title).id_salt(("area-kind", area, *kind)).show(ui, |ui| {
+                for (index, name) in names.iter().enumerate() {
+                    let shown = if name.is_empty() { "(no name)" } else { name.as_str() };
+                    let r = ui.selectable_label(false, shown).on_hover_text(
+                        "Click to go to it in the area; double-click for its Properties",
+                    );
+                    if r.double_clicked() {
+                        *go = Some((area, *kind, index, true));
+                    } else if r.clicked() {
+                        *go = Some((area, *kind, index, false));
+                    }
+                }
+            });
+        }
+    });
+}
+
 pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     let Some(ws) = &app.ws else { return };
+    let revision = ws.revision();
+    // Areas opened out whose contents are to be read (after the tree is
+    // drawn), and the object clicked.
+    let mut read = Vec::new();
+    let mut go = None;
     let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
     let filter_id = egui::Id::new("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
@@ -230,7 +289,30 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     } else {
                         egui::Sense::click()
                     };
-                    let mut r = ui.add(egui::Button::selectable(false, label).sense(sense));
+                    // An area opens out to what is placed in it.
+                    let opened = egui::Id::new(("tree-area-open", k.resref));
+                    let is_area = k.restype == ResType::ARE;
+                    let mut out = is_area && ui.data(|d| d.get_temp(opened).unwrap_or(false));
+                    let row = ui.horizontal(|ui| {
+                        if is_area {
+                            let arrow = if out { "⏷" } else { "⏵" };
+                            let toggle = ui
+                                .small_button(arrow)
+                                .on_hover_text("What is placed in the area, by kind");
+                            if toggle.clicked() {
+                                out = !out;
+                                ui.data_mut(|d| d.insert_temp(opened, out));
+                            }
+                        }
+                        ui.add(egui::Button::selectable(false, label).sense(sense))
+                    });
+                    let mut r = row.inner;
+                    if out {
+                        match app.area_contents.get(&k.resref).filter(|c| c.0 == revision) {
+                            Some((_, contents)) => contents_ui(ui, k.resref, contents, &mut go),
+                            None => read.push(k.resref),
+                        }
+                    }
                     if names.contains_key(&k) {
                         r = r.on_hover_text(k.resref.to_string());
                     }
@@ -362,8 +444,29 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     }
     let others = ws.module.len() - listed;
     ui.weak(format!("{others} other resources"));
-    if let Some(k) = open.and_then(Tab::for_resource) {
-        app.actions.push(Action::OpenTab(k));
+    if let Some(k) = open {
+        app.actions.push(Action::OpenResource(k));
+    }
+    // What the areas opened out hold, read for the next frame.
+    if !read.is_empty()
+        && let Some(ws) = app.ws.as_mut()
+    {
+        for area in read {
+            let contents = area_contents(ws, app.game.as_deref(), area);
+            app.area_contents.insert(area, (revision, contents));
+        }
+        ui.ctx().request_repaint();
+    }
+    // An object clicked in an area's list: gone to in the area's view, or
+    // (a double click) its Properties opened.
+    if let Some((area, kind, index, properties)) = go {
+        if properties {
+            let path = mg_edit::GffPath::root().item(kind.list(), index);
+            app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
+        } else {
+            app.area_focus = Some((area, kind, index));
+            app.actions.push(Action::OpenTab(Tab::Area(area)));
+        }
     }
     if let Some(id) = make {
         id.run(app, ui.ctx());

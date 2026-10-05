@@ -20,6 +20,8 @@ pub(crate) const SELECT_TILES: &str = "⛶";
 pub(crate) const PROPERTIES: &str = "ℹ";
 pub(crate) const CAMERA: &str = "🎥";
 pub(crate) const GO_TO_START: &str = "🏃";
+/// Prefabs: groups of placed objects kept to place again.
+pub(crate) const PREFABS: &str = "🗐";
 
 /// An object type's glyph.
 pub(crate) fn object(kind: ObjectKind) -> &'static str {

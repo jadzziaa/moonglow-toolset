@@ -277,6 +277,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             external: None,
         }
     });
+    if app.script_tools.open_externally.remove(&key)
+        && let Some(editor) = app.settings.external_editor.clone()
+    {
+        open_external(app, key, &editor);
+    }
+    let Some(ws) = &app.ws else { return };
+    let Some(bytes) = ws.module.get(&key) else { return };
     {
         let buf = app.scripts.get_mut(&key).expect("just inserted");
         if buf.source != source {

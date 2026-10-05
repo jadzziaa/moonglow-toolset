@@ -98,6 +98,9 @@ pub struct Completion {
 /// The editor tools' state (shared by the open script editors).
 #[derive(Debug, Clone, Default)]
 pub struct ScriptTools {
+    /// Scripts to open in the external editor once their editor has them
+    /// (opened from the module tree, with the option on).
+    pub(crate) open_externally: std::collections::HashSet<ResKey>,
     pub side: SideTab,
     pub filter: String,
     pub info: InfoTab,

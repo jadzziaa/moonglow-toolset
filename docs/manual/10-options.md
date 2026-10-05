@@ -78,6 +78,9 @@ the module is opened again from its file.
 - **Generate Debug Information When Compiling Scripts** (`.ndb` files).
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
+- **Open scripts in the external editor**: a script opened from the
+  module tree opens there as well; what it saves comes back into
+  Moonglow's editor.
 - The editor's **font size** and syntax **colors**.
 
 ## Conversation Editor

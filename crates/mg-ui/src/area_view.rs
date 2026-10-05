@@ -219,7 +219,7 @@ impl TiltRing {
 /// An arrow for moving the selection along one axis alone: east (red),
 /// north (green) or up (blue), from the first selected object, taken by
 /// its head. Shown while Shift is held, with the tilt rings.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct AxisArrow {
     /// 0 east, 1 north, 2 up.
     axis: usize,
@@ -247,6 +247,9 @@ impl AxisArrow {
         ][self.axis]
     }
 }
+
+/// The most selected objects that get rings and arrows of their own.
+const TOOLS_MAX: usize = 32;
 
 /// How near the ring's line the pointer takes it, points: it is a thin
 /// target otherwise.
@@ -341,6 +344,8 @@ pub struct AreaView {
     pub outline: Vec<Vec3>,
     /// The copied objects follow the pointer, to be placed with a click.
     pub pasting: bool,
+    /// How many of them were drawn, see-through, last frame.
+    pub pasted_shown: usize,
     /// The blueprint about to be placed (dragged over the view, or chosen
     /// in the palette), as an object to show where it would go; `None` in
     /// it when it can't be placed.
@@ -438,6 +443,7 @@ impl AreaView {
             turn_ring: true,
             outline: Vec::new(),
             pasting: false,
+            pasted_shown: 0,
             ghost: None,
             ghost_shown: None,
             ghost_turn: 0.0,
@@ -566,24 +572,34 @@ impl AreaView {
         xy.extend(z)
     }
 
-    /// The ring for turning the selection, around the first selected object
-    /// that turns (as `model` has it): about the same size on screen
-    /// however far the camera is.
-    fn turn_ring(&self, model: &AreaModel) -> Option<TurnRing> {
-        let camera = self.camera().filter(|_| self.turn_ring)?;
-        let o = self
-            .selection
+    /// The selected objects that are shown and not locked, as `model` has
+    /// them: at most [`TOOLS_MAX`], the first selected first (a selection of
+    /// hundreds would bury the view in rings).
+    fn chosen<'a>(&'a self, model: &'a AreaModel) -> impl Iterator<Item = &'a mg_area::AreaObject> {
+        self.selection
             .iter()
             .filter_map(|&(k, i)| model.objects.iter().find(|o| o.kind == k && o.index == i))
-            .find(|o| turns(o.kind) && self.show[o.kind.index()] && !o.locked)?;
-        let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
-        Some(TurnRing { pivot: o.position, radius, facing: o.facing() })
+            .filter(|o| self.show[o.kind.index()] && !o.locked)
+            .take(TOOLS_MAX)
     }
 
-    /// The ring, when `pos` is on its line (or within [`RING_REACH`] of it).
+    /// The rings for turning the selection, one around each selected
+    /// object that turns (as `model` has it): about the same size on
+    /// screen however far the camera is.
+    fn turn_rings(&self, model: &AreaModel) -> Vec<TurnRing> {
+        let Some(camera) = self.camera().filter(|_| self.turn_ring) else { return Vec::new() };
+        self.chosen(model)
+            .filter(|o| turns(o.kind))
+            .map(|o| {
+                let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
+                TurnRing { pivot: o.position, radius, facing: o.facing() }
+            })
+            .collect()
+    }
+
+    /// The ring whose line `pos` is on (or within [`RING_REACH`] of).
     fn ring_at(&self, pos: Pos2) -> Option<TurnRing> {
-        let ring = self.turn_ring(self.model.as_ref()?)?;
-        self.on_ring(&ring, pos).then_some(ring)
+        self.turn_rings(self.model.as_ref()?).into_iter().find(|ring| self.on_ring(ring, pos))
     }
 
     fn on_ring(&self, ring: &TurnRing, pos: Pos2) -> bool {
@@ -591,51 +607,42 @@ impl AreaView {
     }
 
     /// The rings for tilting the selection's models, about X and about Y:
-    /// around the first selected object whose model tilts (as `model` has
-    /// it). Each lies across the axis its angle turns the model on, with
-    /// the angles before it applied (Z, then Y, then X).
-    fn tilt_rings(&self, model: &AreaModel) -> Option<[TiltRing; 2]> {
-        let camera = self.camera().filter(|_| self.turn_ring)?;
-        let o = self
-            .selection
-            .iter()
-            .filter_map(|&(k, i)| model.objects.iter().find(|o| o.kind == k && o.index == i))
-            .find(|o| o.takes_visual_transform() && self.show[o.kind.index()] && !o.locked)?;
-        let visual = o.visual.unwrap_or_default();
-        let r = visual.rotate * (std::f32::consts::PI / 180.0);
-        let stands = glam::Quat::from_rotation_z(o.rotation);
-        let about_y = stands * glam::Quat::from_rotation_z(r.z);
-        let about_x = about_y * glam::Quat::from_rotation_y(r.y);
-        let pivot = o.transform().transform_point3(visual.translate);
-        let radius = ((camera.eye - pivot).length() * 0.0765).max(0.5);
-        let ring = |axis: usize, n: Vec3| {
-            let u = n.any_orthonormal_vector();
-            TiltRing { axis, pivot, radius, u, v: n.cross(u) }
-        };
-        Some([ring(0, about_x * Vec3::X), ring(1, about_y * Vec3::Y)])
+    /// around each selected object whose model tilts (as `model` has it).
+    /// Each lies across the axis its angle turns the model on, with the
+    /// angles before it applied (Z, then Y, then X).
+    fn tilt_rings(&self, model: &AreaModel) -> Vec<TiltRing> {
+        let Some(camera) = self.camera().filter(|_| self.turn_ring) else { return Vec::new() };
+        self.chosen(model)
+            .filter(|o| o.takes_visual_transform())
+            .flat_map(|o| {
+                let visual = o.visual.unwrap_or_default();
+                let r = visual.rotate * (std::f32::consts::PI / 180.0);
+                let stands = glam::Quat::from_rotation_z(o.rotation);
+                let about_y = stands * glam::Quat::from_rotation_z(r.z);
+                let about_x = about_y * glam::Quat::from_rotation_y(r.y);
+                let pivot = o.transform().transform_point3(visual.translate);
+                let radius = ((camera.eye - pivot).length() * 0.0765).max(0.5);
+                let ring = |axis: usize, n: Vec3| {
+                    let u = n.any_orthonormal_vector();
+                    TiltRing { axis, pivot, radius, u, v: n.cross(u) }
+                };
+                [ring(0, about_x * Vec3::X), ring(1, about_y * Vec3::Y)]
+            })
+            .collect()
     }
 
     /// The arrows for moving the selection along an axis (as `model` has
-    /// it): east and north from the first selected object, and up from the
-    /// first that lifts (not creatures, which stand on the ground, nor
+    /// it): east and north from each selected object, and up from each
+    /// that lifts (not creatures, which stand on the ground, nor
     /// outlines).
     fn axis_arrows(&self, model: &AreaModel) -> Vec<AxisArrow> {
         let Some(camera) = self.camera().filter(|_| self.turn_ring) else { return Vec::new() };
-        let chosen = || {
-            self.selection
-                .iter()
-                .filter_map(|&(k, i)| model.objects.iter().find(|o| o.kind == k && o.index == i))
-                .filter(|o| self.show[o.kind.index()] && !o.locked)
-        };
-        let arrow = |axis: usize, o: &mg_area::AreaObject| {
-            let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
-            AxisArrow { axis, pivot: o.position, radius }
-        };
         let mut arrows = Vec::new();
-        if let Some(o) = chosen().next() {
-            arrows.extend([arrow(0, o), arrow(1, o)]);
+        for o in self.chosen(model) {
+            let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
+            let axes = if lifts(o.kind) { 0..3 } else { 0..2 };
+            arrows.extend(axes.map(|axis| AxisArrow { axis, pivot: o.position, radius }));
         }
-        arrows.extend(chosen().find(|o| lifts(o.kind)).map(|o| arrow(2, o)));
         arrows
     }
 
@@ -661,7 +668,7 @@ impl AreaView {
     /// The tilt ring whose line `pos` is on (the nearer the camera sees
     /// more of, when on both).
     fn tilt_ring_at(&self, pos: Pos2) -> Option<TiltRing> {
-        let rings = self.tilt_rings(self.model.as_ref()?)?;
+        let rings = self.tilt_rings(self.model.as_ref()?);
         let ray = self.ray(pos)?;
         rings.into_iter().filter(|r| self.on_line(&|k| r.segment(k), pos)).max_by(|a, b| {
             let facing = |r: &TiltRing| r.u.cross(r.v).dot(ray.dir).abs();
@@ -1011,8 +1018,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             )
             .on_hover_text(format!("Show {}", kind.plural()));
         }
-        ui.toggle_value(&mut view.show_start, labelled(icons::START, "Start"))
-            .on_hover_text("Show Start Location");
+        ui.toggle_value(&mut view.show_start, labelled(icons::START, "Start")).on_hover_text(
+            "Show the start location's marker (a blue ring with a red arrow). To set it: \
+                 right-click the ground, Set Start Location Here",
+        );
         if ui.button("All").on_hover_text("Show All").clicked() {
             view.show = [true; 9];
             view.show_start = true;
@@ -1141,6 +1150,19 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 dependencies: false,
                 scratch: true,
             });
+        }
+        // Several objects chosen: they can be kept as a group to place
+        // again (the palette's Prefabs has them).
+        if view.selection.len() > 1
+            && ui
+                .button(format!("Save {} as Prefab…", view.selection.len()))
+                .on_hover_text(
+                    "Keep the selected objects as a group, under a name, to place again in any \
+                     area or module (the palette's Prefabs, or Edit › Prefabs)",
+                )
+                .clicked()
+        {
+            app.prefab_save = copy_selection(app, view).map(|clip| (String::new(), clip));
         }
         if let Some(m) = &view.model {
             ui.separator();
@@ -1275,6 +1297,44 @@ fn viewport(
             }
             _ => (Vec::new(), None),
         };
+    // What is about to be pasted (copied objects, or a prefab), where the
+    // pointer would put it: see-through too, each object in its place
+    // around the others.
+    let mut ghost_instances = ghost_instances;
+    let pasted: Vec<mg_area::AreaObject> = match (&app.object_clip, view.pasting) {
+        (Some(clip), true) => {
+            // Over the view, not over a window in front of it.
+            let over = |p: &Pos2| {
+                let layer = ui.ctx().layer_id_at(*p);
+                let behind =
+                    layer.is_some_and(|l| l != ui.layer_id() && l.order != egui::Order::Tooltip);
+                view.rect.contains(*p) && !behind
+            };
+            let at = ui.ctx().pointer_hover_pos().filter(over);
+            let at = at.and_then(|p| view.ground_at(p, 0.0)).map(|at| view.snapped(at));
+            at.map_or_else(Vec::new, |at| {
+                let places = pasted_positions(view, clip, at);
+                let placed = clip.objects.iter().zip(places).map(|((o, _, _), p)| {
+                    let mut o = o.clone();
+                    let moved = p - o.position;
+                    o.outline.iter_mut().for_each(|q| *q += moved);
+                    o.position = p;
+                    o
+                });
+                placed.collect()
+            })
+        }
+        _ => Vec::new(),
+    };
+    if let (Some(scene), Some(vp), Some(game)) =
+        (view.scene.as_mut(), app.viewport.as_ref(), app.game.as_deref())
+    {
+        for o in &pasted {
+            let (instances, _) = scene.ghost(&vp.gpu, game, o, view.time, GHOST_OPACITY);
+            ghost_instances.extend(instances);
+        }
+    }
+    view.pasted_shown = pasted.len();
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
     else {
@@ -1752,7 +1812,8 @@ fn overlays(
         Some(_) => false,
         None => ui.input(|i| i.modifiers.shift && !i.modifiers.command && !i.modifiers.alt),
     };
-    if tilting && let Some(rings) = view.tilt_rings(shown) {
+    let rings = if tilting { view.tilt_rings(shown) } else { Vec::new() };
+    if !rings.is_empty() {
         let held = match view.drag {
             Some(Drag::Tilt { ring, .. }) => Some(ring.axis),
             _ => None,
@@ -1761,10 +1822,11 @@ fn overlays(
             .ctx()
             .pointer_hover_pos()
             .filter(|_| view.drag.is_none())
-            .and_then(|p| view.tilt_ring_at(p))
-            .map(|r| r.axis);
+            .and_then(|p| view.tilt_ring_at(p));
         for ring in rings {
-            let lit = held == Some(ring.axis) || over == Some(ring.axis);
+            // (Led, every ring of the axis; hovered, the one under the
+            // pointer.)
+            let lit = held == Some(ring.axis) || over == Some(ring);
             let stroke = if lit {
                 Stroke::new(2.5, ring.color())
             } else {
@@ -1798,12 +1860,12 @@ fn overlays(
     };
     if sliding.is_some() || (tilting && view.drag.is_none()) {
         let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
-        let over = pointer.and_then(|p| view.axis_arrow_at(p)).map(|a| a.axis);
+        let over = pointer.and_then(|p| view.axis_arrow_at(p));
         for arrow in view.axis_arrows(shown) {
             if sliding.is_some_and(|axis| axis != arrow.axis) {
                 continue;
             }
-            let lit = sliding.is_some() || over == Some(arrow.axis);
+            let lit = sliding.is_some() || over == Some(arrow);
             let stroke = if lit {
                 Stroke::new(3.0, arrow.color())
             } else {
@@ -1836,24 +1898,24 @@ fn overlays(
             view.drag,
             Some(Drag::Box { .. } | Drag::Move { .. } | Drag::Lift { .. } | Drag::Slide { .. })
         )
-        && let Some(ring) = view.turn_ring(shown)
     {
         let spinning = matches!(view.drag, Some(Drag::Spin { .. }));
         let pointer = ui.ctx().pointer_hover_pos().filter(|_| view.drag.is_none());
-        let lit = spinning || pointer.is_some_and(|p| view.on_ring(&ring, p));
         let color = Color32::from_rgb(255, 170, 60);
-        let stroke = if lit {
-            Stroke::new(2.5, Color32::from_rgb(255, 225, 150))
-        } else {
-            Stroke::new(1.5, color.gamma_multiply(0.8))
-        };
-        for k in 0..RING_SEGMENTS {
-            let (a, b) = ring.segment(k);
-            line(a, b, stroke);
-        }
-        let ahead = ring.point(ring.facing);
-        line(ring.pivot, ahead, Stroke::new(1.0, stroke.color));
-        if let Some(c) = at(ahead) {
+        for ring in view.turn_rings(shown) {
+            let lit = spinning || pointer.is_some_and(|p| view.on_ring(&ring, p));
+            let stroke = if lit {
+                Stroke::new(2.5, Color32::from_rgb(255, 225, 150))
+            } else {
+                Stroke::new(1.5, color.gamma_multiply(0.8))
+            };
+            for k in 0..RING_SEGMENTS {
+                let (a, b) = ring.segment(k);
+                line(a, b, stroke);
+            }
+            let ahead = ring.point(ring.facing);
+            line(ring.pivot, ahead, Stroke::new(1.0, stroke.color));
+            let Some(c) = at(ahead) else { continue };
             painter.circle_filled(c, 3.5, stroke.color);
             if spinning {
                 let degrees = ring.facing.to_degrees().rem_euclid(360.0);
@@ -1886,14 +1948,29 @@ fn overlays(
             }
         }
     }
+    // The start location, as Aurora marks it: a blue ring on the ground
+    // and a red arrow the way the player faces on arriving.
     if let (true, Some((p, facing))) = (view.show_start, start) {
-        let stroke = Stroke::new(2.0, Color32::from_rgb(230, 90, 230));
-        let ahead = p + Vec3::new(facing.cos(), facing.sin(), 0.0) * 1.5;
-        line(p, ahead, stroke);
-        line(p, p + Vec3::Z * 2.0, stroke);
-        if let Some(c) = at(p) {
-            painter.circle_stroke(c, 5.0, stroke);
+        let p = p + Vec3::Z * 0.05;
+        let ring = Stroke::new(3.0, Color32::from_rgb(70, 130, 255));
+        const PIECES: usize = 24;
+        let around = |k: usize| {
+            let a = std::f32::consts::TAU * k as f32 / PIECES as f32;
+            p + Vec3::new(a.cos(), a.sin(), 0.0) * START_RING
+        };
+        for k in 0..PIECES {
+            line(around(k), around(k + 1), ring);
         }
+        let arrow = Stroke::new(3.0, Color32::from_rgb(235, 40, 40));
+        let ahead = Vec3::new(facing.cos(), facing.sin(), 0.0);
+        let side = Vec3::new(-ahead.y, ahead.x, 0.0);
+        let (tail, tip) = (p - ahead * START_RING * 0.75, p + ahead * START_RING * 0.75);
+        line(tail, tip, arrow);
+        let barb = START_RING * 0.35;
+        line(tip, tip - ahead * barb + side * barb, arrow);
+        line(tip, tip - ahead * barb - side * barb, arrow);
+        // (And its cross-guard.)
+        line(p - side * barb, p + side * barb, arrow);
     }
 }
 
@@ -2705,6 +2782,17 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
     }
 }
 
+/// Save as Prefab for the selection of `area`'s view (the palette's
+/// Prefabs asks for it): whether there was a selection to save.
+pub(crate) fn save_selection_as_prefab(app: &mut Moonglow, area: ResRef) -> bool {
+    let Some(view) = app.area_views.remove(&area) else { return false };
+    let clip = copy_selection(app, &view);
+    app.area_views.insert(area, view);
+    let Some(clip) = clip else { return false };
+    app.prefab_save = Some((String::new(), clip));
+    true
+}
+
 /// The selected objects, with their GIT structs and heights above the
 /// ground, for the clipboard.
 fn copy_selection(app: &mut Moonglow, view: &AreaView) -> Option<ObjectClip> {
@@ -3181,6 +3269,21 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         ui.close();
     }
     ui.separator();
+    // The module's start location, here, facing the way the camera looks
+    // (Aurora places it from the palette).
+    if let Some(at) = view.menu_at
+        && ui
+            .button("Set Start Location Here")
+            .on_hover_text(
+                "Where a player's character enters the module, facing the way the view looks \
+                 (the blue ring with the red arrow)",
+            )
+            .clicked()
+    {
+        let facing = view.orbit.as_ref().map_or(0.0, |o| o.yaw + std::f32::consts::PI);
+        set_start_location(app, view, at, facing);
+        ui.close();
+    }
     // Test the module as it is now, starting here, facing the way the
     // camera looks.
     if let Some(at) = view.menu_at
@@ -3193,6 +3296,32 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         app.actions.push(Action::TestFromHere { area: view.area, at: at.to_array(), facing });
         ui.close();
     }
+}
+
+/// The start location's ring, meters across its radius.
+const START_RING: f32 = 1.0;
+
+/// Makes `at`, in the view's area, the module's start location (the
+/// IFO's `Mod_Entry_*`), facing `facing` radians counter-clockwise from
+/// east, as one command.
+fn set_start_location(app: &mut Moonglow, view: &mut AreaView, at: Vec3, facing: f32) {
+    let key = ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO);
+    let set = |label: &str, value: Value| mg_edit::Edit::SetField {
+        key,
+        path: mg_edit::GffPath::root(),
+        label: label.into(),
+        value: Some(value),
+    };
+    let edits = vec![
+        set("Mod_Entry_Area", Value::resref(view.area)),
+        set("Mod_Entry_X", Value::Float(at.x)),
+        set("Mod_Entry_Y", Value::Float(at.y)),
+        set("Mod_Entry_Z", Value::Float(at.z)),
+        set("Mod_Entry_Dir_X", Value::Float(facing.cos())),
+        set("Mod_Entry_Dir_Y", Value::Float(facing.sin())),
+    ];
+    app.actions.push(Action::Apply(Command::new("Set start location", edits)));
+    view.show_start = true;
 }
 
 /// Sets a field on every selected object (one command).

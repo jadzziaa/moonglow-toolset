@@ -276,6 +276,29 @@ fn model_beside_the_fields() {
     }
 }
 
+/// The symbols the interface uses, as the fonts draw them (a square is a
+/// glyph the fonts lack).
+#[test]
+#[ignore]
+fn glyphs() {
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-glyphs");
+    let app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut h = Harness::builder().with_size(egui::vec2(700.0, 200.0)).wgpu().build_ui_state(
+        |ui, app: &mut Moonglow| {
+            // (The application's fonts.)
+            app.ui(ui);
+            egui::Window::new("glyphs").fixed_pos([20.0, 60.0]).show(ui.ctx(), |ui| {
+                ui.heading("▶ 💡 ◎ ⏵ ⏷ 🗐 📦 ⚙ 🗻 🗑 ↕ 🔁 🏁 🌙 ☁ ⊞ 🍃 🎵 👣 ⛶ ℹ 🎥 🏃");
+            });
+        },
+        app,
+    );
+    h.run();
+    h.run();
+    shoot(&mut h, &dir, "glyphs");
+}
+
 #[test]
 #[ignore]
 fn store_chosen_item() {

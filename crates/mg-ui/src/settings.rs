@@ -114,6 +114,9 @@ pub struct Settings {
     /// Options > Script Editor: Generate Debug Information When Compiling
     /// Scripts (`.ndb` next to the `.ncs`).
     pub debug_info: bool,
+    /// Options > Script Editor: a script opened from the module tree opens
+    /// in the external script editor as well.
+    pub scripts_external: bool,
     /// Options > Script Editor: Code Templates Directory, listed with the
     /// game's (`data/scr`) and the user's `scripttemplates`.
     pub script_templates: Option<PathBuf>,

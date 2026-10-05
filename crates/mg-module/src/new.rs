@@ -205,7 +205,14 @@ pub fn word_sort_key(s: &str) -> (String, String) {
 /// fields (`TYPE`, `DELETE_ME`, `NEXT_USEABLE_ID`, `RESTYPE`), each level
 /// sorted by name as Aurora lists it, struct ids 0. `name` looks up a StrRef.
 pub fn custom_palette(skeleton: &Gff, name: impl Fn(u32) -> String) -> Gff {
-    fn nodes(list: &[Struct], name: &dyn Fn(u32) -> String) -> Vec<Struct> {
+    custom_palette_in(skeleton, name, true)
+}
+
+/// [`custom_palette`]; with `by_name` false, the categories in the
+/// skeleton's own order: a module's own skeleton is as its builder
+/// arranged it.
+pub fn custom_palette_in(skeleton: &Gff, name: impl Fn(u32) -> String, by_name: bool) -> Gff {
+    fn nodes(list: &[Struct], name: &dyn Fn(u32) -> String, by_name: bool) -> Vec<Struct> {
         let mut out: Vec<((String, String), Struct)> = list
             .iter()
             .filter(|n| !matches!(int(n.get("TYPE")), Some(0 | 1)))
@@ -218,7 +225,7 @@ pub fn custom_palette(skeleton: &Gff, name: impl Fn(u32) -> String) -> Gff {
                     }
                 }
                 if let Some(Value::List(children)) = n.get("LIST") {
-                    s.set("LIST", Value::List(nodes(children, name)));
+                    s.set("LIST", Value::List(nodes(children, name, by_name)));
                 }
                 for f in &n.fields {
                     if !matches!(
@@ -228,15 +235,24 @@ pub fn custom_palette(skeleton: &Gff, name: impl Fn(u32) -> String) -> Gff {
                         s.fields.push(f.clone());
                     }
                 }
+                // By its name: written out (a module's own category), or
+                // the talk table's.
                 let strref = int(n.get("STRREF")).unwrap_or(-1);
-                (word_sort_key(&u32::try_from(strref).map(name).unwrap_or_default()), s)
+                let shown = match n.string("NAME") {
+                    Some(text) => String::from_utf8_lossy(text).into_owned(),
+                    None => u32::try_from(strref).map(name).unwrap_or_default(),
+                };
+                (word_sort_key(&shown), s)
             })
             .collect();
-        out.sort_by(|a, b| a.0.cmp(&b.0));
+        if by_name {
+            out.sort_by(|a, b| a.0.cmp(&b.0));
+        }
         out.into_iter().map(|(_, s)| s).collect()
     }
     let mut g = Gff::new(*b"ITP ");
-    g.root.set("MAIN", Value::List(nodes(skeleton.root.list("MAIN").unwrap_or(&[]), &name)));
+    let main = nodes(skeleton.root.list("MAIN").unwrap_or(&[]), &name, by_name);
+    g.root.set("MAIN", Value::List(main));
     g
 }
 

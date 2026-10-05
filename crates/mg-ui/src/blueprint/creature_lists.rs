@@ -110,7 +110,31 @@ fn category_filter(ui: &mut Ui, id: egui::Id, categories: &[(i32, String)]) -> O
     chosen
 }
 
+/// What the game says of row `row` of `table` (the talk-table string its
+/// `column` names: a feat's, a spell's or a skill's description), shown
+/// when `r` is hovered, as Aurora shows it with F1.
+pub(super) fn described(
+    r: egui::Response,
+    game: Option<&GameData>,
+    table: &str,
+    column: &str,
+    row: usize,
+) -> egui::Response {
+    r.on_hover_ui(|ui| {
+        let text = game.and_then(|g| {
+            let strref = g.table(table).ok()?.get_int(row, column)?;
+            g.string(mg_core::StrRef(u32::try_from(strref).ok()?))
+        });
+        ui.set_max_width(440.0);
+        match text.filter(|t| !t.trim().is_empty()) {
+            Some(text) => ui.label(text),
+            None => ui.weak("The game has no description of it."),
+        };
+    })
+}
+
 pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
+    let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
     let all = f
@@ -155,7 +179,8 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
                 continue;
             }
             let mut v = on;
-            if ui.checkbox(&mut v, &c.text).changed() {
+            let r = ui.checkbox(&mut v, &c.text);
+            if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed() {
                 toggle = Some((c.row, v));
             }
         }
@@ -206,6 +231,7 @@ fn statement(text: &str) -> &str {
 }
 
 pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
+    let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
     let Some(game) = f.app.game.as_deref() else { return };
@@ -330,7 +356,9 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
                         }
                     } else {
                         let mut known = count > 0;
-                        if ui.checkbox(&mut known, name).changed() {
+                        let r = ui.checkbox(&mut known, name);
+                        let game = described_by.as_deref();
+                        if described(r, game, "spells", "SpellDesc", *row).changed() {
                             change = Some((*row, *l, if known { 1 } else { -count }));
                         }
                     }
@@ -515,6 +543,7 @@ fn set_uses(
 const ABILITY_FLAGS: [(i64, &str); 3] = [(0x1, "Ready"), (0x2, "Spontaneous"), (0x4, "Unlimited")];
 
 pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
+    let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
     let names = f
@@ -563,11 +592,10 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                         .iter()
                         .filter(|c| c.text.to_lowercase().contains(&needle) && in_category(c.row))
                     {
-                        if ui
-                            .selectable_label(false, &c.text)
-                            .on_hover_text("Add a use of it")
-                            .clicked()
-                        {
+                        let r =
+                            ui.selectable_label(false, &c.text).on_hover_text("Add a use of it");
+                        let game = described_by.as_deref();
+                        if described(r, game, "spells", "SpellDesc", c.row).clicked() {
                             let mut s = Struct::new(SPECIAL_ID);
                             s.set("Spell", Value::Word(c.row as u16));
                             s.set("SpellCasterLevel", Value::Byte(level.min(255) as u8));
@@ -596,7 +624,9 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.end_row();
                 for g in &groups {
                     let first = &list[g.entries[0]];
-                    ui.label(name_of(g.spell));
+                    let r = ui.label(name_of(g.spell));
+                    let row = usize::try_from(g.spell).unwrap_or(usize::MAX);
+                    described(r, described_by.as_deref(), "spells", "SpellDesc", row);
                     let uses = g.entries.len() as i64;
                     if let Some(v) = commit_number(ui, uses, 1..=99) {
                         edits.push(("Uses", set_uses(key, &base, first, &g.entries, v as usize)));

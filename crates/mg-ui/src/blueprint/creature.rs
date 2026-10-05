@@ -743,6 +743,7 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
     let skills = choices(f, "skills", "Name", "Label");
+    let described_by = f.app.game.clone();
     let list: Vec<Struct> = f.root.list("SkillList").unwrap_or(&[]).to_vec();
     let mut edit = None;
     egui::ScrollArea::vertical().id_salt(("utc-skills", key)).show(ui, |ui| {
@@ -755,7 +756,9 @@ fn skills(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.strong("Rank");
                 ui.end_row();
                 for s in &skills {
-                    ui.label(&s.text);
+                    let r = ui.label(&s.text);
+                    let game = described_by.as_deref();
+                    super::creature_lists::described(r, game, "skills", "Description", s.row);
                     let rank = list.get(s.row).and_then(|e| e.integer("Rank")).unwrap_or(0);
                     if let Some(v) = commit_number(ui, rank, 0..=127) {
                         edit = Some((s.row, v));
