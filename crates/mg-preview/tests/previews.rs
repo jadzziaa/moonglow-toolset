@@ -307,6 +307,48 @@ fn a_creature_s_own_parts_show_where_its_armor_is_bare() {
     assert!(models.contains(&"pmh0_chest005"), "the armor's chest: {models:?}");
 }
 
+/// A cloak moves with the bones of the body wearing it: on an elf (whose
+/// skeleton plays the human animations at 0.894 of their size, while her
+/// cloak's model has no scale of its own) its bones are where hers are,
+/// not at a human's height, over her face.
+#[test]
+fn a_cloak_sits_on_a_smaller_body_s_shoulders() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        Model::read(&rm.get_named(name, ResType::MDL).ok()?).ok().map(Arc::new)
+    };
+    // An elf woman in the Great Cloak (cloakmodel.2da row 3).
+    let mut look = CreatureLook::new(1);
+    look.gender = 1;
+    let mut utc = look.to_utc();
+    let mut worn = mg_gff::Struct::new(0x40);
+    worn.set("ModelPart1", mg_gff::Value::Byte(3));
+    utc.set("Equip_ItemList", mg_gff::Value::List(vec![worn]));
+    let preview = creature(&game, &utc, &|_| None).unwrap();
+    let c = Composed::new(&gpu, &preview, &load).unwrap();
+    let drawn = c.instances(c.idle.as_deref(), 0.5, Mat4::IDENTITY);
+    let named = |name: &str| drawn.iter().find(|i| i.model.model.name.eq_ignore_ascii_case(name));
+    let (body, cloak) = (named("pfe0").unwrap(), named("pfe0_cloak_002").expect("the cloak"));
+    let at = |i: &mg_render::scene::Instance, node: &str| {
+        let n = i.model.model.nodes.iter().position(|n| n.name.eq_ignore_ascii_case(node))?;
+        Some(i.pose.as_ref()?[n].w_axis.truncate())
+    };
+    for node in ["rootdummy", "torso_g", "neck_g"] {
+        let (Some(hers), Some(its)) = (at(body, node), at(cloak, node)) else { continue };
+        assert!(hers.distance(its) < 0.01, "{node}: the body's at {hers}, the cloak's at {its}");
+    }
+    assert!(at(cloak, "rootdummy").is_some(), "the cloak has the body's bones");
+}
+
 /// A look at creatures of custom content (GitHub issue 5): `MG_PROBE_USER`
 /// a user directory with the haks, `MG_PROBE_HAKS` their names (top
 /// first, comma-separated), `MG_PROBE_UTC` the blueprints' files.
@@ -342,7 +384,19 @@ fn probe_custom_creatures() {
     for file in files.split(',') {
         // (A number: an appearance row, as a creature of it.)
         let preview = match file.parse::<u16>() {
-            Ok(row) => creature_look(&game, &CreatureLook::new(row)).unwrap(),
+            Ok(row) => {
+                // (`MG_PROBE_GENDER`, and `MG_PROBE_CLOAK` a cloakmodel.2da row worn.)
+                let env = |n: &str| std::env::var(n).ok().and_then(|v| v.parse::<u8>().ok());
+                let mut look = CreatureLook::new(row);
+                look.gender = env("MG_PROBE_GENDER").unwrap_or(0);
+                let mut utc = look.to_utc();
+                if let Some(cloak) = env("MG_PROBE_CLOAK") {
+                    let mut worn = mg_gff::Struct::new(0x40);
+                    worn.set("ModelPart1", mg_gff::Value::Byte(cloak));
+                    utc.set("Equip_ItemList", mg_gff::Value::List(vec![worn]));
+                }
+                creature(&game, &utc, &item_of).unwrap()
+            }
             Err(_) => {
                 let utc = Gff::read(&std::fs::read(file).unwrap()).unwrap();
                 creature(&game, &utc.root, &item_of).unwrap()

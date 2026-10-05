@@ -83,7 +83,8 @@ packaging\windows\build-installer.ps1
 ```
 
 Needs Rust (MSVC), Python 3 and [Inno Setup 6](https://jrsoftware.org/isinfo.php).
-Writes `target\dist\Moonglow-<version>-windows-x64-setup.exe`. It installs
+Writes `target\dist\Moonglow-<version>-windows-x64-setup.exe`, and the same
+files as `Moonglow-<version>-windows-x64.zip` (to unpack anywhere and run). It installs
 for the current user (or for all users, if chosen) and adds a Start menu
 entry and, optionally, a desktop icon and the `.mod` association.
 The programs carry the C runtime (`.cargo/config.toml`), so no Visual C++
@@ -92,8 +93,9 @@ Redistributable is needed.
 ### Scoop
 
 The repository is its own [Scoop](https://scoop.sh) bucket: `bucket/moonglow.json`
-installs the release's installer (unpacked, without running it), puts `mg`
-on the PATH and adds a Start menu entry.
+installs the release's zip (the installer's files; Scoop's unpacker can't
+read the Inno Setup 6.7 installer), puts `mg` on the PATH and adds a Start
+menu entry.
 
 ```powershell
 scoop bucket add moonglow https://github.com/jadzziaa/moonglow-toolset
@@ -107,7 +109,7 @@ After publishing a release, point the manifest at it and commit it:
 packaging/scoop/update-manifest.sh <version>
 ```
 
-It takes the installer's SHA-256 from the release on GitHub. Until the
+It takes the zip's SHA-256 from the release on GitHub. Until the
 manifest is committed, Scoop users stay on the release before.
 
 ## macOS: app and disk image

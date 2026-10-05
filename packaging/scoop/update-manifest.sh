@@ -3,15 +3,16 @@
 #
 #   packaging/scoop/update-manifest.sh 1.11.0
 #
-# The version and the Windows installer's SHA-256, which GitHub gives for
-# the release's asset (nothing is downloaded). Run once the release is
+# The version and the SHA-256 of the release's Windows zip (the installer's
+# files, to unpack: Scoop's unpacker can't read the installer itself),
+# which GitHub gives for the asset (nothing is downloaded). Run once the release is
 # published, then commit the manifest: Scoop users get the release with
 # `scoop update moonglow`.
 set -euo pipefail
 
 version=${1:?usage: update-manifest.sh VERSION}
 repo=jadzziaa/moonglow-toolset
-asset="Moonglow-$version-windows-x64-setup.exe"
+asset="Moonglow-$version-windows-x64.zip"
 manifest="$(dirname "$0")/../../bucket/moonglow.json"
 
 digest=$(gh release view "v$version" --repo "$repo" --json assets \
@@ -35,7 +36,6 @@ cat > "$manifest" <<JSON
             "hash": "$hash"
         }
     },
-    "innosetup": true,
     "bin": "mg.exe",
     "shortcuts": [
         [
@@ -49,7 +49,7 @@ cat > "$manifest" <<JSON
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/$repo/releases/download/v\$version/Moonglow-\$version-windows-x64-setup.exe"
+                "url": "https://github.com/$repo/releases/download/v\$version/Moonglow-\$version-windows-x64.zip"
             }
         }
     }

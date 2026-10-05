@@ -123,11 +123,22 @@ type Keyed<'a> = (&'a AnimNode, f32, f32);
 /// model's (a supermodel's, made for a body of another size), 1 for its
 /// own.
 fn keyed<'a>(model: &Model, layers: &[&'a Animation], t: f32) -> HashMap<String, Vec<Keyed<'a>>> {
+    keyed_at(model, layers, t, None)
+}
+
+/// [`keyed`], with the scale of another model's animations given (`worn`:
+/// [`pose_worn`]).
+fn keyed_at<'a>(
+    model: &Model,
+    layers: &[&'a Animation],
+    t: f32,
+    worn: Option<f32>,
+) -> HashMap<String, Vec<Keyed<'a>>> {
     let mut out: HashMap<String, Vec<_>> = HashMap::new();
     for a in layers {
         let at = time_in(a, t);
         let own = model.animations.iter().any(|own| std::ptr::eq(own, *a));
-        let scale = match model.animation_scale {
+        let scale = match worn.unwrap_or(model.animation_scale) {
             s if !own && s.is_finite() && s > 0.0 => s,
             _ => 1.0,
         };
@@ -170,7 +181,20 @@ pub fn locals(model: &Model, anim: &Animation, t: f32) -> Vec<Local> {
 /// [`locals`] for several animations played together (see
 /// [`pose_layers`]).
 pub fn locals_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Local> {
-    let by_name = keyed(model, layers, t);
+    locals_of(model, &keyed(model, layers, t))
+}
+
+/// [`pose`] for a model worn by another (a cloak, a robe), playing the
+/// wearer's animation: its positions scaled as the wearer's are (`scale`,
+/// the wearer's `setanimationscale`), whatever the worn model's own says.
+/// The game moves a cloak with the body's bones: an elf's cloak, whose
+/// model has no scale of its own, sits on an elf's shoulders, not at a
+/// human's height.
+pub fn pose_worn(model: &Model, anim: &Animation, t: f32, scale: f32) -> Vec<Mat4> {
+    compose(model, &locals_of(model, &keyed_at(model, &[anim], t, Some(scale))))
+}
+
+fn locals_of(model: &Model, by_name: &HashMap<String, Vec<Keyed<'_>>>) -> Vec<Local> {
     model
         .nodes
         .iter()

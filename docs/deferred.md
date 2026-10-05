@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T22:05:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T22:43:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -333,6 +333,14 @@ objects in the area view, Fade Geometry. Left:
   a helmet whose model (`helm_129`) is in neither download, and is
   drawn headless; what the game draws for a missing helmet model isn't
   known. (needs the file)
+- **A cloak over the face of an elf (or any body smaller than a
+  human's):** a worn part playing a skeleton's animation moved at its
+  own animation scale (a cloak's model has none: 1) rather than its
+  wearer's. It moves at the wearer's now, which puts its bones on the
+  body's (`a_cloak_sits_on_a_smaller_body_s_shoulders`). Seen first with
+  the HD bodies, and the same with the game's own; that the game takes
+  the wearer's scale is inferred from where its cloaks sit, not measured
+  in the client. (S)
 - **"The toolset must be restarted for the language to take effect":**
   reported; Options › OK reads the game's text and the names again, and
   text fields are now read again too. What still showed the old

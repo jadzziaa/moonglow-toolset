@@ -19,3 +19,4 @@
 * **Update**: [The deferred list](deferred.md): issue 5's body parts and werebat fixed with the reporter's files; number fields' limits measured in Aurora.
 * **Update**: [Areas](manual/04-areas.md): the scale handle; [the deferred list](deferred.md).
 * **Update**: [Areas](manual/04-areas.md): tiles' particles; Alt, not Shift, turns the selection and moves the camera; [the deferred list](deferred.md).
+* **Update**: [The deferred list](deferred.md): a worn part (a cloak, a robe) moves at its wearer's animation scale.

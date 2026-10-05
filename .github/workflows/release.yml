@@ -56,7 +56,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: target/dist/*-setup.exe
+          path: |
+            target/dist/*-setup.exe
+            target/dist/*-windows-x64.zip
 
   macos:
     name: macOS disk image

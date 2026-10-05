@@ -215,7 +215,11 @@ impl Composed {
                 let own = animation.and_then(|a| find(&p.anims, a)).or_else(|| {
                     ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(&p.anims, a))
                 });
-                own.or(base_anim).map(|a| Arc::new(anim::pose(&p.gpu.model, a, t)))
+                // (A skeleton's animation, the base's or its supermodel's,
+                // moves the part as it moves the base: at the base's
+                // scale. The part's very own keep theirs.)
+                let worn = self.base.gpu.model.animation_scale;
+                own.or(base_anim).map(|a| Arc::new(anim::pose_worn(&p.gpu.model, a, t, worn)))
             } else {
                 None
             };
