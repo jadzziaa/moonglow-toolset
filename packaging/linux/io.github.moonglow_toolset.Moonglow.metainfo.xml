@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.11.0" date="2026-10-05">
+      <description>
+        <p>A round of builders' reports: Escape closes the window in front
+        and dialogs stay in front; a read-only View of the game's
+        blueprints, and Copy… asking for a ResRef and Tag (areas too);
+        flames and other effects and Fade Geometry in the area view;
+        custom creatures' own body parts under bare armor; number fields
+        with Aurora's limits.</p>
+      </description>
+    </release>
     <release version="1.10.1" date="2026-10-05">
       <description>
         <p>Fixes blue-white patches round plants and along shores in the
