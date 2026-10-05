@@ -44,9 +44,11 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut d) = app.resize_area.take() else { return };
     let mut open = true;
     let (mut ok, mut cancel) = (false, false);
-    egui::Window::new("Resize Area").open(&mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
+    egui::Window::new("Resize Area")
+        .open(crate::widgets::open_unless_escape(ctx, "Resize Area", &mut open))
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 egui::Grid::new("resize").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Rows");
@@ -73,10 +75,9 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ok = ui.button("OK").on_hover_text("Accept changes").clicked()
                     || crate::widgets::enter(ui);
-                cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
+                cancel = crate::widgets::cancel_discard(ui);
             });
-        },
-    );
+        });
     if ok {
         resize(app, &d);
     } else if open && !cancel {
@@ -88,9 +89,11 @@ fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut d) = app.rotate_area.take() else { return };
     let mut open = true;
     let (mut ok, mut cancel) = (false, false);
-    egui::Window::new("Rotate Area").open(&mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
+    egui::Window::new("Rotate Area")
+        .open(crate::widgets::open_unless_escape(ctx, "Rotate Area", &mut open))
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
             egui::Grid::new("rotations").num_columns(2).spacing([24.0, 6.0]).show(ui, |ui| {
                 // Counter-clockwise 90, 180, 270 and clockwise 90, 180, 270:
                 // as quarter turns counter-clockwise.
@@ -104,10 +107,9 @@ fn rotate_window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 ok = ui.button("OK").on_hover_text("Accept changes").clicked()
                     || crate::widgets::enter(ui);
-                cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
+                cancel = crate::widgets::cancel_discard(ui);
             });
-        },
-    );
+        });
     if ok {
         rotate(app, &d);
     } else if open && !cancel {

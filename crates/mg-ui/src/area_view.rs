@@ -330,6 +330,8 @@ pub struct AreaView {
     pub selection: Vec<(ObjectKind, usize)>,
     pub night: bool,
     pub fog: bool,
+    /// Tiles without their fading parts (roofs): Aurora's Fade Geometry.
+    pub fade: bool,
     /// Lit by the area's lighting (off: an even working light).
     pub lit: bool,
     /// Circles where each placed sound is heard at full volume and where
@@ -352,6 +354,11 @@ pub struct AreaView {
     pub pasting: bool,
     /// How many of them were drawn, see-through, last frame.
     pub pasted_shown: usize,
+    /// The placed objects' particles, from frame to frame
+    /// (`AreaScene::particles`).
+    particles: std::collections::HashMap<(usize, usize), mg_render::particles::Particles>,
+    /// How many particles were drawn last frame.
+    pub particles_shown: usize,
     /// The blueprint about to be placed (dragged over the view, or chosen
     /// in the palette), as an object to show where it would go; `None` in
     /// it when it can't be placed.
@@ -439,6 +446,7 @@ impl AreaView {
             selection: Vec::new(),
             night: false,
             fog: false,
+            fade: false,
             lit: true,
             sound_ranges: false,
             grid: true,
@@ -451,6 +459,8 @@ impl AreaView {
             outline: Vec::new(),
             pasting: false,
             pasted_shown: 0,
+            particles: std::collections::HashMap::new(),
+            particles_shown: 0,
             ghost: None,
             ghost_shown: None,
             ghost_turn: 0.0,
@@ -1188,6 +1198,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             app.settings.unlit_areas = !view.lit;
         }
         ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
+        ui.toggle_value(&mut view.fade, "Fade Geometry").on_hover_text(
+            "Tiles without the parts that fade in the game to show a character behind them \
+             (roofs, upper walls), to see and place what is under them",
+        );
         let mut animated = !app.settings.still_objects;
         if ui
             .toggle_value(&mut animated, "▶ Animations")
@@ -1413,6 +1427,7 @@ fn viewport(
         lit: view.lit,
         show: view.show,
         animate: !app.settings.still_objects,
+        fade: view.fade,
     };
     let shift = ui.input(|i| i.modifiers.shift);
     let preview = crate::terrain_mode::preview(app, view, shift);
@@ -1487,7 +1502,8 @@ fn viewport(
     let (w, h) = (w.clamp(16, 8192), h.clamp(16, 8192));
 
     let now = ui.input(|i| i.time);
-    view.time += view.last_frame.map_or(0.0, |last| (now - last) as f32).min(0.25);
+    let dt = view.last_frame.map_or(0.0, |last| (now - last) as f32).min(0.25);
+    view.time += dt;
     view.last_frame = Some(now);
 
     // The scene, with the drag applied to what it moves.
@@ -1509,6 +1525,14 @@ fn viewport(
         *f = facing;
     }
     let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
+    // Flames, sparks and portals: with the animations (they need frames).
+    if settings.animate {
+        let camera = orbit.camera().view();
+        frame.particles = scene.particles(&shown, &settings, &mut view.particles, dt, camera);
+    } else {
+        view.particles.clear();
+    }
+    view.particles_shown = frame.particles.iter().map(|b| b.vertices.len() / 4).sum();
     frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
     frame.instances.extend(ghost_instances);
     frame.instances.extend(preview_instances);
@@ -3744,9 +3768,11 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let mut open = true;
     let mut done = false;
     let mut cancel = false;
-    egui::Window::new("Create Set").collapsible(false).resizable(false).open(&mut open).show(
-        ui.ctx(),
-        |ui| {
+    egui::Window::new("Create Set")
+        .collapsible(false)
+        .resizable(false)
+        .open(crate::widgets::open_unless_escape(ui.ctx(), "Create Set", &mut open))
+        .show(ui.ctx(), |ui| {
             ui.horizontal(|ui| {
                 ui.label("What is the name of the set?");
                 let field = ui.add(egui::TextEdit::singleline(&mut name).hint_text("set name"));
@@ -3755,10 +3781,9 @@ fn set_window(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             ui.horizontal(|ui| {
                 done = ui.add_enabled(!name.trim().is_empty(), egui::Button::new("OK")).clicked()
                     || (!name.trim().is_empty() && crate::widgets::enter(ui));
-                cancel = ui.button("Cancel").clicked();
+                cancel = crate::widgets::cancel(ui);
             });
-        },
-    );
+        });
     if done {
         create_set(app, view, name.trim());
     } else if open && !cancel {
@@ -3838,9 +3863,11 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
     };
     let mut open = true;
     let mut done = false;
-    egui::Window::new("Resources Used").open(&mut open).collapsible(false).resizable(false).show(
-        ctx,
-        |ui| {
+    egui::Window::new("Resources Used")
+        .open(crate::widgets::open_unless_escape(ctx, "Resources Used", &mut open))
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
             ui.strong(area.to_string());
             egui::Grid::new("usage").num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
                 if let Some(m) = &view.model {
@@ -3867,8 +3894,7 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
             done = ui.button("Done").clicked();
-        },
-    );
+        });
     if !open || done {
         app.area_stats = None;
     }

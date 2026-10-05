@@ -157,6 +157,9 @@ pub fn edits_between(before: &Module, after: &Module) -> Vec<Edit> {
 pub struct Workspace {
     pub module: Module,
     docs: HashMap<ResKey, Gff>,
+    /// Documents shown that aren't the module's (the game's blueprints, to
+    /// look at): [`Workspace::doc`] gives them, nothing edits or saves them.
+    viewed: HashMap<ResKey, Gff>,
     undo: Vec<Command>,
     redo: Vec<Command>,
     /// Commands applied since the last save (undo past it counts down).
@@ -170,6 +173,7 @@ impl Workspace {
         Workspace {
             module,
             docs: HashMap::new(),
+            viewed: HashMap::new(),
             undo: Vec::new(),
             redo: Vec::new(),
             changes_since_save: 0,
@@ -182,9 +186,26 @@ impl Workspace {
         self.revision
     }
 
-    /// A GFF document, parsed on first use and cached.
+    /// A GFF document, parsed on first use and cached: the module's, else
+    /// one given to look at ([`Workspace::view`]).
     pub fn doc(&mut self, key: &ResKey) -> Result<&Gff, EditError> {
+        if self.is_viewed(key) {
+            return Ok(&self.viewed[key]);
+        }
         self.doc_mut(key).map(|g| &*g)
+    }
+
+    /// Gives a document that isn't the module's to look at under `key`:
+    /// [`Workspace::doc`] reads it while the module has no resource of that
+    /// name. It is never edited (an edit of it fails, as of any resource
+    /// the module lacks) and never saved.
+    pub fn view(&mut self, key: ResKey, gff: Gff) {
+        self.viewed.insert(key, gff);
+    }
+
+    /// Whether `key` is a document only looked at ([`Workspace::view`]).
+    pub fn is_viewed(&self, key: &ResKey) -> bool {
+        self.viewed.contains_key(key) && !self.module.contains(key)
     }
 
     /// A GFF document if it has been used (and so may differ from the
@@ -492,6 +513,30 @@ mod tests {
         g.root.items_mut(&git::CREATURE_LIST).push(c);
         m.set_gff(key("area", ResType::GIT), &g).unwrap();
         Workspace::new(m)
+    }
+
+    /// A document given to look at is read, not edited, and gives way to
+    /// the module's own of that name.
+    #[test]
+    fn a_viewed_document_is_read_and_never_edited() {
+        let mut ws = Workspace::new(Module::default());
+        let key = ResKey::parse("nw_goblina", mg_core::ResType::UTC).unwrap();
+        let mut gff = Gff::new(*b"UTC ");
+        gff.root.set("Tag", Value::String(b"NW_GOBLINA".to_vec()));
+        ws.view(key, gff.clone());
+        assert!(ws.is_viewed(&key));
+        assert_eq!(ws.doc(&key).unwrap().root.string("Tag"), Some(&b"NW_GOBLINA"[..]));
+        let edit = Edit::SetField {
+            key,
+            path: GffPath::root(),
+            label: "Tag".into(),
+            value: Some(Value::String(b"MINE".to_vec())),
+        };
+        assert!(ws.apply(Command::new("edit", vec![edit])).is_err());
+        assert!(!ws.is_modified());
+        let own = Edit::SetResource { key, data: Some(gff.to_bytes().unwrap()) };
+        ws.apply(Command::new("copy", vec![own])).unwrap();
+        assert!(!ws.is_viewed(&key), "the module's own is the one edited");
     }
 
     #[test]

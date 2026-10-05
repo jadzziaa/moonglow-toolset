@@ -797,6 +797,10 @@ impl Renderer {
                 let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
                 let alpha =
                     replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha) * inst.opacity;
+                // (Wholly see-through: nothing to draw.)
+                if alpha <= 0.0 {
+                    continue;
+                }
                 let emissive = replaced.and_then(|r| r.selfillum).unwrap_or(mesh.material.emissive);
                 let dynamic_range = replaced.and_then(|r| r.vertices.as_ref()).map(|v| {
                     let size = std::mem::size_of::<Vertex>() as u64;

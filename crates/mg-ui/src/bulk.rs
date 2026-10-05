@@ -172,7 +172,7 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
         .collapsible(false)
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, "Update Instances", &mut open))
         .show(ctx, |ui| {
             let names: Vec<String> =
                 draft.blueprints.iter().map(|k| k.resref.to_string()).collect();
@@ -209,7 +209,7 @@ pub(crate) fn update_window(app: &mut Moonglow, ctx: &Context) {
             let n = draft.objects.iter().filter(|o| o.on && in_scope(o, only)).count();
             ui.horizontal(|ui| {
                 ok = ui.add_enabled(n > 0, egui::Button::new(format!("Update {n}"))).clicked();
-                cancel = ui.button("Cancel").clicked();
+                cancel = crate::widgets::cancel(ui);
             });
         });
     if ok {
@@ -324,7 +324,7 @@ pub(crate) fn text_window(app: &mut Moonglow, ctx: &Context) {
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
         .default_width(560.0)
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, "Find and Replace Text", &mut open))
         .show(ctx, |ui| {
             ui.weak(
                 "The module's names, descriptions, conversation lines and journal, in every \

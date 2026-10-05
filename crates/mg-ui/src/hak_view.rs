@@ -568,7 +568,7 @@ pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
                 if ui.button("Discard").clicked() {
                     answer = Some(false);
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     app.hak_closing = None;
                 }
             });

@@ -1961,12 +1961,41 @@ fn palette_edit_copy_and_delete() {
     h.run();
     h.get_by_label(&tavern).click_secondary();
     h.run();
-    h.get_by_label("Edit Copy").click();
+    // View opens the game's own to look at: a change made there isn't kept
+    // and the module doesn't get the blueprint.
+    let stock = ResKey::parse("nw_wp_tavern", ResType::UTW).unwrap();
+    h.get_by_label("View").click();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(stock)).is_some());
+    assert!(h.query_by_label_contains("the game's blueprint").is_some());
+    let set = mg_edit::Edit::SetField {
+        key: stock,
+        path: mg_edit::GffPath::root(),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(b"MINE".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![set])));
+    h.run();
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(!ws.module.contains(&stock) && !ws.is_modified(), "nothing of it is the module's");
+    close_windows(&mut h);
+    h.run();
+    // Edit Copy asks for the copy's ResRef and Tag, offering a free one.
+    h.get_by_label(&tavern).click_secondary();
+    h.run();
+    h.get_by_label("Edit Copy…").click();
+    h.run();
+    let draft = h.state().copy_as.clone().expect("the Copy window");
+    assert_eq!(draft.resref, "nw_wp_tavern001");
+    let tag = draft.tag.clone().expect("a waypoint has a tag");
+    h.state_mut().copy_as.as_mut().unwrap().tag = Some("MY_TAVERN".into());
+    h.get_by_label("Create Copy").click();
     h.run();
     // A copy in the module, shown in the Custom palette.
     let copy = ResKey::parse("nw_wp_tavern001", ResType::UTW).unwrap();
     let gff = h.state_mut().ws.as_mut().unwrap().doc(&copy).unwrap().clone();
     assert_eq!(gff.root.resref("TemplateResRef").unwrap().to_string(), "nw_wp_tavern001");
+    assert_eq!(gff.root.string("Tag"), Some(&b"MY_TAVERN"[..]), "not {tag}");
     assert!(h.state().palette.custom);
     // Custom palettes list blueprints under their own names.
     let name = mg_module::palette::blueprint_name(
@@ -3106,6 +3135,44 @@ fn item_wizard_makes_a_weapon_with_its_cost() {
     assert_eq!(made.root.integer("BaseItem"), Some(3));
     assert_eq!(made.root.integer("Cost"), Some(70));
     assert_eq!(made.root.integer("PaletteID"), Some(33));
+
+    // A second of the same name, with a ResRef and Tag of the builder's
+    // own; the ResRef the module has already is refused.
+    h.state_mut().blueprint_wizard =
+        Some(mg_ui::blueprint_wizard::BlueprintWizard::new(BlueprintKind::Item));
+    h.run();
+    h.get_by_label("Bastard Sword").scroll_to_me();
+    h.run();
+    h.get_by_label("Bastard Sword").click();
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    type_into_hint(&mut h, "Name", "Wizard Sword");
+    h.state_mut().blueprint_wizard.as_mut().unwrap().resref = "wizardsword".into();
+    h.run();
+    assert!(h.query_by_label_contains("has a wizardsword.uti already").is_some());
+    let w = h.state_mut().blueprint_wizard.as_mut().unwrap();
+    (w.resref, w.tag) = ("it_sword_ws2".into(), "IT_WS_TWO".into());
+    h.run();
+    h.get_by_label("Next >").click();
+    h.run();
+    // (The categories stay open from the first time.)
+    for branch in ["Weapons", "Bladed"] {
+        if h.query_by_label("Bastard Swords").is_none() {
+            h.get_by_label(branch).click();
+            h.run();
+        }
+    }
+    h.get_by_label("Bastard Swords").click();
+    h.run();
+    h.get_by_label("Finish").click();
+    h.run();
+    let second = module_gff(&mut h, "it_sword_ws2", ResType::UTI).expect("the second item");
+    assert_eq!(second.root.string("Tag"), Some(&b"IT_WS_TWO"[..]));
+    assert_eq!(
+        second.root.resref("TemplateResRef").map(|r| r.to_string()).as_deref(),
+        Some("it_sword_ws2")
+    );
 }
 
 /// A module with a 4 by 4 rural area holding two waypoints, at (20, 20)
@@ -3551,6 +3618,8 @@ fn copy_cut_and_paste_objects() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::V);
     h.run_steps(2);
     assert!(h.state().area_views[&area].pasting);
+    // (Where that is now: the toolbar's lines wrap as its readout changes.)
+    let over = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
     h.hover_at(over);
     press(&h, over, true, egui::Modifiers::NONE);
     press(&h, over, false, egui::Modifiers::NONE);
@@ -8126,6 +8195,18 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     assert_eq!(h.state().area_views[&area].pasted_shown, 2);
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-prefab-ghost").join("prefab_ghost.png")).unwrap();
+    // Deleted from the palette, once asked about.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    h.get_by_label("Camp").click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Delete…").click();
+    h.run_steps(3);
+    assert!(prefabs.join("Camp.prefab.json").is_file(), "not before it is confirmed");
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    assert!(!prefabs.join("Camp.prefab.json").exists());
+    assert!(h.query_by_label_contains("No prefabs yet").is_some());
 }
 
 /// Every selected object has its turning ring: the ring of any of them,
@@ -10093,6 +10174,37 @@ fn windows_remember_their_size_and_maximize() {
     let back = pane(&h, &props);
     assert!((back.size() - first.size()).length() < 2.0, "back to {back:?}, was {first:?}");
     assert!((back.min - first.min).length() < 2.0, "where it was: {back:?}, {first:?}");
+    // A double click on the bar beside the tab does the same, twice; and
+    // the window is still dragged by the bar.
+    let bar = |h: &Harness<'_, Moonglow>| {
+        let r = pane(h, &props);
+        egui::pos2(r.right() - 120.0, r.top() + 10.0)
+    };
+    for larger in [true, false] {
+        let at = bar(&h);
+        h.hover_at(at);
+        for _ in 0..2 {
+            press(&h, at, true, egui::Modifiers::NONE);
+            press(&h, at, false, egui::Modifiers::NONE);
+        }
+        h.run_steps(8);
+        let now = pane(&h, &props);
+        assert_eq!(now.area() > first.area() + 1000.0, larger, "double-clicked: {now:?}");
+        // (Later: not a third and fourth click of the same.)
+        h.hover_at(at + egui::vec2(0.0, 200.0));
+        h.run_steps(60);
+    }
+    let at = bar(&h);
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    for k in 1..=5 {
+        h.hover_at(at + egui::vec2(6.0 * k as f32, 4.0 * k as f32));
+        h.run_steps(1);
+    }
+    press(&h, at + egui::vec2(30.0, 20.0), false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let moved = pane(&h, &props).min - first.min;
+    assert!((moved - egui::vec2(30.0, 20.0)).length() < 8.0, "dragged by {moved:?}");
     // Opened again: as it first opened (maximizing isn't remembered).
     close(&mut h);
     open(&mut h);
@@ -10277,4 +10389,193 @@ fn the_area_s_readout_names_the_tile() {
     let named = view.tile_named(1, 2).expect("a tile there");
     assert!(named.starts_with("ttr01_") && named.contains(" at 1, 2"), "{named}");
     assert_eq!(view.tile_named(40, 40), None, "outside the area");
+}
+
+/// A number field dragged left and right changes its number (a builder
+/// found the drag did nothing: the value was read again from the file each
+/// frame of it).
+#[test]
+fn a_number_field_is_dragged_to_a_new_value() {
+    let Some((mut h, key)) = blueprint_harness("nw_door_ttr_01", "door_drag", ResType::UTD) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Lock").click();
+    h.run();
+    let was = field(&mut h, &key).integer("OpenLockDC").unwrap();
+    let spin =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::SpinButton;
+    let at = h.get_all_by_value(&was.to_string()).find(spin).expect("the DC field").rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    for k in 1..=8 {
+        h.hover_at(at + egui::vec2(5.0 * k as f32, 0.0));
+        h.run_steps(1);
+    }
+    press(&h, at + egui::vec2(40.0, 0.0), false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let now = field(&mut h, &key).integer("OpenLockDC").unwrap();
+    assert!(now > was, "dragged from {was} to {now}");
+    // One command for the whole drag.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(field(&mut h, &key).integer("OpenLockDC"), Some(was));
+}
+
+/// A drag begun in a Properties window lying over the area's view moves
+/// nothing in the area.
+#[test]
+fn a_drag_in_a_window_over_the_area_moves_nothing_there() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("drag-over") else { return };
+    h.run_steps(40);
+    let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+    }
+    h.run_steps(5);
+    let before = (waypoint(&mut h, area, 0), waypoint(&mut h, area, 1));
+    // Where the window covers a waypoint: a drag from there.
+    let covered = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(p, _)| !p.surface.is_main())
+        .map(|(_, leaf)| leaf.rect)
+        .expect("the Properties window");
+    let feet = [Vec3::new(20.0, 20.0, 0.02), Vec3::new(30.0, 20.0, 0.02)];
+    let from = feet.map(|p| screen(&h, area, p)).into_iter().find(|p| covered.contains(*p));
+    let from = from.unwrap_or_else(|| panic!("no waypoint under {covered:?}"));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=6 {
+        h.hover_at(from + egui::vec2(8.0 * k as f32, 0.0));
+        h.run_steps(1);
+    }
+    press(&h, from + egui::vec2(48.0, 0.0), false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!((waypoint(&mut h, area, 0), waypoint(&mut h, area, 1)), before);
+}
+
+/// Escape closes what is in front: the Variables window over a Properties
+/// window first (which a click on Properties doesn't bury), then the
+/// Properties window itself.
+#[test]
+fn escape_closes_the_window_in_front() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("escape") else { return };
+    h.run_steps(40);
+    let at = screen(&h, area, Vec3::new(30.0, 20.0, 0.02));
+    for _ in 0..2 {
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+    }
+    h.run_steps(5);
+    let path = mg_edit::GffPath::root().item("WaypointList", 1);
+    let tab = Tab::Instance { area, path };
+    assert!(h.state().dock.find_tab(&tab).is_some(), "the Properties tab");
+    h.get_by_label("Advanced").click();
+    h.run_steps(3);
+    h.get_by_label_contains("Variables (").click();
+    h.run_steps(3);
+    assert!(h.state().var_edit.is_some(), "the Variables window");
+    // A click in Properties, behind it: the Variables window stays in front.
+    let props = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(p, _)| !p.surface.is_main())
+        .map(|(_, leaf)| leaf.rect)
+        .unwrap();
+    let beside = props.left_bottom() + egui::vec2(12.0, -12.0);
+    h.hover_at(beside);
+    press(&h, beside, true, egui::Modifiers::NONE);
+    press(&h, beside, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let top = h.ctx.memory(|m| m.areas().top_layer_id(egui::Order::Middle)).unwrap();
+    assert_eq!(top.id, egui::Id::new(Some("Variables")), "in front of Properties");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().var_edit.is_none(), "Escape closed Variables");
+    assert!(h.state().dock.find_tab(&tab).is_some(), "and only it");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&tab).is_none(), "then Properties");
+}
+
+/// Copy… in the module tree copies an area with what is placed in it,
+/// under the ResRef and Tag given, and the module lists it.
+#[test]
+fn an_area_is_copied_with_its_objects() {
+    let Some((mut h, area)) = area_harness("copy-area") else { return };
+    let key = ResKey::new(area, ResType::ARE);
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
+    h.run_steps(3);
+    let draft = h.state_mut().copy_as.as_mut().expect("the Copy window");
+    draft.resref = "start_two".into();
+    draft.tag = Some("StartTwo".into());
+    h.run_steps(2);
+    h.get_by_label("Create Copy").click();
+    h.run_steps(3);
+    let new = ResRef::from_str("start_two").unwrap();
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let are = ws.doc(&ResKey::new(new, ResType::ARE)).unwrap().root.clone();
+    assert_eq!(are.resref("ResRef"), Some(new));
+    assert_eq!(are.string("Tag"), Some(&b"StartTwo"[..]));
+    let placed = |ws: &mut mg_edit::Workspace, a: ResRef| {
+        let git = ws.doc(&ResKey::new(a, ResType::GIT)).unwrap();
+        git.root.list("WaypointList").map_or(0, <[mg_gff::Struct]>::len)
+    };
+    assert_eq!(placed(ws, new), placed(ws, area));
+    assert!(placed(ws, new) > 0);
+    let ifo = ws.doc(&ResKey::parse("module", ResType::IFO).unwrap()).unwrap();
+    let listed: Vec<ResRef> = ifo
+        .root
+        .list("Mod_Area_list")
+        .unwrap()
+        .iter()
+        .filter_map(|a| a.resref("Area_Name"))
+        .collect();
+    assert_eq!(listed, [area, new]);
+    // A name the module has is refused.
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(key));
+    h.run_steps(3);
+    h.state_mut().copy_as.as_mut().unwrap().resref = "start_two".into();
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("has a start_two already").is_some());
+    // One undo takes the copy away.
+    h.state_mut().copy_as = None;
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    let ws = h.state().ws.as_ref().unwrap();
+    assert!(!ws.module.contains(&ResKey::new(new, ResType::ARE)));
+    assert!(!ws.module.contains(&ResKey::new(new, ResType::GIT)));
+}
+
+/// A placeable that is only an effect (flames, magic sparks: models with
+/// emitters and no mesh) shows its particles in the area, while the
+/// animations play.
+#[test]
+fn effect_placeables_show_their_particles_in_the_area() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("particles") else { return };
+    h.run_steps(40);
+    assert_eq!(h.state().area_views[&area].particles_shown, 0);
+    h.state_mut().palette.selected = ResKey::parse("plc_flamelarge", ResType::UTP);
+    let at = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(30);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    assert_eq!(git.root.list("Placeable List").map(<[mg_gff::Struct]>::len), Some(1));
+    assert!(h.state().area_views[&area].particles_shown > 0, "its particles are drawn");
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    h.hover_at(at + egui::vec2(150.0, 150.0));
+    h.run_steps(200);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-area-particles").join("particles.png")).unwrap();
 }

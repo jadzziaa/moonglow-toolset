@@ -156,72 +156,44 @@ pub(crate) struct Viewer<'a> {
     pub(crate) app: &'a mut Moonglow,
 }
 
-impl TabViewer for Viewer<'_> {
-    type Tab = Tab;
-
-    fn id(&mut self, tab: &mut Tab) -> Id {
-        Id::new(("tab", &*tab))
-    }
-
-    fn title(&mut self, tab: &mut Tab) -> WidgetText {
-        match tab {
-            Tab::Welcome => "Welcome".into(),
-            Tab::ModuleProperties => "Module Properties".into(),
-            Tab::Script(k) => {
-                let dirty = self.app.scripts.get(k).is_some_and(|b| b.is_dirty());
-                format!("{k}{}", if dirty { " *" } else { "" }).into()
-            }
-            Tab::Gff(k) => k.to_string().into(),
-            Tab::Resources => "Resources".into(),
-            Tab::Palette => "Palettes".into(),
-            Tab::Blueprint(k) => k.to_string().into(),
-            Tab::Factions => "Factions".into(),
-            Tab::Journal => "Journal".into(),
-            Tab::Tileset(id) => {
-                let doc = self.app.tilesets.iter().find(|d| d.id == *id);
-                doc.map_or("Tileset".into(), |d| d.title()).into()
-            }
-            Tab::Hak(id) => {
-                let doc = self.app.haks.iter().find(|d| d.id == *id);
-                doc.map_or("Hak".into(), |d| d.title()).into()
-            }
-            Tab::TalkTable => {
-                let dirty = self.app.talk.as_ref().is_some_and(|t| t.is_dirty());
-                format!("Talk Table{}", if dirty { " *" } else { "" }).into()
-            }
-            Tab::Dialog(k) => k.to_string().into(),
-            Tab::Resource(k) => format!("{k} (read-only)").into(),
-            Tab::Model(k) => k.to_string().into(),
-            Tab::Area(r) => area_label(self.app, *r).into(),
-            Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),
-            Tab::AreaProperties(area) => {
-                format!("{} (Area Properties)", area_label(self.app, *area)).into()
-            }
-            Tab::AreasProperties(areas) => {
-                format!("{} areas (Area Properties)", areas.len()).into()
-            }
-            Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()).into(),
-            Tab::Blueprints(keys) => {
-                let ext = keys[0].restype.extension().unwrap_or_default();
-                format!("{} blueprints (.{ext})", keys.len()).into()
-            }
-            Tab::Manual => "User Manual".into(),
-            Tab::References => "References".into(),
-            Tab::InstanceModel { area, path } => {
-                format!("{} (preview)", instance_title(self.app, *area, path)).into()
-            }
-        }
-    }
-
-    fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
+impl Viewer<'_> {
+    /// What a tab shows.
+    fn body(&mut self, ui: &mut Ui, tab: &mut Tab) {
         crate::trace::changed(&format!("drawn {tab:?}"), || format!("in {:?}", ui.max_rect()));
+        // (The dock's windows have no margin: `Moonglow::ui`. What a tab
+        // shows has the usual one.)
+        ui.spacing_mut().window_margin = ui.ctx().global_style().spacing.window_margin;
         // Escape closes a model's window (opened to look, and in the way
-        // after), while the pointer is over it and nothing is being typed.
-        if matches!(tab, Tab::Model(_) | Tab::InstanceModel { .. })
-            && ui.rect_contains_pointer(ui.max_rect())
+        // after), while the pointer is over it and nothing is being typed;
+        // and a Properties window, when it is the one in front (what it
+        // changed is kept, as when its tab is closed: Undo takes it back).
+        // Dialogs over it close first.
+        // (Not during a drag, which Escape drops.)
+        let escape = crate::widgets::escape_past_dialogs(ui.ctx())
             && ui.memory(|m| m.focused().is_none())
-            && ui.input(|i| i.key_pressed(egui::Key::Escape))
-        {
+            && !ui.input(|i| i.pointer.any_down());
+        let model = matches!(tab, Tab::Model(_) | Tab::InstanceModel { .. })
+            && ui.rect_contains_pointer(ui.max_rect());
+        let layer = ui.layer_id();
+        let front = layer.order == egui::Order::Middle
+            && ui.memory(|m| {
+                // (The last of the windows showing: closed ones keep their
+                // place in the order.)
+                let showing =
+                    |l: &egui::LayerId| l.order == egui::Order::Middle && m.areas().is_visible(l);
+                m.layer_ids().filter(showing).last()
+            }) == Some(layer)
+            && matches!(
+                tab,
+                Tab::Blueprint(_)
+                    | Tab::Blueprints(_)
+                    | Tab::Instance { .. }
+                    | Tab::Instances { .. }
+                    | Tab::AreaProperties(_)
+                    | Tab::AreasProperties(_)
+                    | Tab::ModuleProperties
+            );
+        if escape && (model || front) {
             self.app.actions.push(crate::Action::CloseTab(tab.clone()));
         }
         match tab {
@@ -274,6 +246,82 @@ impl TabViewer for Viewer<'_> {
             Tab::References => crate::references::ui(self.app, ui),
         }
     }
+}
+
+impl TabViewer for Viewer<'_> {
+    type Tab = Tab;
+
+    fn id(&mut self, tab: &mut Tab) -> Id {
+        Id::new(("tab", &*tab))
+    }
+
+    fn title(&mut self, tab: &mut Tab) -> WidgetText {
+        match tab {
+            Tab::Welcome => "Welcome".into(),
+            Tab::ModuleProperties => "Module Properties".into(),
+            Tab::Script(k) => {
+                let dirty = self.app.scripts.get(k).is_some_and(|b| b.is_dirty());
+                format!("{k}{}", if dirty { " *" } else { "" }).into()
+            }
+            Tab::Gff(k) => k.to_string().into(),
+            Tab::Resources => "Resources".into(),
+            Tab::Palette => "Palettes".into(),
+            Tab::Blueprint(k) if self.app.ws.as_ref().is_some_and(|ws| ws.is_viewed(k)) => {
+                format!("{k} (the game's: view only)").into()
+            }
+            Tab::Blueprint(k) => k.to_string().into(),
+            Tab::Factions => "Factions".into(),
+            Tab::Journal => "Journal".into(),
+            Tab::Tileset(id) => {
+                let doc = self.app.tilesets.iter().find(|d| d.id == *id);
+                doc.map_or("Tileset".into(), |d| d.title()).into()
+            }
+            Tab::Hak(id) => {
+                let doc = self.app.haks.iter().find(|d| d.id == *id);
+                doc.map_or("Hak".into(), |d| d.title()).into()
+            }
+            Tab::TalkTable => {
+                let dirty = self.app.talk.as_ref().is_some_and(|t| t.is_dirty());
+                format!("Talk Table{}", if dirty { " *" } else { "" }).into()
+            }
+            Tab::Dialog(k) => k.to_string().into(),
+            Tab::Resource(k) => format!("{k} (read-only)").into(),
+            Tab::Model(k) => k.to_string().into(),
+            Tab::Area(r) => area_label(self.app, *r).into(),
+            Tab::Instance { area, path } => instance_title(self.app, *area, path).into(),
+            Tab::AreaProperties(area) => {
+                format!("{} (Area Properties)", area_label(self.app, *area)).into()
+            }
+            Tab::AreasProperties(areas) => {
+                format!("{} areas (Area Properties)", areas.len()).into()
+            }
+            Tab::Instances { area, paths } => format!("{} objects ({area})", paths.len()).into(),
+            Tab::Blueprints(keys) => {
+                let ext = keys[0].restype.extension().unwrap_or_default();
+                format!("{} blueprints (.{ext})", keys.len()).into()
+            }
+            Tab::Manual => "User Manual".into(),
+            Tab::References => "References".into(),
+            Tab::InstanceModel { area, path } => {
+                format!("{} (preview)", instance_title(self.app, *area, path)).into()
+            }
+        }
+    }
+
+    fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
+        // In a window of its own: a little room inside its frame (which
+        // has no margin: `Moonglow::ui`).
+        if ui.layer_id().order == egui::Order::Middle {
+            let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
+            egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
+                // (All the room, so a view that fills its tab still does.)
+                ui.set_min_size(ui.available_size());
+                self.body(ui, tab);
+            });
+        } else {
+            self.body(ui, tab);
+        }
+    }
 
     /// The tab's menu (beside egui_dock's Eject and Close): Rename… for a
     /// resource of the module, which renames it everywhere it is named.
@@ -299,6 +347,7 @@ impl TabViewer for Viewer<'_> {
 
     /// A double click on a window's tab maximizes it, and restores it.
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
+        self.app.tab_buttons.push((tab.clone(), response.rect, response.layer_id));
         if response.double_clicked() && !tab.docks() && *tab != Tab::Palette {
             self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
         }

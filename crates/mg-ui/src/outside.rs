@@ -197,6 +197,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     .button("Later")
                     .on_hover_text("Moonglow's stay for now, and Save won't write over these files")
                     .clicked()
+                    || crate::widgets::escape_closes(ui.ctx(), "Changed Outside Moonglow")
                 {
                     answer = Some(Answer::Later);
                 }

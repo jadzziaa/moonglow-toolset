@@ -13,6 +13,11 @@ use super::Form;
 use crate::text::{decode, encode};
 use crate::widgets::commit_number;
 
+/// The most Aurora takes in the fields the files keep as bytes (DCs,
+/// hardness, an object's saves): measured in Aurora, whose forms' own
+/// limit of 100 is only what they start with. (Hit points: 10000.)
+pub(super) const BYTE_MAX: i64 = 250;
+
 /// The Trap tab: Is Trapped, then the trap's settings (enabled when
 /// trapped): type (traps.2da, with its rogue modifiers shown), disarmable,
 /// detectable, one shot, the DCs and the trap scripts.
@@ -59,10 +64,10 @@ pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
             });
             ui.end_row();
             crate::widgets::field_label(ui, "Disarm DC");
-            f.number(ui, "Disarm DC", "DisarmDC", 0..=100);
+            f.number(ui, "Disarm DC", "DisarmDC", 0..=BYTE_MAX);
             ui.end_row();
             crate::widgets::field_label(ui, "Detection DC");
-            f.number(ui, "Detection DC", "TrapDetectDC", 0..=100);
+            f.number(ui, "Detection DC", "TrapDetectDC", 0..=BYTE_MAX);
             ui.end_row();
             crate::widgets::field_label(ui, "OnDisarm");
             f.script(ui, "OnDisarm", "OnDisarm");
@@ -218,6 +223,12 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
             names("placeabletypes", "StrRef", "Label"),
         );
         let int = |r: usize, c: &str| table.get_int(r, c);
+        // Those with a picture (and the one chosen, whatever it has).
+        let ws = f.app.ws.as_ref();
+        let pictured = |r: usize| {
+            state.chosen == Some(r)
+                || game.zip(base(r)).is_some_and(|(g, b)| crate::images::has_portrait(g, ws, b))
+        };
         let rows: Vec<usize> = choices
             .iter()
             .map(|c| c.0)
@@ -235,6 +246,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                         && state.gender.is_none_or(|g| int(r, "Sex") == Some(g))
                 }
             })
+            .filter(|&r| pictured(r))
             .collect();
         let (mut ok, mut cancel) = (false, false);
         // Most of the screen's width, the grid as many to a row as it holds.
@@ -344,7 +356,7 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
                     .on_hover_text("Accept changes")
                     .clicked()
                     || (state.chosen.is_some() && crate::widgets::enter(ui));
-                cancel = ui.button("Cancel").on_hover_text("Discard changes").clicked();
+                cancel = crate::widgets::cancel_discard(ui);
             });
         });
         if ok {
@@ -469,10 +481,10 @@ pub(super) fn lock(f: &mut Form<'_>, ui: &mut Ui) {
     ui.separator();
     egui::Grid::new(("lock", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Open Lock DC");
-        f.number(ui, "Open lock DC", "OpenLockDC", 0..=100);
+        f.number(ui, "Open lock DC", "OpenLockDC", 0..=BYTE_MAX);
         ui.end_row();
         crate::widgets::field_label(ui, "Close Lock DC");
-        f.number(ui, "Close lock DC", "CloseLockDC", 0..=100);
+        f.number(ui, "Close lock DC", "CloseLockDC", 0..=BYTE_MAX);
         ui.end_row();
         crate::widgets::field_label(ui, "Key Tag");
         f.text(ui, "Key tag", "KeyName", 32);
@@ -484,7 +496,7 @@ pub(super) fn lock(f: &mut Form<'_>, ui: &mut Ui) {
 pub(super) fn durability(f: &mut Form<'_>, ui: &mut Ui) {
     crate::widgets::field_label(ui, "Hit Points");
     // The blueprint's current hit points follow its maximum.
-    if let Some(v) = commit_number(ui, f.int("HP"), 1..=32_767) {
+    if let Some(v) = commit_number(ui, f.int("HP"), 1..=10_000) {
         f.set_many(
             "Hit points",
             &[("HP", v, FieldType::Short), ("CurrentHP", v, FieldType::Short)],
@@ -492,16 +504,16 @@ pub(super) fn durability(f: &mut Form<'_>, ui: &mut Ui) {
     }
     ui.end_row();
     crate::widgets::field_label(ui, "Hardness");
-    f.number(ui, "Hardness", "Hardness", 0..=100);
+    f.number(ui, "Hardness", "Hardness", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "Fortitude Save");
-    f.number(ui, "Fortitude save", "Fort", 0..=100);
+    f.number(ui, "Fortitude save", "Fort", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "Reflex Save");
-    f.number(ui, "Reflex save", "Ref", 0..=100);
+    f.number(ui, "Reflex save", "Ref", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "Will Save");
-    f.number(ui, "Will save", "Will", 0..=100);
+    f.number(ui, "Will save", "Will", 0..=BYTE_MAX);
     ui.end_row();
     crate::widgets::field_label(ui, "");
     f.check(ui, "Plot", "Plot");

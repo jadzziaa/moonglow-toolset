@@ -377,9 +377,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let mut cancel = false;
     let mut done = None;
-    egui::Window::new("Tile Properties").collapsible(false).resizable(false).open(&mut open).show(
-        ctx,
-        |ui| {
+    egui::Window::new("Tile Properties")
+        .collapsible(false)
+        .resizable(false)
+        .open(crate::widgets::open_unless_escape(ctx, "Tile Properties", &mut open))
+        .show(ctx, |ui| {
             egui::Grid::new("tile_props").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
                 for k in 0..2 {
                     ui.add_enabled(
@@ -461,12 +463,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 {
                     done = Some(true);
                 }
-                if ui.button("Cancel").on_hover_text("Discard changes").clicked() {
+                if crate::widgets::cancel_discard(ui) {
                     cancel = true;
                 }
             });
-        },
-    );
+        });
     // The colour picker: lightcolor's 32 colours (16 for source lights).
     if let Some(which) = props.picking {
         let source = which >= 2;
@@ -479,7 +480,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         egui::Window::new("Select A Color")
             .collapsible(false)
             .resizable(false)
-            .open(&mut keep)
+            .open(crate::widgets::open_unless_escape(ctx, "Select A Color", &mut keep))
             .show(ctx, |ui| {
                 egui::Grid::new("light_colors").spacing([4.0, 4.0]).show(ui, |ui| {
                     for row in 0..colors.len().min(32) {

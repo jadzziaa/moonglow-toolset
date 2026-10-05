@@ -91,6 +91,9 @@ impl Moonglow {
     }
 }
 
+/// The width of a column of the Advanced grid (its heading's).
+const HEAD_WIDTH: f32 = 64.0;
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let Some(mut f) = app.factions() else {
         ui.label("No module is open.");
@@ -107,30 +110,35 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         ui.selectable_value(&mut view.advanced, true, "Advanced");
     });
     ui.separator();
-    ui.columns(2, |cols| {
-        // The chart or grid.
-        let ui = &mut cols[0];
+    // The chart or grid has the room; the list beside it what it needs.
+    let room = ui.available_size();
+    let list = 280.0_f32.min(room.x * 0.4);
+    ui.horizontal_top(|row| {
+        let main = egui::vec2((room.x - list - 12.0).max(120.0), room.y);
+        let layout = egui::Layout::top_down(egui::Align::Min);
+        row.allocate_ui_with_layout(main, layout, |ui| {
+        ui.set_min_width(main.x);
         egui::ScrollArea::both().id_salt("faction-main").show(ui, |ui| {
             if view.advanced {
                 // Rows: who regards (PC's own feelings are not stored);
                 // columns: whom.
                 egui::Grid::new("faction-grid").spacing([4.0, 4.0]).show(ui, |ui| {
                     crate::widgets::field_label(ui, "");
+                    // A column as wide as its numbers: a long name is cut
+                    // short there (whole on hover, and in its row).
                     for t in &f.factions {
-                        ui.strong(&t.name);
+                        let head = egui::Label::new(egui::RichText::new(&t.name).strong()).truncate();
+                        let height = ui.text_style_height(&egui::TextStyle::Body);
+                        ui.add_sized([HEAD_WIDTH, height], head).on_hover_text(&t.name);
                     }
                     ui.end_row();
                     for p in 1..n {
                         ui.strong(&f.factions[p as usize].name);
                         for t in 0..n {
-                            let mut rep = f.reputation(p, t).unwrap_or(mg_module::factions::DEFAULT_REPUTATION);
-                            let before = rep;
-                            let r = ui.add(
-                                egui::DragValue::new(&mut rep)
-                                    .range(0..=100)
-                                    .clamp_existing_to_range(false)
-                                    .custom_formatter(|v, _| format!("{v:.0}")),
-                            );
+                            let before = f.reputation(p, t).unwrap_or(mg_module::factions::DEFAULT_REPUTATION);
+                            let (set, rep, r) = crate::widgets::drag_number_shown(ui, before, |d| {
+                                d.range(0..=100).custom_formatter(|v, _| format!("{v:.0}"))
+                            });
                             ui.painter().rect_stroke(r.rect, 2.0, egui::Stroke::new(2.0, color(rep)), egui::StrokeKind::Outside);
                             let r = r.on_hover_text(format!(
                                 "{} is {} toward {}",
@@ -138,7 +146,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 attitude(rep),
                                 f.factions[t as usize].name
                             ));
-                            if (r.drag_stopped() || (r.changed() && !r.dragged())) && rep != before {
+                            let _ = r;
+                            if let Some(rep) = set {
                                 f.set_reputation(p, t, rep);
                                 changed = Some("Change reputation".into());
                             }
@@ -189,8 +198,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
         });
 
+        });
+        row.separator();
         // The faction list and its commands.
-        let ui = &mut cols[1];
+        row.vertical(|ui| {
         crate::widgets::section_heading(ui, "Factions");
         for (i, fac) in f.factions.iter().enumerate() {
             let r = ui.selectable_label(view.selected == i as u32, &fac.name);
@@ -221,6 +232,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             f.factions[sel].global = global;
             changed = Some("Faction global effect".into());
         }
+        });
     });
 
     // Add Faction.
@@ -246,7 +258,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     changed = Some(format!("Add faction {}", add.name.trim()));
                     close = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     close = true;
                 }
             });
@@ -268,7 +280,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         changed = Some("Rename faction".into());
                         close = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if crate::widgets::cancel(ui) {
                         close = true;
                     }
                 });

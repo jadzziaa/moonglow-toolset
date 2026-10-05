@@ -285,7 +285,7 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
         .default_pos(ctx.content_rect().center())
         .collapsible(false)
         .resizable(false)
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, &format!("Rename {}", decl.name), &mut open))
         .show(ctx, |ui| {
             ui.label(format!("{} — every use in the module's scripts", decl.signature));
             ui.horizontal(|ui| {
@@ -297,7 +297,7 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
                 let can = !name.trim().is_empty() && name.trim() != decl.name;
                 ok = ui.add_enabled(can, egui::Button::new("Rename")).clicked()
                     || (can && crate::widgets::enter(ui));
-                cancel = ui.button("Cancel").clicked();
+                cancel = crate::widgets::cancel(ui);
             });
         });
     if ok {

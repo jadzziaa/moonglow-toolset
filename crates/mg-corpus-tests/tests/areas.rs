@@ -328,3 +328,48 @@ fn a_model_that_fails_is_left_out_and_the_area_still_drawn() {
     assert_eq!(failures, [format!("{name}: made to fail")]);
     assert!(mg_render::guard::take_failures().is_empty(), "told once");
 }
+
+/// Fade Geometry: a tile's fading meshes (`tilefade` 1 and 4: an interior's
+/// upper walls) are given no alpha, so they aren't drawn; the others stay.
+#[test]
+fn fade_geometry_leaves_out_the_fading_meshes() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let root = corpus!();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(3);
+    let mut m = new_module(&game, "Fade", &mut rng).unwrap();
+    let tileset = ResRef::from_str("tin01").unwrap();
+    let spec = AreaSpec { name: "Room".into(), tileset, width: 2, height: 2 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let git = m.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+    let mut are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+    let set = mg_area::tileset(&game, tileset).unwrap();
+    // A walled tile in the first place (a new area's floor has nothing
+    // that fades).
+    let walled = set.tiles.iter().position(|t| t.model.eq_ignore_ascii_case("tin01_a01_01"));
+    let walled = walled.expect("the tileset's first tile");
+    are.root.list_mut("Tile_List").unwrap()[0].set("Tile_ID", mg_gff::Value::Int(walled as i32));
+    let model = AreaModel::read(&game, &are.root, &git.root, Some(&set));
+    let loaded = AreaScene::new(&gpu, &game, &model);
+    // (meshes left out, meshes in all)
+    let count = |fade: bool| -> (usize, usize) {
+        let view = View { fade, ..View::of(&model) };
+        let scene = loaded.scene(&model, &view);
+        let gone = |i: &mg_render::scene::Instance| {
+            i.state.as_ref().map_or(0, |s| s.meshes.iter().filter(|m| m.alpha == Some(0.0)).count())
+        };
+        (
+            scene.instances.iter().map(gone).sum(),
+            scene.instances.iter().map(|i| i.model.meshes.len()).sum(),
+        )
+    };
+    let (shown, all) = count(false);
+    let (faded, all_faded) = count(true);
+    assert_eq!((shown, all), (0, all_faded), "nothing left out unless asked");
+    assert!(faded > 0 && faded < all, "{faded} of {all} meshes fade");
+}

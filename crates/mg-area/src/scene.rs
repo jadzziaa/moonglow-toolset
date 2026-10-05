@@ -21,6 +21,10 @@ use mg_rules::GameData;
 
 use crate::{AreaModel, AreaObject, AreaTile, Lighting, ObjectKind, TILE_SIZE};
 
+/// How many objects' particles are simulated in a frame at most (an area
+/// of hundreds of torches still draws at once).
+const MAX_PARTICLE_OBJECTS: usize = 96;
+
 /// How to show the area.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct View {
@@ -36,6 +40,12 @@ pub struct View {
     /// Placed objects play their animations (a creature's idle loop);
     /// else they hold still, as at their start. Tiles animate either way.
     pub animate: bool,
+    /// Tiles are drawn without the parts that fade in the game to show a
+    /// character behind them (roofs, upper walls: meshes with `tilefade`
+    /// 1, and 4, which fade with a neighbouring tile's; those with 2, the
+    /// black caps under them, stay), as Aurora's Environment › Fade
+    /// Geometry leaves them out. (The game's tiles have 0, 1, 2 and 4.)
+    pub fade: bool,
 }
 
 impl View {
@@ -49,6 +59,7 @@ impl View {
             lit: true,
             show: [true; 9],
             animate: true,
+            fade: false,
         }
     }
 
@@ -341,6 +352,58 @@ impl AreaScene {
         }
     }
 
+    /// The particles of the placed objects with emitters (a campfire's
+    /// flames, a portal, sparks: placeables that are nothing else show
+    /// nothing without them), moved on by `dt` seconds and drawn for a
+    /// camera with the view matrix `camera`. `sims` keeps each object's
+    /// particles from frame to frame, by its place in the area's list and
+    /// its model; those of objects no longer shown are dropped. Tiles'
+    /// emitters are not simulated.
+    pub fn particles(
+        &self,
+        area: &AreaModel,
+        view: &View,
+        sims: &mut HashMap<(usize, usize), mg_render::particles::Particles>,
+        dt: f32,
+        camera: Mat4,
+    ) -> Vec<mg_render::particles::ParticleBatch> {
+        let mut out = Vec::new();
+        let mut seen = Vec::new();
+        for (i, (o, shown)) in area.objects.iter().zip(&self.objects).enumerate() {
+            let Some(shown) = shown else { continue };
+            if !view.shows(o.kind) || seen.len() >= MAX_PARTICLE_OBJECTS {
+                continue;
+            }
+            let key = (i, Arc::as_ptr(shown) as usize);
+            if self.failed.borrow().contains(&key.1) {
+                continue;
+            }
+            let c = &shown.composed;
+            let name = o.preview.as_ref().map_or("an object", |p| p.base.model.as_str());
+            let transform = o.model_transform();
+            let drawn = mg_render::guard::guarded(name, || {
+                let (model, playing, pose) = c.emitters(c.idle.as_deref(), view.time)?;
+                let sim =
+                    sims.entry(key).or_insert_with(|| mg_render::particles::Particles::new(model));
+                sim.ground = o.position.z;
+                sim.update(model, playing, view.time, dt, &pose, transform);
+                Some(sim.batches(model, playing, view.time, &pose, transform, camera))
+            });
+            match drawn {
+                Some(Some(batches)) => {
+                    seen.push(key);
+                    out.extend(batches);
+                }
+                Some(None) => {}
+                None => {
+                    self.failed.borrow_mut().insert(key.1);
+                }
+            }
+        }
+        sims.retain(|k, _| seen.contains(k));
+        out
+    }
+
     /// The scene of `area` (the model these models were loaded for) as
     /// `view` shows it.
     pub fn scene(&self, area: &AreaModel, view: &View) -> Scene {
@@ -504,10 +567,24 @@ impl AreaScene {
                 });
             }
         }
-        let state = (!layers.is_empty()).then(|| {
-            let s = anim::mesh_state_layers(&loaded.gpu, &layers, view.time);
-            Arc::new(s)
-        });
+        let mut state =
+            (!layers.is_empty()).then(|| anim::mesh_state_layers(&loaded.gpu, &layers, view.time));
+        // Fade Geometry: the fading meshes aren't drawn.
+        if view.fade {
+            let fades = |m: &mg_render::model::GpuMesh| {
+                matches!(&model.nodes[m.node].kind,
+                    mg_mdl::NodeKind::Mesh(mesh) if matches!(mesh.tilefade, 1 | 4))
+            };
+            if loaded.gpu.meshes.iter().any(fades) {
+                let s = state.get_or_insert_with(|| mg_render::scene::MeshState::new(&loaded.gpu));
+                for (o, m) in s.meshes.iter_mut().zip(&loaded.gpu.meshes) {
+                    if fades(m) {
+                        o.alpha = Some(0.0);
+                    }
+                }
+            }
+        }
+        let state = state.map(Arc::new);
         // The model's `replace_tex`, drawn with the tile's replacement.
         let textures = tile.replace_texture.as_ref().map(|t| {
             Arc::new(std::collections::HashMap::from([("replace_tex".to_string(), t.clone())]))

@@ -75,6 +75,12 @@ pub struct BlueprintWizard {
     pub name: String,
     /// Whether the name was typed (else it follows the category).
     named: bool,
+    /// A ResRef and a Tag of the builder's own; empty, they are made from
+    /// the name as Aurora's wizards make them.
+    pub resref: String,
+    pub tag: String,
+    /// The ResRef typed can't be used (it isn't one, or the module has it).
+    resref_refused: bool,
     pub launch: bool,
     pub appearance: u8,
     pub looping: Option<bool>,
@@ -92,6 +98,9 @@ impl BlueprintWizard {
             category: None,
             name: String::new(),
             named: false,
+            resref: String::new(),
+            tag: String::new(),
+            resref_refused: false,
             // Aurora launches the properties after the Sound Wizard only.
             launch: kind == BlueprintKind::Sound,
             appearance: 1,
@@ -121,7 +130,7 @@ impl BlueprintWizard {
             Step::Waves => !self.sounds.is_empty(),
             Step::Creatures => !self.creatures.is_empty(),
             Step::Category => self.category.is_some(),
-            Step::Name => !self.name.trim().is_empty(),
+            Step::Name => !self.name.trim().is_empty() && !self.resref_refused,
         }
     }
 
@@ -138,9 +147,10 @@ impl BlueprintWizard {
     /// The blueprint, with the resref it takes in the module.
     fn build(&self, game: &GameData, taken: impl Fn(&ResRef) -> bool) -> (ResRef, mg_gff::Gff) {
         let name = self.name.trim();
-        let resref = blueprints::resref(name, taken);
+        let own = ResRef::from_str(self.resref.trim()).ok().filter(|r| !r.is_empty());
+        let resref = own.unwrap_or_else(|| blueprints::resref(name, taken));
         let category = self.category.unwrap_or(0);
-        let g = match self.kind {
+        let mut g = match self.kind {
             BlueprintKind::Waypoint => {
                 blueprints::waypoint(resref, &blueprints::tag(name), self.appearance, category)
             }
@@ -159,6 +169,10 @@ impl BlueprintWizard {
             }
             BlueprintKind::Creature => unreachable!("the Creature Wizard's own window"),
         };
+        let tag = self.tag.trim();
+        if !tag.is_empty() {
+            g.root.set("Tag", mg_gff::Value::String(crate::text::encode(tag)));
+        }
         (resref, g)
     }
 }
@@ -426,6 +440,43 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                 if field.changed() {
                     w.named = true;
                 }
+                // The ResRef and Tag it gets: made from the name, as in
+                // Aurora, unless others are typed here.
+                ui.add_space(6.0);
+                let kind = w.kind.restype();
+                let taken = |r: &ResRef| key_taken(app, r);
+                let made = blueprints::resref(w.name.trim(), taken);
+                egui::Grid::new("bw-names").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                    crate::widgets::field_label(ui, "ResRef");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut w.resref)
+                            .hint_text(made.to_string())
+                            .desired_width(180.0),
+                    )
+                    .on_hover_text("Left empty: made from the name");
+                    ui.end_row();
+                    crate::widgets::field_label(ui, "Tag");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut w.tag)
+                            .hint_text(blueprints::tag(w.name.trim()))
+                            .desired_width(180.0),
+                    )
+                    .on_hover_text("Left empty: made from the name");
+                    ui.end_row();
+                });
+                let typed = w.resref.trim();
+                let problem = match ResRef::from_str(typed) {
+                    _ if typed.is_empty() => None,
+                    Err(e) => Some(e.to_string()),
+                    Ok(r) if key_taken(app, &r) => {
+                        Some(format!("The module has a {} already", ResKey::new(r, kind)))
+                    }
+                    Ok(_) => None,
+                };
+                w.resref_refused = problem.is_some();
+                if let Some(p) = problem {
+                    ui.colored_label(ui.visuals().warn_fg_color, p);
+                }
             }
         }
         if w.last() {
@@ -447,7 +498,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             {
                 finish = true;
             }
-            if ui.button("Cancel").clicked() {
+            if crate::widgets::cancel(ui) {
                 close = true;
             }
         });

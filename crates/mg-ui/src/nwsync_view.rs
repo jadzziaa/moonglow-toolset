@@ -142,7 +142,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut go = false;
     let mut browse = false;
     egui::Window::new("Publish to NWSync")
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, "Publish to NWSync", &mut open))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

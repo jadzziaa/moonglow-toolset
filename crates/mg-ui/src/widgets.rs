@@ -452,7 +452,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     }
                     close = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if cancel(ui) {
                     close = true;
                 }
             });
@@ -463,37 +463,42 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     if let Some(mut edit) = app.var_edit.clone() {
         let mut close = false;
         window("Variables").show(&ctx, |ui| {
-            egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
-                ui.strong("Name");
-                ui.strong("Type");
-                ui.strong("Value");
-                ui.end_row();
-                let mut remove = None;
-                for (i, r) in edit.rows.iter_mut().enumerate() {
-                    // (A minimum: a new window offers the fields no width yet,
-                    // and they would keep to it.)
-                    let wide = |text, width| {
-                        egui::TextEdit::singleline(text)
-                            .desired_width(width)
-                            .min_size(egui::vec2(width, 0.0))
-                    };
-                    ui.add(wide(&mut r.name, VAR_NAME_WIDTH));
-                    egui::ComboBox::from_id_salt(("var-type", i))
-                        .selected_text(kind_name(r.kind))
-                        .show_ui(ui, |ui| {
-                            for k in 1..=3 {
-                                ui.selectable_value(&mut r.kind, k, kind_name(k));
-                            }
-                        });
-                    ui.add(wide(&mut r.value, VAR_VALUE_WIDTH));
-                    if ui.small_button("Delete").clicked() {
-                        remove = Some(i);
-                    }
+            // (A long list scrolls: the window keeps to the screen and its
+            // buttons stay in reach.)
+            let tall = ui.ctx().content_rect().height() * 0.6;
+            egui::ScrollArea::vertical().max_height(tall).show(ui, |ui| {
+                egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+                    ui.strong("Name");
+                    ui.strong("Type");
+                    ui.strong("Value");
                     ui.end_row();
-                }
-                if let Some(i) = remove {
-                    edit.rows.remove(i);
-                }
+                    let mut remove = None;
+                    for (i, r) in edit.rows.iter_mut().enumerate() {
+                        // (A minimum: a new window offers the fields no width yet,
+                        // and they would keep to it.)
+                        let wide = |text, width| {
+                            egui::TextEdit::singleline(text)
+                                .desired_width(width)
+                                .min_size(egui::vec2(width, 0.0))
+                        };
+                        ui.add(wide(&mut r.name, VAR_NAME_WIDTH));
+                        egui::ComboBox::from_id_salt(("var-type", i))
+                            .selected_text(kind_name(r.kind))
+                            .show_ui(ui, |ui| {
+                                for k in 1..=3 {
+                                    ui.selectable_value(&mut r.kind, k, kind_name(k));
+                                }
+                            });
+                        ui.add(wide(&mut r.value, VAR_VALUE_WIDTH));
+                        if ui.small_button("Delete").clicked() {
+                            remove = Some(i);
+                        }
+                        ui.end_row();
+                    }
+                    if let Some(i) = remove {
+                        edit.rows.remove(i);
+                    }
+                });
             });
             ui.horizontal(|ui| {
                 if ui.button("Add").clicked() {
@@ -577,7 +582,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     app.actions.push(action);
                     close = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if cancel(ui) {
                     close = true;
                 }
             });
@@ -623,7 +628,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     app.picked.insert(p.id, ResRef::EMPTY);
                     close = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if cancel(ui) {
                     close = true;
                 }
             });
@@ -707,9 +712,40 @@ pub(crate) fn commit_number<T: egui::emath::Numeric>(
     current: T,
     range: std::ops::RangeInclusive<T>,
 ) -> Option<T> {
-    let mut v = current;
-    let r = ui.add(egui::DragValue::new(&mut v).range(range).clamp_existing_to_range(false));
-    ((r.drag_stopped() || (r.changed() && !r.dragged())) && v != current).then_some(v)
+    drag_number(ui, current, |d| d.range(range))
+}
+
+/// A number field showing `current`, set up by `make` (its range, speed,
+/// suffix): the number it is changed to, once: when typed, or when a drag
+/// across it is let go (the whole drag is one change). The number a drag
+/// has reached is kept here meanwhile, since `current` is the stored one
+/// until then.
+pub(crate) fn drag_number<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    current: T,
+    make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
+) -> Option<T> {
+    drag_number_shown(ui, current, make).0
+}
+
+/// [`drag_number`], with the number the field shows (a drag's, while it
+/// goes on) and its response.
+pub(crate) fn drag_number_shown<T: egui::emath::Numeric>(
+    ui: &mut Ui,
+    current: T,
+    make: impl for<'a> FnOnce(egui::DragValue<'a>) -> egui::DragValue<'a>,
+) -> (Option<T>, T, egui::Response) {
+    let id = ui.next_auto_id().with("dragged-to");
+    let held: Option<f64> = ui.data(|d| d.get_temp(id));
+    let mut v = held.map_or(current, T::from_f64);
+    let r = ui.add(make(egui::DragValue::new(&mut v).clamp_existing_to_range(false)));
+    if r.dragged() {
+        ui.data_mut(|d| d.insert_temp(id, v.to_f64()));
+    } else if held.is_some() {
+        ui.data_mut(|d| d.remove::<f64>(id));
+    }
+    let set = (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current;
+    (set.then_some(v), v, r)
 }
 
 /// Two columns side by side where each gets at least `min` points, else one
@@ -729,6 +765,101 @@ pub(crate) fn two_columns(ui: &mut egui::Ui, min: f32, mut add: impl FnMut(&mut 
             add(ui, 1);
         });
     }
+}
+
+/// The dialogs open (windows over the toolset: wizards, prompts, tool
+/// windows), in the order they were opened, and whether Escape was pressed
+/// for the last of them this frame.
+#[derive(Clone, Default)]
+struct Dialogs {
+    open: Vec<egui::LayerId>,
+    seen: Vec<egui::LayerId>,
+    escape: bool,
+}
+
+fn dialogs_id() -> egui::Id {
+    egui::Id::new("moonglow-dialogs")
+}
+
+/// Once a frame, before anything is drawn: the dialogs shown last frame
+/// stay above the docked windows (a click on Properties used to bury the
+/// Variables window opened from it), the last opened on top; and Escape is
+/// read for [`escape_closes`]. Not while a list or menu is open, which
+/// Escape closes first.
+pub(crate) fn dialogs_begin(ctx: &egui::Context) {
+    let mut d: Dialogs = ctx.data(|x| x.get_temp(dialogs_id())).unwrap_or_default();
+    let seen = std::mem::take(&mut d.seen);
+    d.open.retain(|l| seen.contains(l));
+    for l in seen {
+        if !d.open.contains(&l) {
+            d.open.push(l);
+        }
+    }
+    for l in &d.open {
+        ctx.move_to_top(*l);
+    }
+    d.escape = ctx.input(|i| i.key_pressed(egui::Key::Escape) && i.modifiers.is_none())
+        && !egui::Popup::is_any_open(ctx);
+    ctx.data_mut(|x| x.insert_temp(dialogs_id(), d));
+}
+
+/// Escape for the dialog on `layer`: true when it was pressed and this is
+/// the dialog opened last. Each dialog asks every frame it shows, which is
+/// also how it is known to be open.
+fn escape_on(ctx: &egui::Context, layer: egui::LayerId) -> bool {
+    ctx.data_mut(|x| {
+        let d = x.get_temp_mut_or_default::<Dialogs>(dialogs_id());
+        if !d.seen.contains(&layer) {
+            d.seen.push(layer);
+        }
+        d.escape && d.open.last() == Some(&layer)
+    })
+}
+
+/// Escape closes the window titled `title` (as its close button does):
+/// true when to close it.
+pub(crate) fn escape_closes(ctx: &egui::Context, title: &str) -> bool {
+    // (A window's id is made from its title so: `Window::new`.)
+    escape_on(ctx, egui::LayerId::new(egui::Order::Middle, egui::Id::new(Some(title))))
+}
+
+/// A window's `open` flag, cleared when Escape closes it
+/// ([`escape_closes`]): for `Window::open`.
+pub(crate) fn open_unless_escape<'a>(
+    ctx: &egui::Context,
+    title: &str,
+    open: &'a mut bool,
+) -> &'a mut bool {
+    if escape_closes(ctx, title) {
+        *open = false;
+    }
+    open
+}
+
+/// Escape was pressed with no dialog open (for a window of the dock to
+/// close on it).
+pub(crate) fn escape_past_dialogs(ctx: &egui::Context) -> bool {
+    ctx.data(|x| x.get_temp::<Dialogs>(dialogs_id())).is_some_and(|d| d.escape && d.open.is_empty())
+}
+
+/// A dialog's Cancel button: clicked, or Escape pressed for its window.
+pub(crate) fn cancel(ui: &mut Ui) -> bool {
+    cancel_button(ui, None)
+}
+
+/// [`cancel`], saying on hover that changes are discarded.
+pub(crate) fn cancel_discard(ui: &mut Ui) -> bool {
+    cancel_button(ui, Some("Discard changes"))
+}
+
+fn cancel_button(ui: &mut Ui, hover: Option<&str>) -> bool {
+    let mut r = ui.button("Cancel");
+    if let Some(h) = hover {
+        r = r.on_hover_text(h);
+    }
+    // (In a window of its own: not a Cancel within a docked tab.)
+    let layer = ui.layer_id();
+    r.clicked() || (layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer))
 }
 
 /// Enter in a dialog: what its main button (Create, OK, Next, Finish) does,

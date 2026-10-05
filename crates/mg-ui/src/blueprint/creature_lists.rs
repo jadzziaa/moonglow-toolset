@@ -43,6 +43,19 @@ fn filter(ui: &mut Ui, id: egui::Id) -> String {
     text.to_lowercase()
 }
 
+/// Whether a feat's or spell's row is one to offer: it has a name in the
+/// talk table, and isn't one the game's tables mark as gone by its label
+/// (`DELETED`, `DELETED_PRO_Cold`, `Padding`). The game's feat.2da and
+/// spells.2da keep such rows so the rows after them keep their numbers; a
+/// creature that has one still shows it.
+pub(crate) fn offered(table: &mg_2da::TwoDa, row: usize, name: &str, label: &str) -> bool {
+    let gone = table.get(row, label).is_some_and(|l| {
+        let l = l.to_ascii_lowercase();
+        l.starts_with("deleted") || l.starts_with("padding")
+    });
+    !gone && table.get_int(row, name).is_some()
+}
+
 /// feat.2da `TOOLSCATEGORIES`: the toolset's categories of feats.
 const FEAT_CATEGORIES: [(i32, &str); 6] = [
     (1, "Combat"),
@@ -126,11 +139,29 @@ pub(super) fn described(
             g.string(mg_core::StrRef(u32::try_from(strref).ok()?))
         });
         ui.set_max_width(440.0);
+        // Which row it is: several feats and spells share a name.
+        if let Some(t) = game.and_then(|g| g.table(table).ok()) {
+            ui.weak(row_line(&t, table, row));
+        }
         match text.filter(|t| !t.trim().is_empty()) {
             Some(text) => ui.label(text),
             None => ui.weak("The game has no description of it."),
         };
     })
+}
+
+/// A row's number and label, and a spell's innate level:
+/// "spells.2da row 52: Elemental_Shield, innate level 4".
+fn row_line(t: &mg_2da::TwoDa, table: &str, row: usize) -> String {
+    let label = t.get(row, "Label").or_else(|| t.get(row, "LABEL"));
+    let mut line = format!("{table}.2da row {row}");
+    if let Some(l) = label {
+        line += &format!(": {l}");
+    }
+    if let Some(level) = t.get_int(row, "Innate").filter(|_| table == "spells") {
+        line += &format!(", innate level {level}");
+    }
+    line
 }
 
 pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
@@ -172,7 +203,9 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).show(ui, |ui| {
         for c in &all {
             let on = list.contains(&(c.row as i64));
+            let offer = feat_table.as_ref().is_none_or(|t| offered(t, c.row, "FEAT", "LABEL"));
             if (assigned_only && !on)
+                || (!on && !offer)
                 || !c.text.to_lowercase().contains(&needle)
                 || !in_category(c.row)
             {
@@ -213,6 +246,7 @@ fn class_spells(game: &GameData, class: usize) -> Vec<(usize, String, usize)> {
     let Ok(spells) = game.table("spells") else { return Vec::new() };
     names
         .into_iter()
+        .filter(|c| offered(&spells, c.row, "Name", "Label"))
         .filter_map(|c| {
             let level = spells.get_int(c.row, &column)?;
             Some((c.row, c.text, level.clamp(0, 9) as usize))
@@ -588,10 +622,14 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
             egui::ScrollArea::vertical().id_salt(("utc-special-all", key)).max_height(400.0).show(
                 ui,
                 |ui| {
-                    for c in names
-                        .iter()
-                        .filter(|c| c.text.to_lowercase().contains(&needle) && in_category(c.row))
-                    {
+                    let offer = |row: usize| {
+                        spell_table.as_ref().is_none_or(|t| offered(t, row, "Name", "Label"))
+                    };
+                    for c in names.iter().filter(|c| {
+                        c.text.to_lowercase().contains(&needle)
+                            && in_category(c.row)
+                            && offer(c.row)
+                    }) {
                         let r =
                             ui.selectable_label(false, &c.text).on_hover_text("Add a use of it");
                         let game = described_by.as_deref();
@@ -948,6 +986,18 @@ mod tests {
         s.set("SpellCasterLevel", Value::Byte(level));
         s.set("SpellFlags", Value::Byte(1));
         s
+    }
+
+    #[test]
+    fn deleted_and_unnamed_rows_are_not_offered() {
+        let text =
+            b"2DA V2.0\n\n  Label Name Innate\n0 Acid_Fog 2 6\n1 DELETED_PRO_Cold 5118 ****\n\
+            2 Bless_Weapon **** ****\n3 Padding 7 ****\n4 **** **** ****\n";
+        let t = mg_2da::TwoDa::parse(&text[..], mg_core::Codepage::default()).unwrap();
+        let offer: Vec<bool> = (0..5).map(|r| offered(&t, r, "Name", "Label")).collect();
+        assert_eq!(offer, [true, false, false, false, false]);
+        assert_eq!(row_line(&t, "spells", 0), "spells.2da row 0: Acid_Fog, innate level 6");
+        assert_eq!(row_line(&t, "feat", 4), "feat.2da row 4");
     }
 
     #[test]

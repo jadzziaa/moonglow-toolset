@@ -341,7 +341,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     });
                     close = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     close = true;
                 }
             });
@@ -384,7 +384,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     app.actions.push(Action::Import(draft.clone()));
                     close = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     close = true;
                 }
             });

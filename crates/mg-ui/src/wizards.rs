@@ -82,7 +82,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         app.actions.push(Action::NewModule(name.trim().to_string()));
                         close = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if crate::widgets::cancel(ui) {
                         close = true;
                     }
                 });
@@ -138,7 +138,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         app.after_new_area = (w.open_viewer, w.launch_properties);
                         close = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if crate::widgets::cancel(ui) {
                         close = true;
                     }
                 });
@@ -165,7 +165,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     app.actions.push(Action::Proceed(Box::new(pending.clone())));
                     app.confirm_discard = None;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     app.confirm_discard = None;
                 }
             });

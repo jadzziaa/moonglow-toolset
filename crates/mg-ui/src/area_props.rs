@@ -539,7 +539,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
         .default_pos(ctx.content_rect().center())
         .default_size([460.0, 520.0])
         .collapsible(false)
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, "Edit Areas Together", &mut open))
         .show(ctx, |ui| {
             ui.label(
                 "Tick the areas to edit; their Area Properties open as one, and what you \
@@ -626,7 +626,7 @@ pub(crate) fn chooser_window(app: &mut Moonglow, ctx: &egui::Context) {
                     .add_enabled(n >= 2, button)
                     .on_disabled_hover_text("Tick two areas or more")
                     .clicked();
-                cancel = ui.button("Cancel").clicked();
+                cancel = crate::widgets::cancel(ui);
             });
         });
     if edit {

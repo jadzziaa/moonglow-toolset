@@ -81,9 +81,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut w) = app.build.take() else { return };
     let mut open = true;
     let (mut build, mut done, mut export, mut go) = (false, false, false, None);
-    egui::Window::new("Build Module").open(&mut open).collapsible(false).default_width(560.0).show(
-        ctx,
-        |ui| {
+    egui::Window::new("Build Module")
+        .open(crate::widgets::open_unless_escape(ctx, "Build Module", &mut open))
+        .collapsible(false)
+        .default_width(560.0)
+        .show(ctx, |ui| {
             // The four checks, always; Advanced Controls shows what each
             // covers.
             ui.horizontal(|ui| {
@@ -149,8 +151,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     ui.add_enabled(!w.results.is_empty(), egui::Button::new("Export…")).clicked();
                 done = ui.button("Done").clicked();
             });
-        },
-    );
+        });
     if export
         && let Some(path) =
             app.dialogs.save_file(FileKind::Any, Some(std::path::Path::new("build.txt")))

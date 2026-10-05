@@ -988,7 +988,7 @@ pub(crate) fn window(app: &mut Moonglow, ui: &mut Ui) {
                 {
                     finish = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     close = true;
                 }
             });

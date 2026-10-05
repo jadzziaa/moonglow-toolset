@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:05:31Z }
 ---
 
 # Blueprints
@@ -67,8 +67,12 @@ move it there.
 The palette's buttons:
 
 - **Edit**: open a custom blueprint in its editor (or double-click it).
-- **Edit Copy**: copy any blueprint, standard or custom, into the module
-  as a new custom one, and open it.
+- **View**: open one of the game's blueprints to look at, page by page
+  as its editor shows it (or double-click it). Nothing changed there is
+  kept: the window says so, and offers **Edit Copy…**.
+- **Edit Copy…**: copy any blueprint, standard or custom, into the module
+  as a new custom one, and open it. It asks for the copy's ResRef (a free
+  one is offered) and Tag first.
 - **Delete**: remove a custom blueprint from the module.
 - **The model in the page:** a placeable's and a door's Basic page and
   an item's Appearance page show the model beside their fields, in a
@@ -114,7 +118,10 @@ and a door's transition. A window lists the objects it would change:
 New blueprints come from the **Wizards** menu (or the palette's New). Each
 type's wizard asks what Aurora's asks (the base item for an item, the
 appearance for a placeable, the classes for a creature…), a palette
-category and a name, then opens the new blueprint's properties.
+category and a name, then opens the new blueprint's properties. The Name
+page shows the ResRef and Tag the blueprint gets, made from the name as
+Aurora makes them: type others there to choose your own (not the Creature
+Wizard, yet).
 
 ## The editors
 

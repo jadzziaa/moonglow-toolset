@@ -36,6 +36,16 @@ pub fn list(dir: Option<&std::path::Path>) -> Vec<String> {
     names
 }
 
+/// Deletes a prefab's file.
+pub fn delete(dir: Option<&std::path::Path>, name: &str) -> Result<(), String> {
+    let dir = dir.ok_or("Moonglow has no data folder")?;
+    if !valid_name(name) {
+        return Err(format!("'{name}' is not a prefab's name"));
+    }
+    let path = dir.join(format!("{name}{SUFFIX}"));
+    std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
 /// Whether a name can be a prefab's (it names a file).
 pub fn valid_name(name: &str) -> bool {
     !name.trim().is_empty()
@@ -138,7 +148,7 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
         .default_pos(ctx.content_rect().center())
         .collapsible(false)
         .resizable(false)
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, "Save as Prefab", &mut open))
         .show(ctx, |ui| {
             ui.label(format!(
                 "{} object(s), placed again from Edit › Prefabs in any area.",
@@ -162,7 +172,7 @@ pub(crate) fn save_window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 save = ui.add_enabled(ok, egui::Button::new("Save")).clicked()
                     || (ok && crate::widgets::enter(ui));
-                cancel = ui.button("Cancel").clicked();
+                cancel = crate::widgets::cancel(ui);
             });
         });
     if save {

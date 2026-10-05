@@ -16,6 +16,7 @@ mod browser;
 pub mod build_view;
 pub mod bulk;
 pub mod commands;
+pub mod copy_as;
 pub mod creature_wizard;
 pub mod dialog_view;
 pub mod dialogs;
@@ -170,6 +171,8 @@ pub enum Action {
     FindTag(String),
     /// The Rename window for a resource.
     RenameDialog(ResKey),
+    /// Copy…: asks for the copy's ResRef and Tag.
+    CopyDialog(ResKey),
     /// Edit beside a script's name: opens the module's script, else the
     /// game's; a script that is nowhere is made in the module first (as
     /// Aurora does). `condition`: one that answers whether a conversation
@@ -368,6 +371,8 @@ pub struct Moonglow {
     pub references: references::References,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
+    /// The Copy window (Edit Copy, the module tree's Copy…).
+    pub copy_as: Option<copy_as::CopyDraft>,
     /// The script editor's code navigation and errors as you type.
     pub script_nav: script_nav::Nav,
     /// The Save as Prefab window: the name being typed and the objects.
@@ -415,6 +420,9 @@ pub struct Moonglow {
     /// The windows maximized, and where each was before (and its panes'
     /// corner then).
     pub(crate) maximized: HashMap<Tab, (egui::Rect, egui::Pos2)>,
+    /// The tabs of windows drawn this frame: each one's button and the
+    /// layer its window is on ([`Moonglow::window_bars`]).
+    pub(crate) tab_buttons: Vec<(Tab, egui::Rect, egui::LayerId)>,
     /// Where each window (by its first tab) is.
     windows: HashMap<Tab, WindowTrack>,
     /// Where the panes are drawn (under the toolbar, beside the tree).
@@ -545,6 +553,7 @@ impl Moonglow {
             area_focus: None,
             references: Default::default(),
             rename: None,
+            copy_as: None,
             script_nav: Default::default(),
             prefab_save: None,
             update_draft: None,
@@ -582,6 +591,7 @@ impl Moonglow {
             render_info: None,
             outside: Default::default(),
             maximized: HashMap::new(),
+            tab_buttons: Vec::new(),
             windows: HashMap::new(),
             dock_rect: None,
             confirm_delete: None,
@@ -654,6 +664,7 @@ impl Moonglow {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.trace_frame(ui);
         widgets::install_fonts(ui.ctx());
+        widgets::dialogs_begin(ui.ctx());
         // Models that broke what builds or poses them, last frame: left out
         // of what is drawn, and said so.
         for failure in mg_render::guard::take_failures() {
@@ -669,6 +680,13 @@ impl Moonglow {
         let theme = if self.settings.light_theme { egui::Theme::Light } else { egui::Theme::Dark };
         if ui.ctx().theme() != theme {
             ui.ctx().set_theme(theme);
+        }
+        // Scroll bars that are always there, with room of their own (egui's
+        // float over the content and show only under the pointer, so a
+        // list gave no sign that there was more of it).
+        let bars = egui::style::ScrollStyle::solid();
+        if ui.ctx().global_style().spacing.scroll != bars {
+            ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
         }
         match self.settings.ui_scale {
             Some(scale) => {
@@ -755,11 +773,16 @@ impl Moonglow {
                 .cloned()
                 .collect();
             let mut dock = std::mem::replace(&mut self.dock, DockState::new(Vec::new()));
+            // A window's frame without a margin: egui_dock makes a collapsed
+            // window as tall as its tab bar, margin included, which left
+            // half the bar (and half the arrow that opens it again).
+            ui.spacing_mut().window_margin = egui::Margin::ZERO;
             {
                 let mut viewer = tabs::Viewer { app: self };
                 DockArea::new(&mut dock).show_close_buttons(true).show_inside(ui, &mut viewer);
             }
             self.dock = dock;
+            self.window_bars(ui);
         });
         trace::changed("panes", || self.panes());
         self.remember_window_sizes();
@@ -792,6 +815,7 @@ impl Moonglow {
         store_wizard::popup_window(self, ui.ctx());
         references::rename_window(self, ui.ctx());
         references::delete_window(self, ui.ctx());
+        copy_as::window(self, ui.ctx());
         outside::window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
@@ -808,7 +832,11 @@ impl Moonglow {
         if let Some(report) = &self.hak_report {
             let mut open = true;
             egui::Window::new("Hak Pak Conflict Analysis")
-                .open(&mut open)
+                .open(crate::widgets::open_unless_escape(
+                    ui.ctx(),
+                    "Hak Pak Conflict Analysis",
+                    &mut open,
+                ))
                 .default_size([600.0, 400.0])
                 .show(ui.ctx(), |ui| {
                     egui::ScrollArea::both().show(ui, |ui| ui.monospace(report));
@@ -940,6 +968,51 @@ impl Moonglow {
         at.y = at.y.min(room.bottom() - size.y).max(room.top());
         self.dock.add_window(vec![tab.clone()]);
         self.put_window(&tab, egui::Rect::from_min_size(at, size));
+    }
+
+    /// The bar beside a window's tabs does what its tab does: a double
+    /// click maximizes the window and restores it, and a right click
+    /// offers that. (egui_dock gives the bar nothing; a builder looked for
+    /// both there, as on any window's title.) The window is still dragged
+    /// by it.
+    fn window_bars(&mut self, ui: &mut egui::Ui) {
+        let buttons = std::mem::take(&mut self.tab_buttons);
+        let mut toggle = None;
+        for (path, leaf) in self.dock.iter_leaves() {
+            let Some(tab) = leaf.tabs.get(leaf.active.0).or(leaf.tabs.first()) else { continue };
+            if path.surface.is_main() || tab.docks() || *tab == Tab::Palette {
+                continue;
+            }
+            let own: Vec<_> = buttons.iter().filter(|(t, ..)| leaf.tabs.contains(t)).collect();
+            let Some(layer) = own.first().map(|b| b.2) else { continue };
+            // From the last tab to the window's close button.
+            let left = own.iter().map(|b| b.1.right()).fold(leaf.rect.left(), f32::max) + 2.0;
+            let bar = egui::Rect::from_min_max(
+                egui::pos2(left, leaf.rect.top()),
+                egui::pos2(leaf.rect.right() - 28.0, leaf.viewport.top()),
+            );
+            if !bar.is_positive() || leaf.collapsed {
+                continue;
+            }
+            let id = egui::Id::new(("window-bar", path.surface.0, path.node.0));
+            let builder = egui::UiBuilder::new().layer_id(layer).max_rect(bar);
+            let response =
+                ui.scope_builder(builder, |ui| ui.interact(bar, id, egui::Sense::click()));
+            let response = response.inner;
+            if response.double_clicked() {
+                toggle = Some(tab.clone());
+            }
+            let label = if self.maximized.contains_key(tab) { "Restore" } else { "Maximize" };
+            response.context_menu(|ui| {
+                if ui.button(label).clicked() {
+                    toggle = Some(tab.clone());
+                    ui.close();
+                }
+            });
+        }
+        if let Some(tab) = toggle {
+            self.actions.push(Action::ToggleMaximize(tab));
+        }
     }
 
     /// Where each window is: its first tab, and the room its panes take.
@@ -1654,6 +1727,7 @@ impl Moonglow {
             Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
             Action::FindTag(t) => self.find_references(references::Query::Tag(t)),
             Action::RenameDialog(k) => self.rename_dialog(k),
+            Action::CopyDialog(k) => self.copy_dialog(k, false),
             Action::EditScript { name, condition } => self.edit_script(name, condition),
             Action::DeleteDialog(k) => self.confirm_delete = Some(k),
             Action::DeleteResource(k) => self.delete_resource(k),
@@ -1766,6 +1840,16 @@ impl Moonglow {
     pub(crate) fn apply(&mut self, cmd: Command) -> Result<(), mg_edit::EditError> {
         self.warn_shadowing(&cmd);
         let Some(ws) = &mut self.ws else { return Ok(()) };
+        // One of the game's blueprints, open to look at: nothing changes it.
+        let viewed = |e: &mg_edit::Edit| match e {
+            mg_edit::Edit::SetField { key, .. }
+            | mg_edit::Edit::InsertItem { key, .. }
+            | mg_edit::Edit::RemoveItem { key, .. } => ws.is_viewed(key),
+            mg_edit::Edit::SetResource { .. } => false,
+        };
+        if cmd.edits.iter().any(viewed) {
+            return Ok(());
+        }
         let custom_tlk = cmd.edits.iter().any(
             |e| matches!(e, mg_edit::Edit::SetField { label, .. } if label == "Mod_CustomTlk"),
         );
@@ -2515,6 +2599,10 @@ impl Moonglow {
         let settings = draft.apply(&self.settings);
         let language = settings.edit_language != self.settings.edit_language;
         set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
+        if language {
+            // Text fields showing the other language's text are read again.
+            self.buffers.clear();
+        }
         if !reload {
             self.settings = settings;
             if language {

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:30:32Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -259,6 +259,98 @@ a light theme. Left:
   are the dark theme's (legible on both), and the area view's overlays
   are drawn for the 3D view. A pass with a builder who uses it would
   settle the rest. (S–M)
+
+
+## From a second builder's review (October 2026)
+
+Done from it: scroll bars always showing, Escape closing the window in
+front (dialogs, then a Properties window), dialogs kept above the docked
+windows, number fields dragged to a new value (the drag did nothing),
+deleted and unnamed rows left out of the feat and spell lists, a row's
+number, label and innate level in a feat's or spell's hover, portraits
+without pictures left out of Select Portrait, doors' portraits out of
+the Creature Wizard, the Variables window's list scrolling, a read-only
+View of the game's blueprints, Edit Copy… and the wizards asking for the
+ResRef and Tag. Left:
+
+- **A drag on a number field moving objects in the area behind:**
+  reported, not reproduced
+  (`a_drag_in_a_window_over_the_area_moves_nothing_there`). (needs the
+  steps)
+- **Number fields' limits against Aurora:** measured in Aurora
+  (v89.8193.37) by typing past them: a creature's save bonuses 250 (and,
+  it seems, no lower than 0: Moonglow keeps -100, for the penalties files
+  have), its ability scores 100, natural AC 1000 (Moonglow: 255, the
+  byte the file keeps), base hit points 10000; a placeable's and a door's
+  hardness and saves 250, hit points 10000; lock and trap DCs 250. These
+  are Moonglow's now. The other fields the forms give "spin 0…100"
+  (`aurora-ui-inventory.md`: encounters, stores, alignment and the rest)
+  were not measured: the forms' limits are only what they start with.
+  (S)
+- **Which rows Aurora offers** as feats, spells and special abilities
+  (by `UserType`, `ALLCLASSESCANUSE` or else) was not captured: Moonglow
+  leaves out rows without a name and those labelled DELETED or Padding.
+  (S)
+- **View shows the editor as it is:** fields can be typed in and lists
+  clicked, and what is changed is dropped without a word beyond the
+  window's note; a field doesn't look read-only. (S)
+- **The Creature Wizard** doesn't ask for a ResRef and Tag as the other
+  wizards now do. (S)
+- **Inventory:** right-click › Equip and Add to Inventory, an item's
+  properties shown from the lists; drag and drop. (M)
+- **Creature Wizard:** a filter and a model preview for its Appearance
+  list; a choice of every portrait; blueprints made in a category the
+  palette hides (familiars) shown there. (M)
+- **Talk-table text told apart from text kept in the file** (Aurora
+  colors it), and new strings written to a talk-table range. (M)
+- **Random item properties** in the Item Wizard, as Aurora's. (M)
+- **The Variables window** is still a small fixed window. (S)
+- **"Area transitions can't be selected visually":** not understood;
+  asked. (—)
+- **Escape and a tool in the area:** with a Properties window in front,
+  Escape both drops the area's tool and closes the window. (S)
+
+## From builders' reports after 1.10.1 (October 2026)
+
+Done: an area's missing music looked for once (it was every frame), Edit
+beside a script opening the external editor where Options has scripts
+open there, a conversation's tree in the language edited, a window
+maximized from the bar beside its tab, a folded window showing its whole
+bar, the Faction Editor's columns as wide as their numbers, the journal's
+categories folding, prefabs deleted from the palette, Copy… in the
+module tree (areas with what is placed in them), particles of placed
+objects in the area view, Fade Geometry. Left:
+
+- **Dynamic body parts from custom content (GitHub issue 5):** fixed
+  with the reporter's haks over CEP 2.71. Under armor a creature's own
+  part shows where the armor's is bare skin (part 1) or none, as the
+  game shows a pale master's arm; the rule is taken from that and from
+  the reporter's Aurora screenshot, which the previews now match, not
+  measured in the client (nor what the game does for armor part 0 over
+  a body part). A model whose appearance says full-body but whose
+  skeleton has a creature's animations stands in `cpause1` (the
+  werebat stood in its rest pose). Left: the report's werejackal wears
+  a helmet whose model (`helm_129`) is in neither download, and is
+  drawn headless; what the game draws for a missing helmet model isn't
+  known. (needs the file)
+- **"The toolset must be restarted for the language to take effect":**
+  reported; Options › OK reads the game's text and the names again, and
+  text fields are now read again too. What still showed the old
+  language wasn't found. (needs the steps)
+- **Fade Geometry is one switch**, where Aurora has Never, Object Mode
+  Only and Always; and that the meshes with `tilefade` 2 (the black
+  caps) stay while those with 1 and 4 go was taken from the game's tiles
+  and their names, not compared with Aurora or the game. (S)
+- **Particles in the area:** of placed objects only (not the tiles' own
+  emitters: torches, fountains), of at most 96 objects, and only while
+  Animations is on. Magic Sparks show faintly from above; not compared
+  with the client. (S–M)
+- **A window's bar:** egui_dock gives a folded window the height of its
+  tab bar, frame included, so the dock's windows are drawn without a
+  frame margin and their tabs' contents are given one instead. (—)
+- **Copy… of a script** copies the source only: the copy is compiled
+  when the module is built or the script saved. (S)
+- **Deleting a prefab** isn't undone. (—)
 
 ## Raw fields
 

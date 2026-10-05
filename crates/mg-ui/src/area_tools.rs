@@ -65,9 +65,11 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
     let mut open = true;
     let mut cancel = false;
     let mut done = None;
-    egui::Window::new("Adjust Location").open(&mut open).resizable(false).collapsible(false).show(
-        ui.ctx(),
-        |ui| {
+    egui::Window::new("Adjust Location")
+        .open(crate::widgets::open_unless_escape(ui.ctx(), "Adjust Location", &mut open))
+        .resizable(false)
+        .collapsible(false)
+        .show(ui.ctx(), |ui| {
             if a.objects.len() > 1 {
                 ui.weak(format!("{} objects: what you change is set on each", a.objects.len()));
             }
@@ -136,12 +138,11 @@ fn adjust_window(app: &mut Moonglow, ui: &mut Ui) {
                 if ui.button("Apply").clicked() {
                     done = Some(false);
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     cancel = true;
                 }
             });
-        },
-    );
+        });
     if cancel {
         return;
     }
@@ -265,63 +266,66 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
     let labels: std::collections::HashMap<ResRef, String> =
         areas.iter().map(|a| (*a, crate::tabs::area_label(app, *a))).collect();
     let label = |a: &ResRef| labels.get(a).cloned().unwrap_or_else(|| a.to_string());
-    egui::Window::new("Find Instance").open(&mut open).default_width(460.0).show(ui.ctx(), |ui| {
-        ui.horizontal_wrapped(|ui| {
-            crate::widgets::field_label(ui, "Search For");
-            for kind in ObjectKind::ALL {
-                ui.checkbox(&mut f.kinds[kind.index()], kind.plural());
-            }
-        });
-        egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            crate::widgets::field_label(ui, "In Area");
-            let shown = f.area.map_or_else(|| "(all areas)".to_string(), |a| label(&a));
-            egui::ComboBox::from_id_salt("find-area").selected_text(shown).show_ui(ui, |ui| {
-                ui.selectable_value(&mut f.area, None, "(all areas)");
-                for a in &areas {
-                    ui.selectable_value(&mut f.area, Some(*a), label(a));
+    egui::Window::new("Find Instance")
+        .open(crate::widgets::open_unless_escape(ui.ctx(), "Find Instance", &mut open))
+        .default_width(460.0)
+        .show(ui.ctx(), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                crate::widgets::field_label(ui, "Search For");
+                for kind in ObjectKind::ALL {
+                    ui.checkbox(&mut f.kinds[kind.index()], kind.plural());
                 }
             });
-            ui.end_row();
-            crate::widgets::field_label(ui, "From Blueprint");
-            let field =
-                ui.add(egui::TextEdit::singleline(&mut f.template).hint_text("blueprint resref"));
-            crate::widgets::autofocus(ui, &field);
-            ui.end_row();
-            crate::widgets::field_label(ui, "With Tag");
-            ui.add(egui::TextEdit::singleline(&mut f.tag).hint_text("tag"));
-            ui.end_row();
-        });
-        ui.horizontal(|ui| {
-            if ui.button("Search").clicked() {
-                f.results = search(app, &f);
-            }
-            if ui.button("Clear").clicked() {
-                f = FindInstance::default();
-            }
-        });
-        ui.separator();
-        ui.weak(format!("{} found; double click one to go to it", f.results.len()));
-        egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-            egui::Grid::new("found").num_columns(4).striped(true).show(ui, |ui| {
-                for h in ["Type", "Tag", "Area", "Blueprint"] {
-                    ui.strong(h);
-                }
-                ui.end_row();
-                for r in &f.results {
-                    let row = [format!("{:?}", r.kind), r.tag.clone(), label(&r.area)];
-                    let mut double = false;
-                    for text in row {
-                        double |= ui.selectable_label(false, text).double_clicked();
+            egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
+                crate::widgets::field_label(ui, "In Area");
+                let shown = f.area.map_or_else(|| "(all areas)".to_string(), |a| label(&a));
+                egui::ComboBox::from_id_salt("find-area").selected_text(shown).show_ui(ui, |ui| {
+                    ui.selectable_value(&mut f.area, None, "(all areas)");
+                    for a in &areas {
+                        ui.selectable_value(&mut f.area, Some(*a), label(a));
                     }
-                    double |= ui.selectable_label(false, &r.template).double_clicked();
-                    if double {
-                        go = Some(r.clone());
+                });
+                ui.end_row();
+                crate::widgets::field_label(ui, "From Blueprint");
+                let field = ui
+                    .add(egui::TextEdit::singleline(&mut f.template).hint_text("blueprint resref"));
+                crate::widgets::autofocus(ui, &field);
+                ui.end_row();
+                crate::widgets::field_label(ui, "With Tag");
+                ui.add(egui::TextEdit::singleline(&mut f.tag).hint_text("tag"));
+                ui.end_row();
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Search").clicked() {
+                    f.results = search(app, &f);
+                }
+                if ui.button("Clear").clicked() {
+                    f = FindInstance::default();
+                }
+            });
+            ui.separator();
+            ui.weak(format!("{} found; double click one to go to it", f.results.len()));
+            egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
+                egui::Grid::new("found").num_columns(4).striped(true).show(ui, |ui| {
+                    for h in ["Type", "Tag", "Area", "Blueprint"] {
+                        ui.strong(h);
                     }
                     ui.end_row();
-                }
+                    for r in &f.results {
+                        let row = [format!("{:?}", r.kind), r.tag.clone(), label(&r.area)];
+                        let mut double = false;
+                        for text in row {
+                            double |= ui.selectable_label(false, text).double_clicked();
+                        }
+                        double |= ui.selectable_label(false, &r.template).double_clicked();
+                        if double {
+                            go = Some(r.clone());
+                        }
+                        ui.end_row();
+                    }
+                });
             });
         });
-    });
     if let Some(r) = go {
         app.area_focus = Some((r.area, r.kind, r.index));
         app.actions.push(Action::OpenTab(Tab::Area(r.area)));
@@ -340,9 +344,10 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
     }
     let mut open = true;
     let key = app.palette.selected;
-    egui::Window::new("Preview").open(&mut open).default_size([360.0, 460.0]).show(
-        ui.ctx(),
-        |ui| {
+    egui::Window::new("Preview")
+        .open(crate::widgets::open_unless_escape(ui.ctx(), "Preview", &mut open))
+        .default_size([360.0, 460.0])
+        .show(ui.ctx(), |ui| {
             let Some(key) = key else {
                 ui.weak("Choose a blueprint in the palette.");
                 return;
@@ -378,8 +383,7 @@ pub(crate) fn preview_window(app: &mut Moonglow, ui: &mut Ui) {
             if key.restype == ResType::UTM {
                 egui::ScrollArea::vertical().show(ui, |ui| store_stock(app, ui, &gff.root));
             }
-        },
-    );
+        });
     app.preview_window = open;
 }
 

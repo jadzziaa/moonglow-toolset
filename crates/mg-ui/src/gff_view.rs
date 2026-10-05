@@ -239,9 +239,7 @@ fn row_ui(
 fn value_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, id: egui::Id, path: &GffPath, label: &str, v: &Value) {
     macro_rules! number {
         ($x:expr, $variant:ident) => {{
-            let mut n = *$x;
-            let r = ui.add(egui::DragValue::new(&mut n));
-            if (r.drag_stopped() || (r.changed() && !r.dragged())) && n != *$x {
+            if let Some(n) = crate::widgets::drag_number(ui, *$x, |d| d) {
                 ctx.set(path, label, Value::$variant(n));
             }
         }};
@@ -256,16 +254,12 @@ fn value_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, id: egui::Id, path: &GffPath, label:
         Value::Dword64(x) => number!(x, Dword64),
         Value::Int64(x) => number!(x, Int64),
         Value::Float(x) => {
-            let mut n = *x;
-            let r = ui.add(egui::DragValue::new(&mut n).speed(0.01));
-            if (r.drag_stopped() || (r.changed() && !r.dragged())) && n.to_bits() != x.to_bits() {
+            if let Some(n) = crate::widgets::drag_number(ui, *x, |d| d.speed(0.01)) {
                 ctx.set(path, label, Value::Float(n));
             }
         }
         Value::Double(x) => {
-            let mut n = *x;
-            let r = ui.add(egui::DragValue::new(&mut n).speed(0.01));
-            if (r.drag_stopped() || (r.changed() && !r.dragged())) && n.to_bits() != x.to_bits() {
+            if let Some(n) = crate::widgets::drag_number(ui, *x, |d| d.speed(0.01)) {
                 ctx.set(path, label, Value::Double(n));
             }
         }

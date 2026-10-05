@@ -551,7 +551,7 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
                     app.actions.push(Action::DeleteResource(key));
                     open = false;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     open = false;
                 }
             });
@@ -579,7 +579,7 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     egui::Window::new(format!("Rename {}", draft.from))
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, &format!("Rename {}", draft.from), &mut open))
         .collapsible(false)
         .resizable(false)
         .show(ctx, |ui| {
@@ -623,7 +623,7 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
                 if ok.clicked() || (problem.is_none() && enter(ui)) {
                     done = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     cancel = true;
                 }
             });

@@ -232,7 +232,7 @@ pub(crate) fn about_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let mut open = true;
     egui::Window::new("About Moonglow Toolset")
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, "About Moonglow Toolset", &mut open))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

@@ -89,9 +89,12 @@ fn portraits(game: &GameData, race: u32, gender: u8) -> Vec<(u16, String)> {
                 } else {
                     sex == Some(i32::from(gender))
                 };
+                // (Not a door's or placeable's: `door01_` is listed under
+                // the fey's race.)
                 t.get_int(r, "Race") == Some(race as i32)
                     && fits
                     && t.get_int(r, "Plot").unwrap_or(0) == 0
+                    && t.get_int(r, "InanimateType").is_none()
             })
             .collect::<Vec<_>>()
     };
@@ -99,6 +102,7 @@ fn portraits(game: &GameData, race: u32, gender: u8) -> Vec<(u16, String)> {
         .into_iter()
         .chain(of(true))
         .filter_map(|r| Some((r as u16, t.get(r, "BaseResRef")?.to_string())))
+        .filter(|(_, base)| crate::images::has_portrait(game, None, base))
         .collect()
 }
 
@@ -251,7 +255,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                     finish = ui.add_enabled(last, egui::Button::new("Finish")).clicked()
                         || (last && crate::widgets::enter(ui));
-                    cancel = ui.button("Cancel").clicked();
+                    cancel = crate::widgets::cancel(ui);
                 });
             });
             ui.heading(PAGES[w.page]);

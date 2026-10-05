@@ -298,9 +298,10 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
     }
     let mut open = true;
     let (mut recover, mut discard, mut later) = (None, None, false);
-    egui::Window::new("Recover Unsaved Work").open(&mut open).collapsible(false).show(
-        ui.ctx(),
-        |ui| {
+    egui::Window::new("Recover Unsaved Work")
+        .open(crate::widgets::open_unless_escape(ui.ctx(), "Recover Unsaved Work", &mut open))
+        .collapsible(false)
+        .show(ui.ctx(), |ui| {
             ui.label("Moonglow closed without saving these modules. Their unsaved work was kept:");
             egui::Grid::new("recoveries").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
                 for (i, c) in app.recoveries.iter().enumerate() {
@@ -321,8 +322,7 @@ pub(crate) fn window(app: &mut Moonglow, ui: &egui::Ui) {
                 }
             });
             later = ui.button("Later").on_hover_text("Ask again at the next start").clicked();
-        },
-    );
+        });
     if let Some(i) = recover {
         let copy = app.recoveries.remove(i);
         app.recover(&copy);

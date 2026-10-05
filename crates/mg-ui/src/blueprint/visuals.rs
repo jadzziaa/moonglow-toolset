@@ -314,9 +314,9 @@ fn shader_params(f: &mut Form<'_>, ui: &mut Ui) {
                     for k in 1..=4 {
                         let label = format!("Float{k}");
                         let v = e.float(&label).unwrap_or(0.0);
-                        let mut n = v;
-                        let r = ui.add(egui::DragValue::new(&mut n).speed(0.01).max_decimals(3));
-                        if (r.drag_stopped() || (r.changed() && !r.dragged())) && n != v {
+                        if let Some(n) =
+                            crate::widgets::drag_number(ui, v, |d| d.speed(0.01).max_decimals(3))
+                        {
                             let mut all = items.clone();
                             all[i].set(&label, Value::Float(n));
                             changed = Some(all);
@@ -472,15 +472,9 @@ fn misc(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Visible Distance");
         ui.horizontal(|ui| {
             let v = s.float("VisibleDistance").unwrap_or(DEFAULT_DISTANCE);
-            let mut n = v;
-            let r = ui.add(
-                egui::DragValue::new(&mut n)
-                    .range(0.0..=1000.0)
-                    .speed(0.5)
-                    .max_decimals(1)
-                    .suffix(" m"),
-            );
-            if (r.drag_stopped() || (r.changed() && !r.dragged())) && n != v {
+            if let Some(n) = crate::widgets::drag_number(ui, v, |d| {
+                d.range(0.0..=1000.0).speed(0.5).max_decimals(1).suffix(" m")
+            }) {
                 f.set_misc("Visible distance", &[("VisibleDistance", Value::Float(n))]);
             }
             ui.weak(format!("the game's default is {DEFAULT_DISTANCE} m"));

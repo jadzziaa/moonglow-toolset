@@ -275,3 +275,105 @@ fn previews_render() {
     eprintln!("part colors: {differ} pixels differ");
     assert!(differ > 300 && differ < 256 * 256 / 8, "{differ} pixels differ");
 }
+
+/// Under armor, a body part shows the creature's own where the armor's
+/// is bare skin (part 1), and the armor's where it covers it (GitHub issue
+/// 5: a jackalwere's legs and paws were a human's under its armor).
+#[test]
+fn a_creature_s_own_parts_show_where_its_armor_is_bare() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut utc = CreatureLook::new(6).to_utc();
+    utc.set("BodyPart_RBicep", mg_gff::Value::Byte(2));
+    let mut worn = mg_gff::Struct::new(2);
+    worn.set("EquippedRes", mg_gff::Value::resref("worn".parse().unwrap()));
+    utc.set("Equip_ItemList", mg_gff::Value::List(vec![worn]));
+    let armor = |_: ResRef| -> Option<Gff> {
+        let mut g = Gff::new(*b"UTI ");
+        g.root.set("BaseItem", mg_gff::Value::Int(16));
+        for (field, _) in mg_rules::items::ARMOR_PARTS {
+            let n = if field == "ArmorPart_Torso" { 5 } else { 1 };
+            g.root.set(field, mg_gff::Value::Byte(n));
+        }
+        g.root.set("ArmorPart_Robe", mg_gff::Value::Byte(0));
+        Some(g)
+    };
+    let preview = creature(&game, &utc, &armor).unwrap();
+    let models = models(&preview);
+    assert!(models.contains(&"pmh0_bicepr002"), "the creature's own arm: {models:?}");
+    assert!(models.contains(&"pmh0_bicepl001"), "{models:?}");
+    assert!(models.contains(&"pmh0_chest005"), "the armor's chest: {models:?}");
+}
+
+/// A look at creatures of custom content (GitHub issue 5): `MG_PROBE_USER`
+/// a user directory with the haks, `MG_PROBE_HAKS` their names (top
+/// first, comma-separated), `MG_PROBE_UTC` the blueprints' files.
+#[test]
+#[ignore = "a look at custom content"]
+fn probe_custom_creatures() {
+    let (Some(root), Ok(user)) = (mg_testkit::nwn_root(), std::env::var("MG_PROBE_USER")) else {
+        return;
+    };
+    let install = GameInstall::new(&root, Some(std::path::PathBuf::from(user)), "en");
+    let mut game = GameData::open(&install).unwrap();
+    let haks = std::env::var("MG_PROBE_HAKS").unwrap_or_default();
+    let haks: Vec<&str> = haks.split(',').filter(|h| !h.is_empty()).collect();
+    game.resman.add_haks(&install, &haks).unwrap();
+    mg_testkit::gpu::hold();
+    let gpu = Gpu::headless().unwrap();
+    let dir = mg_testkit::scratch_dir("probe-creatures");
+    let files = std::env::var("MG_PROBE_UTC").unwrap_or_default();
+    let folder =
+        std::path::Path::new(files.split(',').next().unwrap()).parent().unwrap().to_owned();
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        Model::read(&rm.get_named(name, ResType::MDL).ok()?).ok().map(Arc::new)
+    };
+    let item_of = |r: ResRef| -> Option<Gff> {
+        let local = folder.join(format!("{r}.uti"));
+        let data = std::fs::read(local)
+            .ok()
+            .or_else(|| rm.get_named(r.as_str()?, ResType::UTI).ok().map(|d| d.into_owned()))?;
+        Gff::read(&data).ok()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    for file in files.split(',') {
+        // (A number: an appearance row, as a creature of it.)
+        let preview = match file.parse::<u16>() {
+            Ok(row) => creature_look(&game, &CreatureLook::new(row)).unwrap(),
+            Err(_) => {
+                let utc = Gff::read(&std::fs::read(file).unwrap()).unwrap();
+                creature(&game, &utc.root, &item_of).unwrap()
+            }
+        };
+        eprintln!("  idle {:?}", preview.idle);
+        eprintln!("{file}: {:?}", models(&preview));
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        eprintln!("  missing {:?}", c.missing);
+        let (min, max) = c.bounds();
+        let centre = (min + max) * 0.5;
+        let radius = ((max - min).length() * 0.5).max(0.1);
+        let camera = Camera::orbit(
+            centre,
+            radius / 20f32.to_radians().sin() * 1.1,
+            90f32.to_radians(),
+            15f32.to_radians(),
+        );
+        let scene = Scene {
+            instances: c.instances(c.idle.as_deref(), 0.5, Mat4::IDENTITY),
+            lights: c.point_lights(Mat4::IDENTITY),
+            area: AreaLight::default(),
+            background: [0.2, 0.25, 0.3],
+            ..Default::default()
+        };
+        let img = r.render_image(&gpu, rm, &scene, &camera, 384, 384);
+        let name = std::path::Path::new(file).file_stem().unwrap().to_string_lossy().into_owned();
+        let out = std::fs::File::create(dir.join(format!("{name}.png"))).unwrap();
+        let mut enc = png::Encoder::new(std::io::BufWriter::new(out), img.width, img.height);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().unwrap().write_image_data(&img.data).unwrap();
+    }
+}

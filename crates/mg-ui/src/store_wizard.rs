@@ -225,7 +225,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             {
                 finish = true;
             }
-            if ui.button("Cancel").clicked() {
+            if crate::widgets::cancel(ui) {
                 close = true;
             }
         });
@@ -357,7 +357,7 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
                 .on_hover_text("Accept changes")
                 .clicked()
                 || (ready && crate::widgets::enter(ui));
-            close = ui.button("Cancel").on_hover_text("Discard changes").clicked();
+            close = crate::widgets::cancel_discard(ui);
         });
     });
     if ok && let Some(name) = name {

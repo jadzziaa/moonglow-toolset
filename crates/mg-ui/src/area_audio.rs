@@ -107,6 +107,9 @@ pub(crate) struct AreaAudio {
     area: Option<(ResRef, bool)>,
     ambient: Option<ResRef>,
     music: Option<ResRef>,
+    /// What was last asked for as ambient sound and as music, playing or
+    /// not: one that is missing is tried once, not every frame.
+    asked: [Option<ResRef>; 2],
     placed: HashMap<usize, Slot>,
 }
 
@@ -160,10 +163,17 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
     };
     let ambient = app.settings.ambient_sound.then(|| resource(app, "ambientsound", sound));
     let volume = sound_volume.clamp(0, 127) as f32 / 127.0;
-    loop_on(app, Channel::Ambient, &mut state.ambient, ambient.flatten(), volume);
+    loop_on(
+        app,
+        Channel::Ambient,
+        &mut state.ambient,
+        &mut state.asked[0],
+        ambient.flatten(),
+        volume,
+    );
     let tune = app.settings.ambient_music.then(|| resource(app, "ambientmusic", music));
     let volume = f32::from(app.settings.music_volume.unwrap_or(MUSIC_VOLUME).min(127)) / 127.0;
-    loop_on(app, Channel::Music, &mut state.music, tune.flatten(), volume);
+    loop_on(app, Channel::Music, &mut state.music, &mut state.asked[1], tune.flatten(), volume);
 
     // Placed sounds.
     let list: Vec<PlacedSound> = if app.settings.no_placed_sounds {
@@ -226,10 +236,12 @@ fn loop_on(
     app: &mut Moonglow,
     channel: Channel,
     current: &mut Option<ResRef>,
+    asked: &mut Option<ResRef>,
     want: Option<ResRef>,
     volume: f32,
 ) {
-    if *current != want {
+    if *asked != want {
+        *asked = want;
         app.speaker.stop(channel);
         *current = want.filter(|&w| app.play_sound(channel, w, volume, true));
     } else if current.is_some() {
@@ -250,6 +262,20 @@ fn stop_all(app: &mut Moonglow, state: &mut AreaAudio) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Music the game hasn't got is looked for once, not every frame (a
+    /// builder saw the log fill and feared for the frame rate).
+    #[test]
+    fn a_missing_sound_is_tried_once() {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        let (mut current, mut asked) = (None, None);
+        let want = ResRef::from_str("mus_not_there").ok();
+        for _ in 0..5 {
+            loop_on(&mut app, Channel::Music, &mut current, &mut asked, want, 1.0);
+        }
+        let said = app.log.entries.iter().filter(|e| e.1.contains("mus_not_there")).count();
+        assert_eq!((current, said), (None, 1));
+    }
 
     fn sound(positional: bool) -> PlacedSound {
         PlacedSound {

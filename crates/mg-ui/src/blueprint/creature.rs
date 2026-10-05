@@ -263,7 +263,9 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
             crate::widgets::section_heading(ui, "Armor Class");
             egui::Grid::new(("utc-ac", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Natural AC");
-                f.number(ui, "Natural AC", "NaturalAC", 0..=100);
+                // (Aurora takes up to 1000 here, more than the byte the file
+                // keeps; a byte is the most that is kept.)
+                f.number(ui, "Natural AC", "NaturalAC", 0..=255);
                 ui.end_row();
                 for (label, v) in [
                     ("Base", "10".to_string()),
@@ -320,7 +322,9 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                         crate::widgets::field_label(ui, name);
                         ui.label(stats.saves_base[i].to_string());
                         ui.label(signed(stats.saves_modifier[i]));
-                        if let Some(v) = commit_number(ui, f.int(label), -100..=100) {
+                        // (To 250, as Aurora; below 0, which Aurora's field doesn't
+                        // go, for the penalties files have.)
+                        if let Some(v) = commit_number(ui, f.int(label), -100..=250) {
                             f.set_int(name, label, v, FieldType::Short);
                         }
                         ui.label(stats.saves[i].to_string());

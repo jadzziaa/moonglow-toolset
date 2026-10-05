@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:05:31Z }
 ---
 
 # The main window
@@ -95,8 +95,13 @@ area's view is placed there, as from the palette. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields
 of its `.are` and `.git` files; on a script, area, conversation or
 blueprint, **Find References** and **Rename…** (see
-[Modules](03-modules.md)); on any resource, **Delete…**, **Export…**,
-**Export as Files…** and **Copy to Scratch Folder**.
+[Modules](03-modules.md)); on any resource, **Copy…**, **Delete…**,
+**Export…**, **Export as Files…** and **Copy to Scratch Folder**.
+
+**Copy…** makes a copy in the module under a ResRef you give (a free one
+is offered), and for a blueprint or an area a Tag. An area is copied with
+everything placed in it and joins the module's area list; one Undo takes
+the copy away.
 
 **Delete…** asks first, and Undo brings back what it deleted. An area goes
 with everything placed in it and leaves the module's area list; a script
@@ -124,7 +129,9 @@ and Journal Editors, the resource browser, this manual) opens in a window
 of its own over the area, sized for what it shows, so the area view stays
 put. Drag a window by its tab into the main pane, or beside another, to
 dock it; drag a tab out to float it again. The palettes keep their pane on
-the right. **Escape** closes a model's window while the pointer is over
+the right. **Escape** closes the window in front: a dialog (as its Cancel
+or close button does), then a Properties window (what was changed there
+stays, and Undo takes it back); a model's window while the pointer is over
 it. Right-click a tab for **Eject** and **Close**, and for an area,
 script, conversation or blueprint of the module, **Rename…**: it is renamed
 everywhere the module names it (an area with its instances and its entry in
@@ -134,7 +141,9 @@ A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each
 kind of editor has its own). **Double-click a window's tab** to maximize
 it over the main pane, and again to put it back; **Maximize** and
-**Restore** are on the tab's right-click menu too.
+**Restore** are on the tab's right-click menu too. The bar beside the
+tab does the same on a double click and a right click, and the window is
+dragged by it. The arrow at the bar's left folds the window to its bar.
 
 Closing a tab or window never loses work: every change is part of the
 module (and undoable) the moment you make it. **Save** writes the module.

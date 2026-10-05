@@ -1219,9 +1219,11 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         let mut replace_all = false;
         let mut find_all = false;
         let title = if s.replace_mode { "Replace Text" } else { "Find Text" };
-        egui::Window::new(title).collapsible(false).resizable(false).open(&mut s.open).show(
-            &ctx,
-            |ui| {
+        egui::Window::new(title)
+            .collapsible(false)
+            .resizable(false)
+            .open(crate::widgets::open_unless_escape(&ctx, title, &mut s.open))
+            .show(&ctx, |ui| {
                 egui::Grid::new("find-grid").num_columns(2).show(ui, |ui| {
                     crate::widgets::field_label(ui, "Find What");
                     let field = ui.text_edit_singleline(&mut s.find);
@@ -1250,8 +1252,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                         replace_all = ui.button("Replace All").clicked();
                     }
                 });
-            },
-        );
+            });
         app.script_tools.search = s.clone();
         let target = s.script.filter(|k| app.scripts.contains_key(k));
         if find_next && let Some(k) = target {
@@ -1332,7 +1333,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     app.actions.push(Action::OpenTab(Tab::Script(k)));
                     close = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     close = true;
                 }
             });
@@ -1373,7 +1374,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     app.actions.push(Action::OpenTab(Tab::Script(k)));
                     close = true;
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     close = true;
                 }
             });
@@ -1394,7 +1395,9 @@ impl Moonglow {
             return;
         }
         if self.ws.as_ref().is_some_and(|w| w.module.contains(&key)) {
-            self.actions.push(Action::OpenTab(Tab::Script(key)));
+            // (As a script opened from the module tree: in the external
+            // editor, where Options has scripts open there.)
+            self.actions.push(Action::OpenResource(key));
         } else if self.game.as_deref().is_some_and(|g| g.resman.contains(&key)) {
             self.actions.push(Action::OpenTab(Tab::Resource(key)));
         } else if self.ws.is_some() {
@@ -1403,7 +1406,7 @@ impl Moonglow {
             match self.apply(Command::new(format!("New script {key}"), vec![edit])) {
                 Ok(_) => {
                     self.log.info(format!("Script '{name}' not found: created it"));
-                    self.actions.push(Action::OpenTab(Tab::Script(key)));
+                    self.actions.push(Action::OpenResource(key));
                 }
                 Err(e) => self.log.error(e.to_string()),
             }

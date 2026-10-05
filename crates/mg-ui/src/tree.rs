@@ -386,6 +386,13 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                                 app.actions.push(Action::RenameDialog(k));
                             }
                         }
+                        if ui
+                            .button("Copy…")
+                            .on_hover_text("A copy in the module, under a ResRef you give")
+                            .clicked()
+                        {
+                            app.actions.push(Action::CopyDialog(k));
+                        }
                         if ui.button("Delete…").clicked() {
                             app.actions.push(Action::DeleteDialog(k));
                         }

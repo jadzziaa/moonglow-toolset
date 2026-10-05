@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:47:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:05:57Z }
 ---
 
 # Areas
@@ -25,13 +25,18 @@ looking straight down at their middle, north up, as in Aurora.
   object). Drag it by its ring or its arrow to move it; selected, the
   arrow's tip has a round handle that turns it (both follow the snapping grid and
   angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it.
+- **Fade Geometry**: draws the tiles without the parts that fade in the
+  game to show a character behind them (roofs, upper walls), to see and
+  place what is under them (Aurora's Environment › Fade Geometry).
 - **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
   the tile grid. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
   farther off isn't lost in it.
 - **▶ Animations**: creatures and other placed objects play their
-  animations. Switched off, they hold still (tiles' water and flames go
-  on), in every area view; it stays as you leave it.
+  animations, and those with particles show them (a campfire's flames,
+  magic sparks, a portal: placeables that are only an effect show
+  nothing otherwise). Switched off, they hold still (tiles' water and
+  flames go on), in every area view; it stays as you leave it.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
   Areas opened later open as you left it.
@@ -239,6 +244,9 @@ placeables around.
   blueprint types), or under **Edit › Prefabs**. It follows the pointer
   like a paste. A click places it, with the objects in their places
   around each other and at their heights above the ground.
+- **Deleting one:** right-click it in the palette's Prefabs and choose
+  **Delete…**; it asks first (a prefab isn't the module's, so Undo
+  doesn't bring it back).
 - **Copy and paste** do the same without a name: Ctrl+C on a selection,
   Ctrl+V in this area or another.
 - **Any area, any module:** prefabs are kept in Moonglow's data folder, in

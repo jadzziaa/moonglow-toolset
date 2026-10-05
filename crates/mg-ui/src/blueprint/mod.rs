@@ -355,15 +355,9 @@ impl Form<'_> {
         speed: f64,
     ) {
         let current = self.root.float(label).unwrap_or(0.0);
-        let mut v = current;
-        let r = ui.add(
-            egui::DragValue::new(&mut v)
-                .range(range)
-                .clamp_existing_to_range(false)
-                .speed(speed)
-                .max_decimals(2),
-        );
-        if (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current {
+        if let Some(v) = crate::widgets::drag_number(ui, current, |d| {
+            d.range(range).speed(speed).max_decimals(2)
+        }) {
             self.set(what, label, Value::Float(v));
         }
     }
@@ -377,16 +371,9 @@ impl Form<'_> {
         range: std::ops::RangeInclusive<f32>,
     ) {
         let current = self.int(label) as f32 / 1000.0;
-        let mut v = current;
-        let r = ui.add(
-            egui::DragValue::new(&mut v)
-                .range(range)
-                .clamp_existing_to_range(false)
-                .speed(0.1)
-                .max_decimals(3)
-                .suffix(" s"),
-        );
-        if (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current {
+        if let Some(v) = crate::widgets::drag_number(ui, current, |d| {
+            d.range(range).speed(0.1).max_decimals(3).suffix(" s")
+        }) {
             self.set_int(what, label, (v * 1000.0).round() as i64, FieldType::Dword);
         }
     }
@@ -1009,6 +996,19 @@ pub(crate) fn edit_many(
     });
     app.blueprint_pages.insert(page_key, page);
     ui.separator();
+    if app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key)) {
+        ui.horizontal_wrapped(|ui| {
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                "This is the game's blueprint, shown to look at: what is changed here isn't kept.",
+            );
+            if ui.button("Edit Copy…").on_hover_text("A copy in the module, to change").clicked()
+            {
+                app.actions.push(Action::CopyDialog(key));
+            }
+        });
+        ui.separator();
+    }
     if !also.is_empty() {
         let what = if path.0.is_empty() { "blueprints" } else { "objects" };
         ui.weak(format!(

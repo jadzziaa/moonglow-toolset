@@ -310,6 +310,23 @@ impl Moonglow {
     }
 }
 
+/// Whether a portrait has a picture to show, in the module or the game
+/// (portraits.2da lists some the game has no pictures for: `matron`,
+/// `tm_tnobrl3_`).
+pub(crate) fn has_portrait(game: &GameData, ws: Option<&mg_edit::Workspace>, base: &str) -> bool {
+    ['m', 's', 'l', 'h', 't'].into_iter().any(|size| {
+        let Ok(name) = ResRef::from_str(&format!("po_{}{size}", base.to_ascii_lowercase())) else {
+            return false;
+        };
+        let module = ws.is_some_and(|ws| {
+            [ResType::DDS, ResType::TGA]
+                .into_iter()
+                .any(|t| ws.module.get(&ResKey::new(name, t)).is_some())
+        });
+        module || game.resman.texture(name).is_some()
+    })
+}
+
 /// A portrait thumbnail's width in a grid of them (Select Portrait, the
 /// Creature Wizard), points; it is 100/64 of that tall.
 pub(crate) const PORTRAIT_THUMB: f32 = 54.0;

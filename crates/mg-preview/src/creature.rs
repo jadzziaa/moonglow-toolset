@@ -274,7 +274,12 @@ pub fn creature(
                 continue;
             }
             let worn = armor.as_ref().map_or(0, |a| number(a, armor_field));
-            let n = if worn > 0 { worn } else { number(utc, body_field) };
+            // The armor's part covers the creature's own unless it is
+            // bare skin (part 1) or nothing: there the creature's shows (a
+            // pale master's arm; a jackalwere's legs and paws under armor
+            // whose parts are all 1).
+            let own = number(utc, body_field);
+            let n = if worn > 1 || own <= 0 { worn } else { own };
             if n <= 0 {
                 continue;
             }

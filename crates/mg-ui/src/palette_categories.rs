@@ -188,8 +188,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let title = format!("Palette Categories: {}", w.kind.label());
     // In the middle of the window, to begin with.
     let middle = ctx.content_rect().center();
-    let window = egui::Window::new(title)
-        .open(&mut open)
+    let window = egui::Window::new(title.clone())
+        .open(crate::widgets::open_unless_escape(ctx, &title, &mut open))
         .default_width(420.0)
         .collapsible(false)
         .pivot(egui::Align2::CENTER_CENTER)
@@ -289,7 +289,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             if ui.add_enabled(w.changed, egui::Button::new("OK")).clicked() {
                 done = Some(Done::Keep);
             }
-            if ui.button("Cancel").clicked() {
+            if crate::widgets::cancel(ui) {
                 done = Some(Done::Cancel);
             }
             if ui

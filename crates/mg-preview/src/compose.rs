@@ -144,6 +144,29 @@ impl Composed {
     ///
     /// A model that breaks what poses it gives nothing, from then on: the
     /// failure is noted (`mg_render::guard`) and the toolset carries on.
+    /// The base model's particle emitters, to simulate: the model, the
+    /// animation it stands in and its nodes' places at `t`. `None` for a
+    /// model without emitters (most).
+    pub fn emitters(
+        &self,
+        animation: Option<&str>,
+        t: f32,
+    ) -> Option<(&Model, Option<&Animation>, Vec<Mat4>)> {
+        let model = &*self.base.gpu.model;
+        if !model.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Emitter(_))) {
+            return None;
+        }
+        let playing = animation.and_then(|name| {
+            let owner = self.base.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
+            owner.1.animation(name)
+        });
+        let pose = match playing {
+            Some(a) => anim::pose(model, a, t),
+            None => self.base.gpu.rest.clone(),
+        };
+        Some((model, playing, pose))
+    }
+
     pub fn instances(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
         use std::sync::atomic::Ordering;
         if self.failed.load(Ordering::Relaxed) {
@@ -164,7 +187,13 @@ impl Composed {
                 .find(|(n, _)| n.eq_ignore_ascii_case(name))
                 .and_then(|(_, owner)| owner.animation(name))
         }
-        let base_anim = animation.and_then(|a| find(&self.base.anims, a));
+        // The animation asked for, else the other standing one: a model
+        // whose appearance says full-body (`pause1`) may have a creature's
+        // animations (`cpause1`), and stands in its rest pose without.
+        let base_anim = animation.and_then(|a| {
+            find(&self.base.anims, a)
+                .or_else(|| ["pause1", "cpause1"].iter().find_map(|a| find(&self.base.anims, a)))
+        });
         let base_pose: Arc<Vec<Mat4>> = Arc::new(match &base_anim {
             Some(a) => anim::pose(&self.base.gpu.model, a, t),
             None => self.base.gpu.rest.clone(),

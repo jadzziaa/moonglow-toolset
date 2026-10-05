@@ -264,7 +264,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ));
                             }
                         }
-                        if ui.button("Cancel").clicked() {
+                        if crate::widgets::cancel(ui) {
                             close = true;
                         }
                     });

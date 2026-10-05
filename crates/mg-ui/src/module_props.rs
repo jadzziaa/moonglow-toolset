@@ -77,9 +77,7 @@ fn number<T: egui::emath::Numeric + GffValue>(
     current: T,
     range: std::ops::RangeInclusive<T>,
 ) {
-    let mut v = current;
-    let r = ui.add(egui::DragValue::new(&mut v).range(range).clamp_existing_to_range(false));
-    if (r.drag_stopped() || (r.changed() && !r.dragged())) && v != current {
+    if let Some(v) = crate::widgets::commit_number(ui, current, range) {
         app.actions.push(set(what, f, v));
     }
 }
@@ -493,7 +491,7 @@ pub(crate) fn attach_window(app: &mut Moonglow, ctx: &egui::Context) {
                 if ui.button("OK").clicked() {
                     done = Some(true);
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     done = Some(false);
                 }
             });

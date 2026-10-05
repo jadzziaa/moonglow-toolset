@@ -120,36 +120,19 @@ pub fn copy_resref(from: &str, taken: &dyn Fn(&str) -> bool) -> Option<ResRef> {
         .and_then(|name| ResRef::from_str(&name).ok())
 }
 
-/// Copies a blueprint into the module under a new resref (its
-/// `TemplateResRef`, a store's `ResRef`, too); the new key.
-fn edit_copy(app: &mut Moonglow, key: ResKey) -> Option<ResKey> {
-    let game = app.game.as_deref()?;
-    let ws = app.ws.as_mut()?;
-    let data = ws
-        .module
-        .get(&key)
-        .map(<[u8]>::to_vec)
-        .or_else(|| game.resman.get(&key).ok().map(|d| d.into_owned()))?;
-    let mut gff = Gff::read(&data).ok()?;
-    let taken = |name: &str| {
-        let k = ResKey::parse(name, key.restype);
-        k.is_some_and(|k| ws.module.contains(&k) || game.resman.get(&k).is_ok())
-    };
-    let resref = copy_resref(&key.resref.to_string(), &taken)?;
-    let field =
-        BlueprintKind::from_restype(key.restype).map_or("TemplateResRef", |k| k.resref_field());
-    gff.root.set(field, Value::resref(resref));
-    let new = ResKey::new(resref, key.restype);
-    let cmd = Command::new(
-        format!("Edit copy of {key}"),
-        vec![Edit::SetResource { key: new, data: Some(gff.to_bytes().ok()?) }],
-    );
-    match app.apply(cmd) {
-        Ok(()) => Some(new),
-        Err(e) => {
-            app.log.error(e.to_string());
-            None
-        }
+/// Opens one of the game's blueprints to look at (the module's own of
+/// that name, if it has one, to edit).
+fn view_blueprint(app: &mut Moonglow, key: ResKey) {
+    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
+    if !ws.module.contains(&key) {
+        let Some(gff) = game.resman.get(&key).ok().and_then(|d| Gff::read(&d).ok()) else {
+            app.log.warn(format!("{key} could not be read"));
+            return;
+        };
+        ws.view(key, gff);
+    }
+    if let Some(t) = Tab::for_resource(key) {
+        app.actions.push(Action::OpenTab(t));
     }
 }
 
@@ -264,6 +247,8 @@ fn tags(
 
 enum Pick {
     Edit(ResKey),
+    /// One of the game's, opened to look at.
+    View(ResKey),
     EditCopy(ResKey),
     Delete(ResKey),
     Preview(ResKey),
@@ -468,15 +453,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     app.actions.push(Action::OpenTab(t));
                 }
             }
-            Pick::EditCopy(key) => {
-                if let Some(new) = edit_copy(app, key) {
-                    app.palette.custom = true;
-                    app.palette.selected = Some(new);
-                    if let Some(t) = Tab::for_resource(new) {
-                        app.actions.push(Action::OpenTab(t));
-                    }
-                }
-            }
+            Pick::EditCopy(key) => app.copy_dialog(key, true),
+            Pick::View(key) => view_blueprint(app, key),
             Pick::Delete(key) => {
                 let cmd = Command::new(
                     format!("Delete {key}"),
@@ -753,12 +731,21 @@ impl Tree<'_> {
             r.dnd_set_drag_payload(Dragged(key));
         }
         if r.double_clicked() {
-            self.picks.push(if custom { Pick::Edit(key) } else { Pick::Preview(key) });
+            self.picks.push(if custom { Pick::Edit(key) } else { Pick::View(key) });
         }
         let (sel, picks) = (&self.sel, &mut self.picks);
         r.context_menu(|ui| {
             if custom && ui.button("Edit").clicked() {
                 picks.push(Pick::Edit(key));
+                ui.close();
+            }
+            if !custom
+                && ui
+                    .button("View")
+                    .on_hover_text("Its properties, to look at: the game's blueprint isn't changed")
+                    .clicked()
+            {
+                picks.push(Pick::View(key));
                 ui.close();
             }
             let keys = sel.bulk(key);
@@ -773,8 +760,10 @@ impl Tree<'_> {
                 ui.close();
             }
             if ui
-                .button("Edit Copy")
-                .on_hover_text("Copy into the module's custom palette")
+                .button("Edit Copy…")
+                .on_hover_text(
+                    "Copy into the module's custom palette, under a ResRef and Tag you give",
+                )
                 .clicked()
             {
                 picks.push(Pick::EditCopy(key));
@@ -948,19 +937,57 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui.weak("No prefabs yet. Select objects in an area, then Save Selection as Prefab….");
         return;
     }
+    // The prefab Delete… was chosen for: asked about here, before its file
+    // goes (it is not the module's: Undo doesn't bring it back).
+    let asked_id = egui::Id::new("palette-prefab-delete");
+    let mut asked: Option<String> = ui.data(|d| d.get_temp(asked_id));
+    if let Some(name) = asked.clone().filter(|n| names.contains(n)) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!("Delete the prefab '{name}'? It can't be undone."));
+            if ui.button("Delete").clicked() {
+                match crate::prefabs::delete(app.prefab_dir.as_deref(), &name) {
+                    Ok(()) => app.log.info(format!("Prefab '{name}' deleted")),
+                    Err(e) => app.log.error(format!("Delete prefab: {e}")),
+                }
+                asked = None;
+            }
+            if ui.button("Keep").clicked() {
+                asked = None;
+            }
+        });
+        ui.separator();
+    } else {
+        asked = None;
+    }
     egui::ScrollArea::vertical().id_salt("palette-prefabs").auto_shrink([false, false]).show(
         ui,
         |ui| {
             for name in names {
-                let r = ui
-                    .selectable_label(false, &name)
-                    .on_hover_text("Click, then click in the area to place it");
+                let r = ui.selectable_label(asked.as_ref() == Some(&name), &name).on_hover_text(
+                    "Click, then click in the area to place it; right-click to delete",
+                );
                 if r.clicked() {
-                    app.actions.push(Action::PlacePrefab(name));
+                    app.actions.push(Action::PlacePrefab(name.clone()));
                 }
+                r.context_menu(|ui| {
+                    if ui.button("Place").clicked() {
+                        app.actions.push(Action::PlacePrefab(name.clone()));
+                        ui.close();
+                    }
+                    if ui.button("Delete…").clicked() {
+                        asked = Some(name.clone());
+                        ui.close();
+                    }
+                });
             }
         },
     );
+    ui.data_mut(|d| match asked {
+        Some(name) => {
+            d.insert_temp(asked_id, name);
+        }
+        None => d.remove::<String>(asked_id),
+    });
 }
 
 #[cfg(test)]

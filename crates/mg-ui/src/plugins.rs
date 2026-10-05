@@ -608,7 +608,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
                 if ui.button("OK").clicked() {
                     done = Some(true);
                 }
-                if ui.button("Cancel").clicked() {
+                if crate::widgets::cancel(ui) {
                     done = Some(false);
                 }
             });
@@ -639,7 +639,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let (mut reload, mut toggle, mut run_console, mut install) = (false, None, false, false);
     let mut remove = None;
     egui::Window::new("Plugins")
-        .open(&mut open)
+        .open(crate::widgets::open_unless_escape(ctx, "Plugins", &mut open))
         .default_pos([180.0, 90.0])
         .default_size([560.0, 480.0])
         .show(ctx, |ui| {
@@ -845,7 +845,7 @@ pub(crate) fn replace_window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             yes = ui.button("Replace").clicked();
-            no = ui.button("Cancel").clicked();
+            no = crate::widgets::cancel(ui);
         });
     });
     if yes {
@@ -872,7 +872,7 @@ pub(crate) fn remove_window(app: &mut Moonglow, ctx: &egui::Context) {
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             yes = ui.button("Remove").clicked();
-            no = ui.button("Cancel").clicked();
+            no = crate::widgets::cancel(ui);
         });
     });
     if yes {

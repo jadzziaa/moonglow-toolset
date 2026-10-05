@@ -31,6 +31,9 @@ pub enum Clip {
 pub struct JournalView {
     pub selected: Option<Node>,
     pub clipboard: Option<Clip>,
+    /// The categories opened out to their entries (closed to begin with,
+    /// as in Aurora).
+    pub open: std::collections::BTreeSet<usize>,
 }
 
 fn key() -> ResKey {
@@ -205,16 +208,52 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
         if cats.is_empty() {
             ui.weak("The module has no journal categories.");
+        } else {
+            match crate::widgets::fold_buttons(ui, "category") {
+                Some(true) => view.open = (0..cats.len()).collect(),
+                Some(false) => view.open.clear(),
+                None => {}
+            }
+        }
+        // The category of the entry selected shows it (a new entry, too).
+        if let Some(Node::Entry(c, _)) = view.selected {
+            view.open.insert(c);
         }
         for (c, cat) in cats.iter().enumerate() {
             let name = english(&cat.read(&jrl::categories::NAME));
             let tag = decode(cat.read(&jrl::categories::TAG).as_bytes());
-            let head = ui.selectable_label(
-                view.selected == Some(Node::Category(c)),
-                format!("{name}  [{tag}]"),
-            );
-            if head.clicked() {
-                view.selected = Some(Node::Category(c));
+            let count = entries(cat).len();
+            let open = view.open.contains(&c);
+            ui.horizontal(|ui| {
+                let arrow = if open { "⏷" } else { "⏵" };
+                let hint = if open { "Close the category" } else { "Show its entries" };
+                if ui.add(egui::Button::new(arrow).frame(false)).on_hover_text(hint).clicked() {
+                    if open {
+                        view.open.remove(&c);
+                        // (Its entry, now out of sight, isn't left selected.)
+                        if matches!(view.selected, Some(Node::Entry(x, _)) if x == c) {
+                            view.selected = Some(Node::Category(c));
+                        }
+                    } else {
+                        view.open.insert(c);
+                    }
+                }
+                let head = ui.selectable_label(
+                    view.selected == Some(Node::Category(c)),
+                    format!("{name}  [{tag}]"),
+                );
+                if head.clicked() {
+                    view.selected = Some(Node::Category(c));
+                }
+                if head.double_clicked() && !view.open.remove(&c) {
+                    view.open.insert(c);
+                }
+                if !open {
+                    ui.weak(format!("{count} {}", if count == 1 { "entry" } else { "entries" }));
+                }
+            });
+            if !view.open.contains(&c) {
+                continue;
             }
             ui.indent(("journal-cat", c), |ui| {
                 for (e, entry) in entries(cat).iter().enumerate() {
