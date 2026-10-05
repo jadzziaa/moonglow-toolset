@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.8.0" date="2026-10-05">
+      <description>
+        <p>The start location's marker is dragged and turned in the area
+        view. Delete on a resource in the module tree, an area with
+        everything placed in it. The Loading Screen choice shows each
+        screen's picture.</p>
+      </description>
+    </release>
     <release version="1.7.0" date="2026-10-04">
       <description>
         <p>Set the start location from an area's menu. Palette categories
