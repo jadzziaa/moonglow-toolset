@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.10.0" date="2026-10-05">
+      <description>
+        <p>The module tree can no longer take the whole window. A nasher
+        project's files changed by another program are read again while it
+        is open. A debug log for problems that fail without a word.
+        Windows remember their size and maximize. The game's text and
+        tokens in the language edited.</p>
+      </description>
+    </release>
     <release version="1.9.0" date="2026-10-05">
       <description>
         <p>Custom creatures from the Vault and CEP are drawn right: scaled
