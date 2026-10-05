@@ -94,9 +94,18 @@ impl Composed {
         let base = place(gpu, &preview.base, None, load)?;
         let base_model = base.gpu.model.clone();
         let mut missing = Vec::new();
+        // A part hangs from a node of the base: where the base has no such
+        // node (a phenotype with another body: a bariaur's has no pelvis
+        // or legs), the game draws no part.
+        let hangs = |p: &&crate::Part| {
+            p.attach.as_deref().is_none_or(|name| {
+                base_model.nodes.iter().any(|n| n.name.eq_ignore_ascii_case(name))
+            })
+        };
         let parts = preview
             .parts
             .iter()
+            .filter(hangs)
             .filter_map(|p| {
                 let placed = place(gpu, p, Some(&base_model), load);
                 if placed.is_none() {

@@ -75,15 +75,24 @@ pub struct Note {
 struct Line<'a> {
     number: usize,
     words: Vec<&'a str>,
+    /// The blank lines just before it (in a list of skin weights, each is
+    /// a vertex no bone moves).
+    blank_before: usize,
 }
 
 fn lines(text: &str) -> Vec<Line<'_>> {
+    let mut blank = 0;
     text.lines()
         .enumerate()
         .filter_map(|(i, l)| {
+            if l.trim().is_empty() {
+                blank += 1;
+                return None;
+            }
+            let blank_before = std::mem::take(&mut blank);
             let l = l.split('#').next().unwrap_or_default();
             let words: Vec<&str> = l.split_whitespace().collect();
-            (!words.is_empty()).then_some(Line { number: i + 1, words })
+            (!words.is_empty()).then_some(Line { number: i + 1, words, blank_before })
         })
         .collect()
 }
@@ -253,6 +262,16 @@ fn node_block<'a>(
                     }
                 }
                 while rows.len() < count && i < ls.len() {
+                    // A blank line among skin weights is a vertex without
+                    // any (it stays where the mesh has it): the rows after
+                    // it are still the vertices after it.
+                    if k == "weights" && !rows.is_empty() {
+                        let room = count - rows.len();
+                        rows.extend(std::iter::repeat_n(Vec::new(), ls[i].blank_before.min(room)));
+                        if rows.len() == count {
+                            break;
+                        }
+                    }
                     let first = ls[i].words[0];
                     if first.eq_ignore_ascii_case("endnode")
                         || first.eq_ignore_ascii_case("endlist")
@@ -955,6 +974,61 @@ pub(crate) fn read_with(data: &[u8], implicit_root: bool) -> Result<(Model, Sour
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A blank line among a skin's weights is a vertex without any: the
+    /// rows after it stay with their vertices (a Vault model, Mindwitness).
+    #[test]
+    fn a_blank_line_among_skin_weights_is_a_vertex_without_any() {
+        let text = "\
+newmodel s
+setsupermodel s NULL
+beginmodelgeom s
+node dummy s
+  parent NULL
+endnode
+node dummy bone_a
+  parent s
+endnode
+node dummy bone_b
+  parent s
+endnode
+node skin hide
+  parent s
+  bitmap x
+  verts 3
+    0 0 0
+    1 0 0
+    0 1 0
+  tverts 3
+    0 0 0
+    1 0 0
+    0 1 0
+  faces 1
+    0 1 2 1 0 1 2 0
+  weights 3
+    bone_a 1.0
+    
+    bone_b 1.0
+endnode
+endmodelgeom s
+donemodel s
+";
+        let m = read(text.as_bytes()).unwrap();
+        let hide = m.nodes.iter().find(|n| n.name == "hide").unwrap();
+        let NodeKind::Mesh(mesh) = &hide.kind else { panic!("a mesh") };
+        let MeshExtra::Skin(skin) = &mesh.extra else { panic!("a skin") };
+        let of = |source: u32| {
+            let v = mesh.source.iter().position(|&s| s == source).unwrap();
+            skin.weights[v]
+                .iter()
+                .filter(|w| w.1 > 0.0)
+                .map(|w| m.nodes[skin.bones[w.0 as usize]].name.as_str())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(of(0), ["bone_a"]);
+        assert!(of(1).is_empty(), "the blank line's vertex has no bone");
+        assert_eq!(of(2), ["bone_b"], "the last keeps its own");
+    }
 
     const CUBE_ISH: &str = "\
 # a test model

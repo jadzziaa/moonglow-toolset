@@ -87,6 +87,9 @@ A double click on a script opens its editor (and, with **Tools › Options
 › Script Editor › Open scripts in the external editor**, your own editor
 too).
 
+**Expand All** and **Collapse All** under the Filter open and close every
+group at once (the Palettes pane has the same for its categories).
+
 A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
 offers **View Area**, **Properties** (Area Properties) and the raw fields

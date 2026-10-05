@@ -228,6 +228,8 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     });
     app.buffers.insert(filter_id, filter.clone());
     let filter = filter.to_ascii_lowercase();
+    // Every group opened or closed at once (this frame).
+    let fold = crate::widgets::fold_buttons(ui, "group");
     if ui.selectable_label(false, "Module Properties").clicked() {
         app.actions.push(Action::OpenTab(Tab::ModuleProperties));
     }
@@ -274,7 +276,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
             .id_salt(name)
             .default_open(*name == "Areas")
             // Filtering opens every group with a match, whatever was open.
-            .open((!filter.is_empty()).then_some(true))
+            .open((!filter.is_empty()).then_some(true).or(fold))
             .show(ui, |ui| {
                 for k in keys {
                     let label = match (names.get(&k), k.restype) {

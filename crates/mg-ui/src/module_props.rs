@@ -11,7 +11,7 @@ use mg_schema::{ExoString, Field, GffValue, StructExt, ifo};
 
 use crate::text::{decode, encode, from_editor, to_editor, with_english};
 use crate::widgets::{FieldTarget, LocStringEdit, resref_field, variables_button};
-use crate::{Action, Moonglow, Tab};
+use crate::{Action, Moonglow};
 
 pub(crate) fn info_key() -> ResKey {
     ResKey::parse("module", ResType::IFO).expect("valid")
@@ -214,13 +214,8 @@ fn events(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             if let Some(v) = resref_field(app, ui, id, current, "Select a script", &types) {
                 app.actions.push(set_value(&format!("{label} script"), field, Value::resref(v)));
             }
-            let key = ResKey::new(current, ResType::NSS);
-            let in_module = app.ws.as_ref().is_some_and(|w| w.module.contains(&key));
-            let in_game = app.game.as_deref().is_some_and(|g| g.resman.contains(&key));
-            let can_edit = !current.is_empty() && (in_module || in_game);
-            if ui.add_enabled(can_edit, egui::Button::new("Edit").small()).clicked() {
-                let tab = if in_module { Tab::Script(key) } else { Tab::Resource(key) };
-                app.actions.push(Action::OpenTab(tab));
+            if crate::widgets::edit_script_button(app, ui, current) {
+                app.actions.push(Action::EditScript { name: current, condition: false });
             }
             ui.end_row();
         }

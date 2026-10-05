@@ -987,14 +987,8 @@ fn script_with_params(
         {
             actions.push(set(key, "Script", path.clone(), label, Value::resref(v)));
         }
-        let nss = ResKey::new(current, ResType::NSS);
-        let in_module = app.ws.as_ref().is_some_and(|w| w.module.contains(&nss));
-        if ui.add_enabled(!current.is_empty(), egui::Button::new("Edit").small()).clicked() {
-            actions.push(Action::OpenTab(if in_module {
-                Tab::Script(nss)
-            } else {
-                Tab::Resource(nss)
-            }));
+        if crate::widgets::edit_script_button(app, ui, current) {
+            actions.push(Action::EditScript { name: current, condition: label == "Active" });
         }
     });
     if ui.button("Script Wizard…").on_hover_text("Write a new script from a few choices").clicked()

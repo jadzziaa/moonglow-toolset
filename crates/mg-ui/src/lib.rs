@@ -165,6 +165,14 @@ pub enum Action {
     FindTag(String),
     /// The Rename window for a resource.
     RenameDialog(ResKey),
+    /// Edit beside a script's name: opens the module's script, else the
+    /// game's; a script that is nowhere is made in the module first (as
+    /// Aurora does). `condition`: one that answers whether a conversation
+    /// line shows.
+    EditScript {
+        name: mg_core::ResRef,
+        condition: bool,
+    },
     /// Asks whether to delete a resource of the module (the module tree's
     /// Delete…).
     DeleteDialog(ResKey),
@@ -1359,6 +1367,7 @@ impl Moonglow {
             Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
             Action::FindTag(t) => self.find_references(references::Query::Tag(t)),
             Action::RenameDialog(k) => self.rename_dialog(k),
+            Action::EditScript { name, condition } => self.edit_script(name, condition),
             Action::DeleteDialog(k) => self.confirm_delete = Some(k),
             Action::DeleteResource(k) => self.delete_resource(k),
             Action::CompileScripts => self.compile_scripts(),

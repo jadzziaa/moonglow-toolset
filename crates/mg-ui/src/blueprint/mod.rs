@@ -638,7 +638,16 @@ impl Form<'_> {
     /// A script field: name, picker and Edit.
     pub(crate) fn script(&mut self, ui: &mut Ui, what: &str, label: &str) {
         let types = [ResType::NSS, ResType::NCS];
-        self.linked(ui, &format!("{what} script"), label, &types, ResType::NSS, Tab::Script);
+        let what = format!("{what} script");
+        let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
+        ui.horizontal(|ui| {
+            if let Some(v) = resref_field(self.app, ui, self.id(label), current, &what, &types) {
+                self.set(&what, label, Value::resref(v));
+            }
+            if crate::widgets::edit_script_button(self.app, ui, current) {
+                self.app.actions.push(Action::EditScript { name: current, condition: false });
+            }
+        });
     }
 
     /// Load Script Set and Save Script Set (`.ini`, `mg_module::script_set`)

@@ -1,6 +1,7 @@
 //! Renders a game model to PNGs from four sides, for looking at by eye:
 //! `cargo run -p mg-render --example snapshot -- MODEL OUT_DIR [ANIMATION SECONDS]`.
-//! MODEL is a resource name or an .mdl file.
+//! MODEL is a resource name or an .mdl file. With `SNAPSHOT_USER` set to a
+//! scratch user directory, its `override` is read too (custom content).
 
 use std::sync::Arc;
 
@@ -12,7 +13,10 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let (name, out) = (&args[0], std::path::Path::new(&args[1]));
     let root = mg_testkit::nwn_root().expect("no game install");
-    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    // (SNAPSHOT_USER: a scratch user directory whose `override` is read
+    // too, for custom content.)
+    let user = std::env::var_os("SNAPSHOT_USER").map(std::path::PathBuf::from);
+    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, user, "en")).unwrap();
     let data = if name.ends_with(".mdl") {
         std::fs::read(name).unwrap()
     } else {
@@ -23,7 +27,15 @@ fn main() {
     let gm = Arc::new(GpuModel::new(&gpu, model.clone()));
     let mut inst = Instance::new(gm.clone(), Mat4::IDENTITY);
     if let (Some(anim), Some(t)) = (args.get(2), args.get(3).and_then(|t| t.parse::<f32>().ok())) {
-        let a = model.animation(anim).expect("no such animation");
+        // (Its own animation, else its supermodels'.)
+        let load = |n: &str| {
+            let d = rm.get_named(n, mg_core::ResType::MDL).ok()?;
+            Model::read(&d).ok().map(Arc::new)
+        };
+        let anims = mg_render::anim::animations(&model, &load);
+        let owner =
+            &anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(anim)).expect("no such animation").1;
+        let a = owner.animation(anim).expect("no such animation");
         inst.pose = Some(Arc::new(mg_render::anim::pose(&model, a, t)));
         inst.state = Some(Arc::new(mg_render::anim::mesh_state(&gm, a, t)));
     }

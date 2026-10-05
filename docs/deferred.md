@@ -161,8 +161,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Palette categories against Aurora:** a module's own categories
   (Palette › Categories…) are a skeleton kept in the module, with names
   written out (`NAME`, and BioWare's `DELETE_ME`). That Aurora reads a
-  skeleton from the module rather than only from haks, and shows a name
-  written out, was not captured; the game's DM palette reads the
+  skeleton from the module is a builder's report (Taro49, 2026-10-05:
+  they keep their custom categories so), not a capture of ours; that it
+  shows a name written out was not captured; the game's DM palette reads the
   `palcus.itp` built from it. (S, an Aurora capture)
 - **Palette categories, what the editor lacks:** no translated names
   (one text for every language), and Remove refuses a category in use
@@ -311,6 +312,33 @@ a light theme. Left:
   it are left as they are, with no warning of them; one resource at a
   time; no Delete key in the tree. That Aurora refuses to delete the
   start area was not checked against Aurora (Moonglow refuses). (S)
+- **Pale rims round transparent textures** (a builder's report, 1.8.0:
+  plants and tile edges with blue-white patches round them at some
+  angles): the smaller levels Moonglow makes of an uncompressed texture
+  now leave transparent pixels' colors out. Not confirmed on the
+  reporter's module (their content wasn't to hand), and not compared with
+  the client. A compressed DDS's own smaller levels are used as stored;
+  blended meshes still write depth and are sorted whole, so one can hide
+  what is behind its see-through parts. (S–M)
+- **Edit on a script that doesn't exist** makes it and says so in the
+  log; Aurora shows a message box first ("Resource not found. Creating
+  new script."). A mistyped name makes a script (Undo takes it back). (S)
+- **Custom creatures from the Vault and CEP** (a builder's report,
+  [issue 3](https://github.com/jadzziaa/moonglow-toolset/issues/3)),
+  fixed against the content itself but none of it compared with the
+  client: a supermodel's position keys scaled by `setanimationscale`
+  (taken as the size against the model whose animation is played; a
+  chain of scaled supermodels wasn't tried); a body part drawn only where
+  the base has its node; a mesh with `bitmap NULL` given the part's own
+  texture; a bitmap name over 16 characters cut to 16; a blank line among
+  ASCII skin weights read as a vertex without any (a blank line that is
+  only spacing in a list with all its rows would shift the rows). The
+  reporter's "stopped animating" (Mindwitness) wasn't seen as such: here
+  it animated, with its skin torn by the shifted weights. The model
+  viewer's own check of names over 16 characters is as it was. (S)
+- **Expand All and Collapse All** (the module tree, the palettes): the
+  module tree's areas opened out to their objects, and the kinds under
+  them, keep their own state; no keys for them. (S)
 - **Loading screen pictures** are put together as the game's stock
   `pnl_loadscreen` model maps them (two halves of a square texture); a
   module with its own `pnl_loadscreen` model, or a texture that isn't

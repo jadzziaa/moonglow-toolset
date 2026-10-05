@@ -1000,9 +1000,10 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     };
     let mut chosen = app.palette.tile_brush.clone();
+    let fold = app.palette.fold;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         for item in &palette.branches {
-            show_item(ui, item, tileset, &mut chosen, 0);
+            show_item(ui, item, tileset, &mut chosen, 0, fold);
         }
     });
     if chosen != app.palette.tile_brush {
@@ -1019,6 +1020,7 @@ fn show_item(
     tileset: ResRef,
     chosen: &mut Option<TileBrush>,
     depth: usize,
+    fold: Option<bool>,
 ) {
     match item {
         PaletteItem::Folder { label, items } => {
@@ -1030,6 +1032,7 @@ fn show_item(
                             .iter()
                             .any(|i| matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. })),
                 )
+                .open(fold)
                 .show(ui, |ui| {
                     // The tools first (where tilesets list them varies),
                     // with Moonglow's Refine Tile beside the Eraser, then
@@ -1049,7 +1052,7 @@ fn show_item(
                         _ => 3,
                     });
                     for i in items {
-                        show_item(ui, i, tileset, chosen, depth + 1);
+                        show_item(ui, i, tileset, chosen, depth + 1, fold);
                     }
                 });
         }

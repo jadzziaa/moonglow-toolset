@@ -1239,7 +1239,8 @@ fn keys_remapped_in_options_and_used() {
         ws.doc(&key).unwrap().root.list("StartingList").map_or(0, <[_]>::len)
     };
     assert_eq!(starts(&mut h), 0);
-    let at = h.get_by_label("Expand All").rect().center();
+    // (The conversation editor's: the module tree and the palettes have one too.)
+    let at = h.get_all_by_label("Expand All").last().unwrap().rect().center();
     h.hover_at(at);
     h.run();
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
@@ -7910,6 +7911,57 @@ fn the_start_location_is_dragged_and_turned_in_the_view() {
     let steps: Vec<Vec3> = (0..=4).map(|k| Vec3::new(15.0 + k as f32, 35.0, 0.0)).collect();
     drag(&mut h, &steps);
     assert_eq!(entry(&mut h).0, x, "not moved");
+}
+
+/// Expand All and Collapse All open and close every group of the module
+/// tree at once.
+#[test]
+fn the_module_tree_s_groups_open_and_close_together() {
+    let Some((mut h, area)) = area_harness("fold-tree") else { return };
+    h.run_steps(2);
+    let listed = |h: &Harness<'_, Moonglow>| h.query_all_by_label(&area.to_string()).count();
+    let before = listed(&h);
+    assert!(before >= 1, "Areas is open to begin with");
+    h.get_all_by_label("Collapse All").next().unwrap().click();
+    h.run_steps(4);
+    assert_eq!(listed(&h), before - 1, "the area's row is gone from the tree");
+    h.get_all_by_label("Expand All").next().unwrap().click();
+    h.run_steps(4);
+    assert_eq!(listed(&h), before, "and back");
+}
+
+/// Edit beside a script's name makes a script that is nowhere (as Aurora
+/// does) and opens it; the module's and the game's open as they are.
+#[test]
+fn edit_beside_a_script_s_name_creates_a_missing_script() {
+    let Some((mut h, _)) = area_harness("edit-script") else { return };
+    let name = ResRef::from_str("fresh_one").unwrap();
+    let key = ResKey::new(name, ResType::NSS);
+    let has = |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().module.contains(&key);
+    assert!(!has(&h));
+    h.state_mut().actions.push(mg_ui::Action::EditScript { name, condition: false });
+    h.run_steps(3);
+    assert!(has(&h), "made in the module");
+    assert!(h.state().dock.find_tab(&Tab::Script(key)).is_some(), "and opened");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("New script fresh_one.nss"));
+    // Again: opened, not made anew.
+    h.state_mut().actions.push(mg_ui::Action::EditScript { name, condition: false });
+    h.run_steps(3);
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("New script fresh_one.nss"));
+    // A condition starts as one.
+    let name = ResRef::from_str("fresh_check").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::EditScript { name, condition: true });
+    h.run_steps(3);
+    let ws = h.state().ws.as_ref().unwrap();
+    let text = ws.module.get(&ResKey::new(name, ResType::NSS)).unwrap();
+    assert!(text.starts_with(b"int StartingConditional()"));
+    // The game's own script is shown, not copied into the module.
+    let name = ResRef::from_str("nw_c2_default1").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::EditScript { name, condition: false });
+    h.run_steps(3);
+    let key = ResKey::new(name, ResType::NSS);
+    assert!(!h.state().ws.as_ref().unwrap().module.contains(&key));
+    assert!(h.state().dock.find_tab(&Tab::Resource(key)).is_some());
 }
 
 /// The module tree's Delete… takes an area out of the module with its

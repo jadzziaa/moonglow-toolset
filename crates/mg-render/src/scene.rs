@@ -24,7 +24,8 @@ pub struct Instance {
     /// Colours for PLT textures by layer (skin, hair, metal 1 and 2, cloth
     /// 1 and 2, leather 1 and 2, tattoo 1 and 2); `None`: colour 0.
     pub plt_colors: Option<[u8; 10]>,
-    /// Texture names to use instead of the model's (lower case).
+    /// Texture names to use instead of the model's (lower case); under the
+    /// empty name, the texture of meshes that name none.
     pub textures: Option<Arc<std::collections::HashMap<String, String>>>,
     /// How opaque the whole instance is (each mesh's alpha times this):
     /// below 1, see-through, as a blueprint about to be placed.

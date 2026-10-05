@@ -793,6 +793,37 @@ const HEADING_RULE: f32 = 0.75;
 /// The room between a section heading's rule and what follows.
 const HEADING_ROOM: f32 = 6.0;
 
+/// Expand All and Collapse All for a list of `what`s (groups, categories)
+/// that open and close: `Some(true)` or `Some(false)` on the frame one is
+/// clicked, to give to each header's `open`.
+pub(crate) fn fold_buttons(ui: &mut Ui, what: &str) -> Option<bool> {
+    let mut fold = None;
+    ui.horizontal(|ui| {
+        if ui.small_button("Expand All").on_hover_text(format!("Open every {what}")).clicked() {
+            fold = Some(true);
+        }
+        if ui.small_button("Collapse All").on_hover_text(format!("Close every {what}")).clicked() {
+            fold = Some(false);
+        }
+    });
+    fold
+}
+
+/// Edit beside a script's name (clicked: [`Action::EditScript`](crate::Action::EditScript)):
+/// there for any name, saying what it will do with one that is nowhere.
+pub(crate) fn edit_script_button(app: &Moonglow, ui: &mut Ui, name: mg_core::ResRef) -> bool {
+    let key = ResKey::new(name, ResType::NSS);
+    let found = app.ws.as_ref().is_some_and(|w| w.module.contains(&key))
+        || app.game.as_deref().is_some_and(|g| g.resman.contains(&key));
+    let r = ui.add_enabled(!name.is_empty(), egui::Button::new("Edit").small());
+    let r = if found || name.is_empty() {
+        r
+    } else {
+        r.on_hover_text(format!("There is no script '{name}': Edit creates it in the module"))
+    };
+    r.clicked()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

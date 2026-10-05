@@ -113,15 +113,27 @@ pub fn pose(model: &Model, anim: &Animation, t: f32) -> Vec<Mat4> {
     pose_layers(model, &[anim], t)
 }
 
+/// A node of an animation layer: the node, the layer's time, and how its
+/// position keys are scaled.
+type Keyed<'a> = (&'a AnimNode, f32, f32);
+
 /// The animation nodes of `layers` by node name (lower case), in layer
-/// order, each with its layer's time at `t`.
-fn keyed<'a>(layers: &[&'a Animation], t: f32) -> HashMap<String, Vec<(&'a AnimNode, f32)>> {
+/// order, each with its layer's time at `t` and the scale of its positions:
+/// the model's `setanimationscale` for an animation that is another
+/// model's (a supermodel's, made for a body of another size), 1 for its
+/// own.
+fn keyed<'a>(model: &Model, layers: &[&'a Animation], t: f32) -> HashMap<String, Vec<Keyed<'a>>> {
     let mut out: HashMap<String, Vec<_>> = HashMap::new();
     for a in layers {
         let at = time_in(a, t);
+        let own = model.animations.iter().any(|own| std::ptr::eq(own, *a));
+        let scale = match model.animation_scale {
+            s if !own && s.is_finite() && s > 0.0 => s,
+            _ => 1.0,
+        };
         for n in &a.nodes {
             if !n.controllers.is_empty() || n.anim_mesh.is_some() {
-                out.entry(n.name.to_ascii_lowercase()).or_default().push((n, at));
+                out.entry(n.name.to_ascii_lowercase()).or_default().push((n, at, scale));
             }
         }
     }
@@ -131,15 +143,15 @@ fn keyed<'a>(layers: &[&'a Animation], t: f32) -> HashMap<String, Vec<(&'a AnimN
 /// A node's controllers across layers: a later layer's replaces an earlier
 /// one's of the same name.
 fn controllers<'a, 'b>(
-    nodes: &'b [(&'a AnimNode, f32)],
-) -> impl Iterator<Item = (&'a Controller, f32)> + use<'a, 'b> {
-    nodes.iter().enumerate().flat_map(move |(i, (n, t))| {
+    nodes: &'b [Keyed<'a>],
+) -> impl Iterator<Item = (&'a Controller, f32, f32)> + use<'a, 'b> {
+    nodes.iter().enumerate().flat_map(move |(i, (n, t, scale))| {
         n.controllers
             .iter()
             .filter(move |c| {
-                !nodes[i + 1..].iter().any(|(m, _)| m.controllers.iter().any(|d| d.name == c.name))
+                !nodes[i + 1..].iter().any(|(m, ..)| m.controllers.iter().any(|d| d.name == c.name))
             })
-            .map(move |c| (c, *t))
+            .map(move |c| (c, *t, *scale))
     })
 }
 
@@ -158,17 +170,17 @@ pub fn locals(model: &Model, anim: &Animation, t: f32) -> Vec<Local> {
 /// [`locals`] for several animations played together (see
 /// [`pose_layers`]).
 pub fn locals_layers(model: &Model, layers: &[&Animation], t: f32) -> Vec<Local> {
-    let by_name = keyed(layers, t);
+    let by_name = keyed(model, layers, t);
     model
         .nodes
         .iter()
         .map(|n| {
             let (mut pos, mut orient, mut scale) = (n.position, n.orientation, n.scale);
             if let Some(nodes) = by_name.get(&n.name.to_ascii_lowercase()) {
-                for (c, t) in controllers(nodes) {
+                for (c, t, by) in controllers(nodes) {
                     let v = sample(c, t);
                     match (c.name.as_str(), v.len()) {
-                        ("position", 3) => pos = [v[0], v[1], v[2]],
+                        ("position", 3) => pos = [v[0] * by, v[1] * by, v[2] * by],
                         ("orientation", 4) => orient = [v[0], v[1], v[2], v[3]],
                         ("scale", 1) => scale = v[0],
                         _ => {}
@@ -235,13 +247,13 @@ pub fn lights_layers(
     transform: Mat4,
     main_light: &dyn Fn(usize) -> Option<Vec3>,
 ) -> Vec<crate::scene::PointLight> {
-    let by_name = keyed(layers, t);
+    let by_name = keyed(model, layers, t);
     let mut out = Vec::new();
     for (i, n) in model.nodes.iter().enumerate() {
         let mg_mdl::NodeKind::Light(l) = &n.kind else { continue };
         let keyed = |name: &str| -> Option<Vec<f32>> {
             let nodes = by_name.get(&n.name.to_ascii_lowercase())?;
-            let (c, t) = controllers(nodes).filter(|(c, _)| c.name == name).last()?;
+            let (c, t, _) = controllers(nodes).filter(|(c, ..)| c.name == name).last()?;
             Some(sample(c, t))
         };
         let value = |name: &str| keyed(name).or_else(|| n.value(name).map(<[f32]>::to_vec));
@@ -292,13 +304,13 @@ pub fn mesh_state(model: &GpuModel, anim: &Animation, t: f32) -> MeshState {
 /// [`mesh_state`] for several animations played together (see
 /// [`pose_layers`]).
 pub fn mesh_state_layers(model: &GpuModel, layers: &[&Animation], t: f32) -> MeshState {
-    let by_name = keyed(layers, t);
+    let by_name = keyed(&model.model, layers, t);
     let mut state = MeshState::new(model);
     for (i, mesh) in model.meshes.iter().enumerate() {
         let name = model.model.nodes[mesh.node].name.to_ascii_lowercase();
         let Some(nodes) = by_name.get(&name) else { continue };
         let out = &mut state.meshes[i];
-        for (c, t) in controllers(nodes) {
+        for (c, t, _) in controllers(nodes) {
             let v = sample(c, t);
             match (c.name.as_str(), v.as_slice()) {
                 ("alpha", [a, ..]) => out.alpha = Some(*a),
@@ -306,7 +318,7 @@ pub fn mesh_state_layers(model: &GpuModel, layers: &[&Animation], t: f32) -> Mes
                 _ => {}
             }
         }
-        let sets = nodes.iter().rev().find_map(|(n, t)| Some((n.anim_mesh.as_ref()?, *t)));
+        let sets = nodes.iter().rev().find_map(|(n, t, _)| Some((n.anim_mesh.as_ref()?, *t)));
         if let (Some((sets, t)), Some(data)) = (sets, model.mesh_data(i)) {
             out.vertices = animated_vertices(data, sets, t);
         }
@@ -423,6 +435,39 @@ mod tests {
         assert_eq!(time_in(&a, 2.5), 0.5);
         assert_eq!(time_in(&a, -0.5), 1.5);
         assert_eq!(time_in(&Animation::default(), 3.0), 0.0);
+    }
+
+    #[test]
+    fn a_supermodel_s_positions_are_scaled_to_the_model() {
+        // A model three quarters the size of the one whose animation it
+        // plays (`setanimationscale 0.75`).
+        let key = |values: Vec<f32>| Controller {
+            name: "position".into(),
+            columns: 3,
+            times: vec![0.0],
+            values,
+            ..Default::default()
+        };
+        let anim = |name: &str| Animation {
+            name: name.into(),
+            length: 1.0,
+            nodes: vec![AnimNode {
+                name: "a".into(),
+                controllers: vec![key(vec![2.0, 0.0, 4.0])],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let model = Model {
+            nodes: vec![mg_mdl::Node::new("a", mg_mdl::NodeKind::Dummy)],
+            animation_scale: 0.75,
+            animations: vec![anim("own")],
+            ..Default::default()
+        };
+        let borrowed = anim("borrowed");
+        let at = |a: &Animation| pose(&model, a, 0.0)[0].to_scale_rotation_translation().2;
+        assert_eq!(at(&borrowed), Vec3::new(1.5, 0.0, 3.0), "another model's: scaled");
+        assert_eq!(at(&model.animations[0]), Vec3::new(2.0, 0.0, 4.0), "its own: as keyed");
     }
 
     #[test]

@@ -40,11 +40,11 @@ follow it.
 - A renamed category keeps its blueprints; one with blueprints of the
   module in it isn't removed until they are given another.
 - **Use the Game's Categories** drops the module's list.
-- Aurora reads its categories from the game's files and haks: to have
-  the same ones there, put the module's skeleton in a hak (right-click it
-  in the resource browser or export it as a file). Whether Aurora shows a
-  category that has a name written out rather than a talk-table string
-  was not tried.
+- Aurora reads custom categories from palette files kept in a module too
+  (a builder who keeps them so reports it; Moonglow's own check against
+  Aurora is still to do), so the module's categories should show there
+  as they are. Whether Aurora shows a category that has a name written
+  out rather than a talk-table string was not tried.
 
 Choose a blueprint to place it in an area, or drag it there. Hover over
 one to see its resref, tag and, for creatures, doors, items and

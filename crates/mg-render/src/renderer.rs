@@ -811,8 +811,12 @@ impl Renderer {
                 let slots = self.slots(assets, mat);
                 // The instance's texture renames, and its PLT colours on the
                 // diffuse texture.
+                // (A mesh that names none takes the instance's texture
+                // for those, under the empty name: a body part's own.)
+                let unnamed = || inst.textures.as_ref().and_then(|t| t.get("")).cloned();
                 let names: [Option<String>; SLOTS] = std::array::from_fn(|i| {
-                    slots.names[i].as_ref().map(|n| {
+                    let named = slots.names[i].clone().or_else(|| unnamed().filter(|_| i == 0));
+                    named.as_ref().map(|n| {
                         let n = inst
                             .textures
                             .as_ref()

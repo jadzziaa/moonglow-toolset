@@ -386,5 +386,13 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
             out.insert(b, c);
         }
     }
+    // A mesh that names no texture takes the part's own too (several of
+    // CEP's heads: `bitmap NULL`, with a PLT of the head's name). Under the
+    // empty name (`mg_render::Instance::textures`).
+    if lk.unnamed_mesh(&model)
+        && let Some(c) = named(&model).into_iter().find(|c| lk.has_texture(c))
+    {
+        out.insert(String::new(), c);
+    }
     out
 }

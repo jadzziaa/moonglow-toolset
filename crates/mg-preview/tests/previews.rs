@@ -154,6 +154,34 @@ fn a_part_naming_a_missing_texture_takes_its_own() {
     }
 }
 
+/// A part hangs from a node of the base model: where the base has no such
+/// node (a phenotype with another body, as the Vault's bariaur, which has
+/// no pelvis or legs), the part isn't drawn, rather than drawn at the feet.
+#[test]
+fn a_part_whose_node_the_base_lacks_is_not_drawn() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        let data = rm.get_named(name, ResType::MDL).ok()?;
+        Model::read(&data).ok().map(Arc::new)
+    };
+    let mut p = creature(&game, &CreatureLook::new(6).to_utc(), &|_| None).unwrap();
+    let whole = Composed::new(&gpu, &p, &load).unwrap().part_count();
+    let pelvis = p.parts.iter_mut().find(|x| x.model.contains("pelvis")).expect("a pelvis");
+    pelvis.attach = Some("no_such_node".into());
+    let c = Composed::new(&gpu, &p, &load).unwrap();
+    assert_eq!(c.part_count(), whole - 1, "the pelvis is left out");
+    assert!(c.missing.is_empty(), "and isn't a missing model: {:?}", c.missing);
+}
+
 #[test]
 fn previews_render() {
     let Some(game) = game() else {

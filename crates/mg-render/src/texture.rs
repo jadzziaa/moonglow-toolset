@@ -28,24 +28,35 @@ fn wgpu_format(f: Format) -> wgpu::TextureFormat {
     }
 }
 
-/// Halves an RGBA8 image (box filter; odd sizes clamp at the edge).
+/// Halves an RGBA8 image (box filter; odd sizes clamp at the edge). A
+/// pixel's color counts by its alpha, so that what a texture keeps under
+/// its transparent parts (often a pale background) doesn't show as a rim
+/// round what is drawn, wider the smaller the level.
 fn half(data: &[u8], w: u32, h: u32) -> (Vec<u8>, u32, u32) {
     let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
     let mut out = vec![0u8; nw as usize * nh as usize * 4];
     for y in 0..nh {
         for x in 0..nw {
-            let mut sum = [0u32; 4];
+            let (mut plain, mut weighed, mut alpha) = ([0u32; 3], [0u32; 3], 0u32);
             for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
                 let (sx, sy) = ((2 * x + dx).min(w - 1), (2 * y + dy).min(h - 1));
                 let i = (sy as usize * w as usize + sx as usize) * 4;
-                for c in 0..4 {
-                    sum[c] += u32::from(data[i + c]);
+                let a = u32::from(data[i + 3]);
+                for c in 0..3 {
+                    plain[c] += u32::from(data[i + c]);
+                    weighed[c] += u32::from(data[i + c]) * a;
                 }
+                alpha += a;
             }
             let o = (y as usize * nw as usize + x as usize) * 4;
-            for c in 0..4 {
-                out[o + c] = ((sum[c] + 2) / 4) as u8;
+            for c in 0..3 {
+                // (All of it transparent: the colors as they are.)
+                out[o + c] = match alpha {
+                    0 => ((plain[c] + 2) / 4) as u8,
+                    _ => ((weighed[c] + alpha / 2) / alpha) as u8,
+                };
             }
+            out[o + 3] = ((alpha + 2) / 4) as u8;
         }
     }
     (out, nw, nh)
@@ -188,6 +199,21 @@ mod tests {
         let data = [0, 0, 0, 0, 255, 255, 255, 255, 100, 100, 100, 100];
         let (out, w, h) = half(&data, 3, 1);
         assert_eq!((w, h), (1, 1));
-        assert_eq!(out[0], 128);
+        // (Averaged over the pixels drawn; half of them are.)
+        assert_eq!((out[0], out[3]), (255, 128));
+    }
+
+    #[test]
+    fn halving_keeps_transparent_pixels_colors_out() {
+        // A green leaf beside a transparent pale background.
+        let data = [20, 200, 20, 255, 230, 240, 255, 0];
+        let (out, ..) = half(&data, 2, 1);
+        assert_eq!(out, [20, 200, 20, 128], "the leaf's color, half there");
+        // Nothing drawn at all: the colors as they are.
+        let (out, ..) = half(&[10, 20, 30, 0, 30, 40, 50, 0], 2, 1);
+        assert_eq!(out, [20, 30, 40, 0]);
+        // Opaque pixels average as before.
+        let (out, ..) = half(&[0, 0, 0, 255, 100, 200, 50, 255], 2, 1);
+        assert_eq!(out, [50, 100, 25, 255]);
     }
 }

@@ -33,6 +33,9 @@ pub struct PaletteView {
     pub custom: bool,
     /// Shows only blueprints whose name or resref contains this.
     pub filter: String,
+    /// Expand All or Collapse All was clicked this frame: every category
+    /// opens (true) or closes.
+    pub(crate) fold: Option<bool>,
     standard: HashMap<BlueprintKind, Arc<Palette>>,
     /// Custom palettes, each built for a workspace revision.
     custom_cache: HashMap<BlueprintKind, (u64, Arc<Palette>)>,
@@ -91,6 +94,7 @@ impl Default for PaletteView {
             custom_cache: HashMap::new(),
             selected: None,
             thumb: None,
+            fold: None,
             about: None,
             found: None,
             tags: HashMap::new(),
@@ -309,6 +313,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             view.chosen.clear();
         }
     });
+    view.fold = if view.prefabs { None } else { crate::widgets::fold_buttons(ui, "category") };
     if view.prefabs {
         ui.separator();
         app.palette = view;
@@ -393,6 +398,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         game,
         kind,
         custom,
+        fold: view.fold,
         find: find.clone(),
         found: found.as_deref(),
         tags: &tags,
@@ -572,6 +578,8 @@ struct Tree<'a> {
     game: &'a mg_rules::GameData,
     kind: BlueprintKind,
     custom: bool,
+    /// Every category opened or closed this frame.
+    fold: Option<bool>,
     find: Find,
     /// The blueprints the search finds (`None`: no search).
     found: Option<&'a std::collections::HashSet<ResRef>>,
@@ -636,7 +644,7 @@ impl Tree<'_> {
         // Finding opens every category with a match, whatever was open before.
         let shown = egui::CollapsingHeader::new(title)
             .id_salt(("palette", kind, custom, path))
-            .open((!self.find.is_empty()).then_some(true))
+            .open((!self.find.is_empty()).then_some(true).or(self.fold))
             .show(ui, |ui| {
                 for (i, child) in node.children.iter().enumerate() {
                     let mut p = path.to_vec();
@@ -815,6 +823,7 @@ impl Tree<'_> {
         egui::CollapsingHeader::new(format!("{title} ({})", here.len()))
             .id_salt(("palette-remembered", title, self.kind, self.custom))
             .default_open(true)
+            .open(self.fold)
             .show(ui, |ui| {
                 for b in here {
                     self.row(ui, b);

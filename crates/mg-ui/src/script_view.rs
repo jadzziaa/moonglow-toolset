@@ -1379,5 +1379,34 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     }
 }
 
+/// A new script that answers whether a conversation line shows.
+pub(crate) const NEW_CONDITION: &str =
+    "int StartingConditional()\r\n{\r\n\r\n    return TRUE;\r\n}\r\n";
+
+impl Moonglow {
+    /// [`Action::EditScript`].
+    pub(crate) fn edit_script(&mut self, name: mg_core::ResRef, condition: bool) {
+        let key = ResKey::new(name, ResType::NSS);
+        if name.is_empty() {
+            return;
+        }
+        if self.ws.as_ref().is_some_and(|w| w.module.contains(&key)) {
+            self.actions.push(Action::OpenTab(Tab::Script(key)));
+        } else if self.game.as_deref().is_some_and(|g| g.resman.contains(&key)) {
+            self.actions.push(Action::OpenTab(Tab::Resource(key)));
+        } else if self.ws.is_some() {
+            let text = if condition { NEW_CONDITION } else { NEW_SCRIPT };
+            let edit = Edit::SetResource { key, data: Some(text.as_bytes().to_vec()) };
+            match self.apply(Command::new(format!("New script {key}"), vec![edit])) {
+                Ok(_) => {
+                    self.log.info(format!("Script '{name}' not found: created it"));
+                    self.actions.push(Action::OpenTab(Tab::Script(key)));
+                }
+                Err(e) => self.log.error(e.to_string()),
+            }
+        }
+    }
+}
+
 /// A new script, as Aurora starts one.
 pub(crate) const NEW_SCRIPT: &str = "void main()\r\n{\r\n\r\n}\r\n";

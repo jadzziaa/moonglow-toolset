@@ -215,6 +215,15 @@ impl Lookup<'_> {
                 .any(|&t| rm.get(&mg_resman::ResKey::new(r, t)).is_ok())
     }
 
+    /// Whether a mesh the model draws names no texture.
+    fn unnamed_mesh(&self, model: &str) -> bool {
+        self.model(model).is_some_and(|m| {
+            m.nodes.iter().any(|n| {
+                matches!(&n.kind, NodeKind::Mesh(mesh) if mesh.render && mesh.textures[0].is_none())
+            })
+        })
+    }
+
     /// The meshes' textures (lower case).
     fn bitmaps(&self, model: &str) -> Vec<String> {
         let Some(m) = self.model(model) else { return Vec::new() };
