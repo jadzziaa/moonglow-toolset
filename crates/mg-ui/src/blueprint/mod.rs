@@ -644,8 +644,9 @@ impl Form<'_> {
             if let Some(v) = resref_field(self.app, ui, self.id(label), current, &what, &types) {
                 self.set(&what, label, Value::resref(v));
             }
-            if crate::widgets::edit_script_button(self.app, ui, current) {
-                self.app.actions.push(Action::EditScript { name: current, condition: false });
+            let field = self.id(label);
+            if let Some(name) = crate::widgets::edit_script_button(self.app, ui, field, current) {
+                self.app.actions.push(Action::EditScript { name, condition: false });
             }
         });
     }

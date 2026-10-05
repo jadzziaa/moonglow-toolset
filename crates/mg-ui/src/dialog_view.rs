@@ -391,166 +391,160 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     ui.separator();
 
     // The fields of the selection.
-    egui::Panel::bottom(egui::Id::new(("dlg-data", key))).resizable(true).default_size(260.0).show(
-        ui,
-        |ui| {
-            let words = g.root.dword("NumWords").unwrap_or(0);
-            // Find and Replace, and Find Next (Options › Keyboard): the
-            // Search pane.
-            if key_find || key_find_next {
-                view.bottom = Bottom::Search;
-                view.search.focus = key_find;
-                view.search.again = key_find_next;
-            }
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut view.bottom, Bottom::Data, "Data");
-                ui.selectable_value(&mut view.bottom, Bottom::Bookmarks, "Bookmarks");
-                ui.selectable_value(&mut view.bottom, Bottom::Search, "Search");
-                ui.separator();
-                let sel = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
-                if ui.add_enabled(sel.is_some(), egui::Button::new("Bookmark").small()).clicked()
-                    && let Some(r) = sel
-                {
-                    let t = target_of(r);
-                    if let Some(i) = view.bookmarks.iter().position(|b| *b == t) {
-                        view.bookmarks.remove(i);
-                    } else {
-                        view.bookmarks.push(t);
-                    }
-                }
-                if ui.button("Test").on_hover_text("Click through the conversation").clicked() {
-                    view.test = Some(Vec::new());
-                }
-            });
+    // (At most seven tenths of the editor: the lines keep their room.)
+    let most = (ui.available_height() * 0.7).max(80.0);
+    let fields = egui::Panel::bottom(egui::Id::new(("dlg-data", key)))
+        .resizable(true)
+        .default_size(260.0f32.min(most))
+        .max_size(most);
+    fields.show(ui, |ui| {
+        let words = g.root.dword("NumWords").unwrap_or(0);
+        // Find and Replace, and Find Next (Options › Keyboard): the
+        // Search pane.
+        if key_find || key_find_next {
+            view.bottom = Bottom::Search;
+            view.search.focus = key_find;
+            view.search.again = key_find_next;
+        }
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut view.bottom, Bottom::Data, "Data");
+            ui.selectable_value(&mut view.bottom, Bottom::Bookmarks, "Bookmarks");
+            ui.selectable_value(&mut view.bottom, Bottom::Search, "Search");
             ui.separator();
-            if view.bottom == Bottom::Bookmarks {
-                for (kind, index) in view.bookmarks.clone() {
-                    let Some(n) = node(&g, kind, index) else { continue };
-                    if ui
-                        .selectable_label(
-                            false,
-                            format!("{kind:?} {index}: {}", line_text(app.game.as_deref(), n)),
-                        )
-                        .clicked()
-                        && let Some((parent, pos)) = mg_module::dialog::owner(&g, kind, index)
-                    {
-                        view.selected = Some(Row { parent, pos });
+            let sel = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
+            if ui.add_enabled(sel.is_some(), egui::Button::new("Bookmark").small()).clicked()
+                && let Some(r) = sel
+            {
+                let t = target_of(r);
+                if let Some(i) = view.bookmarks.iter().position(|b| *b == t) {
+                    view.bookmarks.remove(i);
+                } else {
+                    view.bookmarks.push(t);
+                }
+            }
+            if ui.button("Test").on_hover_text("Click through the conversation").clicked() {
+                view.test = Some(Vec::new());
+            }
+        });
+        ui.separator();
+        if view.bottom == Bottom::Bookmarks {
+            for (kind, index) in view.bookmarks.clone() {
+                let Some(n) = node(&g, kind, index) else { continue };
+                if ui
+                    .selectable_label(
+                        false,
+                        format!("{kind:?} {index}: {}", line_text(app.game.as_deref(), n)),
+                    )
+                    .clicked()
+                    && let Some((parent, pos)) = mg_module::dialog::owner(&g, kind, index)
+                {
+                    view.selected = Some(Row { parent, pos });
+                }
+            }
+            return;
+        }
+        if view.bottom == Bottom::Search {
+            search_pane(app, ui, key, &g, &mut view, &mut actions);
+            return;
+        }
+        // A row added this frame appears once the command has run.
+        match view.selected.filter(|r| r.pos < links(&g, r.parent).len()) {
+            None => {
+                ui.weak(format!("Root. {words} words in the file. Add adds an NPC greeting."));
+                file_tab(app, ui, key, &g, &mut actions);
+            }
+            Some(r) => {
+                let (kind, index) = target_of(r);
+                let link = links(&g, r.parent)[r.pos].clone();
+                let Some(n) = node(&g, kind, index).cloned() else { return };
+                let line = text(&n);
+                ui.weak(format!(
+                    "Line: {} letters, {} words. File: {words} words.{}",
+                    line.chars().count(),
+                    line.split_whitespace().count(),
+                    if is_link(&link) {
+                        " This row is a link: the line is edited where it is owned."
+                    } else {
+                        ""
                     }
-                }
-                return;
-            }
-            if view.bottom == Bottom::Search {
-                search_pane(app, ui, key, &g, &mut view, &mut actions);
-                return;
-            }
-            // A row added this frame appears once the command has run.
-            match view.selected.filter(|r| r.pos < links(&g, r.parent).len()) {
-                None => {
-                    ui.weak(format!("Root. {words} words in the file. Add adds an NPC greeting."));
-                    file_tab(app, ui, key, &g, &mut actions);
-                }
-                Some(r) => {
-                    let (kind, index) = target_of(r);
-                    let link = links(&g, r.parent)[r.pos].clone();
-                    let Some(n) = node(&g, kind, index).cloned() else { return };
-                    let line = text(&n);
-                    ui.weak(format!(
-                        "Line: {} letters, {} words. File: {words} words.{}",
-                        line.chars().count(),
-                        line.split_whitespace().count(),
-                        if is_link(&link) {
-                            " This row is a link: the line is edited where it is owned."
-                        } else {
-                            ""
+                ));
+                ui.columns(2, |cols| {
+                    text_panel(app, &mut cols[0], key, kind, index, &n, &mut view, &mut actions);
+                    let ui = &mut cols[1];
+                    ui.horizontal(|ui| {
+                        for (t, label) in [
+                            (DataTab::Condition, "Text Appears When…"),
+                            (DataTab::Action, "Actions Taken"),
+                            (DataTab::Other, "Other Actions"),
+                            (DataTab::Comments, "Comments"),
+                            (DataTab::File, "Current File"),
+                        ] {
+                            ui.selectable_value(&mut view.tab, t, label);
                         }
-                    ));
-                    ui.columns(2, |cols| {
-                        text_panel(
-                            app,
-                            &mut cols[0],
-                            key,
-                            kind,
-                            index,
-                            &n,
-                            &mut view,
-                            &mut actions,
-                        );
-                        let ui = &mut cols[1];
-                        ui.horizontal(|ui| {
-                            for (t, label) in [
-                                (DataTab::Condition, "Text Appears When…"),
-                                (DataTab::Action, "Actions Taken"),
-                                (DataTab::Other, "Other Actions"),
-                                (DataTab::Comments, "Comments"),
-                                (DataTab::File, "Current File"),
-                            ] {
-                                ui.selectable_value(&mut view.tab, t, label);
-                            }
-                        });
-                        ui.separator();
-                        egui::ScrollArea::vertical().id_salt(("dlg-tab", key)).show(ui, |ui| {
-                            match view.tab {
-                                DataTab::Condition => script_with_params(
-                                    app,
-                                    ui,
-                                    key,
-                                    link_path(r),
-                                    "Active",
-                                    "ConditionParams",
-                                    &link,
-                                    "cond",
-                                    &mut actions,
-                                ),
-                                DataTab::Action => script_with_params(
-                                    app,
-                                    ui,
-                                    key,
-                                    node_path(kind, index),
-                                    "Script",
-                                    "ActionParams",
-                                    &n,
-                                    "act",
-                                    &mut actions,
-                                ),
-                                DataTab::Other => {
-                                    other_tab(app, ui, key, kind, index, &n, &mut actions)
-                                }
-                                DataTab::Comments => {
-                                    let (path, label, value) = if is_link(&link) {
-                                        (
-                                            link_path(r),
-                                            "LinkComment",
-                                            decode(link.string("LinkComment").unwrap_or_default()),
-                                        )
-                                    } else {
-                                        (
-                                            node_path(kind, index),
-                                            "Comment",
-                                            decode(n.string("Comment").unwrap_or_default()),
-                                        )
-                                    };
-                                    let id =
-                                        egui::Id::new(("dlg-comment", key, kind, index, label));
-                                    if let Some(v) =
-                                        commit_text(app, ui, id, &value, true, f32::INFINITY)
-                                    {
-                                        actions.push(set(
-                                            key,
-                                            "Comment",
-                                            path,
-                                            label,
-                                            Value::String(encode(&v)),
-                                        ));
-                                    }
-                                }
-                                DataTab::File => file_tab(app, ui, key, &g, &mut actions),
-                            }
-                        });
                     });
-                }
+                    ui.separator();
+                    egui::ScrollArea::vertical().id_salt(("dlg-tab", key)).show(
+                        ui,
+                        |ui| match view.tab {
+                            DataTab::Condition => script_with_params(
+                                app,
+                                ui,
+                                key,
+                                link_path(r),
+                                "Active",
+                                "ConditionParams",
+                                &link,
+                                "cond",
+                                &mut actions,
+                            ),
+                            DataTab::Action => script_with_params(
+                                app,
+                                ui,
+                                key,
+                                node_path(kind, index),
+                                "Script",
+                                "ActionParams",
+                                &n,
+                                "act",
+                                &mut actions,
+                            ),
+                            DataTab::Other => {
+                                other_tab(app, ui, key, kind, index, &n, &mut actions)
+                            }
+                            DataTab::Comments => {
+                                let (path, label, value) = if is_link(&link) {
+                                    (
+                                        link_path(r),
+                                        "LinkComment",
+                                        decode(link.string("LinkComment").unwrap_or_default()),
+                                    )
+                                } else {
+                                    (
+                                        node_path(kind, index),
+                                        "Comment",
+                                        decode(n.string("Comment").unwrap_or_default()),
+                                    )
+                                };
+                                let id = egui::Id::new(("dlg-comment", key, kind, index, label));
+                                if let Some(v) =
+                                    commit_text(app, ui, id, &value, true, f32::INFINITY)
+                                {
+                                    actions.push(set(
+                                        key,
+                                        "Comment",
+                                        path,
+                                        label,
+                                        Value::String(encode(&v)),
+                                    ));
+                                }
+                            }
+                            DataTab::File => file_tab(app, ui, key, &g, &mut actions),
+                        },
+                    );
+                });
             }
-        },
-    );
+        }
+    });
 
     // The tree, in the Options' colours.
     let hl = view.highlight;
@@ -844,9 +838,13 @@ fn text_panel(
     actions: &mut Vec<Action>,
 ) {
     let path = node_path(kind, index);
+    // Within its column, however narrow the window: a row too wide for it
+    // wraps, rather than push the text under the script's side.
+    let width = ui.available_width();
+    ui.set_max_width(width);
     if kind == Kind::Entry {
         let tags = creature_tags(app);
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("Speaker Tag");
             let speaker = decode(n.string("Speaker").unwrap_or_default());
             let id = egui::Id::new(("dlg-speaker", key, index));
@@ -901,7 +899,7 @@ fn text_panel(
     let from_tlk = (english.is_empty() && !ls.strref.is_none())
         .then(|| app.game.as_deref().and_then(|g| g.string(ls.strref)))
         .flatten();
-    if let Some(v) = commit_text(app, ui, id, &english, true, f32::INFINITY) {
+    if let Some(v) = commit_text(app, ui, id, &english, true, width) {
         actions.push(set(
             key,
             "Line text",
@@ -914,36 +912,14 @@ fn text_panel(
         ui.weak(format!("From the talk table (string {}): {t}", ls.strref.0));
     }
     if view.token_picker {
-        let tokens: Vec<String> = app
-            .game
-            .as_ref()
-            .and_then(|g| g.table("stringtokens").ok())
-            .map(|t| (0..t.len()).filter_map(|r| t.get(r, "Token").map(str::to_string)).collect())
-            .unwrap_or_default();
+        // (Those of the language edited: Options › General.)
+        let tokens = crate::widgets::language_tokens(app, crate::text::edit_language());
         let mut close = false;
         egui::Window::new("Select Token").collapsible(false).show(ui.ctx(), |ui| {
             egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                 for t in &tokens {
-                    if ui.selectable_label(false, format!("<{t}>")).clicked() {
-                        let v = format!("{english}<{t}>");
-                        actions.push(set(
-                            key,
-                            "Insert token",
-                            path.clone(),
-                            "Text",
-                            with_english(ls.clone(), &v).into_value(),
-                        ));
-                        close = true;
-                    }
-                }
-                for (label, token) in [
-                    ("Custom token", "<CUSTOM100>"),
-                    ("Action highlight", "<StartAction></Start>"),
-                    ("Skill check", "<StartCheck></Start>"),
-                    ("Highlight", "<StartHighlight></Start>"),
-                ] {
-                    if ui.selectable_label(false, format!("{token}  ({label})")).clicked() {
-                        let v = format!("{english}{token}");
+                    if ui.selectable_label(false, t).clicked() {
+                        let v = format!("{english}{t}");
                         actions.push(set(
                             key,
                             "Insert token",
@@ -987,8 +963,8 @@ fn script_with_params(
         {
             actions.push(set(key, "Script", path.clone(), label, Value::resref(v)));
         }
-        if crate::widgets::edit_script_button(app, ui, current) {
-            actions.push(Action::EditScript { name: current, condition: label == "Active" });
+        if let Some(name) = crate::widgets::edit_script_button(app, ui, id, current) {
+            actions.push(Action::EditScript { name, condition: label == "Active" });
         }
     });
     if ui.button("Script Wizard…").on_hover_text("Write a new script from a few choices").clicked()

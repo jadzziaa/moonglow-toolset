@@ -61,9 +61,8 @@ impl Form<'_> {
     pub(super) fn item_picker(&mut self, ui: &mut Ui, add: &str) -> Option<ResRef> {
         const TREE: f32 = 240.0;
         if ui.available_width() < 2.0 * TREE {
-            let taken = self.palette_picker(ui, BlueprintKind::Item, add);
-            self.chosen_item(ui);
-            return taken;
+            return self
+                .palette_picker_over(ui, BlueprintKind::Item, add, |f, ui| f.chosen_item(ui));
         }
         ui.horizontal_top(|ui| {
             let taken = ui

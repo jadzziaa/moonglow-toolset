@@ -643,9 +643,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // Compiler, Help, Bookmarks, Search Results.
     let mut jump: Option<(ResKey, usize)> = None;
     let mut open_other: Option<(String, usize)> = None;
+    // (At most three fifths of the editor: the text keeps its room.)
+    let most = (ui.available_height() * 0.6).max(60.0);
     egui::Panel::bottom(egui::Id::new(("script-info", key)))
         .resizable(true)
-        .default_size(140.0)
+        .default_size(140.0f32.min(most))
+        .max_size(most)
         .show(ui, |ui| {
             let t = &mut app.script_tools;
             ui.horizontal(|ui| {

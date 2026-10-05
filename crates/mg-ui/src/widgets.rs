@@ -53,6 +53,8 @@ pub struct LocStringEdit {
     /// stored text used CRLF.
     pub entries: Vec<(Language, Gender, String, bool)>,
     original: LocString,
+    /// Each language's tokens, read when its Token… is first opened.
+    tokens: Vec<(Language, Vec<String>)>,
 }
 
 impl LocStringEdit {
@@ -68,7 +70,14 @@ impl LocStringEdit {
             .collect();
         let strref =
             if value.strref.is_none() { String::new() } else { value.strref.0.to_string() };
-        LocStringEdit { target, title: title.to_string(), strref, entries, original: value.clone() }
+        LocStringEdit {
+            target,
+            title: title.to_string(),
+            strref,
+            entries,
+            original: value.clone(),
+            tokens: Vec::new(),
+        }
     }
 
     /// The edited string; `None` if the StrRef is not a number or a text
@@ -365,6 +374,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
             ui.add_space(6.0);
             let mut remove = None;
+            let edit_tokens = &mut edit.tokens;
             for (i, (language, gender, text, _)) in edit.entries.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
                     egui::ComboBox::from_id_salt(("loc-lang", i))
@@ -381,6 +391,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ui.selectable_value(gender, g, name);
                             }
                         });
+                    // The language's own tokens (Polish has more than
+                    // English), put at the end of its text.
+                    let language = *language;
+                    ui.menu_button("Token…", |ui| {
+                        if !edit_tokens.iter().any(|(l, _)| *l == language) {
+                            edit_tokens.push((language, language_tokens(app, language)));
+                        }
+                        let tokens =
+                            &edit_tokens.iter().find(|(l, _)| *l == language).expect("read").1;
+                        egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                            for t in tokens {
+                                if ui.button(t).clicked() {
+                                    text.push_str(t);
+                                    ui.close();
+                                }
+                            }
+                        });
+                    })
+                    .response
+                    .on_hover_text(format!(
+                        "Insert a token such as <FirstName>: those of {}",
+                        language.name().unwrap_or("the language")
+                    ));
                     if ui.small_button("Remove").clicked() {
                         remove = Some(i);
                     }
@@ -793,12 +826,46 @@ const HEADING_RULE: f32 = 0.75;
 /// The room between a section heading's rule and what follows.
 const HEADING_ROOM: f32 = 6.0;
 
+/// The tokens text in `language` can use, each as written (`<FirstName>`):
+/// the language's own table where the game has one (its
+/// `lang/<code>/data/ovr/stringtokens.2da`: Polish has tokens English
+/// doesn't), else the game's, then the custom token and the highlights.
+pub(crate) fn language_tokens(app: &Moonglow, language: Language) -> Vec<String> {
+    let column = |t: &mg_2da::TwoDa| -> Vec<String> {
+        (0..t.len()).filter_map(|r| t.get(r, "Token").map(|t| format!("<{t}>"))).collect()
+    };
+    let own = language.short_code().zip(app.install.as_ref()).and_then(|(code, install)| {
+        let path = install.root.join("lang").join(code).join("data/ovr/stringtokens.2da");
+        let data = std::fs::read(path).ok()?;
+        mg_2da::TwoDa::parse(&data, language.codepage()).ok()
+    });
+    let mut tokens = match own {
+        Some(t) => column(&t),
+        None => app
+            .game
+            .as_ref()
+            .and_then(|g| g.table("stringtokens").ok())
+            .map(|t| column(&t))
+            .unwrap_or_default(),
+    };
+    tokens.extend(
+        [
+            "<CUSTOM100>",
+            "<StartAction></Start>",
+            "<StartCheck></Start>",
+            "<StartHighlight></Start>",
+        ]
+        .map(String::from),
+    );
+    tokens
+}
+
 /// Expand All and Collapse All for a list of `what`s (groups, categories)
 /// that open and close: `Some(true)` or `Some(false)` on the frame one is
 /// clicked, to give to each header's `open`.
 pub(crate) fn fold_buttons(ui: &mut Ui, what: &str) -> Option<bool> {
     let mut fold = None;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.small_button("Expand All").on_hover_text(format!("Open every {what}")).clicked() {
             fold = Some(true);
         }
@@ -809,9 +876,19 @@ pub(crate) fn fold_buttons(ui: &mut Ui, what: &str) -> Option<bool> {
     fold
 }
 
-/// Edit beside a script's name (clicked: [`Action::EditScript`](crate::Action::EditScript)):
-/// there for any name, saying what it will do with one that is nowhere.
-pub(crate) fn edit_script_button(app: &Moonglow, ui: &mut Ui, name: mg_core::ResRef) -> bool {
+/// Edit beside a script's name, the field `field` ([`resref_field`]):
+/// the name to give [`Action::EditScript`](crate::Action::EditScript) when
+/// it is clicked. There for any name, as soon as one is typed (the field
+/// takes it when the click leaves it), saying what it will do with one
+/// that is nowhere.
+pub(crate) fn edit_script_button(
+    app: &Moonglow,
+    ui: &mut Ui,
+    field: egui::Id,
+    current: ResRef,
+) -> Option<ResRef> {
+    let typed = app.buffers.get(&field).and_then(|b| ResRef::from_str(b.trim()).ok());
+    let name = typed.unwrap_or(current);
     let key = ResKey::new(name, ResType::NSS);
     let found = app.ws.as_ref().is_some_and(|w| w.module.contains(&key))
         || app.game.as_deref().is_some_and(|g| g.resman.contains(&key));
@@ -821,12 +898,36 @@ pub(crate) fn edit_script_button(app: &Moonglow, ui: &mut Ui, name: mg_core::Res
     } else {
         r.on_hover_text(format!("There is no script '{name}': Edit creates it in the module"))
     };
-    r.clicked()
+    r.clicked().then_some(name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Polish has tokens of its own (the game's `lang/pl` table); a
+    /// language without a table has the game's.
+    #[test]
+    fn a_language_s_tokens_are_its_own() {
+        let Some(root) = mg_testkit::nwn_root() else {
+            eprintln!("skipped: no game install");
+            return;
+        };
+        if !root.join("lang/pl/data/ovr/stringtokens.2da").is_file() {
+            eprintln!("skipped: the install has no Polish");
+            return;
+        }
+        let install = mg_resman::GameInstall::new(&root, None, "en");
+        let app = Moonglow::new(Some(install), Box::new(crate::NoDialogs::default()));
+        let english = language_tokens(&app, Language(0));
+        let polish = language_tokens(&app, Language(5));
+        let has = |list: &[String], t: &str| list.iter().any(|x| x == t);
+        assert!(has(&english, "<FirstName>") && has(&polish, "<FirstName>"));
+        assert!(has(&polish, "<bracie/siostro>") && !has(&english, "<bracie/siostro>"));
+        assert!(has(&english, "<CUSTOM100>") && has(&polish, "<StartAction></Start>"));
+        // French has no table of its own: the game's.
+        assert_eq!(language_tokens(&app, Language(1)), english);
+    }
 
     #[test]
     fn a_variable_edit_merges_into_the_others_edited_with_it() {

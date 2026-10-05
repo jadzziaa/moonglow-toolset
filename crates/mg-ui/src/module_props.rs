@@ -214,8 +214,8 @@ fn events(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             if let Some(v) = resref_field(app, ui, id, current, "Select a script", &types) {
                 app.actions.push(set_value(&format!("{label} script"), field, Value::resref(v)));
             }
-            if crate::widgets::edit_script_button(app, ui, current) {
-                app.actions.push(Action::EditScript { name: current, condition: false });
+            if let Some(name) = crate::widgets::edit_script_button(app, ui, id, current) {
+                app.actions.push(Action::EditScript { name, condition: false });
             }
             ui.end_row();
         }

@@ -282,6 +282,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         return;
     }
     let mut view = std::mem::take(&mut app.palette);
+    crate::trace::changed("palette", || {
+        format!(
+            "in {:?}; tiles {}, prefabs {}, kind {:?}, custom {}, area {:?}, find {:?}",
+            ui.max_rect(),
+            view.tiles,
+            view.prefabs,
+            view.kind,
+            view.custom,
+            view.area,
+            view.filter
+        )
+    });
     ui.horizontal_wrapped(|ui| {
         use crate::icons::{TILES, blueprint, labelled};
         let tiles = labelled(TILES, "Tiles");

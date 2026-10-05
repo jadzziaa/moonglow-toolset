@@ -2202,6 +2202,7 @@ dependencies = [
  "egui_kittest",
  "fastrand",
  "glam",
+ "log",
  "mg-2da",
  "mg-area",
  "mg-audio",

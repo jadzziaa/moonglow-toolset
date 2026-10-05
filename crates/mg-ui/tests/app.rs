@@ -10058,3 +10058,212 @@ fn the_theme_is_set_in_options() {
     h.run();
     assert_eq!(h.ctx.theme(), egui::Theme::Light);
 }
+
+/// An editor's window opens as large as one of its kind was last left, and
+/// Maximize (its tab's menu, or a double click on the tab) fills the
+/// panes' room and puts it back.
+#[test]
+fn windows_remember_their_size_and_maximize() {
+    let Some((mut h, area)) = area_harness("window-sizes") else { return };
+    let props = Tab::AreaProperties(area);
+    // The room the window's pane takes.
+    let pane = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        let s = h.state();
+        let path = s.dock.find_tab(tab).expect("open");
+        assert!(!path.surface.is_main(), "in a window of its own");
+        s.dock.iter_leaves().find(|(p, _)| p.surface == path.surface).unwrap().1.rect
+    };
+    let open = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(props.clone()));
+        h.run_steps(8);
+    };
+    let close = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().actions.push(mg_ui::Action::CloseTab(props.clone()));
+        h.run_steps(3);
+    };
+    open(&mut h);
+    let first = pane(&h, &props);
+    // Maximized, and back.
+    h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(props.clone()));
+    h.run_steps(8);
+    let big = pane(&h, &props);
+    assert!(big.area() > first.area() + 1000.0, "larger: {big:?} than {first:?}");
+    h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(props.clone()));
+    h.run_steps(8);
+    let back = pane(&h, &props);
+    assert!((back.size() - first.size()).length() < 2.0, "back to {back:?}, was {first:?}");
+    assert!((back.min - first.min).length() < 2.0, "where it was: {back:?}, {first:?}");
+    // Opened again: as it first opened (maximizing isn't remembered).
+    close(&mut h);
+    open(&mut h);
+    let again = pane(&h, &props);
+    assert!((again.size() - first.size()).length() < 2.0, "opens at {again:?}, not {first:?}");
+    // Left smaller (as dragging its edge leaves it): the next opens so.
+    h.state_mut().settings.window_sizes = vec![("area-properties".into(), [400, 300])];
+    close(&mut h);
+    open(&mut h);
+    let small = pane(&h, &props);
+    assert!(
+        (small.width() - 400.0).abs() < 20.0 && (small.height() - 300.0).abs() < 20.0,
+        "{small:?} against {first:?}"
+    );
+    // And once more: the size doesn't creep.
+    close(&mut h);
+    open(&mut h);
+    let third = pane(&h, &props);
+    assert!((third.size() - small.size()).length() < 2.0, "then at {third:?}");
+    assert_eq!(h.state().settings.window_sizes, [("area-properties".to_string(), [400, 300])]);
+}
+
+/// A nasher project's files changed by another program are read again
+/// while the project is open; where Moonglow has unsaved changes to one,
+/// its own is kept and the window asks.
+#[test]
+fn a_project_s_files_changed_outside_are_read_again() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Outside", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    m.set(ResKey::parse("hello", ResType::NSS).unwrap(), b"void main() {}\n".to_vec());
+    let dir = mg_testkit::scratch_dir("ui-project-outside").join("project");
+    m.save_as(&ModuleLocation::Project { root: dir.clone(), target: "default".into() }).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let are = ResKey::new(area, ResType::ARE);
+    let are_file = dir.join(format!("src/{area}.are.json"));
+    let tag = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        String::from_utf8(ws.doc(&are).unwrap().root.string("Tag").unwrap().to_vec()).unwrap()
+    };
+    let first = tag(&mut h);
+    let retag = |from: &str, to: &str| {
+        let text = std::fs::read_to_string(&are_file).unwrap();
+        let (a, b) = (format!("\"{from}\""), format!("\"{to}\""));
+        assert!(text.contains(&a), "{from} in the file");
+        std::fs::write(&are_file, text.replace(&a, &b)).unwrap();
+    };
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains(what))
+    };
+    // Looked at (its document read), not changed: nothing to reload.
+    h.state_mut().reload_project_files();
+    assert!(!said(&h, "Read again"));
+
+    // Another program changes the area, a script, adds one and deletes none.
+    retag(&first, "OUTSIDE");
+    std::fs::write(dir.join("src/hello.nss"), "void main() { int outside; }\n").unwrap();
+    std::fs::write(dir.join("src/fresh.nss"), "void main() {}\n").unwrap();
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    assert_eq!(tag(&mut h), "OUTSIDE");
+    {
+        let ws = h.state().ws.as_ref().unwrap();
+        let script = |n: &str| ws.module.get(&ResKey::parse(n, ResType::NSS).unwrap());
+        assert_eq!(script("hello"), Some(&b"void main() { int outside; }\n"[..]));
+        assert!(script("fresh").is_some(), "the new file is in the module");
+        assert!(!ws.is_modified(), "read again is not unsaved work");
+    }
+    assert!(said(&h, "Read again from the project"));
+    assert!(h.state().outside_conflicts().is_empty());
+
+    // Changed here (unsaved) and outside both: Moonglow's is kept, and asked.
+    let set_tag = |h: &mut Harness<'_, Moonglow>, to: &str| {
+        let edit = mg_edit::Edit::SetField {
+            key: are,
+            path: mg_edit::GffPath::root(),
+            label: "Tag".into(),
+            value: Some(mg_gff::Value::String(to.as_bytes().to_vec())),
+        };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+        h.run_steps(2);
+    };
+    set_tag(&mut h, "MINE");
+    retag("OUTSIDE", "THEIRS");
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    assert_eq!(tag(&mut h), "MINE", "kept");
+    assert_eq!(h.state().outside_conflicts(), std::slice::from_ref(&are_file));
+    assert!(said(&h, "has unsaved changes here"));
+    // Take the Files': theirs, and the change here is gone.
+    h.get_by_label("Take the Files'").click();
+    h.run_steps(3);
+    assert_eq!(tag(&mut h), "THEIRS");
+    assert!(h.state().outside_conflicts().is_empty());
+
+    // Again, and Keep Moonglow's: the next save writes it over the file.
+    set_tag(&mut h, "MINE2");
+    retag("THEIRS", "THEIRS2");
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    h.get_by_label("Keep Moonglow's").click();
+    h.run_steps(3);
+    assert_eq!(tag(&mut h), "MINE2");
+    h.state_mut().run(mg_ui::Action::Save);
+    h.run_steps(2);
+    assert!(std::fs::read_to_string(&are_file).unwrap().contains("\"MINE2\""), "saved over it");
+    h.state_mut().reload_project_files();
+    assert!(h.state().outside_conflicts().is_empty());
+}
+
+/// The module tree leaves the middle its room: a very long name is cut
+/// short in it rather than widen it over the area and the palettes (a
+/// builder's module opened with the tree over the whole window).
+#[test]
+fn the_module_tree_never_takes_the_window() {
+    let Some((mut h, area)) = area_harness("tree-width") else { return };
+    // Areas by name, and a name far longer than the pane.
+    h.state_mut().settings.area_names = true;
+    let name = "An Area With A Name That Goes On And On ".repeat(8);
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::ARE),
+        path: mg_edit::GffPath::root(),
+        label: "Name".into(),
+        value: Some(mg_gff::Value::LocString(mg_core::LocString::from_text(
+            mg_core::Language(0),
+            mg_core::Gender::Male,
+            name.trim(),
+        ))),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Name", vec![edit])));
+    h.run_steps(6);
+    // The area's view and the palettes are on screen, with room, and the
+    // tree takes at most two fifths of the window.
+    let s = h.state();
+    let pane = |tab: &Tab| {
+        let path = s.dock.find_tab(tab).expect("open");
+        let at = |p: &egui_dock::NodePath| p.surface == path.surface && p.node == path.node;
+        s.dock.iter_leaves().find(|(p, _)| at(p)).unwrap().1.rect
+    };
+    let (view, palette) = (pane(&Tab::Area(area)), pane(&Tab::Palette));
+    assert!(view.left() <= 1100.0 * 0.4 + 20.0, "the tree ends by {}", view.left());
+    assert!(view.width() > 150.0, "the area's view: {view:?}");
+    assert!(palette.width() > 150.0 && palette.right() <= 1100.0, "the palettes: {palette:?}");
+    // A split dragged all the way over (or remembered so) is brought back:
+    // neither side is left with nothing.
+    for (_, node) in h.state_mut().dock.iter_all_nodes_mut() {
+        if let egui_dock::Node::Horizontal(split) = node {
+            split.fraction = 0.999;
+        }
+    }
+    h.run_steps(3);
+    let s = h.state();
+    let path = s.dock.find_tab(&Tab::Palette).unwrap();
+    let at = |p: &egui_dock::NodePath| p.surface == path.surface && p.node == path.node;
+    let palette = s.dock.iter_leaves().find(|(p, _)| at(p)).unwrap().1.rect;
+    assert!(palette.width() > 60.0, "the palettes keep some room: {palette:?}");
+}

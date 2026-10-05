@@ -55,6 +55,11 @@ pub struct Settings {
     pub hak_folders: Vec<(PathBuf, PathBuf)>,
     /// Options > General: Open a module on the area opened last is off.
     pub no_last_area: bool,
+    /// Options > General: Write a debug log (`trace`).
+    pub debug_log: bool,
+    /// The size each kind of editor window was last left at (its
+    /// `Tab::kind`, width and height in points): the next one opens so.
+    pub window_sizes: Vec<(String, [u32; 2])>,
     /// The plugins enabled, by id (one installed is off until it is here).
     pub plugins_enabled: Vec<String>,
     /// The game install, when not the detected one.
@@ -246,13 +251,58 @@ impl Settings {
             None => detected.as_ref()?.root.clone(),
         };
         let user_dir = self.user_dir.clone().or_else(|| detected.and_then(|d| d.user_dir));
-        Some(GameInstall::new(root, user_dir, "en"))
+        // The game's own text (names and descriptions by StrRef, the
+        // rules' names) in the language edited, where the install has it:
+        // its talk table and the rest of its `lang/` folder. Else English.
+        let code = mg_core::Language(self.edit_language.unwrap_or(0))
+            .short_code()
+            .filter(|c| root.join("lang").join(c).join("data/dialog.tlk").is_file())
+            .unwrap_or("en");
+        Some(GameInstall::new(root, user_dir, code))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The game's text is read in the language edited, where the install
+    /// has that language.
+    #[test]
+    fn the_install_s_language_is_the_one_edited() {
+        let Some(root) = mg_testkit::nwn_root() else {
+            eprintln!("skipped: no game install");
+            return;
+        };
+        let language = |edit: Option<u32>| {
+            let s = Settings {
+                game_root: Some(root.clone()),
+                edit_language: edit,
+                ..Default::default()
+            };
+            s.install().unwrap().language
+        };
+        assert_eq!(language(None), "en");
+        // (A language the game has no folder for.)
+        assert_eq!(language(Some(131)), "en");
+        if root.join("lang/pl/data/dialog.tlk").is_file() {
+            assert_eq!(language(Some(5)), "pl");
+            // A description named by StrRef reads in Polish then (the
+            // drow's, string 64101).
+            let text = |edit: Option<u32>| {
+                let s = Settings {
+                    game_root: Some(root.clone()),
+                    edit_language: edit,
+                    ..Default::default()
+                };
+                let game = mg_rules::GameData::open(&s.install().unwrap()).unwrap();
+                game.string(mg_core::StrRef(64101)).unwrap()
+            };
+            let (english, polish) = (text(None), text(Some(5)));
+            assert!(english.contains("drow"), "{english}");
+            assert_ne!(english, polish, "another language's text");
+        }
+    }
 
     #[test]
     fn settings_saved_before_script_styles_still_load() {

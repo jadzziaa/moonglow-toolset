@@ -35,8 +35,33 @@ pub struct Project {
     pub target: String,
     pub settings: Settings,
     sources: HashMap<ResKey, Source>,
+    /// Each source file's time and size when it was last found as it was
+    /// read or written: one that still has them isn't read again
+    /// ([`Project::outside`]).
+    stamps: HashMap<PathBuf, Stamp>,
     /// Things worth telling the user about the tree, taken by the caller.
     pub warnings: Vec<String>,
+}
+
+/// A file's modification time and size.
+type Stamp = (std::time::SystemTime, u64);
+
+fn stamp(path: &Path) -> Option<Stamp> {
+    let m = std::fs::metadata(path).ok()?;
+    Some((m.modified().ok()?, m.len()))
+}
+
+/// A source file changed, added or deleted outside Moonglow since it was
+/// read or written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Outside {
+    pub key: ResKey,
+    pub path: PathBuf,
+    /// The resource the file now stands for; `None`: the file is gone.
+    pub resource: Option<Arc<[u8]>>,
+    /// The file's bytes now.
+    file: Option<Arc<[u8]>>,
+    json: bool,
 }
 
 /// What a save wrote.
@@ -96,6 +121,7 @@ impl Project {
             target: t.name.clone(),
             settings,
             sources: HashMap::new(),
+            stamps: HashMap::new(),
             warnings: Vec::new(),
         };
         let conv = project.conversion();
@@ -203,6 +229,125 @@ impl Project {
             .collect();
         v.sort();
         v
+    }
+
+    /// The resource a source file's bytes stand for.
+    fn resource_from(
+        &self,
+        path: &Path,
+        json: bool,
+        file: &Arc<[u8]>,
+    ) -> Result<Arc<[u8]>, ModuleError> {
+        if !json {
+            return Ok(file.clone());
+        }
+        let name = path.display().to_string();
+        let gff = self.conversion().from_source(&name, file)?;
+        let bytes =
+            gff.to_bytes().map_err(|e| ModuleError::Source { name, message: e.to_string() })?;
+        Ok(Arc::from(bytes))
+    }
+
+    /// The source files changed, added or deleted outside Moonglow since
+    /// they were read or written (by an editor, `git checkout`, `git
+    /// pull`), with what could not be read of them. Each is named again
+    /// every time until it is taken ([`Project::took`]) or is as it was
+    /// again. Files whose time and size are as they were are not read.
+    pub fn outside(&mut self) -> (Vec<Outside>, Vec<String>) {
+        let (mut changes, mut problems) = (Vec::new(), Vec::new());
+        let mut settled = Vec::new();
+        for (key, src) in &self.sources {
+            let now = stamp(&src.path);
+            if now.is_some() && self.stamps.get(&src.path) == now.as_ref() {
+                continue;
+            }
+            let gone = || Outside {
+                key: *key,
+                path: src.path.clone(),
+                resource: None,
+                file: None,
+                json: src.json,
+            };
+            let Some(file) = std::fs::read(&src.path).ok().map(Arc::<[u8]>::from) else {
+                changes.push(gone());
+                continue;
+            };
+            if file[..] == src.file[..] {
+                // (Touched, or first looked at: as it was read.)
+                settled.extend(now.map(|s| (src.path.clone(), s)));
+                continue;
+            }
+            match self.resource_from(&src.path, src.json, &file) {
+                Ok(resource) => {
+                    changes.push(Outside { resource: Some(resource), file: Some(file), ..gone() })
+                }
+                Err(e) => problems.push(e.to_string()),
+            }
+        }
+        self.stamps.extend(settled);
+        // Files that are new to the tree.
+        let known: std::collections::HashSet<&Path> =
+            self.sources.values().map(|s| s.path.as_path()).collect();
+        let root = self.root().to_path_buf();
+        let mut added: Vec<Outside> = Vec::new();
+        for path in self.target().source_files(&root).unwrap_or_default() {
+            if known.contains(path.as_path()) {
+                continue;
+            }
+            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let Some((key, json)) = resource_of(&name) else { continue };
+            if (json && !is_json_type(key.restype))
+                || self.sources.contains_key(&key)
+                || added.iter().any(|a| a.key == key)
+            {
+                continue;
+            }
+            let Some(file) = std::fs::read(&path).ok().map(Arc::<[u8]>::from) else { continue };
+            match self.resource_from(&path, json, &file) {
+                Ok(resource) => added.push(Outside {
+                    key,
+                    path,
+                    resource: Some(resource),
+                    file: Some(file),
+                    json,
+                }),
+                Err(e) => problems.push(e.to_string()),
+            }
+        }
+        changes.extend(added);
+        changes.sort_by(|a, b| a.path.cmp(&b.path));
+        problems.sort();
+        (changes, problems)
+    }
+
+    /// The resource a key's source file stood for when it was last read or
+    /// written (`None`: it has no file).
+    pub fn as_read(&self, key: &ResKey) -> Option<&[u8]> {
+        self.sources.get(key).map(|s| &s.resource[..])
+    }
+
+    /// Counts a file changed outside as read: what a save compares with
+    /// from now on. (Whether the module takes its resource is the
+    /// caller's: one that keeps its own will write it over the file.)
+    pub fn took(&mut self, change: &Outside) {
+        match (&change.file, &change.resource) {
+            (Some(file), Some(resource)) => {
+                self.stamps.extend(stamp(&change.path).map(|s| (change.path.clone(), s)));
+                self.sources.insert(
+                    change.key,
+                    Source {
+                        path: change.path.clone(),
+                        json: change.json,
+                        file: file.clone(),
+                        resource: resource.clone(),
+                    },
+                );
+            }
+            _ => {
+                self.stamps.remove(&change.path);
+                self.sources.remove(&change.key);
+            }
+        }
     }
 
     /// Lists the areas in the tree that `module.ifo`'s area list misses
@@ -489,6 +634,67 @@ mod tests {
         // Saving a project into a folder that already has one is refused.
         let mut other = module();
         assert!(other.save_as(&project_location(&root)).is_err());
+    }
+
+    #[test]
+    fn files_changed_added_and_deleted_outside_are_found() {
+        let root = scratch("outside");
+        module().save_as(&project_location(&root)).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let project = m.project.as_mut().unwrap();
+        let nss = root.join("src/on_load.nss");
+        // As it was read: nothing, however often it is asked.
+        assert_eq!(project.outside(), (vec![], vec![]));
+        assert_eq!(project.outside(), (vec![], vec![]));
+
+        // Changed, added and deleted by another program.
+        std::fs::write(&nss, "void main() { int outside; }\n").unwrap();
+        std::fs::write(root.join("src/fresh.nss"), "void main() {}\n").unwrap();
+        std::fs::remove_file(root.join("src/a1.git.json")).unwrap();
+        // (Not a resource: left alone.)
+        std::fs::write(root.join("src/notes.txt.bak"), "x").unwrap();
+        let (changes, problems) = project.outside();
+        assert!(problems.is_empty(), "{problems:?}");
+        let found: Vec<(String, Option<usize>)> = changes
+            .iter()
+            .map(|c| (c.key.to_string(), c.resource.as_ref().map(|r| r.len())))
+            .collect();
+        assert_eq!(
+            found,
+            [
+                ("a1.git".to_string(), None),
+                ("fresh.nss".into(), Some(15)),
+                ("on_load.nss".into(), Some(29))
+            ]
+        );
+        // Named again until taken.
+        assert_eq!(project.outside().0, changes);
+        for c in &changes {
+            project.took(c);
+        }
+        assert_eq!(project.outside(), (vec![], vec![]));
+        assert_eq!(
+            project.as_read(&key("on_load", ResType::NSS)),
+            Some(&b"void main() { int outside; }\n"[..])
+        );
+        assert_eq!(project.as_read(&key("a1", ResType::GIT)), None);
+
+        // A file put back as it was is no change; one that can't be read
+        // is a problem, not a change.
+        let are = root.join("src/a1.are.json");
+        let was = std::fs::read(&are).unwrap();
+        std::fs::write(&are, "{ not json").unwrap();
+        let (changes, problems) = project.outside();
+        assert!(changes.is_empty() && problems.len() == 1, "{changes:?} {problems:?}");
+        std::fs::write(&are, &was).unwrap();
+        assert_eq!(project.outside(), (vec![], vec![]));
+
+        // A save after taking them writes nothing and deletes nothing.
+        m.set(key("fresh", ResType::NSS), b"void main() {}\n".to_vec());
+        m.set(key("on_load", ResType::NSS), b"void main() { int outside; }\n".to_vec());
+        m.remove(&key("a1", ResType::GIT));
+        let report = m.project.as_mut().unwrap().save(&m.resources).unwrap();
+        assert_eq!(report, SaveReport::default());
     }
 
     #[test]

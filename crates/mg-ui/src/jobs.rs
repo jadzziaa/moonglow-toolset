@@ -135,6 +135,7 @@ impl Moonglow {
                 return;
             }
         };
+        crate::trace::note(format!("job starts: {title}"));
         let progress = Arc::new(Progress::default());
         let context = Context { module, game: self.game.clone(), progress: progress.clone() };
         // (The context, and its share of the game data, is dropped when
@@ -182,6 +183,7 @@ impl Moonglow {
     fn finish_job(&mut self) {
         let Some(mut job) = self.job.take() else { return };
         let Some(thread) = job.thread.take() else { return };
+        crate::trace::note(format!("job ends: {} ({:.0?})", job.title, job.started.elapsed()));
         match thread.join() {
             Ok(_) if job.progress.cancelled() => self.log.info(format!("{}: canceled", job.title)),
             Ok(made) => {

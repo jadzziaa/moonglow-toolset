@@ -72,6 +72,41 @@ impl Tab {
         matches!(self, Tab::Area(_) | Tab::Welcome)
     }
 
+    /// The kind of tab, whatever it shows: what its window's size is
+    /// remembered by.
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Tab::Welcome => "welcome",
+            Tab::ModuleProperties => "module-properties",
+            Tab::Script(_) => "script",
+            Tab::Gff(_) => "gff",
+            Tab::Resources => "resources",
+            Tab::Factions => "factions",
+            Tab::Journal => "journal",
+            Tab::TalkTable => "talk-table",
+            Tab::Hak(_) => "hak",
+            Tab::Tileset(_) => "tileset",
+            Tab::Dialog(_) => "dialog",
+            Tab::Resource(_) => "resource",
+            Tab::Model(_) | Tab::InstanceModel { .. } => "model",
+            Tab::Palette => "palette",
+            Tab::Blueprint(k) => match k.restype {
+                ResType::UTC => "creature",
+                ResType::UTI => "item",
+                ResType::UTP => "placeable",
+                ResType::UTD => "door",
+                ResType::UTM => "store",
+                _ => "blueprint",
+            },
+            Tab::Blueprints(_) => "blueprints",
+            Tab::Area(_) => "area",
+            Tab::AreaProperties(_) | Tab::AreasProperties(_) => "area-properties",
+            Tab::Instances { .. } | Tab::Instance { .. } => "instance",
+            Tab::Manual => "manual",
+            Tab::References => "references",
+        }
+    }
+
     /// The size its own window opens at (before fitting the screen).
     pub(crate) fn window_size(&self) -> egui::Vec2 {
         let (w, h) = match self {
@@ -179,6 +214,7 @@ impl TabViewer for Viewer<'_> {
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
+        crate::trace::changed(&format!("drawn {tab:?}"), || format!("in {:?}", ui.max_rect()));
         // Escape closes a model's window (opened to look, and in the way
         // after), while the pointer is over it and nothing is being typed.
         if matches!(tab, Tab::Model(_) | Tab::InstanceModel { .. })
@@ -250,6 +286,21 @@ impl TabViewer for Viewer<'_> {
         {
             self.app.actions.push(crate::Action::RenameDialog(key));
             ui.close();
+        }
+        // A window of its own fills the main pane, and goes back.
+        if !tab.docks() && *tab != Tab::Palette {
+            let label = if self.app.maximized.contains_key(tab) { "Restore" } else { "Maximize" };
+            if ui.button(label).on_hover_text("Also: double-click the tab").clicked() {
+                self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
+                ui.close();
+            }
+        }
+    }
+
+    /// A double click on a window's tab maximizes it, and restores it.
+    fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
+        if response.double_clicked() && !tab.docks() && *tab != Tab::Palette {
+            self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
         }
     }
 

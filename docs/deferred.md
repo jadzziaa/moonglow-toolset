@@ -339,6 +339,49 @@ a light theme. Left:
 - **Expand All and Collapse All** (the module tree, the palettes): the
   module tree's areas opened out to their objects, and the kinds under
   them, keep their own state; no keys for them. (S)
+- **The debug log** (Options › General) covers actions, tabs and panes,
+  an area's view as it loads, the palettes, jobs, the log pane and the
+  graphics libraries' warnings. Not in it: the editors' own steps
+  (blueprints, conversations, scripts), saving, plugins, the model
+  viewer. It grows without limit while it is on. (S)
+- **Panes' sizes at start:** the module tree is held to two fifths of
+  the window and the log to half its height, whatever egui remembered,
+  and names too long for the tree are cut short (a builder's module
+  opened with the tree over the whole window: a long name widened it,
+  and it could not be dragged back). Docked panes' splits are held
+  between 12% and 88% (the palettes'), and the lower halves of the
+  script, conversation and journal editors to a share of their editor.
+  A tree name cut short shows whole only where the row already had a
+  tooltip; the limits on the editors' lower halves aren't under test.
+  (S)
+- **Windows' sizes and Maximize:** a window's size is remembered by the
+  kind of editor, not its place on screen; Maximize is a double click on
+  the tab or its menu, with no button in the window's bar (egui_dock
+  offers no place for one) and no key; a maximized window isn't kept so
+  when the main window is resized, and nothing shows that it is
+  maximized. That a size dragged by hand is remembered is not under
+  test (the tests set the size). (S–M)
+- **A project's files changed outside** are read again by polling (every
+  3 s, the whole source tree listed each time: not measured on a project
+  of thousands of files; no file-system watcher). The files' times and
+  sizes decide what is read, so a change that keeps both within the
+  clock's grain is missed. A reload that touches resources the undo
+  history has changes to clears the whole history. A script open in the
+  editor with typing not yet applied counts as changed here. Compiled
+  scripts aren't made again on reload (the next build does). Only nasher
+  projects: a `.mod` file or a module folder changed outside isn't
+  noticed. The area list isn't settled again for areas added outside.
+  Not tried against a real `git checkout` of many files. (M)
+- **The game's text in the language edited:** the install is read as
+  that language when its `lang/<code>/data/dialog.tlk` is there (its
+  talk table, and the rest of its `lang` folder); a module's custom
+  talk table is one file whatever the language. Whether the feminine
+  table (`dialogf.tlk`) is shown where the game would use it was not
+  looked at. Checked on Polish only. (S)
+- **Tokens by language:** a language's own tokens are read from the
+  install's `lang/<code>/data/ovr/stringtokens.2da` (Polish has one);
+  a hak's or module's `stringtokens.2da` isn't per language. Token…
+  puts the token at the end of the text, not at the cursor. (S)
 - **Loading screen pictures** are put together as the game's stock
   `pnl_loadscreen` model maps them (two halves of a square texture); a
   module with its own `pnl_loadscreen` model, or a texture that isn't

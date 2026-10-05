@@ -58,6 +58,31 @@ impl Form<'_> {
         let state_id = self.id(&format!("picker-{}", kind.name()));
         palette_picker(self.app, ui, kind, add, state_id, None)
     }
+
+    /// [`palette_picker`](Self::palette_picker) with `below` drawn under
+    /// it and kept in sight: the tree ends above it, however much of it is
+    /// opened out (scrolling inside), rather than push it out of the pane.
+    pub(crate) fn palette_picker_over(
+        &mut self,
+        ui: &mut Ui,
+        kind: BlueprintKind,
+        add: &str,
+        below: impl FnOnce(&mut Self, &mut Ui),
+    ) -> Option<ResRef> {
+        let state_id = self.id(&format!("picker-{}", kind.name()));
+        // (As tall as it was drawn last.)
+        let room_id = state_id.with("below");
+        let room: f32 = ui.data(|d| d.get_temp(room_id)).unwrap_or(0.0);
+        let button = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y;
+        // (Under Standard and Custom, and Find.)
+        let top = ui.cursor().top() + 2.0 * button;
+        let height = (ui.clip_rect().bottom() - top - button - room).max(120.0);
+        let taken = palette_picker(self.app, ui, kind, add, state_id, Some(height));
+        let drawn = ui.scope(|ui| below(self, ui)).response.rect.height();
+        let room = if drawn > 0.0 { drawn + ui.spacing().item_spacing.y } else { 0.0 };
+        ui.data_mut(|d| d.insert_temp(room_id, room));
+        taken
+    }
 }
 
 /// A palette to choose blueprints from (see [`Form::palette_picker`]), its

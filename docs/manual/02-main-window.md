@@ -130,6 +130,12 @@ script, conversation or blueprint of the module, **Rename…**: it is renamed
 everywhere the module names it (an area with its instances and its entry in
 the module's area list), and its tab with it.
 
+A window opens as large as one of its kind was last left: resize a
+conversation's window, and the next conversation opens at that size (each
+kind of editor has its own). **Double-click a window's tab** to maximize
+it over the main pane, and again to put it back; **Maximize** and
+**Restore** are on the tab's right-click menu too.
+
 Closing a tab or window never loses work: every change is part of the
 module (and undoable) the moment you make it. **Save** writes the module.
 

@@ -33,6 +33,7 @@ pub mod model_view;
 pub mod module_props;
 pub mod nwsync_view;
 mod options;
+mod outside;
 pub mod palette_categories;
 pub mod palette_view;
 pub mod plugins;
@@ -52,6 +53,7 @@ pub mod test_module;
 mod text;
 pub mod tile_select;
 pub mod tileset_view;
+pub mod trace;
 mod transfer;
 mod tree;
 pub mod var_sets;
@@ -144,6 +146,9 @@ pub enum Action {
     OpenTab(Tab),
     /// Closes a tab's window (Escape over a model's window).
     CloseTab(Tab),
+    /// A tab's own window made to fill the main pane, or put back as it
+    /// was.
+    ToggleMaximize(Tab),
     /// Renames a blueprint (and points its editor at the new name).
     /// Build › Test Module, Choose Character: the game's character
     /// selection for the module.
@@ -190,6 +195,19 @@ pub enum Action {
     Quit,
 }
 
+/// Where a window is: where it was last put, where its panes were when
+/// first drawn there, and where that makes it now.
+#[derive(Debug, Clone, Copy)]
+struct WindowTrack {
+    put: egui::Rect,
+    /// Its panes last frame.
+    seen: Option<egui::Rect>,
+    first: Option<egui::Rect>,
+    now: egui::Rect,
+    /// Where its panes' corner should come to be (a window put back).
+    aim: Option<egui::Pos2>,
+}
+
 /// How serious a log message is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Level {
@@ -206,13 +224,18 @@ pub struct Log {
 
 impl Log {
     pub fn info(&mut self, s: impl Into<String>) {
-        self.entries.push((Level::Info, s.into()));
+        self.said(Level::Info, s.into());
     }
     pub fn warn(&mut self, s: impl Into<String>) {
-        self.entries.push((Level::Warning, s.into()));
+        self.said(Level::Warning, s.into());
+    }
+    /// (The debug log has the messages too.)
+    fn said(&mut self, level: Level, s: String) {
+        trace::note(format!("log {level:?}: {s}"));
+        self.entries.push((level, s));
     }
     pub fn error(&mut self, s: impl Into<String>) {
-        self.entries.push((Level::Error, s.into()));
+        self.said(Level::Error, s.into());
     }
 }
 
@@ -385,6 +408,17 @@ pub struct Moonglow {
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
+    /// The graphics adapter and its limits, for the debug log.
+    render_info: Option<String>,
+    /// A nasher project's files changed outside Moonglow.
+    pub(crate) outside: outside::OutsideState,
+    /// The windows maximized, and where each was before (and its panes'
+    /// corner then).
+    pub(crate) maximized: HashMap<Tab, (egui::Rect, egui::Pos2)>,
+    /// Where each window (by its first tab) is.
+    windows: HashMap<Tab, WindowTrack>,
+    /// Where the panes are drawn (under the toolbar, beside the tree).
+    dock_rect: Option<egui::Rect>,
     /// A resource waiting for the answer to "delete it?".
     pub confirm_delete: Option<ResKey>,
     pub quit_requested: bool,
@@ -545,6 +579,11 @@ impl Moonglow {
             viewed: HashMap::new(),
             import: None,
             confirm_discard: None,
+            render_info: None,
+            outside: Default::default(),
+            maximized: HashMap::new(),
+            windows: HashMap::new(),
+            dock_rect: None,
             confirm_delete: None,
             quit_requested: false,
             minimize_requested: false,
@@ -592,18 +631,28 @@ impl Moonglow {
     /// detected one) and recent modules.
     /// Gives the app the window's GPU, for 3D views.
     pub fn set_render_state(&mut self, render_state: egui_wgpu::RenderState) {
+        self.render_info = Some(format!(
+            "{:?}; limits: texture {} px, bind groups {}; BC textures {}",
+            render_state.adapter.get_info(),
+            render_state.device.limits().max_texture_dimension_2d,
+            render_state.device.limits().max_bind_groups,
+            render_state.device.features().contains(wgpu::Features::TEXTURE_COMPRESSION_BC),
+        ));
         self.viewport = Some(model_view::Viewport3d::new(render_state));
     }
 
     pub fn with_settings(settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
         let mut app = Moonglow::new(settings.install(), dialogs);
         set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
+        // (From the start, so that it has a module opened at once.)
+        trace::set(settings.debug_log || std::env::var_os("MOONGLOW_DEBUG_LOG").is_some());
         app.settings = settings;
         app
     }
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        self.trace_frame(ui);
         widgets::install_fonts(ui.ctx());
         // Models that broke what builds or poses them, last frame: left out
         // of what is drawn, and said so.
@@ -649,15 +698,29 @@ impl Moonglow {
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         // The log shrinks to a single line if the user wants it that small.
         let line = ui.text_style_height(&egui::TextStyle::Monospace);
+        // The side panes leave the middle its room, however they were left
+        // (their sizes are remembered between runs) and whatever is in
+        // them: the log at most half the window's height, the module tree
+        // at most two fifths of its width.
+        let window = ui.ctx().content_rect().size();
         egui::Panel::bottom("log")
             .resizable(true)
             .default_size(120.0)
-            .min_size(line + 6.0)
+            .size_range((line + 6.0)..=(window.y * 0.5).max(line + 6.0))
             .show(ui, |ui| self.log_ui(ui));
         if self.ws.is_some() {
-            let tree =
-                egui::Panel::left("tree").resizable(true).default_size(240.0).show(ui, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| tree::module_tree(self, ui));
+            let tree = egui::Panel::left("tree")
+                .resizable(true)
+                .default_size(240.0)
+                .size_range(150.0..=(window.x * 0.4).max(150.0))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        // A name too long for the pane is cut short (the
+                        // pointer over it shows it whole), rather than
+                        // widen the pane over the middle.
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+                        tree::module_tree(self, ui);
+                    });
                 });
             self.tree_width = Some(tree.response.rect.width());
             // The palette beside a newly opened module, as in Aurora.
@@ -668,6 +731,18 @@ impl Moonglow {
         self.heard = None;
         egui::CentralPanel::default().show(ui, |ui| {
             self.dock_width = Some(ui.available_width());
+            self.dock_rect = Some(ui.max_rect());
+            // No pane (the palettes', one docked beside another) is
+            // dragged to nothing, or over all of its neighbour.
+            for (_, node) in self.dock.iter_all_nodes_mut() {
+                if let egui_dock::Node::Vertical(split) | egui_dock::Node::Horizontal(split) = node
+                {
+                    split.fraction = match split.fraction {
+                        f if f.is_finite() => f.clamp(0.12, 0.88),
+                        _ => 0.5,
+                    };
+                }
+            }
             // (The dock is out of reach while its tabs are drawn: the model
             // windows open, for a page that shows a model unless one is.)
             // (Set again by the talk table's editor, if it is drawn.)
@@ -686,6 +761,8 @@ impl Moonglow {
             }
             self.dock = dock;
         });
+        trace::changed("panes", || self.panes());
+        self.remember_window_sizes();
         self.backup_timer(ui);
         self.autosave_timer(ui);
         self.reload_timer(ui);
@@ -715,6 +792,7 @@ impl Moonglow {
         store_wizard::popup_window(self, ui.ctx());
         references::rename_window(self, ui.ctx());
         references::delete_window(self, ui.ctx());
+        outside::window(self, ui.ctx());
         script_nav::rename_window(self, ui.ctx());
         prefabs::save_window(self, ui.ctx());
         palette_categories::window(self, ui.ctx());
@@ -751,6 +829,66 @@ impl Moonglow {
         }
     }
 
+    /// The debug log's start of a frame: once, the settings and the
+    /// graphics adapter; then the window and what is under way, as they
+    /// change.
+    fn trace_frame(&mut self, ui: &egui::Ui) {
+        trace::set(self.settings.debug_log || std::env::var_os("MOONGLOW_DEBUG_LOG").is_some());
+        if !trace::on() {
+            return;
+        }
+        trace::changed("graphics", || self.render_info.clone().unwrap_or_else(|| "none".into()));
+        trace::changed("settings", || {
+            let s = &self.settings;
+            format!(
+                "game {:?}, user folder {:?}, last area {}, areas by name {}, scale {:?}, \
+                 still objects {}, unlit {}, plugins {:?}; install {:?}",
+                s.game_root,
+                s.user_dir,
+                !s.no_last_area,
+                s.area_names,
+                s.ui_scale,
+                s.still_objects,
+                s.unlit_areas,
+                s.plugins_enabled,
+                self.install.as_ref().map(|i| i.root.clone()),
+            )
+        });
+        trace::changed("window", || {
+            format!(
+                "{:?}, {} points per pixel, zoom {}; tree {:?} wide, panes {:?} wide; job {:?}; \
+                 module {:?}; game data {}; 3D viewport {}",
+                ui.ctx().content_rect(),
+                ui.ctx().pixels_per_point(),
+                ui.ctx().zoom_factor(),
+                self.tree_width,
+                self.dock_width,
+                self.job.as_ref().map(|j| j.title.clone()),
+                self.module_path(),
+                self.game.is_some(),
+                self.viewport.is_some(),
+            )
+        });
+    }
+
+    /// The panes and their tabs, for the debug log: each pane's surface
+    /// and node, where it is on screen, its tabs and the one shown.
+    fn panes(&self) -> String {
+        let mut out = Vec::new();
+        for (path, leaf) in self.dock.iter_leaves() {
+            let tabs: Vec<String> = leaf.tabs.iter().map(|t| format!("{t:?}")).collect();
+            out.push(format!(
+                "[surface {} node {} at {:?} shows #{}: {}]",
+                path.surface.0,
+                path.node.0,
+                leaf.rect,
+                leaf.active.0,
+                tabs.join(", ")
+            ));
+        }
+        if out.is_empty() { "none".into() } else { out.join(" ") }
+    }
+
     /// Where the main panes split for the Palettes pane on the right: the
     /// left side's share, leaving the palette as wide as the module tree.
     /// (egui_dock's split fraction is always the left side's.)
@@ -778,10 +916,19 @@ impl Moonglow {
             .unwrap_or(screen);
         // Below the menu and toolbar (the main pane's top), never over them.
         let room = egui::Rect::from_min_max(egui::pos2(screen.left(), main.top()), screen.max);
-        let want = tab.window_size();
+        // As wide and tall as one of its kind was last left.
+        let kind = tab.kind();
+        let left = self.settings.window_sizes.iter().find(|(k, _)| k == kind);
+        let want = left.map_or(tab.window_size(), |(_, s)| egui::vec2(s[0] as f32, s[1] as f32));
+        let remembered = left.is_some();
         // Some of the main pane (the area view) shows beside it.
         let wide = (main.width() * 0.85).max(420.0).min(room.width());
-        let size = egui::vec2(want.x.min(wide), want.y.min(room.height() * 0.9));
+        let size = if remembered {
+            // (As it was left, if the screen still has the room.)
+            egui::vec2(want.x.min(room.width()), want.y.min(room.height()))
+        } else {
+            egui::vec2(want.x.min(wide), want.y.min(room.height() * 0.9))
+        };
         let windows = self
             .dock
             .iter_surfaces()
@@ -791,9 +938,115 @@ impl Moonglow {
         let mut at = main.center() - size / 2.0 + egui::vec2(step, step);
         at.x = at.x.min(room.right() - size.x).max(room.left());
         at.y = at.y.min(room.bottom() - size.y).max(room.top());
-        let surface = self.dock.add_window(vec![tab]);
-        if let Some(state) = self.dock.get_window_state_mut(surface) {
-            state.set_position(at).set_size(size);
+        self.dock.add_window(vec![tab.clone()]);
+        self.put_window(&tab, egui::Rect::from_min_size(at, size));
+    }
+
+    /// Where each window is: its first tab, and the room its panes take.
+    /// (egui_dock doesn't say where a window is; its panes do.)
+    fn window_panes(&self) -> Vec<(Tab, egui::Rect)> {
+        let mut out: Vec<(egui_dock::SurfaceIndex, Tab, egui::Rect)> = Vec::new();
+        for (path, leaf) in self.dock.iter_leaves() {
+            let Some(tab) = leaf.tabs.first() else { continue };
+            if path.surface.is_main() || !leaf.rect.is_positive() || !leaf.rect.is_finite() {
+                continue;
+            }
+            match out.iter_mut().find(|(s, ..)| *s == path.surface) {
+                Some((_, _, rect)) => *rect = rect.union(leaf.rect),
+                None => out.push((path.surface, tab.clone(), leaf.rect)),
+            }
+        }
+        out.into_iter().map(|(_, tab, rect)| (tab, rect)).collect()
+    }
+
+    /// Each frame: where each window is now, from where it was put and
+    /// how its panes have moved and grown since; and its size, by the kind
+    /// of its first tab, for the next of the kind to open at (not a
+    /// maximized one's).
+    fn remember_window_sizes(&mut self) {
+        let mut again = Vec::new();
+        for (tab, panes) in self.window_panes() {
+            let Some(track) = self.windows.get_mut(&tab) else { continue };
+            // (Once it has settled there: a window is a frame or two in
+            // getting where it was put.)
+            let settled = track.seen.replace(panes) == Some(panes);
+            let first = match track.first {
+                Some(first) => first,
+                None if settled => {
+                    // Put back where it was, it may land beside it (held
+                    // inside the screen at the size it still had): put
+                    // there again, once, now that it is small.
+                    if let Some(aim) = track.aim.take()
+                        && (aim - panes.min).length() > 0.5
+                    {
+                        again.push((tab.clone(), track.put));
+                        continue;
+                    }
+                    *track.first.insert(panes)
+                }
+                None => continue,
+            };
+            track.now = egui::Rect::from_min_size(
+                track.put.min + (panes.min - first.min),
+                track.put.size() + (panes.size() - first.size()),
+            );
+            if self.maximized.contains_key(&tab) || panes == first {
+                continue;
+            }
+            let size = [track.now.width().round() as u32, track.now.height().round() as u32];
+            let kind = tab.kind();
+            match self.settings.window_sizes.iter_mut().find(|(k, _)| k == kind) {
+                Some((_, s)) => *s = size,
+                None => self.settings.window_sizes.push((kind.to_string(), size)),
+            }
+        }
+        for (tab, rect) in again {
+            self.put_window(&tab, rect);
+        }
+        // (Closed windows are forgotten.)
+        let dock = &self.dock;
+        self.maximized.retain(|t, _| dock.find_tab(t).is_some());
+        self.windows.retain(|t, _| dock.find_tab(t).is_some());
+    }
+
+    /// Puts a tab's window at `rect` (position and size), and follows it
+    /// from there.
+    fn put_window(&mut self, tab: &Tab, rect: egui::Rect) {
+        let Some(path) = self.dock.find_tab(tab) else { return };
+        let Some(state) = self.dock.get_window_state_mut(path.surface) else { return };
+        state.set_position(rect.min).set_size(rect.size());
+        trace::note(format!("  window of {tab:?} put at {rect:?}"));
+        self.windows.insert(
+            tab.clone(),
+            WindowTrack { put: rect, seen: None, first: None, now: rect, aim: None },
+        );
+    }
+
+    /// [`Action::ToggleMaximize`]: the tab's window over the whole of the
+    /// panes' room, or back where it was.
+    fn toggle_maximize(&mut self, tab: &Tab) {
+        // (The window is followed by its first tab.)
+        let Some(path) = self.dock.find_tab(tab) else { return };
+        if path.surface.is_main() {
+            return;
+        }
+        let first = self
+            .dock
+            .iter_leaves()
+            .find(|(p, _)| p.surface == path.surface)
+            .and_then(|(_, leaf)| leaf.tabs.first().cloned());
+        let Some(tab) = first else { return };
+        if let Some((was, corner)) = self.maximized.remove(&tab) {
+            self.put_window(&tab, was);
+            if let Some(track) = self.windows.get_mut(&tab) {
+                track.aim = Some(corner);
+            }
+        } else if let (Some(room), Some(track)) =
+            (self.dock_rect.or(self.screen), self.windows.get(&tab))
+        {
+            let corner = track.seen.map_or(track.now.min, |r| r.min);
+            self.maximized.insert(tab.clone(), (track.now, corner));
+            self.put_window(&tab, room);
         }
     }
 
@@ -925,6 +1178,14 @@ impl Moonglow {
     /// the game data.
     fn use_module(&mut self, m: Module) {
         self.close();
+        trace::note(format!(
+            "use module: {} resources, haks {:?}; game data {}, shared by {} other(s); install {}",
+            m.len(),
+            m.haks().unwrap_or_default(),
+            if self.game.is_some() { "loaded" } else { "none" },
+            self.game.as_ref().map_or(0, |g| Arc::strong_count(g) - 1),
+            if self.install.is_some() { "known" } else { "none" },
+        ));
         if let (Some(game), Some(gi)) = (exclusive(&mut self.game), &self.install) {
             let haks = m.haks().unwrap_or_default();
             match game.resman.add_haks(gi, &haks.iter().map(String::as_str).collect::<Vec<_>>()) {
@@ -938,8 +1199,16 @@ impl Moonglow {
             game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
             game.invalidate();
             self.haks_layered = haks;
+        } else if self.game.is_some() && self.install.is_some() {
+            // (Something still reads the game data: said, rather than a
+            // module opened without its haks and nothing to show why.)
+            self.log.error(
+                "The module's haks could not be added to the game data (it is in use): its \
+                 custom content will be missing. Close and open the module again.",
+            );
         }
         self.ws = Some(Workspace::new(m));
+        self.outside = Default::default();
         self.area_names = Default::default();
         self.area_contents.clear();
         self.dock = DockState::new(vec![Tab::ModuleProperties]);
@@ -1149,6 +1418,23 @@ impl Moonglow {
     }
 
     fn run_now(&mut self, action: Action) {
+        trace::note(format!("action {action:?}"));
+        if let Action::OpenTab(tab) = &action {
+            trace::note(format!(
+                "  open tab {tab:?}: docks {}, already open {}, focused pane {:?}",
+                tab.docks(),
+                self.dock.find_tab(tab).is_some(),
+                self.dock.focused_leaf().map(|p| (p.surface.0, p.node.0)),
+            ));
+        }
+        let opened = matches!(action, Action::OpenTab(_));
+        self.run_matched(action);
+        if opened {
+            trace::note(format!("  panes after: {}", self.panes()));
+        }
+    }
+
+    fn run_matched(&mut self, action: Action) {
         match action {
             Action::NewModuleDialog => {
                 self.wizard = Some(Wizard::NewModule { name: "module000".into() });
@@ -1288,6 +1574,7 @@ impl Moonglow {
                     self.dock.remove_tab(path);
                 }
             }
+            Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
             Action::OpenTab(tab) => {
                 // The area opened last is opened again with the module.
                 if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
@@ -2052,6 +2339,7 @@ impl Moonglow {
         }
         self.reload_checked = Some(now);
         self.reload_resources(false);
+        self.reload_project_files();
         ui.ctx().request_repaint_after(every);
     }
 
@@ -2212,7 +2500,11 @@ impl Moonglow {
     /// game's data is read again then, and the module with it.
     fn options_reload(&self, draft: &OptionsDraft) -> bool {
         let settings = draft.apply(&self.settings);
-        settings.game_root != self.settings.game_root || settings.user_dir != self.settings.user_dir
+        // (Another language edited, if the game has it: its talk table.)
+        let language = |i: Option<GameInstall>| i.map(|i| i.language);
+        settings.game_root != self.settings.game_root
+            || settings.user_dir != self.settings.user_dir
+            || language(settings.install()) != language(self.settings.install())
     }
 
     /// Options › OK. The module stays open: only another game or user

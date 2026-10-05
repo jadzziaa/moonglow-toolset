@@ -978,10 +978,17 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
         return;
     }
     view.revision = Some(ws.revision());
+    let area = view.area;
+    let started = std::time::Instant::now();
+    let step = |what: &str| {
+        crate::trace::note(format!("area {area}: {what} ({:.0?} in)", started.elapsed()));
+    };
+    step(&format!("reading at revision {}", ws.revision()));
     let are_key = ResKey::new(view.area, ResType::ARE);
     let are = match ws.doc(&are_key) {
         Ok(g) => g.clone(),
         Err(e) => {
+            step(&format!("its ARE can't be read: {e}"));
             view.error = Some(e.to_string());
             return;
         }
@@ -989,8 +996,16 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     // An area without a GIT has no objects yet.
     let git = ws.doc(&view.git()).cloned().unwrap_or_else(|_| Gff::new(*b"GIT "));
     let tileset_ref = are.root.resref("Tileset").unwrap_or(ResRef::EMPTY);
+    step(&format!(
+        "tileset {tileset_ref}, GIT {}",
+        if ws.doc(&view.git()).is_ok() { "read" } else { "none" }
+    ));
     if view.tileset.as_ref().is_none_or(|(r, _)| *r != tileset_ref) {
-        let set = mg_area::tileset(game, tileset_ref).ok();
+        let set = mg_area::tileset(game, tileset_ref);
+        if let Err(e) = &set {
+            step(&format!("the tileset can't be read: {e}"));
+        }
+        let set = set.ok();
         view.terrain = set
             .as_ref()
             .map(|t| crate::terrain_mode::Tools::new(tileset_ref, std::sync::Arc::new(t.clone())));
@@ -998,11 +1013,19 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     }
     let tileset = view.tileset.as_ref().and_then(|(_, t)| t.as_ref());
     let model = AreaModel::read(game, &are.root, &git.root, tileset);
+    step(&format!(
+        "model read: {} by {} tiles, {} objects, tileset {}",
+        model.width,
+        model.height,
+        model.objects.len(),
+        if tileset.is_some() { "read" } else { "missing" }
+    ));
     view.object_faces = None;
     match &mut view.ground {
         Some(g) => g.update(game, &model),
         None => view.ground = Some(Ground::new(game, &model)),
     }
+    step("ground (walkmeshes) made");
     if view.orbit.is_none() {
         view.orbit = Some(Orbit::overview(&model));
         view.night = model.lighting.night_by_default();
@@ -1012,6 +1035,9 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
             Some(s) => s.update(&vp.gpu, game, &model),
             None => view.scene = Some(AreaScene::new(&vp.gpu, game, &model)),
         }
+        step("scene (models and textures) made");
+    } else {
+        step("no 3D viewport: no scene");
     }
     // Objects that went away are no longer selected.
     view.selection.retain(|&(k, i)| model.object(k, i).is_some());
@@ -1050,6 +1076,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         view
     });
     refresh(app, &mut view);
+    crate::trace::changed(&format!("area {area} view"), || {
+        format!(
+            "in {:?}; error {:?}; model {}; tileset {}; ground {}; scene {}; camera {}; \
+             drawn at {:?}; game data {}; 3D viewport {}",
+            ui.max_rect(),
+            view.error,
+            view.model.as_ref().map_or("none".into(), |m| format!("{} objects", m.objects.len())),
+            match &view.tileset {
+                Some((r, Some(_))) => format!("{r} read"),
+                Some((r, None)) => format!("{r} NOT read"),
+                None => "none".into(),
+            },
+            view.ground.is_some(),
+            view.scene.is_some(),
+            view.orbit.is_some(),
+            view.targets.as_ref().map(|(t, _)| t.size),
+            app.game.is_some(),
+            app.viewport.is_some(),
+        )
+    });
     app.palette.area = Some(area);
     view.snap = (
         app.settings.snap_grid.map(|cm| f32::from(cm) / 100.0),

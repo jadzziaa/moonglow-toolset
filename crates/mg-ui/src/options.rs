@@ -37,6 +37,7 @@ pub struct OptionsDraft {
     pub build_on_save: bool,
     pub area_names: bool,
     pub last_area: bool,
+    pub debug_log: bool,
     pub name_resrefs: bool,
     pub palette_cr: bool,
     pub light_theme: bool,
@@ -109,6 +110,7 @@ impl OptionsDraft {
             build_on_save: s.build_on_save,
             area_names: s.area_names,
             last_area: !s.no_last_area,
+            debug_log: s.debug_log,
             name_resrefs: s.name_resrefs,
             palette_cr: !s.palette_no_cr,
             light_theme: s.light_theme,
@@ -160,6 +162,7 @@ impl OptionsDraft {
             build_on_save: self.build_on_save,
             area_names: self.area_names,
             no_last_area: !self.last_area,
+            debug_log: self.debug_log,
             name_resrefs: self.name_resrefs,
             palette_no_cr: !self.palette_cr,
             light_theme: self.light_theme,
@@ -399,6 +402,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             .on_hover_text(
                                 "The first time, on the first area the module tree lists",
                             );
+                            let log = crate::trace::path()
+                                .map(|p| p.display().to_string())
+                                .unwrap_or_default();
+                            ui.checkbox(&mut draft.debug_log, "Write a debug log").on_hover_text(
+                                format!(
+                                    "What Moonglow does, step by step, to send with a report of \
+                                     something that fails without a word: {log} (a new one each \
+                                     time Moonglow starts)"
+                                ),
+                            );
                             ui.checkbox(&mut draft.area_names, "List areas and blueprints by name")
                                 .on_hover_text(
                                     "In the module tree, by their names rather than their ResRefs \
@@ -418,7 +431,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Reload haks, override and development when they change",
                             )
                             .on_hover_text(
-                                "Changed haks, 2DAs, models and textures show without a restart",
+                                "Changed haks, 2DAs, models and textures show without a restart; \
+                                 a nasher project's files changed by another program are read \
+                                 again",
                             );
                             ui.horizontal(|ui| {
                                 ui.checkbox(

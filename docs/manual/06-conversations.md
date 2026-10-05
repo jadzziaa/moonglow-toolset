@@ -81,7 +81,11 @@ replies whose conditions pass, numbered.
   it ends normally or is aborted, and whether the camera may zoom in.
 
 **Tokens** (`<FirstName>`, `<Class>`, custom tokens…) go into the text from
-**Token…**; the game replaces them when the line is spoken.
+**Token…**; the game replaces them when the line is spoken. A language
+can have tokens of its own (the game's Polish has many English doesn't):
+Token… lists those of the language you edit (Options › General), and in
+the **…** window for a text in several languages each language's row has
+its own **Token…**, which puts the token at the end of that text.
 
 ## Writing conversations elsewhere
 

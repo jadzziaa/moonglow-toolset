@@ -113,6 +113,18 @@ pub enum Edit {
     SetResource { key: ResKey, data: Option<Vec<u8>> },
 }
 
+impl Edit {
+    /// The resource it changes.
+    pub fn key(&self) -> &ResKey {
+        match self {
+            Edit::SetField { key, .. }
+            | Edit::InsertItem { key, .. }
+            | Edit::RemoveItem { key, .. }
+            | Edit::SetResource { key, .. } => key,
+        }
+    }
+}
+
 /// A named group of edits, applied and undone as one.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Command {
@@ -419,6 +431,36 @@ impl Workspace {
         self.docs.clear();
         self.revision += 1;
         Ok(made)
+    }
+
+    /// Replaces resources (`None`: removes them) outside the edit history:
+    /// files of the module changed by another program, read again. It does
+    /// not count as unsaved work. Undo could not take an earlier change
+    /// to one of them back from what it is now: if the history has any,
+    /// the history is dropped, and `true` returned.
+    pub fn adopt(
+        &mut self,
+        changes: &[(ResKey, Option<std::sync::Arc<[u8]>>)],
+    ) -> Result<bool, EditError> {
+        self.flush()?;
+        for (key, data) in changes {
+            self.docs.remove(key);
+            match data {
+                Some(d) => self.module.set(*key, d.clone()),
+                None => {
+                    self.module.remove(key);
+                }
+            }
+        }
+        let touched =
+            |c: &Command| c.edits.iter().any(|e| changes.iter().any(|(k, _)| k == e.key()));
+        let dropped = self.undo.iter().chain(&self.redo).any(touched);
+        if dropped {
+            self.undo.clear();
+            self.redo.clear();
+        }
+        self.revision += 1;
+        Ok(dropped)
     }
 
     /// Counts the module as changed since it was saved (recovered work

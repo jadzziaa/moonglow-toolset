@@ -13,7 +13,7 @@ mod glob;
 mod project;
 
 pub use cfg::{Package, Section, Settings, Target, sections};
-pub use project::{Project, Resources, SaveReport};
+pub use project::{Outside, Project, Resources, SaveReport};
 
 use mg_core::{Codepage, ResType};
 use mg_gff::{Gff, TextStyle, from_json, to_json, to_json_text};

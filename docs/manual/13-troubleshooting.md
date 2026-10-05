@@ -66,6 +66,28 @@ The report names the [plugins](15-plugins.md) that were enabled. To see
 whether one of them is the cause, start Moonglow with `--no-plugins`
 (none is loaded) and try again.
 
+## The window shows only the module tree
+
+Before 1.10, a very long name in the module tree (an area listed by
+name) could widen the tree over the whole window, hiding the area and the
+palettes, and it could not be dragged narrower. The tree now takes at
+most two fifths of the window and cuts long names short.
+
+## Something fails without a word
+
+When something doesn't happen and nothing says why (an area that won't
+open, an empty pane), turn on **Tools › Options › General › Write a debug
+log**, choose OK, do the thing again, and send `debug-log.txt` from
+Moonglow's data folder with your report. It records each thing asked
+for, the tabs opened and where the panes are, what an area's view and
+the palettes find as they load, the graphics adapter, and the graphics
+libraries' warnings. It holds the names of your module's files and
+folders, not their contents. A new one is started each time Moonglow
+starts; to log from the very start (a module that fails as it opens),
+turn the option on, close Moonglow and start it again. (Setting the
+`MOONGLOW_DEBUG_LOG` environment variable does the same without the
+option.)
+
 ## Where Moonglow keeps its files
 
 | What | Linux | Windows | macOS |

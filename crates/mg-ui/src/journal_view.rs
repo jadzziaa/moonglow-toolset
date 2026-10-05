@@ -178,7 +178,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     });
     ui.separator();
 
-    egui::Panel::bottom("journal-fields").resizable(true).default_size(230.0).show(ui, |ui| {
+    // (At most seven tenths of the editor: the list keeps its room.)
+    let most = (ui.available_height() * 0.7).max(80.0);
+    let fields = egui::Panel::bottom("journal-fields")
+        .resizable(true)
+        .default_size(230.0f32.min(most))
+        .max_size(most);
+    fields.show(ui, |ui| {
         // A node added this frame appears once the command has run.
         match view.selected.filter(valid) {
             Some(Node::Category(c)) => category_fields(app, ui, c, &cats[c], &mut actions),

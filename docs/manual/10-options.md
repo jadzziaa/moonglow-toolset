@@ -52,6 +52,9 @@ the module is opened again from its file.
 - **Open a module on the area opened last**: on by default; the first
   time, the first area the module tree lists (see
   [Modules](03-modules.md)).
+- **Write a debug log**: what Moonglow does, step by step, in
+  `debug-log.txt` in its data folder (see
+  [Troubleshooting](13-troubleshooting.md)).
 - **List areas and blueprints by name** in the module tree, rather than
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
   tree and the palettes). Areas are by name in Find Instance and the
@@ -59,7 +62,9 @@ the module is opened again from its file.
 - **Show challenge ratings in the creature palette**: on by default.
 - **Reload haks, override and development when they change**: on by
   default. Moonglow checks every few seconds and rereads what changed
-  (see [Build, verify and test](09-build-and-test.md)).
+  (see [Build, verify and test](09-build-and-test.md)). The same switch
+  has a nasher project's own files read again when another program
+  changes them (see [Modules](03-modules.md)).
 - **Keep a recovery copy of unsaved work every … minutes** (5 by
   default; see [Modules](03-modules.md)).
 - Warnings: **Show reserved Blueprint ResRef namespace warning** (a
@@ -105,6 +110,14 @@ the module is opened again from its file.
 The language that text is shown and edited in, for modules made for
 players of another language. Names, descriptions and conversation lines
 show and edit that language's text, and String Edit opens on it.
+
+Where your game has that language installed (a folder for it under the
+game's `lang`), the game's own text is read in it too: names and
+descriptions kept as talk-table references, and the names of races,
+classes, feats and the rest. Otherwise they stay in English. Choosing
+another language here reads the game's data again, and the open module
+is opened again from its file (Moonglow asks first if it has unsaved
+changes).
 
 ## Keyboard
 

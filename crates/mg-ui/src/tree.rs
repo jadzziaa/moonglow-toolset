@@ -224,7 +224,8 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Filter");
-        ui.text_edit_singleline(&mut filter);
+        // (As wide as the pane has room for, not wider.)
+        ui.add(egui::TextEdit::singleline(&mut filter).desired_width(f32::INFINITY));
     });
     app.buffers.insert(filter_id, filter.clone());
     let filter = filter.to_ascii_lowercase();

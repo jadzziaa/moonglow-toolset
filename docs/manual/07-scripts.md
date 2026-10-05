@@ -109,7 +109,7 @@ compiled script, for script debuggers.
 
 Scripts are referred to by name (at most 16 characters) from events,
 conversations and other scripts; the **Edit** buttons beside script
-fields open them. For a name that is no script yet, **Edit** makes the
+fields open them. The button is there as soon as a name is typed. For a name that is no script yet, **Edit** makes the
 script in the module (the log says so) and opens it, as in Aurora: type
 the name of a new script into an event and click Edit. A conversation's
 "Text Appears When" script starts as a condition (`StartingConditional`).

@@ -983,6 +983,12 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         return;
     };
     let tileset = app.area_views.get(&area).and_then(|v| v.terrain.as_ref().map(|t| t.tileset));
+    crate::trace::changed("tile palette", || {
+        format!(
+            "area {area}, its view {}, tileset {tileset:?}",
+            if app.area_views.contains_key(&area) { "open" } else { "not open" }
+        )
+    });
     let Some(tileset) = tileset else {
         ui.label("The area's tileset could not be read.");
         return;

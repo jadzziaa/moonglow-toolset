@@ -8,3 +8,8 @@
 * **Update**: [Scripts](manual/07-scripts.md): Edit beside a script's name makes a script that doesn't exist; noted in [the deferred list](deferred.md).
 * **Update**: [The deferred list](deferred.md): what was fixed for issue 3's custom creatures, and what of it isn't compared with the client.
 * **Update**: [Blueprints](manual/05-blueprints.md): a builder reports that Aurora reads palette categories kept in a module; [the main window](manual/02-main-window.md): Expand All and Collapse All.
+* **Update**: [Troubleshooting](manual/13-troubleshooting.md) and [Options](manual/10-options.md): the debug log; [the deferred list](deferred.md): what it leaves out, and the report it was made for.
+* **Update**: [The main window](manual/02-main-window.md): windows remember their size and maximize; [scripts](manual/07-scripts.md); [the deferred list](deferred.md).
+* **Update**: [Modules](manual/03-modules.md): a nasher project's files changed outside are read again; [conversations](manual/06-conversations.md): tokens by language; [options](manual/10-options.md); [the deferred list](deferred.md).
+* **Update**: [Options](manual/10-options.md): the game's own text is read in the language edited; [the deferred list](deferred.md).
+* **Update**: [Troubleshooting](manual/13-troubleshooting.md) and [the deferred list](deferred.md): the module tree held to its share of the window (a builder's report resolved).

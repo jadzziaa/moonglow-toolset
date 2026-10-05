@@ -104,10 +104,21 @@ unpacking or packing between the toolset and git.
   - new resources go where the project's rules put them;
   - deleted ones lose their files;
   - other files in the folder are left alone.
-- **Changes made elsewhere are never overwritten.** If a file Moonglow
-  would replace or delete has changed on disk since it was read (after a
-  `git pull`, say), the save writes nothing and the log names the files.
-  Reopen the project to load them.
+- **Changes made elsewhere are picked up while the project is open.**
+  Every few seconds (Options › General, the reloading switch) Moonglow
+  looks for source files that another program changed, added or deleted:
+  an editor, a `git checkout` that discards a change, a `git pull`. Those
+  are read again, the log names them, and open editors show them. It is
+  not unsaved work. If the undo history had changes to one of them, the
+  history is cleared (Undo could not take them back from the new file).
+- **Where you have unsaved changes to a file that also changed
+  elsewhere**, Moonglow keeps yours and the **Changed Outside Moonglow**
+  window asks: **Keep Moonglow's** (the next Save writes yours over the
+  file), **Take the Files'** (yours are lost) or **Later**.
+- **Changes made elsewhere are never overwritten unasked.** Until you
+  answer (and with reloading off), a save that would replace or delete a
+  file changed on disk since it was read writes nothing, and the log
+  names the files.
 - **Areas added on another branch** join the module's area list when you
   open the project.
 - **Start a project from any module** with **File › Save As nasher
