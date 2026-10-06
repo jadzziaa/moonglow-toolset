@@ -1048,7 +1048,9 @@ pub(crate) fn compile_source(
     key: ResKey,
     text: &str,
 ) -> Result<Vec<u8>, mg_script::compiler::CompileError> {
-    compile_with_debug(app, key, text, false).map(|(ncs, _)| ncs)
+    // (What Moonglow writes itself, a wizard's script: by the built-in
+    // compiler.)
+    compile_with_debug(app, key, text, false, None).map(|(ncs, _)| ncs)
 }
 
 /// [`compile_source`], with the debug information (`.ndb`) if `debug`.
@@ -1057,11 +1059,33 @@ fn compile_with_debug(
     key: ResKey,
     text: &str,
     debug: bool,
+    external: Option<&mg_module::external_compiler::ExternalCompiler>,
 ) -> Result<(Vec<u8>, Option<Vec<u8>>), mg_script::compiler::CompileError> {
     let source = encode(text);
     let module = app.ws.as_ref().map(|w| &w.module);
     let resman = app.game.as_deref().map(|g| &g.resman);
     let name = key.resref.to_lowercase().to_string();
+    // By the external compiler, when one is chosen (Options › Script
+    // Editor): the module's scripts as they are, this one as in the editor.
+    if let (Some(external), Some(module)) = (external, module) {
+        let mut sources: Vec<(String, &[u8])> = module
+            .keys_of(ResType::NSS)
+            .filter(|k| **k != key)
+            .filter_map(|k| Some((k.resref.to_lowercase().to_string(), module.get(k)?)))
+            .collect();
+        sources.push((name.clone(), &source));
+        let failed = |message: String| mg_script::compiler::CompileError { code: -1, message };
+        let made = external
+            .compile(&sources, std::slice::from_ref(&name))
+            .map_err(|e| failed(format!("External compiler: {e}")))?;
+        let Some(made) = made.into_iter().next() else {
+            return Err(failed(format!("{name}.nss: the external compiler made nothing")));
+        };
+        return match made.ncs {
+            Some(ncs) => Ok((ncs, made.ndb.filter(|_| debug))),
+            None => Err(failed(made.message)),
+        };
+    }
     let mut c = Compiler::new(|n: &str, t: ResType| {
         if t == ResType::NSS && n.eq_ignore_ascii_case(&name) {
             return Some(source.clone());
@@ -1089,12 +1113,13 @@ pub(crate) fn compile_stale(app: &mut Moonglow, scripts: &[ResKey]) -> (Vec<Stri
         return (compiled, broken);
     }
     let mut edits = Vec::new();
+    let external = app.external_compiler();
     for &key in scripts {
         let Some(ws) = app.ws.as_ref() else { break };
         let Some(text) = ws.module.get(&key).map(decode) else { continue };
         let ncs = ResKey::new(key.resref, ResType::NCS);
         let old = ws.module.get(&ncs).map(<[u8]>::to_vec);
-        match compile_with_debug(app, key, &text, app.settings.debug_info) {
+        match compile_with_debug(app, key, &text, app.settings.debug_info, external.as_ref()) {
             Ok((new, ndb)) if old.as_deref() != Some(&new[..]) => {
                 edits.push(Edit::SetResource { key: ncs, data: Some(new) });
                 if let Some(ndb) = ndb {
@@ -1124,9 +1149,24 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
     if app.ws.is_none() {
         return false;
     }
-    let result = compile_with_debug(app, key, text, app.settings.debug_info);
     app.script_tools.messages.retain(|m| m.script != key);
     app.script_tools.info = InfoTab::Compiler;
+    // An include file (no `main`, no `StartingConditional`) isn't compiled
+    // on its own, as in Aurora: it is compiled into the scripts that
+    // include it, and may lean on what they bring.
+    if !mg_script::outline::has_entry_point(&encode(text)) {
+        let said = format!("{key}: an include file (no main or StartingConditional), not compiled");
+        app.log.info(said.clone());
+        app.script_tools.messages.push(Message {
+            script: key,
+            text: said,
+            location: None,
+            error: false,
+        });
+        return false;
+    }
+    let external = app.external_compiler();
+    let result = compile_with_debug(app, key, text, app.settings.debug_info, external.as_ref());
     match result {
         Ok((out, ndb)) => {
             let ncs = ResKey::new(key.resref, ResType::NCS);

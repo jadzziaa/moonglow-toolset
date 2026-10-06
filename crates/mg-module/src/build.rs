@@ -7,6 +7,7 @@ use mg_resman::{ResKey, ResMan};
 use mg_script::{CompileError, Compiler};
 
 use crate::Module;
+use crate::external_compiler::ExternalCompiler;
 
 /// The result of compiling one script.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,11 +31,23 @@ pub enum ScriptSelection {
 /// Compiles the module's scripts on all cores, storing each `.ncs` in the
 /// module. Sources are looked up in the module first, then in `resman` (its
 /// haks and the game), as the game would. Scripts without an entry point
-/// (include files) are checked but produce nothing and are not errors.
+/// (include files) are skipped, as Aurora skips them: they produce nothing
+/// and are not errors.
 pub fn compile_scripts(
     module: &mut Module,
     resman: &ResMan,
     selection: ScriptSelection,
+) -> Vec<ScriptResult> {
+    compile_scripts_with(module, resman, selection, None)
+}
+
+/// [`compile_scripts`], by an external compiler when one is given (Options
+/// › Script Editor) in place of the built-in one.
+pub fn compile_scripts_with(
+    module: &mut Module,
+    resman: &ResMan,
+    selection: ScriptSelection,
+    external: Option<&ExternalCompiler>,
 ) -> Vec<ScriptResult> {
     // A nasher project's target may leave some scripts uncompiled.
     let skipped = |k: &ResKey| {
@@ -52,6 +65,9 @@ pub fn compile_scripts(
     if names.is_empty() {
         return Vec::new();
     }
+    if let Some(external) = external {
+        return compile_externally(module, external, &names);
+    }
     let outputs: Mutex<Vec<Compiled>> = Mutex::new(Vec::new());
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(names.len());
     let chunk = names.len().div_ceil(threads);
@@ -68,19 +84,24 @@ pub fn compile_scripts(
                         .or_else(|| resman.get(&k).ok().map(|d| d.into_owned()))
                 };
                 let mut c = Compiler::new(resolve);
-                let mut probe = Compiler::new(resolve);
-                probe.set_require_entry_point(false);
                 let mut local = Vec::new();
                 for k in part {
                     let name = k.resref.to_lowercase().to_string();
                     let result = match c.compile(&name) {
                         Ok(out) => Ok(out.ncs),
-                        // An include file: valid if it checks without an
-                        // entry point; then there is nothing to store.
-                        Err(e) => match probe.compile(&name) {
-                            Ok(_) => Ok(Vec::new()),
-                            Err(_) => Err(e),
-                        },
+                        // An include file (no `main`, no
+                        // `StartingConditional`): nothing to compile or to
+                        // store, as Aurora skips it. It is checked where it
+                        // is included: on its own it may lean on what its
+                        // includer brings.
+                        Err(_)
+                            if snapshot
+                                .get(k)
+                                .is_some_and(|src| !mg_script::outline::has_entry_point(src)) =>
+                        {
+                            Ok(Vec::new())
+                        }
+                        Err(e) => Err(e),
                     };
                     local.push((*k, result));
                 }
@@ -102,6 +123,51 @@ pub fn compile_scripts(
                 }
             });
             ScriptResult { script: k, result }
+        })
+        .collect()
+}
+
+/// Compiles `names` with an external compiler, storing what it made in the
+/// module. A script it made nothing of is an error with what it said,
+/// unless it is an include file. A compiler that can't be run is said
+/// once, of the first script.
+fn compile_externally(
+    module: &mut Module,
+    external: &ExternalCompiler,
+    names: &[ResKey],
+) -> Vec<ScriptResult> {
+    let name = |k: &ResKey| k.resref.to_lowercase().to_string();
+    let made = {
+        let sources: Vec<(String, &[u8])> =
+            module.keys_of(ResType::NSS).filter_map(|k| Some((name(k), module.get(k)?))).collect();
+        external.compile(&sources, &names.iter().map(name).collect::<Vec<_>>())
+    };
+    let made = match made {
+        Ok(made) => made,
+        Err(e) => {
+            let message = format!("External compiler: {e}. Nothing was compiled");
+            let result = Err(CompileError { code: -1, message });
+            return vec![ScriptResult { script: names[0], result }];
+        }
+    };
+    names
+        .iter()
+        .zip(made)
+        .map(|(k, outcome)| {
+            let include =
+                || module.get(k).is_some_and(|src| !mg_script::outline::has_entry_point(src));
+            let result = match outcome.ncs {
+                Some(ncs) => {
+                    module.set(ResKey::new(k.resref, ResType::NCS), ncs);
+                    if let Some(ndb) = outcome.ndb {
+                        module.set(ResKey::new(k.resref, ResType::NDB), ndb);
+                    }
+                    Ok(())
+                }
+                None if include() => Ok(()),
+                None => Err(CompileError { code: -1, message: outcome.message }),
+            };
+            ScriptResult { script: *k, result }
         })
         .collect()
 }
@@ -226,6 +292,13 @@ mod tests {
             b"#include \"inc_greet\"\nvoid main() { PrintString(Hi()); }\n".to_vec(),
         );
         m.set(key("broken", ResType::NSS), b"void main() { Nope(); }\n".to_vec());
+        // An include that leans on what its includer brings (here `Hi`),
+        // with a `main` commented out at its foot: not compiled on its
+        // own, as Aurora skips a script without an entry point.
+        m.set(
+            key("inc_leans", ResType::NSS),
+            b"string Twice() { return Hi() + Hi(); }\n// void main() {}\n".to_vec(),
+        );
 
         let results = compile_scripts(&mut m, &rm, ScriptSelection::All);
         let summary: Vec<(String, bool)> =
@@ -235,7 +308,8 @@ mod tests {
             [
                 ("inc_greet.nss".into(), true),
                 ("say.nss".into(), true),
-                ("broken.nss".into(), false)
+                ("broken.nss".into(), false),
+                ("inc_leans.nss".into(), true)
             ]
         );
         assert!(m.contains(&key("say", ResType::NCS)));
@@ -244,6 +318,33 @@ mod tests {
 
         // Only what has no compiled script yet.
         let again = compile_scripts(&mut m, &rm, ScriptSelection::Uncompiled);
-        assert_eq!(again.len(), 2, "the include and the broken script");
+        assert_eq!(again.len(), 3, "the includes and the broken script");
     }
+
+    /// A long chain of `else if` (a generated dispatch script, as
+    /// persistent worlds have) is deep for the compiler, which walks it
+    /// by recursion: it compiles on a thread with the room for it.
+    #[test]
+    fn a_deep_script_compiles_on_a_worker_thread() {
+        let mut base = MemContainer::new();
+        base.insert(
+            key("nwscript", ResType::NSS),
+            &b"#define ENGINE_NUM_STRUCTURES 0\nvoid PrintString(string s);\n"[..],
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        let mut m = Module::new();
+        let mut src =
+            String::from("void main() { int n = 3;\nif (n == 0) { PrintString(\"0\"); }\n");
+        for i in 1..DEEP {
+            src.push_str(&format!("else if (n == {i}) {{ PrintString(\"{i}\"); }}\n"));
+        }
+        src.push_str("}\n");
+        m.set(key("deep", ResType::NSS), src.into_bytes());
+        let results = compile_scripts(&mut m, &rm, ScriptSelection::All);
+        assert!(results[0].result.is_ok(), "{:?}", results[0].result);
+        assert!(m.contains(&key("deep", ResType::NCS)));
+    }
+
+    const DEEP: usize = 60000;
 }

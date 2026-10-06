@@ -59,6 +59,8 @@ pub struct OptionsDraft {
     pub script_templates: String,
     pub scratch_dir: String,
     pub external_editor: String,
+    pub external_compiler: String,
+    pub external_compiler_args: String,
     pub dialog_names: bool,
     pub edit_language: Option<u32>,
     pub area_background: Option<[u8; 3]>,
@@ -131,6 +133,8 @@ impl OptionsDraft {
             script_templates: text(&s.script_templates),
             scratch_dir: text(&s.scratch_dir),
             external_editor: text(&s.external_editor),
+            external_compiler: text(&s.external_compiler),
+            external_compiler_args: s.external_compiler_args.clone(),
             dialog_names: !s.dialog_hide_names,
             edit_language: s.edit_language,
             area_background: s.area_background,
@@ -184,6 +188,8 @@ impl OptionsDraft {
             script_templates: path(&self.script_templates),
             scratch_dir: path(&self.scratch_dir),
             external_editor: path(&self.external_editor),
+            external_compiler: path(&self.external_compiler),
+            external_compiler_args: self.external_compiler_args.trim().to_string(),
             dialog_hide_names: !self.dialog_names,
             edit_language: self.edit_language,
             area_background: self.area_background,
@@ -228,6 +234,7 @@ enum Browse {
     User,
     Templates,
     Editor,
+    Compiler,
     Scratch,
 }
 
@@ -682,6 +689,47 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  editor too; what it saves comes back into Moonglow's editor",
                             )
                             .on_disabled_hover_text("Choose an external script editor first");
+                            crate::widgets::field_label(ui, "External Script Compiler");
+                            ui.horizontal(|ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut draft.external_compiler)
+                                        .hint_text("the built-in compiler")
+                                        .desired_width(300.0),
+                                )
+                                .on_hover_text(
+                                    "A compiler program (nwn_script_comp, nwnsc) for Compile, \
+                                     Compile All Scripts and the build, in place of the one \
+                                     built in (the game's and Aurora's own). Empty: the \
+                                     built-in one. Errors as you type are always the built-in \
+                                     compiler's",
+                                );
+                                if ui.button("Browse…").clicked() {
+                                    browse = Some(Browse::Compiler);
+                                }
+                            });
+                            let external = draft.external_compiler.trim();
+                            if !external.is_empty() {
+                                use mg_module::external_compiler::{ExternalCompiler, PLACES};
+                                let usual = ExternalCompiler::default_arguments(
+                                    std::path::Path::new(external),
+                                    draft.debug_info,
+                                );
+                                crate::widgets::field_label(ui, "Its arguments");
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut draft.external_compiler_args)
+                                        .hint_text(usual.clone())
+                                        .desired_width(460.0),
+                                )
+                                .on_hover_ui(|ui| {
+                                    ui.label(format!(
+                                        "Empty, the usual for this program:\n{usual}"
+                                    ));
+                                    ui.add_space(4.0);
+                                    for (place, what) in PLACES {
+                                        ui.label(format!("{place}  {what}"));
+                                    }
+                                });
+                            }
                             ui.add_space(6.0);
                             script_style(ui, &mut draft.script_style);
                         }
@@ -690,9 +738,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             );
         }
     }
-    if let Some(Browse::Editor) = browse {
+    if let Some(which @ (Browse::Editor | Browse::Compiler)) = &browse {
         if let Some(p) = app.dialogs.open_file(crate::dialogs::FileKind::Any, None) {
-            draft.external_editor = p.display().to_string();
+            let field = match which {
+                Browse::Compiler => &mut draft.external_compiler,
+                _ => &mut draft.external_editor,
+            };
+            *field = p.display().to_string();
         }
     } else if let Some(which) = browse {
         let (title, field) = match which {
@@ -700,7 +752,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             Browse::User => ("NWN user folder", &mut draft.user_dir),
             Browse::Templates => ("Code Templates Directory", &mut draft.script_templates),
             Browse::Scratch => ("Scratch folder", &mut draft.scratch_dir),
-            Browse::Editor => unreachable!("handled above"),
+            Browse::Editor | Browse::Compiler => unreachable!("handled above"),
         };
         if let Some(p) = app.dialogs.pick_folder(title, path(field).as_deref()) {
             *field = p.display().to_string();

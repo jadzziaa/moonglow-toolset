@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T08:26:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -429,6 +429,52 @@ objects in the area view, Fade Geometry. Left:
 - **One scratch folder:** To Scratch copies to one folder, for every
   module; a folder per module, or a remote server's (over SSH), isn't
   offered. Export as Files takes any folder, and remembers the last. (S)
+
+## From builders' reports after 1.14.1 (October 2026)
+
+- **"It kept randomly exiting"** on a persistent world's module (ten
+  times before it stayed open), reported without a log. One cause was
+  found and fixed: the compiler walks a script by recursion, and a very
+  long `else if` chain or expression overflowed the stack of the thread
+  it ran on, which ends the program at once and leaves no crash report
+  (a 60,000-link chain did it on Linux; Windows' main thread has an
+  eighth of that stack). Compiles run on a stack of their own now.
+  Whether that was the reporter's crash isn't known: asked for the debug
+  log (Options › General) and what was being done. (needs the log)
+- **Include files** aren't compiled on their own by Compile All, the
+  build or Compile in the editor (they were, and one leaning on what its
+  includer brings was reported as an error). That Aurora decides by the
+  source having no `main` or `StartingConditional` is the reporter's
+  account and the community's; not watched in Aurora. An include is
+  still checked as you type, on its own, so one that leans on its
+  includer shows an error there. (S)
+- **The external compiler** (Options › Script Editor): run as a program
+  on the module's scripts written to a scratch folder, with what it made
+  read back. Tried with `nwn_script_comp` (its bytecode is the built-in
+  compiler's, byte for byte); `nwnsc`'s line is from its documentation,
+  not run. All of the module's scripts are written out for every
+  compile, one script's too. Scripts in haks reach it through `{haks}`
+  (nwn_script_comp's `--erfs`); nwnsc has no such option. Errors as you
+  type, the wizards' own scripts and the `mg` commands stay with the
+  built-in compiler. Its messages are matched to scripts by their file
+  names and the word "error": another compiler's wording may be missed
+  (the script is then said to have made no compiled script). (S–M)
+- **Finding the game:** Steam's libraries are read from its
+  `libraryfolders.vdf` (a game on a second drive), and GOG's usual
+  folders tried. Steam itself installed outside its usual folder is
+  found on Windows only as `X:\Steam` or `X:\SteamLibrary` (the registry
+  isn't read); Beamdog's client isn't looked for. The reporter's case (a
+  second drive on Linux) is covered by the list, not tried on their
+  machine. (S)
+- **The grid seen from the area's edge:** red and plain as the view
+  comes down (Aurora's is red from every side, and mostly lost in the
+  ground from above), and drawn at the area's foot under raised ground.
+  Aurora was looked at on a flat area only: where it draws the grid
+  under raised tiles wasn't. (S)
+- **A press with Ctrl held is the camera's** with a tileset brush chosen
+  (it painted when let go). A right drag that turns the view and ends
+  where it began is still a right click to the brush (Raise/Lower
+  lowers; other brushes are put down). (S)
 
 ## From GitHub issue 6 (October 2026)
 

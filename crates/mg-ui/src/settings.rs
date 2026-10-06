@@ -140,6 +140,11 @@ pub struct Settings {
     /// Options > Script Editor: External Script Editor, a program given the
     /// script's file.
     pub external_editor: Option<PathBuf>,
+    /// Options > Script Editor: External Script Compiler, a program that
+    /// compiles scripts in place of the built-in compiler (`None`: the
+    /// built-in one), and its line of arguments (empty: the program's own).
+    pub external_compiler: Option<PathBuf>,
+    pub external_compiler_args: String,
     /// Options > Area: the area view's background colour (sRGB); `None`:
     /// the area's fog colour, as the game shows it (Aurora: silver grey,
     /// 0xC0C0C0).

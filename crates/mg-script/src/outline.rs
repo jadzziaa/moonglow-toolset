@@ -430,6 +430,17 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Whether a source defines an entry point of its own: `main` or
+/// `StartingConditional` with a body (one in a comment or a string is
+/// none). A script without one is an include file: Aurora doesn't compile
+/// it on its own, where it may lean on what its includer brings.
+pub fn has_entry_point(src: &[u8]) -> bool {
+    outline(src)
+        .functions
+        .iter()
+        .any(|f| f.body.is_some() && matches!(f.name.as_str(), "main" | "StartingConditional"))
+}
+
 /// Parses the top-level declarations of a source.
 pub fn outline(src: &[u8]) -> Outline {
     let text = String::from_utf8_lossy(src);

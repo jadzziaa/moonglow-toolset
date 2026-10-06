@@ -8911,6 +8911,29 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(3);
     assert_eq!(lattice(&mut h), before);
+    // With Ctrl held the press is the camera's (Ctrl + drag moves the
+    // view): the brush paints nothing, dragged or let go where it was.
+    let ctrl = egui::Modifiers::COMMAND;
+    press(&h, from, true, ctrl);
+    h.run_steps(1);
+    for x in [12.0, 16.0, 20.0] {
+        h.hover_at(screen(&h, area, Vec3::new(x, 20.0, 0.0)));
+        h.run_steps(1);
+    }
+    let at = h.state().area_views[&area].screen_pos(Vec3::new(20.0, 20.0, 0.0)).unwrap_or(to);
+    press(&h, at, false, ctrl);
+    h.run_steps(3);
+    let spot = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    h.hover_at(spot);
+    press(&h, spot, true, ctrl);
+    press(&h, spot, false, ctrl);
+    h.run_steps(3);
+    assert_eq!(lattice(&mut h), before, "a Ctrl + drag and a Ctrl + click paint nothing");
+    // And the next plain click paints as before.
+    press(&h, spot, true, egui::Modifiers::NONE);
+    press(&h, spot, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_ne!(lattice(&mut h), before);
 }
 
 #[test]
@@ -11418,4 +11441,18 @@ fn armor_and_cloaks_are_shown_on_a_woman_when_asked() {
     assert!(parts(false).iter().any(|m| m.starts_with("pmh0_")));
     assert!(parts(true).iter().any(|m| m.starts_with("pfh0_")), "{:?}", parts(true));
     assert!(!parts(true).iter().any(|m| m.starts_with("pmh0_chest")));
+}
+
+#[test]
+#[ignore = "a look at the grid from the area's edge, low"]
+fn look_grid_from_the_edge() {
+    let Some((mut h, area)) = area_harness("grid-look") else { return };
+    let dir = mg_testkit::scratch_dir("ui-grid-look");
+    for (name, pitch) in [("low", 0.08), ("mid", 0.4), ("high", 1.2)] {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        (o.yaw, o.pitch, o.distance) = (-1.57, pitch, 45.0);
+        h.run_steps(5);
+        let img = h.render().expect("render");
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+    }
 }

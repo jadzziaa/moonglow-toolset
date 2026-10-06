@@ -2065,12 +2065,14 @@ impl Moonglow {
     /// Compiles the scripts that have no compiled version (a project's tree
     /// holds none).
     fn compile_uncompiled(&mut self) {
+        let external = self.external_compiler();
         let (Some(ws), Some(game)) = (&mut self.ws, &self.game) else { return };
         let Ok(results) = ws.derive(|module| {
-            mg_module::build::compile_scripts(
+            mg_module::build::compile_scripts_with(
                 module,
                 &game.resman,
                 mg_module::build::ScriptSelection::Uncompiled,
+                external.as_ref(),
             )
         }) else {
             return;
@@ -2081,6 +2083,30 @@ impl Moonglow {
         }
     }
 
+    /// The external compiler chosen in Options › Script Editor, told where
+    /// the game, the user folder and the module's haks are; `None`: the
+    /// built-in compiler.
+    pub(crate) fn external_compiler(
+        &mut self,
+    ) -> Option<mg_module::external_compiler::ExternalCompiler> {
+        let program = self.settings.external_compiler.clone()?;
+        let haks = self.listed_haks();
+        let install = self.install.as_ref();
+        let dirs = install.map(mg_resman::GameInstall::hak_dirs).unwrap_or_default();
+        let haks = haks
+            .iter()
+            .filter_map(|h| dirs.iter().map(|d| d.join(format!("{h}.hak"))).find(|p| p.is_file()))
+            .collect();
+        Some(mg_module::external_compiler::ExternalCompiler {
+            program,
+            arguments: self.settings.external_compiler_args.clone(),
+            game: install.map(|i| i.root.clone()),
+            user: install.and_then(|i| i.user_dir.clone()),
+            haks,
+            debug: self.settings.debug_info,
+        })
+    }
+
     /// Compile All Scripts, as a job: the bytecode that changed is stored
     /// through one undoable command when it is done.
     fn compile_scripts(&mut self) {
@@ -2088,15 +2114,17 @@ impl Moonglow {
             self.log.error("Compiling needs an open module and the game data");
             return;
         }
+        let external = self.external_compiler();
         self.start_job(
             "Compile All Scripts",
-            |job| {
+            move |job| {
                 let game = job.game.as_deref()?;
                 let mut staged = job.module.clone();
-                let results = mg_module::build::compile_scripts(
+                let results = mg_module::build::compile_scripts_with(
                     &mut staged,
                     &game.resman,
                     mg_module::build::ScriptSelection::All,
+                    external.as_ref(),
                 );
                 let edits: Vec<mg_edit::Edit> = staged
                     .keys_of(ResType::NCS)

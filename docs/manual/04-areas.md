@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T04:18:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T18:53:17Z }
 ---
 
 # Areas
@@ -32,7 +32,10 @@ looking straight down at their middle, north up, as in Aurora.
   Select Tiles on or a terrain brush chosen) or **Always**. The choice
   is kept for the areas opened after.
 - **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
-  the tile grid. The fog is drawn as the game's camera (at most 20 m from
+  the tile grid. The grid is faint from above; as the view comes down to
+  look along the ground from the area's edge it turns Aurora's red, to
+  count tiles by and line areas up, and under raised ground it is drawn
+  at the area's foot as well. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
   farther off isn't lost in it.
 - **▶ Animations**: creatures and other placed objects play their
@@ -82,7 +85,7 @@ Options › Keyboard):
 
 | Do | To |
 | --- | --- |
-| Ctrl + drag | move the camera over the area |
+| Ctrl + drag | move the camera over the area (a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
 | Alt + middle drag | move the camera |
 | Wheel | zoom (slowly with Shift or Ctrl; when painting tiles, Shift is the brush's) |

@@ -54,6 +54,9 @@ pub struct BuildWindow {
     pub unused_blueprints: bool,
     pub results: Vec<Finding>,
     pub selected: Option<usize>,
+    /// The external compiler a build is given (Options › Script Editor),
+    /// set as it starts.
+    pub(crate) external: Option<mg_module::external_compiler::ExternalCompiler>,
 }
 
 impl Default for BuildWindow {
@@ -73,6 +76,7 @@ impl Default for BuildWindow {
             unused_blueprints: true,
             results: Vec::new(),
             selected: None,
+            external: None,
         }
     }
 }
@@ -166,7 +170,11 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     if let Some(t) = go.and_then(Tab::for_resource) {
         app.actions.push(Action::OpenTab(t));
     }
-    let options = build.then(|| w.clone());
+    let options = build.then(|| {
+        let mut options = w.clone();
+        options.external = app.external_compiler();
+        options
+    });
     if open && !done {
         app.build = Some(w);
     }
@@ -196,7 +204,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 pub(crate) fn build_on_save(app: &mut Moonglow) {
     let was_open = app.build.is_some();
     let mut w = app.build.take().unwrap_or_default();
-    let results = run(app, &BuildWindow::default());
+    let external = app.external_compiler();
+    let results = run(app, &BuildWindow { external, ..Default::default() });
     let clean =
         results.len() == 1 && results[0].about.is_none() && results[0].text == "No errors found";
     w.results = results;
@@ -295,10 +304,11 @@ fn compile(
     let mut staged = module.clone();
     if w.compile {
         if w.compile_scripts {
-            let results = mg_module::build::compile_scripts(
+            let results = mg_module::build::compile_scripts_with(
                 &mut staged,
                 &game.resman,
                 mg_module::build::ScriptSelection::All,
+                w.external.as_ref(),
             );
             let failed = results.iter().filter(|r| r.result.is_err()).count();
             for r in &results {

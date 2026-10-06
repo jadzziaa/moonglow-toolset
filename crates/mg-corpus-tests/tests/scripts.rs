@@ -176,3 +176,49 @@ fn builtin_compiler_matches_nwn_script_comp() {
         failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n")
     );
 }
+
+/// The external compiler option (Options › Script Editor): a module's
+/// scripts compiled by `nwn_script_comp` run as a program come out as the
+/// built-in compiler makes them, an include is left alone, and a script
+/// that doesn't compile has the compiler's own words for why.
+#[test]
+fn an_external_compiler_compiles_a_module_s_scripts() {
+    use mg_module::build::{ScriptSelection, compile_scripts, compile_scripts_with};
+    use mg_module::external_compiler::ExternalCompiler;
+    let root = corpus!();
+    let tool = oracle_tool!("nwn_script_comp");
+    let install = GameInstall::new(&root, None, "en");
+    let rm = ResMan::for_game(&install).unwrap();
+    let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+    let module = || {
+        let mut m = Module::new();
+        m.set(key("mg_inc", ResType::NSS), b"string Hi() { return \"hi\"; }\n".to_vec());
+        m.set(
+            key("mg_say", ResType::NSS),
+            b"#include \"mg_inc\"\nvoid main() { SpeakString(Hi()); }\n".to_vec(),
+        );
+        m.set(key("mg_broken", ResType::NSS), b"void main() {\n  Nope();\n}\n".to_vec());
+        m
+    };
+    let (mut built_in, mut external) = (module(), module());
+    compile_scripts(&mut built_in, &rm, ScriptSelection::All);
+    let compiler = ExternalCompiler {
+        program: tool,
+        game: Some(root.clone()),
+        user: Some(scratch_dir("external-compiler-user")),
+        ..Default::default()
+    };
+    let results = compile_scripts_with(&mut external, &rm, ScriptSelection::All, Some(&compiler));
+    let said = |name: &str| {
+        let r = results.iter().find(|r| r.script == key(name, ResType::NSS)).unwrap();
+        r.result.clone()
+    };
+    let ncs = key("mg_say", ResType::NCS);
+    assert!(external.get(&ncs).is_some(), "{:?}", said("mg_say"));
+    assert_eq!(external.get(&ncs), built_in.get(&ncs), "the same compiler, the same bytes");
+    assert_eq!(said("mg_inc"), Ok(()), "an include isn't an error");
+    assert!(external.get(&key("mg_inc", ResType::NCS)).is_none());
+    let error = said("mg_broken").unwrap_err();
+    assert!(error.message.contains("UNDEFINED IDENTIFIER"), "{}", error.message);
+    assert_eq!(error.location(), Some(("mg_broken".into(), 2)));
+}

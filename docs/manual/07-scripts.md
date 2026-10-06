@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:47:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
 ---
 
 # Scripts
@@ -99,11 +99,19 @@ The buttons:
 
 Moonglow has Beamdog's own NWScript compiler built in, the one the game
 and Aurora use, so a script compiles in Moonglow exactly as it does there.
+To compile with a program of your own instead (a newer build of the
+compiler, `nwnsc`), choose it in **Tools › Options › Script Editor ›
+External Script Compiler** (see [Options](10-options.md)); what it says
+of a script that doesn't compile shows in the Compiler messages.
 `#include` files come from the module, its haks and the game, in the
 game's order.
 
 **Build › Compile All Scripts** (F7) compiles every script in the module;
-the log lists the failures and how many changed. **Generate Debug
+the log lists the failures and how many changed. An include file (a
+script with no `main` and no `StartingConditional`; one in a comment
+doesn't count) isn't compiled on its own, as in Aurora: it is compiled
+into the scripts that include it, and may lean on what they bring.
+Compile in its editor says so. **Generate Debug
 Information** (Options › Script Editor) also stores a `.ndb` with each
 compiled script, for script debuggers.
 

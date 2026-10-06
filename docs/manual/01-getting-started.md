@@ -3,7 +3,7 @@ type: Manual Page
 title: Getting started
 description: What Moonglow needs, installing it, the first start (finding the game) and a first module.
 tags: [manual, installing]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T23:02:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
 ---
 
 # Getting started
@@ -49,9 +49,14 @@ user folder (where your modules, haks, talk tables and override live):
 | Windows | `C:\Program Files (x86)\Steam\steamapps\common\Neverwinter Nights` | `Documents\Neverwinter Nights` |
 | macOS | `~/Library/Application Support/Steam/steamapps/common/Neverwinter Nights` | `~/Documents/Neverwinter Nights` |
 
+A game in another Steam library (on a second drive, say) is found too:
+Moonglow reads the list of libraries Steam keeps. So is GOG's usual
+folder.
+
 The log at the bottom of the window says where it found the game ("Game
 data loaded from …"); the status bar shows the folder. If the game is
-somewhere else (another Steam library, GOG, Beamdog's client), choose
+somewhere else (Beamdog's client, a folder of your own, or Steam itself
+installed somewhere unusual), choose
 **Tools › Options… › Folders** and set **Neverwinter Nights installation**
 (the folder with `data/` and `bin/` in it) and, if needed, the **NWN user
 folder**.

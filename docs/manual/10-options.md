@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T04:18:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
 ---
 
 # Options
@@ -87,6 +87,21 @@ the module is opened again from its file.
 - **Open scripts in the external editor**: a script opened from the
   module tree opens there as well; what it saves comes back into
   Moonglow's editor.
+- **External Script Compiler**: a compiler program to use in place of the
+  built-in one (empty: the built-in one, which is the game's and
+  Aurora's own). Compile in the script editor, Compile All Scripts, the
+  build and what is compiled before a test or an export go through it.
+  Errors as you type stay the built-in compiler's.
+- **Its arguments** (shown once a compiler is chosen): how the program is
+  run. Empty, Moonglow uses the usual line for the program, by its name:
+  `nwn_script_comp`'s (neverwinter.nim), or `nwnsc`'s. The line shows in
+  the empty field, and resting the pointer on it lists the places
+  Moonglow fills in: `{files}` (the scripts to compile), `{src}` (a
+  scratch folder the module's scripts are written to), `{out}` (the
+  folder the compiled scripts are read from), `{game}`, `{user}` and
+  `{haks}` (the module's haks, comma-separated). An option whose place
+  has nothing to give is left out. Generate Debug Information adds `-g`
+  to the usual lines.
 - The editor's **font size** and syntax **colors**.
 
 ## Conversation Editor

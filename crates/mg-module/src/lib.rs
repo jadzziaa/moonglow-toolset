@@ -14,6 +14,7 @@ pub mod build;
 pub mod dialog;
 pub mod dialog_io;
 pub mod doctor;
+pub mod external_compiler;
 pub mod factions;
 pub mod hak_edit;
 pub mod haks;

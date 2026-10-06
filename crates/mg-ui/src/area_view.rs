@@ -399,6 +399,9 @@ pub struct AreaView {
     pub(crate) cursor_cache: Option<(crate::terrain_mode::PreviewKey, CursorShapes)>,
     /// A terrain brush's drag: the corners it is painting.
     pub(crate) terrain_drag: Option<crate::terrain_mode::TerrainDrag>,
+    /// The press going on (or the last one) began with Ctrl held: it is
+    /// the camera's, and a tileset brush leaves it alone.
+    pub(crate) camera_press: bool,
     /// A trigger or encounter whose outline is being drawn anew.
     pub redraw: Option<(ObjectKind, usize)>,
     /// The Create Set window's name, while it is open.
@@ -477,6 +480,7 @@ impl AreaView {
             pointer: None,
             brush_cursor: Vec::new(),
             terrain_drag: None,
+            camera_press: false,
             tile_preview: Vec::new(),
             preview_seed: fastrand::u64(..),
             preview_cache: None,
@@ -1515,9 +1519,16 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
 }
 
 /// The tiles' outlines (Display Grid), drawn in the scene so that what
-/// stands on the ground hides them.
+/// stands on the ground hides them: at each tile's ground, and at the
+/// area's foot under a tile that is raised.
 fn grid_lines(view: &AreaView, shown: &AreaModel) -> Vec<mg_render::Line> {
-    let color = [1.0, 1.0, 1.0, 40.0 / 255.0];
+    // Faint from above, where it lies over the ground; Aurora's red, and
+    // plain to see, as the view comes down to look along the ground from
+    // the area's edge (where the grid is what tiles are counted by).
+    let pitch = view.orbit.as_ref().map_or(MAX_PITCH, |o| o.pitch);
+    let low = ((GRID_FAINT_FROM - pitch) / (GRID_FAINT_FROM - GRID_RED_AT)).clamp(0.0, 1.0);
+    let mix = |faint: f32, red: f32| faint + (red - faint) * low;
+    let color = [1.0, mix(1.0, 0.0), mix(1.0, 0.0), mix(40.0 / 255.0, 0.9)];
     let mut out = Vec::new();
     for (i, t) in shown.tiles.iter().enumerate() {
         // At the tile's ground, which some tilesets build above the tile's
@@ -1529,9 +1540,27 @@ fn grid_lines(view: &AreaView, shown: &AreaModel) -> Vec<mg_render::Line> {
         for k in 0..4 {
             out.push(mg_render::Line { from: corners[k], to: corners[(k + 1) % 4], color });
         }
+        // And at the area's foot, as Aurora paints it there: under raised
+        // ground it is hidden from above, and seen from the side at the
+        // area's edge, where builders count tiles to line areas up.
+        if c.z.abs() > GRID_FOOT_APART {
+            let foot = corners.map(|p| p.truncate().extend(0.0));
+            for k in 0..4 {
+                out.push(mg_render::Line { from: foot[k], to: foot[(k + 1) % 4], color });
+            }
+        }
     }
     out
 }
+
+/// The view's pitch (radians above the ground) from which the grid is
+/// faint, and at which it is Aurora's red (in between, something of each).
+const GRID_FAINT_FROM: f32 = 0.6;
+const GRID_RED_AT: f32 = 0.2;
+
+/// How far a tile's ground is from the area's foot before the grid is
+/// drawn at both, meters.
+const GRID_FOOT_APART: f32 = 0.05;
 
 fn viewport(
     app: &mut Moonglow,

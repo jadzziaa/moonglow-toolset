@@ -94,28 +94,80 @@ impl GameInstall {
     }
 }
 
+/// Where the game may be: in each Steam library (Steam's own folder, and
+/// those it lists on other drives), then where GOG puts it.
 fn candidate_roots() -> Vec<PathBuf> {
-    let mut v = Vec::new();
     let home = env::var_os("HOME").map(PathBuf::from);
     let game = Path::new("steamapps").join("common").join("Neverwinter Nights");
+    let gog = "Neverwinter Nights Enhanced Edition";
+    // Steam's own folders.
+    let mut steam: Vec<PathBuf> = Vec::new();
+    let mut other: Vec<PathBuf> = Vec::new();
     if cfg!(target_os = "linux") {
         if let Some(h) = &home {
-            v.push(h.join(".local/share/Steam").join(&game));
-            v.push(h.join(".steam/steam").join(&game));
-            v.push(h.join(".var/app/com.valvesoftware.Steam/.local/share/Steam").join(&game));
+            steam.push(h.join(".local/share/Steam"));
+            steam.push(h.join(".steam/steam"));
+            steam.push(h.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"));
+            steam.push(h.join("snap/steam/common/.local/share/Steam"));
+            other.push(h.join("GOG Games").join(gog));
         }
     } else if cfg!(target_os = "macos") {
         if let Some(h) = &home {
-            v.push(h.join("Library/Application Support/Steam").join(&game));
+            steam.push(h.join("Library/Application Support/Steam"));
         }
     } else if cfg!(windows) {
         for pf in ["ProgramFiles(x86)", "ProgramFiles"] {
             if let Some(p) = env::var_os(pf) {
-                v.push(PathBuf::from(p).join("Steam").join(&game));
+                steam.push(PathBuf::from(&p).join("Steam"));
+                other.push(PathBuf::from(p).join("GOG Galaxy").join("Games").join(gog));
+            }
+        }
+        // Steam, a library of its own or GOG's folder on any drive (Steam
+        // put elsewhere isn't found by its usual place).
+        for drive in 'C'..='Z' {
+            let drive = PathBuf::from(format!("{drive}:\\"));
+            steam.push(drive.join("Steam"));
+            steam.push(drive.join("SteamLibrary"));
+            other.push(drive.join("GOG Games").join(gog));
+        }
+    }
+    // The libraries each lists (a game put on a second drive is in one).
+    let mut libraries = steam.clone();
+    for s in &steam {
+        for list in [s.join("steamapps"), s.join("config")] {
+            if let Ok(text) = std::fs::read_to_string(list.join("libraryfolders.vdf")) {
+                libraries.extend(steam_libraries(&text));
             }
         }
     }
+    let mut v: Vec<PathBuf> = Vec::new();
+    for root in libraries.into_iter().map(|l| l.join(&game)).chain(other) {
+        if !v.contains(&root) {
+            v.push(root);
+        }
+    }
     v
+}
+
+/// The library folders a Steam `libraryfolders.vdf` lists: the value of
+/// each `"path"` key (and, in the files of older Steam versions, of each
+/// numbered key).
+fn steam_libraries(vdf: &str) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for line in vdf.lines() {
+        // `"key"  "value"`, backslashes doubled.
+        let mut quoted = line.split('"').skip(1).step_by(2);
+        let (Some(key), Some(value)) = (quoted.next(), quoted.next()) else { continue };
+        // (A numbered key is also an app's, with its size: a folder has a
+        // slash in it.)
+        let numbered = !key.is_empty()
+            && key.chars().all(|c| c.is_ascii_digit())
+            && value.contains(['/', '\\']);
+        if (key.eq_ignore_ascii_case("path") || numbered) && !value.is_empty() {
+            out.push(PathBuf::from(value.replace("\\\\", "\\")));
+        }
+    }
+    out
 }
 
 fn default_user_dir() -> Option<PathBuf> {
@@ -203,5 +255,26 @@ impl ResMan {
             self.add(p, format!("hak:{name}"), LayerClass::Erf, ErfContainer::open(&path)?);
         }
         Ok(missing)
+    }
+}
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+
+    #[test]
+    fn steam_s_library_list_is_read() {
+        // Steam's own, as it writes it now.
+        let now = "\"libraryfolders\"\n{\n\t\"0\"\n\t{\n\t\t\"path\"\t\t\"/home/me/.local/share/Steam\"\n\
+                   \t\t\"label\"\t\t\"\"\n\t\t\"apps\"\n\t\t{\n\t\t\t\"704450\"\t\t\"123\"\n\t\t}\n\t}\n\
+                   \t\"1\"\n\t{\n\t\t\"path\"\t\t\"D:\\\\SteamLibrary\"\n\t}\n}\n";
+        assert_eq!(
+            steam_libraries(now),
+            [PathBuf::from("/home/me/.local/share/Steam"), PathBuf::from("D:\\SteamLibrary")]
+        );
+        // And as older versions did: a path under each number.
+        let old = "\"LibraryFolders\"\n{\n\t\"TimeNextStatsReport\"\t\"1\"\n\t\"1\"\t\t\"/mnt/games/Steam\"\n}\n";
+        assert_eq!(steam_libraries(old), [PathBuf::from("/mnt/games/Steam")]);
+        assert!(steam_libraries("not a list at all").is_empty());
     }
 }

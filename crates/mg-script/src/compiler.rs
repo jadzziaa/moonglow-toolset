@@ -169,6 +169,50 @@ extern "C" fn write(
     .unwrap_or(1)
 }
 
+/// The stack a compile runs on. The compiler recurses once or more for
+/// each link of an `else if` chain and each operand of an expression; this
+/// is room for scripts far past any seen (reserved, not used, until then).
+const COMPILE_STACK: usize = 256 << 20;
+
+/// Runs `f` to its end on a thread with [`COMPILE_STACK`] of stack, while
+/// this thread waits; here, if no such thread can be had.
+#[allow(unsafe_code)]
+fn on_deep_stack<T>(f: impl FnOnce() -> T) -> T {
+    /// What is handed to the thread and back.
+    struct Hand<V>(V);
+    // SAFETY: the hand-over is strictly one after the other: this thread
+    // does nothing but wait for the other to finish (the scope joins it),
+    // so what `f` holds is never used from two threads at once. Nothing it
+    // holds here is tied to the thread it was made on: the compiler and the
+    // resolver, whose thread-local registration is made inside `f`.
+    unsafe impl<V> Send for Hand<V> {}
+
+    let mut f = Some(f);
+    let made = {
+        let hand = Hand(&mut f);
+        std::thread::scope(|s| {
+            let work = move || {
+                let hand = hand;
+                Hand(hand.0.take().map(|f| f()))
+            };
+            let thread = std::thread::Builder::new()
+                .name("nwscript".into())
+                .stack_size(COMPILE_STACK)
+                .spawn_scoped(s, work);
+            match thread.map(std::thread::ScopedJoinHandle::join) {
+                Ok(Ok(out)) => out.0,
+                Ok(Err(panic)) => std::panic::resume_unwind(panic),
+                Err(_) => None,
+            }
+        })
+    };
+    match (made, f) {
+        (Some(out), _) => out,
+        (None, Some(f)) => f(),
+        (None, None) => unreachable!("the work was taken, and so its result made"),
+    }
+}
+
 /// An instance of the official compiler. Not thread-safe (and not `Send`):
 /// use one per thread.
 pub struct Compiler<'r> {
@@ -252,9 +296,13 @@ impl<'r> Compiler<'r> {
             code: -1,
             message: format!("{name:?}: invalid script name"),
         })?;
-        // SAFETY: `raw` is live and the name is NUL-terminated.
-        let (result, output) =
-            self.with_active(|raw| unsafe { scriptCompApiCompileFile(raw, cname.as_ptr()) });
+        // (On a stack of its own: the compiler walks a script by
+        // recursion, and a long `else if` chain or expression is deeper
+        // than a thread's stack, least of all a main thread's on Windows.)
+        let (result, output) = on_deep_stack(|| {
+            // SAFETY: `raw` is live and the name is NUL-terminated.
+            self.with_active(|raw| unsafe { scriptCompApiCompileFile(raw, cname.as_ptr()) })
+        });
         if result.code == 0 {
             return Ok(output);
         }
