@@ -38,7 +38,7 @@ const BASIC_SIDE: f32 = 440.0;
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {
-        "Basic" => situated::beside_model(f, ui, BASIC_SIDE, false, basic),
+        "Basic" => situated::beside_model(f, ui, BASIC_SIDE, false, |f, ui, _| basic(f, ui)),
         "Inventory" => contents(f, ui),
         "Lock" => situated::lock(f, ui),
         "Trap" => situated::trap(f, ui),
@@ -176,7 +176,7 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         // Pasted, dragged from the palette, or dragged out of another
         // object's inventory: added here.
         let whose = inventory::owner(key, &base);
-        (adds, taken) = f.list_events(ui, &items, &mut out, whose);
+        (adds, taken) = f.list_events(ui, &items, &mut out, whose, &base);
         edits = out.edits;
     });
     adds.extend(add);

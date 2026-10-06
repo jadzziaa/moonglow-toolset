@@ -27,12 +27,20 @@ pub(super) const PAGES: [&str; 6] =
 /// The width of the Appearance page's fields beside the model.
 const APPEARANCE_SIDE: f32 = 460.0;
 
+/// The width of a part's choice: a number, "Model 12", "7 (AC 5)".
+const PART_WIDTH: f32 = 110.0;
+
+/// The least height of the model shown beside the icon, in a window too
+/// narrow to have it beside the page's fields.
+const MODEL_SHORT: f32 = 220.0;
+
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {
         "General" => general(f, ui),
         "Appearance" => with_game(f, |f, game| {
-            let fields = |f: &mut Form<'_>, ui: &mut Ui| appearance(f, ui, game);
-            super::situated::beside_model(f, ui, APPEARANCE_SIDE, true, fields);
+            let fields =
+                |f: &mut Form<'_>, ui: &mut Ui, beside: bool| appearance(f, ui, game, beside);
+            super::situated::beside_model(f, ui, APPEARANCE_SIDE, false, fields);
         }),
         "Properties" => with_game(f, |f, game| properties(f, ui, game)),
         "Visuals" => super::visuals::page(f, ui, true),
@@ -69,12 +77,12 @@ pub(crate) fn refresh_costs(
     }
 }
 
-/// Runs `body` with the game data lent out of the app (the pages that use
-/// it throughout change the item through the form, which needs the app).
+/// Runs `body` with the game data beside the form (the pages that use it
+/// throughout change the item through the form, which needs the app). The
+/// app keeps its own hold on it: the model shown in the page reads it.
 fn with_game(f: &mut Form<'_>, body: impl FnOnce(&mut Form<'_>, &GameData)) {
-    let Some(game) = f.app.game.take() else { return };
+    let Some(game) = f.app.game.clone() else { return };
     body(f, &game);
-    f.app.game = Some(game);
 }
 
 fn base_row(f: &Form<'_>) -> usize {
@@ -304,10 +312,14 @@ fn part_choice(
     let current = part_number(&f.root, labels[0]).unwrap_or(0);
     let choices: Vec<Choice> =
         numbers.iter().map(|&n| Choice { row: n as usize, text: text(n) }).collect();
-    if let Some(v) = super::situated::pick(ui, f.key, what, &choices, current) {
+    if let Some(v) = super::situated::pick_sized(ui, f.key, what, &choices, current, PART_WIDTH) {
         set_part(f, what, labels, v);
     }
 }
+
+/// A composite item's parts: (name, field, the letter in its models' names).
+const COMPOSITE_PARTS: [(&str, &str, &str); 3] =
+    [("Top", "ModelPart3", "t"), ("Middle", "ModelPart2", "m"), ("Bottom", "ModelPart1", "b")];
 
 /// The armor's parts: (label, fields, parts table).
 const ARMOR_PARTS: [(&str, &[&str], &str); 13] = [
@@ -431,34 +443,47 @@ fn with_model(item: &Struct, label: &str, n: u16) -> Struct {
 
 /// An item's icon layers (the game lent to the page).
 fn icon(f: &mut Form<'_>, ui: &Ui, game: &GameData, item: &Struct) -> Vec<crate::images::Picture> {
+    // (As a woman's inventory shows it, where the page shows it on one.)
+    let female = f.app.armor_on_woman;
     let mut loader = crate::images::Loader {
         pictures: &mut f.app.pictures,
         palettes: &mut f.app.palettes,
         ws: f.app.ws.as_ref(),
         game,
     };
-    loader.item_icon(ui.ctx(), item)
+    loader.item_icon_on(ui.ctx(), item, female)
 }
 
 /// Aurora's icon grid: the icon of each model number, a click chooses it.
 fn icon_grid(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, numbers: &[u16]) {
-    let current = part_number(&f.root, "ModelPart1").unwrap_or(0);
+    part_grid(f, ui, game, numbers, ("Appearance", "ModelPart1"), 220.0);
+}
+
+/// The item's icon with each of `numbers` as its part `label` (named
+/// `what`), in a grid at most `height` tall: a click chooses the part.
+fn part_grid(
+    f: &mut Form<'_>,
+    ui: &mut Ui,
+    game: &GameData,
+    numbers: &[u16],
+    (what, label): (&str, &str),
+    height: f32,
+) {
+    let current = part_number(&f.root, label).unwrap_or(0);
     let mut chosen = None;
-    egui::ScrollArea::vertical().max_height(220.0).id_salt(("uti-icons", f.key)).show(ui, |ui| {
+    let id = ("uti-icons", f.key, label);
+    egui::ScrollArea::vertical().max_height(height).id_salt(id).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for &n in numbers {
-                let item = with_model(&f.root, "ModelPart1", n);
+                let item = with_model(&f.root, label, n);
                 let layers = icon(f, ui, game, &item);
-                let r = crate::images::stacked(ui, &layers, 1.0, &format!("Appearance {n}"))
-                    .on_hover_text(format!("Appearance {n}"));
+                let r = crate::images::stacked(ui, &layers, 1.0, &format!("{what} {n}"))
+                    .on_hover_text(format!("{what} {n}"));
                 if i64::from(n) == current {
                     let stroke = ui.visuals().selection.stroke;
-                    ui.painter().rect_stroke(
-                        r.rect.expand(1.0),
-                        2.0,
-                        stroke,
-                        egui::StrokeKind::Outside,
-                    );
+                    // (Within the icon's own room: outside it, the grid's
+                    // edge cut the top of the first row's off.)
+                    ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Inside);
                 }
                 if r.clicked() {
                     chosen = Some(n);
@@ -467,30 +492,58 @@ fn icon_grid(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, numbers: &[u16]) {
         });
     });
     if let Some(n) = chosen.filter(|&n| i64::from(n) != current) {
-        set_part(f, "Appearance", &["ModelPart1"], i64::from(n));
+        set_part(f, what, &[label], i64::from(n));
     }
 }
 
-fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
+/// `beside`: the model is shown beside these fields (a wide window). In a
+/// narrower one it is shown here, to the right of the icon.
+fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
     let Ok(t) = game.table("baseitems") else { return };
     let row = base_row(f);
     let class = t.get(row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
     // The item's inventory icon, as it is now.
     let root = f.root.clone();
     let layers = icon(f, ui, game, &root);
-    crate::images::stacked(ui, &layers, 1.5, "Icon");
-    match t.get_int(row, "ModelType").unwrap_or(0) {
+    if beside {
+        crate::images::stacked(ui, &layers, 1.5, "Icon");
+    } else {
+        // (The page's visible width: see `situated::beside_model`.)
+        let seen = ui.available_width().min(ui.clip_rect().right() - ui.cursor().left());
+        ui.horizontal_top(|ui| {
+            let icon = crate::images::stacked(ui, &layers, 1.5, "Icon").rect;
+            let gap = ui.spacing().item_spacing.x;
+            let size = egui::vec2(seen - icon.width() - 2.0 * gap, icon.height().max(MODEL_SHORT));
+            ui.vertical(|ui| super::situated::inline_preview(f, ui, size));
+        });
+    }
+    // Who wears it in the model and the icon shown: armor, cloaks and the
+    // items the game has an icon of for each have a man's and a woman's.
+    let kind = t.get_int(row, "ModelType").unwrap_or(0);
+    if kind == 3 || class == "cloak" || t.get_int(row, "GenderSpecific") == Some(1) {
+        ui.horizontal(|ui| {
+            crate::widgets::field_label(ui, "Shown on");
+            let was = f.app.armor_on_woman;
+            ui.selectable_value(&mut f.app.armor_on_woman, false, "Male");
+            ui.selectable_value(&mut f.app.armor_on_woman, true, "Female");
+            if f.app.armor_on_woman != was {
+                crate::model_view::read_again(f.app);
+            }
+        })
+        .response
+        .on_hover_text(
+            "The body the item's model is shown on, and whose inventory icon is shown; the \
+             item is the same",
+        );
+    }
+    match kind {
         // Composite: bottom, middle, top, each a shape and a colour (the
         // number's tens and units).
         2 => {
             egui::Grid::new(("uti-parts", f.key)).num_columns(3).spacing([12.0, 6.0]).show(
                 ui,
                 |ui| {
-                    for (text, label, part) in [
-                        ("Top", "ModelPart3", "t"),
-                        ("Middle", "ModelPart2", "m"),
-                        ("Bottom", "ModelPart1", "b"),
-                    ] {
+                    for (text, label, part) in COMPOSITE_PARTS {
                         let numbers = model_numbers(ui, game, &format!("{class}_{part}_"));
                         let current = part_number(&f.root, label).unwrap_or(0);
                         let (shape, color) = (current / 10, current % 10);
@@ -505,12 +558,13 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                                 text: format!("Model {}", n / 10),
                             })
                             .collect();
-                        if let Some(s) = super::situated::pick(
+                        if let Some(s) = super::situated::pick_sized(
                             ui,
                             f.key,
                             &format!("{label}-shape"),
                             &shape_choices,
                             shape,
+                            PART_WIDTH,
                         ) {
                             // Keep the colour where the new shape has it.
                             let v = s * 10 + color;
@@ -532,12 +586,13 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                                 text: format!("Color {}", n % 10),
                             })
                             .collect();
-                        if let Some(c) = super::situated::pick(
+                        if let Some(c) = super::situated::pick_sized(
                             ui,
                             f.key,
                             &format!("{label}-color"),
                             &color_choices,
                             color,
+                            PART_WIDTH,
                         ) {
                             set_part(f, text, &[label], shape * 10 + c);
                         }
@@ -545,6 +600,17 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                     }
                 },
             );
+            // Each part's shapes and colors as pictures: the item as it
+            // would be with each, a click chooses it.
+            for (text, label, part) in COMPOSITE_PARTS {
+                let numbers = model_numbers(ui, game, &format!("{class}_{part}_"));
+                if numbers.len() < 2 {
+                    continue;
+                }
+                ui.separator();
+                crate::widgets::field_label(ui, text);
+                part_grid(f, ui, game, &numbers, (text, label), 150.0);
+            }
         }
         // Armor: a part per body part (parts_*.2da), the robe and colours.
         3 => {

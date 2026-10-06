@@ -70,6 +70,11 @@ pub struct Settings {
     pub script_style: ScriptStyle,
     /// Options > General: Build module on save (Aurora's `Verify On Save`).
     pub build_on_save: bool,
+    /// The area view's Fade Geometry (0 never, 1 in object mode only,
+    /// 2 always), in views opened from now on.
+    pub fade_geometry: u8,
+    /// The palettes show pictures (their Gallery switch), as last left.
+    pub palette_gallery: bool,
     /// How large the galleries' pictures are, points (their slider's;
     /// `None`: the usual size).
     pub gallery_tile: Option<u16>,

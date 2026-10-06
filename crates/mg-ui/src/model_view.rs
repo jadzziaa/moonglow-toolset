@@ -8,10 +8,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use glam::{Mat4, Vec3};
-use mg_area::ObjectKind;
 use mg_core::ResRef;
 use mg_core::ResType;
-use mg_edit::{GffPath, Step, Workspace};
+use mg_edit::{GffPath, Workspace};
 use mg_gff::Gff;
 use mg_mdl::Model;
 use mg_preview::Preview;
@@ -117,27 +116,33 @@ fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
         Source::Instance { area, path } => {
             let git = read(&ResKey::new(*area, ResType::GIT))
                 .ok_or_else(|| format!("{area}.git: not found or not readable"))?;
-            let list = match path.0.first() {
-                Some(Step::Item(list, _)) => list.clone(),
-                _ => return Err(format!("{source}: not an object's entry")),
-            };
-            let kind = ObjectKind::ALL
-                .into_iter()
-                .find(|k| k.list() == list)
-                .ok_or_else(|| format!("{source}: no preview for {list}"))?;
+            // (A placed object, or an item one holds.)
+            let restype = crate::blueprint::instance_type(path)
+                .ok_or_else(|| format!("{source}: not an object's entry"))?;
             let object = path.get(&git.root).cloned().ok_or_else(|| format!("{source}: gone"))?;
-            (kind.restype(), object)
+            (restype, object)
         }
     };
     let items = |r: ResRef| read(&ResKey::new(r, ResType::UTI));
     let preview = match restype {
         ResType::UTC => mg_preview::creature(game, &object, &items),
-        ResType::UTI => mg_preview::item(game, &object),
+        ResType::UTI => mg_preview::item_on(game, &object, app.armor_on_woman),
         ResType::UTP => mg_preview::placeable(game, &object),
         ResType::UTD => mg_preview::door(game, &object),
+        // The flag the area view draws. (A merchant's and a sound's markers
+        // are the same for every one: no picture to tell them by.)
+        ResType::UTW => mg_preview::waypoint(game, &object),
         t => return Err(format!("{source}: no preview for {t:?}")),
     };
     preview.map(|p| mg_preview::replaced(p, &object)).map_err(|e| format!("{source}: {e}"))
+}
+
+/// Has every open viewer read its object again (what it is shown on has
+/// changed: an armor's wearer).
+pub(crate) fn read_again(app: &mut Moonglow) {
+    for view in app.model_views.values_mut() {
+        view.revision = Some(u64::MAX);
+    }
 }
 
 /// Whether the viewer can show a resource type.
@@ -651,7 +656,12 @@ fn render_thumbnail(app: &mut Moonglow, key: Pictured) -> Option<(Targets, egui:
             // (A blueprint's, or a model's own: a gallery of appearances.)
             if !matches!(
                 key.restype,
-                ResType::UTC | ResType::UTD | ResType::UTI | ResType::UTP | ResType::MDL
+                ResType::UTC
+                    | ResType::UTD
+                    | ResType::UTI
+                    | ResType::UTP
+                    | ResType::UTW
+                    | ResType::MDL
             ) {
                 return None;
             }

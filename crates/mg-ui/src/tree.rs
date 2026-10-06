@@ -179,37 +179,111 @@ fn area_contents(ws: &mut Workspace, game: Option<&GameData>, area: ResRef) -> A
         .collect()
 }
 
+/// What was asked of an object in an area's list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Asked {
+    /// Shown in the area's view.
+    Go,
+    Properties,
+    Copy,
+    Delete,
+}
+
 /// An area's placed objects under its row of the module tree, kind by
 /// kind as Aurora lists them. A click goes to the object in the area's
-/// view; a double click opens its Properties.
+/// view; a double click opens its Properties; a right click has both, and
+/// Copy and Delete. With a filter that some of them match (lower case),
+/// only those are listed. Only the rows in view are laid out (an area can
+/// hold thousands of a kind).
 fn contents_ui(
     ui: &mut Ui,
     area: ResRef,
     contents: &AreaContents,
-    go: &mut Option<(ResRef, mg_area::ObjectKind, usize, bool)>,
+    filter: &str,
+    go: &mut Option<(ResRef, mg_area::ObjectKind, usize, Asked)>,
 ) {
+    let matches = |name: &str| name.to_lowercase().contains(filter);
+    let filtered =
+        !filter.is_empty() && contents.iter().any(|(_, names)| names.iter().any(|n| matches(n)));
     ui.indent(("area-contents", area), |ui| {
         for (kind, names) in contents {
-            let title = format!("{} ({})", kind.plural(), names.len());
-            if names.is_empty() {
-                ui.weak(title);
+            let shown: Vec<usize> = if filtered {
+                (0..names.len()).filter(|&i| matches(&names[i])).collect()
+            } else {
+                (0..names.len()).collect()
+            };
+            let title = if filtered {
+                format!("{} ({} of {})", kind.plural(), shown.len(), names.len())
+            } else {
+                format!("{} ({})", kind.plural(), names.len())
+            };
+            if shown.is_empty() {
+                if !filtered {
+                    ui.weak(title);
+                }
                 continue;
             }
-            egui::CollapsingHeader::new(title).id_salt(("area-kind", area, *kind)).show(ui, |ui| {
-                for (index, name) in names.iter().enumerate() {
-                    let shown = if name.is_empty() { "(no name)" } else { name.as_str() };
-                    let r = ui.selectable_label(false, shown).on_hover_text(
-                        "Click to go to it in the area; double-click for its Properties",
+            let mut header = egui::CollapsingHeader::new(title).id_salt(("area-kind", area, *kind));
+            // (What is looked for shows without opening each kind.)
+            if filtered {
+                header = header.open(Some(true));
+            }
+            header.show(ui, |ui| {
+                // The rows in view, and room for those above and below.
+                let font = egui::TextStyle::Button.resolve(ui.style());
+                let spacing = ui.spacing();
+                let row = (ui.fonts_mut(|f| f.row_height(&font)) + 2.0 * spacing.button_padding.y)
+                    .max(spacing.interact_size.y);
+                let step = row + spacing.item_spacing.y;
+                let top = ui.cursor().top();
+                let clip = ui.clip_rect();
+                let first =
+                    (((clip.top() - top) / step).floor().max(0.0) as usize).min(shown.len());
+                let last = (((clip.bottom() - top) / step).ceil().max(0.0) as usize)
+                    .clamp(first, shown.len());
+                let room = |ui: &mut Ui, rows: usize| {
+                    if rows > 0 {
+                        let tall = rows as f32 * step - spacing_gap(ui);
+                        ui.allocate_space(egui::vec2(1.0, tall.max(0.0)));
+                    }
+                };
+                room(ui, first);
+                for &index in &shown[first..last] {
+                    let name = &names[index];
+                    let text = if name.is_empty() { "(no name)" } else { name.as_str() };
+                    let r = ui.selectable_label(false, text).on_hover_text(
+                        "Click to go to it in the area; double-click for its Properties; \
+                         right-click for more",
                     );
                     if r.double_clicked() {
-                        *go = Some((area, *kind, index, true));
+                        *go = Some((area, *kind, index, Asked::Properties));
                     } else if r.clicked() {
-                        *go = Some((area, *kind, index, false));
+                        *go = Some((area, *kind, index, Asked::Go));
                     }
+                    r.context_menu(|ui| {
+                        for (label, asked) in [
+                            ("Go To", Asked::Go),
+                            ("Properties", Asked::Properties),
+                            ("Copy", Asked::Copy),
+                            ("Delete", Asked::Delete),
+                        ] {
+                            if ui.button(label).clicked() {
+                                *go = Some((area, *kind, index, asked));
+                                ui.close();
+                            }
+                        }
+                    });
                 }
+                room(ui, shown.len() - last);
             });
         }
     });
+}
+
+/// The gap between rows (taken off a block of rows left out, which is
+/// followed by one itself).
+fn spacing_gap(ui: &Ui) -> f32 {
+    ui.spacing().item_spacing.y
 }
 
 pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
@@ -264,10 +338,22 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                 |k: &ResKey| names.get(k).map_or_else(|| k.resref.to_string(), String::clone);
             keys.sort_by_cached_key(|k| (shown(k).to_lowercase(), *k));
         }
+        // (An area opened out stays for what is placed in it, too.)
+        let holds = |k: &ResKey| {
+            k.restype == ResType::ARE
+                && ui.data(|d| d.get_temp(egui::Id::new(("tree-area-open", k.resref))))
+                    == Some(true)
+                && app.area_contents.get(&k.resref).is_some_and(|(_, contents)| {
+                    contents
+                        .iter()
+                        .any(|(_, names)| names.iter().any(|n| n.to_lowercase().contains(&filter)))
+                })
+        };
         keys.retain(|k| {
             filter.is_empty()
                 || k.to_string().contains(&filter)
                 || names.get(k).is_some_and(|n| n.to_lowercase().contains(&filter))
+                || holds(k)
         });
         // What makes a new resource of the group (its wizard, or the New
         // window): on the group's and its resources' right-click menus.
@@ -312,7 +398,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     let mut r = row.inner;
                     if out {
                         match app.area_contents.get(&k.resref).filter(|c| c.0 == revision) {
-                            Some((_, contents)) => contents_ui(ui, k.resref, contents, &mut go),
+                            Some((_, contents)) => {
+                                contents_ui(ui, k.resref, contents, &filter, &mut go)
+                            }
                             None => read.push(k.resref),
                         }
                     }
@@ -470,15 +558,50 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         }
         ui.ctx().request_repaint();
     }
-    // An object clicked in an area's list: gone to in the area's view, or
-    // (a double click) its Properties opened.
-    if let Some((area, kind, index, properties)) = go {
-        if properties {
-            let path = mg_edit::GffPath::root().item(kind.list(), index);
-            app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
-        } else {
-            app.area_focus = Some((area, kind, index));
-            app.actions.push(Action::OpenTab(Tab::Area(area)));
+    // An object in an area's list: gone to in the area's view, its
+    // Properties opened, copied or deleted.
+    if let Some((area, kind, index, asked)) = go {
+        let git = ResKey::new(area, ResType::GIT);
+        match asked {
+            Asked::Properties => {
+                let path = mg_edit::GffPath::root().item(kind.list(), index);
+                app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
+            }
+            Asked::Go => {
+                app.area_focus = Some((area, kind, index));
+                app.actions.push(Action::OpenTab(Tab::Area(area)));
+            }
+            Asked::Copy => {
+                // As Copy in the area's view: pasted in any area (Ctrl+V).
+                let placed = app
+                    .ws
+                    .as_mut()
+                    .and_then(|ws| ws.doc(&git).ok()?.root.list(kind.list())?.get(index).cloned());
+                if let (Some(s), Some(game)) = (placed, app.game.as_deref()) {
+                    let o = mg_area::AreaObject::read(game, kind, index, &s);
+                    let anchor = o.position;
+                    app.object_clip =
+                        Some(crate::area_view::ObjectClip { objects: vec![(o, s, 0.0)], anchor });
+                    crate::widgets::mark_clipboard(ui.ctx(), "1 object");
+                    app.log.info("1 object copied: paste it in an area (Ctrl+V)");
+                }
+            }
+            Asked::Delete => {
+                let edits = mg_area::edit::delete_edits(git, &[(kind, index)]);
+                // (Objects after it move up their list: what is selected
+                // in the area's view, and the Properties open, would be
+                // others'.)
+                if let Some(view) = app.area_views.get_mut(&area) {
+                    view.selection.clear();
+                }
+                app.dock.retain_tabs(|t| {
+                    !matches!(t, Tab::Instance { area: a, .. } | Tab::Instances { area: a, .. }
+                        if *a == area)
+                });
+                if !edits.is_empty() {
+                    app.actions.push(Action::Apply(mg_edit::Command::new("Delete", edits)));
+                }
+            }
         }
     }
     if let Some(id) = make {

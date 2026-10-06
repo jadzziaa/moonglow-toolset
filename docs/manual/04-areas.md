@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T02:55:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T04:18:16Z }
 ---
 
 # Areas
@@ -27,7 +27,10 @@ looking straight down at their middle, north up, as in Aurora.
   angle; Escape lets go; an object standing on the marker is taken first). **Go to Start Location** brings the view to it.
 - **Fade Geometry**: draws the tiles without the parts that fade in the
   game to show a character behind them (roofs, upper walls), to see and
-  place what is under them (Aurora's Environment › Fade Geometry).
+  place what is under them (Aurora's Environment › Fade Geometry):
+  **Never**, **Object Mode Only** (while you work on objects: not with
+  Select Tiles on or a terrain brush chosen) or **Always**. The choice
+  is kept for the areas opened after.
 - **Night**, **Fog**, **Grid**: show the area at night, with its fog, and
   the tile grid. The fog is drawn as the game's camera (at most 20 m from
   the player) would see it from where the view looks, so a view from
@@ -261,9 +264,13 @@ placeables around.
   blueprint types), or under **Edit › Prefabs**. It follows the pointer
   like a paste. A click places it, with the objects in their places
   around each other and at their heights above the ground.
-- **Deleting one:** right-click it in the palette's Prefabs and choose
-  **Delete…**; it asks first (a prefab isn't the module's, so Undo
-  doesn't bring it back).
+- **What one holds** shows while the pointer rests on it in the
+  palette's Prefabs: how many objects of each kind, and their tags.
+- **Renaming one:** right-click it there and choose **Rename…**.
+- **Deleting one:** right-click it and choose **Delete**. A prefab isn't
+  the module's, so Edit › Undo doesn't bring it back: **Undo Delete**,
+  above the list, does (for the one deleted last, until Moonglow is
+  closed).
 - **Copy and paste** do the same without a name: Ctrl+C on a selection,
   Ctrl+V in this area or another. (Copying leaves a line of text on the
   system's clipboard, "Moonglow Toolset: 3 objects": Windows gives Ctrl+V

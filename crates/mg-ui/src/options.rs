@@ -221,7 +221,7 @@ impl OptionsDraft {
 pub(crate) const UI_SCALES: [u16; 7] = [90, 100, 110, 125, 150, 175, 200];
 
 /// The Options window's size when first opened.
-const WINDOW_SIZE: [f32; 2] = [780.0, 540.0];
+pub(crate) const WINDOW_SIZE: [f32; 2] = [780.0, 540.0];
 
 enum Browse {
     Game,
@@ -231,28 +231,27 @@ enum Browse {
     Scratch,
 }
 
+/// The Options tab: the buttons along the bottom, the pages listed beside,
+/// and the page scrolling in what is left. What is set is a draft until OK.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(draft) = &mut app.options else { return };
-    let ctx = ui.ctx().clone();
+    let Some(draft) = &mut app.options else {
+        // (A tab left from before, with nothing to show.)
+        app.actions.push(Action::CloseTab(crate::Tab::Options));
+        return;
+    };
     let detected = GameInstall::detect();
     let mut browse = None;
     let mut close = false;
-    // A window of a size of its own (the user's, once resized), whatever
-    // the page: the buttons along the bottom, the pages listed beside, and
-    // the page scrolling in what is left.
-    egui::Window::new("Options")
-        .collapsible(false)
-        .resizable(true)
-        .default_size(WINDOW_SIZE)
-        .min_size([480.0, 300.0])
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .show(&ctx, |ui| {
+    // Enter is OK while the pointer is over the tab (it is one window among
+    // others now).
+    let over = ui.rect_contains_pointer(ui.max_rect());
+    {
+        {
             egui::Panel::bottom("options-buttons").frame(egui::Frame::NONE.inner_margin(6.0)).show(
                 ui,
                 |ui| {
                     ui.horizontal(|ui| {
-                        if ui.button("OK").clicked() || crate::widgets::enter(ui) {
+                        if ui.button("OK").clicked() || (over && crate::widgets::enter(ui)) {
                             close = true;
                             if draft.moves_game(&app.settings) {
                                 app.actions.push(Action::ApplyOptions(Box::new(draft.clone())));
@@ -264,7 +263,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 ));
                             }
                         }
-                        if crate::widgets::cancel(ui) {
+                        // (Escape closes it too, as the window in front:
+                        // `tabs.rs`.)
+                        if ui.button("Cancel").on_hover_text("Discard changes").clicked() {
                             close = true;
                         }
                     });
@@ -687,7 +688,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 },
             );
-        });
+        }
+    }
     if let Some(Browse::Editor) = browse {
         if let Some(p) = app.dialogs.open_file(crate::dialogs::FileKind::Any, None) {
             draft.external_editor = p.display().to_string();
@@ -706,6 +708,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     }
     if close {
         app.options = None;
+        app.actions.push(Action::CloseTab(crate::Tab::Options));
     }
 }
 

@@ -349,7 +349,7 @@ pub fn creature(
                 _ if shield => "lforearm",
                 _ => "lhand",
             };
-            for mut p in crate::item::item_parts(game, &it, colors)? {
+            for mut p in crate::item::item_parts(game, &it, colors, false)? {
                 p.attach = Some(node.into());
                 p.scale = weapon_scale;
                 preview.parts.push(p);

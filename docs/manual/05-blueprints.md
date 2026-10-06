@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T03:40:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T08:26:57Z }
 ---
 
 # Blueprints
@@ -69,7 +69,8 @@ The palette's buttons:
 - **Edit**: open a custom blueprint in its editor (or double-click it).
 - **List** and **Gallery** (beside Categories…): Gallery shows the blueprints as pictures in a grid rather than a
   list of names, to choose by eye (creatures, doors, items and
-  placeables: the types with a model). A picture is clicked, dragged and
+  placeables, the types with a model, and waypoints by their flags).
+  Whether it is on is kept between sessions. A picture is clicked, dragged and
   right-clicked as a name is; the pictures are made a few at a time as
   they come into sight.
 - **Replace Selected with This** (a blueprint's right-click menu): the
@@ -99,8 +100,10 @@ The palette's buttons:
   gives it to that placeable (**Use the Selection** goes back to the
   area's selection).
 - **View**: open one of the game's blueprints to look at, page by page
-  as its editor shows it (or double-click it). Nothing changed there is
-  kept: the window says so, and offers **Edit Copy…**.
+  as its editor shows it (or double-click it). It can't be changed
+  there: its fields are dimmed, its pages and lists can still be looked
+  through, and a change tried is refused with a note that offers **Edit
+  Copy…**.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it. It asks for the copy's ResRef (a free
   one is offered) and Tag first.
@@ -241,13 +244,15 @@ A domain or school left **Not set** is the game's to choose.
   ring in the first free ring slot), and says so in the log when every
   such slot is taken; the Equip beside a slot puts it in that one. With
   an item selected, **Equip** takes it from the backpack to a free slot,
-  **To Backpack** unequips it into the backpack, and **Open Blueprint**
-  opens the item's properties (the game's, to look at). Items are
+  **To Backpack** unequips it into the backpack, and **Properties**
+  opens the item's properties: for a placed object, the item as that
+  object holds it, to change there as in Aurora; for a blueprint, the
+  item's blueprint (the module's to edit, the game's to look at). Items are
   dragged, too: from the palette onto a slot (equipped there, if it goes
   in it) or onto the backpack (added); from the backpack onto a slot;
   from a slot onto the backpack, or onto another slot it goes in. A
   right click on an item anywhere offers the same (**Equip**, **To
-  Backpack**, **Open Blueprint**, **Remove**), and on the palette's
+  Backpack**, **Properties**, **Remove**), and on the palette's
   items **Add to Backpack** and **Equip**. A placeable's and a store's
   items take an item dragged from the palette as well.
 - **Between inventories, and within one:** drag an item from one object's
@@ -275,7 +280,13 @@ A domain or school left **Not set** is the game's to choose.
 **General** (name, base item, cost, charges, stack size, plot, stolen,
 cursed, identified; the base item's statistics), **Appearance** (by the
 base item: a model, three weapon parts, or the armor's parts and colors,
-with the inventory icon as the game shows it), **Properties** (the item
+with the inventory icon as the game shows it; a model and each of a
+weapon's three parts are also chosen by picture, the item's icon as it
+would be with each; the item's model shows in the page and follows each
+change, beside the fields in a wide window and beside the icon in a
+narrower one; an armor or a cloak is shown on a man or, with **Shown on
+› Female**, on a woman, and its inventory icon is then the one a woman's
+inventory shows), **Properties** (the item
 properties its base item allows, with their parameters), Visuals,
 Description, Comments. Moonglow recomputes the item's cost with every
 change, as the game computes it. A stack can exceed its base item's

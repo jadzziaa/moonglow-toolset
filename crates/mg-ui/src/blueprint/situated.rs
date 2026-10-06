@@ -583,12 +583,25 @@ pub(super) fn pick(
     choices: &[Choice],
     current: i64,
 ) -> Option<i64> {
+    pick_sized(ui, key, name, choices, current, 220.0)
+}
+
+/// [`pick`], `width` wide: narrower for choices that are a word or a
+/// number.
+pub(super) fn pick_sized(
+    ui: &mut Ui,
+    key: ResKey,
+    name: &str,
+    choices: &[Choice],
+    current: i64,
+    width: f32,
+) -> Option<i64> {
     let shown = choices
         .iter()
         .find(|c| c.row as i64 == current)
         .map_or_else(|| format!("({current})"), |c| c.text.clone());
     let mut pick = None;
-    egui::ComboBox::from_id_salt(("pick", key, name)).selected_text(shown).width(220.0).show_ui(
+    egui::ComboBox::from_id_salt(("pick", key, name)).selected_text(shown).width(width).show_ui(
         ui,
         |ui| {
             for c in choices {
@@ -646,14 +659,15 @@ pub(super) fn inline_preview(f: &mut Form<'_>, ui: &mut Ui, size: egui::Vec2) {
 /// `model_first`: the model on the left (a page about how the object
 /// looks), else the fields (a page of names and tags that happens to
 /// choose the appearance). A window too narrow for both, the model at
-/// least [`MODEL_LEAST`] wide, has the fields alone, where they were:
-/// Preview shows the model.
+/// least [`MODEL_LEAST`] wide, has the fields alone, where they were, and
+/// they are told so (`false`): Preview shows the model, or the page finds
+/// it a place among its fields.
 pub(super) fn beside_model(
     f: &mut Form<'_>,
     ui: &mut Ui,
     side: f32,
     model_first: bool,
-    fields: impl FnOnce(&mut Form<'_>, &mut Ui),
+    fields: impl FnOnce(&mut Form<'_>, &mut Ui, bool),
 ) {
     let gap = ui.spacing().item_spacing.x;
     // What is left of the page's visible height, and its width. (The
@@ -663,7 +677,7 @@ pub(super) fn beside_model(
         (ui.clip_rect().bottom() - ui.cursor().top()).max(MODEL_LEAST.y),
     );
     if room.x < side + gap + MODEL_LEAST.x {
-        fields(f, ui);
+        fields(f, ui, false);
         return;
     }
     // (The fields keep their width, their scroll bar included.)
@@ -675,7 +689,7 @@ pub(super) fn beside_model(
             egui::ScrollArea::vertical()
                 .id_salt(("beside-model", f.key))
                 .auto_shrink([false, false])
-                .show(ui, |ui| fields(f, ui));
+                .show(ui, |ui| fields(f, ui, true));
         });
     };
     ui.horizontal_top(|ui| {

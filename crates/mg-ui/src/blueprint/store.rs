@@ -219,7 +219,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         // Pasted, dragged from the palette, or dragged out of another
         // object's inventory: added (to the page its kind goes on).
         let whose = inventory::owner(key, &path);
-        (adds, taken) = f.list_events(ui, &items, &mut out, whose);
+        (adds, taken) = f.list_events(ui, &items, &mut out, whose, &path);
         edits = out.edits;
     });
     for edit in taken {

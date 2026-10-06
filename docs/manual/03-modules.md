@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T23:47:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T04:18:16Z }
 ---
 
 # Modules
@@ -246,7 +246,8 @@ first few and how many more.
 folder's files, subfolders included, to look over and save.
 - **The list:** every resource with its size, and for files just added,
   where they come from. **Find** narrows it by name or type. Click to
-  select, Ctrl+click to add to the selection; right-click for **View**,
+  select, Ctrl+click to add to the selection, Shift+click to select from
+  the one clicked last to this one; right-click for **View**,
   **Rename…**, **Extract…** and **Remove**. The list is by name, by type
   or by size (the largest first).
 - **Viewing:** **View**, or a double click, shows a resource under the

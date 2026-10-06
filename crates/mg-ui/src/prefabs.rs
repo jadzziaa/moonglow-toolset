@@ -36,15 +36,90 @@ pub fn list(dir: Option<&std::path::Path>) -> Vec<String> {
     names
 }
 
-/// Deletes a prefab's file.
-pub fn delete(dir: Option<&std::path::Path>, name: &str) -> Result<(), String> {
+/// A prefab's file.
+fn file(dir: Option<&std::path::Path>, name: &str) -> Result<PathBuf, String> {
     let dir = dir.ok_or("Moonglow has no data folder")?;
     if !valid_name(name) {
         return Err(format!("'{name}' is not a prefab's name"));
     }
-    let path = dir.join(format!("{name}{SUFFIX}"));
-    std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))
+    Ok(dir.join(format!("{}{SUFFIX}", name.trim())))
 }
+
+/// Deletes a prefab's file: its text, to put it back with [`restore`].
+pub fn delete(dir: Option<&std::path::Path>, name: &str) -> Result<String, String> {
+    let path = file(dir, name)?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(text)
+}
+
+/// Puts a deleted prefab back, unless one of its name was saved since.
+pub fn restore(dir: Option<&std::path::Path>, name: &str, text: &str) -> Result<(), String> {
+    let path = file(dir, name)?;
+    if path.exists() {
+        return Err(format!("there is a prefab named '{name}' again"));
+    }
+    std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Gives a prefab another name. A name another prefab has is refused.
+pub fn rename(dir: Option<&std::path::Path>, from: &str, to: &str) -> Result<(), String> {
+    let (old, new) = (file(dir, from)?, file(dir, to)?);
+    if from.trim() == to.trim() {
+        return Ok(());
+    }
+    // (A change of case alone is the same file where names ignore case.)
+    if new.exists() && !from.trim().eq_ignore_ascii_case(to.trim()) {
+        return Err(format!("there is a prefab named '{}' already", to.trim()));
+    }
+    std::fs::rename(&old, &new).map_err(|e| format!("{}: {e}", old.display()))
+}
+
+/// What a prefab holds, in a line or two: how many objects of each kind,
+/// and their tags.
+pub fn summary(dir: Option<&std::path::Path>, name: &str) -> Result<String, String> {
+    let path = file(dir, name)?;
+    let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let g = from_json(&json, Codepage::default()).map_err(|e| e.to_string())?;
+    let mut counts = [0usize; ObjectKind::ALL.len()];
+    let mut tags: Vec<String> = Vec::new();
+    for item in g.root.list("Objects").unwrap_or(&[]) {
+        let kind = item.integer("Kind").and_then(|k| usize::try_from(k).ok());
+        if let Some(n) = kind.and_then(|k| counts.get_mut(k)) {
+            *n += 1;
+        }
+        if let Some(Value::Struct(s)) = item.get("Object")
+            && let Some(tag) = s.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned())
+            && !tag.is_empty()
+            && !tags.contains(&tag)
+        {
+            tags.push(tag);
+        }
+    }
+    let kinds: Vec<String> = ObjectKind::ALL
+        .iter()
+        .zip(counts)
+        .filter(|(_, n)| *n > 0)
+        .map(|(k, n)| format!("{n} {}", k.plural().to_lowercase()))
+        .collect();
+    if kinds.is_empty() {
+        return Err("no objects".into());
+    }
+    let mut line = kinds.join(", ");
+    if !tags.is_empty() {
+        let more = tags.len().saturating_sub(SUMMARY_TAGS);
+        tags.truncate(SUMMARY_TAGS);
+        line.push_str(&format!("\nTags: {}", tags.join(", ")));
+        if more > 0 {
+            line.push_str(&format!(" and {more} more"));
+        }
+    }
+    Ok(line)
+}
+
+/// How many tags a prefab's summary names.
+const SUMMARY_TAGS: usize = 8;
 
 /// Whether a name can be a prefab's (it names a file).
 pub fn valid_name(name: &str) -> bool {

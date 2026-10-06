@@ -20,10 +20,11 @@ use crate::{Action, Moonglow, Tab};
 /// How many of a Gallery's pictures are made a frame.
 pub(crate) const GALLERY_PER_FRAME: usize = 3;
 
-/// Whether blueprints of a kind have pictures (a model to draw).
+/// Whether blueprints of a kind have pictures (a model to draw: their own,
+/// or a waypoint's flag).
 fn pictured(kind: BlueprintKind) -> bool {
     use BlueprintKind as K;
-    matches!(kind, K::Creature | K::Door | K::Item | K::Placeable)
+    matches!(kind, K::Creature | K::Door | K::Item | K::Placeable | K::Waypoint)
 }
 
 /// A blueprint dragged from the palette (dropped in an area view, it is
@@ -73,9 +74,6 @@ pub struct PaletteView {
     /// The prefabs are shown (groups of placed objects saved to place
     /// again), rather than blueprints.
     pub prefabs: bool,
-    /// Blueprints are shown as pictures in a grid (the Gallery), rather
-    /// than as a list: for the types that have a picture.
-    pub gallery: bool,
     /// The tileset brush chosen.
     pub tile_brush: Option<crate::terrain_mode::TileBrush>,
     /// The area shown last: its tileset's palette is the one shown.
@@ -113,7 +111,6 @@ impl Default for PaletteView {
             chosen: Vec::new(),
             tiles: false,
             prefabs: false,
-            gallery: false,
             tile_brush: None,
             area: None,
             tile_palettes: HashMap::new(),
@@ -281,6 +278,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui.label("No game data.");
         return;
     }
+    // Laid out in the pane's visible width: its rows wrap there. (A pane
+    // that scrolls sideways offers the width of what it last held, so a
+    // row once too long would never wrap again.)
+    let seen = ui.clip_rect().right() - ui.cursor().left();
+    if seen > 0.0 && seen < ui.available_width() {
+        ui.set_max_width(seen);
+    }
     let mut view = std::mem::take(&mut app.palette);
     crate::trace::changed("palette", || {
         format!(
@@ -374,25 +378,32 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         // that have them (the others are lists, whichever is chosen).
         ui.separator();
         let pictures = pictured(view.kind);
-        let shown = view.gallery && pictures;
+        let shown = app.settings.palette_gallery && pictures;
         if ui
             .selectable_label(!shown, "List")
             .on_hover_text("Show the blueprints by name")
             .clicked()
         {
-            view.gallery = false;
+            app.settings.palette_gallery = false;
         }
         ui.add_enabled_ui(pictures, |ui| {
             if ui
                 .selectable_label(shown, "Gallery")
                 .on_hover_text("Show the blueprints as pictures, to choose by eye")
-                .on_disabled_hover_text("Creatures, doors, items and placeables have pictures")
+                .on_disabled_hover_text(
+                    "Creatures, doors, items, placeables and waypoints have pictures",
+                )
                 .clicked()
             {
-                view.gallery = true;
+                app.settings.palette_gallery = true;
             }
         });
         if shown {
+            // (A slider doesn't wrap of itself: on a row of its own where
+            // this one has no room for it.)
+            if ui.available_size_before_wrap().x < ui.spacing().slider_width {
+                ui.end_row();
+            }
             crate::appearance_gallery::size_slider(app, ui);
         }
         // Every appearance there is, not only the blueprints'.
@@ -456,7 +467,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .filter_map(|f| ResRef::from_str(f.strip_prefix(&format!("{ext}:"))?).ok())
             .collect(),
         thumb: view.thumb,
-        gallery: view.gallery && pictured(kind),
+        gallery: app.settings.palette_gallery && pictured(kind),
         side: crate::appearance_gallery::tile_side(app),
         ready: app.thumbnails.all(),
         wanted: Vec::new(),
@@ -927,8 +938,13 @@ impl Tree<'_> {
         if self.gallery {
             // As many across as fit, grown to fill the palette's width.
             let asked = self.side;
-            let room = ui.available_width() - 1.0;
+            // (Of the pane's visible width: a pane once wider than it
+            // shows, for a row that didn't wrap, would keep that width
+            // and the pictures run past its edge.)
+            let seen = ui.clip_rect().right() - ui.cursor().left();
+            let room = ui.available_width().min(seen) - 1.0;
             self.side = crate::appearance_gallery::fitted(room, asked, 4.0).1;
+            ui.set_max_width(room);
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for b in rows {
@@ -1036,7 +1052,6 @@ fn about(app: &Moonglow, key: ResKey) -> Vec<String> {
 /// The palette's Prefabs: the groups of objects saved, each placed with a
 /// click, and how to save one.
 fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
-    let names = crate::prefabs::list(app.prefab_dir.as_deref());
     let area = app.palette.area.filter(|a| app.area_views.contains_key(a));
     let chosen = area.and_then(|a| app.area_views.get(&a)).map_or(0, |v| v.selection.len());
     ui.label(
@@ -1056,39 +1071,87 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         crate::area_view::save_selection_as_prefab(app, area);
     }
     ui.separator();
+    let dir = app.prefab_dir.clone();
+    // The prefab deleted last can be put back (its file is Moonglow's, not
+    // the module's: Edit › Undo doesn't know it).
+    if let Some((name, text)) = app.prefab_deleted.clone() {
+        let mut keep = true;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!("Prefab '{name}' deleted."));
+            if ui.button("Undo Delete").on_hover_text("Put the prefab back").clicked() {
+                match crate::prefabs::restore(dir.as_deref(), &name, &text) {
+                    Ok(()) => app.log.info(format!("Prefab '{name}' put back")),
+                    Err(e) => app.log.error(format!("Undo Delete: {e}")),
+                }
+                keep = false;
+            }
+            if ui.small_button("✖").on_hover_text("Forget it").clicked() {
+                keep = false;
+            }
+        });
+        if !keep {
+            app.prefab_deleted = None;
+        }
+        ui.separator();
+    }
+    let names = crate::prefabs::list(dir.as_deref());
     if names.is_empty() {
         ui.weak("No prefabs yet. Select objects in an area, then Save Selection as Prefab….");
         return;
     }
-    // The prefab Delete… was chosen for: asked about here, before its file
-    // goes (it is not the module's: Undo doesn't bring it back).
-    let asked_id = egui::Id::new("palette-prefab-delete");
-    let mut asked: Option<String> = ui.data(|d| d.get_temp(asked_id));
-    if let Some(name) = asked.clone().filter(|n| names.contains(n)) {
+    // The prefab Rename… was chosen for, and the name typed so far.
+    let renamed_id = egui::Id::new("palette-prefab-rename");
+    let mut renamed: Option<(String, String)> = ui.data(|d| d.get_temp(renamed_id));
+    if let Some((name, mut to)) = renamed.clone().filter(|(n, _)| names.contains(n)) {
+        let mut done = false;
         ui.horizontal_wrapped(|ui| {
-            ui.label(format!("Delete the prefab '{name}'? It can't be undone."));
-            if ui.button("Delete").clicked() {
-                match crate::prefabs::delete(app.prefab_dir.as_deref(), &name) {
-                    Ok(()) => app.log.info(format!("Prefab '{name}' deleted")),
-                    Err(e) => app.log.error(format!("Delete prefab: {e}")),
+            ui.label(format!("Rename '{name}' to"));
+            let r = ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0));
+            crate::widgets::autofocus(ui, &r);
+            let taken = names.iter().any(|n| n != &name && n.eq_ignore_ascii_case(to.trim()));
+            let ok = crate::prefabs::valid_name(&to) && !taken;
+            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if (ui.add_enabled(ok, egui::Button::new("Rename")).clicked() || (ok && enter))
+                && to.trim() != name
+            {
+                match crate::prefabs::rename(dir.as_deref(), &name, &to) {
+                    Ok(()) => app.log.info(format!("Prefab '{name}' renamed to '{}'", to.trim())),
+                    Err(e) => app.log.error(format!("Rename prefab: {e}")),
                 }
-                asked = None;
+                done = true;
+            } else if ui.button("Cancel").clicked()
+                || ui.input(|i| i.key_pressed(egui::Key::Escape))
+                || (ok && enter)
+            {
+                done = true;
             }
-            if ui.button("Keep").clicked() {
-                asked = None;
+            if taken {
+                ui.colored_label(ui.visuals().warn_fg_color, "Another prefab has that name");
+            } else if !ok && !to.is_empty() {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    "Letters, digits, spaces, - and _ only",
+                );
             }
         });
+        renamed = (!done).then_some((name, to));
         ui.separator();
     } else {
-        asked = None;
+        renamed = None;
     }
     egui::ScrollArea::vertical().id_salt("palette-prefabs").auto_shrink([false, false]).show(
         ui,
         |ui| {
-            for name in names {
-                let r = ui.selectable_label(asked.as_ref() == Some(&name), &name).on_hover_text(
-                    "Click, then click in the area to place it; right-click to delete",
-                );
+            for name in crate::prefabs::list(dir.as_deref()) {
+                let being = renamed.as_ref().is_some_and(|(n, _)| n == &name);
+                let r = ui.selectable_label(being, &name).on_hover_ui(|ui| {
+                    // What it holds, read while the pointer rests on it.
+                    match crate::prefabs::summary(dir.as_deref(), &name) {
+                        Ok(holds) => ui.label(holds),
+                        Err(e) => ui.colored_label(ui.visuals().error_fg_color, e),
+                    };
+                    ui.weak("Click, then click in the area to place it; right-click for more");
+                });
                 if r.clicked() {
                     app.actions.push(Action::PlacePrefab(name.clone()));
                 }
@@ -1097,19 +1160,33 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                         app.actions.push(Action::PlacePrefab(name.clone()));
                         ui.close();
                     }
-                    if ui.button("Delete…").clicked() {
-                        asked = Some(name.clone());
+                    if ui.button("Rename…").clicked() {
+                        renamed = Some((name.clone(), name.clone()));
+                        ui.close();
+                    }
+                    if ui
+                        .button("Delete")
+                        .on_hover_text("Undo Delete, above the list, puts it back")
+                        .clicked()
+                    {
+                        match crate::prefabs::delete(dir.as_deref(), &name) {
+                            Ok(text) => {
+                                app.log.info(format!("Prefab '{name}' deleted"));
+                                app.prefab_deleted = Some((name.clone(), text));
+                            }
+                            Err(e) => app.log.error(format!("Delete prefab: {e}")),
+                        }
                         ui.close();
                     }
                 });
             }
         },
     );
-    ui.data_mut(|d| match asked {
-        Some(name) => {
-            d.insert_temp(asked_id, name);
+    ui.data_mut(|d| match renamed {
+        Some(v) => {
+            d.insert_temp(renamed_id, v);
         }
-        None => d.remove::<String>(asked_id),
+        None => d.remove::<(String, String)>(renamed_id),
     });
 }
 

@@ -968,6 +968,15 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
         "{:?}",
         log(&h)
     );
+    // Shift + click selects from the one clicked last to the one clicked.
+    h.get_by_label("mg_ui_other.2da").click();
+    h.run();
+    h.get_by_label("mg_ui_test.2da").click_modifiers(egui::Modifiers::SHIFT);
+    h.run();
+    assert_eq!(h.state().haks[0].selected.len(), 2);
+    h.get_by_label("mg_ui_test.2da").click();
+    h.run();
+    assert_eq!(h.state().haks[0].selected.len(), 1);
     h.get_by_label("Save").click();
     h.run();
     assert!(hak.is_file(), "{:?}", log(&h));
@@ -8348,6 +8357,58 @@ fn the_module_tree_lists_what_is_placed_in_an_area() {
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
     h.run_steps(4);
     h.get_by_label("Waypoints (3)");
+    // A right click on one: copied to paste in an area, or deleted (undone
+    // as any change).
+    let rows: Vec<_> = h.query_all_by_label("Waypoint").map(|n| n.rect().center()).collect();
+    assert_eq!(rows.len(), 3);
+    let menu = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2, what: &str| {
+        h.hover_at(at);
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed: true,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(3);
+        h.get_by_label(what).click();
+        h.run_steps(4);
+    };
+    menu(&mut h, rows[2], "Copy");
+    assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(1));
+    menu(&mut h, rows[2], "Delete");
+    h.get_by_label("Waypoints (2)");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Delete"));
+    // The tree's Filter narrows the objects to those it matches.
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let path = mg_edit::GffPath::root().item("WaypointList", 1);
+    let edit = mg_edit::Edit::SetField {
+        key: git,
+        path,
+        label: "LocalizedName".into(),
+        value: Some(mg_gff::Value::LocString(LocString::from_text(
+            Language::ENGLISH,
+            Gender::Male,
+            "Ferry Landing",
+        ))),
+    };
+    let _ = ws;
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Name", vec![edit])));
+    h.run_steps(4);
+    h.get_by_label("Ferry Landing");
+    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    filter.click();
+    h.run_steps(2);
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("ferry");
+    h.run_steps(4);
+    h.get_by_label("Waypoints (1 of 2)");
+    h.get_by_label("Ferry Landing");
+    assert_eq!(h.query_all_by_label("Waypoint").count(), 0);
 }
 
 /// Prefabs are found where builders look: a button on the area's toolbar
@@ -8396,18 +8457,37 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     assert_eq!(h.state().area_views[&area].pasted_shown, 2);
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-prefab-ghost").join("prefab_ghost.png")).unwrap();
-    // Deleted from the palette, once asked about.
+    // What it holds shows while the pointer rests on it.
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
+    let holds = mg_ui::prefabs::summary(Some(&prefabs), "Camp").unwrap();
+    assert!(holds.starts_with("2 "), "{holds}");
+    // Renamed from its menu.
     h.get_by_label("Camp").click_secondary();
     h.run_steps(3);
-    h.get_by_label("Delete…").click();
+    h.get_by_label("Rename…").click();
     h.run_steps(3);
-    assert!(prefabs.join("Camp.prefab.json").is_file(), "not before it is confirmed");
+    let field = h.get_by(|n| {
+        n.role() == egui::accesskit::Role::TextInput && n.value().as_deref() == Some("Camp")
+    });
+    field.type_text(" Site");
+    h.run_steps(2);
+    h.get_by_label("Rename").click();
+    h.run_steps(3);
+    assert!(prefabs.join("Camp Site.prefab.json").is_file(), "{:?}", h.state().log.entries);
+    assert!(!prefabs.join("Camp.prefab.json").exists());
+    // Deleted from the palette, and put back by Undo Delete.
+    h.get_by_label("Camp Site").click_secondary();
+    h.run_steps(3);
     h.get_by_label("Delete").click();
     h.run_steps(3);
-    assert!(!prefabs.join("Camp.prefab.json").exists());
+    assert!(!prefabs.join("Camp Site.prefab.json").exists());
     assert!(h.query_by_label_contains("No prefabs yet").is_some());
+    h.get_by_label("Undo Delete").click();
+    h.run_steps(3);
+    assert!(prefabs.join("Camp Site.prefab.json").is_file());
+    assert!(h.query_by_label("Camp Site").is_some());
+    assert!(h.query_by_label("Undo Delete").is_none());
 }
 
 /// Every selected object has its turning ring: the ring of any of them,
@@ -10886,9 +10966,10 @@ fn the_palette_s_gallery_shows_blueprints_as_pictures() {
     {
         let p = &mut h.state_mut().palette;
         p.kind = mg_module::palette::BlueprintKind::Placeable;
-        (p.tiles, p.custom, p.gallery) = (false, false, true);
+        (p.tiles, p.custom) = (false, false);
         p.filter = "chest".into();
     }
+    h.state_mut().settings.palette_gallery = true;
     // (A few are made a frame.)
     h.run_steps(30);
     let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
@@ -10908,12 +10989,12 @@ fn the_palette_s_gallery_shows_blueprints_as_pictures() {
     // List goes back to the names, and Gallery to the pictures.
     h.get_by_label("List").click();
     h.run_steps(3);
-    assert!(!h.state().palette.gallery);
+    assert!(!h.state().settings.palette_gallery);
     let row = h.get_all_by_label(&name).next().expect("the chest's row").rect().size();
     assert!(row.y < 30.0, "a row of the list: {row:?}");
     h.get_by_label("Gallery").click();
     h.run_steps(3);
-    assert!(h.state().palette.gallery);
+    assert!(h.state().settings.palette_gallery);
 }
 
 /// Replace Selected with This, on a blueprint in the palette: the selected
@@ -11156,4 +11237,185 @@ fn a_click_goes_between_objects_and_tiles() {
     assert!(!view.tile_mode, "back to the objects");
     assert_eq!(view.selection, [(ObjectKind::Waypoint, 0)]);
     assert!(view.tile_selection.is_empty());
+}
+
+#[test]
+#[ignore = "a look at a game's item, viewed: its parts as pictures, read-only"]
+fn look_viewed_item() {
+    let Some((mut h, _area)) = area_harness("viewed-item-look") else { return };
+    let name = std::env::var("MG_ITEM").unwrap_or_else(|_| "nw_wswls001".into());
+    if std::env::var("MG_SCREEN").is_ok() {
+        h.set_size(egui::vec2(1920.0, 1080.0));
+        h.run_steps(3);
+    }
+    if let Ok(w) = std::env::var("MG_WIDTH") {
+        let w: u32 = w.parse().unwrap();
+        h.set_size(egui::vec2(w as f32 + 500.0, 900.0));
+        h.state_mut().settings.window_sizes.push(("item".into(), [w, 700]));
+        h.run_steps(3);
+    }
+    let key = ResKey::parse(&name, ResType::UTI).unwrap();
+    {
+        let app = h.state_mut();
+        let data = app.game.as_ref().unwrap().resman.get(&key).unwrap();
+        app.ws.as_mut().unwrap().view(key, mg_gff::Gff::read(&data).unwrap());
+        app.blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    }
+    h.run_steps(20);
+    if std::env::var("MG_FEMALE").is_ok() {
+        h.get_by_label("Female").click();
+        h.run_steps(10);
+    }
+    if let Ok(w) = std::env::var("MG_RESIZE") {
+        let path = h.state().dock.find_tab(&Tab::Blueprint(key)).unwrap();
+        let state = h.state_mut().dock.get_window_state_mut(path.surface).unwrap();
+        state.set_size(egui::vec2(w.parse().unwrap(), 700.0));
+        h.run_steps(20);
+    }
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-viewed-item-look").join("look.png")).unwrap();
+}
+
+#[test]
+#[ignore = "a look at the palette's Gallery of waypoints, by their flags"]
+fn look_marker_gallery() {
+    let Some((mut h, _area)) = area_harness("marker-gallery-look") else { return };
+    h.state_mut().settings.palette_gallery = true;
+    {
+        let p = &mut h.state_mut().palette;
+        p.kind = mg_module::palette::BlueprintKind::Waypoint;
+        (p.tiles, p.custom) = (false, false);
+        p.filter = std::env::var("MG_FILTER").unwrap_or_else(|_| "a".into());
+    }
+    h.run_steps(60);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-marker-gallery-look").join("waypoints.png")).unwrap();
+}
+
+/// An item's Appearance page shows its model in the page, over the fields
+/// in a window too narrow to have it beside them.
+#[test]
+fn an_item_s_appearance_page_shows_its_model() {
+    let Some((mut h, _area)) = area_harness("item-model") else { return };
+    let key = ResKey::parse("nw_wswls001", ResType::UTI).unwrap();
+    {
+        let app = h.state_mut();
+        let data = app.game.as_ref().unwrap().resman.get(&key).unwrap();
+        app.ws.as_mut().unwrap().view(key, mg_gff::Gff::read(&data).unwrap());
+        app.blueprint_pages.insert((key, mg_edit::GffPath::root()), "Appearance");
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    }
+    h.run_steps(10);
+    // (The viewer's own buttons: it is there, and has the game's data.)
+    assert!(h.query_by_label("Pop Out").is_some());
+    assert!(h.query_by_label_contains("No game data").is_none());
+    // Each of the sword's parts as pictures.
+    assert!(h.query_all_by_label_contains("Top ").count() > 1);
+}
+
+/// Properties on an item in a placed object's inventory opens that item's
+/// own Properties (the item as the object holds it), as in Aurora; what is
+/// changed there is changed in the object's inventory.
+#[test]
+fn a_held_item_s_properties_open_from_the_inventory() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("held-item") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let chest = {
+        let game = h.state().game.clone().unwrap();
+        let read = |name: &str, t: ResType| {
+            Gff::read(&game.resman.get(&ResKey::parse(name, t).unwrap()).unwrap()).unwrap().root
+        };
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let at = Placement { position: [12.0, 12.0, 0.0], rotation: 0.0 };
+        let mut chest =
+            instance(&placing, ResType::UTP, &read("plc_chest1", ResType::UTP), at, &[]).unwrap();
+        let mut sword = read("nw_wswls001", ResType::UTI);
+        sword.set("Repos_PosX", mg_gff::Value::Word(0));
+        sword.set("Repos_Posy", mg_gff::Value::Word(0));
+        chest.set("HasInventory", mg_gff::Value::Byte(1));
+        chest.set("ItemList", mg_gff::Value::List(vec![sword]));
+        chest
+    };
+    let placed = Edit::InsertItem {
+        key: git,
+        path: GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item: chest,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Setup", vec![placed])));
+    let path = GffPath::root().item("Placeable List", 0);
+    h.state_mut().blueprint_pages.insert((git, path.clone()), "Inventory");
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Instance { area, path: path.clone() }));
+    h.run_steps(6);
+    // (The one held, right of the one in the palette beside it.)
+    let row = h
+        .query_all_by_label("Longsword")
+        .map(|n| n.rect().center())
+        .max_by(|a, b| a.x.total_cmp(&b.x))
+        .unwrap();
+    h.hover_at(row);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    h.get_by_label("Properties").click();
+    h.run_steps(6);
+    let held = path.item("ItemList", 0);
+    let tab = Tab::Instance { area, path: held.clone() };
+    assert!(h.state().dock.find_tab(&tab).is_some(), "{:?}", h.state().log.entries);
+    // An item's pages, for the item the chest holds.
+    assert!(h.query_all_by_label("Appearance").count() >= 1);
+    // Changed there, it is changed in the chest.
+    let set = Edit::SetField {
+        key: git,
+        path: held.clone(),
+        label: "Charges".into(),
+        value: Some(mg_gff::Value::Byte(7)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Charges", vec![set])));
+    h.run_steps(4);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let item = held.get(&ws.doc(&git).unwrap().root).cloned().unwrap();
+    assert_eq!(item.integer("Charges"), Some(7));
+    assert!(item.integer("Cost").is_some());
+}
+
+/// Shown on a woman, an armor and a cloak are her models, and the armor's
+/// inventory icon the one her inventory shows.
+#[test]
+fn armor_and_cloaks_are_shown_on_a_woman_when_asked() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let game = mg_rules::GameData::open(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let read = |name: &str| {
+        Gff::read(&game.resman.get(&ResKey::parse(name, ResType::UTI).unwrap()).unwrap())
+            .unwrap()
+            .root
+    };
+    let cloak = read("nw_maarcl055");
+    let model = |female| mg_preview::item_on(&game, &cloak, female).unwrap().base.model;
+    assert!(model(false).starts_with("pmh0_cloak_"), "{}", model(false));
+    assert!(model(true).starts_with("pfh0_cloak_"), "{}", model(true));
+    let armor = read("nw_aarcl001");
+    let parts = |female| {
+        let p = mg_preview::item_on(&game, &armor, female).unwrap();
+        std::iter::once(p.base.model)
+            .chain(p.parts.into_iter().map(|p| p.model))
+            .collect::<Vec<_>>()
+    };
+    assert!(parts(false).iter().any(|m| m.starts_with("pmh0_")));
+    assert!(parts(true).iter().any(|m| m.starts_with("pfh0_")), "{:?}", parts(true));
+    assert!(!parts(true).iter().any(|m| m.starts_with("pmh0_chest")));
 }

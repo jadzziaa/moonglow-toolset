@@ -28,7 +28,7 @@ const BASIC_SIDE: f32 = 440.0;
 
 pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
     match page {
-        "Basic" => situated::beside_model(f, ui, BASIC_SIDE, false, basic),
+        "Basic" => situated::beside_model(f, ui, BASIC_SIDE, false, |f, ui, _| basic(f, ui)),
         "Lock" => situated::lock(f, ui),
         "Trap" => situated::trap(f, ui),
         "Area Transition" => situated::transition(f, ui),

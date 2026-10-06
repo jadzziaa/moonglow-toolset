@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:05:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T04:18:16Z }
 ---
 
 # The main window
@@ -82,7 +82,10 @@ there and in the palettes: for telling apart resources of one name.
 **What is placed in an area:** the arrow before an area opens it out to
 its objects, kind by kind as Aurora lists them (Creatures, Doors,
 Encounters…), each by its name (its tag, without one). Click an object to
-go to it in the area's view, selected; double-click for its Properties.
+go to it in the area's view, selected; double-click for its Properties;
+right-click for those and for **Copy** (pasted in any area with Ctrl+V)
+and **Delete**. The Filter narrows an opened area's objects to those it
+finds by name.
 A double click on a script opens its editor (and, with **Tools › Options
 › Script Editor › Open scripts in the external editor**, your own editor
 too).
@@ -132,7 +135,9 @@ dock it; drag a tab out to float it again. The palettes keep their pane on
 the right. **Escape** closes the window in front: a dialog (as its Cancel
 or close button does), then a Properties window (what was changed there
 stays, and Undo takes it back); a model's window while the pointer is over
-it. Right-click a tab for **Eject** and **Close**, and for an area,
+it. With something in hand in the area (a blueprint to place, a paste, a
+terrain brush) and the pointer over the area, Escape lets go of that and
+leaves the window open. Right-click a tab for **Eject** and **Close**, and for an area,
 script, conversation or blueprint of the module, **Rename…**: it is renamed
 everywhere the module names it (an area with its instances and its entry in
 the module's area list), and its tab with it.

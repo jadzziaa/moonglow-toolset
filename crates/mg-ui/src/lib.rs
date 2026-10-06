@@ -400,6 +400,9 @@ pub struct Moonglow {
     /// Where prefabs are kept (the app sets Moonglow's data folder's
     /// `prefabs`; none: prefabs can't be saved).
     pub prefab_dir: Option<PathBuf>,
+    /// The prefab deleted last, its name and text: the palette's Undo
+    /// Delete puts it back.
+    pub prefab_deleted: Option<(String, String)>,
     /// Where variable sets are kept (`var_sets`).
     pub var_set_dir: Option<PathBuf>,
     /// When changed haks and folders were last looked for.
@@ -418,6 +421,12 @@ pub struct Moonglow {
     pub(crate) picked: HashMap<egui::Id, mg_core::ResRef>,
     /// Resources open in read-only viewers, parsed once.
     pub(crate) viewed: HashMap<ResKey, std::sync::Arc<browser::Viewed>>,
+    /// The pass in which an area view last had something in hand (a
+    /// brush, a paste, a drag, a terrain tool): Escape is its then.
+    pub(crate) area_tool_at: u64,
+    /// An armor's model is shown on a woman (the item's Appearance page
+    /// chooses), rather than a man.
+    pub armor_on_woman: bool,
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
@@ -575,6 +584,7 @@ impl Moonglow {
             area_chooser: None,
             text_replace: None,
             prefab_dir: None,
+            prefab_deleted: None,
             var_set_dir: None,
             reload_checked: None,
             tlk_stamp: None,
@@ -599,6 +609,8 @@ impl Moonglow {
             picker: None,
             picked: HashMap::new(),
             viewed: HashMap::new(),
+            area_tool_at: 0,
+            armor_on_woman: false,
             import: None,
             confirm_discard: None,
             render_info: None,
@@ -760,6 +772,10 @@ impl Moonglow {
             }
         }
         self.heard = None;
+        // The options' draft shows in its tab.
+        if self.options.is_some() && self.dock.find_tab(&Tab::Options).is_none() {
+            self.run_now(Action::OpenTab(Tab::Options));
+        }
         egui::CentralPanel::default().show(ui, |ui| {
             self.dock_width = Some(ui.available_width());
             self.dock_rect = Some(ui.max_rect());
@@ -811,7 +827,6 @@ impl Moonglow {
         }
         wizards::ui(self, ui);
         blueprint_wizard::ui(self, ui);
-        options::ui(self, ui);
         transfer::ui(self, ui);
         widgets::ui(self, ui);
         script_view::windows(self, ui);
@@ -968,7 +983,12 @@ impl Moonglow {
         let want = left.map_or(tab.window_size(), |(_, s)| egui::vec2(s[0] as f32, s[1] as f32));
         let remembered = left.is_some();
         // Some of the main pane (the area view) shows beside it.
-        let wide = (main.width() * 0.85).max(420.0).min(room.width());
+        // (The Options need their width, and aren't worked in beside it.)
+        let wide = if tab == Tab::Options {
+            room.width()
+        } else {
+            (main.width() * 0.85).max(420.0).min(room.width())
+        };
         let size = if remembered {
             // (As it was left, if the screen still has the room.)
             egui::vec2(want.x.min(room.width()), want.y.min(room.height()))
@@ -1675,6 +1695,9 @@ impl Moonglow {
                 }
             }
             Action::CloseTab(tab) => {
+                if tab == Tab::Options {
+                    self.options = None;
+                }
                 if let Some(path) = self.dock.find_tab(&tab) {
                     self.dock.remove_tab(path);
                 }

@@ -20,6 +20,9 @@ pub struct HakDoc {
     pub hak: Hak,
     pub filter: String,
     pub selected: BTreeSet<ResKey>,
+    /// The resource clicked last: Shift + click selects from it to the one
+    /// clicked.
+    anchor: Option<ResKey>,
     /// The resource being renamed, and its new name as typed.
     pub rename: Option<(ResKey, String)>,
     description: Option<String>,
@@ -53,6 +56,7 @@ impl HakDoc {
             hak,
             filter: String::new(),
             selected: BTreeSet::new(),
+            anchor: None,
             rename: None,
             description: None,
             revision: 0,
@@ -434,12 +438,26 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                     })
                     .inner;
                 if r.clicked() {
-                    if ui.input(|i| i.modifiers.command) {
-                        if !doc.selected.remove(&item.key) {
-                            doc.selected.insert(item.key);
+                    let (shift, command) = ui.input(|i| (i.modifiers.shift, i.modifiers.command));
+                    let place = |k: ResKey| rows.iter().position(|&r| doc.hak.items()[r].key == k);
+                    let from = doc.anchor.filter(|_| shift).and_then(place);
+                    if let (Some(a), Some(b)) = (from, place(item.key)) {
+                        // From the one clicked last to this one, as listed
+                        // (with Ctrl, added to what is selected).
+                        if !command {
+                            doc.selected.clear();
                         }
+                        let range = &rows[a.min(b)..=a.max(b)];
+                        doc.selected.extend(range.iter().map(|&r| doc.hak.items()[r].key));
                     } else {
-                        doc.selected = [item.key].into();
+                        if command {
+                            if !doc.selected.remove(&item.key) {
+                                doc.selected.insert(item.key);
+                            }
+                        } else {
+                            doc.selected = [item.key].into();
+                        }
+                        doc.anchor = Some(item.key);
                     }
                 }
                 if r.double_clicked() {

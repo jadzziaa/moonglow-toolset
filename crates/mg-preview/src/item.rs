@@ -8,27 +8,34 @@ use mg_rules::GameData;
 
 use crate::{Lookup, Part, Preview, PreviewError, cell, cell_int, env_map, item_colors};
 
-/// An item blueprint (UTI fields).
+/// An item blueprint (UTI fields); armour as a man wears it.
 pub fn item(game: &GameData, uti: &Struct) -> Result<Preview, PreviewError> {
+    item_on(game, uti, false)
+}
+
+/// [`item`], armour and cloaks as a woman wears them where `female` (the
+/// game has a model of each armour part and cloak for either).
+pub fn item_on(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, PreviewError> {
     let baseitems = game.table("baseitems")?;
     let base = uti.integer("BaseItem").unwrap_or(0);
     let row =
         usize::try_from(base).map_err(|_| PreviewError::NoRow { table: "baseitems", row: base })?;
     if cell_int(&baseitems, row, "ModelType") == Some(3) {
-        return armor(game, uti);
+        return armor(game, uti, female);
     }
-    let mut parts = item_parts(game, uti, [0; 10])?.into_iter();
+    let mut parts = item_parts(game, uti, [0; 10], female)?.into_iter();
     let first = parts.next().ok_or_else(|| PreviewError::NoModel(format!("item {base}")))?;
     Ok(Preview { base: first, parts: parts.collect(), idle: None, lights: Vec::new() })
 }
 
 /// The models of an item, at its origin (held items hang all of them from
 /// the hand). Colours for layered items start from `colors` (the wearer's
-/// skin and hair).
+/// skin and hair); a cloak is a woman's where `female`.
 pub(crate) fn item_parts(
     game: &GameData,
     uti: &Struct,
     colors: [u8; 10],
+    female: bool,
 ) -> Result<Vec<Part>, PreviewError> {
     let lk = Lookup { game };
     let baseitems = game.table("baseitems")?;
@@ -54,11 +61,18 @@ pub(crate) fn item_parts(
             .filter(|m| lk.has_model(m))
             .map(part)
             .collect(),
-        // Layered: helmets; cloaks shown as worn by a human male.
+        // Layered: helmets; cloaks shown as worn by a human (a man, or a
+        // woman where `female` and the cloak has her model).
         1 if class == "cloak" => {
             let cloaks = game.table("cloakmodel")?;
             let r = n("ModelPart1").max(0) as usize;
-            let model = format!("pmh0_cloak_{:03}", cell_int(&cloaks, r, "MODEL").unwrap_or(1));
+            let number = cell_int(&cloaks, r, "MODEL").unwrap_or(1);
+            let hers = format!("pfh0_cloak_{number:03}");
+            let model = if female && lk.has_model(&hers) {
+                hers
+            } else {
+                format!("pmh0_cloak_{number:03}")
+            };
             if lk.has_model(&model) {
                 let mut p = part(model);
                 let texture = format!("cloak_{:03}", cell_int(&cloaks, r, "TEXTURE").unwrap_or(1));
@@ -97,13 +111,13 @@ pub(crate) fn item_parts(
     Ok(vec![part(default)])
 }
 
-/// Armour, worn by a human male of phenotype 0 with head 1 and bare body
-/// parts where the armour has none.
-fn armor(game: &GameData, uti: &Struct) -> Result<Preview, PreviewError> {
+/// Armour, worn by a human (a man, or a woman where `female`) of
+/// phenotype 0 with head 1 and bare body parts where the armour has none.
+fn armor(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, PreviewError> {
     let mut utc = Struct::new(0);
     for (field, v) in [
         ("Appearance_Type", 6u16), // Human
-        ("Gender", 0),
+        ("Gender", u16::from(female)),
         ("Phenotype", 0),
         ("Appearance_Head", 1),
     ] {

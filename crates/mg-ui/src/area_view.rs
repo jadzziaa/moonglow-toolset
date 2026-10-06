@@ -339,7 +339,7 @@ pub struct AreaView {
     pub night: bool,
     pub fog: bool,
     /// Tiles without their fading parts (roofs): Aurora's Fade Geometry.
-    pub fade: bool,
+    pub fade: Fade,
     /// Lit by the area's lighting (off: an even working light).
     pub lit: bool,
     /// Circles where each placed sound is heard at full volume and where
@@ -454,7 +454,7 @@ impl AreaView {
             selection: Vec::new(),
             night: false,
             fog: false,
-            fade: false,
+            fade: Fade::Never,
             lit: true,
             sound_ranges: false,
             grid: true,
@@ -1161,12 +1161,51 @@ fn start_on_ground(app: &mut Moonglow, view: &AreaView) -> Option<(Vec3, f32)> {
     Some((p.with_z(z), facing))
 }
 
+/// When tiles are drawn without their fading parts (Aurora's Environment ›
+/// Fade Geometry).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Fade {
+    #[default]
+    Never,
+    /// While objects are worked on: not with Select Tiles on or a terrain
+    /// brush chosen.
+    Objects,
+    Always,
+}
+
+impl Fade {
+    const ALL: [Fade; 3] = [Fade::Never, Fade::Objects, Fade::Always];
+
+    fn name(self) -> &'static str {
+        match self {
+            Fade::Never => "Never",
+            Fade::Objects => "Object Mode Only",
+            Fade::Always => "Always",
+        }
+    }
+
+    /// As the settings keep it.
+    fn of(kept: u8) -> Fade {
+        Fade::ALL.get(usize::from(kept)).copied().unwrap_or_default()
+    }
+
+    /// Whether the parts are left out now, working on `tiles` or objects.
+    fn now(self, tiles: bool) -> bool {
+        match self {
+            Fade::Never => false,
+            Fade::Objects => !tiles,
+            Fade::Always => true,
+        }
+    }
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     let mut view = app.area_views.remove(&area).unwrap_or_else(|| {
         // Lighting and Sound Ranges as they were last left.
         let mut view = AreaView::new(area);
         view.lit = !app.settings.unlit_areas;
         view.sound_ranges = app.settings.sound_ranges;
+        view.fade = Fade::of(app.settings.fade_geometry);
         view
     });
     refresh(app, &mut view);
@@ -1266,10 +1305,23 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             app.settings.unlit_areas = !view.lit;
         }
         ui.toggle_value(&mut view.fog, labelled(icons::FOG, "Fog"));
-        ui.toggle_value(&mut view.fade, "Fade Geometry").on_hover_text(
-            "Tiles without the parts that fade in the game to show a character behind them \
-             (roofs, upper walls), to see and place what is under them",
-        );
+        let before = view.fade;
+        egui::ComboBox::from_id_salt("fade-geometry")
+            .selected_text(format!("Fade Geometry: {}", view.fade.name()))
+            .show_ui(ui, |ui| {
+                for f in Fade::ALL {
+                    ui.selectable_value(&mut view.fade, f, f.name());
+                }
+            })
+            .response
+            .on_hover_text(
+                "Tiles without the parts that fade in the game to show a character behind them \
+                 (roofs, upper walls), to see and place what is under them: never, while \
+                 working on objects (not with Select Tiles or a terrain brush), or always",
+            );
+        if view.fade != before {
+            app.settings.fade_geometry = view.fade as u8;
+        }
         let mut animated = !app.settings.still_objects;
         if ui
             .toggle_value(&mut animated, "▶ Animations")
@@ -1504,7 +1556,7 @@ fn viewport(
         lit: view.lit,
         show: view.show,
         animate: !app.settings.still_objects,
-        fade: view.fade,
+        fade: view.fade.now(view.tile_mode || crate::terrain_mode::active(app, view).is_some()),
     };
     let shift = ui.input(|i| i.modifiers.shift);
     let preview = crate::terrain_mode::preview(app, view, shift);
@@ -2309,6 +2361,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // (Whether something was in hand when the frame began: Escape drops it
     // and no more.)
     let in_hand = view.drag.is_some() || view.pasting || brush(app).is_some() || view.held.on;
+    // (And said to the windows over the view: Escape with the pointer here
+    // drops what is in hand and leaves the Properties window in front open.)
+    if in_hand || view.redraw.is_some() || crate::terrain_mode::active(app, view).is_some() {
+        app.area_tool_at = ui.ctx().cumulative_pass_nr();
+    }
     view.held = Held::read(ui, response, view.held);
     camera_input(ui, view, response, (alt, shift), command, &app.keymap);
     // (Asked of each kind only when that is what is dragged: asking takes

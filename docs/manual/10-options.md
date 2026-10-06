@@ -3,13 +3,14 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-04T02:52:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T04:18:16Z }
 ---
 
 # Options
 
-**Tools › Options…** has Aurora's pages. **OK** applies the changes; the
-module stays open. Only another game or user folder (the Folders page)
+**Tools › Options…** has Aurora's pages, in a window that docks and
+tabs with the others. **OK** applies the changes; the module stays open.
+**Cancel**, closing the window or Escape discards them. Only another game or user folder (the Folders page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
 

@@ -812,7 +812,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let name_of = |r: ResRef| names.get(&r).cloned().unwrap_or_else(|| r.to_string());
     let (mut add, mut chosen, mut equip) = (None, None, None);
     // Equip the palette's item where it fits; a backpack item equipped; an
-    // equipped one put back; an item's blueprint opened.
+    // equipped one put back; an item's Properties opened.
     let (mut equip_chosen, mut wear, mut stow, mut open) = (false, None, None, None);
     // Dropped on a slot (the slot, and what was dropped); an equipped item
     // taken off by its menu.
@@ -886,14 +886,15 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                 stow = Some((i, r));
                             }
                             if ui
-                                .small_button("Open Blueprint")
+                                .small_button("Properties")
                                 .on_hover_text(
-                                    "The item's properties: the module's blueprint to edit, the \
-                                     game's to look at",
+                                    "The item's properties: a placed creature's item is its \
+                                     own; a blueprint's is its blueprint (the module's to \
+                                     edit, the game's to look at)",
                                 )
                                 .clicked()
                             {
-                                open = Some(r);
+                                open = Some((list, i));
                             }
                         });
                     }
@@ -940,8 +941,8 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                     stow = Some((i, resref));
                                     ui.close();
                                 }
-                                if ui.button("Open Blueprint").clicked() {
-                                    open = Some(resref);
+                                if ui.button("Properties").clicked() {
+                                    open = Some(("Equip_ItemList", i));
                                     ui.close();
                                 }
                                 if ui.button("Copy").clicked() {
@@ -1010,7 +1011,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 }
                 // And what every inventory does: pasted, dragged from the
                 // palette or from another object's inventory, copied, moved.
-                (adds, taken) = f.list_events(ui, &backpack, &mut out, whose);
+                (adds, taken) = f.list_events(ui, &backpack, &mut out, whose, &path);
             }
         });
     });
@@ -1105,8 +1106,11 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         apply(f, "Unequip to backpack", moved);
         ui.data_mut(|d| d.remove::<(&'static str, usize)>(item_id));
     }
-    if let Some(r) = open.filter(|r| !r.is_empty()) {
-        crate::palette_view::view_blueprint(f.app, ResKey::new(r, mg_core::ResType::UTI));
+    if let Some((list, i)) = open {
+        let items = if list == "ItemList" { &backpack } else { &equipped };
+        if let Some(entry) = items.get(i) {
+            f.item_properties(&base, list, i, entry);
+        }
     }
     // An item that needs a feat the creature lacks: Aurora asks whether to
     // add the first (and does not equip it otherwise).

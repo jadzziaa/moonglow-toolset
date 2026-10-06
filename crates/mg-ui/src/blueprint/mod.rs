@@ -206,6 +206,30 @@ impl Form<'_> {
         typed
     }
 
+    /// An item's Properties, from the inventory that holds it (item `index`
+    /// of `list` in the struct at `at`): a placed object's item is its own,
+    /// edited where it is held; a blueprint's is its blueprint (the
+    /// module's to edit, the game's to look at).
+    pub(crate) fn item_properties(
+        &mut self,
+        at: &GffPath,
+        list: &str,
+        index: usize,
+        entry: &Struct,
+    ) {
+        if self.key.restype == ResType::GIT && entry.get("BaseItem").is_some() {
+            let path = at.item(list, index);
+            self.app
+                .actions
+                .push(Action::OpenTab(crate::Tab::Instance { area: self.key.resref, path }));
+            return;
+        }
+        let r = inventory::entry_resref(entry);
+        if !r.is_empty() {
+            crate::palette_view::view_blueprint(self.app, ResKey::new(r, ResType::UTI));
+        }
+    }
+
     /// Gallery… beside an appearance: opens the Appearance Gallery at this
     /// object's, where a click gives it another.
     pub(crate) fn gallery_button(&mut self, ui: &mut Ui, kind: crate::appearance_gallery::Kind) {
@@ -931,6 +955,13 @@ pub(crate) fn changed_objects(
         let object = if key.restype == restype {
             GffPath::root()
         } else if key.restype == ResType::GIT
+            && restype == ResType::UTI
+            && let Some(n) = held_item_at(path)
+        {
+            // (An item a placed object holds, changed in its own
+            // Properties.)
+            GffPath(path.0[..n].to_vec())
+        } else if key.restype == ResType::GIT
             && let Some(step @ mg_edit::Step::Item(l, _)) = path.0.first()
             && Some(l.as_str()) == list
         {
@@ -978,6 +1009,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
 /// The blueprint type of the object at `path` in a GIT (its list's).
 pub(crate) fn instance_type(path: &GffPath) -> Option<ResType> {
+    // An item held by a placed object (in its inventory, or equipped) is
+    // an item whatever holds it.
+    if held_item_at(path).is_some_and(|n| n == path.0.len()) {
+        return Some(ResType::UTI);
+    }
     let Some(mg_edit::Step::Item(list, _)) = path.0.first() else { return None };
     [
         ResType::UTC,
@@ -992,6 +1028,18 @@ pub(crate) fn instance_type(path: &GffPath) -> Option<ResType> {
     ]
     .into_iter()
     .find(|t| mg_module::instances::git_list(*t).is_some_and(|(l, _)| l == list))
+}
+
+/// The lists a placed object holds items in.
+pub(crate) const HELD_LISTS: [&str; 2] = ["ItemList", "Equip_ItemList"];
+
+/// Where `path` goes into an item a placed object holds: how many of its
+/// steps lead to the item (the rest go on into the item).
+fn held_item_at(path: &GffPath) -> Option<usize> {
+    path.0.iter().skip(1).position(|step| {
+        matches!(step, mg_edit::Step::Item(list, _) if HELD_LISTS.contains(&list.as_str()))
+    })
+    .map(|i| i + 2)
 }
 
 /// The pages of a placed object's Properties: its blueprint's, less the
@@ -1055,12 +1103,28 @@ pub(crate) fn edit_many(
     });
     app.blueprint_pages.insert(page_key, page);
     ui.separator();
-    if app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key)) {
+    let viewed = app.ws.as_ref().is_some_and(|ws| ws.is_viewed(&key));
+    let refused_id = egui::Id::new(("view-refused", key));
+    if viewed {
         ui.horizontal_wrapped(|ui| {
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                "This is the game's blueprint, shown to look at: what is changed here isn't kept.",
-            );
+            // Said strongly for a few seconds after a change was tried.
+            let now = ui.input(|i| i.time);
+            let refused = ui
+                .data(|d| d.get_temp::<f64>(refused_id))
+                .is_some_and(|at| now - at < VIEW_REFUSED_SHOWN);
+            let text = if refused {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+                egui::RichText::new(
+                    "Not changed: this is the game's blueprint, shown to look at. Edit Copy \
+                     makes one of the module's own.",
+                )
+                .strong()
+            } else {
+                egui::RichText::new(
+                    "This is the game's blueprint, shown to look at: it can't be changed here.",
+                )
+            };
+            ui.colored_label(ui.visuals().warn_fg_color, text);
             if ui.button("Edit Copy…").on_hover_text("A copy in the module, to change").clicked()
             {
                 app.actions.push(Action::CopyDialog(key));
@@ -1084,18 +1148,45 @@ pub(crate) fn edit_many(
     }
     let pending = app.actions.len();
     let mut form = Form { app, key, path, also, root };
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match restype {
-        ResType::UTW => waypoint::page(&mut form, ui, page),
-        ResType::UTS => sound::page(&mut form, ui, page),
-        ResType::UTT => trigger::page(&mut form, ui, page),
-        ResType::UTE => encounter::page(&mut form, ui, page),
-        ResType::UTM => store::page(&mut form, ui, page),
-        ResType::UTD => door::page(&mut form, ui, page),
-        ResType::UTP => placeable::page(&mut form, ui, page),
-        ResType::UTI => item::page(&mut form, ui, page),
-        ResType::UTC => creature::page(&mut form, ui, page),
-        _ => {}
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        if viewed {
+            read_only_look(ui);
+        }
+        match restype {
+            ResType::UTW => waypoint::page(&mut form, ui, page),
+            ResType::UTS => sound::page(&mut form, ui, page),
+            ResType::UTT => trigger::page(&mut form, ui, page),
+            ResType::UTE => encounter::page(&mut form, ui, page),
+            ResType::UTM => store::page(&mut form, ui, page),
+            ResType::UTD => door::page(&mut form, ui, page),
+            ResType::UTP => placeable::page(&mut form, ui, page),
+            ResType::UTI => item::page(&mut form, ui, page),
+            ResType::UTC => creature::page(&mut form, ui, page),
+            _ => {}
+        }
     });
+    // The game's blueprint takes no change: what a page asked for is
+    // dropped, and the note above says so.
+    if viewed {
+        let app = &mut *form.app;
+        let mut tried = false;
+        let mut i = pending;
+        while i < app.actions.len() {
+            let changes = matches!(&app.actions[i], Action::Apply(cmd)
+                if cmd.edits.iter().any(|e| edit_key(e) == key));
+            if changes {
+                app.actions.remove(i);
+                tried = true;
+            } else {
+                i += 1;
+            }
+        }
+        if tried {
+            let now = ui.input(|i| i.time);
+            ui.data_mut(|d| d.insert_temp(refused_id, now));
+            ui.ctx().request_repaint();
+        }
+    }
     // A change only the first would take (a page's own list edits) is
     // dropped rather than made to one of several blueprints.
     if several {
@@ -1124,6 +1215,28 @@ pub(crate) fn edit_many(
             ui.data_mut(|d| d.insert_temp(note_id, note));
         }
     }
+}
+
+/// How long the note of a blueprint only looked at says a change was
+/// refused, in seconds.
+const VIEW_REFUSED_SHOWN: f64 = 4.0;
+
+/// The look of a form that can't be changed (the game's blueprint, opened
+/// by View): its fields are flat and dim, and don't answer the pointer.
+/// It still scrolls, and its lists and pages can be looked through.
+fn read_only_look(ui: &mut Ui) {
+    let v = ui.visuals_mut();
+    let quiet = v.widgets.noninteractive;
+    let text = egui::Stroke::new(1.0, v.weak_text_color());
+    for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active] {
+        w.bg_fill = egui::Color32::TRANSPARENT;
+        w.weak_bg_fill = egui::Color32::TRANSPARENT;
+        w.bg_stroke = quiet.bg_stroke;
+        w.fg_stroke = text;
+        w.expansion = 0.0;
+    }
+    v.extreme_bg_color = v.panel_fill;
+    v.text_edit_bg_color = Some(v.panel_fill);
 }
 
 /// The pages that edit lists of their own (the first blueprint's only),

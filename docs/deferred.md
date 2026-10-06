@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T03:40:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T08:26:57Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -129,9 +129,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
   other plain text fields aren't searched (Find References covers tags,
   Find in Files covers scripts), and there are no regular expressions.
   (S–M)
-- **Prefabs in the palette:** listed by name and placed with a click;
-  no preview of what one holds, no rename or delete there (they are
-  files in the data folder), no folders. (S)
+- **Prefabs in the palette:** listed by name, placed with a click,
+  renamed and deleted from their menu; what one holds is told in words on
+  hover (kinds and tags), not shown as a picture; no folders. (S)
 - **Variable sets** hold int, float and string variables only, as the
   Variables window edits; object and location variables aren't kept. (S)
 
@@ -155,9 +155,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 ## Palettes
 
-- **Pictures for the rest:** sounds, triggers, encounters, stores and
-  waypoints say what they are on hover, in a line or two; a waypoint's
-  flag, which the area view draws, could be its picture. (S)
+- **Pictures for the rest:** waypoints have their flags as pictures;
+  sounds, triggers, encounters and stores say what they are on hover, in
+  a line or two (a store's and a sound's markers are the same for every
+  one, and the others have no model). (—)
 - **Palette categories against Aurora:** a module's own categories
   (Palette › Categories…) are a skeleton kept in the module, with names
   written out (`NAME`, and BioWare's `DELETE_ME`). That Aurora reads a
@@ -208,7 +209,6 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Hak order advice:** Moonglow doesn't know which haks go above which
   (CEP, PRC and the like each document theirs); the conflict report shows
   what each hak hides. (M)
-- **Shift+click ranges** in the hak editor's list. (S)
 - **Viewing in the hak editor** shows fields, text or the first bytes:
   no pictures, models or sounds, and a 2DA as its text. (S)
 - **Update from Folder** takes the folder's files in place of the hak's
@@ -223,9 +223,9 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Areas by name elsewhere:** areas are by name in the module tree, tab
   titles, Find Instance and the area transition's destinations; the
   references list shows files (`town.git`) and the log ResRefs. (S)
-- **The Options window as a tab:** it is a floating window of a fixed
-  size (resizable, the size kept while Moonglow runs), not a tab in the
-  dock. (S)
+- **The Options tab** opens as wide as the window allows, where the
+  other editors leave some of the area showing beside them; Enter is OK
+  only while the pointer is over it. (—)
 - **Column headings** in forms' tables ("Base", "Total", "Sun", "Moon")
   keep the plain strong style; only section headings were made larger.
   (—)
@@ -248,9 +248,11 @@ a light theme. Left:
 - **Scripts and conversations by name:** they have no names; the tree
   lists them by ResRef. (—)
 - **The model in other editors' pages:** a placeable's and a door's
-  Basic page and an item's Appearance page show it beside their fields
-  where the window is wide enough for both; narrower, Preview shows it
-  (a creature's Appearance page stacks them instead). (S)
+  Basic page show it beside their fields where the window is wide enough
+  for both; narrower, Preview shows it. An item's Appearance page has it
+  beside the fields, or in a narrower window beside the icon (a
+  creature's Appearance page stacks them instead). The viewer frames an
+  item as any model: a sword lying flat is small in it until turned. (S)
 - **Special abilities' flags against the game:** Ready, Spontaneous and
   Unlimited are named from BioWare's creature format document; what the
   game does with each was not run. (S)
@@ -291,14 +293,13 @@ ResRef and Tag. Left:
   (by `UserType`, `ALLCLASSESCANUSE` or else) was not captured: Moonglow
   leaves out rows without a name and those labelled DELETED or Padding.
   (S)
-- **View shows the editor as it is:** fields can be typed in and lists
-  clicked, and what is changed is dropped without a word beyond the
-  window's note; a field doesn't look read-only. (S)
+- **View is read-only by its look and by what it refuses:** fields are
+  dimmed and a change tried is dropped with a note, but a field still
+  takes the pointer and the keys until then (so its lists scroll and its
+  pages open): what is typed goes when the field is left. (S)
 - **Random item properties** in the Item Wizard, as Aurora's. (M)
 - **"Area transitions can't be selected visually":** not understood;
   asked. (—)
-- **Escape and a tool in the area:** with a Properties window in front,
-  Escape both drops the area's tool and closes the window. (S)
 - **Done since:** the Creature Wizard's ResRef and Tag, its appearances
   as pictures with Find, and every portrait; the inventory's Equip to a
   free slot, To Backpack and Open Blueprint; talk-table text in its own
@@ -351,10 +352,12 @@ objects in the area view, Fade Geometry. Left:
   reported; Options › OK reads the game's text and the names again, and
   text fields are now read again too. What still showed the old
   language wasn't found. (needs the steps)
-- **Fade Geometry is one switch**, where Aurora has Never, Object Mode
-  Only and Always; and that the meshes with `tilefade` 2 (the black
-  caps) stay while those with 1 and 4 go was taken from the game's tiles
-  and their names, not compared with Aurora or the game. (S)
+- **Fade Geometry:** Never, Object Mode Only and Always, as Aurora
+  names them; Moonglow's object mode is "not Select Tiles and no terrain
+  brush", which wasn't compared with when Aurora fades. That the meshes
+  with `tilefade` 2 (the black caps) stay while those with 1 and 4 go
+  was taken from the game's tiles and their names, not compared with
+  Aurora or the game. (S)
 - **Particles in the area:** of at most 96 objects and 128 tiles, and
   only while Animations is on. A tile's emitters take their keys from
   the animations playing on it as one animation as long as the longest
@@ -374,10 +377,9 @@ objects in the area view, Fade Geometry. Left:
 - **The scale handle** scales every way alike, as Adjust Location's
   field does; the file keeps a scale for each axis. It stands where it
   was taken while it is dragged, rather than follow the pointer. (S)
-- **The Gallery:** whether it is on isn't kept between sessions (the
-  pictures' size is); up to 192 pictures are kept and all are made again when a blueprint
-  changes; stores, sounds, triggers, encounters and waypoints have no
-  picture. (S)
+- **The Gallery:** up to 192 pictures are kept at once (more are made
+  again as they come back into sight) and all are made again when a
+  blueprint changes. (S)
 - **Ctrl+V refused on Windows** (a builder's debug log: "arboard paste
   error … the clipboard is empty"): the key reaches Moonglow only as the
   system's paste, which Windows doesn't send with no text to paste.
@@ -385,14 +387,27 @@ objects in the area view, Fade Geometry. Left:
   text there. Not tried on Windows. (—)
 - **A picture of a model that emits** is drawn four seconds in, framed
   with its particles (a flame is small under its smoke). (S)
-- **Appearances as pictures** are placeables', creatures' and doors':
-  an item's (its model parts) have no gallery yet. A creature's look is
-  a plain body of the appearance, male unless the creature is female.
-  (S–M)
+- **Appearances as pictures** are placeables', creatures' and doors';
+  an item's model, and each of a weapon's three parts, are chosen from
+  its icons (the item as it would be with each). An armor's parts are
+  still numbers: no pictures of them, on a body or alone. A creature's
+  look is a plain body of the appearance, male unless the creature is
+  female. (S–M)
 - **Replace Selected with This** makes the object anew from the
   blueprint: what the old one had of its own (its tag, variables, a
   tilt or scale) goes; triggers and encounters aren't replaced. (S)
-- **Deleting a prefab** isn't undone. (—)
+- **Armor and cloaks shown on a woman** (the item's Appearance page,
+  Shown on): the model and the page's icons. The icons in inventories
+  and the palette stay the man's, and the choice lasts until Moonglow is
+  closed. (S)
+- **A held item's own Properties** (a placed object's inventory, right
+  click › Properties) are found by the item's place in the list: with
+  the window open, an item added, removed or moved before it in that
+  inventory leaves the window on another item (or none). A blueprint's
+  items (which are named, not held whole) open the item's blueprint
+  instead; a placed store's weren't tried. (S)
+- **Deleting a prefab** isn't Edit › Undo's: the palette's Undo Delete
+  puts back the one deleted last, until Moonglow is closed. (—)
 
 ## Raw fields
 
@@ -559,8 +574,10 @@ categories, the galleries. Water ripples. Left:
   laid out so, shows wrong. Aurora's small `<name>s` preview isn't used.
   The picture isn't in the list itself, only on hover. (S)
 - **An area's objects in the module tree:** listed by name, kind by
-  kind; no menus on them (delete, copy), no filter by the tree's Filter
-  box, and a kind with thousands of objects lays out every row. (S–M)
+  kind, with Go To, Properties, Copy and Delete on each; one at a time
+  (no selecting several there), and the Filter finds them only in areas
+  already opened out. A copy made there stands on the ground where it is
+  pasted (its height above the ground isn't carried). (S)
 - **The camera's height** is each view's and lasts until its tab closes.
   (Lighting and Sound Ranges are kept: a view opens as they were last
   left, and one already open keeps its own.) (S)

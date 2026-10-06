@@ -510,7 +510,15 @@ pub(super) fn item_list(
                             asked = Some((i, Ask::Equip));
                             ui.close();
                         }
-                        if ui.button("Open Blueprint").clicked() {
+                        if ui
+                            .button("Properties")
+                            .on_hover_text(
+                                "The item's properties: a placed object's item is its own; a \
+                                 blueprint's is its blueprint (the module's to edit, the \
+                                 game's to look at)",
+                            )
+                            .clicked()
+                        {
                             asked = Some((i, Ask::Open));
                             ui.close();
                         }
@@ -578,7 +586,7 @@ pub(super) fn item_list(
 
 impl Form<'_> {
     /// What an item list reported that is the same for every inventory:
-    /// Copy and Open Blueprint from a row's menu, a row moved within the
+    /// Copy and Properties from a row's menu, a row moved within the
     /// list, and what there is to add to it: the items pasted, one dragged
     /// from the palette, one dragged from another object's inventory
     /// (moved out of it, unless Ctrl is held: then a copy). The blueprints
@@ -589,13 +597,13 @@ impl Form<'_> {
         items: &[Struct],
         out: &mut ListOut,
         whose: egui::Id,
+        at: &GffPath,
     ) -> (Vec<ResRef>, Vec<Edit>) {
         let (mut adds, mut removals) = (Vec::new(), Vec::new());
         match out.asked {
             Some((i, Ask::Open)) => {
-                if let Some(r) = items.get(i).map(entry_resref).filter(|r| !r.is_empty()) {
-                    let item = ResKey::new(r, mg_core::ResType::UTI);
-                    crate::palette_view::view_blueprint(self.app, item);
+                if let Some(entry) = items.get(i) {
+                    self.item_properties(at, "ItemList", i, entry);
                 }
             }
             Some((i, Ask::Copy)) => {

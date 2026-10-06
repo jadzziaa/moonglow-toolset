@@ -62,6 +62,8 @@ pub enum Tab {
     References,
     /// The Placeable Gallery: every placeable appearance as a picture.
     PlaceableGallery,
+    /// Tools › Options.
+    Options,
     /// What an object placed in an area looks like, in the 3D viewer.
     InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
 }
@@ -107,6 +109,7 @@ impl Tab {
             Tab::Manual => "manual",
             Tab::References => "references",
             Tab::PlaceableGallery => "placeable-gallery",
+            Tab::Options => "options",
         }
     }
 
@@ -122,6 +125,7 @@ impl Tab {
             Tab::Model(_) | Tab::InstanceModel { .. } => (780.0, 680.0),
             Tab::Factions | Tab::Journal | Tab::Gff(_) => (780.0, 600.0),
             Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 580.0),
+            Tab::Options => crate::options::WINDOW_SIZE.into(),
             _ => (820.0, 640.0),
         };
         egui::vec2(w, h)
@@ -195,8 +199,16 @@ impl Viewer<'_> {
                     | Tab::AreaProperties(_)
                     | Tab::AreasProperties(_)
                     | Tab::ModuleProperties
+                    | Tab::Options
             );
-        if escape && (model || front) {
+        // (With a tool in hand in the area, Escape over the area drops the
+        // tool and no more; over this window, it closes the window.)
+        let tool = ui.ctx().cumulative_pass_nr().saturating_sub(self.app.area_tool_at) <= 1
+            && !ui.rect_contains_pointer(ui.max_rect());
+        // (Options › Keyboard, waiting for a key, takes Escape itself.)
+        let recording = *tab == Tab::Options
+            && self.app.options.as_ref().is_some_and(|o| o.recording.is_some());
+        if escape && !recording && (model || (front && !tool)) {
             self.app.actions.push(crate::Action::CloseTab(tab.clone()));
         }
         match tab {
@@ -248,6 +260,7 @@ impl Viewer<'_> {
             Tab::Manual => crate::manual::ui(self.app, ui),
             Tab::References => crate::references::ui(self.app, ui),
             Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
+            Tab::Options => crate::options::ui(self.app, ui),
         }
     }
 }
@@ -307,6 +320,7 @@ impl TabViewer for Viewer<'_> {
             Tab::Manual => "User Manual".into(),
             Tab::References => "References".into(),
             Tab::PlaceableGallery => "Appearance Gallery".into(),
+            Tab::Options => "Options".into(),
             Tab::InstanceModel { area, path } => {
                 format!("{} (preview)", instance_title(self.app, *area, path)).into()
             }
@@ -358,6 +372,10 @@ impl TabViewer for Viewer<'_> {
     /// A hak with unsaved changes asks first; a closed hak is let go.
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
         use egui_dock::tab_viewer::OnCloseResponse;
+        // (Closed, its draft goes: Cancel.)
+        if *tab == Tab::Options {
+            self.app.options = None;
+        }
         if let Tab::Hak(id) = *tab {
             if self.app.haks.iter().any(|d| d.id == id && d.hak.is_dirty()) {
                 self.app.hak_closing = Some(id);
@@ -382,9 +400,10 @@ impl TabViewer for Viewer<'_> {
     /// The script editor scrolls its own text, lists and messages, and fits
     /// its pane (in a pane that scrolled, its side lists ran past the pane's
     /// edge and were cut off); so does the manual, whose text wraps at the
-    /// pane's width. The others scroll when wider or taller.
+    /// pane's width, and the Options, whose page scrolls between its panels.
+    /// The others scroll when wider or taller.
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
-        let fits = matches!(tab, Tab::Script(_) | Tab::Manual);
+        let fits = matches!(tab, Tab::Script(_) | Tab::Manual | Tab::Options);
         [!fits, !fits]
     }
 }

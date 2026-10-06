@@ -81,8 +81,10 @@ fn part(item: &Struct, label: &str) -> i64 {
 /// baseitems.2da): `i<ItemClass>_<model>` for simple and layered items
 /// (`_m_` between for gender-specific ones), a composite weapon's bottom,
 /// middle and top (`_b_`, `_m_`, `_t_`), an armor's pelvis, chest, belt,
-/// shoulders and robe (`ipm_<part><number>`).
-pub(crate) fn item_icon_names(game: &GameData, item: &Struct) -> Vec<String> {
+/// shoulders and robe (`ipm_<part><number>`). Where `female`, the icons a
+/// woman's inventory shows (`ipf_`, `_f_`), for the items that have both.
+pub(crate) fn item_icon_names(game: &GameData, item: &Struct, female: bool) -> Vec<String> {
+    let g = if female { 'f' } else { 'm' };
     let Ok(t) = game.table("baseitems") else { return Vec::new() };
     let Ok(row) = usize::try_from(item.integer("BaseItem").unwrap_or(-1)) else {
         return Vec::new();
@@ -97,10 +99,14 @@ pub(crate) fn item_icon_names(game: &GameData, item: &Struct) -> Vec<String> {
             .iter()
             .map(|(l, p)| (part(item, l), p))
             .filter(|(n, _)| *n > 0)
-            .map(|(n, p)| format!("ipm_{p}{n:03}"))
+            .map(|(n, p)| format!("ip{g}_{p}{n:03}"))
             .collect(),
         _ => {
-            let gender = if t.get_int(row, "GenderSpecific") == Some(1) { "m_" } else { "" };
+            let gender = if t.get_int(row, "GenderSpecific") == Some(1) {
+                format!("{g}_")
+            } else {
+                String::new()
+            };
             vec![format!("i{class}_{gender}{:03}", part(item, "ModelPart1"))]
         }
     }
@@ -267,11 +273,28 @@ impl Loader<'_> {
     /// An item's inventory icon, its layers bottom first (PLT layers in
     /// the item's colours), else the base item's `DefaultIcon`.
     pub(crate) fn item_icon(&mut self, ctx: &egui::Context, item: &Struct) -> Vec<Picture> {
-        let names = item_icon_names(self.game, item);
+        self.item_icon_on(ctx, item, false)
+    }
+
+    /// [`Loader::item_icon`], as a woman's inventory shows it where
+    /// `female` (a layer without a picture of hers is the man's).
+    pub(crate) fn item_icon_on(
+        &mut self,
+        ctx: &egui::Context,
+        item: &Struct,
+        female: bool,
+    ) -> Vec<Picture> {
+        let names = item_icon_names(self.game, item, female);
+        let his = if female { item_icon_names(self.game, item, false) } else { Vec::new() };
         let colors = item_colors(item);
+        let one =
+            |l: &mut Self, n: &str| l.plt_picture(ctx, n, colors).or_else(|| l.picture(ctx, n));
         let mut layers: Vec<Picture> = names
             .iter()
-            .filter_map(|n| self.plt_picture(ctx, n, colors).or_else(|| self.picture(ctx, n)))
+            .enumerate()
+            .filter_map(|(i, n)| {
+                one(self, n).or_else(|| his.get(i).filter(|m| *m != n).and_then(|m| one(self, m)))
+            })
             .collect();
         if layers.is_empty() {
             let default = self.game.table("baseitems").ok().and_then(|t| {
