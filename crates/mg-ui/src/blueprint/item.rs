@@ -472,6 +472,18 @@ fn part_grid(
     let current = part_number(&f.root, label).unwrap_or(0);
     let mut chosen = None;
     let id = ("uti-icons", f.key, label);
+    // As tall as whole rows of icons (their height as last drawn), so the
+    // tips of the next row don't show under the last one in view.
+    let row_id = egui::Id::new(id).with("row");
+    let gap = ui.spacing().item_spacing.y;
+    let height = match ui.data(|d| d.get_temp::<f32>(row_id)).filter(|h| *h > 0.0) {
+        Some(row) => {
+            let rows = ((height + gap) / (row + gap)).floor().max(1.0);
+            rows * (row + gap) - gap
+        }
+        None => height,
+    };
+    let mut tallest: f32 = 0.0;
     egui::ScrollArea::vertical().max_height(height).id_salt(id).show(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
             for &n in numbers {
@@ -479,6 +491,7 @@ fn part_grid(
                 let layers = icon(f, ui, game, &item);
                 let r = crate::images::stacked(ui, &layers, 1.0, &format!("{what} {n}"))
                     .on_hover_text(format!("{what} {n}"));
+                tallest = tallest.max(r.rect.height());
                 if i64::from(n) == current {
                     let stroke = ui.visuals().selection.stroke;
                     // (Within the icon's own room: outside it, the grid's
@@ -491,6 +504,10 @@ fn part_grid(
             }
         });
     });
+    if ui.data(|d| d.get_temp::<f32>(row_id)) != Some(tallest) {
+        ui.data_mut(|d| d.insert_temp(row_id, tallest));
+        ui.ctx().request_repaint();
+    }
     if let Some(n) = chosen.filter(|&n| i64::from(n) != current) {
         set_part(f, what, &[label], i64::from(n));
     }
