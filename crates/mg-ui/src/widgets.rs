@@ -887,6 +887,46 @@ fn cancel_button(ui: &mut Ui, hover: Option<&str>) -> bool {
     r.clicked() || (layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer))
 }
 
+/// The arrow keys on a list of choices, as in Aurora: with the list's
+/// button `r` in focus (clicked, or reached with Tab), Up and Down choose
+/// the row before and after `current` among `rows` (in the order the list
+/// shows them), Page Up and Page Down ten away, Home and End the first
+/// and last. The row chosen so.
+pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64) -> Option<i64> {
+    if r.clicked() {
+        r.request_focus();
+    }
+    if !r.has_focus() || rows.is_empty() {
+        return None;
+    }
+    // (The arrows are the list's while it has the focus, not egui's way
+    // from one widget to the next.)
+    let arrows = egui::EventFilter { vertical_arrows: true, ..Default::default() };
+    ui.memory_mut(|m| m.set_focus_lock_filter(r.id, arrows));
+    let last = rows.len() as i64 - 1;
+    let at = rows.iter().position(|&row| row == current).map(|a| a as i64);
+    let to = ui.input(|i| {
+        let key = |k| i.key_pressed(k) && i.modifiers.is_none();
+        let step = |by: i64| Some(at.map_or(0, |a| (a + by).clamp(0, last)));
+        if key(egui::Key::ArrowDown) {
+            step(1)
+        } else if key(egui::Key::ArrowUp) {
+            step(-1)
+        } else if key(egui::Key::PageDown) {
+            step(10)
+        } else if key(egui::Key::PageUp) {
+            step(-10)
+        } else if key(egui::Key::Home) {
+            Some(0)
+        } else if key(egui::Key::End) {
+            Some(last)
+        } else {
+            None
+        }
+    })?;
+    rows.get(to as usize).copied().filter(|&row| row != current)
+}
+
 /// Says on the system's clipboard what Moonglow has copied of its own
 /// (objects, tiles, a conversation's lines: kept in Moonglow, not there).
 /// Without text there, Windows gives Ctrl+V nothing to paste and the key

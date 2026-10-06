@@ -250,6 +250,21 @@ pub fn add_link(g: &mut Gff, parent: Parent, target: u32) -> bool {
     true
 }
 
+/// Moves the link at `pos` under `parent` one place up (`up`) or down
+/// among its siblings: the order the game tries a speaker's lines in, and
+/// lists a player's replies in. Where it is then; `None` at the end it
+/// would go past.
+pub fn shift_link(g: &mut Gff, parent: Parent, pos: usize, up: bool) -> Option<usize> {
+    let l = links_mut(g, parent)?;
+    let to = if up { pos.checked_sub(1)? } else { pos + 1 };
+    if pos >= l.len() || to >= l.len() {
+        return None;
+    }
+    l.swap(pos, to);
+    renumber(g);
+    Some(to)
+}
+
 /// Moves the link at `pos` under `from` to the end of `to`'s children
 /// (Aurora's drag): its condition and parameters go with it, and a line it
 /// owns moves with its branch. Refused for a parent of the other kind, the
@@ -675,6 +690,25 @@ mod tests {
         let o = outline(&g);
         assert_eq!(o.len(), 5, "{o:#?}");
         assert!(o[4].starts_with("  Reply|Who are you?|link|"), "{o:#?}");
+    }
+
+    #[test]
+    fn a_line_moves_up_and_down_among_its_parent_s() {
+        let mut g = sample();
+        let before = outline(&g);
+        let starts = links(&g, Parent::Root).len();
+        assert!(starts >= 2, "the sample has two starting lines");
+        // The first starting line down one: it is the second, with its
+        // branch; and back up.
+        assert_eq!(shift_link(&mut g, Parent::Root, 0, false), Some(1));
+        assert_ne!(outline(&g), before);
+        assert_eq!(outline(&g).len(), before.len(), "nothing lost");
+        assert_eq!(shift_link(&mut g, Parent::Root, 1, true), Some(0));
+        assert_eq!(outline(&g), before);
+        // Not past either end.
+        assert_eq!(shift_link(&mut g, Parent::Root, 0, true), None);
+        assert_eq!(shift_link(&mut g, Parent::Root, starts - 1, false), None);
+        assert_eq!(outline(&g), before);
     }
 
     #[test]

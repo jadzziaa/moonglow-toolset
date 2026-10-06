@@ -71,6 +71,36 @@ pub fn pages(t: ResType) -> &'static [&'static str] {
 /// Each open editor's page, by document and the object's path in it.
 pub type Pages = HashMap<(ResKey, GffPath), &'static str>;
 
+/// A creature appearance's picture (a plain body of it), for the row the
+/// pointer rests on in the list.
+fn creature_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
+    let look = mg_preview::CreatureLook::new(row as u16);
+    picture(ui, crate::model_view::look_thumbnail(app, look));
+}
+
+/// A placeable appearance's picture (its model).
+fn placeable_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
+    let model = app.game.as_deref().and_then(|g| {
+        let t = g.table("placeables").ok()?;
+        ResKey::parse(&t.get(row, "ModelName")?.to_ascii_lowercase(), ResType::MDL)
+    });
+    let made = model.and_then(|m| crate::model_view::thumbnail(app, m));
+    picture(ui, made);
+}
+
+/// A model's picture beside a list's row, or that there is none.
+fn picture(ui: &mut Ui, made: Option<egui::TextureId>) {
+    const SIDE: f32 = 180.0;
+    match made {
+        Some(id) => {
+            ui.add(egui::Image::new((id, egui::vec2(SIDE, SIDE))));
+        }
+        None => {
+            ui.weak("(no picture)");
+        }
+    }
+}
+
 /// A blueprint's fields, laid out.
 /// Shows something of a 2DA row (a picture) in a choice's list.
 type Shown = fn(&mut Moonglow, &mut Ui, usize);
@@ -617,6 +647,20 @@ impl Form<'_> {
         self.choice_shown(ui, what, label, choices, default, None);
     }
 
+    /// A creature's or a placeable's appearance: [`choice`](Self::choice),
+    /// with each appearance's picture beside the row the pointer rests on.
+    pub(crate) fn appearance_choice(
+        &mut self,
+        ui: &mut Ui,
+        label: &str,
+        choices: &[Choice],
+        default: FieldType,
+        creature: bool,
+    ) {
+        let show: Shown = if creature { creature_picture } else { placeable_picture };
+        self.choice_shown(ui, "Appearance", label, choices, default, Some(show));
+    }
+
     /// The loading screen (a loadscreens.2da row): its picture shows under
     /// the choice, and each one's on the row the pointer rests on.
     pub(crate) fn load_screen(&mut self, ui: &mut Ui, choices: &[Choice]) {
@@ -661,15 +705,15 @@ impl Form<'_> {
             .selected_text(shown)
             .width(220.0)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-        combo.show_ui(ui, |ui| {
-            // A long list by name; a short one as the table orders it.
-            let sorted;
-            let choices = if choices.len() > mg_rules::ORDERED_CHOICES {
-                sorted = mg_rules::by_name(choices.to_vec());
-                sorted.as_slice()
-            } else {
-                choices
-            };
+        // A long list by name; a short one as the table orders it.
+        let sorted;
+        let choices = if choices.len() > mg_rules::ORDERED_CHOICES {
+            sorted = mg_rules::by_name(choices.to_vec());
+            sorted.as_slice()
+        } else {
+            choices
+        };
+        let list = combo.show_ui(ui, |ui| {
             let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
             if choices.len() > 30 {
                 ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
@@ -691,6 +735,10 @@ impl Form<'_> {
                 }
             }
         });
+        // The arrow keys step through it, as in Aurora (in the order
+        // shown).
+        let rows: Vec<i64> = choices.iter().map(|c| c.row as i64).collect();
+        let pick = pick.or_else(|| crate::widgets::arrow_pick(ui, &list.response, &rows, current));
         if let Some(v) = pick.filter(|&v| v != current) {
             self.set_int(what, label, v, default);
         }

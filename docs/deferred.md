@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T21:56:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T22:14:51Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -524,6 +524,29 @@ objects in the area view, Fade Geometry. Left:
   (it painted when let go). A right drag that turns the view and ends
   where it began is still a right click to the brush (Raise/Lower
   lowers; other brushes are put down). (S)
+
+## From GitHub issue 7 (October 2026)
+
+- **Arrow keys on lists of choices:** the blueprint editors' 2DA lists
+  and part lists take them while the list has the focus (clicked, open
+  or after a choice; Tab). Escape gives the focus up, as everywhere in
+  the interface, so after closing a list with Escape it is clicked
+  again. The lists outside the blueprint editors (Area Properties, the
+  area's toolbar) don't take them. (S)
+- **Pictures in the Appearance list:** a creature's (a plain male body
+  of the appearance) and a placeable's, beside the row the pointer rests
+  on; a door's and an item's lists have none. (S)
+- **Export from a menu** is on the palette's custom blueprints (and the
+  module tree's resources, as before). A placed object in an area's list
+  has no Export: it is not a resource; it would be written out as a
+  blueprint of its own. (S)
+- **An item stood up in its viewer** is turned a quarter about its
+  length's axis from how it lies; which side then faces the viewer isn't
+  chosen (a sword shows its edge more than its flat). Items in the
+  palette's Gallery and on the ground in an area lie as modelled. (S)
+- **Done:** a conversation's lines move up and down among their parent's;
+  a potion's parts are listed (they were chosen by models, and a potion
+  has icons only); Random Facing.
 
 ## From GitHub issue 6 (October 2026)
 

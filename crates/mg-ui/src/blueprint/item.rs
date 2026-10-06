@@ -263,6 +263,22 @@ fn model_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
     v
 }
 
+/// The numbers a composite item's part can have: those it has a model
+/// for, and those it has an icon for (a potion has one model whatever its
+/// parts, and its icons alone tell them apart: with models only, its
+/// lists were empty).
+fn part_numbers(ui: &Ui, game: &GameData, prefix: &str) -> Arc<Vec<u16>> {
+    let models = model_numbers(ui, game, prefix);
+    let icons = icon_numbers(ui, game, prefix);
+    if icons.is_empty() {
+        return models;
+    }
+    let mut all: Vec<u16> = models.iter().chain(icons.iter()).copied().collect();
+    all.sort_unstable();
+    all.dedup();
+    Arc::new(all)
+}
+
 /// The numbers `nnn` for which an inventory icon `i{prefix}{nnn:03}` exists
 /// (TGA, DDS or PLT), cached: what Aurora offers simple and layered items
 /// ("the icon determines availability", nwn.wiki's baseitems.2da).
@@ -561,7 +577,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
                 ui,
                 |ui| {
                     for (text, label, part) in COMPOSITE_PARTS {
-                        let numbers = model_numbers(ui, game, &format!("{class}_{part}_"));
+                        let numbers = part_numbers(ui, game, &format!("{class}_{part}_"));
                         let current = part_number(&f.root, label).unwrap_or(0);
                         let (shape, color) = (current / 10, current % 10);
                         let mut shapes: Vec<u16> = numbers.iter().map(|n| n / 10).collect();
@@ -620,7 +636,7 @@ fn appearance(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, beside: bool) {
             // Each part's shapes and colors as pictures: the item as it
             // would be with each, a click chooses it.
             for (text, label, part) in COMPOSITE_PARTS {
-                let numbers = model_numbers(ui, game, &format!("{class}_{part}_"));
+                let numbers = part_numbers(ui, game, &format!("{class}_{part}_"));
                 if numbers.len() < 2 {
                     continue;
                 }

@@ -87,7 +87,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
         crate::widgets::field_label(ui, "Appearance Type");
         ui.horizontal(|ui| {
-            f.choice(ui, "Appearance", "Appearance", &appearances, FieldType::Dword);
+            f.appearance_choice(ui, "Appearance", &appearances, FieldType::Dword, false);
             f.gallery_button(ui, crate::appearance_gallery::Kind::Placeable);
         });
         ui.end_row();

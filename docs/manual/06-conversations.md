@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-02T23:02:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T22:14:51Z }
 ---
 
 # Conversations
@@ -34,6 +34,7 @@ Aurora (Options › Keyboard changes Add's and Delete's keys).
 | Copy, Cut | the selected line and everything under it |
 | Paste | the copied lines as new lines under the selected one |
 | Paste As Link | a link to the copied line under the selected one |
+| ⏶ and ⏷ (Alt+Up, Alt+Down) | move the selected line up or down among its parent's lines: the order the game tries a speaker's lines in and lists a player's replies in |
 | Delete | the selected line and everything under it (a link: just the link) |
 | Expand All, Collapse All | open or close the whole tree |
 | Export | the conversation as plain text, CSV, Twine or Ink (see below) |

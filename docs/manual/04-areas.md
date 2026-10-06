@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T21:56:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T22:14:51Z }
 ---
 
 # Areas
@@ -204,6 +204,9 @@ places and turns around it.
   transform that EE added (scale, rotation about each axis and offset)
   for creatures, doors, items and placeables that aren't Static (a static
   placeable has none, as in Aurora).
+- **Random Facing**: turns each selected object to face a way of its
+  own, at random (by the snap angle, if one is set): for trees and rocks
+  placed in numbers.
 - **Drop to Ground** (G): puts raised objects back on the ground under
   them.
 - **Arrange** (several selected; the first selected leads):

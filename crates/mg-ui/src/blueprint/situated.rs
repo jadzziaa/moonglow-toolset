@@ -601,16 +601,19 @@ pub(super) fn pick_sized(
         .find(|c| c.row as i64 == current)
         .map_or_else(|| format!("({current})"), |c| c.text.clone());
     let mut pick = None;
-    egui::ComboBox::from_id_salt(("pick", key, name)).selected_text(shown).width(width).show_ui(
-        ui,
-        |ui| {
+    let list = egui::ComboBox::from_id_salt(("pick", key, name))
+        .selected_text(shown)
+        .width(width)
+        .show_ui(ui, |ui| {
             for c in choices {
                 if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
                     pick = Some(c.row as i64);
                 }
             }
-        },
-    );
+        });
+    // The arrow keys step through it, as in Aurora.
+    let rows: Vec<i64> = choices.iter().map(|c| c.row as i64).collect();
+    let pick = pick.or_else(|| crate::widgets::arrow_pick(ui, &list.response, &rows, current));
     pick.filter(|&v| v != current)
 }
 

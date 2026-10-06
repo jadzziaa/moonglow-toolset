@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T08:26:57Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T22:14:51Z }
 ---
 
 # Blueprints
@@ -104,6 +104,13 @@ The palette's buttons:
   there: its fields are dimmed, its pages and lists can still be looked
   through, and a change tried is refused with a note that offers **Edit
   Copy…**.
+- **Export…** (a custom blueprint, or the several selected): the Export
+  window with them chosen, as File › Export.
+- **Lists of choices** (an appearance, a race, a part) take the arrow
+  keys once clicked or reached with Tab: Up and Down choose the one
+  before and after, Page Up and Page Down ten away, Home and End the
+  first and last. A creature's and a placeable's Appearance list shows
+  each appearance's picture beside the row the pointer rests on.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it. It asks for the copy's ResRef (a free
   one is offered) and Tag first.

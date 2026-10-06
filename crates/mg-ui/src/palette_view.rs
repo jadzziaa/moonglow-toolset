@@ -267,6 +267,8 @@ enum Pick {
     References(ResKey),
     UpdateInstances(Vec<ResKey>),
     EditTogether(Vec<ResKey>),
+    /// The Export window, for these blueprints of the module's.
+    Export(Vec<ResKey>),
     /// Into a custom category (its palette id).
     MoveTo(ResKey, u8),
     /// Added to (true) or removed from Favorites.
@@ -553,6 +555,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             Pick::References(key) => app.actions.push(Action::FindReferences(key)),
             Pick::UpdateInstances(keys) => app.update_instances_of(keys),
             Pick::EditTogether(keys) => app.actions.push(Action::OpenTab(Tab::Blueprints(keys))),
+            Pick::Export(keys) => app.actions.push(Action::ExportDialog(keys)),
             Pick::MoveTo(key, id) => {
                 let field = kind.palette_field();
                 let current = app
@@ -850,8 +853,24 @@ impl Tree<'_> {
                     .on_hover_text("One editor: what you change is set on each")
                     .clicked()
             {
-                picks.push(Pick::EditTogether(keys));
+                picks.push(Pick::EditTogether(keys.clone()));
                 ui.close();
+            }
+            if custom {
+                let label = if keys.len() > 1 {
+                    format!("Export {}…", keys.len())
+                } else {
+                    "Export…".into()
+                };
+                if ui
+                    .button(label)
+                    .on_hover_text("Write it out as a file or an ERF, as in Aurora (File › Export)")
+                    .clicked()
+                {
+                    let all = if keys.len() > 1 { keys.clone() } else { vec![key] };
+                    picks.push(Pick::Export(all));
+                    ui.close();
+                }
             }
             if ui
                 .button("Edit Copy…")

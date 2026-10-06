@@ -11489,3 +11489,28 @@ fn look_fog_placeable() {
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-fog-look").join("look.png")).unwrap();
 }
+
+/// The arrow keys step through a list of choices once it is clicked, as
+/// in Aurora: here a placeable's Appearance.
+#[test]
+fn arrow_keys_step_through_a_list_of_choices() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "arrow_copy", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let appearance = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("Appearance");
+    let before = appearance(&mut h);
+    let combo = egui::accesskit::Role::ComboBox;
+    h.get_all_by_role(combo)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Chest"))
+        .expect("the Appearance list")
+        .click();
+    h.run();
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    let after = appearance(&mut h);
+    assert_ne!(after, before, "the next appearance");
+    h.key_press(egui::Key::ArrowUp);
+    h.run();
+    assert_eq!(appearance(&mut h), before, "and back");
+}

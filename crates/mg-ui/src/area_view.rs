@@ -3561,6 +3561,24 @@ fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
     commit_moves(app, view, &moved, "Rotate");
 }
 
+/// Turns each selected object to a facing of its own, at random (one
+/// command): Aurora's random rotation, for scenery placed in numbers.
+fn random_facing(app: &mut Moonglow, view: &AreaView) {
+    let Some(model) = &view.model else { return };
+    let moved: Vec<(usize, Vec3, f32)> = view
+        .selection
+        .iter()
+        .filter_map(|&(k, i)| view.object_at(k, i))
+        .filter(|&i| turns(model.objects[i].kind))
+        .map(|i| {
+            let o = &model.objects[i];
+            let any = fastrand::f32() * std::f32::consts::TAU;
+            (i, o.position, mg_area::arrange::snap_rotation(any, view.snap.1))
+        })
+        .collect();
+    commit_moves(app, view, &moved, "Random Facing");
+}
+
 /// Puts the selected objects on the ground under them (creatures and
 /// outlines are there already).
 fn drop_to_ground(app: &mut Moonglow, view: &AreaView) {
@@ -3670,6 +3688,17 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
     }
     if ui.add_enabled(any, egui::Button::new("Drop to Ground (G)")).clicked() {
         drop_to_ground(app, view);
+        ui.close();
+    }
+    if ui
+        .add_enabled(any, egui::Button::new("Random Facing"))
+        .on_hover_text(
+            "Turn each selected object to face a way of its own, at random (trees and rocks \
+             placed in a row no longer all face alike); by the snap angle, if one is set",
+        )
+        .clicked()
+    {
+        random_facing(app, view);
         ui.close();
     }
     // Placeables: static (part of the scenery; the game gives those no

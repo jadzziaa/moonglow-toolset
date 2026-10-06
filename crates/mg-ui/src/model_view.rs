@@ -62,6 +62,10 @@ pub struct ModelView {
     pub pitch: f32,
     pub distance: f32,
     pub target: Vec3,
+    /// How what is shown is stood for the viewer: an item is modelled
+    /// lying down (its length along the ground) and is shown stood on its
+    /// end, as its icon shows it; all else as it is.
+    stand: Mat4,
     targets: Option<(Targets, egui::TextureId)>,
     last_frame: Option<f64>,
     particles: Option<Particles>,
@@ -209,8 +213,20 @@ impl ModelView {
             .ok()
             .and_then(|c| c.idle.clone().filter(|i| c.animations().contains(i)));
         let composed = composed.ok();
+        // (An item of its own model: not armor or a cloak, shown worn.)
+        let item = match source {
+            Source::Resource(k) => k.restype == ResType::UTI,
+            Source::Instance { path, .. } => {
+                crate::blueprint::instance_type(path) == Some(ResType::UTI)
+            }
+        };
+        let lying = item
+            && preview.as_ref().is_ok_and(|p| p.idle.is_none() && !p.base.model.contains("cloak"));
+        let stand =
+            if lying { Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
         let mut view = ModelView {
             model,
+            stand,
             supermodels: RefCell::new(HashMap::new()),
             animation,
             playing: true,
@@ -242,7 +258,18 @@ impl ModelView {
     /// Fits the camera to the model's rest pose.
     pub fn frame(&mut self) {
         if let Some(c) = &self.composed {
-            let (min, max) = c.bounds();
+            let (low, high) = c.bounds();
+            // (The box around it as it is stood.)
+            let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+            for corner in 0..8 {
+                let p = Vec3::new(
+                    if corner & 1 == 0 { low.x } else { high.x },
+                    if corner & 2 == 0 { low.y } else { high.y },
+                    if corner & 4 == 0 { low.z } else { high.z },
+                );
+                let w = self.stand.transform_point3(p);
+                (min, max) = (min.min(w), max.max(w));
+            }
             self.target = (min + max) * 0.5;
             let radius = ((max - min).length() * 0.5).max(0.1);
             self.distance = radius / 20f32.to_radians().sin() * 1.1;
@@ -487,7 +514,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     // The base (with the viewer's animated meshes and dangly state), then
     // what hangs from it.
     let mut instances = match &view.composed {
-        Some(c) => c.instances(view.animation.as_deref(), view.time, Mat4::IDENTITY),
+        Some(c) => c.instances(view.animation.as_deref(), view.time, view.stand),
         None => vec![Instance::new(model.clone(), Mat4::IDENTITY)],
     };
     if let Some(base) = instances.first_mut() {

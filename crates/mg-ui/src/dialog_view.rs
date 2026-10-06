@@ -13,7 +13,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::dialog::{
     ANIMATIONS, Branch, Kind, Parent, add_node, copy_branch, is_link, link_index, link_lines,
-    links, move_link, new_dialog, node, paste_branch, remove, word_count,
+    links, move_link, new_dialog, node, paste_branch, remove, shift_link, word_count,
 };
 use mg_resman::ResKey;
 use mg_schema::{GffValue, StructExt, jrl};
@@ -333,6 +333,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             remove(&mut ng, r.parent, r.pos);
             view.selected = None;
             actions.push(replace(key, "Delete line", &ng));
+        }
+        // Up and down among the lines of its parent: the order the game
+        // tries them in (Alt + the arrow keys, too).
+        let siblings = sel.map_or(0, |r| links(&g, r.parent).len());
+        for (label, up, arrow, hint) in [
+            ("⏶", true, egui::Key::ArrowUp, "Move the line up among its parent's (Alt+Up)"),
+            ("⏷", false, egui::Key::ArrowDown, "Move the line down among its parent's (Alt+Down)"),
+        ] {
+            let can = sel.is_some_and(|r| if up { r.pos > 0 } else { r.pos + 1 < siblings });
+            let key_move = here && ui.input_mut(|i| i.consume_key(egui::Modifiers::ALT, arrow));
+            let clicked =
+                ui.add_enabled(can, egui::Button::new(label)).on_hover_text(hint).clicked();
+            if (clicked || key_move)
+                && can
+                && let Some(r) = sel
+            {
+                let mut ng = g.clone();
+                if let Some(pos) = shift_link(&mut ng, r.parent, r.pos, up) {
+                    view.selected = Some(Row { parent: r.parent, pos });
+                    let what = if up { "Move line up" } else { "Move line down" };
+                    actions.push(replace(key, what, &ng));
+                }
+            }
         }
         ui.separator();
         if ui.button("Expand All").clicked() {
