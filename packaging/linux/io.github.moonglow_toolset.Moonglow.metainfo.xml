@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.15.0" date="2026-10-06">
+      <description>
+        <p>An external script compiler can be chosen; Steam Workshop
+        content is read, and the game is found in other Steam libraries;
+        the grid shows red from the area's edge; include files are no
+        longer compiled on their own.</p>
+      </description>
+    </release>
     <release version="1.14.1" date="2026-10-06">
       <description>
         <p>Inventories are dragged, copied and pasted, and an item's
