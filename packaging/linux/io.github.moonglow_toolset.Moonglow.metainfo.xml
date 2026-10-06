@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.13.2" date="2026-10-06">
+      <description>
+        <p>The galleries' pictures of things made for a wall are no longer
+        blank; an appearance dragged into the area shows where it would
+        go.</p>
+      </description>
+    </release>
     <release version="1.13.1" date="2026-10-06">
       <description>
         <p>The galleries' names are easier to read; a picture dragged from
