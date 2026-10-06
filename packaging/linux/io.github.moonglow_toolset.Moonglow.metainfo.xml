@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.13.1" date="2026-10-06">
+      <description>
+        <p>The galleries' names are easier to read; a picture dragged from
+        the Placeable Gallery into the area places a placeable; panes have
+        their margin back.</p>
+      </description>
+    </release>
     <release version="1.13.0" date="2026-10-06">
       <description>
         <p>Galleries: the palette shows blueprints as pictures, and the
