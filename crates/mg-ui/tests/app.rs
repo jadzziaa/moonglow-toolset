@@ -10900,6 +10900,9 @@ fn the_placeable_gallery_gives_the_selection_an_appearance() {
         h.hover_at(from + (to - from) * (k as f32 / 6.0));
         h.run_steps(1);
     }
+    // Over the area it shows, see-through, where it would go.
+    let ghost = h.state().area_views[&area].ghost_shown.clone().expect("its ghost");
+    assert_eq!(ghost.kind, ObjectKind::Placeable);
     press(&h, to, false, egui::Modifiers::NONE);
     h.run_steps(3);
     assert_eq!(count(&mut h), 2, "a second placeable");

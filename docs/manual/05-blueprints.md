@@ -84,7 +84,8 @@ The palette's buttons:
   window of its own, and can be docked beside the area or maximized. Click
   a picture to give it to the placeables selected in the area shown; the
   tab stays open to try another. Drag a picture into the area's view to
-  place a placeable of that appearance there: a plain, static one named
+  place a placeable of that appearance there (it shows see-through where
+  it would go): a plain, static one named
   for the appearance, of no blueprint. **Find** narrows it by name, and the
   slider sets how large the pictures are at least: they grow to fill the
   tab's width (the palette's Gallery has the same slider, and the size is

@@ -239,6 +239,28 @@ impl Composed {
     }
 
     /// Bounds of everything in the rest pose (for framing a camera).
+    /// How much of the base model's surface faces a viewer in direction
+    /// `towards` (from the model, in its space): its vertices' normals,
+    /// summed as far as they point that way. A flat thing made to hang on
+    /// a wall (a banner, wall weeds) faces one way only, and seen from
+    /// behind shows nothing.
+    pub fn facing(&self, towards: Vec3) -> f32 {
+        let gm = &self.base.gpu;
+        let mut sum = 0.0;
+        for (i, node) in gm.model.nodes.iter().enumerate() {
+            let mg_mdl::NodeKind::Mesh(mesh) = &node.kind else { continue };
+            if !mesh.render {
+                continue;
+            }
+            let at = gm.rest.get(i).copied().unwrap_or(Mat4::IDENTITY);
+            for n in &mesh.normals {
+                sum +=
+                    at.transform_vector3(Vec3::from(*n)).normalize_or_zero().dot(towards).max(0.0);
+            }
+        }
+        sum
+    }
+
     pub fn bounds(&self) -> (Vec3, Vec3) {
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         let rest = &self.base.gpu.rest;

@@ -2950,6 +2950,25 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
     }
 }
 
+/// The placeable an appearance dragged from the Placeable Gallery makes,
+/// at `placement`: a plain, static one (as the Placeable Wizard makes it)
+/// named and tagged for the appearance.
+fn appearance_item(
+    app: &Moonglow,
+    dragged: &crate::appearance_gallery::DraggedAppearance,
+    placement: mg_module::instances::Placement,
+) -> Option<mg_gff::Struct> {
+    use mg_module::instances::{Placing, instance};
+    let game = app.game.as_deref()?;
+    let mut blueprint = mg_module::blueprints::placeable(ResRef::EMPTY, &dragged.name, 0);
+    blueprint.root.set("Appearance", mg_gff::Value::Dword(dragged.row as u32));
+    let tag = mg_module::blueprints::tag(&dragged.name);
+    blueprint.root.set("Tag", mg_gff::Value::String(crate::text::encode(&tag)));
+    let none = |_: ResRef| None;
+    let placing = Placing { game, item: &none };
+    instance(&placing, ResType::UTP, &blueprint.root, placement, &[])
+}
+
 /// An appearance dropped from the Placeable Gallery: a placeable with it,
 /// where it is dropped. It is no blueprint's: a plain, static placeable
 /// (as the Placeable Wizard makes one) named for the appearance.
@@ -2959,21 +2978,13 @@ fn drop_appearance(
     response: &egui::Response,
     dragged: &crate::appearance_gallery::DraggedAppearance,
 ) {
-    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::instances::Placement;
     let pointer = response.ctx.input(|i| i.pointer.latest_pos());
     let Some(at) = pointer.and_then(|pos| view.ground_at(pos, 0.0)) else { return };
     let at = view.snapped(at);
-    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
-    let mut blueprint = mg_module::blueprints::placeable(ResRef::EMPTY, &dragged.name, 0);
-    blueprint.root.set("Appearance", mg_gff::Value::Dword(dragged.row as u32));
-    let tag = mg_module::blueprints::tag(&dragged.name);
-    blueprint.root.set("Tag", mg_gff::Value::String(crate::text::encode(&tag)));
-    let none = |_: ResRef| None;
-    let placing = Placing { game, item: &none };
     let placement = Placement { position: at.to_array(), rotation: view.ghost_turn };
-    let Some(item) = instance(&placing, ResType::UTP, &blueprint.root, placement, &[]) else {
-        return;
-    };
+    let Some(item) = appearance_item(app, dragged, placement) else { return };
+    let Some(ws) = app.ws.as_mut() else { return };
     let git = view.git();
     let kind = ObjectKind::Placeable;
     let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
@@ -3134,7 +3145,14 @@ fn instance_of(
 /// encounters (drawn point by point).
 fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_area::AreaObject> {
     let dragged = egui::DragAndDrop::payload::<crate::palette_view::Dragged>(ui.ctx());
-    let key = dragged.map(|d| d.0).or_else(|| brush(app));
+    // An appearance dragged from the Placeable Gallery: the placeable it
+    // would place (kept under a name of its own, no blueprint's).
+    type Appearance = crate::appearance_gallery::DraggedAppearance;
+    let appearance = egui::DragAndDrop::payload::<Appearance>(ui.ctx());
+    let unnamed = appearance
+        .as_ref()
+        .and_then(|a| ResKey::parse(&format!("plc_app_{}", a.row), ResType::UTP));
+    let key = unnamed.or(dragged.map(|d| d.0)).or_else(|| brush(app));
     let Some(key) = key.filter(|_| !view.pasting && view.outline.is_empty()) else {
         view.ghost = None;
         return None;
@@ -3158,7 +3176,11 @@ fn ghost(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) -> Option<mg_ar
     };
     if view.ghost.as_ref().is_none_or(|(k, _)| *k != key) {
         let placement = mg_module::instances::Placement { position: [0.0; 3], rotation: 0.0 };
-        let object = instance_of(app, key, placement, &[]).ok().flatten().and_then(|item| {
+        let item = match &appearance {
+            Some(a) => appearance_item(app, a, placement),
+            None => instance_of(app, key, placement, &[]).ok().flatten(),
+        };
+        let object = item.and_then(|item| {
             let game = app.game.as_deref()?;
             Some(mg_area::AreaObject::read(game, kind, usize::MAX, &item))
         });

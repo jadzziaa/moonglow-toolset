@@ -27,3 +27,4 @@
 * **Update**: [The deferred list](deferred.md): water ripples (the game's procedural texture, approximated).
 * **Update**: [The deferred list](deferred.md): water's waves (Enhanced Edition's water shader, approximated).
 * **Update**: [Blueprints](manual/05-blueprints.md): a picture dragged from the Placeable Gallery places a placeable.
+* **Update**: [Blueprints](manual/05-blueprints.md): a dragged appearance's ghost; pictures are taken from the side that shows the most of a model.

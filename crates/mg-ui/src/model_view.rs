@@ -623,7 +623,20 @@ fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::T
     // A model that emits (flames, sparks, a shaft of light: some are
     // nothing else) is drawn a few seconds in, its particles in the frame.
     let idle = composed.idle.as_deref();
-    let (yaw, pitch) = (60f32.to_radians(), 20f32.to_radians());
+    let pitch = 20f32.to_radians();
+    // From the side that shows the most of it: a thing made for a wall has
+    // a face and no back, and from behind there is nothing to see.
+    let towards =
+        |yaw: f32| Vec3::new(yaw.cos() * pitch.cos(), yaw.sin() * pitch.cos(), pitch.sin());
+    let usual = 60f32.to_radians();
+    let yaw = [usual + std::f32::consts::PI, usual + 1.57, usual - 1.57]
+        .into_iter()
+        .fold((usual, composed.facing(towards(usual))), |best, yaw| {
+            // (Only for a side that shows half as much again.)
+            let shows = composed.facing(towards(yaw));
+            if shows > best.1 * 1.5 + 1e-3 { (yaw, shows) } else { best }
+        })
+        .0;
     let mut particles = Vec::new();
     if let Some((model, playing, pose)) = composed.emitters(idle, 0.0) {
         let mut sim = Particles::new(model);
@@ -652,7 +665,10 @@ fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::T
     let radius = ((max - min).length() * 0.5).max(0.1);
     // (Nearer than the viewer stands: a picture is small, and what is in it
     // should fill it.)
-    let distance = radius / 20f32.to_radians().sin() * 0.85;
+    // … but far enough that a tall thing (a banner) keeps its top and foot.
+    let tall = (max.z - min.z) * 0.5 / 20f32.to_radians().tan() * 1.08
+        + (max - min).truncate().length() * 0.25;
+    let distance = (radius / 20f32.to_radians().sin() * 0.85).max(tall);
     let camera = Camera::orbit(target, distance, yaw, pitch);
     let scene = Scene {
         instances: composed.instances(idle, 0.0, Mat4::IDENTITY),
