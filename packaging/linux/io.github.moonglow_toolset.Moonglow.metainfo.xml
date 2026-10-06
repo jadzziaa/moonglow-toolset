@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.13.0" date="2026-10-06">
+      <description>
+        <p>Galleries: the palette shows blueprints as pictures, and the
+        Placeable Gallery every placeable appearance, to give to what is
+        selected with a click. Water moves. A round of builders' reports:
+        copy and paste on Windows, sounds that come up gradually, windows
+        that keep their size, any snapping angle, Escape to deselect.</p>
+      </description>
+    </release>
     <release version="1.12.1" date="2026-10-05">
       <description>
         <p>Fixes cloaks drawn over the face of elves and other bodies that
