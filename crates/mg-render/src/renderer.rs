@@ -48,6 +48,7 @@ struct FrameUniform {
     fog_color: [f32; 4],
     light_params: [f32; 4],
     scene_color: [f32; 4],
+    time: [f32; 4],
 }
 
 #[repr(C)]
@@ -71,6 +72,7 @@ struct DrawUniform {
     maps2: [f32; 4],
     spec_color: [f32; 4],
     extra: [f32; 4],
+    water: [f32; 4],
     light_count: [u32; 4],
     light_index: [[u32; 4]; 8],
 }
@@ -104,6 +106,10 @@ struct TextureEntry {
     clamp: (bool, bool),
     /// A cube map (six faces).
     cube: bool,
+    /// It ripples (the game's water): how far, and how fast.
+    ripple: Option<(f32, f32)>,
+    /// It is water (`bumpmaptexture shinywater`): waves cross it.
+    water: bool,
 }
 
 /// Texture slots: diffuse, normal, specular, roughness, height,
@@ -663,6 +669,8 @@ impl Renderer {
                     decal: false,
                     clamp: (true, true),
                     cube: true,
+                    ripple: None,
+                    water: false,
                 }));
                 self.textures.insert(name.to_string(), entry.clone());
                 return entry;
@@ -676,6 +684,8 @@ impl Renderer {
                 env: t.txi.envmap().map(str::to_ascii_lowercase),
                 decal: t.txi.decal(),
                 clamp: t.txi.clamp(),
+                ripple: t.txi.ripple(),
+                water: t.txi.water(),
             })
         });
         self.textures.insert(name.to_string(), entry.clone());
@@ -743,6 +753,7 @@ impl Renderer {
                 0.0,
                 if self.debug == DebugView::MaterialDiffuse { 1.0 } else { 0.0 },
             ],
+            time: [scene.time, 0.0, 0.0, 0.0],
         };
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
 
@@ -946,6 +957,11 @@ impl Renderer {
                             .map_or([0.0; 4], |c| c.extend(1.0).to_array()),
                         // (w: which part of a see-through mesh, below.)
                         extra: [flag(env_cube), flag(is_sky), flag(fade_color.is_some()), 0.0],
+                        water: {
+                            let (far, fast) =
+                                tex.as_ref().and_then(|t| t.ripple).unwrap_or((0.0, 0.0));
+                            [far, fast, flag(tex.as_ref().is_some_and(|t| t.water)), 0.0]
+                        },
                         light_count: [
                             chosen.len() as u32,
                             u32::from(mesh.skin.is_some()),

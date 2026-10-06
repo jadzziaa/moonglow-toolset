@@ -67,6 +67,26 @@ pub(crate) fn let_run(mut child: std::process::Child) {
     });
 }
 
+/// How many games started for a test are still running.
+static GAMES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// [`let_run`] for the game started for a test: counted while it runs.
+pub(crate) fn let_game_run(mut child: std::process::Child) {
+    use std::sync::atomic::Ordering;
+    GAMES.fetch_add(1, Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        GAMES.fetch_sub(1, Ordering::SeqCst);
+    });
+}
+
+/// Whether a game Moonglow started for a test is still running. A second
+/// test would write the test module under it (Test From Here writes it
+/// anew each time), and the game then reports a corrupt module.
+pub(crate) fn game_running() -> bool {
+    GAMES.load(std::sync::atomic::Ordering::SeqCst) > 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

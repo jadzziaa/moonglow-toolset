@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:05:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:44:13Z }
 ---
 
 # Blueprints
@@ -67,6 +67,31 @@ move it there.
 The palette's buttons:
 
 - **Edit**: open a custom blueprint in its editor (or double-click it).
+- **List** and **Gallery** (beside Categories…): Gallery shows the blueprints as pictures in a grid rather than a
+  list of names, to choose by eye (creatures, doors, items and
+  placeables: the types with a model). A picture is clicked, dragged and
+  right-clicked as a name is; the pictures are made a few at a time as
+  they come into sight.
+- **Replace Selected with This** (a blueprint's right-click menu): the
+  objects of that type selected in the area become ones of this
+  blueprint, where they stand and facing as they face. One Undo puts the
+  old ones back. With the Gallery, this swaps a placed object for a
+  neighbouring one in a click or two.
+- **The Placeable Gallery** (**Tools › Placeable Gallery…**, or **All
+  Appearances…** in the palette's Placeables): every appearance in
+  `placeables.2da` as a picture, those that are only an effect (flames,
+  sparks, shafts of light) too. It is a tab like any other: it opens in a
+  window of its own, and can be docked beside the area or maximized. Click
+  a picture to give it to the placeables selected in the area shown; the
+  tab stays open to try another. **Find** narrows it by name, and the
+  slider sets how large the pictures are at least: they grow to fill the
+  tab's width (the palette's Gallery has the same slider, and the size is
+  kept). A model the palettes don't offer can be chosen here.
+- **Gallery…** beside Appearance Type in a placeable's Properties (a
+  blueprint's, or a placed one's) opens the gallery at that placeable's
+  own appearance, so its neighbours in the table are beside it; a click
+  gives it to that placeable (**Use the Selection** goes back to the
+  area's selection).
 - **View**: open one of the game's blueprints to look at, page by page
   as its editor shows it (or double-click it). Nothing changed there is
   kept: the window says so, and offers **Edit Copy…**.

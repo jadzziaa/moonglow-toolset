@@ -20,3 +20,9 @@
 * **Update**: [Areas](manual/04-areas.md): the scale handle; [the deferred list](deferred.md).
 * **Update**: [Areas](manual/04-areas.md): tiles' particles; Alt, not Shift, turns the selection and moves the camera; [the deferred list](deferred.md).
 * **Update**: [The deferred list](deferred.md): a worn part (a cloak, a robe) moves at its wearer's animation scale.
+* **Update**: [Blueprints](manual/05-blueprints.md): the palette's Gallery and Replace Selected with This; [the deferred list](deferred.md).
+* **Update**: [Blueprints](manual/05-blueprints.md): a placeable's appearances as pictures; [the deferred list](deferred.md).
+* **Update**: [Blueprints](manual/05-blueprints.md): the Placeable Gallery; [areas](manual/04-areas.md) and [the deferred list](deferred.md): copying leaves text on the clipboard, for Ctrl+V on Windows.
+* **Update**: [The deferred list](deferred.md): GitHub issue 6, what was done from it and what is left; [areas](manual/04-areas.md): Escape deselects.
+* **Update**: [The deferred list](deferred.md): water ripples (the game's procedural texture, approximated).
+* **Update**: [The deferred list](deferred.md): water's waves (Enhanced Edition's water shader, approximated).

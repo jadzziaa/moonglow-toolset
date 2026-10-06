@@ -862,6 +862,70 @@ fn cancel_button(ui: &mut Ui, hover: Option<&str>) -> bool {
     r.clicked() || (layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer))
 }
 
+/// Says on the system's clipboard what Moonglow has copied of its own
+/// (objects, tiles, a conversation's lines: kept in Moonglow, not there).
+/// Without text there, Windows gives Ctrl+V nothing to paste and the key
+/// never reaches Moonglow: copied objects couldn't be pasted with it.
+pub(crate) fn mark_clipboard(ctx: &egui::Context, what: &str) {
+    ctx.copy_text(format!("Moonglow Toolset: {what}"));
+}
+
+/// A picture over its name, in a gallery: `side` points square and a line
+/// of text under it, cut short. `made`: the picture (`Some(None)`: there
+/// is nothing to draw; `None`: not made yet). Its response, and whether
+/// it is in sight (to have its picture made).
+pub(crate) fn picture_tile(
+    ui: &mut Ui,
+    side: f32,
+    label: &str,
+    chosen: bool,
+    made: Option<Option<egui::TextureId>>,
+) -> (egui::Response, bool) {
+    let size = egui::vec2(side, side + 18.0);
+    let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
+    if !ui.is_rect_visible(rect) {
+        return (r, false);
+    }
+    let visuals = ui.style().interact_selectable(&r, chosen);
+    if chosen || r.hovered() {
+        ui.painter().rect_filled(rect, 3.0, visuals.weak_bg_fill);
+    }
+    if chosen {
+        let stroke = egui::Stroke::new(1.5, ui.visuals().selection.stroke.color);
+        ui.painter().rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Inside);
+    }
+    let picture = egui::Rect::from_min_size(rect.min, egui::vec2(side, side)).shrink(2.0);
+    let font = egui::TextStyle::Small.resolve(ui.style());
+    let text = ui.visuals().text_color();
+    match made {
+        Some(Some(id)) => {
+            let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+            ui.painter().image(id, picture, uv, egui::Color32::WHITE);
+        }
+        _ => {
+            let mark = if made.is_none() { "…" } else { "(no picture)" };
+            ui.painter().text(
+                picture.center(),
+                egui::Align2::CENTER_CENTER,
+                mark,
+                font.clone(),
+                ui.visuals().weak_text_color(),
+            );
+        }
+    }
+    let name = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 2.0, picture.bottom()),
+        rect.max - egui::vec2(2.0, 0.0),
+    );
+    let mut job = egui::text::LayoutJob::simple_singleline(label.to_string(), font, text);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(name.width());
+    let galley = ui.painter().layout_job(job);
+    let at = egui::pos2(name.center().x - galley.size().x / 2.0, name.top() + 1.0);
+    ui.painter().galley(at, galley, text);
+    r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, chosen, label));
+    (r, true)
+}
+
 /// Enter in a dialog: what its main button (Create, OK, Next, Finish) does,
 /// when nothing else has the keyboard: after typing in a one-line field
 /// (which lets go of it on Enter), or with nothing focused. Not while a

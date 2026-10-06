@@ -277,12 +277,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             || (key_copy && sel.is_some())
         {
             app.dialog_clip = sel.and_then(copy);
+            if app.dialog_clip.is_some() {
+                crate::widgets::mark_clipboard(ui.ctx(), "conversation lines");
+            }
         }
         let mut delete = false;
         if (ui.add_enabled(sel.is_some(), egui::Button::new("Cut")).clicked() || key_cut)
             && sel.is_some()
         {
             app.dialog_clip = sel.and_then(copy);
+            if app.dialog_clip.is_some() {
+                crate::widgets::mark_clipboard(ui.ctx(), "conversation lines");
+            }
             delete = true;
         }
         let paste_parent = add_parent;

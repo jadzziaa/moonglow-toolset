@@ -28,6 +28,8 @@ struct Frame {
     // Minimum light (the GUI "scene colour"), linear; w = debug view
     // (1: material diffuse).
     scene_color: vec4<f32>,
+    // x = seconds, for what moves by itself (water).
+    time: vec4<f32>,
 };
 
 struct Light {
@@ -61,6 +63,10 @@ struct Draw {
     // x = the environment map is a cube map; w = the part of a see-through
     // mesh drawn: 1 its solid part, 2 the rest (0: all of it)
     extra: vec4<f32>,
+    // A rippling texture (the game's procedural water): x = how far its
+    // picture is pushed about (a part of its width), y = how fast; 0: still.
+    // z = 1 for water (`bumpmaptexture shinywater`): waves cross it.
+    water: vec4<f32>,
     // x = number of lights for this draw, y = 1 if skinned, z = first bone
     light_count: vec4<u32>,
     // Up to 32 light indices.
@@ -279,6 +285,18 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
 
     // Tangent frame and parallax.
     var uv = in.uv;
+    // Water: the picture pushed about by two slow waves each way (an
+    // approximation of the game's procedure, which is its own).
+    if (draw.water.x > 0.0) {
+        let t = frame.time.x * draw.water.y * 0.06;
+        let k = 6.2831853;
+        let wave = vec2<f32>(
+            sin(k * uv.y * 1.0 + t) + sin(k * uv.x * 0.7 + t * 0.63 + 1.3),
+            cos(k * uv.x * 1.0 + t * 0.81) + cos(k * uv.y * 0.6 + t * 0.47 + 2.1),
+        );
+        // (Under the waves of Enhanced Edition's water, half as far.)
+        uv = uv + wave * (draw.water.x * select(0.25, 0.12, draw.water.z > 0.5));
+    }
     var tsb = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), surface_n);
     if (normal_mapped || height_mapped) {
         let t = in.tangent_view.xyz;
@@ -363,6 +381,41 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         n = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
     }
 
+    // Water: small waves crossing it tip its surface this way and that, so
+    // what it reflects (the environment, the lights) moves over it. Waves
+    // of Moonglow's own, standing in for Enhanced Edition's water shader.
+    let watery = draw.water.z > 0.5;
+    if (watery) {
+        // Where the fragment is in the world: waves there run on from tile
+        // to tile (by its texture coordinates, each tile had its own).
+        let view_rot = mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz);
+        let world = transpose(view_rot) * (in.pos_view - frame.view[3].xyz);
+        let t = frame.time.x;
+        // Six trains of waves, of lengths and headings that don't repeat
+        // together, over ground bent a little so their crests aren't
+        // straight: (heading, waves a metre, speed, height).
+        let bent = world.xy
+            + 0.45 * vec2<f32>(
+                sin(world.y * 0.83 + t * 0.31) + sin(world.x * 0.41 - t * 0.17),
+                cos(world.x * 0.71 - t * 0.27) + cos(world.y * 0.37 + t * 0.21),
+            );
+        var slope = vec2<f32>(0.0);
+        let trains = array<vec4<f32>, 6>(
+            vec4<f32>(0.35, 3.1, 1.3, 0.034),
+            vec4<f32>(1.95, 4.3, 1.7, 0.030),
+            vec4<f32>(3.60, 5.9, 2.2, 0.024),
+            vec4<f32>(5.10, 7.7, 2.8, 0.020),
+            vec4<f32>(2.75, 10.3, 3.4, 0.014),
+            vec4<f32>(4.40, 13.1, 4.1, 0.010),
+        );
+        for (var i = 0; i < 6; i = i + 1) {
+            let w = trains[i];
+            let heading = vec2<f32>(cos(w.x), sin(w.x));
+            slope = slope + heading * (cos(dot(bent, heading) * w.y + t * w.z) * w.w);
+        }
+        n = normalize(n + view_rot * vec3<f32>(-slope, 0.0));
+    }
+
     // Occlusion from the height map's local depth.
     var ao = 1.0;
     var surface_fade = 10.0;
@@ -397,6 +450,11 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         }
     } else if (env_mapped) {
         rough = env_rough;
+    }
+    // (Water shines: smooth, and mirror enough to show the sky.)
+    if (watery) {
+        spec0 = max(spec0, 0.25);
+        rough = min(rough, 0.15);
     }
     var metal = clamp(10.0 * spec0 - 0.4, 0.0, 1.0);
     if (draw.material.z > 0.0) {

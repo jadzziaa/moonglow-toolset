@@ -557,6 +557,13 @@ pub struct Thumbnails {
     made: HashMap<ResKey, Option<(Targets, egui::TextureId)>>,
 }
 
+impl Thumbnails {
+    /// The thumbnails made, by blueprint.
+    pub(crate) fn all(&self) -> HashMap<ResKey, Option<egui::TextureId>> {
+        self.made.iter().map(|(k, made)| (*k, made.as_ref().map(|(_, id)| *id))).collect()
+    }
+}
+
 impl std::fmt::Debug for Thumbnails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Thumbnails").field("made", &self.made.len()).finish()
@@ -564,10 +571,15 @@ impl std::fmt::Debug for Thumbnails {
 }
 
 /// How large thumbnails are drawn, in pixels.
-pub(crate) const THUMBNAIL: u32 = 160;
+pub(crate) const THUMBNAIL: u32 = 224;
+
+/// How long a model that emits has run when its thumbnail is drawn: this
+/// many steps of this many seconds.
+const THUMBNAIL_STEPS: usize = 40;
+const THUMBNAIL_STEP: f32 = 0.1;
 
 /// At most this many kept; past it, the oldest are let go.
-const THUMBNAILS_KEPT: usize = 96;
+const THUMBNAILS_KEPT: usize = 192;
 
 /// A blueprint's thumbnail (`None`: no GPU, or nothing to draw).
 pub(crate) fn thumbnail(app: &mut Moonglow, key: ResKey) -> Option<egui::TextureId> {
@@ -592,7 +604,11 @@ pub(crate) fn thumbnail(app: &mut Moonglow, key: ResKey) -> Option<egui::Texture
 }
 
 fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::TextureId)> {
-    if !matches!(key.restype, ResType::UTC | ResType::UTD | ResType::UTI | ResType::UTP) {
+    // (A blueprint's, or a model's own: a gallery of appearances.)
+    if !matches!(
+        key.restype,
+        ResType::UTC | ResType::UTD | ResType::UTI | ResType::UTP | ResType::MDL
+    ) {
         return None;
     }
     if let Some(ws) = app.ws.as_mut() {
@@ -603,16 +619,47 @@ fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::T
     let composed = compose(app, &source, &preview).ok()?;
     let vp = app.viewport.as_mut()?;
     // As the viewer frames it: from the front, a little to the side.
-    let (min, max) = composed.bounds();
+    let (mut min, mut max) = composed.bounds();
+    // A model that emits (flames, sparks, a shaft of light: some are
+    // nothing else) is drawn a few seconds in, its particles in the frame.
+    let idle = composed.idle.as_deref();
+    let (yaw, pitch) = (60f32.to_radians(), 20f32.to_radians());
+    let mut particles = Vec::new();
+    if let Some((model, playing, pose)) = composed.emitters(idle, 0.0) {
+        let mut sim = Particles::new(model);
+        for step in 0..THUMBNAIL_STEPS {
+            let t = step as f32 * THUMBNAIL_STEP;
+            sim.update(model, playing, t, THUMBNAIL_STEP, &pose, Mat4::IDENTITY);
+        }
+        // (Drawn for a camera on that side; where exactly comes after.)
+        let rough = Camera::orbit(Vec3::ZERO, 10.0, yaw, pitch);
+        let seconds = THUMBNAIL_STEPS as f32 * THUMBNAIL_STEP;
+        particles = sim.batches(model, playing, seconds, &pose, Mat4::IDENTITY, rough.view());
+        let mut any = false;
+        for v in particles.iter().flat_map(|b| &b.vertices) {
+            let p = Vec3::from(v.pos);
+            (min, max) = if any { (min.min(p), max.max(p)) } else { (p, p) };
+            any = true;
+        }
+        if any {
+            let (low, high) = composed.bounds();
+            if (high - low).length() > 0.2 {
+                (min, max) = (min.min(low), max.max(high));
+            }
+        }
+    }
     let target = (min + max) * 0.5;
     let radius = ((max - min).length() * 0.5).max(0.1);
-    let distance = radius / 20f32.to_radians().sin() * 1.1;
-    let camera = Camera::orbit(target, distance, 60f32.to_radians(), 20f32.to_radians());
+    // (Nearer than the viewer stands: a picture is small, and what is in it
+    // should fill it.)
+    let distance = radius / 20f32.to_radians().sin() * 0.85;
+    let camera = Camera::orbit(target, distance, yaw, pitch);
     let scene = Scene {
-        instances: composed.instances(composed.idle.as_deref(), 0.0, Mat4::IDENTITY),
+        instances: composed.instances(idle, 0.0, Mat4::IDENTITY),
         lights: composed.point_lights(Mat4::IDENTITY),
         area: AreaLight::default(),
         background: [0.16, 0.18, 0.21],
+        particles,
         ..Default::default()
     };
     let size = THUMBNAIL;

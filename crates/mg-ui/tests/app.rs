@@ -5983,7 +5983,8 @@ fn the_area_view_plays_the_area_s_sounds() {
     let edit = mg_edit::Edit::SetResource { key, data: git.to_bytes().ok() };
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("sounds", vec![edit])));
     h.state_mut().area_views.get_mut(&area).unwrap().night = false;
-    h.run_steps(3);
+    // (An area's sounds come up over its first three seconds.)
+    h.run_steps(240);
     // Aurora's defaults: the placed sound only, at 1 − (8 − 5) / 13.
     let playing = |c: Channel| speaker.borrow().channels.get(&c).cloned();
     let (name, gain, looped) = playing(Channel::Placed(0)).expect("the bell");
@@ -10689,4 +10690,186 @@ fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
     assert_eq!(scale(&mut h), None, "an undo each");
+}
+
+/// The palette's Gallery shows a category's blueprints as pictures: a
+/// click on one chooses it to place, as a click on its name does.
+#[test]
+fn the_palette_s_gallery_shows_blueprints_as_pictures() {
+    let Some((mut h, _area)) = area_harness("gallery") else { return };
+    {
+        let p = &mut h.state_mut().palette;
+        p.kind = mg_module::palette::BlueprintKind::Placeable;
+        (p.tiles, p.custom, p.gallery) = (false, false, true);
+        p.filter = "chest".into();
+    }
+    // (A few are made a frame.)
+    h.run_steps(30);
+    let chest = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+    let name = {
+        let game = h.state().game.as_deref().unwrap();
+        let utp = Gff::read(&game.resman.get(&chest).unwrap()).unwrap();
+        game.locstring(utp.root.locstring("LocName").unwrap()).unwrap()
+    };
+    let tile = h.get_all_by_label(&name).next().expect("the chest's picture");
+    let size = tile.rect().size();
+    assert!(size.x > 80.0 && size.y > size.x, "a picture over a name: {size:?}");
+    tile.click();
+    h.run_steps(3);
+    assert!(h.state().palette.selected.is_some(), "chosen, to place");
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-gallery").join("gallery.png")).unwrap();
+    // List goes back to the names, and Gallery to the pictures.
+    h.get_by_label("List").click();
+    h.run_steps(3);
+    assert!(!h.state().palette.gallery);
+    let row = h.get_all_by_label(&name).next().expect("the chest's row").rect().size();
+    assert!(row.y < 30.0, "a row of the list: {row:?}");
+    h.get_by_label("Gallery").click();
+    h.run_steps(3);
+    assert!(h.state().palette.gallery);
+}
+
+/// Replace Selected with This, on a blueprint in the palette: the selected
+/// object of its type becomes one of that blueprint, where it stands; the
+/// others stay; one undo.
+#[test]
+fn the_palette_replaces_the_selected_object() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("replace") else { return };
+    let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    {
+        let app = h.state_mut();
+        app.palette.kind = mg_module::palette::BlueprintKind::Waypoint;
+        (app.palette.tiles, app.palette.custom) = (false, false);
+        app.palette.filter = "nw_wp_tavern".into();
+        app.area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    }
+    h.run_steps(5);
+    let read = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        let w = &git.root.list("WaypointList").unwrap()[i];
+        (
+            w.resref("TemplateResRef").map(|r| r.to_string()),
+            w.float("XPosition"),
+            w.float("YPosition"),
+        )
+    };
+    let (first, second) = (read(&mut h, 0), read(&mut h, 1));
+    h.get_by_label(&tavern).click_secondary();
+    h.run_steps(2);
+    h.get_by_label("Replace Selected with This").click();
+    h.run_steps(3);
+    let now = read(&mut h, 0);
+    assert_eq!(now.0.as_deref(), Some("nw_wp_tavern"));
+    assert_eq!((now.1, now.2), (first.1, first.2), "where it stood");
+    assert_eq!(read(&mut h, 1), second, "the other is untouched");
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(read(&mut h, 0), first, "one undo");
+}
+
+/// A placeable's Properties open a gallery of every appearance in
+/// placeables.2da at its own: a click on a neighbour gives it that one.
+#[test]
+fn a_placeable_s_appearance_is_chosen_from_pictures() {
+    let Some((mut h, _area)) = area_harness("appearances") else { return };
+    let key = ResKey::parse("my_chest", ResType::UTP).unwrap();
+    {
+        let app = h.state_mut();
+        let stock = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let data = app.game.as_deref().unwrap().resman.get(&stock).unwrap().into_owned();
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "copy",
+            vec![mg_edit::Edit::SetResource { key, data: Some(data) }],
+        )));
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    }
+    h.run_steps(5);
+    let was = field(&mut h, &key).integer("Appearance").unwrap();
+    h.get_by_label("Gallery…").click();
+    h.run_steps(30);
+    // The row after its own, by its name in the table.
+    let next = {
+        let game = h.state().game.as_deref().unwrap();
+        let cols = mg_rules::ChoiceColumns { name: Some("StrRef"), label: Some("Label") };
+        let all = game.choices("placeables", cols).unwrap();
+        let at = all.iter().position(|c| c.row as i64 == was).unwrap();
+        all[at + 1].clone()
+    };
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-appearances").join("appearances.png")).unwrap();
+    let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 90.0;
+    h.get_all_by_label(&next.text).find(tile).expect("the next appearance's picture").click();
+    h.run_steps(3);
+    assert_eq!(field(&mut h, &key).integer("Appearance"), Some(next.row as i64));
+    assert!(h.state().dock.find_tab(&Tab::PlaceableGallery).is_some(), "the gallery stays, a tab");
+    assert!(h.query_by_label_contains("A click gives my_chest.utp the appearance").is_some());
+}
+
+/// The Placeable Gallery (Tools, and the palette's All Appearances…) is
+/// open without a placeable's Properties: a click on a picture gives its
+/// appearance to the placeables selected in the area. Models that are
+/// only an effect have pictures too.
+#[test]
+fn the_placeable_gallery_gives_the_selection_an_appearance() {
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("placeable-gallery") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [12.0, 20.0, 0.0], rotation: 0.0 };
+        let item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+        app.actions.push(mg_ui::Action::PlaceableGallery);
+    }
+    h.run_steps(5);
+    assert!(h.query_by_label_contains("Select placeables in an area").is_some());
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
+    h.state_mut().placeable_gallery.as_mut().unwrap().filter = "Flame".into();
+    h.run_steps(40);
+    assert!(h.query_by_label_contains("1 placeable selected in the area").is_some());
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-placeable-gallery").join("gallery.png")).unwrap();
+    let appearance = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        git.root.list("Placeable List").unwrap()[0].integer("Appearance").unwrap()
+    };
+    let was = appearance(&mut h);
+    let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 90.0;
+    let flame = h.get_all_by_label("Flame").find(tile).expect("a flame's picture");
+    flame.click();
+    h.run_steps(3);
+    let now = appearance(&mut h);
+    assert_ne!(now, was, "the chest is a flame");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Appearance"));
+}
+
+#[test]
+#[ignore = "a look at some appearances' pictures"]
+fn look_gallery_pictures() {
+    let Some((mut h, _area)) = area_harness("gallery-look") else { return };
+    h.state_mut().settings.gallery_tile = Some(220);
+    h.state_mut().actions.push(mg_ui::Action::PlaceableGallery);
+    h.run_steps(5);
+    h.state_mut().placeable_gallery.as_mut().unwrap().filter =
+        std::env::var("MG_FILTER").unwrap_or_default();
+    h.run_steps(60);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-gallery-look").join("look.png")).unwrap();
 }

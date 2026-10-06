@@ -4,6 +4,7 @@
 //! the module directly: they queue [`Action`]s, which run after the frame and
 //! turn edits into undoable [`mg_edit::Command`]s.
 
+mod appearance_gallery;
 mod area_audio;
 mod area_props;
 pub mod area_reshape;
@@ -171,6 +172,8 @@ pub enum Action {
     FindTag(String),
     /// The Rename window for a resource.
     RenameDialog(ResKey),
+    /// Opens the Placeable Gallery.
+    PlaceableGallery,
     /// Copy…: asks for the copy's ResRef and Tag.
     CopyDialog(ResKey),
     /// Edit beside a script's name: opens the module's script, else the
@@ -371,6 +374,8 @@ pub struct Moonglow {
     pub references: references::References,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
+    /// The Placeable Gallery, while it is open.
+    pub placeable_gallery: Option<appearance_gallery::Gallery>,
     /// The Copy window (Edit Copy, the module tree's Copy…).
     pub copy_as: Option<copy_as::CopyDraft>,
     /// The script editor's code navigation and errors as you type.
@@ -488,6 +493,9 @@ impl std::fmt::Debug for Moonglow {
     }
 }
 
+/// The smallest window whose size is remembered for the next of its kind.
+const MIN_REMEMBERED: egui::Vec2 = egui::vec2(260.0, 160.0);
+
 impl Moonglow {
     /// The application over a game install (loaded now; failures are logged).
     pub fn new(install: Option<GameInstall>, dialogs: Box<dyn Dialogs>) -> Moonglow {
@@ -554,6 +562,7 @@ impl Moonglow {
             references: Default::default(),
             rename: None,
             copy_as: None,
+            placeable_gallery: None,
             script_nav: Default::default(),
             prefab_save: None,
             update_draft: None,
@@ -949,6 +958,9 @@ impl Moonglow {
         // As wide and tall as one of its kind was last left.
         let kind = tab.kind();
         let left = self.settings.window_sizes.iter().find(|(k, _)| k == kind);
+        // (One left too small to use, by an older version, is passed over.)
+        let left = left
+            .filter(|(_, s)| s[0] as f32 >= MIN_REMEMBERED.x && s[1] as f32 >= MIN_REMEMBERED.y);
         let want = left.map_or(tab.window_size(), |(_, s)| egui::vec2(s[0] as f32, s[1] as f32));
         let remembered = left.is_some();
         // Some of the main pane (the area view) shows beside it.
@@ -1040,6 +1052,13 @@ impl Moonglow {
     /// maximized one's).
     fn remember_window_sizes(&mut self) {
         let mut again = Vec::new();
+        // The windows with a pane folded (the arrow at their bar's left).
+        let folded: Vec<Tab> = self
+            .dock
+            .iter_leaves()
+            .filter(|(p, leaf)| !p.surface.is_main() && leaf.collapsed)
+            .flat_map(|(_, leaf)| leaf.tabs.iter().cloned())
+            .collect();
         for (tab, panes) in self.window_panes() {
             let Some(track) = self.windows.get_mut(&tab) else { continue };
             // (Once it has settled there: a window is a frame or two in
@@ -1066,6 +1085,13 @@ impl Moonglow {
                 track.put.size() + (panes.size() - first.size()),
             );
             if self.maximized.contains_key(&tab) || panes == first {
+                continue;
+            }
+            // (Not a window folded to its bar, nor one squeezed to nothing:
+            // the next of its kind opened as small, as if it had folded.)
+            let small =
+                track.now.width() < MIN_REMEMBERED.x || track.now.height() < MIN_REMEMBERED.y;
+            if folded.contains(&tab) || small {
                 continue;
             }
             let size = [track.now.width().round() as u32, track.now.height().round() as u32];
@@ -1730,6 +1756,11 @@ impl Moonglow {
             Action::FindTag(t) => self.find_references(references::Query::Tag(t)),
             Action::RenameDialog(k) => self.rename_dialog(k),
             Action::CopyDialog(k) => self.copy_dialog(k, false),
+            Action::PlaceableGallery => {
+                // (For the selection: not the placeable it was last opened for.)
+                self.placeable_gallery = Some(Default::default());
+                self.run_now(Action::OpenTab(Tab::PlaceableGallery));
+            }
             Action::EditScript { name, condition } => self.edit_script(name, condition),
             Action::DeleteDialog(k) => self.confirm_delete = Some(k),
             Action::DeleteResource(k) => self.delete_resource(k),
@@ -2076,6 +2107,13 @@ impl Moonglow {
 
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
+        if test_module::game_running() {
+            self.log.warn(
+                "The game started for the last test is still running: close it, then test \
+                 again (a second test would write the module under it)",
+            );
+            return;
+        }
         let Some(install) = self.install.clone() else {
             self.log.error("Test Module needs the game");
             return;
@@ -2127,6 +2165,13 @@ impl Moonglow {
     /// modules folder as [`test_module::FROM_HERE`] with its start moved,
     /// and the game started on it.
     fn test_from_here(&mut self, area: mg_core::ResRef, at: [f32; 3], facing: f32) {
+        if test_module::game_running() {
+            self.log.warn(
+                "The game started for the last test is still running: close it, then test \
+                 again (a second test would write the module under it)",
+            );
+            return;
+        }
         let Some(install) = self.install.clone() else {
             self.log.error("Test From Here needs the game");
             return;
@@ -2438,7 +2483,7 @@ impl Moonglow {
     ) {
         match test_module::command(client, user, name, choose).spawn() {
             Ok(game) => {
-                test_module::let_run(game);
+                test_module::let_game_run(game);
                 self.log.info(format!("Testing {name}"));
                 // Options > General: Minimize Toolset on test module.
                 self.minimize_requested = self.settings.minimize_on_test;

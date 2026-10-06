@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T22:05:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T00:00:11Z }
 ---
 
 # Areas
@@ -111,6 +111,7 @@ field).
 | G | drop them to the ground |
 | Alt + drag | raise or lower them (not creatures, which stand on the ground) |
 | Delete | delete them |
+| Escape | select nothing (it drops a drag, a brush or a paste first) |
 | Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste (in this area or another) |
 | Double-click | the object's Properties |
 
@@ -179,7 +180,8 @@ of the button that holds it. **Escape** drops the drag: nothing moves.
 **Snapping** (the toolbar's **Snap** and **Turn**):
 - **Snap** moves objects to a grid of 0.25 to 5 m as you drag, place or
   paste them.
-- **Turn** turns them in steps of 5° to 90°.
+- **Turn** turns them in steps of 5° to 90°, or of any number of degrees
+  typed beside **Other** in its list.
 
 With several selected, the first selected snaps and the others keep their
 places and turns around it.
@@ -261,7 +263,9 @@ placeables around.
   **Delete…**; it asks first (a prefab isn't the module's, so Undo
   doesn't bring it back).
 - **Copy and paste** do the same without a name: Ctrl+C on a selection,
-  Ctrl+V in this area or another.
+  Ctrl+V in this area or another. (Copying leaves a line of text on the
+  system's clipboard, "Moonglow Toolset: 3 objects": Windows gives Ctrl+V
+  nothing to do with an empty clipboard.)
 - **Any area, any module:** prefabs are kept in Moonglow's data folder, in
   `prefabs` (see [Troubleshooting](13-troubleshooting.md)). Copy the
   `.prefab.json` files to share them.
@@ -365,6 +369,9 @@ ticked, shown as the first of them:
   (each area's tiles get its lights) and environment, fog, weather, day
   and night, the ambient sounds and music, the event scripts, the check
   modifiers, player vs. player, the loading screen and No Rest.
+- **Give Every Area This Page's Settings** sets what the page shows (the
+  first area's) on all the others, whether changed here or not: to make
+  the areas alike in what they already have.
 - **Loading Screen** (Advanced, and a door's or trigger's Area
   Transition page) shows the chosen screen's picture under the list, and
   each screen's when the pointer rests on its name in the list.

@@ -418,3 +418,67 @@ fn a_tile_s_emitters_follow_its_animation_loops() {
     assert_eq!(particles(0), 0, "the loop off: no smoke");
     assert!(particles(1) > 0, "the loop on: smoke");
 }
+
+/// Water moves: the game ripples its texture by a procedure (`arturo`),
+/// and the same area drawn two seconds apart differs where it is water. A
+/// builder saw it flat and still.
+#[test]
+fn water_ripples_with_time() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let root = corpus!();
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(3);
+    let mut m = new_module(&game, "Water", &mut rng).unwrap();
+    let tileset = ResRef::from_str("ttr01").unwrap();
+    let spec = AreaSpec { name: "Lake".into(), tileset, width: 2, height: 2 };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let git = m.gff(&ResKey::new(area, ResType::GIT)).unwrap().unwrap();
+    let are = m.gff(&ResKey::new(area, ResType::ARE)).unwrap().unwrap();
+    let set = mg_area::tileset(&game, tileset).unwrap();
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    // How many pixels differ between the area at 0 and at 2 seconds.
+    let mut moved = |tile: Option<&str>| -> usize {
+        let mut are = are.clone();
+        if let Some(name) = tile {
+            let id = set.tiles.iter().position(|t| t.model.eq_ignore_ascii_case(name)).unwrap();
+            for t in are.root.list_mut("Tile_List").unwrap() {
+                t.set("Tile_ID", mg_gff::Value::Int(id as i32));
+            }
+        }
+        let model = AreaModel::read(&game, &are.root, &git.root, Some(&set));
+        let loaded = AreaScene::new(&gpu, &game, &model);
+        let mut shot = |time: f32| {
+            let view = View { time, ..View::of(&model) };
+            let scene = loaded.scene(&model, &view);
+            r.render_image(&gpu, &game.resman, &scene, &overview(&model), 96, 72)
+        };
+        let (a, b) = (shot(0.0), shot(2.0));
+        // (To look at: target/test-output/water/.)
+        if tile.is_some() {
+            let view = View { time: 2.0, ..View::of(&model) };
+            let big = r.render_image(
+                &gpu,
+                &game.resman,
+                &loaded.scene(&model, &view),
+                &overview(&model),
+                480,
+                360,
+            );
+            let file =
+                std::fs::File::create(mg_testkit::scratch_dir("water").join("water.png")).unwrap();
+            let mut enc = png::Encoder::new(std::io::BufWriter::new(file), big.width, big.height);
+            enc.set_color(png::ColorType::Rgba);
+            enc.set_depth(png::BitDepth::Eight);
+            enc.write_header().unwrap().write_image_data(&big.data).unwrap();
+        }
+        a.data.chunks(4).zip(b.data.chunks(4)).filter(|(x, y)| x != y).count()
+    };
+    assert_eq!(moved(None), 0, "grass holds still");
+    let water = moved(Some("ttr01_b20_01"));
+    assert!(water > 500, "water moves: {water} pixels changed");
+}

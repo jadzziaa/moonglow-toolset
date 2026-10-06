@@ -184,6 +184,8 @@ pub struct Scene {
     /// Lines drawn after the meshes, hidden behind them (the area's tile
     /// grid), a pixel wide.
     pub lines: Vec<Line>,
+    /// Seconds, for what moves by itself: the game's water ripples.
+    pub time: f32,
 }
 
 /// A line in the scene ([`Scene::lines`]).

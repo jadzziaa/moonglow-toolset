@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T22:43:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T00:39:32Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -368,6 +368,22 @@ objects in the area view, Fade Geometry. Left:
 - **The scale handle** scales every way alike, as Adjust Location's
   field does; the file keeps a scale for each axis. It stands where it
   was taken while it is dragged, rather than follow the pointer. (S)
+- **The Gallery:** whether it is on isn't kept between sessions (the
+  pictures' size is); up to 192 pictures are kept and all are made again when a blueprint
+  changes; stores, sounds, triggers, encounters and waypoints have no
+  picture. (S)
+- **Ctrl+V refused on Windows** (a builder's debug log: "arboard paste
+  error … the clipboard is empty"): the key reaches Moonglow only as the
+  system's paste, which Windows doesn't send with no text to paste.
+  Copying objects, tiles or a conversation's lines now leaves a line of
+  text there. Not tried on Windows. (—)
+- **A picture of a model that emits** is drawn four seconds in, framed
+  with its particles (a flame is small under its smoke). (S)
+- **Appearances as pictures** are a placeable's only: doors', creatures'
+  and items' appearance lists have no gallery yet. (S–M)
+- **Replace Selected with This** makes the object anew from the
+  blueprint: what the old one had of its own (its tag, variables, a
+  tilt or scale) goes; triggers and encounters aren't replaced. (S)
 - **Deleting a prefab** isn't undone. (—)
 
 ## Raw fields
@@ -390,6 +406,39 @@ objects in the area view, Fade Geometry. Left:
 - **One scratch folder:** To Scratch copies to one folder, for every
   module; a folder per module, or a remote server's (over SSH), isn't
   offered. Export as Files takes any folder, and remembers the last. (S)
+
+## From GitHub issue 6 (October 2026)
+
+Done: linked particles drawn a frame each (a ground mist was a lattice
+of its sprite sheet), Edit Areas Together giving every area a page's
+settings, a test refused while the game of the last one runs, an area's
+sounds coming up over three seconds (those that play now and then not
+all at once), a folded window's size not remembered for the next of its
+kind, any snapping angle, Escape deselecting. Already there: copy and
+paste (and its Windows fix), missing music tried once, custom palette
+categories, the galleries. Water ripples. Left:
+
+- **Linked particles against the game:** each is stretched to reach the
+  next, showing its own frame, as the wiki describes them; not compared
+  with the client. (S)
+- **Water** was flat and still. The game's water textures (every base
+  tileset's, Medieval Rural 2's too) say two things in their TXI:
+  `proceduretype arturo`, the old game's rippling of the picture, and
+  `bumpmaptexture shinywater`, which Enhanced Edition draws with its
+  water shader (`fswater`: waves driven by the area's wind, reflections).
+  Moonglow now does both in its own way: the picture is pushed about
+  with the TXI's amplitude and speed, and on water small waves, running
+  on from tile to tile, tip the surface so its reflections move. Neither
+  is the game's procedure or its shader (no wind, no local sources, no
+  displacement), and neither was compared with the client. (M)
+- **A running game** is known only if Moonglow started it for a test:
+  one started otherwise still has the test module written under it. (S)
+- **Clicking from tiles into objects and back** without Select Tiles
+  (F10): a click on an object while tiles are selected, and the other
+  way, was asked for. Escape now deselects; the modes are still chosen.
+  (S–M)
+- **Give Every Area This Page's Settings** copies the fields the page
+  shows, not the tiles' lights a lighting scheme sets. (S)
 
 ## Area visibility
 

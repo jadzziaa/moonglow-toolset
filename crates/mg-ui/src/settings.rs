@@ -70,6 +70,9 @@ pub struct Settings {
     pub script_style: ScriptStyle,
     /// Options > General: Build module on save (Aurora's `Verify On Save`).
     pub build_on_save: bool,
+    /// How large the galleries' pictures are, points (their slider's;
+    /// `None`: the usual size).
+    pub gallery_tile: Option<u16>,
     /// Options > General: Show ResRefs beside names: `Name (resref)` in
     /// the module tree (where it lists by name) and the palettes.
     pub name_resrefs: bool,

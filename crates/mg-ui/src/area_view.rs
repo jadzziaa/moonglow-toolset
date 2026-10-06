@@ -1327,6 +1327,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
                 for a in [None, Some(5), Some(15), Some(45), Some(90)] {
                     ui.selectable_value(&mut app.settings.snap_angle, a, angle(a));
                 }
+                // Any other angle, in whole degrees.
+                ui.horizontal(|ui| {
+                    ui.label("Other");
+                    let mut degrees = app.settings.snap_angle.unwrap_or(30);
+                    let field = egui::DragValue::new(&mut degrees).range(1..=180).suffix("°");
+                    if ui.add(field).changed() {
+                        app.settings.snap_angle = Some(degrees);
+                    }
+                });
             })
             .response
             .on_hover_text("Turned objects snap to this angle; Q and E turn by it (15° when free)");
@@ -2297,6 +2306,9 @@ fn overlays(
 fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui::Response) {
     let (shift, command, alt) =
         ui.input(|i| (i.modifiers.shift, i.modifiers.command, i.modifiers.alt));
+    // (Whether something was in hand when the frame began: Escape drops it
+    // and no more.)
+    let in_hand = view.drag.is_some() || view.pasting || brush(app).is_some() || view.held.on;
     view.held = Held::read(ui, response, view.held);
     camera_input(ui, view, response, (alt, shift), command, &app.keymap);
     if let Some(dragged) = response.dnd_release_payload::<crate::palette_view::Dragged>() {
@@ -2345,6 +2357,11 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     if hovered && !typing {
         if (copy || cut) && !view.selection.is_empty() {
             app.object_clip = copy_selection(app, view);
+            if let Some(clip) = &app.object_clip {
+                let n = clip.objects.len();
+                let what = if n == 1 { "1 object".to_string() } else { format!("{n} objects") };
+                crate::widgets::mark_clipboard(ui.ctx(), &what);
+            }
             if cut {
                 delete(app, view);
             }
@@ -2748,6 +2765,19 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     }
     if hovered && !view.selection.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
         delete(app, view);
+    }
+    // Escape with nothing in hand (no drag, brush or paste, which it drops
+    // first): nothing selected.
+    let idle = !in_hand && view.drag.is_none() && !view.pasting && brush(app).is_none();
+    if idle
+        && hovered
+        && !view.held.on
+        && ui.input(|i| i.key_pressed(egui::Key::Escape))
+        && crate::terrain_mode::active(app, view).is_none()
+    {
+        view.selection.clear();
+        view.tile_selection.clear();
+        view.start_selected = false;
     }
 }
 
@@ -3170,6 +3200,59 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
 
 /// Save as Prefab for the selection of `area`'s view (the palette's
 /// Prefabs asks for it): whether there was a selection to save.
+/// The palette's Replace Selected: each selected object of the
+/// blueprint's type becomes one made from blueprint `key`, where it stands
+/// and facing as it faces (one command). Objects of other types, locked
+/// ones, and triggers and encounters (which have outlines) are left. How
+/// many were replaced.
+pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) -> usize {
+    use mg_module::instances::Placement;
+    let Some(kind) = ObjectKind::from_restype(key.restype).filter(|k| !k.has_outline()) else {
+        app.log.warn("Triggers and encounters are drawn, not replaced");
+        return 0;
+    };
+    let Some(view) = app.area_views.get(&area) else { return 0 };
+    let git = view.git();
+    let stand: Vec<(usize, Vec3, f32)> = view
+        .selection
+        .iter()
+        .filter(|(k, _)| *k == kind)
+        .filter_map(|&(k, i)| {
+            view.model.as_ref()?.object(k, i).filter(|o| !o.locked).map(|o| (i, o))
+        })
+        .map(|(i, o)| (i, o.position, o.rotation))
+        .collect();
+    let mut edits = Vec::new();
+    for &(index, position, rotation) in &stand {
+        let placement = Placement { position: position.to_array(), rotation };
+        match instance_of(app, key, placement, &[]) {
+            Ok(Some(item)) => {
+                let (path, list) = (mg_edit::GffPath::root(), kind.list().to_string());
+                edits.push(mg_edit::Edit::RemoveItem {
+                    key: git,
+                    path: path.clone(),
+                    list: list.clone(),
+                    index,
+                });
+                edits.push(mg_edit::Edit::InsertItem { key: git, path, list, index, item });
+            }
+            Ok(None) => {}
+            Err(e) => {
+                app.log.error(e);
+                return 0;
+            }
+        }
+    }
+    let replaced = edits.len() / 2;
+    if replaced == 0 {
+        app.log.warn("Select objects of this blueprint's type in the area first");
+        return 0;
+    }
+    let what = format!("Replace with {}", key.resref);
+    app.actions.push(Action::Apply(Command::new(what, edits)));
+    replaced
+}
+
 pub(crate) fn save_selection_as_prefab(app: &mut Moonglow, area: ResRef) -> bool {
     let Some(view) = app.area_views.remove(&area) else { return false };
     let clip = copy_selection(app, &view);

@@ -138,6 +138,9 @@ pub(crate) fn input(
     if response.hovered() && !typing {
         if (copy || cut) && !view.tile_selection.is_empty() {
             app.tile_clip = copy_tiles(app, view);
+            if app.tile_clip.is_some() {
+                crate::widgets::mark_clipboard(ui.ctx(), "tiles");
+            }
             if cut {
                 delete(app, view);
             }

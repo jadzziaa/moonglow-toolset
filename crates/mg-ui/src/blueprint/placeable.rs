@@ -86,7 +86,21 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         f.text(ui, "Tag", "Tag", 32);
         ui.end_row();
         crate::widgets::field_label(ui, "Appearance Type");
-        f.choice(ui, "Appearance", "Appearance", &appearances, FieldType::Dword);
+        ui.horizontal(|ui| {
+            f.choice(ui, "Appearance", "Appearance", &appearances, FieldType::Dword);
+            if ui
+                .button("Gallery…")
+                .on_hover_text(
+                    "The Placeable Gallery: every placeable appearance as a picture, from this \
+                     one on. Click one to give it to this placeable",
+                )
+                .clicked()
+            {
+                let gallery = crate::appearance_gallery::Gallery::of(f.key, f.path.clone());
+                f.app.placeable_gallery = Some(gallery);
+                f.app.actions.push(Action::OpenTab(crate::Tab::PlaceableGallery));
+            }
+        });
         ui.end_row();
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Placeable);

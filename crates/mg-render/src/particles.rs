@@ -452,7 +452,7 @@ impl Particles {
                     texture: em.texture.clone(),
                     blend: blend_of(em),
                     render_order: em.render_order,
-                    vertices: strip(&points, eye),
+                    vertices: strip(&points, None, eye),
                     tint: None,
                 });
                 continue;
@@ -489,11 +489,22 @@ impl Particles {
                         (pos, s0 + (s1 - s0) * k, [c.x, c.y, c.z, a0 + (a1 - a0) * k])
                     })
                     .collect();
+                // Each particle's frame of the flip-book, as a quad's.
+                let cells: Vec<(Vec2, Vec2)> = order
+                    .iter()
+                    .map(|q| {
+                        let frame =
+                            (f0 + (q.frame0 + q.age * fps).floor() % frames).min(f1.max(f0)) as u32;
+                        let (fx, fy) = (frame % gx, frame / gx % gy);
+                        let uv0 = Vec2::new(fx as f32 / gx as f32, fy as f32 / gy as f32);
+                        (uv0, uv0 + Vec2::new(1.0 / gx as f32, 1.0 / gy as f32))
+                    })
+                    .collect();
                 out.push(ParticleBatch {
                     texture: em.texture.clone(),
                     blend: blend_of(em),
                     render_order: em.render_order,
-                    vertices: strip(&points, eye),
+                    vertices: strip(&points, Some(&cells), eye),
                     tint,
                 });
                 continue;
@@ -608,9 +619,18 @@ impl Particles {
     }
 }
 
-/// Camera-facing quads joining points (position, width, colour), the
-/// texture's v running along the strip.
-fn strip(points: &[(Vec3, f32, [f32; 4])], eye: Vec3) -> Vec<ParticleVertex> {
+/// Camera-facing quads joining points (position, width, colour). Without
+/// `cells`, the texture's v runs along the whole strip (a bolt of
+/// lightning). With them (one a point: the corners of its frame in the
+/// texture), each piece is its first point's particle stretched to reach
+/// the next, showing that particle's frame: linked particles. (Drawn with
+/// the whole texture, a flip-book's frames showed side by side along the
+/// strip: a lattice over a ground mist.)
+fn strip(
+    points: &[(Vec3, f32, [f32; 4])],
+    cells: Option<&[(Vec2, Vec2)]>,
+    eye: Vec3,
+) -> Vec<ParticleVertex> {
     let mut out = Vec::new();
     let n = points.len().saturating_sub(1).max(1) as f32;
     for (i, w) in points.windows(2).enumerate() {
@@ -618,19 +638,22 @@ fn strip(points: &[(Vec3, f32, [f32; 4])], eye: Vec3) -> Vec<ParticleVertex> {
         let side =
             |p: Vec3, width: f32| (b - a).cross(eye - p).normalize_or(Vec3::X) * (width * 0.5);
         let (sa, sb) = (side(a, wa), side(b, wb));
-        let (va, vb) = (i as f32 / n, (i + 1) as f32 / n);
+        let (uv0, uv1) = match cells.and_then(|c| c.get(i)) {
+            Some(cell) => *cell,
+            None => (Vec2::new(0.0, i as f32 / n), Vec2::new(1.0, (i + 1) as f32 / n)),
+        };
         let v = |p: Vec3, u: f32, v: f32, c: [f32; 4]| ParticleVertex {
             pos: p.to_array(),
             uv: [u, v],
             color: c,
         };
         out.extend([
-            v(a - sa, 0.0, va, ca),
-            v(a + sa, 1.0, va, ca),
-            v(b + sb, 1.0, vb, cb),
-            v(a - sa, 0.0, va, ca),
-            v(b + sb, 1.0, vb, cb),
-            v(b - sb, 0.0, vb, cb),
+            v(a - sa, uv0.x, uv0.y, ca),
+            v(a + sa, uv1.x, uv0.y, ca),
+            v(b + sb, uv1.x, uv1.y, cb),
+            v(a - sa, uv0.x, uv0.y, ca),
+            v(b + sb, uv1.x, uv1.y, cb),
+            v(b - sb, uv0.x, uv1.y, cb),
         ]);
     }
     out

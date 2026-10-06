@@ -60,6 +60,8 @@ pub enum Tab {
     Manual,
     /// Find References: where something is used.
     References,
+    /// The Placeable Gallery: every placeable appearance as a picture.
+    PlaceableGallery,
     /// What an object placed in an area looks like, in the 3D viewer.
     InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
 }
@@ -104,6 +106,7 @@ impl Tab {
             Tab::Instances { .. } | Tab::Instance { .. } => "instance",
             Tab::Manual => "manual",
             Tab::References => "references",
+            Tab::PlaceableGallery => "placeable-gallery",
         }
     }
 
@@ -244,6 +247,7 @@ impl Viewer<'_> {
             }
             Tab::Manual => crate::manual::ui(self.app, ui),
             Tab::References => crate::references::ui(self.app, ui),
+            Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
         }
     }
 }
@@ -302,6 +306,7 @@ impl TabViewer for Viewer<'_> {
             }
             Tab::Manual => "User Manual".into(),
             Tab::References => "References".into(),
+            Tab::PlaceableGallery => "Placeable Gallery".into(),
             Tab::InstanceModel { area, path } => {
                 format!("{} (preview)", instance_title(self.app, *area, path)).into()
             }

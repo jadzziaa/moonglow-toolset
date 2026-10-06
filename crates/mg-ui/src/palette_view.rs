@@ -17,6 +17,15 @@ use mg_resman::ResKey;
 
 use crate::{Action, Moonglow, Tab};
 
+/// How many of a Gallery's pictures are made a frame.
+pub(crate) const GALLERY_PER_FRAME: usize = 3;
+
+/// Whether blueprints of a kind have pictures (a model to draw).
+fn pictured(kind: BlueprintKind) -> bool {
+    use BlueprintKind as K;
+    matches!(kind, K::Creature | K::Door | K::Item | K::Placeable)
+}
+
 /// A blueprint dragged from the palette (dropped in an area view, it is
 /// placed there).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -64,6 +73,9 @@ pub struct PaletteView {
     /// The prefabs are shown (groups of placed objects saved to place
     /// again), rather than blueprints.
     pub prefabs: bool,
+    /// Blueprints are shown as pictures in a grid (the Gallery), rather
+    /// than as a list: for the types that have a picture.
+    pub gallery: bool,
     /// The tileset brush chosen.
     pub tile_brush: Option<crate::terrain_mode::TileBrush>,
     /// The area shown last: its tileset's palette is the one shown.
@@ -101,6 +113,7 @@ impl Default for PaletteView {
             chosen: Vec::new(),
             tiles: false,
             prefabs: false,
+            gallery: false,
             tile_brush: None,
             area: None,
             tile_palettes: HashMap::new(),
@@ -252,6 +265,8 @@ enum Pick {
     EditCopy(ResKey),
     Delete(ResKey),
     Preview(ResKey),
+    /// The objects selected in the area become ones of this blueprint.
+    Replace(ResKey),
     References(ResKey),
     UpdateInstances(Vec<ResKey>),
     EditTogether(Vec<ResKey>),
@@ -355,6 +370,43 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         {
             categories = Some(view.kind);
         }
+        // List or Gallery: names, or pictures in their place for the types
+        // that have them (the others are lists, whichever is chosen).
+        ui.separator();
+        let pictures = pictured(view.kind);
+        let shown = view.gallery && pictures;
+        if ui
+            .selectable_label(!shown, "List")
+            .on_hover_text("Show the blueprints by name")
+            .clicked()
+        {
+            view.gallery = false;
+        }
+        ui.add_enabled_ui(pictures, |ui| {
+            if ui
+                .selectable_label(shown, "Gallery")
+                .on_hover_text("Show the blueprints as pictures, to choose by eye")
+                .on_disabled_hover_text("Creatures, doors, items and placeables have pictures")
+                .clicked()
+            {
+                view.gallery = true;
+            }
+        });
+        if shown {
+            crate::appearance_gallery::size_slider(app, ui);
+        }
+        // Every appearance there is, not only the blueprints'.
+        if view.kind == BlueprintKind::Placeable
+            && ui
+                .button("All Appearances…")
+                .on_hover_text(
+                    "The Placeable Gallery: every placeable appearance as a picture; a click \
+                     gives it to the placeables selected in the area",
+                )
+                .clicked()
+        {
+            app.actions.push(Action::PlaceableGallery);
+        }
     });
     if let Some(kind) = categories {
         app.palette = std::mem::take(&mut view);
@@ -404,6 +456,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .filter_map(|f| ResRef::from_str(f.strip_prefix(&format!("{ext}:"))?).ok())
             .collect(),
         thumb: view.thumb,
+        gallery: view.gallery && pictured(kind),
+        side: crate::appearance_gallery::tile_side(app),
+        ready: app.thumbnails.all(),
+        wanted: Vec::new(),
         about: view.about.as_ref().map(|(k, lines)| (*k, lines.as_slice())),
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
         picks: Vec::new(),
@@ -423,6 +479,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             tree.node(ui, node, &[i]);
         }
     });
+    let wanted = std::mem::take(&mut tree.wanted);
     let (sel, picks, hovered) = (tree.sel, tree.picks, tree.hovered);
     if sel.selected.is_some() && sel.selected != view.selected {
         view.tile_brush = None;
@@ -430,6 +487,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     view.selected = sel.selected;
     view.chosen = sel.chosen;
     app.palette = view;
+    // The Gallery's pictures still to make: a few a frame, those in sight
+    // first, so a long category doesn't hold the toolset up.
+    if !wanted.is_empty() {
+        for key in wanted.iter().take(GALLERY_PER_FRAME) {
+            crate::model_view::thumbnail(app, *key);
+        }
+        ui.ctx().request_repaint();
+    }
     // The hovered blueprint's picture, for its tooltip next frame.
     if let Some(key) = hovered
         && app.palette.thumb.is_none_or(|(k, _)| k != key)
@@ -465,6 +530,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                 }
             }
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
+            Pick::Replace(key) => match app.palette.area {
+                Some(area) => {
+                    let n = crate::area_view::replace_selected(app, area, key);
+                    if n > 0 {
+                        app.log.info(format!("Replaced {n} with {}", key.resref));
+                    }
+                }
+                None => app.log.warn("Open an area and select what to replace first"),
+            },
             Pick::References(key) => app.actions.push(Action::FindReferences(key)),
             Pick::UpdateInstances(keys) => app.update_instances_of(keys),
             Pick::EditTogether(keys) => app.actions.push(Action::OpenTab(Tab::Blueprints(keys))),
@@ -578,6 +652,12 @@ struct Tree<'a> {
     favorites: std::collections::HashSet<ResRef>,
     /// The thumbnail ready for the blueprint hovered last frame.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
+    /// The Gallery: blueprints as pictures. Those made so far, and those
+    /// in sight that aren't yet.
+    gallery: bool,
+    side: f32,
+    ready: HashMap<ResKey, Option<egui::TextureId>>,
+    wanted: Vec<ResKey>,
     /// And what there is to say of it.
     about: Option<(ResKey, &'a [String])>,
     sel: Selection,
@@ -641,11 +721,9 @@ impl Tree<'_> {
                     p.push(i);
                     self.node(ui, child, &p);
                 }
-                for b in &node.blueprints {
-                    if self.shown(b) {
-                        self.row(ui, b);
-                    }
-                }
+                let rows: Vec<&PaletteBlueprint> =
+                    node.blueprints.iter().filter(|b| self.shown(b)).collect();
+                self.rows(ui, &rows);
             });
         if !custom {
             return;
@@ -677,7 +755,7 @@ impl Tree<'_> {
         // thousands).
         let height = ui.spacing().interact_size.y;
         let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
-        if !ui.is_rect_visible(room) {
+        if !self.gallery && !ui.is_rect_visible(room) {
             ui.allocate_space(egui::vec2(1.0, height));
             return;
         }
@@ -690,9 +768,14 @@ impl Tree<'_> {
         let label = if favorite { format!("★ {label}") } else { label };
         // Dragged into an area view, it is placed where it is dropped; onto
         // a custom category, it moves there.
-        let r = ui.add(
-            egui::Button::selectable(self.sel.has(key), label).sense(egui::Sense::click_and_drag()),
-        );
+        let r = if self.gallery {
+            self.tile(ui, key, &label)
+        } else {
+            ui.add(
+                egui::Button::selectable(self.sel.has(key), label)
+                    .sense(egui::Sense::click_and_drag()),
+            )
+        };
         if r.hovered() {
             self.hovered = Some(key);
         }
@@ -706,7 +789,7 @@ impl Tree<'_> {
                 ui.label(format!("Tag {t}"));
             }
             if let Some(id) = thumb {
-                let size = crate::model_view::THUMBNAIL as f32;
+                let size = 180.0;
                 ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
             }
             for line in about {
@@ -773,6 +856,17 @@ impl Tree<'_> {
                 picks.push(Pick::Preview(key));
                 ui.close();
             }
+            if ui
+                .button("Replace Selected with This")
+                .on_hover_text(
+                    "The objects of this type selected in the area become ones of this \
+                     blueprint, where they stand",
+                )
+                .clicked()
+            {
+                picks.push(Pick::Replace(key));
+                ui.close();
+            }
             let text = if favorite { "Remove from Favorites" } else { "Add to Favorites" };
             if ui.button(text).clicked() {
                 picks.push(Pick::Favorite(key, !favorite));
@@ -825,11 +919,40 @@ impl Tree<'_> {
             .id_salt(("palette-remembered", title, self.kind, self.custom))
             .default_open(true)
             .open(self.fold)
-            .show(ui, |ui| {
-                for b in here {
+            .show(ui, |ui| self.rows(ui, &here));
+    }
+
+    /// A category's blueprints: a list, or in the Gallery a grid.
+    fn rows(&mut self, ui: &mut egui::Ui, rows: &[&PaletteBlueprint]) {
+        if self.gallery {
+            // As many across as fit, grown to fill the palette's width.
+            let asked = self.side;
+            let room = ui.available_width() - 1.0;
+            self.side = crate::appearance_gallery::fitted(room, asked, 4.0).1;
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+                for b in rows {
                     self.row(ui, b);
                 }
             });
+            self.side = asked;
+        } else {
+            for b in rows {
+                self.row(ui, b);
+            }
+        }
+    }
+
+    /// A blueprint in the Gallery: its picture over its name, cut short
+    /// (whole on hover). Until the picture is made, or for a blueprint
+    /// with nothing to draw, its name alone.
+    fn tile(&mut self, ui: &mut egui::Ui, key: ResKey, label: &str) -> egui::Response {
+        let made = self.ready.get(&key).copied();
+        let (r, seen) = crate::widgets::picture_tile(ui, self.side, label, self.sel.has(key), made);
+        if seen && made.is_none() {
+            self.wanted.push(key);
+        }
+        r
     }
 }
 

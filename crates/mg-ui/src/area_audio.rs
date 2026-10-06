@@ -101,6 +101,9 @@ impl PlacedSound {
     }
 }
 
+/// How long an area's sounds take to come up when it is opened, seconds.
+const FADE_IN: f64 = 3.0;
+
 /// What the area plays, from frame to frame.
 #[derive(Debug, Default)]
 pub(crate) struct AreaAudio {
@@ -110,6 +113,9 @@ pub(crate) struct AreaAudio {
     /// What was last asked for as ambient sound and as music, playing or
     /// not: one that is missing is tried once, not every frame.
     asked: [Option<ResRef>; 2],
+    /// When the area was first heard: its sounds come up over a few
+    /// seconds from then, rather than all at once at full volume.
+    since: Option<f64>,
     placed: HashMap<usize, Slot>,
 }
 
@@ -142,6 +148,8 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
         stop_all(app, &mut state);
         state.area = place;
     }
+    let since = *state.since.get_or_insert(now);
+    let fade = (((now - since) / FADE_IN).clamp(0.0, 1.0)) as f32;
     let Some((area, listener, night)) = heard else {
         app.area_audio = state;
         return false;
@@ -162,7 +170,7 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
         (int("AmbientSndDay"), int("AmbientSndDayVol"), int("MusicDay"))
     };
     let ambient = app.settings.ambient_sound.then(|| resource(app, "ambientsound", sound));
-    let volume = sound_volume.clamp(0, 127) as f32 / 127.0;
+    let volume = sound_volume.clamp(0, 127) as f32 / 127.0 * fade;
     loop_on(
         app,
         Channel::Ambient,
@@ -172,7 +180,8 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
         volume,
     );
     let tune = app.settings.ambient_music.then(|| resource(app, "ambientmusic", music));
-    let volume = f32::from(app.settings.music_volume.unwrap_or(MUSIC_VOLUME).min(127)) / 127.0;
+    let volume =
+        f32::from(app.settings.music_volume.unwrap_or(MUSIC_VOLUME).min(127)) / 127.0 * fade;
     loop_on(app, Channel::Music, &mut state.music, &mut state.asked[1], tune.flatten(), volume);
 
     // Placed sounds.
@@ -190,8 +199,16 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
     });
     for (i, p) in list.iter().enumerate() {
         let channel = Channel::Placed(i);
-        let slot = state.placed.entry(i).or_default();
-        let gain = p.gain(listener);
+        // (One that plays now and then first plays some way into its
+        // interval, so they don't all sound together when the area opens.)
+        let slot = state.placed.entry(i).or_insert_with(|| {
+            // (Those there when the area opens: one added later plays.)
+            let opening = now - since < 0.5;
+            let first =
+                if p.looping || !opening { 0.0 } else { f64::from(p.interval.clamp(1.0, 10.0)) };
+            Slot { wait_until: now + fastrand::f64() * first, ..Slot::default() }
+        });
+        let gain = p.gain(listener) * fade;
         if !p.active || !p.plays(night) || p.sounds.is_empty() || gain <= 0.0 {
             if slot.playing {
                 app.speaker.stop(channel);

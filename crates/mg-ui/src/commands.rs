@@ -47,6 +47,7 @@ pub enum Id {
     TalkTable,
     NewScript,
     Palettes,
+    PlaceableGallery,
     Resources,
     NewTileset,
     OpenTileset,
@@ -144,6 +145,7 @@ pub const MENUS: [(&str, &[Item]); 7] = [
             Do(Id::NewScript),
             Separator,
             Do(Id::Palettes),
+            Do(Id::PlaceableGallery),
             Do(Id::Resources),
             Sub("Tilesets", &[Do(Id::NewTileset), Do(Id::OpenTileset)]),
             Sub("Haks", &[Do(Id::NewHak), Do(Id::OpenHak), Do(Id::BuildHak)]),
@@ -281,6 +283,11 @@ impl Id {
             }
             Id::NewScript => ("new-script", "New Script…", ""),
             Id::Palettes => ("palettes", "Palettes", ""),
+            Id::PlaceableGallery => (
+                "placeable-gallery",
+                "Placeable Gallery…",
+                "Every placeable appearance as a picture; a click gives it to the placeables selected",
+            ),
             Id::Resources => ("resources", "Resource Browser", ""),
             Id::NewTileset => ("new-tileset", "New Tileset…", "A new .set file to fill"),
             Id::OpenTileset => ("open-tileset", "Open Tileset…", ""),
@@ -421,6 +428,7 @@ impl Id {
             | Id::OpenFolder
             | Id::Exit
             | Id::Palettes
+            | Id::PlaceableGallery
             | Id::Resources
             | Id::NewTileset
             | Id::OpenTileset
@@ -498,6 +506,7 @@ impl Id {
             Id::Journal => Action::OpenTab(Tab::Journal),
             Id::TalkTable => Action::OpenTab(Tab::TalkTable),
             Id::Palettes => Action::OpenTab(Tab::Palette),
+            Id::PlaceableGallery => Action::PlaceableGallery,
             Id::Resources => Action::OpenTab(Tab::Resources),
             Id::ReloadResources => Action::ReloadResources,
             Id::Options => Action::OptionsDialog,

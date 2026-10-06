@@ -84,6 +84,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
         ))
         .on_hover_text(names.join("\n"));
         ui.weak("Names, tags and comments are edited one area at a time.");
+        // What the page shows is the first area's, and only what is changed
+        // is set on the others: this gives them the rest of it too.
+        if ui
+            .button(format!("Give Every Area This Page's {page} Settings"))
+            .on_hover_text(format!(
+                "Sets what this page shows ({}'s) on each of the other areas, changed here or not",
+                names[0]
+            ))
+            .clicked()
+        {
+            give_page(app, area, others, page);
+        }
     }
     let also: Vec<(ResKey, GffPath)> =
         others.iter().map(|a| (ResKey::new(*a, ResType::ARE), GffPath::root())).collect();
@@ -104,6 +116,102 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
 }
 
 /// A tileset's name (read once), else its ResRef.
+/// The fields of a page shared by several areas: in the area (`false`),
+/// or in its GIT's `AreaProperties` (`true`).
+fn page_fields(page: &str) -> (bool, &'static [&'static str]) {
+    match page {
+        "Visual" => (
+            false,
+            &[
+                "ChanceLightning",
+                "ChanceRain",
+                "ChanceSnow",
+                "DayNightCycle",
+                "IsNight",
+                "LightingScheme",
+                "MoonAmbientColor",
+                "MoonDiffuseColor",
+                "MoonFogAmount",
+                "MoonFogColor",
+                "MoonShadows",
+                "SunAmbientColor",
+                "SunDiffuseColor",
+                "SunFogAmount",
+                "SunFogColor",
+                "SunShadows",
+                "ShadowOpacity",
+                "SkyBox",
+                "WindPower",
+                "FogClipDist",
+            ],
+        ),
+        "Audio" => (
+            true,
+            &[
+                "AmbientSndDay",
+                "AmbientSndDayVol",
+                "AmbientSndNight",
+                "AmbientSndNitVol",
+                "EnvAudio",
+                "MusicBattle",
+                "MusicDay",
+                "MusicDelay",
+                "MusicNight",
+            ],
+        ),
+        "Events" => (false, &["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"]),
+        "Advanced" => (
+            false,
+            &[
+                "Flags",
+                "ModListenCheck",
+                "ModSpotCheck",
+                "NoRest",
+                "PlayerVsPlayer",
+                "LoadScreenID",
+            ],
+        ),
+        _ => (false, &[]),
+    }
+}
+
+/// Gives the other areas the first one's values of a page's fields (those
+/// it has), in one command.
+fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str) {
+    let (in_git, labels) = page_fields(page);
+    let (restype, path) = if in_git {
+        (ResType::GIT, GffPath::root().field("AreaProperties"))
+    } else {
+        (ResType::ARE, GffPath::root())
+    };
+    let Some(ws) = app.ws.as_mut() else { return };
+    let values: Vec<(&str, Value)> = match ws.doc(&ResKey::new(area, restype)) {
+        Ok(doc) => match path.get(&doc.root) {
+            Some(from) => labels.iter().filter_map(|l| Some((*l, from.get(l)?.clone()))).collect(),
+            None => return,
+        },
+        Err(_) => return,
+    };
+    let mut edits = Vec::new();
+    for other in others {
+        let key = ResKey::new(*other, restype);
+        let there = ws.doc(&key).ok().is_some_and(|d| path.get(&d.root).is_some());
+        if !there {
+            continue;
+        }
+        edits.extend(values.iter().map(|(label, value)| Edit::SetField {
+            key,
+            path: path.clone(),
+            label: (*label).into(),
+            value: Some(value.clone()),
+        }));
+    }
+    if !edits.is_empty() {
+        let what = format!("{page} settings to {} areas", others.len());
+        app.actions.push(Action::Apply(Command::new(what, edits)));
+    }
+}
+
 fn tileset_name(app: &mut Moonglow, tileset: ResRef) -> String {
     if let Some(name) = app.palette.tileset_names.get(&tileset) {
         return name.clone();

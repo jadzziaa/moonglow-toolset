@@ -100,6 +100,29 @@ impl Txi {
         }
     }
 
+    /// The game's rippling of a texture (`proceduretype arturo`, with
+    /// `distort`: what its water has): how far the picture is pushed about,
+    /// as a part of its width (`distortionamplitude` texels of
+    /// `defaultwidth`), and how fast (`speed`).
+    pub fn ripple(&self) -> Option<(f32, f32)> {
+        if !self.value("proceduretype")?.eq_ignore_ascii_case("arturo") {
+            return None;
+        }
+        if self.int("distort").is_some_and(|v| v == 0) {
+            return None;
+        }
+        let width = self.float("defaultwidth").filter(|w| *w > 0.0).unwrap_or(64.0);
+        let amplitude = self.float("distortionamplitude").unwrap_or(0.0) / width;
+        (amplitude > 0.0).then(|| (amplitude, self.float("speed").unwrap_or(20.0)))
+    }
+
+    /// The game's water (`bumpmaptexture shinywater`): what Enhanced
+    /// Edition draws with its water shader, waves and reflections, where
+    /// the old game rippled the texture ([`Txi::ripple`]).
+    pub fn water(&self) -> bool {
+        self.value("bumpmaptexture").is_some_and(|v| v.eq_ignore_ascii_case("shinywater"))
+    }
+
     /// Unlit, drawn over coplanar geometry.
     pub fn decal(&self) -> bool {
         self.int("decal").is_some_and(|v| v != 0)
@@ -147,5 +170,18 @@ mod tests {
         assert!(t.filter());
         assert_eq!(t.clamp(), (true, true));
         assert!(Txi::parse(b"").mipmap());
+    }
+
+    #[test]
+    fn water_ripples() {
+        // The game's ttr01_water01.txi, in short.
+        let txi = Txi::parse(
+            b"proceduretype arturo\ndistort 1\narturowidth 32\ndistortionamplitude 6\nspeed 20\n\
+              defaultwidth 64\n",
+        );
+        assert_eq!(txi.ripple(), Some((6.0 / 64.0, 20.0)));
+        assert!(!txi.water());
+        assert!(Txi::parse(b"bumpyshinytexture ttr01__env\nbumpmaptexture shinywater\n").water());
+        assert_eq!(Txi::parse(b"proceduretype cycle\nnumx 2\nnumy 2\n").ripple(), None);
     }
 }
