@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.14.0" date="2026-10-06">
+      <description>
+        <p>Inventories are dragged, copied and pasted, and an item's
+        Properties open from them; the Appearance Gallery has creatures
+        and doors; an item's model shows in its Appearance page, armor and
+        cloaks on a man or a woman; Fade Geometry has Aurora's three
+        choices; the Options are a tab.</p>
+      </description>
+    </release>
     <release version="1.13.2" date="2026-10-06">
       <description>
         <p>The galleries' pictures of things made for a wall are no longer
