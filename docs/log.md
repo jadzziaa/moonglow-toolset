@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-06
+* **Creation**: [Running a tileset's own shaders](research/notes_custom_shaders.md): findings and a staged plan, tabled (the `shaders` branch).
 * **Update**: [The main window](manual/02-main-window.md) (the module tree's menu on an area's objects, Escape with a tool in hand), [areas](manual/04-areas.md) (Fade Geometry's three choices; prefabs renamed, told of on hover and their delete undone), [blueprints](manual/05-blueprints.md) (View is read-only, waypoints' pictures, an item's parts by picture), [modules](manual/03-modules.md) (Shift+click in the hak editor), [options](manual/10-options.md) (a tab of the dock) and [the deferred list](deferred.md).
 * **Update**: [Blueprints](manual/05-blueprints.md): an item's model in its Appearance page; [the deferred list](deferred.md): the Gallery in a narrow palette pane.
 * **Update**: [Blueprints](manual/05-blueprints.md): Properties on an item in an inventory (a placed object's item is its own), and armor and cloaks shown on a woman, icon included; [the deferred list](deferred.md).
