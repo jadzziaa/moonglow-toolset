@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:00:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:14:35Z }
 ---
 
 # Build, verify and test
@@ -125,6 +125,10 @@ game looks for the module by name in your user folder's `modules`
 folder, so the module must be saved there (File › Save As…). With
 **Minimize Toolset on test module** (Options › General), Moonglow's window
 is minimized.
+
+A Steam copy of the game is started so that it reaches Steam when Steam
+is running, and loads your Steam Workshop content as when you start it
+from Steam.
 
 - **Test Module, Choose Character** (Shift+F9) opens the game's
   character selection for the module instead, so you can test with any

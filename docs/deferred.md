@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:14:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -459,6 +459,25 @@ objects in the area view, Fade Geometry. Left:
   built-in compiler. Its messages are matched to scripts by their file
   names and the word "error": another compiler's wording may be missed
   (the script is then said to have made no compiled script). (S–M)
+- **Steam Workshop content** is read (Options › General): each item's
+  `override` folder as a layer under the user's own, its `hak` and `tlk`
+  folders searched. Which of two items' overrides wins in the game isn't
+  known (the lower number here), and that the game puts them under the
+  user's override is from how it is described, not measured: the client
+  runs here with Steam hidden. An item's other folders (portraits,
+  modules, music) aren't read. (S)
+- **Test Module and Steam:** the game started for a test is told which
+  Steam game it is (`SteamAppId`), so that a Steam copy reaches a running
+  Steam and loads the Workshop's content, as when started from Steam;
+  started bare it had none of it (a builder's "F9 won't load the stuff
+  correctly either"). Not tried: the client is only ever run here with
+  Steam hidden. With Steam running, the test then shows in Steam as the
+  game being played. (needs a builder's word)
+- **A tileset's custom shader** (a builder's lava that should move): not
+  drawn; the texture shows still. Moonglow has its own shaders and
+  doesn't run the game's or a tileset's (see Custom shader effects
+  above). The game's own water is animated; a material that names a
+  shader of its own is not. (L)
 - **Finding the game:** Steam's libraries are read from its
   `libraryfolders.vdf` (a game on a second drive), and GOG's usual
   folders tried. Steam itself installed outside its usual folder is

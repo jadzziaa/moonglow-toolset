@@ -140,6 +140,9 @@ pub struct Settings {
     /// Options > Script Editor: External Script Editor, a program given the
     /// script's file.
     pub external_editor: Option<PathBuf>,
+    /// Options > General: Read Steam Workshop content, off (the default:
+    /// read, as the game started through Steam reads it).
+    pub no_workshop: bool,
     /// Options > Script Editor: External Script Compiler, a program that
     /// compiles scripts in place of the built-in compiler (`None`: the
     /// built-in one), and its line of arguments (empty: the program's own).
@@ -271,7 +274,9 @@ impl Settings {
             .short_code()
             .filter(|c| root.join("lang").join(c).join("data/dialog.tlk").is_file())
             .unwrap_or("en");
-        Some(GameInstall::new(root, user_dir, code))
+        let mut install = GameInstall::new(root, user_dir, code);
+        install.workshop = !self.no_workshop;
+        Some(install)
     }
 }
 

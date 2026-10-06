@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:14:26Z }
 ---
 
 # Options
@@ -61,6 +61,12 @@ the module is opened again from its file.
   tree and the palettes). Areas are by name in Find Instance and the
   area transition's destinations too.
 - **Show challenge ratings in the creature palette**: on by default.
+- **Read Steam Workshop content**: on by default. The Steam Workshop
+  items you are subscribed to are read with the game's data, as the game
+  started through Steam reads them: each item's `override` under your
+  own, its haks and talk tables found by name. Aurora doesn't read them;
+  turn this off to see the module as a player without them would.
+  Changing it reads the game's data again.
 - **Reload haks, override and development when they change**: on by
   default. Moonglow checks every few seconds and rereads what changed
   (see [Build, verify and test](09-build-and-test.md)). The same switch

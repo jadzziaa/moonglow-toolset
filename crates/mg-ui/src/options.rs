@@ -60,6 +60,7 @@ pub struct OptionsDraft {
     pub scratch_dir: String,
     pub external_editor: String,
     pub external_compiler: String,
+    pub workshop: bool,
     pub external_compiler_args: String,
     pub dialog_names: bool,
     pub edit_language: Option<u32>,
@@ -134,6 +135,7 @@ impl OptionsDraft {
             scratch_dir: text(&s.scratch_dir),
             external_editor: text(&s.external_editor),
             external_compiler: text(&s.external_compiler),
+            workshop: !s.no_workshop,
             external_compiler_args: s.external_compiler_args.clone(),
             dialog_names: !s.dialog_hide_names,
             edit_language: s.edit_language,
@@ -189,6 +191,7 @@ impl OptionsDraft {
             scratch_dir: path(&self.scratch_dir),
             external_editor: path(&self.external_editor),
             external_compiler: path(&self.external_compiler),
+            no_workshop: !self.workshop,
             external_compiler_args: self.external_compiler_args.trim().to_string(),
             dialog_hide_names: !self.dialog_names,
             edit_language: self.edit_language,
@@ -219,7 +222,9 @@ impl OptionsDraft {
 
     /// Whether these options change where the game is (which reloads it).
     pub fn moves_game(&self, s: &Settings) -> bool {
-        path(&self.game_root) != s.game_root || path(&self.user_dir) != s.user_dir
+        path(&self.game_root) != s.game_root
+            || path(&self.user_dir) != s.user_dir
+            || self.workshop == s.no_workshop
     }
 }
 
@@ -434,6 +439,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 &mut draft.palette_cr,
                                 "Show challenge ratings in the creature palette",
                             );
+                            ui.checkbox(&mut draft.workshop, "Read Steam Workshop content")
+                                .on_hover_text(
+                                    "The Steam Workshop items you are subscribed to (overrides, \
+                                     haks, talk tables), as the game started through Steam \
+                                     reads them. Aurora doesn't. Changing this reads the game's \
+                                     data again",
+                                );
                             ui.checkbox(
                                 &mut draft.auto_reload,
                                 "Reload haks, override and development when they change",

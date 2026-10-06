@@ -111,6 +111,8 @@ pub mod priority {
     pub const MODULE: u32 = 20;
     pub const USERPATCH: u32 = 13;
     pub const OVERRIDE: u32 = 12;
+    /// Steam Workshop items' `override/` folders, under the user's.
+    pub const WORKSHOP: u32 = 11;
     pub const AMBIENT_USER: u32 = 9;
     pub const MUSIC_USER: u32 = 8;
     pub const AMBIENT: u32 = 7;

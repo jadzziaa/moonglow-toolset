@@ -16,11 +16,17 @@ pub struct GameInstall {
     pub user_dir: Option<PathBuf>,
     /// Two-letter language code (`en`, `de`, ...), a folder under `lang/`.
     pub language: String,
+    /// The Steam Workshop items subscribed to are read as well (a Steam
+    /// install's `steamapps/workshop/content/704450/*`), as the game
+    /// started through Steam reads them: each one's `override/` under the
+    /// user's, its `hak/` and `tlk/` after the user's. Off unless asked
+    /// for: the other tools and the game started outside Steam don't.
+    pub workshop: bool,
 }
 
 impl GameInstall {
     pub fn new(root: impl Into<PathBuf>, user_dir: Option<PathBuf>, language: &str) -> GameInstall {
-        GameInstall { root: root.into(), user_dir, language: language.to_string() }
+        GameInstall { root: root.into(), user_dir, language: language.to_string(), workshop: false }
     }
 
     /// Whether a directory looks like a game install.
@@ -41,7 +47,7 @@ impl GameInstall {
             .map(PathBuf::from)
             .or_else(default_user_dir)
             .filter(|p| p.is_dir());
-        Some(GameInstall { root, user_dir, language: "en".into() })
+        Some(GameInstall { root, user_dir, language: "en".into(), workshop: false })
     }
 
     /// `lang/<language>/data`.
@@ -58,17 +64,57 @@ impl GameInstall {
         self.user_dir.as_ref().map(|u| u.join(sub))
     }
 
+    /// The Steam Workshop items read ([`GameInstall::workshop`]): their
+    /// folders, by number. None for an install that isn't in a Steam
+    /// library.
+    pub fn workshop_items(&self) -> Vec<PathBuf> {
+        if !self.workshop {
+            return Vec::new();
+        }
+        // `<library>/steamapps/common/<game>`.
+        let steamapps = self.root.parent().and_then(Path::parent);
+        let Some(content) = steamapps
+            .filter(|s| s.file_name().is_some_and(|n| n.eq_ignore_ascii_case("steamapps")))
+            .map(|s| s.join("workshop").join("content").join(STEAM_APP))
+        else {
+            return Vec::new();
+        };
+        let mut items: Vec<PathBuf> = std::fs::read_dir(content)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        items.sort();
+        items
+    }
+
+    /// A folder of each Workshop item that has it (`override`, `hak`).
+    fn workshop(&self, sub: &str) -> Vec<PathBuf> {
+        self.workshop_items().into_iter().map(|i| i.join(sub)).filter(|p| p.is_dir()).collect()
+    }
+
     /// Where hak paks are, in the order the game searches: the user's
-    /// `hak/`, then the install's `data/hk/`.
+    /// `hak/`, the Workshop items' (when read), then the install's
+    /// `data/hk/`.
     pub fn hak_dirs(&self) -> Vec<PathBuf> {
-        self.user("hak").into_iter().chain([self.root.join("data").join("hk")]).collect()
+        self.user("hak")
+            .into_iter()
+            .chain(self.workshop("hak"))
+            .chain([self.root.join("data").join("hk")])
+            .collect()
     }
 
     /// Where custom talk tables are: the user's `tlk/`, then the install's
     /// `data/tlk/` (the premium campaigns' tables, beside their haks in
     /// `data/hk/`).
     pub fn tlk_dirs(&self) -> Vec<PathBuf> {
-        self.user("tlk").into_iter().chain([self.root.join("data").join("tlk")]).collect()
+        self.user("tlk")
+            .into_iter()
+            .chain(self.workshop("tlk"))
+            .chain([self.root.join("data").join("tlk")])
+            .collect()
     }
 
     /// Where movies are: the user's `movies/`, then the install's.
@@ -96,6 +142,9 @@ impl GameInstall {
 
 /// Where the game may be: in each Steam library (Steam's own folder, and
 /// those it lists on other drives), then where GOG puts it.
+/// The game's number on Steam.
+const STEAM_APP: &str = "704450";
+
 fn candidate_roots() -> Vec<PathBuf> {
     let home = env::var_os("HOME").map(PathBuf::from);
     let game = Path::new("steamapps").join("common").join("Neverwinter Nights");
@@ -204,6 +253,14 @@ impl ResMan {
         dir(priority::PORTRAITS, "portraits", Some(data.join("prt")));
         dir(priority::DEVELOPMENT_USER, "development", install.user("development"));
         dir(priority::OVERRIDE, "override", install.user("override"));
+        // The Workshop's overrides, under the user's own (the game started
+        // through Steam reads them; which of two items' wins isn't known:
+        // the first by number here).
+        for item in install.workshop("override").into_iter().rev() {
+            let id = item.parent().and_then(Path::file_name).unwrap_or_default();
+            let label = format!("workshop:{}", id.to_string_lossy());
+            dir(priority::WORKSHOP, &label, Some(item));
+        }
         dir(priority::AMBIENT_USER, "user ambient", install.user("ambient"));
         dir(priority::MUSIC_USER, "user music", install.user("music"));
         dir(priority::AMBIENT, "ambient", Some(data.join("amb")));
@@ -239,7 +296,13 @@ impl ResMan {
         let mut missing = Vec::new();
         for name in names {
             let file = format!("{name}.hak");
-            let user = install.user("hak").map(|d| d.join(&file)).filter(|p| p.is_file());
+            // (A Workshop item's hak counts as the user's.)
+            let user = install
+                .user("hak")
+                .into_iter()
+                .chain(install.workshop("hak"))
+                .map(|d| d.join(&file))
+                .find(|p| p.is_file());
             let (p, path) = match user {
                 Some(path) => (priority::HAK_USER, path),
                 None => {
@@ -276,5 +339,38 @@ mod install_tests {
         let old = "\"LibraryFolders\"\n{\n\t\"TimeNextStatsReport\"\t\"1\"\n\t\"1\"\t\t\"/mnt/games/Steam\"\n}\n";
         assert_eq!(steam_libraries(old), [PathBuf::from("/mnt/games/Steam")]);
         assert!(steam_libraries("not a list at all").is_empty());
+    }
+
+    /// A Steam install's Workshop items are read when asked for: their
+    /// overrides under the user's own, their haks found by name.
+    #[test]
+    fn workshop_items_are_read_when_asked_for() {
+        let lib = env::temp_dir().join(format!("moonglow-workshop-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&lib);
+        let root = lib.join("steamapps/common/Neverwinter Nights");
+        let item = lib.join("steamapps/workshop/content/704450/123");
+        let user = lib.join("user");
+        for d in [root.join("data"), item.join("override"), item.join("hak"), user.join("override")]
+        {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(item.join("override/mg_ws.2da"), "workshop").unwrap();
+        std::fs::write(item.join("override/mg_both.2da"), "workshop").unwrap();
+        std::fs::write(user.join("override/mg_both.2da"), "user").unwrap();
+        std::fs::write(item.join("hak/mg_ws_hak.hak"), "").unwrap();
+        let key = |n: &str| crate::ResKey::parse(n, mg_core::ResType::TWODA).unwrap();
+        let mut install = GameInstall::new(&root, Some(user), "en");
+        let without = ResMan::for_game(&install).unwrap();
+        assert!(!without.contains(&key("mg_ws")));
+        assert!(install.workshop_items().is_empty());
+        install.workshop = true;
+        let with = ResMan::for_game(&install).unwrap();
+        assert_eq!(&*with.get(&key("mg_ws")).unwrap(), b"workshop");
+        assert_eq!(&*with.get(&key("mg_both")).unwrap(), b"user", "the user's own comes first");
+        assert!(install.hak_dirs().contains(&item.join("hak")));
+        // Not for a game outside a Steam library.
+        let elsewhere = GameInstall { root: lib.join("game"), ..install.clone() };
+        assert!(elsewhere.workshop_items().is_empty());
+        let _ = std::fs::remove_dir_all(&lib);
     }
 }

@@ -39,6 +39,9 @@ pub fn module_name(user_dir: &Path, module: &Path) -> Option<String> {
     Some(name.to_string_lossy().into_owned())
 }
 
+/// The game's number on Steam.
+const STEAM_APP: &str = "704450";
+
 /// The command Test Module runs: the client, from its own folder. The game
 /// starts the module with the first character of the list
 /// (`+TestNewModule`, as Aurora's F9 does), or, with `choose`, shows its
@@ -50,6 +53,12 @@ pub fn command(client: &Path, user_dir: &Path, module: &str, choose: bool) -> Co
     }
     let how = if choose { "+LoadNewModule" } else { "+TestNewModule" };
     c.arg("-userdirectory").arg(user_dir).arg(how).arg(module);
+    // A Steam copy is told which game it is, so that it reaches Steam when
+    // Steam is running and loads what Steam brings it (the Workshop's
+    // content), as when started from Steam; started bare it doesn't.
+    if client.ancestors().any(|a| a.file_name().is_some_and(|n| n == "steamapps")) {
+        c.env("SteamAppId", STEAM_APP).env("SteamGameId", STEAM_APP);
+    }
     c
 }
 
@@ -136,6 +145,14 @@ mod tests {
         assert_eq!(c.get_current_dir(), Some(Path::new("/game/bin/linux-x86")));
         let c = command(Path::new("/game/bin/linux-x86/nwmain-linux"), &dir, "My Module", true);
         assert_eq!(c.get_args().nth(2).unwrap(), "+LoadNewModule");
+        // A Steam copy is told which game it is; another isn't.
+        assert_eq!(c.get_envs().count(), 0);
+        let steam =
+            Path::new("/lib/steamapps/common/Neverwinter Nights/bin/linux-x86/nwmain-linux");
+        let c = command(steam, &dir, "My Module", false);
+        let told: Vec<_> =
+            c.get_envs().map(|(k, v)| (k.to_owned(), v.map(|v| v.to_owned()))).collect();
+        assert!(told.contains(&("SteamAppId".into(), Some("704450".into()))), "{told:?}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }
