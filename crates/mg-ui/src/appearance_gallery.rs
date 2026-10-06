@@ -12,6 +12,14 @@ use mg_rules::ChoiceColumns;
 
 use crate::{Action, Moonglow};
 
+/// An appearance dragged from the gallery (dropped in an area view, a
+/// placeable with it is placed there): its placeables.2da row and name.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DraggedAppearance {
+    pub row: usize,
+    pub name: String,
+}
+
 /// A gallery's state.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Gallery {
@@ -92,7 +100,8 @@ pub(crate) fn grid(
     // (The room less the scroll bar's.)
     let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
     let (per_row, side) = fitted(room, side, gap);
-    let height = side + 18.0 + gap;
+    let tall = side + crate::widgets::tile_label_height(ui);
+    let height = tall + gap;
     let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
     if !state.placed {
         state.placed = true;
@@ -100,7 +109,7 @@ pub(crate) fn grid(
             area = area.vertical_scroll_offset((at / per_row) as f32 * height);
         }
     }
-    area.show_rows(ui, side + 18.0, rows.len().div_ceil(per_row), |ui, lines| {
+    area.show_rows(ui, tall, rows.len().div_ceil(per_row), |ui, lines| {
         ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
         for line in lines {
             ui.horizontal(|ui| {
@@ -119,6 +128,13 @@ pub(crate) fn grid(
                     let r = r.on_hover_text(format!("{} (row {}, {model})", c.text, c.row));
                     if r.clicked() {
                         pick = Some(c.row as i64);
+                    }
+                    // Dragged into an area's view: a placeable of it there.
+                    if r.drag_started() {
+                        r.dnd_set_drag_payload(DraggedAppearance {
+                            row: c.row,
+                            name: c.text.clone(),
+                        });
                     }
                 }
             });

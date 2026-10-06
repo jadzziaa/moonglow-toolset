@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T23:44:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:21:44Z }
 ---
 
 # Blueprints
@@ -83,7 +83,9 @@ The palette's buttons:
   sparks, shafts of light) too. It is a tab like any other: it opens in a
   window of its own, and can be docked beside the area or maximized. Click
   a picture to give it to the placeables selected in the area shown; the
-  tab stays open to try another. **Find** narrows it by name, and the
+  tab stays open to try another. Drag a picture into the area's view to
+  place a placeable of that appearance there: a plain, static one named
+  for the appearance, of no blueprint. **Find** narrows it by name, and the
   slider sets how large the pictures are at least: they grow to fill the
   tab's width (the palette's Gallery has the same slider, and the size is
   kept). A model the palettes don't offer can be chosen here.

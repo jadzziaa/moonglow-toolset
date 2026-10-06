@@ -26,3 +26,4 @@
 * **Update**: [The deferred list](deferred.md): GitHub issue 6, what was done from it and what is left; [areas](manual/04-areas.md): Escape deselects.
 * **Update**: [The deferred list](deferred.md): water ripples (the game's procedural texture, approximated).
 * **Update**: [The deferred list](deferred.md): water's waves (Enhanced Edition's water shader, approximated).
+* **Update**: [Blueprints](manual/05-blueprints.md): a picture dragged from the Placeable Gallery places a placeable.

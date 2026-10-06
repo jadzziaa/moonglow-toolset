@@ -10835,6 +10835,8 @@ fn the_placeable_gallery_gives_the_selection_an_appearance() {
             item,
         };
         app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+        // (A small window, so some of the area shows beside it.)
+        app.settings.window_sizes = vec![("placeable-gallery".into(), [330, 430])];
         app.actions.push(mg_ui::Action::PlaceableGallery);
     }
     h.run_steps(5);
@@ -10858,6 +10860,53 @@ fn the_placeable_gallery_gives_the_selection_an_appearance() {
     let now = appearance(&mut h);
     assert_ne!(now, was, "the chest is a flame");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Appearance"));
+    // Dragged into the area's view (beside the gallery's window), a picture
+    // places a placeable of that appearance there.
+    let count = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap().len()
+    };
+    let from = h.get_all_by_label("Flame").find(tile).unwrap().rect().center();
+    let window = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(p, _)| !p.surface.is_main())
+        .map(|(_, leaf)| leaf.rect)
+        .unwrap();
+    // (In the area's pane, clear of its toolbar.)
+    let at_area = h.state().dock.find_tab(&Tab::Area(area)).unwrap();
+    let pane = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(p, _)| p.surface == at_area.surface && p.node == at_area.node)
+        .map(|(_, leaf)| leaf.viewport)
+        .unwrap();
+    let pane = egui::Rect::from_min_max(
+        pane.min + egui::vec2(10.0, 200.0),
+        pane.max - egui::vec2(10.0, 10.0),
+    );
+    let spots = (0..=20).flat_map(|x| (0..=20).map(move |y| (x as f32 * 2.0, y as f32 * 2.0)));
+    let to = spots
+        .map(|(x, y)| screen(&h, area, glam::Vec3::new(x, y, 0.0)))
+        .find(|p| !window.expand(8.0).contains(*p) && pane.contains(*p))
+        .expect("ground beside the gallery");
+    h.hover_at(from);
+    h.run_steps(1);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for k in 1..=6 {
+        h.hover_at(from + (to - from) * (k as f32 / 6.0));
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(count(&mut h), 2, "a second placeable");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let placed = ws.doc(&git_key).unwrap().root.list("Placeable List").unwrap()[1].clone();
+    assert_eq!(placed.integer("Appearance"), Some(now), "of the flame dragged");
+    assert_eq!(placed.integer("Static"), Some(1));
 }
 
 #[test]

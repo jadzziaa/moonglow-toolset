@@ -870,8 +870,13 @@ pub(crate) fn mark_clipboard(ctx: &egui::Context, what: &str) {
     ctx.copy_text(format!("Moonglow Toolset: {what}"));
 }
 
-/// A picture over its name, in a gallery: `side` points square and a line
-/// of text under it, cut short. `made`: the picture (`Some(None)`: there
+/// The room under a gallery's picture for its name: two lines of text.
+pub(crate) fn tile_label_height(ui: &Ui) -> f32 {
+    2.0 * ui.text_style_height(&egui::TextStyle::Body) + 4.0
+}
+
+/// A picture over its name, in a gallery: `side` points square and its
+/// name under it, on up to two lines. `made`: the picture (`Some(None)`: there
 /// is nothing to draw; `None`: not made yet). Its response, and whether
 /// it is in sight (to have its picture made).
 pub(crate) fn picture_tile(
@@ -881,7 +886,7 @@ pub(crate) fn picture_tile(
     chosen: bool,
     made: Option<Option<egui::TextureId>>,
 ) -> (egui::Response, bool) {
-    let size = egui::vec2(side, side + 18.0);
+    let size = egui::vec2(side, side + tile_label_height(ui));
     let (rect, r) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     if !ui.is_rect_visible(rect) {
         return (r, false);
@@ -895,7 +900,9 @@ pub(crate) fn picture_tile(
         ui.painter().rect_stroke(rect, 3.0, stroke, egui::StrokeKind::Inside);
     }
     let picture = egui::Rect::from_min_size(rect.min, egui::vec2(side, side)).shrink(2.0);
-    let font = egui::TextStyle::Small.resolve(ui.style());
+    // (The name in the text's own size, on up to two lines: in small type
+    // on one, long names were hard to read and cut short.)
+    let font = egui::TextStyle::Body.resolve(ui.style());
     let text = ui.visuals().text_color();
     match made {
         Some(Some(id)) => {
@@ -917,11 +924,12 @@ pub(crate) fn picture_tile(
         egui::pos2(rect.left() + 2.0, picture.bottom()),
         rect.max - egui::vec2(2.0, 0.0),
     );
-    let mut job = egui::text::LayoutJob::simple_singleline(label.to_string(), font, text);
-    job.wrap = egui::text::TextWrapping::truncate_at_width(name.width());
+    let mut job = egui::text::LayoutJob::simple(label.to_string(), font, text, name.width());
+    job.wrap.max_rows = 2;
+    job.wrap.break_anywhere = false;
+    job.halign = egui::Align::Center;
     let galley = ui.painter().layout_job(job);
-    let at = egui::pos2(name.center().x - galley.size().x / 2.0, name.top() + 1.0);
-    ui.painter().galley(at, galley, text);
+    ui.painter().galley(egui::pos2(name.center().x, name.top() + 1.0), galley, text);
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, chosen, label));
     (r, true)
 }

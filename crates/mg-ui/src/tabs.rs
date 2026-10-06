@@ -314,18 +314,15 @@ impl TabViewer for Viewer<'_> {
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
-        // In a window of its own: a little room inside its frame (which
-        // has no margin: `Moonglow::ui`).
-        if ui.layer_id().order == egui::Order::Middle {
-            let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
-            egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
-                // (All the room, so a view that fills its tab still does.)
-                ui.set_min_size(ui.available_size());
-                self.body(ui, tab);
-            });
-        } else {
+        // A little room round what a tab shows. (The dock is given no window
+        // margin, `Moonglow::ui`, and takes its tabs' from that: without
+        // this they sat flush against their pane's edge.)
+        let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
+        egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
+            // (All the room, so a view that fills its tab still does.)
+            ui.set_min_size(ui.available_size());
             self.body(ui, tab);
-        }
+        });
     }
 
     /// The tab's menu (beside egui_dock's Eject and Close): Rename… for a

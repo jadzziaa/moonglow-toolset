@@ -2311,8 +2311,20 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     let in_hand = view.drag.is_some() || view.pasting || brush(app).is_some() || view.held.on;
     view.held = Held::read(ui, response, view.held);
     camera_input(ui, view, response, (alt, shift), command, &app.keymap);
-    if let Some(dragged) = response.dnd_release_payload::<crate::palette_view::Dragged>() {
+    // (Asked of each kind only when that is what is dragged: asking takes
+    // the payload, whatever it is.)
+    type Blueprint = crate::palette_view::Dragged;
+    type Appearance = crate::appearance_gallery::DraggedAppearance;
+    if egui::DragAndDrop::has_payload_of_type::<Blueprint>(ui.ctx())
+        && let Some(dragged) = response.dnd_release_payload::<Blueprint>()
+    {
         drop_blueprint(app, view, response, dragged.0);
+        return;
+    }
+    if egui::DragAndDrop::has_payload_of_type::<Appearance>(ui.ctx())
+        && let Some(dragged) = response.dnd_release_payload::<Appearance>()
+    {
+        drop_appearance(app, view, response, &dragged);
         return;
     }
     // Q and E turn a blueprint about to be placed (dragged, or chosen in
@@ -2936,6 +2948,45 @@ fn drop_blueprint(app: &mut Moonglow, view: &mut AreaView, response: &egui::Resp
     if !response.ctx.input(|i| i.modifiers.shift) {
         app.palette.selected = None;
     }
+}
+
+/// An appearance dropped from the Placeable Gallery: a placeable with it,
+/// where it is dropped. It is no blueprint's: a plain, static placeable
+/// (as the Placeable Wizard makes one) named for the appearance.
+fn drop_appearance(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    response: &egui::Response,
+    dragged: &crate::appearance_gallery::DraggedAppearance,
+) {
+    use mg_module::instances::{Placement, Placing, instance};
+    let pointer = response.ctx.input(|i| i.pointer.latest_pos());
+    let Some(at) = pointer.and_then(|pos| view.ground_at(pos, 0.0)) else { return };
+    let at = view.snapped(at);
+    let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
+    let mut blueprint = mg_module::blueprints::placeable(ResRef::EMPTY, &dragged.name, 0);
+    blueprint.root.set("Appearance", mg_gff::Value::Dword(dragged.row as u32));
+    let tag = mg_module::blueprints::tag(&dragged.name);
+    blueprint.root.set("Tag", mg_gff::Value::String(crate::text::encode(&tag)));
+    let none = |_: ResRef| None;
+    let placing = Placing { game, item: &none };
+    let placement = Placement { position: at.to_array(), rotation: view.ghost_turn };
+    let Some(item) = instance(&placing, ResType::UTP, &blueprint.root, placement, &[]) else {
+        return;
+    };
+    let git = view.git();
+    let kind = ObjectKind::Placeable;
+    let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
+    let edit = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: kind.list().into(),
+        index,
+        item,
+    };
+    let what = format!("Place {}", dragged.name);
+    app.actions.push(Action::Apply(Command::new(what, vec![edit])));
+    view.selection = vec![(kind, index)];
 }
 
 /// How many blueprints the palette's Recent keeps.
