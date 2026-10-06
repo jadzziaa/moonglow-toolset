@@ -45,7 +45,7 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="1.14.0" date="2026-10-06">
+    <release version="1.14.1" date="2026-10-06">
       <description>
         <p>Inventories are dragged, copied and pasted, and an item's
         Properties open from them; the Appearance Gallery has creatures
