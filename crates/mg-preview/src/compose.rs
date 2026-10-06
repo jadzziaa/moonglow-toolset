@@ -262,11 +262,41 @@ impl Composed {
     }
 
     pub fn bounds(&self) -> (Vec3, Vec3) {
+        self.bounds_with(&self.base.gpu.rest)
+    }
+
+    /// [`Composed::bounds`] as it stands in `animation` at `t`: a creature
+    /// whose skeleton plays another body's animations at a scale stands
+    /// taller or shorter than at rest, and a picture framed by its rest
+    /// cut its head off.
+    pub fn bounds_in(&self, animation: Option<&str>, t: f32) -> (Vec3, Vec3) {
+        let find = |name: &str| {
+            let owner = self.base.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
+            owner.1.animation(name)
+        };
+        let playing = animation
+            .and_then(|a| find(a).or_else(|| ["pause1", "cpause1"].iter().find_map(|a| find(a))));
+        match playing {
+            Some(a) => self.bounds_with(&anim::pose(&self.base.gpu.model, a, t)),
+            None => self.bounds(),
+        }
+    }
+
+    /// The bounds with the base's nodes at `pose` (model space).
+    fn bounds_with(&self, pose: &[Mat4]) -> (Vec3, Vec3) {
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
-        let rest = &self.base.gpu.rest;
-        let mut add = |gm: &GpuModel, to: Mat4| {
+        let mut add = |gm: &GpuModel, nodes: &[Mat4], to: Mat4| {
+            // A skinned body is where its bones are, not where its mesh's
+            // node is: the skeleton's joints are counted too.
+            if gm.meshes.iter().any(|m| m.skin.is_some()) {
+                for at in nodes {
+                    let w = (to * *at).transform_point3(Vec3::ZERO);
+                    min = min.min(w);
+                    max = max.max(w);
+                }
+            }
             for m in &gm.meshes {
-                let node = gm.rest.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
+                let node = nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
                 for c in 0..8 {
                     let p = Vec3::new(
                         if c & 1 == 0 { m.min.x } else { m.max.x },
@@ -279,10 +309,10 @@ impl Composed {
                 }
             }
         };
-        add(&self.base.gpu, Mat4::IDENTITY);
+        add(&self.base.gpu, pose, Mat4::IDENTITY);
         for p in &self.parts {
-            let at = p.attach.and_then(|i| rest.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-            add(&p.gpu, at * Mat4::from_scale(Vec3::splat(p.scale)));
+            let at = p.attach.and_then(|i| pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
+            add(&p.gpu, &p.gpu.rest, at * Mat4::from_scale(Vec3::splat(p.scale)));
         }
         if min.x > max.x { (Vec3::splat(-1.0), Vec3::splat(1.0)) } else { (min, max) }
     }

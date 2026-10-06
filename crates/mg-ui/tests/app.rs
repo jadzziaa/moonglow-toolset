@@ -2752,6 +2752,87 @@ fn placeable_editor_fills_its_inventory() {
         })
         .collect();
     assert_eq!(at, [("nw_it_torch001".into(), 0, 0), ("nw_it_torch001".into(), 1, 0)]);
+
+    // Another item, to tell the rows apart: a potion.
+    let potion = {
+        let game = h.state().game.as_deref().unwrap();
+        let key = ResKey::parse("nw_it_mpotion001", ResType::UTI).unwrap();
+        let uti = Gff::read(&game.resman.get(&key).unwrap()).unwrap();
+        game.locstring(uti.root.locstring("LocalizedName").unwrap()).unwrap()
+    };
+    let typed =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value("nw_it_torch001").find(typed).unwrap().click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value("nw_it_torch001").find(typed).unwrap().type_text("nw_it_mpotion001");
+    h.run();
+    // (The palette's row is the leftmost of that name; the list's rows are
+    // right of it, top to bottom.)
+    let named = |h: &Harness<'_, Moonglow>, name: &str| -> Vec<egui::Rect> {
+        let mut rects: Vec<egui::Rect> = h
+            .get_all_by_label(name)
+            .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+            .map(|n| n.rect())
+            .collect();
+        rects.sort_by(|a, b| a.left().total_cmp(&b.left()).then(a.top().total_cmp(&b.top())));
+        rects
+    };
+    let at = named(&h, &potion)[0].center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run();
+    h.get_by_label("Add Item").click();
+    h.run();
+    let held = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let items = field(h, &key).list("ItemList").unwrap().to_vec();
+        items.iter().map(|i| i.resref("InventoryRes").unwrap().to_string()).collect()
+    };
+    assert_eq!(held(&mut h), ["nw_it_torch001", "nw_it_torch001", "nw_it_mpotion001"]);
+    // Copy, from its row's menu; Paste, from the list's heading: another.
+    let row = *named(&h, &potion).last().unwrap();
+    h.hover_at(row.center());
+    h.event(egui::Event::PointerButton {
+        pos: row.center(),
+        button: egui::PointerButton::Secondary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.event(egui::Event::PointerButton {
+        pos: row.center(),
+        button: egui::PointerButton::Secondary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run();
+    h.get_by_label("Copy").click();
+    h.run();
+    assert_eq!(h.state().item_clip.len(), 1);
+    h.get_by_label("Paste (1)").click();
+    h.run();
+    assert_eq!(held(&mut h).len(), 4);
+    assert_eq!(held(&mut h)[3], "nw_it_mpotion001", "pasted");
+    // The last row dragged onto the first: it takes that place (one step).
+    let last = *named(&h, &potion).last().unwrap();
+    let first =
+        named(&h, "Torch").into_iter().find(|r| r.left() > 400.0).expect("the list's torch");
+    let (from, to) = (last.center(), first.center());
+    h.hover_at(from);
+    h.run_steps(1);
+    press(&h, from, true, egui::Modifiers::NONE);
+    h.run_steps(1);
+    for k in 1..=5 {
+        h.hover_at(from + (to - from) * (k as f32 / 5.0));
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let order = held(&mut h);
+    assert_eq!(order, ["nw_it_mpotion001", "nw_it_torch001", "nw_it_torch001", "nw_it_mpotion001"]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(held(&mut h)[0], "nw_it_torch001", "one undo puts it back");
     // An older blueprint's portrait is a resref (po_ and the portraits.2da
     // base resref); without a repute.fac, the standard factions.
     h.get_by_label("Advanced").click();
@@ -3007,11 +3088,116 @@ fn creature_editor_lists() {
     type_into_hint(&mut h, "Find", "nw_aarcl001");
     h.get_by_label("Leather Armor").click();
     h.run();
-    h.get_all_by_label("Equip").nth(1).unwrap().click();
+    // (The Equip under the palette comes first, then each slot's.)
+    h.get_all_by_label("Equip").nth(2).unwrap().click();
     h.run();
-    let equipped = field(&mut h, &key).list("Equip_ItemList").unwrap().to_vec();
-    let chest = equipped.iter().find(|s| s.id == 2).expect("armor equipped");
-    assert_eq!(chest.resref("EquippedRes").unwrap().to_string(), "nw_aarcl001");
+    let worn = |h: &mut Harness<'_, Moonglow>, slot: u32| {
+        let equipped = field(h, &key).list("Equip_ItemList").unwrap().to_vec();
+        equipped.iter().find(|s| s.id == slot).map(|s| s.resref("EquippedRes").unwrap().to_string())
+    };
+    let packed = |h: &mut Harness<'_, Moonglow>| {
+        let items = field(h, &key).list("ItemList").unwrap_or(&[]).to_vec();
+        items.iter().map(|s| s.resref("InventoryRes").unwrap().to_string()).collect::<Vec<_>>()
+    };
+    assert_eq!(worn(&mut h, 2).as_deref(), Some("nw_aarcl001"));
+    // To Backpack, on the equipped item selected: unequipped and packed, in
+    // one step.
+    let had = packed(&mut h).len();
+    h.get_all_by_label("Leather Armor").last().unwrap().click();
+    h.run();
+    h.get_by_label("To Backpack").click();
+    h.run();
+    assert_eq!(worn(&mut h, 2), None);
+    assert_eq!(packed(&mut h).last().map(String::as_str), Some("nw_aarcl001"));
+    assert_eq!(packed(&mut h).len(), had + 1);
+    // The Equip under the palette puts the chosen item in the first free
+    // slot it goes in: the armor's, again.
+    h.get_all_by_label("Equip").next().unwrap().click();
+    h.run();
+    assert_eq!(worn(&mut h, 2).as_deref(), Some("nw_aarcl001"), "in the armor slot");
+    // Taken, a second can't be equipped: said in the log, nothing changed.
+    let said = h.state().log.entries.len();
+    h.get_all_by_label("Equip").next().unwrap().click();
+    h.run();
+    assert!(h.state().log.entries[said..].iter().any(|e| e.1.contains("is taken")));
+
+    // Dragged and dropped. Where things are: the palette's row is the
+    // topmost "Leather Armor" left of the equipment, the armor slot's name the rightmost
+    // "Armor", the backpack's rows those under its heading.
+    let drag = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2| {
+        h.hover_at(from);
+        h.run_steps(1);
+        press(h, from, true, egui::Modifiers::NONE);
+        h.run_steps(1);
+        for k in 1..=5 {
+            h.hover_at(from + (to - from) * (k as f32 / 5.0));
+            h.run_steps(1);
+        }
+        press(h, to, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    let places = |h: &Harness<'_, Moonglow>| {
+        let rects = |label: &str| -> Vec<egui::Rect> {
+            h.get_all_by_label(label).map(|n| n.rect()).collect()
+        };
+        let slot = rects("Armor").into_iter().max_by(|a, b| a.left().total_cmp(&b.left())).unwrap();
+        let heading = h.get_by_label("Backpack").rect();
+        let armors = rects("Leather Armor");
+        // (The palette's row: left of the equipment, above what it says of
+        // the item chosen.)
+        let palette = armors
+            .iter()
+            .copied()
+            .filter(|r| r.right() < slot.left())
+            .min_by(|a, b| a.top().total_cmp(&b.top()))
+            .unwrap();
+        // (Its name, right of its icon.)
+        let worn = armors
+            .iter()
+            .copied()
+            .filter(|r| r.left() > slot.left() && (r.center().y - slot.center().y).abs() < 12.0)
+            .max_by(|a, b| a.left().total_cmp(&b.left()));
+        // (Their names, wider than their icons.)
+        let packed: Vec<egui::Rect> = armors
+            .iter()
+            .copied()
+            .filter(|r| r.top() > heading.bottom() && r.width() > 80.0)
+            .collect();
+        (slot, heading, palette, worn, packed)
+    };
+    // (A window tall enough to show the equipment and the backpack under it.)
+    h.set_size(egui::vec2(1000.0, 1600.0));
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(Tab::Blueprint(key)));
+    h.run_steps(10);
+    // The equipped armor, onto the backpack: off, and packed.
+    let had = packed(&mut h).len();
+    let (_, heading, _, on, _) = places(&h);
+    let backpack = heading.left_bottom() + egui::vec2(80.0, 40.0);
+    drag(&mut h, on.expect("the armor worn").center(), backpack);
+    assert_eq!(worn(&mut h, 2), None, "dragged off");
+    assert_eq!(packed(&mut h).len(), had + 1);
+    // A backpack row, onto the armor slot: worn again, out of the backpack.
+    let (slot, _, _, _, rows) = places(&h);
+    let row = rows.iter().copied().max_by(|a, b| a.width().total_cmp(&b.width())).unwrap();
+    drag(&mut h, row.center(), slot.center());
+    assert_eq!(worn(&mut h, 2).as_deref(), Some("nw_aarcl001"), "dropped on its slot");
+    assert_eq!(packed(&mut h).len(), had);
+    // The palette's row, onto the backpack: one more in it.
+    let (_, heading, palette, _, _) = places(&h);
+    drag(&mut h, palette.center(), heading.left_bottom() + egui::vec2(80.0, 40.0));
+    assert_eq!(packed(&mut h).len(), had + 1, "added from the palette");
+    // And onto a slot it doesn't go in (the helmet's): refused, in the log.
+    let (_, _, palette, _, _) = places(&h);
+    let helmet = h
+        .get_all_by_label("Helmet")
+        .map(|n| n.rect())
+        .max_by(|a, b| a.left().total_cmp(&b.left()))
+        .unwrap();
+    let said = h.state().log.entries.len();
+    drag(&mut h, palette.center(), helmet.center());
+    assert_eq!(worn(&mut h, 1), None);
+    assert!(h.state().log.entries[said..].iter().any(|e| e.1.contains("does not go in that slot")));
 }
 
 /// The sample module with the game's data (`None` without the game).
@@ -5769,8 +5955,8 @@ fn equipping_without_the_feat_asks_to_add_it() {
         s.list("FeatList").unwrap_or(&[]).iter().filter_map(|f| f.integer("Feat")).collect()
     };
     let before = primary(&mut h);
-    // The Primary Weapon slot's Equip (the fifth): No leaves it as it was.
-    h.get_all_by_label("Equip").nth(4).unwrap().click();
+    // The Primary Weapon slot's Equip (the sixth: the palette's Equip is first): No leaves it as it was.
+    h.get_all_by_label("Equip").nth(5).unwrap().click();
     h.run();
     assert!(h.query_by_label_contains("Weapon Proficiency (martial)").is_some());
     h.get_by_label("No").click();
@@ -5778,7 +5964,7 @@ fn equipping_without_the_feat_asks_to_add_it() {
     assert_eq!(primary(&mut h), before);
     assert!(feats(&mut h).is_empty());
     // Yes adds the first feat and equips it, one undoable step.
-    h.get_all_by_label("Equip").nth(4).unwrap().click();
+    h.get_all_by_label("Equip").nth(5).unwrap().click();
     h.run();
     h.get_by_label("Yes").click();
     h.run();
@@ -10924,4 +11110,50 @@ fn look_gallery_pictures() {
     h.run_steps(60);
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-gallery-look").join("look.png")).unwrap();
+}
+
+#[test]
+#[ignore = "a look at the Creature Wizard's Appearance page"]
+fn look_creature_wizard_appearance() {
+    let Some((mut h, _area)) = area_harness("cw-look") else { return };
+    let mut w = mg_ui::creature_wizard::CreatureWizard::default();
+    (w.page, w.race, w.appearance) = (3, Some(6), 6);
+    w.classes = vec![(4, 1)];
+    w.appearance_find = std::env::var("MG_FILTER").unwrap_or_default();
+    h.state_mut().creature_wizard = Some(w);
+    h.run_steps(40);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-cw-look").join("look.png")).unwrap();
+}
+
+/// Between objects and tiles without the toolbar: a double click on the
+/// ground selects its tile (Select Tiles comes on), and a click on an
+/// object there selects it (and Select Tiles goes off).
+#[test]
+fn a_click_goes_between_objects_and_tiles() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tiles-and-objects") else { return };
+    h.run_steps(40);
+    let ground = screen(&h, area, Vec3::new(5.0, 5.0, 0.0));
+    h.hover_at(ground);
+    for _ in 0..2 {
+        press(&h, ground, true, egui::Modifiers::NONE);
+        press(&h, ground, false, egui::Modifiers::NONE);
+    }
+    h.run_steps(3);
+    let view = &h.state().area_views[&area];
+    assert!(view.tile_mode, "over to the tiles");
+    assert_eq!(view.tile_selection, [(0, 0)]);
+    // (Later: not a third click of the same.)
+    h.run_steps(60);
+    let flag = screen(&h, area, Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(flag);
+    press(&h, flag, true, egui::Modifiers::NONE);
+    press(&h, flag, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let view = &h.state().area_views[&area];
+    assert!(!view.tile_mode, "back to the objects");
+    assert_eq!(view.selection, [(ObjectKind::Waypoint, 0)]);
+    assert!(view.tile_selection.is_empty());
 }

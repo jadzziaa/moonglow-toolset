@@ -52,7 +52,7 @@ pub struct TileClip {
 }
 
 /// The tile under a screen point.
-fn tile_at(view: &AreaView, pos: Pos2) -> Option<(u32, u32)> {
+pub(crate) fn tile_at(view: &AreaView, pos: Pos2) -> Option<(u32, u32)> {
     let model = view.model.as_ref()?;
     let p = view.ground_at(pos, 0.0)?;
     let (x, y) = (p.x / mg_area::TILE_SIZE, p.y / mg_area::TILE_SIZE);
@@ -96,6 +96,20 @@ pub(crate) fn input(
                 }
             }
         }
+    }
+    // A click on an object: back to the objects, that one selected (the
+    // tiles under one are still taken by a box dragged over them).
+    if response.clicked()
+        && !command
+        && let Some(pos) = response.interact_pointer_pos()
+        && let Some(i) = view.pick(pos)
+        && let Some(o) = view.model.as_ref().map(|m| &m.objects[i])
+    {
+        let chosen = (o.kind, o.index);
+        view.tile_mode = false;
+        view.tile_selection.clear();
+        view.selection = vec![chosen];
+        return true;
     }
     if response.clicked()
         && let Some(t) = response.interact_pointer_pos().and_then(|p| tile_at(view, p))

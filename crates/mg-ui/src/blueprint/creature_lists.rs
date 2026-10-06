@@ -811,6 +811,18 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
     let names = f.blueprint_names(BlueprintKind::Item);
     let name_of = |r: ResRef| names.get(&r).cloned().unwrap_or_else(|| r.to_string());
     let (mut add, mut chosen, mut equip) = (None, None, None);
+    // Equip the palette's item where it fits; a backpack item equipped; an
+    // equipped one put back; an item's blueprint opened.
+    let (mut equip_chosen, mut wear, mut stow, mut open) = (false, None, None, None);
+    // Dropped on a slot (the slot, and what was dropped); an equipped item
+    // taken off by its menu.
+    let mut slot_drop: Option<(u32, inventory::Dragged)> = None;
+    let (mut adds, mut taken): (Vec<ResRef>, Vec<Edit>) = (Vec::new(), Vec::new());
+    let (mut unequip, mut copy) = (None, None);
+    let whose = inventory::owner(key, &base);
+    // (The palette's rows offer Equip here, and a dragged one is equipped
+    // where it is dropped.)
+    ui.data_mut(|d| d.insert_temp(super::picker::can_equip_id(), true));
     let mut edits: Vec<(&str, Edit)> = Vec::new();
     let item_id = egui::Id::new(("utc-selected-item", key, base.clone()));
     let chosen_item: Option<(&'static str, usize)> = ui.data(|d| d.get_temp(item_id));
@@ -823,6 +835,20 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 f.chosen_item(ui)
             });
             chosen = f.palette_chosen(ui, BlueprintKind::Item);
+            ui.data_mut(|d| d.remove::<bool>(super::picker::can_equip_id()));
+            // Equip, from a palette row's menu: where it fits.
+            let asked = super::picker::equip_asked_id();
+            if let Some(r) = ui.data_mut(|d| d.remove_temp::<ResRef>(asked)) {
+                chosen = Some(r);
+                equip_chosen = true;
+            }
+            equip_chosen |= ui
+                .add_enabled(chosen.is_some(), egui::Button::new("Equip"))
+                .on_hover_text(
+                    "Equip the item chosen above in the first free slot it goes in (the Equip \
+                     beside a slot puts it in that one)",
+                )
+                .clicked();
         });
         ui.separator();
         super::side_panel(ui, egui::Id::new(("utc-inventory", key)), |ui| {
@@ -844,6 +870,32 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                                 }
                             }
                         });
+                        ui.horizontal(|ui| {
+                            let r = inventory::entry_resref(e);
+                            if list == "ItemList" {
+                                let hint = "Take it from the backpack and equip it in the first \
+                                            free slot it goes in";
+                                if ui.small_button("Equip").on_hover_text(hint).clicked() {
+                                    wear = Some((i, r, None));
+                                }
+                            } else if ui
+                                .small_button("To Backpack")
+                                .on_hover_text("Unequip it and put it in the backpack")
+                                .clicked()
+                            {
+                                stow = Some((i, r));
+                            }
+                            if ui
+                                .small_button("Open Blueprint")
+                                .on_hover_text(
+                                    "The item's properties: the module's blueprint to edit, the \
+                                     game's to look at",
+                                )
+                                .clicked()
+                            {
+                                open = Some(r);
+                            }
+                        });
                     }
                     None => {
                         ui.weak("Selected Item: none (click an item)");
@@ -854,7 +906,7 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 let icons: Vec<_> = equipped.iter().map(|e| f.entry_icon(ui.ctx(), e)).collect();
                 egui::Grid::new(("utc-equip", key)).num_columns(5).striped(true).show(ui, |ui| {
                     for (bit, slot) in SLOTS {
-                        ui.label(slot);
+                        let first = ui.label(slot).rect;
                         let at = equipped.iter().position(|s| s.id == bit);
                         let shown = at.map_or_else(
                             || "—".to_string(),
@@ -863,10 +915,44 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                         let icon = at.map_or(&[][..], |i| &icons[i][..]);
                         crate::images::icon_box(ui, icon, crate::images::ICON_MAX, &shown);
                         let on = at.is_some() && at.map(|i| ("Equip_ItemList", i)) == chosen_item;
-                        if ui.selectable_label(on, shown).clicked()
+                        let label = egui::Button::selectable(on, shown)
+                            .sense(egui::Sense::click_and_drag());
+                        let r = ui.add(label);
+                        if r.clicked()
                             && let Some(i) = at
                         {
                             pick_item = Some(("Equip_ItemList", i));
+                        }
+                        // What is equipped is dragged: to the backpack, or
+                        // to another slot it goes in.
+                        if let Some(i) = at {
+                            let resref = inventory::entry_resref(&equipped[i]);
+                            if r.drag_started() {
+                                r.dnd_set_drag_payload(inventory::Dragged::Equipped {
+                                    owner: whose,
+                                    source: (key, base.clone()),
+                                    index: i,
+                                    resref,
+                                });
+                            }
+                            r.context_menu(|ui| {
+                                if ui.button("To Backpack").clicked() {
+                                    stow = Some((i, resref));
+                                    ui.close();
+                                }
+                                if ui.button("Open Blueprint").clicked() {
+                                    open = Some(resref);
+                                    ui.close();
+                                }
+                                if ui.button("Copy").clicked() {
+                                    copy = Some(resref);
+                                    ui.close();
+                                }
+                                if ui.button("Remove").clicked() {
+                                    unequip = Some(i);
+                                    ui.close();
+                                }
+                            });
                         }
                         if ui
                             .add_enabled(chosen.is_some(), egui::Button::new("Equip").small())
@@ -875,12 +961,19 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                         {
                             equip = Some(bit);
                         }
-                        if ui
-                            .add_enabled(at.is_some(), egui::Button::new("Remove").small())
-                            .clicked()
+                        let take =
+                            ui.add_enabled(at.is_some(), egui::Button::new("Remove").small());
+                        if take.clicked()
                             && let Some(i) = at
                         {
                             edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
+                        }
+                        // The slot's row (from its name to its buttons)
+                        // takes what is dropped on it.
+                        let row =
+                            first.union(r.rect).union(take.rect).expand2(egui::vec2(2.0, 1.0));
+                        if let Some(d) = inventory::dropped_on(ui, row) {
+                            slot_drop = Some((bit, d));
                         }
                         ui.end_row();
                     }
@@ -891,18 +984,129 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
                 let icons: Vec<_> = backpack.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
                 let name = |it: &Struct| f.entry_name(it, &names);
                 let selected = chosen_item.filter(|c| c.0 == "ItemList").map(|c| c.1);
-                let look =
-                    inventory::ItemLook { icons: &icons, name: &name, infinite: false, selected };
-                let (more, clicked) = inventory::item_list(ui, key, &path, &backpack, look);
-                edits.extend(more);
-                if let Some(i) = clicked {
+                let look = inventory::ItemLook {
+                    icons: &icons,
+                    name: &name,
+                    infinite: false,
+                    selected,
+                    equip: true,
+                    copied: f.app.item_clip.len(),
+                };
+                let mut out = inventory::item_list(ui, key, &path, &backpack, look);
+                edits.extend(std::mem::take(&mut out.edits));
+                if let Some(i) = out.clicked {
                     pick_item = Some(("ItemList", i));
                 }
+                // The creature's own: an equipped item dropped on the
+                // backpack comes off into it; Equip from a row's menu.
+                if let Some(inventory::Dragged::Equipped { owner, index, resref, .. }) =
+                    &out.dropped
+                    && *owner == whose
+                {
+                    stow = Some((*index, *resref));
+                }
+                if let Some((i, inventory::Ask::Equip)) = out.asked {
+                    wear = backpack.get(i).map(|e| (i, inventory::entry_resref(e), None));
+                }
+                // And what every inventory does: pasted, dragged from the
+                // palette or from another object's inventory, copied, moved.
+                (adds, taken) = f.list_events(ui, &backpack, &mut out, whose);
             }
         });
     });
     if let Some(p) = pick_item {
         ui.data_mut(|d| d.insert_temp(item_id, p));
+    }
+    // The first free slot an item goes in: for Equip without a slot named.
+    let free_slot = |f: &mut Form<'_>, r: ResRef| -> Result<u32, String> {
+        let fits = item_slots(f, r);
+        if fits == 0 {
+            return Err(format!("{} can't be equipped", name_of(r)));
+        }
+        SLOTS
+            .iter()
+            .map(|(bit, _)| *bit)
+            .filter(|bit| fits & bit != 0)
+            .find(|bit| !equipped.iter().any(|s| s.id == *bit))
+            .ok_or_else(|| format!("Every slot {} goes in is taken: remove one first", name_of(r)))
+    };
+    if let (true, Some(r)) = (equip_chosen, chosen) {
+        match free_slot(f, r) {
+            Ok(bit) => equip = Some(bit),
+            Err(why) => f.app.log.warn(why),
+        }
+    }
+    if let Some(r) = copy {
+        f.copy_item(ui, r);
+    }
+    if let Some(i) = unequip {
+        edits.push(("Unequip", remove(key, base.clone(), "Equip_ItemList", i)));
+    }
+    // Dropped on a slot: the palette's item equipped there; a backpack item
+    // taken out and equipped there; an equipped one moved to it.
+    let mut rest = equipped.clone();
+    // (From another object's inventory: equipped here, and taken from there
+    // unless Ctrl is held, which copies.)
+    if let Some((bit, d)) = &slot_drop
+        && let inventory::Dragged::Listed { owner, resref, .. }
+        | inventory::Dragged::Equipped { owner, resref, .. } = d
+        && *owner != whose
+    {
+        (equip, chosen) = (Some(*bit), Some(*resref));
+        if !ui.input(|i| i.modifiers.command)
+            && let Some(e) = d.removal()
+        {
+            edits.push(("Take item", e));
+        }
+    }
+    match slot_drop {
+        Some((bit, inventory::Dragged::Palette(r))) => (equip, chosen) = (Some(bit), Some(r)),
+        Some((bit, inventory::Dragged::Listed { owner, index, resref, .. })) if owner == whose => {
+            wear = Some((index, resref, Some(bit)));
+        }
+        Some((bit, inventory::Dragged::Equipped { owner, index, resref, .. }))
+            if owner == whose && equipped.get(index).is_some_and(|s| s.id != bit) =>
+        {
+            if item_slots(f, resref) & bit == 0 {
+                f.app.log.error(format!("{} does not go in that slot", name_of(resref)));
+            } else {
+                // (Out of its slot first; then equipped as any item is.)
+                apply(f, "Unequip", vec![remove(key, base.clone(), "Equip_ItemList", index)]);
+                rest.remove(index);
+                (equip, chosen) = (Some(bit), Some(resref));
+            }
+        }
+        _ => {}
+    }
+    let equipped = rest;
+    if let Some((i, r, slot)) = wear {
+        let slot = match slot {
+            Some(bit) if item_slots(f, r) & bit != 0 => Ok(bit),
+            Some(_) => Err(format!("{} does not go in that slot", name_of(r))),
+            None => free_slot(f, r),
+        };
+        match slot {
+            Ok(bit) => {
+                // (Out of the backpack, then equipped below as the palette's
+                // item is.)
+                edits.push(("Take from backpack", remove(key, base.clone(), "ItemList", i)));
+                (equip, chosen) = (Some(bit), Some(r));
+                ui.data_mut(|d| d.remove::<(&'static str, usize)>(item_id));
+            }
+            Err(why) => f.app.log.warn(why),
+        }
+    }
+    if let Some((i, r)) = stow {
+        let item = f.inventory_item(&backpack, r);
+        let moved = vec![
+            remove(key, base.clone(), "Equip_ItemList", i),
+            insert(key, base.clone(), "ItemList", backpack.len(), item),
+        ];
+        apply(f, "Unequip to backpack", moved);
+        ui.data_mut(|d| d.remove::<(&'static str, usize)>(item_id));
+    }
+    if let Some(r) = open.filter(|r| !r.is_empty()) {
+        crate::palette_view::view_blueprint(f.app, ResKey::new(r, mg_core::ResType::UTI));
     }
     // An item that needs a feat the creature lacks: Aurora asks whether to
     // add the first (and does not equip it otherwise).
@@ -966,9 +1170,16 @@ pub(super) fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
             ui.data_mut(|d| d.remove::<(u32, ResRef, Vec<u16>)>(ask));
         }
     }
-    if let Some(r) = add {
-        let item = f.inventory_item(&backpack, r);
-        apply(f, "Add item", vec![insert(key, base.clone(), "ItemList", backpack.len(), item)]);
+    adds.extend(add);
+    if !adds.is_empty() {
+        let mut held = backpack.clone();
+        let mut together = taken;
+        for r in adds {
+            let item = f.inventory_item(&held, r);
+            together.push(insert(key, base.clone(), "ItemList", held.len(), item.clone()));
+            held.push(item);
+        }
+        apply(f, "Add item", together);
     }
     for (what, e) in edits {
         apply(f, what, vec![e]);

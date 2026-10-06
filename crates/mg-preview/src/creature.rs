@@ -80,7 +80,7 @@ fn number(s: &Struct, label: &str) -> i64 {
 
 /// A creature's looks without a blueprint: an appearance row and the body
 /// a blueprint would choose, wearing nothing (for browsing appearances).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CreatureLook {
     /// appearance.2da row.
     pub appearance: u16,

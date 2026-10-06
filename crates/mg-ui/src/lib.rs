@@ -368,6 +368,9 @@ pub struct Moonglow {
     pub tile_clip: Option<tile_select::TileClip>,
     /// Objects copied in an area viewer.
     pub object_clip: Option<area_view::ObjectClip>,
+    /// The items copied in an inventory (their blueprints), to paste into
+    /// another's.
+    pub item_clip: Vec<mg_core::ResRef>,
     /// An object to show and select when its area's view is next drawn.
     pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     /// The References tab.
@@ -576,6 +579,7 @@ impl Moonglow {
             reload_checked: None,
             tlk_stamp: None,
             object_clip: None,
+            item_clip: Vec::new(),
             tile_clip: None,
             after_new_area: (false, false),
             preview_window: false,

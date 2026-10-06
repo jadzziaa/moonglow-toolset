@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T00:39:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T03:40:39Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -294,21 +294,27 @@ ResRef and Tag. Left:
 - **View shows the editor as it is:** fields can be typed in and lists
   clicked, and what is changed is dropped without a word beyond the
   window's note; a field doesn't look read-only. (S)
-- **The Creature Wizard** doesn't ask for a ResRef and Tag as the other
-  wizards now do. (S)
-- **Inventory:** right-click › Equip and Add to Inventory, an item's
-  properties shown from the lists; drag and drop. (M)
-- **Creature Wizard:** a filter and a model preview for its Appearance
-  list; a choice of every portrait; blueprints made in a category the
-  palette hides (familiars) shown there. (M)
-- **Talk-table text told apart from text kept in the file** (Aurora
-  colors it), and new strings written to a talk-table range. (M)
 - **Random item properties** in the Item Wizard, as Aurora's. (M)
-- **The Variables window** is still a small fixed window. (S)
 - **"Area transitions can't be selected visually":** not understood;
   asked. (—)
 - **Escape and a tool in the area:** with a Properties window in front,
   Escape both drops the area's tool and closes the window. (S)
+- **Done since:** the Creature Wizard's ResRef and Tag, its appearances
+  as pictures with Find, and every portrait; the inventory's Equip to a
+  free slot, To Backpack and Open Blueprint; talk-table text in its own
+  color; a Variables window that is sized; drag and drop and right-click
+  menus in the inventory, items dragged between inventories and within
+  a list, Copy and Paste. Left of these: an item carried between
+  inventories is made anew from its blueprint where it lands (what a
+  placed object's own copy had is lost), one at a time, and the drag
+  between two objects' windows is not under test; a moved row keeps its
+  place in the game's inventory grid (only the list's order changes); a
+  slot-to-slot move and
+  equipping from the backpack are two undo steps each, and skip the
+  question about a missing feat when moved between slots;
+  blueprints made in a category the palette hides;
+  new strings written to a talk-table range; equipping from the
+  backpack makes a placed creature's item anew from its blueprint. (S–M)
 
 ## From builders' reports after 1.10.1 (October 2026)
 
@@ -379,8 +385,10 @@ objects in the area view, Fade Geometry. Left:
   text there. Not tried on Windows. (—)
 - **A picture of a model that emits** is drawn four seconds in, framed
   with its particles (a flame is small under its smoke). (S)
-- **Appearances as pictures** are a placeable's only: doors', creatures'
-  and items' appearance lists have no gallery yet. (S–M)
+- **Appearances as pictures** are placeables', creatures' and doors':
+  an item's (its model parts) have no gallery yet. A creature's look is
+  a plain body of the appearance, male unless the creature is female.
+  (S–M)
 - **Replace Selected with This** makes the object anew from the
   blueprint: what the old one had of its own (its tag, variables, a
   tilt or scale) goes; triggers and encounters aren't replaced. (S)
@@ -433,10 +441,10 @@ categories, the galleries. Water ripples. Left:
   displacement), and neither was compared with the client. (M)
 - **A running game** is known only if Moonglow started it for a test:
   one started otherwise still has the test module written under it. (S)
-- **Clicking from tiles into objects and back** without Select Tiles
-  (F10): a click on an object while tiles are selected, and the other
-  way, was asked for. Escape now deselects; the modes are still chosen.
-  (S–M)
+- **Clicking between tiles and objects:** a click on an object while
+  tiles are selected goes to objects, and a double click on the ground
+  to its tile. So a tile wholly under an object is selected by a box,
+  not a click. (—)
 - **Give Every Area This Page's Settings** copies the fields the page
   shows, not the tiles' lights a lighting scheme sets. (S)
 

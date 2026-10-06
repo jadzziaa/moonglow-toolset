@@ -303,6 +303,8 @@ impl Moonglow {
 /// characters shows whole.
 const VAR_NAME_WIDTH: f32 = 260.0;
 const VAR_VALUE_WIDTH: f32 = 220.0;
+/// The room under the Variables list for its buttons and notes.
+const VAR_FOOT: f32 = 96.0;
 
 fn window(title: &str) -> egui::Window<'_> {
     egui::Window::new(title)
@@ -462,131 +464,154 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
 
     if let Some(mut edit) = app.var_edit.clone() {
         let mut close = false;
-        window("Variables").show(&ctx, |ui| {
-            // (A long list scrolls: the window keeps to the screen and its
-            // buttons stay in reach.)
-            let tall = ui.ctx().content_rect().height() * 0.6;
-            egui::ScrollArea::vertical().max_height(tall).show(ui, |ui| {
-                egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
-                    ui.strong("Name");
-                    ui.strong("Type");
-                    ui.strong("Value");
-                    ui.end_row();
-                    let mut remove = None;
-                    for (i, r) in edit.rows.iter_mut().enumerate() {
-                        // (A minimum: a new window offers the fields no width yet,
-                        // and they would keep to it.)
-                        let wide = |text, width| {
-                            egui::TextEdit::singleline(text)
-                                .desired_width(width)
-                                .min_size(egui::vec2(width, 0.0))
-                        };
-                        ui.add(wide(&mut r.name, VAR_NAME_WIDTH));
-                        egui::ComboBox::from_id_salt(("var-type", i))
-                            .selected_text(kind_name(r.kind))
-                            .show_ui(ui, |ui| {
-                                for k in 1..=3 {
-                                    ui.selectable_value(&mut r.kind, k, kind_name(k));
+        // A window to size as the list needs: its edges are dragged, and the
+        // name and value fields take the width there is.
+        let room = ctx.content_rect();
+        egui::Window::new("Variables")
+            .collapsible(false)
+            .resizable(true)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(room.center())
+            .default_size([
+                (room.width() * 0.5).clamp(620.0, 900.0),
+                (room.height() * 0.5).max(320.0),
+            ])
+            .min_size([520.0, 220.0])
+            .show(&ctx, |ui| {
+                // (The list scrolls, over the buttons kept in reach below it.)
+                let tall = (ui.available_height() - VAR_FOOT).max(100.0);
+                let spare =
+                    (ui.available_width() - VAR_NAME_WIDTH - VAR_VALUE_WIDTH - 210.0).max(0.0);
+                let (name_width, value_width) =
+                    (VAR_NAME_WIDTH + spare * 0.45, VAR_VALUE_WIDTH + spare * 0.55);
+                egui::ScrollArea::vertical().max_height(tall).auto_shrink([false, false]).show(
+                    ui,
+                    |ui| {
+                        egui::Grid::new("vars").num_columns(4).spacing([8.0, 4.0]).show(ui, |ui| {
+                            ui.strong("Name");
+                            ui.strong("Type");
+                            ui.strong("Value");
+                            ui.end_row();
+                            let mut remove = None;
+                            for (i, r) in edit.rows.iter_mut().enumerate() {
+                                // (A minimum: a new window offers the fields no width yet,
+                                // and they would keep to it.)
+                                let wide = |text, width| {
+                                    egui::TextEdit::singleline(text)
+                                        .desired_width(width)
+                                        .min_size(egui::vec2(width, 0.0))
+                                };
+                                ui.add(wide(&mut r.name, name_width));
+                                egui::ComboBox::from_id_salt(("var-type", i))
+                                    .selected_text(kind_name(r.kind))
+                                    .show_ui(ui, |ui| {
+                                        for k in 1..=3 {
+                                            ui.selectable_value(&mut r.kind, k, kind_name(k));
+                                        }
+                                    });
+                                ui.add(wide(&mut r.value, value_width));
+                                if ui.small_button("Delete").clicked() {
+                                    remove = Some(i);
                                 }
-                            });
-                        ui.add(wide(&mut r.value, VAR_VALUE_WIDTH));
-                        if ui.small_button("Delete").clicked() {
-                            remove = Some(i);
-                        }
-                        ui.end_row();
-                    }
-                    if let Some(i) = remove {
-                        edit.rows.remove(i);
-                    }
-                });
-            });
-            ui.horizontal(|ui| {
-                if ui.button("Add").clicked() {
-                    edit.rows.push(VarRow::new("", 1, "0"));
-                }
-                ui.separator();
-                // Variable sets, kept in Moonglow's data folder.
-                let dir = app.var_set_dir.clone();
-                let names = crate::var_sets::list(dir.as_deref());
-                ui.add_enabled_ui(dir.is_some(), |ui| {
-                    ui.menu_button("Add Set", |ui| {
-                        if names.is_empty() {
-                            ui.weak("No variable sets saved yet");
-                        }
-                        for n in &names {
-                            if ui.button(n).clicked() {
-                                let dir = dir.as_deref().expect("enabled");
-                                match crate::var_sets::load(dir, n) {
-                                    Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
-                                    Err(e) => app.log.error(format!("Add Set: {e}")),
-                                }
-                                ui.close();
+                                ui.end_row();
                             }
-                        }
-                    })
-                    .response
-                    .on_hover_text("Add a saved set's variables (same names take its values)");
-                    if edit.set_name.is_none()
-                        && ui
-                            .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save Set…"))
-                            .on_hover_text("Keep these variables under a name, to add elsewhere")
-                            .clicked()
-                    {
-                        edit.set_name = Some(String::new());
-                    }
-                });
-            });
-            if let Some(name) = edit.set_name.as_mut() {
-                let mut save = false;
-                let mut cancel = false;
+                            if let Some(i) = remove {
+                                edit.rows.remove(i);
+                            }
+                        });
+                    },
+                );
                 ui.horizontal(|ui| {
-                    ui.label("Set name");
-                    let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
-                    crate::widgets::autofocus(ui, &r);
-                    let ok = crate::prefabs::valid_name(name);
-                    save = ui.add_enabled(ok, egui::Button::new("Save")).clicked()
-                        || (ok && r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)));
-                    cancel = ui.button("Cancel").clicked();
+                    if ui.button("Add").clicked() {
+                        edit.rows.push(VarRow::new("", 1, "0"));
+                    }
+                    ui.separator();
+                    // Variable sets, kept in Moonglow's data folder.
+                    let dir = app.var_set_dir.clone();
+                    let names = crate::var_sets::list(dir.as_deref());
+                    ui.add_enabled_ui(dir.is_some(), |ui| {
+                        ui.menu_button("Add Set", |ui| {
+                            if names.is_empty() {
+                                ui.weak("No variable sets saved yet");
+                            }
+                            for n in &names {
+                                if ui.button(n).clicked() {
+                                    let dir = dir.as_deref().expect("enabled");
+                                    match crate::var_sets::load(dir, n) {
+                                        Ok(set) => crate::var_sets::merge(&mut edit.rows, set),
+                                        Err(e) => app.log.error(format!("Add Set: {e}")),
+                                    }
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("Add a saved set's variables (same names take its values)");
+                        if edit.set_name.is_none()
+                            && ui
+                                .add_enabled(!edit.rows.is_empty(), egui::Button::new("Save Set…"))
+                                .on_hover_text(
+                                    "Keep these variables under a name, to add elsewhere",
+                                )
+                                .clicked()
+                        {
+                            edit.set_name = Some(String::new());
+                        }
+                    });
                 });
-                if save && let Some(dir) = app.var_set_dir.clone() {
-                    match crate::var_sets::save(&dir, name, &edit.rows) {
-                        Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
-                        Err(e) => app.log.error(format!("Save Set: {e}")),
+                if let Some(name) = edit.set_name.as_mut() {
+                    let mut save = false;
+                    let mut cancel = false;
+                    ui.horizontal(|ui| {
+                        ui.label("Set name");
+                        let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
+                        crate::widgets::autofocus(ui, &r);
+                        let ok = crate::prefabs::valid_name(name);
+                        save = ui.add_enabled(ok, egui::Button::new("Save")).clicked()
+                            || (ok
+                                && r.lost_focus()
+                                && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                        cancel = ui.button("Cancel").clicked();
+                    });
+                    if save && let Some(dir) = app.var_set_dir.clone() {
+                        match crate::var_sets::save(&dir, name, &edit.rows) {
+                            Ok(p) => app.log.info(format!("Variable set saved: {}", p.display())),
+                            Err(e) => app.log.error(format!("Save Set: {e}")),
+                        }
+                    }
+                    if save || cancel {
+                        edit.set_name = None;
                     }
                 }
-                if save || cancel {
-                    edit.set_name = None;
+                let problem = edit.problem();
+                if let Some(p) = &problem {
+                    ui.colored_label(ui.visuals().error_fg_color, p);
                 }
-            }
-            let problem = edit.problem();
-            if let Some(p) = &problem {
-                ui.colored_label(ui.visuals().error_fg_color, p);
-            }
-            if !edit.target.also.is_empty() {
-                ui.weak(format!(
-                    "{} edited together, shown as the first: the variables you add or change \
+                if !edit.target.also.is_empty() {
+                    ui.weak(format!(
+                        "{} edited together, shown as the first: the variables you add or change \
                      are set on each, those you delete are deleted from each, and each keeps \
                      its others.",
-                    edit.target.also.len() + 1
-                ));
-            }
-            ui.horizontal(|ui| {
-                if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked()
-                    || (problem.is_none() && crate::widgets::enter(ui))
-                {
-                    let action = if edit.target.also.is_empty() {
-                        edit.target.command("Edit variables", Value::List(edit.list()))
-                    } else {
-                        edit.merged(app)
-                    };
-                    app.actions.push(action);
-                    close = true;
+                        edit.target.also.len() + 1
+                    ));
                 }
-                if cancel(ui) {
-                    close = true;
-                }
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(problem.is_none(), egui::Button::new("OK")).clicked()
+                        || (problem.is_none() && crate::widgets::enter(ui))
+                    {
+                        let action = if edit.target.also.is_empty() {
+                            edit.target.command("Edit variables", Value::List(edit.list()))
+                        } else {
+                            edit.merged(app)
+                        };
+                        app.actions.push(action);
+                        close = true;
+                    }
+                    if cancel(ui) {
+                        close = true;
+                    }
+                });
             });
-        });
         app.var_edit = if close { None } else { Some(edit) };
     }
 

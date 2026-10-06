@@ -28,3 +28,6 @@
 * **Update**: [The deferred list](deferred.md): water's waves (Enhanced Edition's water shader, approximated).
 * **Update**: [Blueprints](manual/05-blueprints.md): a picture dragged from the Placeable Gallery places a placeable.
 * **Update**: [Blueprints](manual/05-blueprints.md): a dragged appearance's ghost; pictures are taken from the side that shows the most of a model.
+* **Update**: [Blueprints](manual/05-blueprints.md) (the Appearance Gallery's creatures and doors, the Creature Wizard, the inventory, talk-table text), [areas](manual/04-areas.md) (clicking between tiles and objects); [the deferred list](deferred.md).
+* **Update**: [Blueprints](manual/05-blueprints.md): drag and drop and right-click menus in inventories; [the deferred list](deferred.md).
+* **Update**: [Blueprints](manual/05-blueprints.md): items dragged between inventories and within a list, Copy and Paste; [the deferred list](deferred.md).

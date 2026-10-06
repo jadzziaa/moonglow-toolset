@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T01:21:44Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T03:40:39Z }
 ---
 
 # Blueprints
@@ -77,21 +77,24 @@ The palette's buttons:
   blueprint, where they stand and facing as they face. One Undo puts the
   old ones back. With the Gallery, this swaps a placed object for a
   neighbouring one in a click or two.
-- **The Placeable Gallery** (**Tools › Placeable Gallery…**, or **All
-  Appearances…** in the palette's Placeables): every appearance in
-  `placeables.2da` as a picture, those that are only an effect (flames,
+- **The Appearance Gallery** (**Tools › Appearance Gallery…**, or **All
+  Appearances…** in the palette's Placeables): **Placeables**, **Creatures**
+  and **Doors** at its top choose whose. Every appearance in
+  `placeables.2da`, `appearance.2da` (a plain body of each) or
+  `genericdoors.2da` as a picture, those that are only an effect (flames,
   sparks, shafts of light) too. It is a tab like any other: it opens in a
   window of its own, and can be docked beside the area or maximized. Click
-  a picture to give it to the placeables selected in the area shown; the
-  tab stays open to try another. Drag a picture into the area's view to
+  a picture to give it to the objects of that kind selected in the area
+  shown; the tab stays open to try another. Drag a picture into the area's view to
   place a placeable of that appearance there (it shows see-through where
   it would go): a plain, static one named
   for the appearance, of no blueprint. **Find** narrows it by name, and the
   slider sets how large the pictures are at least: they grow to fill the
   tab's width (the palette's Gallery has the same slider, and the size is
   kept). A model the palettes don't offer can be chosen here.
-- **Gallery…** beside Appearance Type in a placeable's Properties (a
-  blueprint's, or a placed one's) opens the gallery at that placeable's
+- **Gallery…** beside the appearance in a placeable's, creature's or
+  door's Properties (a blueprint's, or a placed one's) opens the gallery
+  at that object's
   own appearance, so its neighbours in the table are beside it; a click
   gives it to that placeable (**Use the Selection** goes back to the
   area's selection).
@@ -153,6 +156,10 @@ Wizard, yet).
 
 ## The editors
 
+A name or description whose text is the talk table's (a StrRef, as the
+game's blueprints have) shows in blue with its StrRef beside it; typing
+there gives the blueprint text of its own.
+
 Each blueprint opens as a tab with Aurora's pages. Every change takes
 effect at once and is one undoable step; there is no OK or Cancel.
 Fields Moonglow does not show are kept as they are.
@@ -166,7 +173,8 @@ Shared parts:
   [Modules](03-modules.md)); Edit Copy makes a copy under another name.
 - **Scripts**: event scripts, picked from the module's and the game's
   (**Edit** opens one).
-- **Variables…**: local variables the object starts with. **Save Set…**
+- **Variables…**: local variables the object starts with, in a window
+  whose edges are dragged to size it. **Save Set…**
   keeps them under a name. **Add Set** adds a saved set to any object's
   or blueprint's variables, in any module; a variable of the same name
   takes the set's value. Sets are small JSON files in Moonglow's data
@@ -228,13 +236,37 @@ A domain or school left **Not set** is the game's to choose.
   spells of a level the class cannot cast yet, a casting ability too low
   for the spell level, or more spells than the class allows.
 - In the **Inventory**, equip items from the item palette into the
-  equipment slots, or put them in the backpack. Equipping an item the
+  equipment slots, or put them in the backpack. **Equip** under the
+  palette puts the chosen item in the first free slot it goes in (a
+  ring in the first free ring slot), and says so in the log when every
+  such slot is taken; the Equip beside a slot puts it in that one. With
+  an item selected, **Equip** takes it from the backpack to a free slot,
+  **To Backpack** unequips it into the backpack, and **Open Blueprint**
+  opens the item's properties (the game's, to look at). Items are
+  dragged, too: from the palette onto a slot (equipped there, if it goes
+  in it) or onto the backpack (added); from the backpack onto a slot;
+  from a slot onto the backpack, or onto another slot it goes in. A
+  right click on an item anywhere offers the same (**Equip**, **To
+  Backpack**, **Open Blueprint**, **Remove**), and on the palette's
+  items **Add to Backpack** and **Equip**. A placeable's and a store's
+  items take an item dragged from the palette as well.
+- **Between inventories, and within one:** drag an item from one object's
+  inventory (a creature's backpack or equipment, a placeable's contents,
+  a store's page) onto another's list or a creature's slot to move it
+  there; hold Ctrl as you let go to copy it instead. Drag a row onto
+  another row of its own list to move it to that place. **Copy** (a
+  row's right-click menu, or Ctrl+C with the pointer over it) and
+  **Paste** (the menu, **Paste (n)** in the list's heading, or Ctrl+V
+  over the list) carry an item from any inventory to any other, in any
+  module open after it. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
   asks whether to give it the feat. Items can be marked droppable,
   pickpocketable and infinite (merchants).
 - The **Creature Wizard** makes a creature from a race, classes and levels,
   gender, appearance, portrait, faction and name, leveled as the game's
-  packages level it.
+  packages level it. Its appearances are pictures, narrowed by **Find**;
+  **All portraits** offers every creature's portrait, not the race's
+  alone; and its Name page takes a ResRef and Tag of your own.
 - **Portraits…** chooses the portrait from the game's, by race and
   gender.
 

@@ -285,8 +285,8 @@ impl Id {
             Id::Palettes => ("palettes", "Palettes", ""),
             Id::PlaceableGallery => (
                 "placeable-gallery",
-                "Placeable Gallery…",
-                "Every placeable appearance as a picture; a click gives it to the placeables selected",
+                "Appearance Gallery…",
+                "Every placeable's, creature's and door's appearance as a picture; a click gives it to what is selected",
             ),
             Id::Resources => ("resources", "Resource Browser", ""),
             Id::NewTileset => ("new-tileset", "New Tileset…", "A new .set file to fill"),

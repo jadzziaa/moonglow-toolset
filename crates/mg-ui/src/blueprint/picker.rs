@@ -115,7 +115,7 @@ pub(crate) fn palette_picker(
         if let (Some(p), Some(game)) = (palette, game) {
             let filter = filter.to_lowercase();
             for (i, node) in p.nodes.iter().enumerate() {
-                tree(ui, game, node, &filter, &mut chosen, &mut taken, state_id, &[i]);
+                tree(ui, game, node, &filter, &mut chosen, &mut taken, state_id, &[i], (kind, add));
             }
         }
     });
@@ -140,6 +140,17 @@ pub(crate) fn blueprint(
     Gff::read(&data).ok().map(|g| g.root)
 }
 
+/// Set by a page that equips items (a creature's inventory) before its
+/// picker is drawn: the rows' menu then offers Equip.
+pub(crate) fn can_equip_id() -> egui::Id {
+    egui::Id::new("item-picker-can-equip")
+}
+
+/// The item a picker row's Equip was chosen for, for the page to take.
+pub(crate) fn equip_asked_id() -> egui::Id {
+    egui::Id::new("item-picker-equip-asked")
+}
+
 /// A palette branch.
 #[allow(clippy::too_many_arguments)]
 fn tree(
@@ -151,6 +162,7 @@ fn tree(
     taken: &mut Option<ResRef>,
     salt: egui::Id,
     path: &[usize],
+    (kind, add): (BlueprintKind, &str),
 ) {
     fn any(n: &PaletteNode, game: &mg_rules::GameData, filter: &str) -> bool {
         n.blueprints.iter().any(|b| {
@@ -169,7 +181,7 @@ fn tree(
             for (i, child) in node.children.iter().enumerate() {
                 let mut p = path.to_vec();
                 p.push(i);
-                tree(ui, game, child, filter, chosen, taken, salt, &p);
+                tree(ui, game, child, filter, chosen, taken, salt, &p, (kind, add));
             }
             for b in &node.blueprints {
                 let name = b.name.text(game);
@@ -183,15 +195,33 @@ fn tree(
                     Some(cr) => format!("{name}  (CR {cr})"),
                     None => name,
                 };
-                let r = ui
-                    .selectable_label(*chosen == Some(b.resref), label)
-                    .on_hover_text(b.resref.to_string());
+                let row = egui::Button::selectable(*chosen == Some(b.resref), label)
+                    .sense(egui::Sense::click_and_drag());
+                let r = ui.add(row).on_hover_text(b.resref.to_string());
                 if r.clicked() {
                     *chosen = Some(b.resref);
                 }
                 if r.double_clicked() {
                     *taken = Some(b.resref);
                 }
+                // An item dragged: onto a list of items to add it, onto a
+                // creature's slot to equip it.
+                if kind == BlueprintKind::Item && r.drag_started() {
+                    r.dnd_set_drag_payload(super::inventory::Dragged::Palette(b.resref));
+                }
+                r.context_menu(|ui| {
+                    if ui.button(add).clicked() {
+                        *taken = Some(b.resref);
+                        ui.close();
+                    }
+                    // (Where the page equips: a creature's inventory.)
+                    if ui.data(|d| d.get_temp::<bool>(can_equip_id())).unwrap_or(false)
+                        && ui.button("Equip").clicked()
+                    {
+                        ui.data_mut(|d| d.insert_temp(equip_asked_id(), b.resref));
+                        ui.close();
+                    }
+                });
             }
         });
 }

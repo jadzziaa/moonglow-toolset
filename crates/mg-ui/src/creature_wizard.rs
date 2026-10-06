@@ -47,6 +47,15 @@ pub struct CreatureWizard {
     pub last_name: String,
     pub category: Option<u8>,
     pub launch: bool,
+    /// What narrows the Appearance page's pictures.
+    pub appearance_find: String,
+    /// The Appearance page offers every creature's portrait, not the
+    /// race's and gender's alone.
+    pub all_portraits: bool,
+    /// A ResRef and a Tag of the builder's own; empty, they are made from
+    /// the name as Aurora's wizard makes them.
+    pub resref: String,
+    pub tag: String,
 }
 
 impl Default for CreatureWizard {
@@ -65,6 +74,10 @@ impl Default for CreatureWizard {
             last_name: String::new(),
             category: None,
             launch: false,
+            appearance_find: String::new(),
+            all_portraits: false,
+            resref: String::new(),
+            tag: String::new(),
         }
     }
 }
@@ -77,8 +90,17 @@ fn choices(game: &GameData, table: &str, name: &str, label: &str) -> Vec<Choice>
 /// those of the gender, then those of no gender (`Sex` 2 both, 3 other, 4
 /// none), which are all that monsters' races have (an outsider's are all
 /// `Sex` 4).
-fn portraits(game: &GameData, race: u32, gender: u8) -> Vec<(u16, String)> {
+fn portraits(game: &GameData, race: u32, gender: u8, all: bool) -> Vec<(u16, String)> {
     let Ok(t) = game.table("portraits") else { return Vec::new() };
+    // Every creature's (not a door's or placeable's), for a creature that
+    // isn't to look like its race.
+    if all {
+        return (0..t.len())
+            .filter(|&r| t.get_int(r, "InanimateType").is_none())
+            .filter_map(|r| Some((r as u16, t.get(r, "BaseResRef")?.to_string())))
+            .filter(|(_, base)| crate::images::has_portrait(game, None, base))
+            .collect();
+    }
     let of = |any_gender: bool| {
         let t = t.clone();
         (0..t.len())
@@ -135,7 +157,11 @@ impl CreatureWizard {
             1 => self.race.is_some(),
             2 => !self.classes.is_empty(),
             3 => self.portrait.is_some() || self.no_portraits,
-            5 => !self.first_name.trim().is_empty(),
+            5 => {
+                let own = self.resref.trim();
+                !self.first_name.trim().is_empty()
+                    && (own.is_empty() || ResRef::from_str(own).is_ok())
+            }
             6 => self.category.is_some(),
             _ => true,
         }
@@ -223,6 +249,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let (mut finish, mut cancel) = (false, false);
     let summary = if w.page == 7 { review(app, &w) } else { String::new() };
+    let mut looks = Looks { ready: app.thumbnails.looks(), wanted: Vec::new() };
     // The game data, and its pictures (the portraits).
     let mut loader = app.loader().expect("checked");
     // Most of the screen to begin with, and resizable: the pages' lists and
@@ -259,8 +286,16 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 });
             });
             ui.heading(PAGES[w.page]);
-            page(ui, &mut loader, &mut w, &summary);
+            page(ui, &mut loader, &mut w, &summary, &mut looks);
         });
+    // The appearances' pictures still to make: a few a frame.
+    if !looks.wanted.is_empty() {
+        // (A page's worth in a frame or two: it is opened once.)
+        for look in looks.wanted.iter().take(12) {
+            crate::model_view::look_thumbnail(app, *look);
+        }
+        ctx.request_repaint();
+    }
     if finish {
         make(app, &w);
     } else if !cancel {
@@ -268,7 +303,20 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
-fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &str) {
+/// The pictures of creatures' looks the Appearance page shows: those made,
+/// and those in sight that aren't yet.
+struct Looks {
+    ready: std::collections::HashMap<mg_preview::CreatureLook, Option<egui::TextureId>>,
+    wanted: Vec<mg_preview::CreatureLook>,
+}
+
+fn page(
+    ui: &mut Ui,
+    loader: &mut Loader<'_>,
+    w: &mut CreatureWizard,
+    summary: &str,
+    looks: &mut Looks,
+) {
     let game = loader.game;
     match w.page {
         0 => {
@@ -370,94 +418,152 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                     w.portrait = None;
                 }
                 ui.end_row();
-                crate::widgets::field_label(ui, "Appearance");
-                let appearances =
-                    mg_rules::by_name(choices(game, "appearance", "STRING_REF", "LABEL"));
-                let shown = appearances
-                    .iter()
-                    .find(|c| c.row == usize::from(w.appearance))
-                    .map_or(String::new(), |c| c.text.clone());
-                egui::ComboBox::from_id_salt("cw-appearance")
-                    .selected_text(shown)
-                    .height(300.0)
-                    .show_ui(ui, |ui| {
-                        for c in &appearances {
-                            ui.selectable_value(&mut w.appearance, c.row as u16, &c.text);
-                        }
-                    });
-                ui.end_row();
             });
-            crate::widgets::field_label(ui, "Portrait");
-            // The race's and gender's portraits as pictures, the chosen one
-            // large beside them (as Select Portrait shows them).
-            let list = portraits(game, w.race.unwrap_or(6), w.gender);
-            w.no_portraits = list.is_empty();
-            if list.is_empty() {
-                ui.weak(
-                    "This racial type has no portraits: choose one in Creature Properties \
-                     (Portraits…) afterwards.",
+            // The appearances as pictures (a plain body of each), narrowed by
+            // Find: the list of names alone is long, and many are alike.
+            let appearances = mg_rules::by_name(choices(game, "appearance", "STRING_REF", "LABEL"));
+            let chosen = appearances
+                .iter()
+                .find(|c| c.row == usize::from(w.appearance))
+                .map_or(String::new(), |c| c.text.clone());
+            ui.horizontal(|ui| {
+                crate::widgets::field_label(ui, "Appearance");
+                ui.label(chosen);
+                ui.add(
+                    egui::TextEdit::singleline(&mut w.appearance_find)
+                        .hint_text("Find")
+                        .desired_width(160.0),
                 );
-            }
-            // The first chosen until another is, so the page opens with one.
-            if w.portrait.is_none_or(|p| !list.iter().any(|(r, _)| *r == p)) {
-                w.portrait = list.first().map(|(r, _)| *r);
-            }
-            // As many to a row as the window's width holds, beside the
-            // chosen one's large picture.
-            let preview = 140.0;
-            let width = (ui.available_width() - preview - 2.0 * ui.spacing().item_spacing.x)
-                .max(crate::images::PORTRAIT_THUMB + 40.0);
-            let (per_row, row_height) = crate::images::portrait_grid(ui, width);
-            ui.horizontal_top(|ui| {
-                ui.vertical(|ui| {
-                    ui.set_width(width);
-                    egui::ScrollArea::vertical()
-                        .id_salt(("cw-portraits", w.race, w.gender))
-                        .auto_shrink([false, false])
-                        .show_rows(ui, row_height, list.len().div_ceil(per_row), |ui, lines| {
-                            for line in lines {
-                                ui.horizontal(|ui| {
-                                    for (row, base) in
-                                        list.iter().skip(line * per_row).take(per_row)
-                                    {
-                                        let base = base.to_lowercase();
-                                        let r = loader
-                                            .portrait(
-                                                ui,
-                                                &base,
-                                                'm',
-                                                crate::images::PORTRAIT_THUMB,
-                                                egui::Sense::click(),
-                                            )
-                                            .on_hover_text(&base);
-                                        if w.portrait == Some(*row) {
-                                            ui.painter().rect_stroke(
-                                                r.rect.expand(1.0),
-                                                2.0,
-                                                ui.visuals().selection.stroke,
-                                                egui::StrokeKind::Outside,
-                                            );
-                                        }
-                                        if r.clicked() {
-                                            w.portrait = Some(*row);
-                                        }
-                                    }
-                                });
+            });
+            let needle = w.appearance_find.to_lowercase();
+            let shown: Vec<&Choice> = appearances
+                .iter()
+                .filter(|c| needle.is_empty() || c.text.to_lowercase().contains(&needle))
+                .collect();
+            let gap = 4.0;
+            let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
+            let (per_row, side) = crate::appearance_gallery::fitted(room, 96.0, gap);
+            let tall = side + crate::widgets::tile_label_height(ui);
+            let gender = w.gender;
+            egui::ScrollArea::vertical()
+                .id_salt("cw-appearances")
+                .max_height((ui.available_height() * 0.5).max(tall + 8.0))
+                .auto_shrink([false, false])
+                .show_rows(ui, tall, shown.len().div_ceil(per_row), |ui, lines| {
+                    ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
+                    for line in lines {
+                        ui.horizontal(|ui| {
+                            for c in shown.iter().skip(line * per_row).take(per_row) {
+                                let mut look = mg_preview::CreatureLook::new(c.row as u16);
+                                look.gender = gender;
+                                let made = looks.ready.get(&look).copied();
+                                let on = usize::from(w.appearance) == c.row;
+                                let (r, seen) =
+                                    crate::widgets::picture_tile(ui, side, &c.text, on, made);
+                                if seen && made.is_none() {
+                                    looks.wanted.push(look);
+                                }
+                                if r.on_hover_text(format!("{} (row {})", c.text, c.row)).clicked()
+                                {
+                                    w.appearance = c.row as u16;
+                                }
                             }
                         });
-                });
-                ui.vertical(|ui| {
-                    ui.set_width(preview);
-                    let chosen = w.portrait.and_then(|p| list.iter().find(|(r, _)| *r == p));
-                    if let Some((_, base)) = chosen {
-                        let base = base.to_lowercase();
-                        let large = loader.picture(ui.ctx(), &format!("po_{base}l")).is_some();
-                        let size = if large { 'l' } else { 'm' };
-                        loader.portrait(ui, &base, size, 128.0, egui::Sense::hover());
-                        ui.label(base);
                     }
                 });
+            ui.separator();
+            ui.horizontal(|ui| {
+                crate::widgets::field_label(ui, "Portrait");
+                if ui
+                    .checkbox(&mut w.all_portraits, "All portraits")
+                    .on_hover_text("Every creature's portrait, not this race's and gender's alone")
+                    .changed()
+                {
+                    w.portrait = None;
+                }
             });
+            {
+                // The race's and gender's portraits as pictures, the chosen one
+                // large beside them (as Select Portrait shows them).
+                let list = portraits(game, w.race.unwrap_or(6), w.gender, w.all_portraits);
+                w.no_portraits = list.is_empty();
+                if list.is_empty() {
+                    ui.weak(
+                        "This racial type has no portraits: choose one in Creature Properties \
+                     (Portraits…) afterwards.",
+                    );
+                }
+                // The first chosen until another is, so the page opens with one.
+                if w.portrait.is_none_or(|p| !list.iter().any(|(r, _)| *r == p)) {
+                    w.portrait = list.first().map(|(r, _)| *r);
+                }
+                // As many to a row as the window's width holds, beside the
+                // chosen one's large picture.
+                let preview = 140.0;
+                let width = (ui.available_width() - preview - 2.0 * ui.spacing().item_spacing.x)
+                    .max(crate::images::PORTRAIT_THUMB + 40.0);
+                let (per_row, row_height) = crate::images::portrait_grid(ui, width);
+                ui.horizontal_top(|ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width(width);
+                        egui::ScrollArea::vertical()
+                            .id_salt(("cw-portraits", w.race, w.gender, w.all_portraits))
+                            .auto_shrink([false, false])
+                            .show_rows(
+                                ui,
+                                row_height,
+                                list.len().div_ceil(per_row),
+                                |ui, lines| {
+                                    for line in lines {
+                                        ui.horizontal(|ui| {
+                                            for (row, base) in
+                                                list.iter().skip(line * per_row).take(per_row)
+                                            {
+                                                let base = base.to_lowercase();
+                                                let r = loader
+                                                    .portrait(
+                                                        ui,
+                                                        &base,
+                                                        'm',
+                                                        crate::images::PORTRAIT_THUMB,
+                                                        egui::Sense::click(),
+                                                    )
+                                                    .on_hover_text(&base);
+                                                if w.portrait == Some(*row) {
+                                                    ui.painter().rect_stroke(
+                                                        r.rect.expand(1.0),
+                                                        2.0,
+                                                        ui.visuals().selection.stroke,
+                                                        egui::StrokeKind::Outside,
+                                                    );
+                                                }
+                                                if r.clicked() {
+                                                    w.portrait = Some(*row);
+                                                }
+                                            }
+                                        });
+                                    }
+                                },
+                            );
+                    });
+                    ui.vertical(|ui| {
+                        ui.set_width(preview);
+                        let chosen = w.portrait.and_then(|p| list.iter().find(|(r, _)| *r == p));
+                        if let Some((_, base)) = chosen {
+                            let base = base.to_lowercase();
+                            let large = loader.picture(ui.ctx(), &format!("po_{base}l")).is_some();
+                            let size = if large { 'l' } else { 'm' };
+                            // (As large as the room under it holds, its name
+                            // too.)
+                            let name = ui.text_style_height(&egui::TextStyle::Body) + 8.0;
+                            let fits = (ui.available_height() - name) * 64.0 / 100.0;
+                            let wide = fits.clamp(48.0, 128.0);
+                            loader.portrait(ui, &base, size, wide, egui::Sense::hover());
+                            ui.label(base);
+                        }
+                    });
+                });
+            }
         }
         4 => {
             ui.label("Choose a Faction for this creature.");
@@ -502,6 +608,34 @@ fn page(ui: &mut Ui, loader: &mut Loader<'_>, w: &mut CreatureWizard, summary: &
                 }
                 ui.end_row();
             });
+            // The ResRef and Tag it gets: made from the name, as in Aurora,
+            // unless others are typed here.
+            ui.add_space(6.0);
+            let name = w.first_name.trim().to_string();
+            egui::Grid::new("cw-names").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
+                crate::widgets::field_label(ui, "ResRef");
+                ui.add(
+                    egui::TextEdit::singleline(&mut w.resref)
+                        .hint_text(blueprints::resref(&name, |_| false).to_string())
+                        .desired_width(180.0),
+                )
+                .on_hover_text("Left empty: made from the name");
+                ui.end_row();
+                crate::widgets::field_label(ui, "Tag");
+                ui.add(
+                    egui::TextEdit::singleline(&mut w.tag)
+                        .hint_text(blueprints::tag(&name))
+                        .desired_width(180.0),
+                )
+                .on_hover_text("Left empty: made from the name");
+                ui.end_row();
+            });
+            let own = w.resref.trim();
+            if !own.is_empty()
+                && let Err(e) = ResRef::from_str(own)
+            {
+                ui.colored_label(ui.visuals().warn_fg_color, e.to_string());
+            }
         }
         6 => {
             ui.label("Please select the category in the palette that you wish this blueprint to appear under.");
@@ -533,11 +667,22 @@ fn make(app: &mut Moonglow, w: &CreatureWizard) {
         let taken = |r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, ResType::UTC)))
         };
-        let resref = blueprints::resref(w.first_name.trim(), taken);
+        // The ResRef typed, unless the module has it (then the next free
+        // one from it, as for one made from the name).
+        let own = ResRef::from_str(w.resref.trim()).ok().filter(|r| !r.is_empty());
+        let resref = match own {
+            Some(r) if !taken(&r) => r,
+            Some(r) => blueprints::resref(&r.to_string(), taken),
+            None => blueprints::resref(w.first_name.trim(), taken),
+        };
         let spec = w.spec(resref);
         let item = item_reader(app);
         let mut g = blueprints::creature(game, &spec, &item);
-        g.root.set("Tag", mg_gff::Value::String(blueprints::tag(&spec.first_name).into_bytes()));
+        let tag = match w.tag.trim() {
+            "" => blueprints::tag(&spec.first_name),
+            own => own.to_string(),
+        };
+        g.root.set("Tag", mg_gff::Value::String(crate::text::encode(&tag)));
         (ResKey::new(resref, ResType::UTC), g.to_bytes())
     };
     match bytes {

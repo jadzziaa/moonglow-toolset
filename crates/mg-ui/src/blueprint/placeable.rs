@@ -88,18 +88,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Appearance Type");
         ui.horizontal(|ui| {
             f.choice(ui, "Appearance", "Appearance", &appearances, FieldType::Dword);
-            if ui
-                .button("Gallery…")
-                .on_hover_text(
-                    "The Placeable Gallery: every placeable appearance as a picture, from this \
-                     one on. Click one to give it to this placeable",
-                )
-                .clicked()
-            {
-                let gallery = crate::appearance_gallery::Gallery::of(f.key, f.path.clone());
-                f.app.placeable_gallery = Some(gallery);
-                f.app.actions.push(Action::OpenTab(crate::Tab::PlaceableGallery));
-            }
+            f.gallery_button(ui, crate::appearance_gallery::Kind::Placeable);
         });
         ui.end_row();
         crate::widgets::field_label(ui, "Category");
@@ -165,6 +154,7 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
     let items: Vec<Struct> = f.root.list("ItemList").unwrap_or(&[]).to_vec();
     let names = f.blueprint_names(BlueprintKind::Item);
     let mut add = None;
+    let (mut adds, mut taken) = (Vec::new(), Vec::new());
     let mut edits = Vec::new();
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
@@ -174,20 +164,37 @@ fn contents(f: &mut Form<'_>, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
         let icons: Vec<_> = items.iter().map(|it| f.entry_icon(&ctx, it)).collect();
         let name = |it: &Struct| f.entry_name(it, &names);
-        let look =
-            inventory::ItemLook { icons: &icons, name: &name, infinite: false, selected: None };
-        edits = inventory::item_list(ui, key, &base, &items, look).0;
-    });
-    if let Some(r) = add {
-        let item = f.inventory_item(&items, r);
-        let edit = Edit::InsertItem {
-            key,
-            path: base.clone(),
-            list: "ItemList".into(),
-            index: items.len(),
-            item,
+        let look = inventory::ItemLook {
+            icons: &icons,
+            name: &name,
+            infinite: false,
+            selected: None,
+            equip: false,
+            copied: f.app.item_clip.len(),
         };
-        f.app.actions.push(Action::Apply(Command::new("Add item", vec![edit])));
+        let mut out = inventory::item_list(ui, key, &base, &items, look);
+        // Pasted, dragged from the palette, or dragged out of another
+        // object's inventory: added here.
+        let whose = inventory::owner(key, &base);
+        (adds, taken) = f.list_events(ui, &items, &mut out, whose);
+        edits = out.edits;
+    });
+    adds.extend(add);
+    if !adds.is_empty() {
+        let mut held = items.clone();
+        let mut together = taken;
+        for r in adds {
+            let item = f.inventory_item(&held, r);
+            together.push(Edit::InsertItem {
+                key,
+                path: base.clone(),
+                list: "ItemList".into(),
+                index: held.len(),
+                item: item.clone(),
+            });
+            held.push(item);
+        }
+        f.app.actions.push(Action::Apply(Command::new("Add item", together)));
     }
     for (what, edit) in edits {
         f.app.actions.push(Action::Apply(Command::new(what, vec![edit])));

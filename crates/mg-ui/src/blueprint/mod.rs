@@ -149,6 +149,16 @@ pub(super) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> V
     }
 }
 
+/// The color of text that is the talk table's (a StrRef's), not a
+/// blueprint's own.
+pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
+    if ui.visuals().dark_mode {
+        egui::Color32::from_rgb(120, 180, 255)
+    } else {
+        egui::Color32::from_rgb(20, 80, 190)
+    }
+}
+
 impl Form<'_> {
     /// A localized string's English text, else its talk-table string (what
     /// Aurora shows for the game's blueprints).
@@ -158,6 +168,59 @@ impl Form<'_> {
             return text;
         }
         self.app.game.as_deref().and_then(|g| g.string(ls.strref)).unwrap_or_default()
+    }
+
+    /// The talk-table string a localized string shows (its StrRef), where
+    /// it has no text of its own in the language edited: shown in the talk
+    /// table's color, as Aurora tells such text apart.
+    fn talk_table_strref(&self, ls: &LocString) -> Option<u32> {
+        (english(ls).is_empty() && !ls.strref.is_none()).then_some(ls.strref.0)
+    }
+
+    /// A text field of a localized string, in the talk table's color where
+    /// that is where its text is from, with the StrRef beside it.
+    fn loc_text(
+        &mut self,
+        ui: &mut Ui,
+        label: &str,
+        current: &LocString,
+        multiline: bool,
+        width: f32,
+    ) -> Option<String> {
+        let id = self.id(label);
+        let shown = self.shown_text(current);
+        let Some(strref) = self.talk_table_strref(current) else {
+            return commit_text(self.app, ui, id, &shown, multiline, width);
+        };
+        let color = talk_table_color(ui);
+        let typed = ui
+            .scope(|ui| {
+                ui.visuals_mut().override_text_color = Some(color);
+                commit_text(self.app, ui, id, &shown, multiline, width)
+            })
+            .inner;
+        ui.colored_label(color, format!("StrRef {strref}")).on_hover_text(
+            "This text is the talk table's, not the blueprint's own: typing here gives the \
+             blueprint text of its own in its place",
+        );
+        typed
+    }
+
+    /// Gallery… beside an appearance: opens the Appearance Gallery at this
+    /// object's, where a click gives it another.
+    pub(crate) fn gallery_button(&mut self, ui: &mut Ui, kind: crate::appearance_gallery::Kind) {
+        if ui
+            .button("Gallery…")
+            .on_hover_text(
+                "The Appearance Gallery: every appearance as a picture, from this one on. Click \
+                 one to give it to this object",
+            )
+            .clicked()
+        {
+            let gallery = crate::appearance_gallery::Gallery::of(kind, self.key, self.path.clone());
+            self.app.placeable_gallery = Some(gallery);
+            self.app.actions.push(Action::OpenTab(crate::Tab::PlaceableGallery));
+        }
     }
 
     fn id(&self, name: &str) -> egui::Id {
@@ -260,10 +323,8 @@ impl Form<'_> {
     /// A localized name: the English text, and `…` for every language.
     pub(crate) fn locstring(&mut self, ui: &mut Ui, what: &str, label: &str) {
         let current = self.root.locstring(label).cloned().unwrap_or_default();
-        let shown = self.shown_text(&current);
         ui.horizontal(|ui| {
-            let id = self.id(label);
-            if let Some(v) = commit_text(self.app, ui, id, &shown, false, 240.0) {
+            if let Some(v) = self.loc_text(ui, label, &current, false, 240.0) {
                 self.set(what, label, Value::LocString(with_english(current.clone(), &v)));
             }
             if ui.small_button("…").on_hover_text("Edit text in multiple languages").clicked() {
@@ -282,9 +343,7 @@ impl Form<'_> {
                 self.app.loc_edit = Some(LocStringEdit::new(self.target(label), what, &current));
             }
         });
-        let id = self.id(label);
-        let shown = self.shown_text(&current);
-        if let Some(v) = commit_text(self.app, ui, id, &shown, true, f32::INFINITY) {
+        if let Some(v) = self.loc_text(ui, label, &current, true, f32::INFINITY) {
             self.set(what, label, Value::LocString(with_english(current, &v)));
         }
     }

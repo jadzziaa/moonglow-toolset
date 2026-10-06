@@ -135,7 +135,7 @@ pub fn copy_resref(from: &str, taken: &dyn Fn(&str) -> bool) -> Option<ResRef> {
 
 /// Opens one of the game's blueprints to look at (the module's own of
 /// that name, if it has one, to edit).
-fn view_blueprint(app: &mut Moonglow, key: ResKey) {
+pub(crate) fn view_blueprint(app: &mut Moonglow, key: ResKey) {
     let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return };
     if !ws.module.contains(&key) {
         let Some(gff) = game.resman.get(&key).ok().and_then(|d| Gff::read(&d).ok()) else {

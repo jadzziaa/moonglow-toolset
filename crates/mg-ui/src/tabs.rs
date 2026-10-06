@@ -306,7 +306,7 @@ impl TabViewer for Viewer<'_> {
             }
             Tab::Manual => "User Manual".into(),
             Tab::References => "References".into(),
-            Tab::PlaceableGallery => "Placeable Gallery".into(),
+            Tab::PlaceableGallery => "Appearance Gallery".into(),
             Tab::InstanceModel { area, path } => {
                 format!("{} (preview)", instance_title(self.app, *area, path)).into()
             }

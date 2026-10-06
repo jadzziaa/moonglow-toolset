@@ -530,7 +530,7 @@ impl AreaView {
     }
 
     /// The object under the pointer.
-    fn pick(&self, pos: Pos2) -> Option<usize> {
+    pub(crate) fn pick(&self, pos: Pos2) -> Option<usize> {
         let (model, scene, ray) = (self.model.as_ref()?, self.scene.as_ref()?, self.ray(pos)?);
         let found = pick(model, &ray, &|i| scene.bounds(model, i), &|k| self.show[k.index()])?;
         // Locked objects can't be picked.
@@ -2527,6 +2527,21 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     {
         let (kind, index) = (o.kind, o.index);
         open_properties(app, view, kind, index);
+    } else if response.double_clicked()
+        && view.drag.is_none()
+        && !view.pasting
+        && brush(app).is_none()
+        && let Some(pos) = response.interact_pointer_pos()
+        && view.pick(pos).is_none()
+        && let Some(tile) = crate::tile_select::tile_at(view, pos)
+    {
+        // A double click on the ground: over to the tiles, that one
+        // selected (a click on an object there comes back to objects), so
+        // going between the two needs no trip to the toolbar.
+        view.tile_mode = true;
+        view.selection.clear();
+        view.start_selected = false;
+        view.tile_selection = vec![tile];
     }
     if response.secondary_clicked() {
         view.menu_at = response.interact_pointer_pos().and_then(|p| view.ground_at(p, 0.0));

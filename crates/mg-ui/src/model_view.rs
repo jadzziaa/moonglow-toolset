@@ -554,13 +554,43 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
 #[derive(Default)]
 pub struct Thumbnails {
     revision: Option<u64>,
-    made: HashMap<ResKey, Option<(Targets, egui::TextureId)>>,
+    made: HashMap<Pictured, Option<(Targets, egui::TextureId)>>,
+}
+
+/// What a thumbnail is of: a blueprint or a model, or a creature's look
+/// (an appearance with a plain body, for choosing among appearances).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Pictured {
+    Resource(ResKey),
+    Look(mg_preview::CreatureLook),
 }
 
 impl Thumbnails {
     /// The thumbnails made, by blueprint.
     pub(crate) fn all(&self) -> HashMap<ResKey, Option<egui::TextureId>> {
+        self.made
+            .iter()
+            .filter_map(|(k, made)| match k {
+                Pictured::Resource(k) => Some((*k, made.as_ref().map(|(_, id)| *id))),
+                Pictured::Look(_) => None,
+            })
+            .collect()
+    }
+
+    /// Every thumbnail made.
+    pub(crate) fn every(&self) -> HashMap<Pictured, Option<egui::TextureId>> {
         self.made.iter().map(|(k, made)| (*k, made.as_ref().map(|(_, id)| *id))).collect()
+    }
+
+    /// The thumbnails made of creatures' looks.
+    pub(crate) fn looks(&self) -> HashMap<mg_preview::CreatureLook, Option<egui::TextureId>> {
+        self.made
+            .iter()
+            .filter_map(|(k, made)| match k {
+                Pictured::Look(l) => Some((*l, made.as_ref().map(|(_, id)| *id))),
+                Pictured::Resource(_) => None,
+            })
+            .collect()
     }
 }
 
@@ -583,6 +613,18 @@ const THUMBNAILS_KEPT: usize = 192;
 
 /// A blueprint's thumbnail (`None`: no GPU, or nothing to draw).
 pub(crate) fn thumbnail(app: &mut Moonglow, key: ResKey) -> Option<egui::TextureId> {
+    thumbnail_of(app, Pictured::Resource(key))
+}
+
+/// A creature look's thumbnail.
+pub(crate) fn look_thumbnail(
+    app: &mut Moonglow,
+    look: mg_preview::CreatureLook,
+) -> Option<egui::TextureId> {
+    thumbnail_of(app, Pictured::Look(look))
+}
+
+pub(crate) fn thumbnail_of(app: &mut Moonglow, key: Pictured) -> Option<egui::TextureId> {
     let revision = app.ws.as_ref().map(Workspace::revision);
     if app.thumbnails.revision != revision || app.thumbnails.made.len() > THUMBNAILS_KEPT {
         let old = std::mem::take(&mut app.thumbnails.made);
@@ -603,26 +645,36 @@ pub(crate) fn thumbnail(app: &mut Moonglow, key: ResKey) -> Option<egui::Texture
     id
 }
 
-fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::TextureId)> {
-    // (A blueprint's, or a model's own: a gallery of appearances.)
-    if !matches!(
-        key.restype,
-        ResType::UTC | ResType::UTD | ResType::UTI | ResType::UTP | ResType::MDL
-    ) {
-        return None;
-    }
-    if let Some(ws) = app.ws.as_mut() {
-        let _ = ws.flush();
-    }
-    let source = Source::Resource(key);
-    let preview = preview_of(app, &source).ok()?;
+fn render_thumbnail(app: &mut Moonglow, key: Pictured) -> Option<(Targets, egui::TextureId)> {
+    let (source, preview) = match key {
+        Pictured::Resource(key) => {
+            // (A blueprint's, or a model's own: a gallery of appearances.)
+            if !matches!(
+                key.restype,
+                ResType::UTC | ResType::UTD | ResType::UTI | ResType::UTP | ResType::MDL
+            ) {
+                return None;
+            }
+            if let Some(ws) = app.ws.as_mut() {
+                let _ = ws.flush();
+            }
+            let source = Source::Resource(key);
+            let preview = preview_of(app, &source).ok()?;
+            (source, preview)
+        }
+        Pictured::Look(look) => {
+            let preview = mg_preview::creature_look(app.game.as_deref()?, &look).ok()?;
+            // (Named, for a message, by the table its row is of.)
+            (Source::Resource(ResKey::parse("appearance", ResType::TWODA)?), preview)
+        }
+    };
     let composed = compose(app, &source, &preview).ok()?;
     let vp = app.viewport.as_mut()?;
     // As the viewer frames it: from the front, a little to the side.
-    let (mut min, mut max) = composed.bounds();
     // A model that emits (flames, sparks, a shaft of light: some are
     // nothing else) is drawn a few seconds in, its particles in the frame.
     let idle = composed.idle.as_deref();
+    let (mut min, mut max) = composed.bounds_in(idle, 0.0);
     let pitch = 20f32.to_radians();
     // From the side that shows the most of it: a thing made for a wall has
     // a face and no back, and from behind there is nothing to see.
@@ -668,7 +720,10 @@ fn render_thumbnail(app: &mut Moonglow, key: ResKey) -> Option<(Targets, egui::T
     // … but far enough that a tall thing (a banner) keeps its top and foot.
     let tall = (max.z - min.z) * 0.5 / 20f32.to_radians().tan() * 1.08
         + (max - min).truncate().length() * 0.25;
-    let distance = (radius / 20f32.to_radians().sin() * 0.85).max(tall);
+    // (A creature stands in its animation, which its bounds at rest don't
+    // quite hold: it is given the viewer's room.)
+    let near = if idle.is_some() { 1.05 } else { 0.85 };
+    let distance = (radius / 20f32.to_radians().sin() * near).max(tall);
     let camera = Camera::orbit(target, distance, yaw, pitch);
     let scene = Scene {
         instances: composed.instances(idle, 0.0, Mat4::IDENTITY),

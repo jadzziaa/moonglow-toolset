@@ -181,6 +181,7 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         .unwrap_or(0);
     let mut shown: u32 = ui.data(|d| d.get_temp(shown_id)).unwrap_or(first);
     let mut add = None;
+    let (mut adds, mut taken) = (Vec::new(), Vec::new());
     let mut edits = Vec::new();
     crate::widgets::two_columns(ui, 300.0, |ui, col| {
         if col == 0 {
@@ -206,10 +207,27 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         let items = items.to_vec();
         let icons: Vec<_> = items.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
         let name = |it: &Struct| f.entry_name(it, &names);
-        let look =
-            inventory::ItemLook { icons: &icons, name: &name, infinite: true, selected: None };
-        edits = inventory::item_list(ui, key, &path, &items, look).0;
+        let look = inventory::ItemLook {
+            icons: &icons,
+            name: &name,
+            infinite: true,
+            selected: None,
+            equip: false,
+            copied: f.app.item_clip.len(),
+        };
+        let mut out = inventory::item_list(ui, key, &path, &items, look);
+        // Pasted, dragged from the palette, or dragged out of another
+        // object's inventory: added (to the page its kind goes on).
+        let whose = inventory::owner(key, &path);
+        (adds, taken) = f.list_events(ui, &items, &mut out, whose);
+        edits = out.edits;
     });
+    for edit in taken {
+        f.app.actions.push(Action::Apply(Command::new("Take item", vec![edit])));
+    }
+    for r in adds {
+        shown = add_item(f, r);
+    }
     if let Some(r) = add {
         shown = add_item(f, r);
     }

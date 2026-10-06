@@ -112,6 +112,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
                 f.set_many("Generic appearance", &fields);
             }
         });
+        f.gallery_button(ui, crate::appearance_gallery::Kind::Door);
         ui.end_row();
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Door);

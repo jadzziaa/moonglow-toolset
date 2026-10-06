@@ -5,12 +5,13 @@ use std::collections::HashMap;
 
 use egui::Ui;
 use mg_core::ResRef;
-use mg_edit::{Edit, GffPath};
+use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_module::palette::BlueprintKind;
 use mg_resman::ResKey;
 
 use super::Form;
+use crate::Action;
 use crate::images::{ICON_MAX, Picture};
 
 /// An inventory is a grid this many cells wide.
@@ -257,6 +258,89 @@ pub(super) fn flag_box(
     Some((flag, Edit::SetField { key, path, label: flag.into(), value }))
 }
 
+/// An item dragged in an inventory page: from the item palette, from a
+/// list of items (a backpack, a container, a store's page), or from a
+/// creature's equipment. `owner` tells whose list it is from (a drop on
+/// another object's page is not taken).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Dragged {
+    Palette(ResRef),
+    /// `source`: the document and the object in it whose `ItemList` it is.
+    Listed {
+        owner: egui::Id,
+        source: (ResKey, GffPath),
+        index: usize,
+        resref: ResRef,
+    },
+    /// `source`: the creature whose `Equip_ItemList` it is.
+    Equipped {
+        owner: egui::Id,
+        source: (ResKey, GffPath),
+        index: usize,
+        resref: ResRef,
+    },
+}
+
+impl Dragged {
+    /// The edit that takes a dragged item out of where it came from (a
+    /// move to another object's inventory).
+    pub(super) fn removal(&self) -> Option<Edit> {
+        let (list, (key, path), index) = match self {
+            Dragged::Palette(_) => return None,
+            Dragged::Listed { source, index, .. } => ("ItemList", source, *index),
+            Dragged::Equipped { source, index, .. } => ("Equip_ItemList", source, *index),
+        };
+        Some(Edit::RemoveItem { key: *key, path: path.clone(), list: list.into(), index })
+    }
+}
+
+/// Whose items a page's are: the document and the object in it.
+pub(super) fn owner(key: ResKey, path: &GffPath) -> egui::Id {
+    egui::Id::new(("inventory-of", key, path.to_string()))
+}
+
+/// The item dragged that is let go over `rect` this frame (taken: it is
+/// dropped here). While one is dragged over `rect`, the place is outlined.
+pub(super) fn dropped_on(ui: &Ui, rect: egui::Rect) -> Option<Dragged> {
+    let dragged = egui::DragAndDrop::payload::<Dragged>(ui.ctx())?;
+    // (Where it shows, under the pointer: not a part scrolled out of sight,
+    // nor under another window.)
+    let over = ui.rect_contains_pointer(rect);
+    if !over {
+        return None;
+    }
+    let stroke = egui::Stroke::new(1.5, ui.visuals().selection.stroke.color);
+    ui.painter().rect_stroke(rect, 2.0, stroke, egui::StrokeKind::Inside);
+    if ui.input(|i| i.pointer.any_released()) {
+        egui::DragAndDrop::clear_payload(ui.ctx());
+        return Some((*dragged).clone());
+    }
+    None
+}
+
+/// What a list row's right-click menu asks of its item.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Ask {
+    Equip,
+    Open,
+    Copy,
+}
+
+/// What an item list reports: the edits asked for, the item clicked, an
+/// item dropped on it, and what a row's menu asked.
+pub(super) struct ListOut {
+    pub edits: Vec<(&'static str, Edit)>,
+    pub clicked: Option<usize>,
+    pub dropped: Option<Dragged>,
+    pub asked: Option<(usize, Ask)>,
+    /// A row dragged to another place in the list: the edits that move it,
+    /// to make together.
+    pub moved: Vec<Edit>,
+    /// Paste was asked for (the header's button, a row's menu, Ctrl+V over
+    /// the list).
+    pub paste: bool,
+}
+
 /// How an item list shows its items.
 pub(super) struct ItemLook<'a> {
     /// Each item's icon layers.
@@ -266,6 +350,11 @@ pub(super) struct ItemLook<'a> {
     pub infinite: bool,
     /// The selected item (a creature's, for its options).
     pub selected: Option<usize>,
+    /// Its items can be equipped (a creature's backpack): the rows' menu
+    /// offers it.
+    pub equip: bool,
+    /// How many items are copied, to paste (0: none).
+    pub copied: usize,
 }
 
 /// The width of a store's Infinite column.
@@ -280,10 +369,16 @@ pub(super) fn item_list(
     path: &GffPath,
     items: &[Struct],
     look: ItemLook<'_>,
-) -> (Vec<(&'static str, Edit)>, Option<usize>) {
-    let ItemLook { icons, name, infinite, selected } = look;
+) -> ListOut {
+    let ItemLook { icons, name, infinite, selected, equip, copied } = look;
     let mut clicked = None;
+    let mut asked = None;
+    let (mut paste, mut moved) = (false, Vec::new());
+    // The row under the pointer (for Ctrl+C), and a row let go over another
+    // (from, to).
+    let (mut hovered, mut reorder) = (None, None);
     let mut edits = Vec::new();
+    let whose = owner(key, path);
     let gap = ui.spacing().item_spacing.x;
     // Clear of the scroll bar (which floats over the list's right edge).
     let scroll = &ui.spacing().scroll;
@@ -294,6 +389,14 @@ pub(super) fn item_list(
     let mut head = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(layout));
     head.add_space(ICON_MAX.x + gap);
     head.strong("Item");
+    if copied > 0
+        && head
+            .small_button(format!("Paste ({copied})"))
+            .on_hover_text("Add the items copied (Ctrl+V with the pointer over the list)")
+            .clicked()
+    {
+        paste = true;
+    }
     if infinite {
         head.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Over the checkboxes: past the Remove buttons.
@@ -307,11 +410,14 @@ pub(super) fn item_list(
     }
     // The list fills what is left of the page's visible height.
     let height = (ui.clip_rect().bottom() - ui.cursor().top()).max(200.0);
-    egui::ScrollArea::vertical()
+    let list = egui::ScrollArea::vertical()
         .id_salt(("items", key, path.to_string()))
         .max_height(height)
+        .min_scrolled_height(120.0)
         .auto_shrink([false, true])
         .show(ui, |ui| {
+            // (Room to drop on, in an empty list too.)
+            ui.set_min_height(48.0);
             for (i, it) in items.iter().enumerate() {
                 let resref = entry_resref(it);
                 let n = name(it);
@@ -324,6 +430,22 @@ pub(super) fn item_list(
                     height.max(ui.spacing().interact_size.y),
                 );
                 let (rect, _) = ui.allocate_exact_size(row, egui::Sense::hover());
+                if ui.rect_contains_pointer(rect) {
+                    hovered = Some(i);
+                    // One of the list's own rows let go here takes this
+                    // place (a line shows where).
+                    if let Some(Dragged::Listed { owner, index, .. }) =
+                        egui::DragAndDrop::payload::<Dragged>(ui.ctx()).as_deref()
+                        && *owner == whose
+                        && *index != i
+                    {
+                        let line = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
+                        ui.painter().hline(rect.x_range(), rect.top(), line);
+                        if ui.input(|i| i.pointer.any_released()) {
+                            reorder = Some((*index, i));
+                        }
+                    }
+                }
                 if i % 2 == 1 {
                     ui.painter().rect_filled(rect, 0.0, ui.visuals().faint_bg_color);
                 }
@@ -367,14 +489,150 @@ pub(super) fn item_list(
                         (n.as_str(), egui::Atom::grow()),
                     )
                     .min_size(egui::vec2(width, 0.0))
-                    .truncate();
-                    if ui.add(label).on_hover_text(resref.to_string()).clicked() {
+                    .truncate()
+                    .sense(egui::Sense::click_and_drag());
+                    let r = ui.add(label).on_hover_text(resref.to_string());
+                    if r.clicked() {
                         clicked = Some(i);
                     }
+                    // Dragged: onto a slot to equip it, or out of a slot's
+                    // list into another.
+                    if r.drag_started() {
+                        r.dnd_set_drag_payload(Dragged::Listed {
+                            owner: whose,
+                            source: (key, path.clone()),
+                            index: i,
+                            resref,
+                        });
+                    }
+                    r.context_menu(|ui| {
+                        if equip && ui.button("Equip").clicked() {
+                            asked = Some((i, Ask::Equip));
+                            ui.close();
+                        }
+                        if ui.button("Open Blueprint").clicked() {
+                            asked = Some((i, Ask::Open));
+                            ui.close();
+                        }
+                        if ui.button("Copy").clicked() {
+                            asked = Some((i, Ask::Copy));
+                            ui.close();
+                        }
+                        if ui.add_enabled(copied > 0, egui::Button::new("Paste")).clicked() {
+                            paste = true;
+                            ui.close();
+                        }
+                        if ui.button("Remove").clicked() {
+                            edits.push((
+                                "Remove item",
+                                Edit::RemoveItem {
+                                    key,
+                                    path: path.clone(),
+                                    list: "ItemList".into(),
+                                    index: i,
+                                },
+                            ));
+                            ui.close();
+                        }
+                    });
                 });
             }
         });
-    (edits, clicked)
+    // A row moved within the list: out of its place and in before the row
+    // it was let go on.
+    if let Some((from, to)) = reorder
+        && let Some(item) = items.get(from)
+    {
+        egui::DragAndDrop::clear_payload(ui.ctx());
+        let at = if from < to { to - 1 } else { to };
+        moved = vec![
+            Edit::RemoveItem { key, path: path.clone(), list: "ItemList".into(), index: from },
+            Edit::InsertItem {
+                key,
+                path: path.clone(),
+                list: "ItemList".into(),
+                index: at,
+                item: item.clone(),
+            },
+        ];
+    }
+    // Ctrl+C on the row under the pointer (else the one selected), Ctrl+V
+    // over the list: while nothing is typed in.
+    let over = ui.rect_contains_pointer(list.inner_rect);
+    if over && ui.ctx().memory(|m| m.focused().is_none()) {
+        let event = |f: fn(&egui::Event) -> bool| ui.input(|i| i.events.iter().any(f));
+        if event(|e| matches!(e, egui::Event::Copy))
+            && let Some(i) = hovered.or(selected)
+        {
+            asked = Some((i, Ask::Copy));
+        }
+        if copied > 0 && event(|e| matches!(e, egui::Event::Paste(_))) {
+            paste = true;
+        }
+    }
+    // An item let go over the list (not one of its own).
+    let dropped = dropped_on(ui, list.inner_rect)
+        .filter(|d| !matches!(d, Dragged::Listed { owner, .. } if *owner == whose));
+    ListOut { edits, clicked, dropped, asked, moved, paste }
+}
+
+impl Form<'_> {
+    /// What an item list reported that is the same for every inventory:
+    /// Copy and Open Blueprint from a row's menu, a row moved within the
+    /// list, and what there is to add to it: the items pasted, one dragged
+    /// from the palette, one dragged from another object's inventory
+    /// (moved out of it, unless Ctrl is held: then a copy). The blueprints
+    /// to add, and the edits that take the moved ones from where they were.
+    pub(super) fn list_events(
+        &mut self,
+        ui: &Ui,
+        items: &[Struct],
+        out: &mut ListOut,
+        whose: egui::Id,
+    ) -> (Vec<ResRef>, Vec<Edit>) {
+        let (mut adds, mut removals) = (Vec::new(), Vec::new());
+        match out.asked {
+            Some((i, Ask::Open)) => {
+                if let Some(r) = items.get(i).map(entry_resref).filter(|r| !r.is_empty()) {
+                    let item = ResKey::new(r, mg_core::ResType::UTI);
+                    crate::palette_view::view_blueprint(self.app, item);
+                }
+            }
+            Some((i, Ask::Copy)) => {
+                if let Some(r) = items.get(i).map(entry_resref).filter(|r| !r.is_empty()) {
+                    self.copy_item(ui, r);
+                }
+            }
+            _ => {}
+        }
+        if !out.moved.is_empty() {
+            let moved = std::mem::take(&mut out.moved);
+            self.app.actions.push(Action::Apply(Command::new("Move item", moved)));
+        }
+        if out.paste {
+            adds.extend(self.app.item_clip.iter().copied());
+        }
+        match &out.dropped {
+            Some(Dragged::Palette(r)) => adds.push(*r),
+            Some(
+                d @ (Dragged::Listed { owner, resref, .. }
+                | Dragged::Equipped { owner, resref, .. }),
+            ) if *owner != whose => {
+                adds.push(*resref);
+                if !ui.input(|i| i.modifiers.command) {
+                    removals.extend(d.removal());
+                }
+            }
+            _ => {}
+        }
+        (adds, removals)
+    }
+
+    /// Copies an item (its blueprint), to paste into an inventory.
+    pub(super) fn copy_item(&mut self, ui: &Ui, resref: ResRef) {
+        self.app.item_clip = vec![resref];
+        crate::widgets::mark_clipboard(ui.ctx(), "1 item");
+    }
 }
 
 #[cfg(test)]
