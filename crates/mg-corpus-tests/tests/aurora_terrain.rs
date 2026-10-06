@@ -387,3 +387,38 @@ fn group_doors_match_aurora() {
         }
     }
 }
+
+/// A group is one thing: the Eraser on any of its tiles takes all of it
+/// away, and a group placed over part of another takes the other away
+/// whole (no half a barn left beside the new one).
+#[test]
+fn groups_go_whole() {
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let area = ResRef::from_str("ttr01").unwrap();
+    let set = mg_area::tileset(&game, area).unwrap();
+    let index = TileIndex::new(&set);
+    let grass = mg_tiles::Corner { terrain: index.terrain("Grass").unwrap(), height: 0 };
+    let lattice = mg_tiles::Lattice::new(8, 8, grass);
+    let tiles = mg_tiles::fill(&index, &lattice, &mut fastrand::Rng::with_seed(1)).unwrap();
+    let mut g = mg_tiles::paint::Grid::new(&index, 8, 8, tiles).unwrap();
+    let palette = TilesetPalette::read(&game, area, &set, &index);
+    let Some(Brush::Group(barn)) = palette.brush("Barn 1 2x2") else { panic!("no barn") };
+    let grouped = |g: &mg_tiles::paint::Grid| -> Vec<(u32, u32)> {
+        let cells = (0..8).flat_map(|y| (0..8).map(move |x| (x, y)));
+        cells.filter(|&(x, y)| index.is_grouped(g.tile(x, y).tile)).collect()
+    };
+    let mut rng = fastrand::Rng::with_seed(2);
+    let stroke = g.place_group(&index, &set.groups[barn], 2, 2, 0).unwrap();
+    g.apply(&index, stroke, &mut rng);
+    assert_eq!(grouped(&g), [(2, 2), (3, 2), (2, 3), (3, 3)]);
+    assert_eq!(g.group_cells(&index, 3, 3).map(|c| c.len()), Some(4));
+    // Another over its east half: the first goes, all of it.
+    let stroke = g.place_group(&index, &set.groups[barn], 3, 2, 0).unwrap();
+    g.apply(&index, stroke, &mut rng);
+    assert_eq!(grouped(&g), [(3, 2), (4, 2), (3, 3), (4, 3)]);
+    // The Eraser on one of its tiles: none of it is left.
+    let stroke = g.erase(&index, 4, 3).unwrap();
+    g.apply(&index, stroke, &mut rng);
+    assert_eq!(grouped(&g), []);
+}

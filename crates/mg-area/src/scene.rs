@@ -22,8 +22,15 @@ use mg_rules::GameData;
 use crate::{AreaModel, AreaObject, AreaTile, Lighting, ObjectKind, TILE_SIZE};
 
 /// How many objects' particles are simulated in a frame at most (an area
-/// of hundreds of torches still draws at once).
-const MAX_PARTICLE_OBJECTS: usize = 96;
+/// of hundreds of torches still draws at once): those nearest the view.
+const MAX_PARTICLE_OBJECTS: usize = 256;
+
+/// An emitter new to the view is run ahead this far, in steps this long,
+/// so that it shows as it does once going: a wide mist lets out a few
+/// slow particles a second that live a quarter of a minute, and showed
+/// next to nothing for as long after every change to the area.
+const PARTICLES_AHEAD: f32 = 20.0;
+const PARTICLES_AHEAD_STEP: f32 = 0.25;
 
 /// And how many tiles'.
 const MAX_PARTICLE_TILES: usize = 128;
@@ -355,6 +362,28 @@ impl AreaScene {
         }
     }
 
+    /// How far along `ray` it meets object `i`'s model itself (its
+    /// triangles, at rest), for a click that passes a wide box to reach
+    /// what is behind. `None`: the object has no model to meet (a marker,
+    /// an arrow, an emitter alone) and is picked by its box;
+    /// `Some(None)`: the ray passes its model.
+    pub fn ray_hit(
+        &self,
+        area: &AreaModel,
+        i: usize,
+        ray: &crate::pick::Ray,
+    ) -> Option<Option<f32>> {
+        let shown = self.objects.get(i).and_then(Option::as_ref)?;
+        let o = area.objects.get(i)?;
+        if self.as_arrow(o, Some(shown)) || !shown.composed.has_meshes() {
+            return None;
+        }
+        let inverse = o.model_transform().inverse();
+        let (origin, dir) =
+            (inverse.transform_point3(ray.origin), inverse.transform_vector3(ray.dir));
+        Some(shown.composed.ray_hit(origin, dir))
+    }
+
     /// The particles of the placed objects with emitters (a campfire's
     /// flames, a portal, sparks: placeables that are nothing else show
     /// nothing without them), moved on by `dt` seconds and drawn for a
@@ -372,11 +401,27 @@ impl AreaScene {
     ) -> Vec<mg_render::particles::ParticleBatch> {
         let mut out = Vec::new();
         let mut seen = Vec::new();
-        for (i, (o, shown)) in area.objects.iter().zip(&self.objects).enumerate() {
-            let Some(shown) = shown else { continue };
-            if !view.shows(o.kind) || seen.len() >= MAX_PARTICLE_OBJECTS {
-                continue;
-            }
+        // The objects with emitters, those nearest the view first: past
+        // [`MAX_PARTICLE_OBJECTS`] the far ones go without.
+        let eye = camera.inverse().w_axis.truncate();
+        let emits = |n: &mg_mdl::Node| matches!(n.kind, mg_mdl::NodeKind::Emitter(_));
+        let mut emitting: Vec<(f32, usize)> = area
+            .objects
+            .iter()
+            .zip(&self.objects)
+            .enumerate()
+            .filter(|(_, (o, shown))| {
+                view.shows(o.kind)
+                    && shown
+                        .as_ref()
+                        .is_some_and(|s| s.composed.base().model.nodes.iter().any(emits))
+            })
+            .map(|(i, (o, _))| (o.position.distance_squared(eye), i))
+            .collect();
+        emitting.sort_by(|a, b| a.0.total_cmp(&b.0));
+        emitting.truncate(MAX_PARTICLE_OBJECTS);
+        for (_, i) in emitting {
+            let (o, Some(shown)) = (&area.objects[i], &self.objects[i]) else { continue };
             let key = (i, Arc::as_ptr(shown) as usize);
             if self.failed.borrow().contains(&key.1) {
                 continue;
@@ -386,9 +431,18 @@ impl AreaScene {
             let transform = o.model_transform();
             let drawn = mg_render::guard::guarded(name, || {
                 let (model, playing, pose) = c.emitters(c.idle.as_deref(), view.time)?;
+                let new = !sims.contains_key(&key);
                 let sim =
                     sims.entry(key).or_insert_with(|| mg_render::particles::Particles::new(model));
                 sim.ground = o.position.z;
+                if new {
+                    let mut ahead = 0.0;
+                    while ahead < PARTICLES_AHEAD {
+                        let step = PARTICLES_AHEAD_STEP;
+                        sim.update(model, playing, view.time, step, &pose, transform);
+                        ahead += step;
+                    }
+                }
                 sim.update(model, playing, view.time, dt, &pose, transform);
                 Some(sim.batches(model, playing, view.time, &pose, transform, camera))
             });

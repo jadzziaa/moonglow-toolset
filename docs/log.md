@@ -7,6 +7,7 @@
 * **Update**: [Scripts](manual/07-scripts.md): include files aren't compiled on their own; [areas](manual/04-areas.md): the grid from the area's edge, Ctrl + drag with a tileset brush; [the deferred list](deferred.md): builders' reports after 1.14.1.
 * **Update**: [Options](manual/10-options.md) and [scripts](manual/07-scripts.md): the External Script Compiler; [getting started](manual/01-getting-started.md): the game is found in other Steam libraries; [the deferred list](deferred.md).
 * **Update**: [Options](manual/10-options.md): Steam Workshop content is read; [build, verify and test](manual/09-build-and-test.md): a Steam copy started for a test reaches Steam; [the deferred list](deferred.md).
+* **Update**: [Areas](manual/04-areas.md): groups and the Eraser; [the deferred list](deferred.md): picking by the model, emitters run ahead, a project file that isn't UTF-8, what an area lacks named in the log.
 
 ## 2026-10-04
 * **Update**: Made `docs/` an Open Knowledge Format (OKF v0.2) bundle: frontmatter on all 43 documents (the plan, [findings](findings.md), proposals, [research](research/index.md), [parity](parity/index.md), [plugins](plugins/index.md) and every chapter of [the manual](manual/README.md)), index files and this log. No content changed. The program's manual reader (`crates/mg-ui/src/manual.rs`) skips a chapter's frontmatter, and the two generated documents get theirs from their generators (`tools/aurora/uiinv/gen.py`, `crates/mg-corpus-tests/examples/observed_schema.rs`).

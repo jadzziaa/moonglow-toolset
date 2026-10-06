@@ -78,6 +78,8 @@ pub struct TileIndex {
     crossers: Vec<String>,
     cells: Vec<Cell>,
     grouped: Vec<bool>,
+    /// The tileset's groups: columns, and row-major tiles.
+    groups: Vec<(u32, Vec<Option<u32>>)>,
     fits: HashMap<Cell, Vec<Placement>>,
     /// The highest corner height any tile has.
     max_height: i32,
@@ -150,7 +152,8 @@ impl TileIndex {
             }
         }
         let max_height = cells.iter().flat_map(|c| c.corners).map(|c| c.height).max().unwrap_or(0);
-        TileIndex { terrains, crossers, cells, grouped, fits, max_height }
+        let groups = set.groups.iter().map(|g| (g.columns.max(1), g.tiles.clone())).collect();
+        TileIndex { terrains, crossers, cells, grouped, groups, fits, max_height }
     }
 
     /// A terrain by name (case-insensitive).
@@ -199,6 +202,56 @@ impl TileIndex {
     /// their group, never to fit terrain.
     pub fn is_grouped(&self, tile: u32) -> bool {
         self.grouped.get(tile as usize).copied().unwrap_or(false)
+    }
+
+    /// The cells of the group placed with a tile of its own at (x, y):
+    /// every cell the group put a tile in, where all of them are still as
+    /// it placed them (`tile` gives a cell's tile, `None` outside the
+    /// area). `None` for a tile of no group, and for what is left of a
+    /// group that something else was painted over.
+    pub fn group_at(
+        &self,
+        tile: &dyn Fn(i64, i64) -> Option<Placement>,
+        x: u32,
+        y: u32,
+    ) -> Option<Vec<(u32, u32)>> {
+        let here = tile(i64::from(x), i64::from(y))?;
+        if !self.is_grouped(here.tile) {
+            return None;
+        }
+        let turns = here.orientation % 4;
+        // Where slot `k` of a group of `columns` goes from its first cell,
+        // turned as the group was (as `Grid::place_group` turns it).
+        let offset = |k: usize, columns: u32| {
+            let (mut c, mut r) = ((k as u32 % columns) as i64, (k as u32 / columns) as i64);
+            for _ in 0..turns {
+                (c, r) = (-r, c);
+            }
+            (c, r)
+        };
+        for (columns, tiles) in &self.groups {
+            for (k, _) in tiles.iter().enumerate().filter(|(_, t)| **t == Some(here.tile)) {
+                let (c, r) = offset(k, *columns);
+                let origin = (i64::from(x) - c, i64::from(y) - r);
+                let mut cells = Vec::new();
+                let whole = tiles.iter().enumerate().all(|(j, t)| {
+                    let Some(t) = t else { return true };
+                    let (c, r) = offset(j, *columns);
+                    let at = (origin.0 + c, origin.1 + r);
+                    let same = tile(at.0, at.1).is_some_and(|p| {
+                        p.tile == *t && p.orientation % 4 == turns && p.height == here.height
+                    });
+                    if same {
+                        cells.push((at.0 as u32, at.1 as u32));
+                    }
+                    same
+                });
+                if whole {
+                    return Some(cells);
+                }
+            }
+        }
+        None
     }
 
     /// The tiles (outside groups) that fit a cell, at each orientation and

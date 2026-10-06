@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:14:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T21:56:51Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -459,6 +459,36 @@ objects in the area view, Fade Geometry. Left:
   built-in compiler. Its messages are matched to scripts by their file
   names and the word "error": another compiler's wording may be missed
   (the script is then said to have made no compiled script). (S–M)
+- **A click is on the model, not its box:** an object with a model is
+  picked where the pointer's ray meets its triangles (at rest: a creature
+  mid-stride is picked where it stands still), so a click through the
+  empty part of a wide box reaches the trigger or the object behind;
+  where the ray meets nothing so, the nearest box passed through is
+  taken, so a thin post is still clicked beside. Aurora's own picking
+  wasn't measured. Things without a mesh (markers, an emitter alone) are
+  picked by their boxes still. (S)
+- **Emitters start as they look once going:** an object's emitter new to
+  the view is run twenty seconds ahead (a wide fog that lets out eight
+  slow particles a second showed next to nothing for a quarter of a
+  minute after every change to the area). The nearest 256 objects with
+  emitters are simulated (it was the first 96 listed). Tiles' emitters
+  start from nothing still. That the fog is as dense as the game's from
+  above wasn't compared with the client. (S)
+- **Groups go whole:** the Eraser on a tile of a group takes the group
+  away, and a group placed over part of another takes that one away
+  (it left the other's remaining tiles standing, and the Eraser did
+  nothing on a group's tile). A group whose tiles' corners no plain tile
+  fits can't be taken away (the brush is refused). What Aurora does with
+  an overlapped group is from a builder's word, not a capture. Delete on
+  selected tiles still takes a group's tiles one at a time. (S)
+- **A nasher project's file that isn't UTF-8 throughout** (a Polish
+  module's conversation: "invalid unicode code point") is read with its
+  stray bytes as the project's code page has them. The reporter's file
+  wasn't seen; a file broken another way still stops the project from
+  opening, where it could be left out and said. (S)
+- **What an area lacks is named in the log** (a tileset, models from a
+  hak that isn't there), once, up to twelve names; the toolbar's count
+  has the rest on hover. (—)
 - **Steam Workshop content** is read (Options › General): each item's
   `override` folder as a layer under the user's own, its `hak` and `tlk`
   folders searched. Which of two items' overrides wins in the game isn't

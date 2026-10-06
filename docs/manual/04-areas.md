@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T18:53:17Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T21:56:51Z }
 ---
 
 # Areas
@@ -106,7 +106,7 @@ field).
 
 | Do | To |
 | --- | --- |
-| Click | select an object |
+| Click | select an object (the one whose model is under the pointer: a click through an arch reaches what is behind it) |
 | Ctrl + click | add it to the selection, or take it out |
 | Drag on the ground | select the objects in the box |
 | Drag the selection | move it over the ground |
@@ -307,8 +307,11 @@ as Aurora's Terrain tab does:
   would, leaving other crossers (a road goes, the stream it crosses
   stays) and the brush chosen.
 - **Groups** (buildings, big features) are placed whole; right-click to
-  turn one before placing it. It stays chosen, to place another.
-- The **Eraser** takes the crossers off a tile; Shift + click steps the
+  turn one before placing it. It stays chosen, to place another. A group
+  placed over part of another takes the other away whole.
+- The **Eraser** takes the crossers off a tile, and on a tile of a group
+  or a feature takes the whole of it away (its tiles become ground that
+  fits there); Shift + click steps the
   tile through the other tiles that fit there. Dragged, it marks the
   tiles it passes, as a terrain brush marks corners (run back, Shift for
   a rectangle), and erases them when you let go.

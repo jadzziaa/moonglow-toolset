@@ -282,6 +282,56 @@ impl Composed {
         }
     }
 
+    /// How far along a ray (from `origin` along `dir`, in the preview's own
+    /// space; in units of `dir`) it first meets one of the drawn
+    /// triangles, at rest: what a click is on, where the box around the
+    /// whole is much more than the model. `None` past it all (and for a
+    /// preview with no mesh to meet, an emitter alone: see
+    /// [`Composed::has_meshes`]).
+    pub fn ray_hit(&self, origin: Vec3, dir: Vec3) -> Option<f32> {
+        let mut best: Option<f32> = None;
+        let mut meet = |gm: &GpuModel, nodes: &[Mat4], to: Mat4| {
+            for m in &gm.meshes {
+                let Some(mesh) = gm.model.nodes.get(m.node).and_then(|n| n.mesh()) else {
+                    continue;
+                };
+                let node = nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
+                // The ray in the mesh's space (an affine map keeps its
+                // parameter).
+                let inverse = (to * node).inverse();
+                let (o, d) = (inverse.transform_point3(origin), inverse.transform_vector3(dir));
+                // (Past its box, none of its triangles.)
+                if !ray_meets_box(o, d, m.min, m.max) {
+                    continue;
+                }
+                let corner = |i: u32| mesh.vertices.get(i as usize).copied().map(Vec3::from);
+                let faces = mesh.faces.iter().map(|f| f.vertices);
+                for [a, b, c] in faces.chain(mesh.drawn.iter().copied()) {
+                    let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) else {
+                        continue;
+                    };
+                    if let Some(t) = ray_triangle(o, d, a, b, c)
+                        && best.is_none_or(|b| t < b)
+                    {
+                        best = Some(t);
+                    }
+                }
+            }
+        };
+        let rest = &self.base.gpu.rest;
+        meet(&self.base.gpu, rest, Mat4::IDENTITY);
+        for p in &self.parts {
+            let at = p.attach.and_then(|i| rest.get(i).copied()).unwrap_or(Mat4::IDENTITY);
+            meet(&p.gpu, &p.gpu.rest, at * Mat4::from_scale(Vec3::splat(p.scale)));
+        }
+        best
+    }
+
+    /// Whether it draws any mesh (not an emitter or a light alone).
+    pub fn has_meshes(&self) -> bool {
+        self.models().any(|m| !m.meshes.is_empty())
+    }
+
     /// The bounds with the base's nodes at `pose` (model space).
     fn bounds_with(&self, pose: &[Mat4]) -> (Vec3, Vec3) {
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
@@ -315,5 +365,68 @@ impl Composed {
             add(&p.gpu, &p.gpu.rest, at * Mat4::from_scale(Vec3::splat(p.scale)));
         }
         if min.x > max.x { (Vec3::splat(-1.0), Vec3::splat(1.0)) } else { (min, max) }
+    }
+}
+
+/// Whether a ray meets the box `min`..`max`.
+fn ray_meets_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> bool {
+    let (mut near, mut far) = (f32::MIN, f32::MAX);
+    for axis in 0..3 {
+        if dir[axis].abs() < 1e-9 {
+            if origin[axis] < min[axis] || origin[axis] > max[axis] {
+                return false;
+            }
+            continue;
+        }
+        let a = (min[axis] - origin[axis]) / dir[axis];
+        let b = (max[axis] - origin[axis]) / dir[axis];
+        near = near.max(a.min(b));
+        far = far.min(a.max(b));
+    }
+    near <= far && far >= 0.0
+}
+
+/// How far along a ray it meets a triangle (either face), ahead of its
+/// origin (Möller–Trumbore).
+fn ray_triangle(origin: Vec3, dir: Vec3, a: Vec3, b: Vec3, c: Vec3) -> Option<f32> {
+    let (ab, ac) = (b - a, c - a);
+    let p = dir.cross(ac);
+    let det = ab.dot(p);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let inv = 1.0 / det;
+    let s = origin - a;
+    let u = s.dot(p) * inv;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let q = s.cross(ab);
+    let v = dir.dot(q) * inv;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    let t = ac.dot(q) * inv;
+    (t >= 0.0).then_some(t)
+}
+
+#[cfg(test)]
+mod ray_tests {
+    use super::*;
+
+    #[test]
+    fn a_ray_meets_a_triangle_ahead_of_it() {
+        let (a, b, c) = (Vec3::ZERO, Vec3::X, Vec3::Y);
+        let down = Vec3::NEG_Z;
+        let t = ray_triangle(Vec3::new(0.2, 0.2, 5.0), down, a, b, c).unwrap();
+        assert!((t - 5.0).abs() < 1e-5);
+        // From behind too (a model's faces are picked from either side).
+        assert!(ray_triangle(Vec3::new(0.2, 0.2, -5.0), Vec3::Z, a, b, c).is_some());
+        // Beside it, behind the origin, and along its plane: nothing.
+        assert!(ray_triangle(Vec3::new(0.8, 0.8, 5.0), down, a, b, c).is_none());
+        assert!(ray_triangle(Vec3::new(0.2, 0.2, -5.0), down, a, b, c).is_none());
+        assert!(ray_triangle(Vec3::new(-1.0, 0.2, 0.0), Vec3::X, a, b, c).is_none());
+        assert!(ray_meets_box(Vec3::new(0.5, 0.5, 5.0), down, Vec3::ZERO, Vec3::ONE));
+        assert!(!ray_meets_box(Vec3::new(2.0, 0.5, 5.0), down, Vec3::ZERO, Vec3::ONE));
     }
 }

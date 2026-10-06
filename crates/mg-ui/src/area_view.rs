@@ -20,7 +20,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use egui::{Color32, Pos2, Rect, Stroke};
 use glam::{Vec2, Vec3};
-use mg_area::pick::{Ray, pick, project};
+use mg_area::pick::{Ray, pick_precisely, project};
 use mg_area::walk::Ground;
 use mg_area::{AreaModel, AreaScene, ObjectKind, TILE_SIZE, View};
 use mg_core::{ResRef, ResType};
@@ -402,6 +402,9 @@ pub struct AreaView {
     /// The press going on (or the last one) began with Ctrl held: it is
     /// the camera's, and a tileset brush leaves it alone.
     pub(crate) camera_press: bool,
+    /// What the log was told this area lacks (problems reading it, models
+    /// not found): told once.
+    told: Vec<String>,
     /// A trigger or encounter whose outline is being drawn anew.
     pub redraw: Option<(ObjectKind, usize)>,
     /// The Create Set window's name, while it is open.
@@ -481,6 +484,7 @@ impl AreaView {
             brush_cursor: Vec::new(),
             terrain_drag: None,
             camera_press: false,
+            told: Vec::new(),
             tile_preview: Vec::new(),
             preview_seed: fastrand::u64(..),
             preview_cache: None,
@@ -536,7 +540,15 @@ impl AreaView {
     /// The object under the pointer.
     pub(crate) fn pick(&self, pos: Pos2) -> Option<usize> {
         let (model, scene, ray) = (self.model.as_ref()?, self.scene.as_ref()?, self.ray(pos)?);
-        let found = pick(model, &ray, &|i| scene.bounds(model, i), &|k| self.show[k.index()])?;
+        // (By the models themselves: a click through the empty part of a
+        // wide box reaches what is behind it.)
+        let found = pick_precisely(
+            model,
+            &ray,
+            &|i| scene.bounds(model, i),
+            &|i| scene.ray_hit(model, i, &ray),
+            &|k| self.show[k.index()],
+        )?;
         // Locked objects can't be picked.
         (!model.objects[found].locked).then_some(found)
     }
@@ -1137,6 +1149,24 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     } else {
         step("no 3D viewport: no scene");
     }
+    // What couldn't be read or found is named in the log, once (the
+    // toolbar only counts it): a tileset or a hak the module wants and
+    // this machine lacks.
+    let mut lacking: Vec<String> = model.problems.clone();
+    if let Some(s) = &view.scene {
+        lacking.extend(s.missing.iter().map(|m| format!("model {m} not found")));
+    }
+    let new: Vec<&String> = lacking.iter().filter(|l| !view.told.contains(l)).collect();
+    if !new.is_empty() {
+        const NAMED: usize = 12;
+        let more = new.len().saturating_sub(NAMED);
+        let mut text = new.iter().take(NAMED).map(|l| l.as_str()).collect::<Vec<_>>().join("; ");
+        if more > 0 {
+            text.push_str(&format!("; and {more} more (rest the pointer on the view's count)"));
+        }
+        app.log.warn(format!("Area {}: {text}", view.area));
+    }
+    view.told = lacking;
     // Objects that went away are no longer selected.
     view.selection.retain(|&(k, i)| model.object(k, i).is_some());
     view.error = None;

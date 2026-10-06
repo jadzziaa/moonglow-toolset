@@ -11456,3 +11456,36 @@ fn look_grid_from_the_edge() {
         img.save(dir.join(format!("{name}.png"))).unwrap();
     }
 }
+
+#[test]
+#[ignore = "a look at a wide fog placeable in the area view"]
+fn look_fog_placeable() {
+    use mg_edit::{Command, Edit, GffPath};
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("fog-look") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let row: u32 = std::env::var("MG_ROW").ok().and_then(|r| r.parse().ok()).unwrap_or(15601);
+    let fog = {
+        let game = h.state().game.clone().unwrap();
+        let key = ResKey::parse("x3_plc_mist", ResType::UTP).unwrap();
+        let bp = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let at = Placement { position: [20.0, 20.0, 0.0], rotation: 0.0 };
+        let mut fog = instance(&placing, ResType::UTP, &bp, at, &[]).unwrap();
+        fog.set("Appearance", mg_gff::Value::Dword(row));
+        fog.set("Static", mg_gff::Value::Byte(1));
+        fog
+    };
+    let placed = Edit::InsertItem {
+        key: git,
+        path: GffPath::root(),
+        list: "Placeable List".into(),
+        index: 0,
+        item: fog,
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(Command::new("Setup", vec![placed])));
+    h.run_steps(240);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-fog-look").join("look.png")).unwrap();
+}

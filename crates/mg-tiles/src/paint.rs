@@ -171,8 +171,27 @@ impl Grid {
     /// then has nothing to fit loses its other kinds of crosser (a road
     /// erased beside a bridge takes the stream with it), or else all of
     /// them, and so on outward. `None` when refused.
+    ///
+    /// On a tile of a group (a building of several tiles, a feature of
+    /// one) it takes the group away whole: each of its tiles is replaced
+    /// by one that fits the ground there. What is left of a group painted
+    /// over goes a tile at a time.
     pub fn erase(&self, index: &TileIndex, x: u32, y: u32) -> Option<Stroke> {
+        if index.is_grouped(self.tile(x, y).tile) {
+            let cells = self.group_cells(index, x, y).unwrap_or_else(|| vec![(x, y)]);
+            return self.delete(index, &cells);
+        }
         self.erase_only(index, x, y, None)
+    }
+
+    /// The cells of the group that has a tile at (x, y), where it is
+    /// whole ([`TileIndex::group_at`]).
+    pub fn group_cells(&self, index: &TileIndex, x: u32, y: u32) -> Option<Vec<(u32, u32)>> {
+        let (w, h) = (i64::from(self.lattice.width()), i64::from(self.lattice.height()));
+        let tile = |cx: i64, cy: i64| {
+            (cx >= 0 && cy >= 0 && cx < w && cy < h).then(|| self.tile(cx as u32, cy as u32))
+        };
+        index.group_at(&tile, x, y)
     }
 
     /// [`Grid::erase`] taking from cell (x, y) only crosser `only` (a road,
@@ -335,6 +354,17 @@ impl Grid {
             }
         }
         let placed: Vec<(u32, u32)> = fixed.iter().map(|(c, _)| *c).collect();
+        // A group under what is placed goes whole, as in Aurora: its tiles
+        // outside the new ones' cells are chosen again to fit the ground
+        // (half a building isn't left standing beside the new one).
+        let mut evicted: Vec<(u32, u32)> = Vec::new();
+        for &(cx, cy) in placed.iter().chain(&empty) {
+            for c in self.group_cells(index, cx, cy).unwrap_or_default() {
+                if !placed.contains(&c) && !evicted.contains(&c) {
+                    evicted.push(c);
+                }
+            }
+        }
         let in_group = |(u, v): (u32, u32)| {
             placed.iter().any(|&(cx, cy)| (u == cx || u == cx + 1) && (v == cy || v == cy + 1))
         };
@@ -348,6 +378,7 @@ impl Grid {
         }
         settle_around(&mut lattice, changed.iter().copied().collect(), &mut changed, &in_group);
         // The cells around the group whose corners or edges changed.
+        let empty_cells = empty.clone();
         let mut cells = empty;
         for cy in 0..self.lattice.height() {
             for cx in 0..self.lattice.width() {
@@ -360,7 +391,14 @@ impl Grid {
                 }
             }
         }
-        let mut stroke = self.stroke(index, lattice, BTreeSet::new(), cells)?;
+        for c in &evicted {
+            if !cells.contains(c) {
+                cells.push(*c);
+            }
+        }
+        // (The cells the new group leaves empty are free to change, too.)
+        evicted.extend(empty_cells);
+        let mut stroke = self.stroke_unlocking(index, lattice, BTreeSet::new(), cells, &evicted)?;
         stroke.fixed = fixed;
         Some(stroke)
     }

@@ -118,25 +118,67 @@ pub fn pick(
     bounds: &dyn Fn(usize) -> (Vec3, Vec3),
     shown: &dyn Fn(ObjectKind) -> bool,
 ) -> Option<usize> {
-    let mut best: Option<(f32, usize)> = None;
-    for (i, o) in area.objects.iter().enumerate() {
-        if !shown(o.kind) {
-            continue;
-        }
-        let t = if o.kind.has_outline() {
-            ray.hits_outline(&o.outline)
-        } else {
-            let (min, max) = bounds(i);
-            ray.hits_box(min, max, o.model_transform())
-        };
-        if let Some(t) = t {
-            // Outlines lie on the ground: whatever stands on them is nearer.
-            if best.is_none_or(|(b, _)| t < b) {
-                best = Some((t, i));
+    pick_precisely(area, ray, bounds, &|_| None, shown)
+}
+
+/// [`pick`], an object with a model by the model itself where `model`
+/// tells (how far along the ray it meets object `i`'s triangles;
+/// `Some(None)`: the ray passes them; `None`: by its box): a click through
+/// the empty part of a wide box reaches what is behind it, a trigger on
+/// the ground under an arch. Where the ray meets nothing so, the nearest
+/// box is taken after all, so that a thin thing can still be clicked
+/// beside.
+pub fn pick_precisely(
+    area: &AreaModel,
+    ray: &Ray,
+    bounds: &dyn Fn(usize) -> (Vec3, Vec3),
+    model: &dyn Fn(usize) -> Option<Option<f32>>,
+    shown: &dyn Fn(ObjectKind) -> bool,
+) -> Option<usize> {
+    let hits =
+        area.objects.iter().enumerate().filter(|(_, o)| shown(o.kind)).filter_map(|(i, o)| {
+            if o.kind.has_outline() {
+                // Outlines lie on the ground: whatever stands on them is nearer.
+                return ray.hits_outline(&o.outline).map(|t| (i, Hit::Met(t)));
             }
+            let (min, max) = bounds(i);
+            let boxed = ray.hits_box(min, max, o.model_transform())?;
+            Some((
+                i,
+                match model(i) {
+                    None => Hit::Met(boxed),
+                    Some(Some(t)) => Hit::Met(t),
+                    Some(None) => Hit::Beside(boxed),
+                },
+            ))
+        });
+    nearest(hits)
+}
+
+/// How a ray meets an object, and how far along.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Hit {
+    /// It meets the object itself: its model, its outline, a marker's box.
+    Met(f32),
+    /// It passes through the box of an object whose model it misses.
+    Beside(f32),
+}
+
+/// The object picked among those a ray meets: the nearest it meets itself,
+/// else the nearest whose box it passes through.
+fn nearest(hits: impl Iterator<Item = (usize, Hit)>) -> Option<usize> {
+    let mut met: Option<(f32, usize)> = None;
+    let mut beside: Option<(f32, usize)> = None;
+    for (i, hit) in hits {
+        let (best, t) = match hit {
+            Hit::Met(t) => (&mut met, t),
+            Hit::Beside(t) => (&mut beside, t),
+        };
+        if best.is_none_or(|(b, _)| t < b) {
+            *best = Some((t, i));
         }
     }
-    best.map(|(_, i)| i)
+    met.or(beside).map(|(_, i)| i)
 }
 
 #[cfg(test)]
@@ -161,6 +203,22 @@ mod tests {
         let r = Ray::from_screen(&camera, 1.5, at);
         let t = (p - r.origin).dot(r.dir);
         assert!(close(r.at(t), p));
+    }
+
+    /// A click through the empty part of a wide box reaches what is behind
+    /// it; with nothing behind, the box's object is taken after all.
+    #[test]
+    fn what_is_met_itself_comes_before_a_box_passed_through() {
+        // An arch's box, nearer, missed by its model; a trigger behind it.
+        let through = [(0, Hit::Beside(4.0)), (1, Hit::Met(9.0))];
+        assert_eq!(nearest(through.into_iter()), Some(1));
+        // The arch's own stone, nearer than the trigger.
+        let on_it = [(0, Hit::Met(4.5)), (1, Hit::Met(9.0))];
+        assert_eq!(nearest(on_it.into_iter()), Some(0));
+        // Beside a thin post with nothing behind: the post.
+        let beside = [(0, Hit::Beside(4.0)), (2, Hit::Beside(3.0))];
+        assert_eq!(nearest(beside.into_iter()), Some(2));
+        assert_eq!(nearest(std::iter::empty()), None);
     }
 
     #[test]

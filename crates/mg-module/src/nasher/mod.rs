@@ -70,8 +70,45 @@ impl Conversion {
     /// A GFF resource from its source text.
     pub fn from_source(&self, name: &str, text: &[u8]) -> Result<Gff, ModuleError> {
         let bad = |message: String| ModuleError::Source { name: name.to_string(), message };
-        let json: serde_json::Value =
-            serde_json::from_slice(text).map_err(|e| bad(e.to_string()))?;
+        let json: serde_json::Value = match serde_json::from_slice(text) {
+            Ok(json) => json,
+            // A file that isn't UTF-8 throughout (text another tool wrote
+            // out as the game's bytes, in a Polish or Russian module): the
+            // stray bytes are read as the project's code page has them,
+            // which is what they were, and the rest as it is.
+            Err(first) if std::str::from_utf8(text).is_err() => {
+                let mut mended = String::with_capacity(text.len());
+                for chunk in text.utf8_chunks() {
+                    mended.push_str(chunk.valid());
+                    mended.push_str(&self.codepage.decode(chunk.invalid()));
+                }
+                serde_json::from_str(&mended).map_err(|_| bad(first.to_string()))?
+            }
+            Err(e) => return Err(bad(e.to_string())),
+        };
         from_json(&json, self.codepage).map_err(|e| bad(e.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    /// A source file with bytes that aren't UTF-8 inside a string (text
+    /// another tool wrote out as the game's own bytes) opens: the stray
+    /// bytes are read as the code page has them.
+    #[test]
+    fn a_source_that_is_not_utf_8_throughout_is_read() {
+        let conv = Conversion::default();
+        let mut text =
+            b"{\"__data_type\": \"UTI \", \"Tag\": {\"type\": \"cexostring\", \"value\": \"za"
+                .to_vec();
+        text.push(0xB3); // (ł in windows-1250; a lone byte is no UTF-8.)
+        text.extend_from_slice(b"\"}}");
+        assert!(std::str::from_utf8(&text).is_err());
+        let gff = conv.from_source("x.uti.json", &text).expect("read");
+        assert_eq!(gff.root.string("Tag"), Some(&b"za\xB3"[..]), "the byte it was");
+        // What is no JSON at all still says so.
+        assert!(conv.from_source("x.uti.json", b"{\"a\": \xB3}").is_err());
     }
 }
