@@ -207,7 +207,10 @@ fn contents_ui(
     contents: &AreaContents,
     filter: &str,
     go: &mut Option<(ResRef, mg_area::ObjectKind, usize, Asked)>,
-) {
+    // The object in hand (its row marked), and whether to go to it.
+    in_hand: Option<(mg_area::ObjectKind, usize, bool)>,
+) -> bool {
+    let mut went = false;
     let matches = |name: &str| name.to_lowercase().contains(filter);
     let filtered =
         !filter.is_empty() && contents.iter().any(|(_, names)| names.iter().any(|n| matches(n)));
@@ -230,8 +233,11 @@ fn contents_ui(
                 continue;
             }
             let mut header = egui::CollapsingHeader::new(title).id_salt(("area-kind", area, *kind));
-            // (What is looked for shows without opening each kind.)
-            if filtered {
+            // (What is looked for shows without opening each kind; so does
+            // the object to go to.)
+            let marked = in_hand.filter(|(k, ..)| k == kind);
+            let goes = marked.filter(|m| m.2).and_then(|m| shown.iter().position(|&i| i == m.1));
+            if filtered || goes.is_some() {
                 header = header.open(Some(true));
             }
             header.show(ui, |ui| {
@@ -242,6 +248,16 @@ fn contents_ui(
                     .max(spacing.interact_size.y);
                 let step = row + spacing.item_spacing.y;
                 let top = ui.cursor().top();
+                // The row to go to, in view or not (rows out of view are
+                // not laid out: by where it would be).
+                if let Some(at) = goes {
+                    let rect = egui::Rect::from_min_size(
+                        egui::pos2(ui.cursor().left(), top + at as f32 * step),
+                        egui::vec2(1.0, row),
+                    );
+                    ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                    went = true;
+                }
                 let clip = ui.clip_rect();
                 let first =
                     (((clip.top() - top) / step).floor().max(0.0) as usize).min(shown.len());
@@ -257,7 +273,8 @@ fn contents_ui(
                 for &index in &shown[first..last] {
                     let name = &names[index];
                     let text = if name.is_empty() { "(no name)" } else { name.as_str() };
-                    let r = ui.selectable_label(false, text).on_hover_text(
+                    let is_marked = marked.is_some_and(|m| m.1 == index);
+                    let r = ui.selectable_label(is_marked, text).on_hover_text(
                         "Click to go to it in the area; double-click for its Properties; \
                          right-click for more",
                     );
@@ -284,6 +301,7 @@ fn contents_ui(
             });
         }
     });
+    went
 }
 
 /// The gap between rows (taken off a block of rows left out, which is
@@ -292,14 +310,13 @@ fn spacing_gap(ui: &Ui) -> f32 {
     ui.spacing().item_spacing.y
 }
 
+/// The module tree's pane: the Filter and Expand All / Collapse All, which
+/// stay in sight, over the tree, which scrolls (Home and End go to its
+/// top and bottom while the pointer is over it).
 pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
-    let Some(ws) = &app.ws else { return };
-    let revision = ws.revision();
-    // Areas opened out whose contents are to be read (after the tree is
-    // drawn), and the object clicked.
-    let mut read = Vec::new();
-    let mut go = None;
-    let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
+    if app.ws.is_none() {
+        return;
+    }
     let filter_id = egui::Id::new("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
     ui.horizontal(|ui| {
@@ -309,8 +326,50 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     });
     app.buffers.insert(filter_id, filter.clone());
     let filter = filter.to_ascii_lowercase();
-    // Every group opened or closed at once (this frame).
-    let fold = crate::widgets::fold_buttons(ui, "group");
+    // Every group opened or closed at once (this frame). A filter typed
+    // opens every group with a match, as it is typed: they can be closed
+    // again after.
+    let typed = crate::widgets::text_changed(ui, filter_id, &filter) && !filter.is_empty();
+    let fold = crate::widgets::fold_buttons(ui, "group").or(typed.then_some(true));
+    let mut rows = egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        // A name too long for the pane is cut short (the pointer over it
+        // shows it whole), rather than widen the pane over the middle.
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+        tree_rows(app, ui, &filter, fold);
+    });
+    crate::widgets::home_and_end(ui, &mut rows);
+}
+
+/// The one object selected in the area in front, if it is another than
+/// the tree shows: the tree then goes to it (its area opened out, its
+/// kind's list too), as Aurora's does on a click in the area.
+fn follow_selection(app: &mut Moonglow) {
+    let selected = app.palette.area.and_then(|area| {
+        let view = app.area_views.get(&area)?;
+        match view.selection.as_slice() {
+            [(kind, index)] => Some((area, *kind, *index)),
+            _ => None,
+        }
+    });
+    if selected != app.tree_object {
+        app.tree_object = selected;
+        if let Some((area, ..)) = selected {
+            app.tree_object_pending = true;
+            app.tree_reveal = Some((area, true));
+        }
+    }
+}
+
+fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) {
+    follow_selection(app);
+    let Some(ws) = &app.ws else { return };
+    let revision = ws.revision();
+    // Areas opened out whose contents are to be read (after the tree is
+    // drawn), and the object clicked.
+    let mut read = Vec::new();
+    let mut go = None;
+    let (by_name, resrefs) = (app.settings.area_names, app.settings.name_resrefs);
+    let filter = filter.to_string();
     if ui.selectable_label(false, "Module Properties").clicked() {
         app.actions.push(Action::OpenTab(Tab::ModuleProperties));
     }
@@ -368,13 +427,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         let header = egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
             .id_salt(name)
             .default_open(*name == "Areas")
-            // Filtering opens every group with a match, whatever was open;
-            // so does an area to bring into view, for the areas' group.
-            .open(
-                (!filter.is_empty() || (*name == "Areas" && app.tree_reveal.is_some()))
-                    .then_some(true)
-                    .or(fold),
-            )
+            // An area to bring into view opens the areas' group (a filter
+            // typed opens every group, through `fold`).
+            .open((*name == "Areas" && app.tree_reveal.is_some()).then_some(true).or(fold))
             .show(ui, |ui| {
                 for k in keys {
                     let label = match (names.get(&k), k.restype) {
@@ -404,6 +459,15 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                         }
                     }
                     let in_hand = is_area && app.tree_area == Some(k.resref);
+                    // A row out of sight takes its room only (a module can
+                    // list thousands of a kind: laid out every frame, they
+                    // slowed everything down while their group was open).
+                    let height = ui.spacing().interact_size.y;
+                    let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
+                    if !out && reveal.is_none() && !ui.is_rect_visible(room) {
+                        ui.allocate_space(egui::vec2(1.0, height));
+                        continue;
+                    }
                     let row = ui.horizontal(|ui| {
                         if is_area {
                             let arrow = if out { "⏷" } else { "⏵" };
@@ -417,6 +481,12 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                         }
                         ui.add(egui::Button::selectable(in_hand, label).sense(sense))
                     });
+                    // (A row out of sight is given this height.)
+                    debug_assert!(
+                        (row.response.rect.height() - height).abs() < 0.5,
+                        "a tree row is {} high, not {height}",
+                        row.response.rect.height()
+                    );
                     let mut r = row.inner;
                     if reveal.is_some() {
                         r.scroll_to_me(Some(egui::Align::Center));
@@ -424,7 +494,13 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     if out {
                         match app.area_contents.get(&k.resref).filter(|c| c.0 == revision) {
                             Some((_, contents)) => {
-                                contents_ui(ui, k.resref, contents, &filter, &mut go)
+                                let in_hand = app
+                                    .tree_object
+                                    .filter(|(a, ..)| *a == k.resref)
+                                    .map(|(_, kind, i)| (kind, i, app.tree_object_pending));
+                                if contents_ui(ui, k.resref, contents, &filter, &mut go, in_hand) {
+                                    app.tree_object_pending = false;
+                                }
                             }
                             None => read.push(k.resref),
                         }

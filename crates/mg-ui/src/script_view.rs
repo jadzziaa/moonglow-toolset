@@ -397,6 +397,15 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 Err(e) => app.log.error(format!("Print: {e}")),
             }
         }
+        if ui
+            .button("Open…")
+            .on_hover_text(
+                "Open another script: the module's, its haks' or the game's, found by name",
+            )
+            .clicked()
+        {
+            open_script_window(app);
+        }
         let editor = app.settings.external_editor.clone();
         if ui
             .add_enabled(editor.is_some(), egui::Button::new("External Editor"))
@@ -872,6 +881,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                         let word = tools::word_at(&buf.text, r.primary.index.into());
                         if let Some(s) = word.and_then(|w| symbols.iter().find(|s| s.name == w)) {
                             script_tools.help = Some(s.clone());
+                            // A double click on it brings its help forward
+                            // (over the compiler's messages, say), as in
+                            // Aurora.
+                            if out.response.response.double_clicked() {
+                                script_tools.info = InfoTab::Help;
+                            }
                         }
                     }
                     if out.response.response.changed() {
@@ -1312,15 +1327,123 @@ mod perf {
     }
 }
 
-/// The script editor's windows: Find Text / Replace, New Script, Save As.
+/// Opens the Open Script window, with every script there is to open: the
+/// module's, and what the game would load besides (its haks' and its own).
+pub(crate) fn open_script_window(app: &mut Moonglow) {
+    use crate::script_tools::{OpenScript, ScriptFrom};
+    let mut scripts: Vec<(ResKey, ScriptFrom)> = Vec::new();
+    if let Some(ws) = &app.ws {
+        scripts.extend(ws.module.keys_of(ResType::NSS).map(|k| (*k, ScriptFrom::Module)));
+    }
+    if let Some(game) = app.game.as_deref() {
+        let layers = game.resman.layers();
+        for (key, layer) in game.resman.entries() {
+            if key.restype != ResType::NSS || scripts.iter().any(|(k, _)| *k == key) {
+                continue;
+            }
+            let label = layers.get(layer).map_or("", |l| l.label.as_str());
+            // (The module's own layer: listed already.)
+            if label == "module" {
+                continue;
+            }
+            let from = if label.starts_with("hak:") { ScriptFrom::Hak } else { ScriptFrom::Game };
+            scripts.push((key, from));
+        }
+    }
+    scripts.sort_by_key(|(k, _)| k.resref.to_string());
+    let shown = app.script_tools.open_script.take().map(|o| o.shown).unwrap_or_default();
+    app.script_tools.open_script = Some(OpenScript { filter: String::new(), shown, scripts });
+}
+
+/// The Open Script window: a name to find, which scripts to show (as
+/// Aurora's Resources to Show), and the list; a double click, or Enter for
+/// the first listed, opens one (the game's and a hak's to read only).
+fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
+    use crate::script_tools::{ScriptFrom, ScriptsShown};
+    let Some(mut w) = app.script_tools.open_script.take() else { return };
+    let mut open = true;
+    let mut chosen = None;
+    egui::Window::new("Open Script")
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .default_size([420.0, 440.0])
+        .collapsible(false)
+        .open(crate::widgets::open_unless_escape(ctx, "Open Script", &mut open))
+        .show(ctx, |ui| {
+            let field = ui.add(
+                egui::TextEdit::singleline(&mut w.filter)
+                    .hint_text("Find by name")
+                    .desired_width(f32::INFINITY),
+            );
+            crate::widgets::autofocus(ui, &field);
+            let entered = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            ui.horizontal_wrapped(|ui| {
+                for (shown, label) in [
+                    (ScriptsShown::All, "All Resources"),
+                    (ScriptsShown::Module, "Module Resources Only"),
+                    (ScriptsShown::Haks, "Hak Pak Resources Only"),
+                ] {
+                    ui.radio_value(&mut w.shown, shown, label);
+                }
+            });
+            let needle = w.filter.trim().to_lowercase();
+            let listed: Vec<&(ResKey, ScriptFrom)> = w
+                .scripts
+                .iter()
+                .filter(|(_, from)| match w.shown {
+                    ScriptsShown::All => true,
+                    ScriptsShown::Module => *from == ScriptFrom::Module,
+                    ScriptsShown::Haks => *from == ScriptFrom::Hak,
+                })
+                .filter(|(k, _)| needle.is_empty() || k.resref.to_string().contains(&needle))
+                .collect();
+            ui.weak(format!("{} scripts", listed.len()));
+            if entered && let Some(first) = listed.first() {
+                chosen = Some(**first);
+            }
+            let row = ui.spacing().interact_size.y;
+            egui::ScrollArea::vertical().auto_shrink(false).show_rows(
+                ui,
+                row,
+                listed.len(),
+                |ui, range| {
+                    for (key, from) in listed[range].iter().copied() {
+                        ui.horizontal(|ui| {
+                            let r = ui.selectable_label(false, key.resref.to_string());
+                            match from {
+                                ScriptFrom::Module => {}
+                                ScriptFrom::Hak => _ = ui.weak("hak"),
+                                ScriptFrom::Game => _ = ui.weak("game"),
+                            }
+                            if r.double_clicked() || r.clicked() {
+                                chosen = Some((*key, *from));
+                            }
+                        });
+                    }
+                },
+            );
+        });
+    match chosen {
+        Some((key, ScriptFrom::Module)) => app.actions.push(Action::OpenTab(Tab::Script(key))),
+        // (Not the module's to change: read as the resource browser shows it.)
+        Some((key, _)) => app.actions.push(Action::OpenTab(Tab::Resource(key))),
+        None if open => app.script_tools.open_script = Some(w),
+        None => {}
+    }
+}
+
+/// The script editor's windows: Find Text / Replace, Open Script, New
+/// Script, Save As.
 pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
+    open_script_ui(app, &ctx);
     if app.script_tools.search.open {
         let mut s = app.script_tools.search.clone();
         let mut find_next = false;
         let mut replace = false;
         let mut replace_all = false;
         let mut find_all = false;
+        let mut entered = false;
         let title = if s.replace_mode { "Replace Text" } else { "Find Text" };
         egui::Window::new(title)
             .pivot(egui::Align2::CENTER_CENTER)
@@ -1333,6 +1456,12 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                     crate::widgets::field_label(ui, "Find What");
                     let field = ui.text_edit_singleline(&mut s.find);
                     crate::widgets::autofocus(ui, &field);
+                    // Enter finds (the next, or all), and the field keeps
+                    // the keys for the next Enter.
+                    if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        entered = true;
+                        field.request_focus();
+                    }
                     ui.end_row();
                     if s.replace_mode {
                         ui.label("Replace With");
@@ -1344,13 +1473,28 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
                 ui.checkbox(&mut s.options.whole_word, "Match Whole Word Only");
                 ui.checkbox(&mut s.options.backwards, "Search Backward");
                 if !s.replace_mode {
-                    ui.checkbox(&mut s.in_files, "Find In Files (all scripts in the module)");
+                    if ui
+                        .checkbox(&mut s.in_open, "Find In Currently Open Scripts")
+                        .on_hover_text("Every match in the scripts open now, in Search Results")
+                        .changed()
+                        && s.in_open
+                    {
+                        s.in_files = false;
+                    }
+                    if ui
+                        .checkbox(&mut s.in_files, "Find In Files (all scripts in the module)")
+                        .changed()
+                        && s.in_files
+                    {
+                        s.in_open = false;
+                    }
                 }
+                let all = (s.in_files || s.in_open) && !s.replace_mode;
                 ui.horizontal(|ui| {
-                    if s.in_files && !s.replace_mode {
-                        find_all = ui.button("Find All").clicked();
+                    if all {
+                        find_all = ui.button("Find All").clicked() || entered;
                     } else {
-                        find_next = ui.button("Find Next").clicked();
+                        find_next = ui.button("Find Next").clicked() || entered;
                     }
                     if s.replace_mode {
                         replace = ui.button("Replace").clicked();
@@ -1387,7 +1531,11 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
         }
         if find_all {
             let Some(ws) = &app.ws else { return };
-            let mut keys: Vec<ResKey> = ws.module.keys_of(ResType::NSS).copied().collect();
+            let mut keys: Vec<ResKey> = if s.in_open {
+                app.scripts.keys().copied().collect()
+            } else {
+                ws.module.keys_of(ResType::NSS).copied().collect()
+            };
             keys.sort();
             let mut results = Vec::new();
             for k in keys {

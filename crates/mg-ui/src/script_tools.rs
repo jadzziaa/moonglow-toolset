@@ -80,6 +80,9 @@ pub struct Search {
     pub replace: String,
     pub options: SearchOptions,
     pub in_files: bool,
+    /// Find in the scripts that are open (Aurora's Find in Currently Open
+    /// Scripts), into the Search Results.
+    pub in_open: bool,
     /// The script the window works on.
     pub script: Option<ResKey>,
     pub results: Vec<(ResKey, usize, String)>,
@@ -95,9 +98,40 @@ pub struct Completion {
     pub selected: usize,
 }
 
+/// Which scripts the Open Script window lists (Aurora's Resources to
+/// Show).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ScriptsShown {
+    /// The module's, its haks' and the game's.
+    All,
+    #[default]
+    Module,
+    Haks,
+}
+
+/// Where a script the Open Script window lists is from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptFrom {
+    Module,
+    Hak,
+    Game,
+}
+
+/// The Open Script window: a script editor's Open….
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct OpenScript {
+    pub filter: String,
+    pub shown: ScriptsShown,
+    /// Every script there is to open, by name, read when the window
+    /// opens.
+    pub scripts: Vec<(ResKey, ScriptFrom)>,
+}
+
 /// The editor tools' state (shared by the open script editors).
 #[derive(Debug, Clone, Default)]
 pub struct ScriptTools {
+    /// The Open Script window, while it is open.
+    pub open_script: Option<OpenScript>,
     /// Scripts to open in the external editor once their editor has them
     /// (opened from the module tree, with the option on).
     pub(crate) open_externally: std::collections::HashSet<ResKey>,

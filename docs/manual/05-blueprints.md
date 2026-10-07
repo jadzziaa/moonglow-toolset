@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:30:00Z }
 ---
 
 # Blueprints
@@ -21,6 +21,11 @@ The palette pane (right) shows the blueprints by type:
   in the game's categories.
 - **Custom**: the module's own blueprints, in the categories you give
   them.
+
+A right click on a blueprint, on a category or in the room under the
+list offers **New Creature…** (or the kind shown): the wizard New… opens.
+A filter typed opens every category with a match; they can be closed
+again while it stands. Home and End go to the list's top and bottom.
 
 **Categories…** (beside New…) edits the categories blueprints of the type
 shown go in: **Add Category**, **Add Group** (a branch that holds
@@ -226,6 +231,8 @@ every change, as Aurora does on OK.
   body parts, are to the right, so a change shows as you make it. **Pop
   Out**, among the viewer's buttons, moves the model to a window of its
   own (to keep beside other pages); **Bring Back** returns it to the page.
+- **Feats** shows the feats the creature has beside the list to choose
+  from, under **Assigned**; × takes one away.
 - **Feats** and **Spells** are found by name (**Find**) and by category:
   the toolset's categories of feats (combat, defensive, magical…), and
   spells' talent categories (harmful ranged, beneficial healing…).

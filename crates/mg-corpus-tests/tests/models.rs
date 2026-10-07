@@ -248,3 +248,139 @@ fn ascii_source_maps() {
     assert!(results.len() > 5_000);
     assert!(bad.is_empty());
 }
+
+/// Exploration: where binding a supermodel's animations to a model's
+/// nodes by part number (as the game does) and by name (as text is
+/// written) would move different nodes, among the compiled game models.
+#[test]
+#[ignore]
+fn binding_by_part_number_and_by_name() {
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut keys: Vec<_> =
+        rm.entries().into_iter().map(|(k, _)| k).filter(|k| k.restype == ResType::MDL).collect();
+    keys.sort();
+    let load = |name: &str| {
+        rm.get_named(&name.to_lowercase(), ResType::MDL).ok().and_then(|d| Model::read(&d).ok())
+    };
+    let (mut models, mut differing, mut nodes) = (0, 0, 0);
+    let mut shown = 0;
+    for key in keys {
+        let Ok(data) = rm.get(&key) else { continue };
+        let Ok(model) = Model::read(&data) else { continue };
+        if model.nodes.first().is_none_or(|n| n.part.is_none()) {
+            continue;
+        }
+        let Some(sup) = model.supermodel.as_deref().and_then(load) else { continue };
+        if sup.nodes.first().is_none_or(|n| n.part.is_none()) {
+            continue;
+        }
+        models += 1;
+        // Each node of the supermodel that its animations move: the
+        // model's node of that name, and its node of that number.
+        let mut here: Vec<(String, i32, Option<usize>, Option<usize>)> = Vec::new();
+        for a in &sup.animations {
+            for n in &a.nodes {
+                // (The root, numbered 0 and named after its model, apart.)
+                let Some(part) = n.part.filter(|p| *p > 0) else { continue };
+                let by_name = model.node(&n.name);
+                let by_part = model.nodes.iter().position(|m| m.part == Some(part));
+                if by_name != by_part && !here.iter().any(|(name, ..)| *name == n.name) {
+                    here.push((n.name.clone(), part, by_name, by_part));
+                }
+            }
+        }
+        if !here.is_empty() {
+            differing += 1;
+            nodes += here.len();
+            if shown < 40 {
+                shown += 1;
+                let said: Vec<String> = here
+                    .iter()
+                    .take(4)
+                    .map(|(name, part, by_name, by_part)| {
+                        let at = |i: &Option<usize>| {
+                            i.map_or("none".to_string(), |i| model.nodes[i].name.clone())
+                        };
+                        let own = by_name.and_then(|i| model.nodes[i].part);
+                        format!(
+                            "{name}#{part}: name->{}#{own:?} part->{}",
+                            at(by_name),
+                            at(by_part)
+                        )
+                    })
+                    .collect();
+                eprintln!("{} (super {}): {}", key, sup.name, said.join("; "));
+            }
+        }
+    }
+    eprintln!("{models} models with a compiled supermodel; {differing} differ, in {nodes} nodes");
+    // Animation nodes numbered −1 (none of the model's) that have keys
+    // and a node of the model of their name: a model's own, and its
+    // supermodel's.
+    let (mut own_unbound, mut super_unbound, mut eg) = (0, 0, Vec::new());
+    let mut keys: Vec<_> =
+        rm.entries().into_iter().map(|(k, _)| k).filter(|k| k.restype == ResType::MDL).collect();
+    keys.sort();
+    for key in keys {
+        let Ok(data) = rm.get(&key) else { continue };
+        let Ok(model) = Model::read(&data) else { continue };
+        if model.nodes.first().is_none_or(|n| n.part.is_none()) {
+            continue;
+        }
+        let loose = |m: &Model, of: &Model| {
+            m.animations
+                .iter()
+                .flat_map(|a| &a.nodes)
+                .filter(|n| n.part.is_some_and(|p| p < 0) && !n.controllers.is_empty())
+                .filter(|n| of.node(&n.name).is_some())
+                .map(|n| n.name.clone())
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let own = loose(&model, &model);
+        own_unbound += own.len();
+        if !own.is_empty() && eg.len() < 8 {
+            eg.push(format!("{key}: {:?}", own.iter().take(3).collect::<Vec<_>>()));
+        }
+        if let Some(sup) = model.supermodel.as_deref().and_then(load) {
+            super_unbound += loose(&sup, &model).len();
+        }
+    }
+    eprintln!(
+        "numbered -1 with keys and a namesake: {own_unbound} own, {super_unbound} of supermodels; {eg:?}"
+    );
+    // How far the supermodel's pause turns a node the two ways disagree on
+    // (degrees between its first key and the one farthest from it): what
+    // would show in the game, for a look there.
+    for (model, node) in [
+        ("c_sharkgb", "FinR"),
+        ("c_cat_lion", "head"),
+        ("c_giantliz", "head"),
+        ("c_cat_jag", "head"),
+        ("c_blade_m", "head_g"),
+    ] {
+        let Some(m) = load(model) else { continue };
+        let Some(sup) = m.supermodel.as_deref().and_then(load) else { continue };
+        for a in sup
+            .animations
+            .iter()
+            .filter(|a| a.name.starts_with("cpause1") || a.name.starts_with("cwalk"))
+        {
+            let Some(n) = a.nodes.iter().find(|n| n.name.eq_ignore_ascii_case(node)) else {
+                continue;
+            };
+            let Some(c) = n.controllers.iter().find(|c| c.name == "orientation") else { continue };
+            let q = |i: usize| {
+                let r = c.row(i);
+                glam::Quat::from_xyzw(r[0], r[1], r[2], r[3])
+            };
+            let rows = c.times.len();
+            let turn =
+                (1..rows).map(|i| q(0).angle_between(q(i)).to_degrees()).fold(0.0f32, f32::max);
+            eprintln!(
+                "{model} {node} in {} of {}: {rows} keys, turns {turn:.1}°",
+                a.name, sup.name
+            );
+        }
+    }
+}

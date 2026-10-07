@@ -434,6 +434,11 @@ pub struct Moonglow {
     /// The area the module tree shows as the one in hand: the last one
     /// brought into view.
     pub tree_area: Option<mg_core::ResRef>,
+    /// The one object selected in the area in front, as the module tree
+    /// shows it (its row marked): its area, kind and place in its list;
+    /// and whether the tree has still to go to it.
+    pub tree_object: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
+    pub tree_object_pending: bool,
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
@@ -620,6 +625,8 @@ impl Moonglow {
             armor_on_woman: false,
             tree_reveal: None,
             tree_area: None,
+            tree_object: None,
+            tree_object_pending: false,
             import: None,
             confirm_discard: None,
             render_info: None,
@@ -765,15 +772,7 @@ impl Moonglow {
                 .resizable(true)
                 .default_size(240.0)
                 .size_range(150.0..=(window.x * 0.4).max(150.0))
-                .show(ui, |ui| {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        // A name too long for the pane is cut short (the
-                        // pointer over it shows it whole), rather than
-                        // widen the pane over the middle.
-                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-                        tree::module_tree(self, ui);
-                    });
-                });
+                .show(ui, |ui| tree::module_tree(self, ui));
             self.tree_width = Some(tree.response.rect.width());
             // The palette beside a newly opened module, as in Aurora.
             if std::mem::take(&mut self.open_palette) && self.game.is_some() {
@@ -1156,8 +1155,21 @@ impl Moonglow {
         );
     }
 
-    /// [`Action::ToggleMaximize`]: the tab's window over the whole of the
-    /// panes' room, or back where it was.
+    /// The room a maximized window takes: the whole of Moonglow's window
+    /// under its menu and toolbar, over the module tree, the palettes and
+    /// the log as well as the panes (a builder: Maximize "doesn't make it
+    /// fill the screen").
+    fn maximize_room(&self) -> Option<egui::Rect> {
+        match (self.dock_rect, self.screen) {
+            (Some(dock), Some(screen)) => {
+                Some(egui::Rect::from_min_max(egui::pos2(screen.left(), dock.top()), screen.max))
+            }
+            (dock, screen) => dock.or(screen),
+        }
+    }
+
+    /// [`Action::ToggleMaximize`]: the tab's window over the whole of
+    /// [`Moonglow::maximize_room`], or back where it was.
     fn toggle_maximize(&mut self, tab: &Tab) {
         // (The window is followed by its first tab.)
         let Some(path) = self.dock.find_tab(tab) else { return };
@@ -1175,9 +1187,7 @@ impl Moonglow {
             if let Some(track) = self.windows.get_mut(&tab) {
                 track.aim = Some(corner);
             }
-        } else if let (Some(room), Some(track)) =
-            (self.dock_rect.or(self.screen), self.windows.get(&tab))
-        {
+        } else if let (Some(room), Some(track)) = (self.maximize_room(), self.windows.get(&tab)) {
             let corner = track.seen.map_or(track.now.min, |r| r.min);
             self.maximized.insert(tab.clone(), (track.now, corner));
             self.put_window(&tab, room);

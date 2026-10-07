@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE model and texture formats: research notes for Moonglow Toolset'
 description: NWN:EE model and texture formats for the renderer - ASCII and binary MDL, animations and supermodels, part-based creatures and PLT, textures and materials, special nodes, walkmeshes, lights, limits - with citations, open questions and where the wiki and the data disagree.
 tags: [models, mdl, textures, plt, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T12:09:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T18:30:00Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -631,8 +631,8 @@ Node header only, 0x70 bytes. Absent from the corpus.
   - Across all 25,597 binaries, header node count ≠ walked count in 858 models, and every one of them has a supermodel. It is equal in all 24,710 models without a supermodel, and in 29 models with one.
 - Animation geometry is a separate node tree. Its nodes are full structs of their own flags: bio anims use dummy / trimesh / danglymesh / animmesh / emitter / light; EE anims may keep aabb/reference.
   Controllers there are keyed. Mesh anim nodes carry a mesh header (animmesh sets).
-- How the EE engine binds animation nodes to model nodes is **[U]**: the part-number scheme suggests index binding for supermodel-shared skeletons, the wiki says "order of objects must match".
-  Moonglow should bind **by name (case-insensitive)** against the model, then walk the supermodel chain for missing names or animations, with model animations overriding supermodel ones by name.
+- The EE engine binds animation nodes to model nodes **by part number** (measured in the game client, 2026-10-07, by the Moonglow Viewer session and seen here in its pictures: a skeleton and its supermodels written again with fresh numbers under the same names no longer pose their creatures; one stands in its rest pose, a sitting man no longer sits). `mg-render` binds so for compiled models and animations, and by name where either was read from text (their compiler gives the numbers by the names) and for a worn model (a cloak's numbers are its own). Among the game's 647 compiled models with a compiled supermodel, the root always differs in name and not in number, and 70 have other nodes where the two ways disagree (`binding_by_part_number_and_by_name` in `models.rs`): a node of the supermodel's name numbered −1 or afresh in the model (not moved in the game), and old models whose own numbers fall on nodes a later supermodel gained (`c_mohrg`'s dangles under `a_ba`'s cloak bones). (Earlier text here said by name, unverified: How the EE engine binds animation nodes to model nodes is **[U]**: the part-number scheme suggests index binding for supermodel-shared skeletons, the wiki says "order of objects must match".)
+  Animations are still found by walking the supermodel chain, a model's own overriding a supermodel's of the same name.
 - Neverblender:
   - Animations come from the same file, or via *Import Supermodel* (`nvb_ops_io.py:509-603 NVB_OT_mdl_superimport` → `nvb_mdl.py:551-566 Mdl.create_super`).
   - It builds a `NodeResolver` keyed by lower-cased name with a trailing `.NNN` stripped (`nvb_utils.py:17-60`, `strip_trailing_numbers` 421-423).

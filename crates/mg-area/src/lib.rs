@@ -343,7 +343,7 @@ impl AreaObject {
         let preview = match kind {
             ObjectKind::Creature => Some(mg_preview::creature(game, s, &items)),
             ObjectKind::Door => Some(mg_preview::door(game, s)),
-            ObjectKind::Item => Some(mg_preview::item(game, s)),
+            ObjectKind::Item => Some(mg_preview::item_placed(game, s)),
             ObjectKind::Placeable => Some(mg_preview::placeable(game, s)),
             // A waypoint without a flag (no appearance) is drawn as a
             // marker: nothing is wrong with it.

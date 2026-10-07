@@ -236,10 +236,19 @@ pub fn custom_palette_in(skeleton: &Gff, name: impl Fn(u32) -> String, by_name: 
                     }
                 }
                 // By its name: written out (a module's own category), or
-                // the talk table's.
+                // the talk table's. A skeleton whose categories are named
+                // in BioWare's older field alone (`DELETE_ME`, with no
+                // StrRef: a builder's Spanish palettes) keeps those names,
+                // as `NAME`: the palette built here would have none.
                 let strref = int(n.get("STRREF")).unwrap_or(-1);
-                let shown = match n.string("NAME") {
-                    Some(text) => String::from_utf8_lossy(text).into_owned(),
+                let older = n
+                    .string("DELETE_ME")
+                    .filter(|_| n.string("NAME").is_none() && u32::try_from(strref).is_err());
+                if let Some(text) = older {
+                    s.set("NAME", Value::String(text.to_vec()));
+                }
+                let shown = match n.string("NAME").or(older) {
+                    Some(text) => crate::palette::written(text),
                     None => u32::try_from(strref).map(name).unwrap_or_default(),
                 };
                 (word_sort_key(&shown), s)

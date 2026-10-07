@@ -3058,9 +3058,14 @@ fn creature_editor_lists() {
     };
     let had = has_alertness(&mut h);
     type_into_hint(&mut h, "Find", "Alertness");
-    h.get_by_label("Alertness").click();
+    // (Its checkbox, the first of that name; one it has is listed beside
+    // the feats too, under Assigned.)
+    assert_eq!(h.query_all_by_label("Alertness").count(), 1 + usize::from(had));
+    h.get_all_by_label("Alertness").next().unwrap().click();
     h.run();
     assert_eq!(has_alertness(&mut h), !had);
+    assert_eq!(h.query_all_by_label("Alertness").count(), 1 + usize::from(!had));
+    h.get_by_label("Assigned");
     // A known spell for the sorcerer (level 1: Magic Missile).
     h.get_by_label("Spells").click();
     h.run();
@@ -10477,6 +10482,10 @@ fn windows_remember_their_size_and_maximize() {
     h.run_steps(8);
     let big = pane(&h, &props);
     assert!(big.area() > first.area() + 1000.0, "larger: {big:?} than {first:?}");
+    // Over the whole of the window under the toolbar: the module tree and
+    // the log too, not the middle alone.
+    assert!(big.width() > 1100.0 * 0.95, "the window's width: {big:?}");
+    assert!(big.bottom() > 800.0 * 0.95, "to the window's foot: {big:?}");
     h.state_mut().actions.push(mg_ui::Action::ToggleMaximize(props.clone()));
     h.run_steps(8);
     let back = pane(&h, &props);
@@ -11927,4 +11936,103 @@ fn text_in_another_language_shows_where_the_one_edited_has_none() {
     let named = h.query_all_by_label("English").count();
     mg_ui::set_edit_language(Language::ENGLISH);
     assert_eq!((shown, named), (own, 2));
+}
+
+/// An object selected in the area's view is shown in the module tree, as
+/// in Aurora: its area opened out, its kind's list too, its row marked.
+#[test]
+fn the_module_tree_shows_the_object_selected_in_the_area() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("tree-follows") else { return };
+    h.run_steps(3);
+    assert!(h.query_by_label("Waypoints (2)").is_none());
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
+    h.run_steps(6);
+    assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 1)));
+    assert!(!h.state().tree_object_pending, "gone to");
+    assert!(h.query_by_label("Waypoints (2)").is_some(), "the area opened out");
+    // Its kind's list is open: both waypoints' rows are there.
+    let rows = h.query_all_by_label_contains("Waypoint").count();
+    assert!(rows >= 3, "{rows}");
+    // Nothing selected: the tree stays as it is.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
+    h.run_steps(3);
+    assert_eq!(h.state().tree_object, None);
+    assert!(h.query_by_label("Waypoints (2)").is_some());
+}
+
+/// A script editor's Open… lists the scripts there are to open, the
+/// module's alone or its haks' or all of them, found by name; the game's
+/// open to be read.
+#[test]
+fn a_script_editor_opens_other_scripts() {
+    let Some((mut h, _)) = area_harness("open-script") else { return };
+    let (hello, other) = (
+        ResKey::parse("hello", ResType::NSS).unwrap(),
+        ResKey::parse("other_one", ResType::NSS).unwrap(),
+    );
+    let edits = [hello, other]
+        .map(|key| mg_edit::Edit::SetResource { key, data: Some(b"void main() { }\n".to_vec()) })
+        .to_vec();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
+    h.run_steps(4);
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    // The module's two, as it opens.
+    h.get_by_label("2 scripts");
+    // All of them: the game's too, found by name.
+    h.get_by_label("All Resources").click();
+    h.run_steps(2);
+    assert!(h.query_by_label("2 scripts").is_none());
+    h.state_mut().script_tools.open_script.as_mut().unwrap().filter = "nw_s0_firebal".into();
+    h.run_steps(2);
+    h.get_by_label("nw_s0_fireball").click();
+    h.run_steps(4);
+    let fireball = ResKey::parse("nw_s0_fireball", ResType::NSS).unwrap();
+    assert!(h.state().dock.find_tab(&Tab::Resource(fireball)).is_some(), "read, not edited");
+    assert!(h.state().script_tools.open_script.is_none(), "the window closed");
+    // The module's own opens in its editor.
+    let tab = h.state().dock.find_tab(&Tab::Resource(fireball)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(hello)));
+    h.run_steps(3);
+    h.get_by_label("Open…").click();
+    h.run_steps(3);
+    h.get_by_label("Module Resources Only").click();
+    h.run_steps(2);
+    h.get_by_label("other_one").click();
+    h.run_steps(4);
+    assert!(h.state().dock.find_tab(&Tab::Script(other)).is_some());
+}
+
+#[test]
+#[ignore = "a look at the palettes with the game's data in another language (MG_LANG)"]
+fn look_palette_in_language() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    mg_testkit::gpu::hold();
+    let lang = std::env::var("MG_LANG").unwrap_or_else(|_| "es".into());
+    let dir = mg_testkit::scratch_dir("ui-palette-language");
+    let path = sample_module(&dir);
+    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
+    let install = mg_resman::GameInstall::new(&root, user, &lang);
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    app.palette.kind = mg_module::palette::BlueprintKind::Creature;
+    app.palette.tiles = false;
+    app.palette.custom = std::env::var_os("MG_CUSTOM").is_some();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(6);
+    h.render().expect("render").save(dir.join("a.png")).unwrap();
+    let game = h.state().game.as_deref().unwrap();
+    eprintln!("LANG {:?} sample {:?}", game.language, game.string(mg_core::StrRef(6686)));
 }

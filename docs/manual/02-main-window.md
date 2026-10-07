@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T13:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:30:00Z }
 ---
 
 # The main window
@@ -69,7 +69,9 @@ The left pane lists what the module holds, by kind: Areas, Conversations,
 Scripts, the blueprints (Creatures, Doors, Encounters, Items, Merchants,
 Placeables, Sounds, Triggers, Waypoints) and the journal and factions;
 **Module Properties** is at the top. **Filter** narrows every group to the
-names containing the text.
+names containing the text; it and Expand All / Collapse All stay in sight
+while the tree scrolls, and Home and End go to the tree's top and bottom
+with the pointer over it.
 
 Resources are listed by their ResRefs, as in Aurora. With **Tools ›
 Options › General › List areas and blueprints by name**, areas and
@@ -146,10 +148,12 @@ the module's area list), and its tab with it.
 A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each
 kind of editor has its own). **Double-click a window's tab** to maximize
-it over the main pane, and again to put it back; **Maximize** and
+it over the whole of Moonglow's window under the toolbar, and again to
+put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too. Choosing an area's
 tab brings the area's row into view in the module tree, marked as the
-one in hand; **Show in Module Tree** on the tab's menu opens it out to
+one in hand, and an object selected in the area's view is shown there
+too (its area opened out, its row marked), as in Aurora; **Show in Module Tree** on the tab's menu opens it out to
 what is placed in it as well. The bar beside the
 tab does the same on a double click and a right click, and the window is
 dragged by it. The arrow at the bar's left folds the window to its bar.

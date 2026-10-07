@@ -269,6 +269,8 @@ enum Pick {
     EditTogether(Vec<ResKey>),
     /// The Export window, for these blueprints of the module's.
     Export(Vec<ResKey>),
+    /// A new blueprint of the palette's kind: its wizard, as New… opens.
+    New,
     /// Into a custom category (its palette id).
     MoveTo(ResKey, u8),
     /// Added to (true) or removed from Favorites.
@@ -332,6 +334,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     });
     view.fold = if view.prefabs { None } else { crate::widgets::fold_buttons(ui, "category") };
+    // A filter typed opens every category with a match, as it is typed.
+    // (So does another palette shown with the filter still there.)
+    let shown = format!("{:?}/{}/{}/{}", view.kind, view.custom, view.tiles, view.filter);
+    let typed = crate::widgets::text_changed(ui, egui::Id::new("palette-filter"), &shown);
+    if typed && !view.filter.trim().is_empty() && !view.prefabs {
+        view.fold = view.fold.or(Some(true));
+    }
     if view.prefabs {
         ui.separator();
         app.palette = view;
@@ -359,12 +368,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .on_hover_text("A new blueprint (the type's wizard)")
             .clicked()
         {
-            if creature {
-                app.creature_wizard = Some(Default::default());
-            } else {
-                app.blueprint_wizard =
-                    Some(crate::blueprint_wizard::BlueprintWizard::new(view.kind));
-            }
+            new_blueprint(app, view.kind);
         }
         if ui
             .add_enabled(app.ws.is_some(), egui::Button::new("Categories…"))
@@ -461,7 +465,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         kind,
         custom,
         fold: view.fold,
-        find: find.clone(),
+        new: (app.ws.is_some() && wizard_for(kind)).then(|| new_label(kind)),
         found: found.as_deref(),
         tags: &tags,
         favorites: favorites
@@ -483,7 +487,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if find.fuzzy {
         ui.weak("No exact matches: close ones");
     }
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+    let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         if find.is_empty() {
             tree.remembered(ui, "Favorites", &favorites, &palette);
             tree.remembered(ui, "Recent", &recent, &palette);
@@ -491,7 +495,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         for (i, node) in palette.nodes.iter().enumerate() {
             tree.node(ui, node, &[i]);
         }
+        // The room under the list has the menu too.
+        let rest = egui::vec2(ui.available_width(), ui.available_height().max(24.0));
+        let (_, below) = ui.allocate_exact_size(rest, egui::Sense::click());
+        if let Some(label) = tree.new {
+            below.context_menu(|ui| {
+                if ui.button(label).clicked() {
+                    tree.picks.push(Pick::New);
+                    ui.close();
+                }
+            });
+        }
     });
+    crate::widgets::home_and_end(ui, &mut list);
     let wanted = std::mem::take(&mut tree.wanted);
     let (sel, picks, hovered) = (tree.sel, tree.picks, tree.hovered);
     if sel.selected.is_some() && sel.selected != view.selected {
@@ -542,6 +558,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
                     app.log.error(e.to_string());
                 }
             }
+            Pick::New => new_blueprint(app, kind),
             Pick::Preview(key) => app.actions.push(Action::OpenTab(Tab::Model(key))),
             Pick::Replace(key) => match app.palette.area {
                 Some(area) => {
@@ -622,6 +639,50 @@ fn all_under(node: &PaletteNode, kind: BlueprintKind, out: &mut Vec<ResKey>) {
 /// A palette search: words, each found in a blueprint's name, resref or
 /// tag; or, when nothing has every word, letters in order (`lngswd` finds
 /// Longsword).
+/// A palette name as its row shows it: its text, or, where it is a
+/// talk-table string that isn't there (a custom talk table that wasn't
+/// found, a line the table lacks), which string it is, so that a row
+/// without a name says why.
+fn shown_name(name: &mg_module::palette::PaletteName, game: &mg_rules::GameData) -> String {
+    let text = name.text(game);
+    match name {
+        mg_module::palette::PaletteName::StrRef(s) if text.trim().is_empty() => {
+            let custom = mg_core::StrRef(*s).is_custom();
+            format!("(no text: {}string {s})", if custom { "custom talk table " } else { "" })
+        }
+        _ => text,
+    }
+}
+
+/// Whether a kind of blueprint has a wizard to make a new one.
+fn wizard_for(kind: BlueprintKind) -> bool {
+    kind == BlueprintKind::Creature || crate::blueprint_wizard::KINDS.contains(&kind)
+}
+
+/// "New Creature…" and the like, for the palettes' menus.
+fn new_label(kind: BlueprintKind) -> &'static str {
+    match kind {
+        BlueprintKind::Creature => "New Creature…",
+        BlueprintKind::Door => "New Door…",
+        BlueprintKind::Encounter => "New Encounter…",
+        BlueprintKind::Item => "New Item…",
+        BlueprintKind::Placeable => "New Placeable…",
+        BlueprintKind::Sound => "New Sound…",
+        BlueprintKind::Store => "New Merchant…",
+        BlueprintKind::Trigger => "New Trigger…",
+        BlueprintKind::Waypoint => "New Waypoint…",
+    }
+}
+
+/// Opens the wizard that makes a new blueprint of `kind`.
+fn new_blueprint(app: &mut Moonglow, kind: BlueprintKind) {
+    if kind == BlueprintKind::Creature {
+        app.creature_wizard = Some(Default::default());
+    } else if crate::blueprint_wizard::KINDS.contains(&kind) {
+        app.blueprint_wizard = Some(crate::blueprint_wizard::BlueprintWizard::new(kind));
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Find {
     words: Vec<String>,
@@ -658,7 +719,9 @@ struct Tree<'a> {
     custom: bool,
     /// Every category opened or closed this frame.
     fold: Option<bool>,
-    find: Find,
+    /// What a right click offers to make a new blueprint of the kind
+    /// ("New Creature…"), where the kind has a wizard and a module is open.
+    new: Option<&'static str>,
     /// The blueprints the search finds (`None`: no search).
     found: Option<&'a std::collections::HashSet<ResRef>>,
     tags: &'a HashMap<ResRef, String>,
@@ -721,14 +784,15 @@ impl Tree<'_> {
         let (game, kind, custom) = (self.game, self.kind, self.custom);
         let count = node.blueprints.len();
         let title = if count > 0 {
-            format!("{} ({count})", node.name.text(game))
+            format!("{} ({count})", shown_name(&node.name, game))
         } else {
-            node.name.text(game)
+            shown_name(&node.name, game)
         };
-        // Finding opens every category with a match, whatever was open before.
+        // (Finding opens every category with a match as it is typed,
+        // through `fold`: they can be closed again after.)
         let shown = egui::CollapsingHeader::new(title)
             .id_salt(("palette", kind, custom, path))
-            .open((!self.find.is_empty()).then_some(true).or(self.fold))
+            .open(self.fold)
             .show(ui, |ui| {
                 for (i, child) in node.children.iter().enumerate() {
                     let mut p = path.to_vec();
@@ -750,7 +814,16 @@ impl Tree<'_> {
             self.picks.push(Pick::MoveTo(d.0, id));
         }
         // A custom category: Update Instances of everything in it.
+        let new = self.new;
+        let mut made = false;
         shown.header_response.context_menu(|ui| {
+            if let Some(label) = new {
+                if ui.button(label).clicked() {
+                    made = true;
+                    ui.close();
+                }
+                ui.separator();
+            }
             let mut keys = Vec::new();
             all_under(node, kind, &mut keys);
             if ui
@@ -762,6 +835,9 @@ impl Tree<'_> {
                 ui.close();
             }
         });
+        if made {
+            self.picks.push(Pick::New);
+        }
     }
 
     fn row(&mut self, ui: &mut egui::Ui, b: &PaletteBlueprint) {
@@ -774,7 +850,7 @@ impl Tree<'_> {
             return;
         }
         let (kind, custom) = (self.kind, self.custom);
-        let name = b.name.text(self.game);
+        let name = shown_name(&b.name, self.game);
         let key = ResKey::new(b.resref, kind.restype());
         let favorite = self.favorites.contains(&b.resref);
         let label =
@@ -830,8 +906,15 @@ impl Tree<'_> {
         if r.double_clicked() {
             self.picks.push(if custom { Pick::Edit(key) } else { Pick::View(key) });
         }
-        let (sel, picks) = (&self.sel, &mut self.picks);
+        let (sel, picks, new) = (&self.sel, &mut self.picks, self.new);
         r.context_menu(|ui| {
+            if let Some(label) = new {
+                if ui.button(label).on_hover_text("A new blueprint (the type's wizard)").clicked() {
+                    picks.push(Pick::New);
+                    ui.close();
+                }
+                ui.separator();
+            }
             if custom && ui.button("Edit").clicked() {
                 picks.push(Pick::Edit(key));
                 ui.close();

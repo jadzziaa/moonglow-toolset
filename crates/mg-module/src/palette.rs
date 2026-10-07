@@ -304,9 +304,9 @@ pub fn sort_by_name(skeleton: &mut Gff, name: &dyn Fn(u32) -> String) {
     fn sort(list: &mut [Struct], name: &dyn Fn(u32) -> String) {
         list.sort_by_cached_key(|n| {
             let shown = match (n.string("NAME"), n.integer("STRREF")) {
-                (Some(text), _) => String::from_utf8_lossy(text).into_owned(),
+                (Some(text), _) => written(text),
                 (None, Some(s)) => u32::try_from(s).map(name).unwrap_or_default(),
-                (None, None) => String::new(),
+                (None, None) => n.string("DELETE_ME").map(written).unwrap_or_default(),
             };
             (!is_placeholder(n), word_sort_key(&shown))
         });
@@ -375,16 +375,18 @@ pub struct Palette {
     pub nodes: Vec<PaletteNode>,
 }
 
+/// A name written out in a palette (`NAME`, `DELETE_ME`), as text: the
+/// game's bytes (Windows-1252: "Compañeros").
+pub fn written(bytes: &[u8]) -> String {
+    mg_core::Codepage::WINDOWS_1252.decode(bytes).into_owned()
+}
+
 fn name_of(s: &Struct) -> PaletteName {
     match (s.string("NAME"), s.integer("STRREF")) {
-        (Some(t), _) => PaletteName::Text(String::from_utf8_lossy(t).into_owned()),
+        (Some(t), _) => PaletteName::Text(written(t)),
         (None, Some(r)) => PaletteName::StrRef(u32::try_from(r).unwrap_or(u32::MAX)),
         // (A skeleton's node with neither: BioWare's older name field.)
-        (None, None) => PaletteName::Text(
-            s.string("DELETE_ME")
-                .map(|t| String::from_utf8_lossy(t).into_owned())
-                .unwrap_or_default(),
-        ),
+        (None, None) => PaletteName::Text(s.string("DELETE_ME").map(written).unwrap_or_default()),
     }
 }
 
@@ -582,6 +584,36 @@ pub fn rebuild_custom_palettes(module: &mut Module, game: &GameData) -> Result<u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A skeleton whose categories are named in `DELETE_ME` alone (no
+    /// StrRef, no `NAME`: a builder's palettes) keeps their names in the
+    /// palette built from it, in the game's code page.
+    #[test]
+    fn categories_named_in_the_older_field_alone_keep_their_names() {
+        let node = |name: &[u8], id: Option<u8>, children: Vec<Struct>| {
+            let mut s = Struct::new(0);
+            s.set("DELETE_ME", Value::String(name.to_vec()));
+            if let Some(id) = id {
+                s.set("ID", Value::Byte(id));
+            }
+            if !children.is_empty() {
+                s.set("LIST", Value::List(children));
+            }
+            s
+        };
+        let mut skeleton = Gff::new(*b"ITP ");
+        let branch = node(b"Aliados", None, vec![node(b"Compa\xF1eros", Some(3), Vec::new())]);
+        skeleton.root.set("MAIN", Value::List(vec![branch]));
+        let built = crate::new::custom_palette(&skeleton, |_| String::new());
+        let main = built.root.list("MAIN").unwrap();
+        assert_eq!(main[0].string("NAME"), Some(&b"Aliados"[..]));
+        let leaf = &main[0].list("LIST").unwrap()[0];
+        assert_eq!(leaf.string("NAME"), Some(&b"Compa\xF1eros"[..]));
+        assert_eq!(written(leaf.string("NAME").unwrap()), "Compañeros");
+        assert!(leaf.get("DELETE_ME").is_none(), "the palette has the name once");
+        // And read back as a palette: named.
+        assert_eq!(name_of(leaf), PaletteName::Text("Compañeros".into()));
+    }
 
     /// A skeleton as the game's: the placeholder, a group of two
     /// categories, a category.

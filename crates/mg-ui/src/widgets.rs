@@ -710,6 +710,36 @@ pub(crate) fn variables_button(
 
 /// A text field that commits when focus leaves it (one line, or several
 /// with their line-end style kept). Returns the new text then.
+/// Whether the text kept under `id` (a list's filter) is another than at
+/// the frame before: what a filter opens, it opens when it changes, and
+/// leaves to be closed again after.
+pub(crate) fn text_changed(ui: &Ui, id: egui::Id, text: &str) -> bool {
+    let id = id.with("was");
+    let was: Option<String> = ui.data(|d| d.get_temp(id));
+    if was.as_deref() == Some(text) {
+        return false;
+    }
+    ui.data_mut(|d| d.insert_temp(id, text.to_string()));
+    // (At the first look at it, if there is any: a filter that is there
+    // when its list first shows opens what it finds.)
+    was.is_some() || !text.is_empty()
+}
+
+/// Home and End for a list that scrolls: with the pointer over it and no
+/// text being typed, they go to its top and its bottom.
+pub(crate) fn home_and_end<R>(ui: &Ui, list: &mut egui::scroll_area::ScrollAreaOutput<R>) {
+    if !ui.rect_contains_pointer(list.inner_rect) || ui.ctx().egui_wants_keyboard_input() {
+        return;
+    }
+    let (home, end) = ui.input(|i| (i.key_pressed(egui::Key::Home), i.key_pressed(egui::Key::End)));
+    if home || end {
+        let bottom = (list.content_size.y - list.inner_rect.height()).max(0.0);
+        list.state.offset.y = if home { 0.0 } else { bottom };
+        list.state.store(ui.ctx(), list.id);
+        ui.ctx().request_repaint();
+    }
+}
+
 /// What a field shows of a localized string, and where that is from if
 /// it is not the string's own text in the language edited: the talk
 /// table (its StrRef, as Aurora shows the game's blueprints), else

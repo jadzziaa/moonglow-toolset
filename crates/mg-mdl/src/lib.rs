@@ -165,6 +165,10 @@ pub struct Node {
     /// light colour and radius, emitter parameters, …).
     pub controllers: Vec<Controller>,
     pub kind: NodeKind,
+    /// The node's part number, as a compiled model has it (`None` for a
+    /// model read from text: its compiler gives the numbers). The game
+    /// binds a supermodel's animations to a model's nodes by it.
+    pub part: Option<i32>,
 }
 
 impl Node {
@@ -179,6 +183,7 @@ impl Node {
             inherit_color: false,
             controllers: Vec::new(),
             kind,
+            part: None,
         }
     }
 
@@ -423,6 +428,9 @@ pub struct Animation {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct AnimNode {
     pub name: String,
+    /// The part number of the node it moves, as a compiled model has it
+    /// (−1: none of the model's); `None` for a model read from text.
+    pub part: Option<i32>,
     pub parent: Option<usize>,
     pub controllers: Vec<Controller>,
     /// Vertex animation: sample period, vertex sets and UV sets, each set a

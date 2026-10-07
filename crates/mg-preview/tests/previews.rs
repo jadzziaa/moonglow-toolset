@@ -431,3 +431,33 @@ fn probe_custom_creatures() {
         enc.write_header().unwrap().write_image_data(&img.data).unwrap();
     }
 }
+
+/// Armour and a cloak lying in an area are a bag, as the game drops what
+/// is only ever worn (a builder's area showed a man standing where a
+/// tunic lay, and a cloak hanging from nothing); a sword lies there as
+/// itself.
+#[test]
+fn what_is_only_worn_lies_in_an_area_as_a_bag() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let placed = |name: &str| {
+        let uti = blueprint(&game, name, ResType::UTI);
+        let p = mg_preview::item_placed(&game, &uti.root).unwrap();
+        models(&p).into_iter().map(str::to_string).collect::<Vec<_>>()
+    };
+    let armor = placed("nw_aarcl001");
+    assert_eq!(armor.len(), 1, "{armor:?}");
+    assert!(!armor[0].starts_with("pm"), "no body: {armor:?}");
+    let cloak = placed("nw_aarcl013");
+    assert_eq!(cloak, ["it_bag"]);
+    // As it is worn: a body's parts, a cloak's model.
+    let worn = item(&game, &blueprint(&game, "nw_aarcl001", ResType::UTI).root).unwrap();
+    assert!(models(&worn).len() > 5);
+    // A sword is its own model, there too.
+    let sword = blueprint(&game, "nw_wswls001", ResType::UTI);
+    let lying = mg_preview::item_placed(&game, &sword.root).unwrap();
+    assert_eq!(models(&lying), models(&item(&game, &sword.root).unwrap()));
+    eprintln!("armor lies as {armor:?}");
+}

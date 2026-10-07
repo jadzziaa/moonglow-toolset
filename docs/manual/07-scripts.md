@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T13:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:30:00Z }
 ---
 
 # Scripts
@@ -40,7 +40,16 @@ Below the text are the **Compiler** messages: click one to go to its line.
 | Ctrl+1 … 9 | go to numbered bookmark 1 to 9 |
 | F7 | compile all the module's scripts |
 
-**Find In Files** searches (and replaces in) every script in the module.
+**Open…** on a script editor's toolbar opens another script: a list of
+them found by name, of the module's alone, its haks' alone or all of
+them with the game's (Aurora's Resources to Show). A double click, or
+Enter for the first listed, opens one; the game's and a hak's open to be
+read. In **Find Text**, Enter finds the next match, again and again.
+**Find In Currently Open Scripts** lists every match in the scripts open
+now under Search Results, and **Find In Files** searches (and replaces
+in) every script in the module. A double click on a function's or a
+constant's name in a script brings its Help forward (over the
+compiler's messages, say).
 **Used By** (on the toolbar) lists where the module runs or includes the
 script: objects' and areas' events, conversation lines, the module's
 events, `#include` lines, and strings in scripts that spell its name

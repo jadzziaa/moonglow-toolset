@@ -464,6 +464,7 @@ impl<'a> Bin<'a> {
             let name = self.name(off + 0x20, 32)?;
             let mut node = AnimNode {
                 controllers: self.controllers(off, node_flags)?,
+                part: Some(self.u32(off + 0x1C)? as i32),
                 parent,
                 ..Default::default()
             };
@@ -535,6 +536,7 @@ pub fn read(data: &[u8]) -> Result<Model, MdlError> {
         let node_flags = b.u32(off + 0x6C)?;
         let mut node = Node::new(&b.name(off + 0x20, 32)?, b.kind(off, node_flags)?);
         node.parent = parent;
+        node.part = Some(b.u32(off + 0x1C)? as i32);
         node.inherit_color = b.u32(off + 0x18)? != 0;
         for c in b.controllers(off, node_flags)? {
             let row = c.row(0);

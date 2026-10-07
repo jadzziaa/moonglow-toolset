@@ -28,6 +28,33 @@ pub fn item_on(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, P
     Ok(Preview { base: first, parts: parts.collect(), idle: None, lights: Vec::new() })
 }
 
+/// An item as it lies in an area. What is worn and has no model of its
+/// own to lie there (armour, which is its wearer's body parts, and a
+/// cloak, which hangs from shoulders) is the base item's `DefaultModel`,
+/// else the bag the game drops such things as (`it_bag`); every other
+/// item is its own model, as [`item`] shows it.
+pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewError> {
+    let lk = Lookup { game };
+    let baseitems = game.table("baseitems")?;
+    let base = uti.integer("BaseItem").unwrap_or(0);
+    let row =
+        usize::try_from(base).map_err(|_| PreviewError::NoRow { table: "baseitems", row: base })?;
+    let class = cell(&baseitems, row, "ItemClass").unwrap_or_default().to_ascii_lowercase();
+    let worn_only = cell_int(&baseitems, row, "ModelType") == Some(3) || class == "cloak";
+    if !worn_only {
+        return item(game, uti);
+    }
+    let model = cell(&baseitems, row, "DefaultModel")
+        .map(str::to_ascii_lowercase)
+        .filter(|m| lk.has_model(m))
+        .or_else(|| lk.has_model(BAG).then(|| BAG.to_string()))
+        .ok_or_else(|| PreviewError::NoModel(format!("{class} on the ground")))?;
+    Ok(Preview { base: Part::new(model), parts: Vec::new(), idle: None, lights: Vec::new() })
+}
+
+/// The bag an item with no model of its own lies in an area as.
+const BAG: &str = "it_bag";
+
 /// The models of an item, at its origin (held items hang all of them from
 /// the hand). Colours for layered items start from `colors` (the wearer's
 /// skin and hair); a cloak is a woman's where `female`.

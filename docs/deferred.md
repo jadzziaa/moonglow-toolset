@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T16:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:30:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -597,6 +597,46 @@ objects in the area view, Fade Geometry. Left:
   out too. A tab reached otherwise (opened, or by keys) doesn't move the
   tree, and other kinds of tab (a script, a blueprint) don't. (S)
 
+## From builders' reports after 1.16.2 (October 2026)
+
+Done: scripts opened from a script editor (Open…, the module's, its
+haks' or all, as Aurora's Resources to Show); Enter finding the next
+match; Find In Currently Open Scripts; a double click on a name bringing
+its Help forward; New on the palettes' right-click menus; filtered
+categories that close again; Maximize over the whole window; the module
+tree showing the object selected in the area; the tree's Filter kept in
+sight; Home and End in the tree and the palettes; a creature's feats
+listed beside the feats to choose from; the module tree's rows out of
+sight not laid out (a huge module slowed everything while a group was
+open). Left, or to know:
+
+- **Clothing lying in an area** is drawn as the game drops it: armour
+  as the base item's `DefaultModel` (a folded bundle), a cloak as the
+  bag (a builder's area showed a man standing where a tunic lay). Taken
+  from baseitems.2da and how the game is known to drop them, not from a
+  look in the client; what Aurora draws there was not captured. (S)
+- **Palette categories named in `DELETE_ME` alone** (no StrRef, no
+  `NAME`: a Spanish builder's skeletons) keep their names in the Custom
+  palette, which showed them blank; names written out are read in
+  Windows-1252 ("Compañeros"). A name that is a talk-table string the
+  table lacks now says which string, in place of nothing. (—)
+- **Find In Currently Open Scripts** searches the scripts whose editors
+  hold their text, which includes one closed with text typed and not
+  saved. (S)
+- **The module tree follows every selection of one object** in the area
+  in front, opening the area out each time; with several selected, or
+  none, it stays where it is. No way to turn it off. (S)
+- **Spells as the Feats page is now** (those known beside those to
+  choose from): asked for, and left: the page also has levels, classes
+  and memorized counts to lay out. (M)
+- **Undo in the script editor** "doing weird stuff" was reported as
+  seeming fixed; nothing was changed for it and nothing reproduced. (—)
+- **Long lists opened out:** the tree's rows out of sight take their
+  room only; its groups' names are still gathered and sorted every
+  frame, which a module of tens of thousands of resources may feel. The
+  palettes laid out only what is in sight already. Not measured on the
+  reporter's module. (S–M)
+
 ## From GitHub issue 7 (October 2026)
 
 - **Arrow keys on lists of choices:** the blueprint editors' 2DA lists
@@ -954,15 +994,16 @@ toolset is as the proposal says it is.
   `mg_mdl::Model`. Decided (2026-10-07): it is to live in the toolset,
   since the viewer already builds on the toolset's crates and not the
   other way about. Not moved yet. (M–L)
-- **Animations bind by part number, not by name** (their measurement in
-  the game client: a supermodel's nodes renumbered, and the animation no
-  longer plays as it did). `notes_models.md` B.19 says by name, marked
-  unverified, and `mg-render`'s `anim.rs` binds by name: the two differ
-  where a model's names and numbers disagree with its supermodel's (a
-  renamed node with the same number moves in the game only; a
-  same-named node elsewhere in the tree moves here only). How many
-  stock models that touches is not counted. (M, and the reader's part
-  numbers first)
+- **Animations bind by part number, not by name:** done. The reader
+  keeps each node's part number, and `mg-render` binds compiled models
+  and animations by it (by name where either is from text, and for a
+  worn cloak or robe). Seen in the viewer session's client pictures (a
+  skeleton numbered afresh under the same names leaves its creatures
+  unposed), not measured again here; a human and an elf in armor and
+  cloak still stand as the client draws them. Of the game's models, 70
+  have nodes the two ways move differently, none of them looked at one
+  by one. A node an animation numbers −1 is not moved, on the reading
+  that the game moves none for it. (S)
 - **Other findings against `notes_models.md`,** each theirs to confirm
   here before the note is changed: part numbers follow file order and a
   compiled tree does not keep it (5,079 of 24,298 models without a

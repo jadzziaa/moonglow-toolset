@@ -200,23 +200,67 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     };
     ui.data_mut(|d| d.insert_temp(id.with("only"), assigned_only));
     let mut toggle = None;
-    egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).show(ui, |ui| {
-        for c in &all {
-            let on = list.contains(&(c.row as i64));
-            let offer = feat_table.as_ref().is_none_or(|t| offered(t, c.row, "FEAT", "LABEL"));
-            if (assigned_only && !on)
-                || (!on && !offer)
-                || !c.text.to_lowercase().contains(&needle)
-                || !in_category(c.row)
-            {
-                continue;
-            }
-            let mut v = on;
-            let r = ui.checkbox(&mut v, &c.text);
-            if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed() {
-                toggle = Some((c.row, v));
-            }
-        }
+    // The feats to choose from, and beside them those the creature has
+    // (as the Special Abilities page lists its own): a click on one there
+    // takes it away.
+    ui.columns(2, |columns| {
+        let ui = &mut columns[0];
+        egui::ScrollArea::vertical().id_salt(("utc-feat-list", key)).auto_shrink(false).show(
+            ui,
+            |ui| {
+                for c in &all {
+                    let on = list.contains(&(c.row as i64));
+                    let offer =
+                        feat_table.as_ref().is_none_or(|t| offered(t, c.row, "FEAT", "LABEL"));
+                    if (assigned_only && !on)
+                        || (!on && !offer)
+                        || !c.text.to_lowercase().contains(&needle)
+                        || !in_category(c.row)
+                    {
+                        continue;
+                    }
+                    let mut v = on;
+                    let r = ui.checkbox(&mut v, &c.text);
+                    if described(r, described_by.as_deref(), "feat", "DESCRIPTION", c.row).changed()
+                    {
+                        toggle = Some((c.row, v));
+                    }
+                }
+            },
+        );
+        let ui = &mut columns[1];
+        ui.strong("Assigned");
+        egui::ScrollArea::vertical().id_salt(("utc-feat-assigned", key)).auto_shrink(false).show(
+            ui,
+            |ui| {
+                // By name, as the list beside it; one the table has no
+                // name for by its row.
+                let mut assigned: Vec<(String, usize)> = list
+                    .iter()
+                    .filter_map(|&row| usize::try_from(row).ok())
+                    .map(|row| {
+                        let name = all
+                            .iter()
+                            .find(|c| c.row == row)
+                            .map_or_else(|| format!("Feat {row}"), |c| c.text.clone());
+                        (name, row)
+                    })
+                    .collect();
+                assigned.sort_by_key(|(name, _)| name.to_lowercase());
+                if assigned.is_empty() {
+                    ui.weak("None: tick a feat to give it to the creature.");
+                }
+                for (name, row) in assigned {
+                    ui.horizontal(|ui| {
+                        if ui.small_button("×").on_hover_text("Take this feat away").clicked() {
+                            toggle = Some((row, false));
+                        }
+                        let r = ui.label(name);
+                        described(r, described_by.as_deref(), "feat", "DESCRIPTION", row);
+                    });
+                }
+            },
+        );
     });
     match toggle {
         Some((row, true)) => {

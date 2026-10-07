@@ -1,6 +1,12 @@
 //! Poses: node transforms from an animation at a moment. Animations bind to
-//! the model's nodes by name (case-insensitive); a model plays its own
-//! animations and, for names it lacks, its supermodels' (nearest first).
+//! the model's nodes as the game binds them: by part number where the
+//! model and the animation are compiled and so have them (a supermodel's
+//! animation moves the node of the same number, whatever it is called:
+//! measured in the client, where a skeleton numbered afresh under the same
+//! names no longer poses its creatures), else by name (case-insensitive:
+//! models read from text, whose compiler gives the numbers by the names).
+//! A model plays its own animations and, for names it lacks, its
+//! supermodels' (nearest first).
 //! Keys interpolate linearly (orientations by slerp); a node the animation
 //! does not key keeps its rest transform.
 //!
@@ -117,24 +123,35 @@ pub fn pose(model: &Model, anim: &Animation, t: f32) -> Vec<Mat4> {
 /// position keys are scaled.
 type Keyed<'a> = (&'a AnimNode, f32, f32);
 
-/// The animation nodes of `layers` by node name (lower case), in layer
-/// order, each with its layer's time at `t` and the scale of its positions:
+/// The animation nodes of `layers` by the node of `model` they move, in
+/// layer order, each with its layer's time at `t` and the scale of its positions:
 /// the model's `setanimationscale` for an animation that is another
 /// model's (a supermodel's, made for a body of another size), 1 for its
 /// own.
-fn keyed<'a>(model: &Model, layers: &[&'a Animation], t: f32) -> HashMap<String, Vec<Keyed<'a>>> {
+fn keyed<'a>(model: &Model, layers: &[&'a Animation], t: f32) -> HashMap<usize, Vec<Keyed<'a>>> {
     keyed_at(model, layers, t, None)
 }
 
 /// [`keyed`], with the scale of another model's animations given (`worn`:
-/// [`pose_worn`]).
+/// [`pose_worn`]). A worn model's nodes are found by name: its numbers
+/// are its own, not those of the body whose animation it plays.
 fn keyed_at<'a>(
     model: &Model,
     layers: &[&'a Animation],
     t: f32,
     worn: Option<f32>,
-) -> HashMap<String, Vec<Keyed<'a>>> {
-    let mut out: HashMap<String, Vec<_>> = HashMap::new();
+) -> HashMap<usize, Vec<Keyed<'a>>> {
+    let mut out: HashMap<usize, Vec<_>> = HashMap::new();
+    // The model's nodes by number, if it has numbers, and by name.
+    let numbered = worn.is_none() && model.nodes.iter().all(|n| n.part.is_some());
+    let mut by_part: HashMap<i32, usize> = HashMap::new();
+    let mut by_name: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, n) in model.nodes.iter().enumerate() {
+        if let Some(part) = n.part.filter(|p| *p >= 0) {
+            by_part.entry(part).or_insert(i);
+        }
+        by_name.entry(n.name.to_ascii_lowercase()).or_default().push(i);
+    }
     for a in layers {
         let at = time_in(a, t);
         let own = model.animations.iter().any(|own| std::ptr::eq(own, *a));
@@ -143,8 +160,21 @@ fn keyed_at<'a>(
             _ => 1.0,
         };
         for n in &a.nodes {
-            if !n.controllers.is_empty() || n.anim_mesh.is_some() {
-                out.entry(n.name.to_ascii_lowercase()).or_default().push((n, at, scale));
+            if n.controllers.is_empty() && n.anim_mesh.is_none() {
+                continue;
+            }
+            match n.part.filter(|_| numbered) {
+                // (−1: a node of no part of the model.)
+                Some(part) => {
+                    if let Some(i) = by_part.get(&part) {
+                        out.entry(*i).or_default().push((n, at, scale));
+                    }
+                }
+                None => {
+                    for i in by_name.get(&n.name.to_ascii_lowercase()).into_iter().flatten() {
+                        out.entry(*i).or_default().push((n, at, scale));
+                    }
+                }
             }
         }
     }
@@ -194,13 +224,14 @@ pub fn pose_worn(model: &Model, anim: &Animation, t: f32, scale: f32) -> Vec<Mat
     compose(model, &locals_of(model, &keyed_at(model, &[anim], t, Some(scale))))
 }
 
-fn locals_of(model: &Model, by_name: &HashMap<String, Vec<Keyed<'_>>>) -> Vec<Local> {
+fn locals_of(model: &Model, by_node: &HashMap<usize, Vec<Keyed<'_>>>) -> Vec<Local> {
     model
         .nodes
         .iter()
-        .map(|n| {
+        .enumerate()
+        .map(|(i, n)| {
             let (mut pos, mut orient, mut scale) = (n.position, n.orientation, n.scale);
-            if let Some(nodes) = by_name.get(&n.name.to_ascii_lowercase()) {
+            if let Some(nodes) = by_node.get(&i) {
                 for (c, t, by) in controllers(nodes) {
                     let v = sample(c, t);
                     match (c.name.as_str(), v.len()) {
@@ -276,7 +307,7 @@ pub fn lights_layers(
     for (i, n) in model.nodes.iter().enumerate() {
         let mg_mdl::NodeKind::Light(l) = &n.kind else { continue };
         let keyed = |name: &str| -> Option<Vec<f32>> {
-            let nodes = by_name.get(&n.name.to_ascii_lowercase())?;
+            let nodes = by_name.get(&i)?;
             let (c, t, _) = controllers(nodes).filter(|(c, ..)| c.name == name).last()?;
             Some(sample(c, t))
         };
@@ -331,8 +362,7 @@ pub fn mesh_state_layers(model: &GpuModel, layers: &[&Animation], t: f32) -> Mes
     let by_name = keyed(&model.model, layers, t);
     let mut state = MeshState::new(model);
     for (i, mesh) in model.meshes.iter().enumerate() {
-        let name = model.model.nodes[mesh.node].name.to_ascii_lowercase();
-        let Some(nodes) = by_name.get(&name) else { continue };
+        let Some(nodes) = by_name.get(&mesh.node) else { continue };
         let out = &mut state.meshes[i];
         for (c, t, _) in controllers(nodes) {
             let v = sample(c, t);
@@ -561,5 +591,59 @@ mod tests {
         assert_eq!(translation, Vec3::new(2.0, 0.0, 0.0), "the later layer's position");
         assert!(rotation.angle_between(Quat::from_rotation_z(1.0)) < 1e-5, "the earlier's turn");
         assert_eq!(pose_layers(&model, &[&second, &first], 0.0)[1].w_axis.x, 1.0);
+    }
+
+    /// Compiled models bind by part number, as the game does: an
+    /// animation's node moves the node of its number, whatever either is
+    /// called; one numbered −1 moves nothing. Models from text (no
+    /// numbers) bind by name; so does a worn model, whose numbers are its
+    /// own and not the body's.
+    #[test]
+    fn compiled_models_bind_by_part_number() {
+        let moved = |x: f32, name: &str, part: Option<i32>| AnimNode {
+            name: name.into(),
+            part,
+            controllers: vec![Controller {
+                name: "position".into(),
+                columns: 3,
+                times: vec![0.0],
+                values: vec![x, 0.0, 0.0],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let model = |parts: [Option<i32>; 3]| {
+            let mut m = Model::default();
+            for (i, name) in ["root", "arm", "leg"].into_iter().enumerate() {
+                let mut n = mg_mdl::Node::new(name, mg_mdl::NodeKind::Dummy);
+                n.parent = (i > 0).then_some(0);
+                n.part = parts[i];
+                m.nodes.push(n);
+            }
+            m
+        };
+        let x = |pose: &[Mat4]| [pose[0].w_axis.x, pose[1].w_axis.x, pose[2].w_axis.x];
+        // A supermodel's animation: its root (another name, number 0), a
+        // node called "leg" numbered as the model's arm, one numbered −1.
+        let anim = |parts: [Option<i32>; 3]| Animation {
+            nodes: vec![
+                moved(1.0, "super", parts[0]),
+                moved(2.0, "leg", parts[1]),
+                moved(4.0, "arm", parts[2]),
+            ],
+            ..Default::default()
+        };
+        let compiled = model([Some(0), Some(1), Some(2)]);
+        let by_number = anim([Some(0), Some(1), Some(-1)]);
+        // The root moves (by 1), the arm by the node called "leg"; the leg
+        // stays (carried by the root alone).
+        assert_eq!(x(&pose(&compiled, &by_number, 0.0)), [1.0, 3.0, 1.0]);
+        // From text: by name.
+        let text = model([None; 3]);
+        assert_eq!(x(&pose(&text, &anim([None; 3]), 0.0)), [0.0, 4.0, 2.0]);
+        // A compiled model under an animation from text, and a worn one:
+        // by name as well.
+        assert_eq!(x(&pose(&compiled, &anim([None; 3]), 0.0)), [0.0, 4.0, 2.0]);
+        assert_eq!(x(&pose_worn(&compiled, &by_number, 0.0, 1.0)), [0.0, 4.0, 2.0]);
     }
 }
