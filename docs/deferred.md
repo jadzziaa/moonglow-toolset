@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:39:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T23:17:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -83,17 +83,28 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 The budget and the measurements are in
 [the frames note](research/notes_frames.md). Done: an area's picture kept
-between its animations' steps, its drawing at a third of the cost (lights
+between its animations' steps, its drawing at a fifth of the cost (lights
 by the ground they reach, materials worked out once, a draw's values by
 its number, what is out of sight left out, tiles of one model posed
-once), the galleries' pictures made for 2 ms a frame and kept while in
-sight.
+once, meshes of one model drawn as instances of one draw), the
+galleries' pictures made for 2 ms a frame and kept while in sight.
 
 - **The largest areas in full view:** a 784-tile area's picture takes
-  5.4 ms with all of it in sight (1.9 close up). An area of 32 by 32 tiles
-  of a tileset with more meshes a tile is over the budget in full view.
-  What is left is wgpu's cost of each draw (0.8 µs): tiles of one model
-  drawn as instances of it would cut the draws to a fraction. (L)
+  4.4 ms with all of it in sight (1.9 close up). An area of 32 by 32 tiles
+  of a tileset with more meshes a tile is near the budget in full view.
+  What is left is each mesh's own work, instances or not: its lights
+  chosen (0.7 ms of 2.7) and its values written. Kept from frame to frame
+  for what doesn't move, with the camera's part worked out in the shader,
+  it would be done once. (M–L)
+- **Instances and the GPU:** what drawing meshes as instances costs or
+  saves the GPU was not measured (the game was running beside the test).
+  `frame_perf.rs` prints both ways side by side. (S)
+- **Seams between tiles:** drawn as instances, a sample on the seam of
+  two tiles may show the other tile's floor (12 of 192 pictures, one to
+  three pixels each): which of two floors that both cover a sample is
+  drawn last was the order of the area's tiles, and is now the order of
+  the draws. A mesh at a time (`Renderer::instancing` off) it is as it
+  was. (—)
 - **Animations step 25 times a second** (`ANIMATION_STEP`, 40 ms) while
   only they move; before, they stepped with every frame the window drew
   (20 a second left alone, 144 with the pointer moving). A setting, or

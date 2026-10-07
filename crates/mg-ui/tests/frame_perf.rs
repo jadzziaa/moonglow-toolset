@@ -418,12 +418,14 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
     };
     let (width, height) = model.size();
     let span = width.max(height);
-    for (what, distance, pitch, samples) in [
-        ("overview, 4x MSAA", span * 1.45, 1.5695, 4),
-        ("overview, no MSAA", span * 1.45, 1.5695, 1),
-        ("close, 4x MSAA", 25.0, 0.7, 4),
+    for (what, distance, pitch, samples, instancing) in [
+        ("overview, 4x MSAA", span * 1.45, 1.5695, 4, true),
+        ("…a draw for each mesh", span * 1.45, 1.5695, 4, false),
+        ("overview, no MSAA", span * 1.45, 1.5695, 1, true),
+        ("close, 4x MSAA", 25.0, 0.7, 4, true),
     ] {
         let mut renderer = Renderer::new(&gpu, format, samples);
+        renderer.instancing = instancing;
         let targets = Targets::new(&gpu, format, samples, w, h_px);
         let mut sims = std::collections::HashMap::new();
         let (mut build, mut particles, mut encode, mut drawn) =
@@ -475,12 +477,13 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
         println!(
             "    {what:20} scene {:5.2} ms, particles {:5.2} ms, draws encoded {:5.2} ms, GPU \
              {:5.2} ms ({instances} instances, {meshes} meshes, {lights} lights, {quads} \
-             particles; {} draws of {} materials in turn, {} meshes out of sight)",
+             particles; {} meshes in {} draws of {} materials in turn, {} meshes out of sight)",
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
             ms(pick(encode, 0.5)),
             ms(pick(drawn, 0.5)),
             did.meshes,
+            did.batches,
             did.materials,
             did.hidden,
         );

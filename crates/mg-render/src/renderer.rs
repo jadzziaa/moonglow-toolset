@@ -12,6 +12,7 @@ use mg_image::txi::Blending;
 
 use crate::Gpu;
 use crate::assets::Assets;
+use crate::batch::{Batcher, Bounds};
 use crate::model::{SkinVertex, Vertex};
 use crate::particles::{ParticleBlend, ParticleVertex};
 use crate::reach::{Frustum, LightGrid};
@@ -252,6 +253,12 @@ struct Draw<'a> {
     /// Replaced vertices: their bytes in the frame's dynamic buffer, from
     /// and to.
     dynamic: Option<(u64, u64)>,
+    /// Its box in the scene (`None` for a mesh that leaves its box: a
+    /// skinned or animated one, and the sky), and which of the frame's
+    /// instances it is of: for putting draws of one mesh together
+    /// ([`crate::batch`]).
+    bounds: Option<Bounds>,
+    instance: u32,
 }
 
 /// What the renderer draws: the lit scene, or a value for comparing with
@@ -267,6 +274,9 @@ pub enum DebugView {
 #[derive(Debug)]
 pub struct Renderer {
     pub debug: DebugView,
+    /// Draws of one mesh are drawn as instances of one draw (on; off,
+    /// each is drawn by itself, in the order they came in: to compare).
+    pub instancing: bool,
     color_format: wgpu::TextureFormat,
     sample_count: u32,
     frame_layout: wgpu::BindGroupLayout,
@@ -282,9 +292,12 @@ pub struct Renderer {
     frame_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
     bone_buffer: wgpu::Buffer,
-    /// Every draw's uniforms, one after another: a draw's are found by
-    /// its instance number.
+    /// Every draw's uniforms, one after another, and the draws in the
+    /// order they are drawn in: an instance's uniforms are those its
+    /// number names there.
     draw_buffer: wgpu::Buffer,
+    order_buffer: wgpu::Buffer,
+    batcher: Batcher,
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
     textures: HashMap<String, Option<Arc<TextureEntry>>>,
@@ -315,8 +328,11 @@ pub struct Renderer {
 /// What a frame drew ([`Renderer::drawn`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Drawn {
-    /// The draws: a mesh each, two for a see-through one.
+    /// The meshes drawn: one each, two for a see-through one.
     pub meshes: usize,
+    /// The draws they were drawn with: meshes of one model in several
+    /// places are instances of one draw.
+    pub batches: usize,
     /// The meshes left out as out of the camera's sight.
     pub hidden: usize,
     /// How many times a draw's material was another than the draw's
@@ -396,6 +412,16 @@ impl Renderer {
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
@@ -646,6 +672,7 @@ impl Renderer {
         });
         Renderer {
             debug: DebugView::Lit,
+            instancing: true,
             color_format,
             sample_count,
             frame_layout,
@@ -665,6 +692,8 @@ impl Renderer {
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
             bone_buffer: buffer("bones", 64 * 64, wgpu::BufferUsages::STORAGE),
             draw_buffer: buffer("draws", draw_size * 64, wgpu::BufferUsages::STORAGE),
+            order_buffer: buffer("draw order", 4 * 64, wgpu::BufferUsages::STORAGE),
+            batcher: Batcher::default(),
             white: Arc::new(GpuTexture::solid(gpu, "white", [255; 4])),
             white_cube: Arc::new(GpuTexture::upload_cube(gpu, "white cube", &{
                 let face =
@@ -1129,7 +1158,7 @@ impl Renderer {
             .map(|s| (s, true, None))
             .chain(fade.iter().map(|(s, c)| (s, true, Some(*c))))
             .chain(scene.instances.iter().map(|i| (i, false, None)));
-        for (inst, is_sky, fade_color) in all {
+        for (instance, (inst, is_sky, fade_color)) in all.enumerate() {
             let rest = &inst.model.rest;
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
             let surfaces = self.surfaces(gpu, assets, inst, scene_env, scene_env_id);
@@ -1148,9 +1177,10 @@ impl Renderer {
                 // that stay in their box: not one a skin moves with its
                 // bones or whose vertices an animation replaces.)
                 let moved = replaced.and_then(|r| r.vertices.as_ref());
+                let mut bounds = None;
                 if !is_sky && mesh.skin.is_none() && moved.is_none() {
-                    // (The box as it lies in the scene, turned and scaled:
-                    // a ball around it.)
+                    // (The box as it lies in the scene, turned and scaled,
+                    // and a ball around it.)
                     let turned = glam::Mat3::from_mat4(world);
                     let around = turned.x_axis.abs() * half.x
                         + turned.y_axis.abs() * half.y
@@ -1159,6 +1189,7 @@ impl Renderer {
                         hidden += 1;
                         continue;
                     }
+                    bounds = Some(Bounds { min: centre - around, max: centre + around });
                 }
                 let emissive = replaced.and_then(|r| r.selfillum).unwrap_or(mesh.material.emissive);
                 let dynamic_range = moved.map(|v| {
@@ -1288,6 +1319,8 @@ impl Renderer {
                     material: surface.material,
                     mesh,
                     dynamic: dynamic_range,
+                    bounds,
+                    instance: instance as u32,
                 };
                 // A see-through mesh is drawn in two parts: what is solid
                 // of it, then the rest.
@@ -1306,7 +1339,7 @@ impl Renderer {
                 }
             }
         }
-        self.drawn = Drawn { meshes: draws.len(), hidden, materials: 0 };
+        self.drawn = Drawn { meshes: draws.len(), hidden, ..Drawn::default() };
         // Opaque (any order), then blended back to front by hint then depth,
         // then additive.
         draws.sort_by(|a, b| {
@@ -1326,6 +1359,57 @@ impl Renderer {
                 }
             })
         });
+
+        // Draws of one mesh become one draw of as many instances, where
+        // that takes no draw past one it meets (`batch.rs`): solid meshes
+        // meet where their boxes do in the scene, see-through ones where
+        // they do on the screen.
+        let mut batcher = std::mem::take(&mut self.batcher);
+        batcher.begin();
+        let on_screen = proj * view;
+        let mut batch_of = Vec::with_capacity(draws.len());
+        let (mut pass, mut last) = (None, (u32::MAX, None));
+        for d in &draws {
+            let solid = matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque);
+            if pass != Some(d.pass) {
+                pass = Some(d.pass);
+                last = (u32::MAX, None);
+                // (Squares of a tile's size, and boxes a millimeter into
+                // each other at most taken to touch; on the screen, a
+                // sixteenth of it and a hundredth of a pixel.)
+                if solid { batcher.pass(10.0, 1e-3) } else { batcher.pass(0.125, 1e-5) }
+            }
+            let key = (std::ptr::from_ref(d.mesh) as usize, d.material, d.dynamic);
+            let batch = if !self.instancing {
+                batcher.place(key, None, None)
+            } else if solid {
+                // (A model's own meshes in the order they came in.)
+                let after = last.1.filter(|_| last.0 == d.instance);
+                let batch = batcher.place(key, d.bounds, after);
+                last = (d.instance, Some(batch));
+                batch
+            } else {
+                batcher.place(key, d.bounds.map(|b| screen_box(on_screen, &b)), None)
+            };
+            batch_of.push(batch);
+        }
+        let (starts, order) = crate::batch::in_order(&batch_of, batcher.batches());
+        self.batcher = batcher;
+        self.drawn.batches = starts.len() - 1;
+        // (Each instance's uniforms, by its number.)
+        let named: Vec<u32> = order.iter().map(|&d| draws[d as usize].uniform).collect();
+        let order_bytes = std::mem::size_of_val(named.as_slice()) as u64;
+        if self.order_buffer.size() < order_bytes {
+            self.order_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("draw order"),
+                size: order_bytes.next_power_of_two(),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !named.is_empty() {
+            gpu.queue.write_buffer(&self.order_buffer, 0, bytemuck::cast_slice(&named));
+        }
 
         // Bones.
         let bone_bytes = 64 * bones.len().max(1);
@@ -1384,6 +1468,10 @@ impl Renderer {
                 },
                 wgpu::BindGroupEntry { binding: 2, resource: self.bone_buffer.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 3, resource: self.draw_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: self.order_buffer.as_entire_binding(),
+                },
             ],
         });
 
@@ -1500,7 +1588,9 @@ impl Renderer {
             // every draw was a quarter of drawing a large area.)
             let (mut pipeline, mut material) = (None, None);
             let mut materials = 0;
-            for d in &draws {
+            for batch in starts.windows(2) {
+                // (A batch's draws are of one mesh and one material.)
+                let d = &draws[order[batch[0] as usize] as usize];
                 let key = (d.pass, d.mesh.skin.is_some());
                 if pipeline != Some(key) {
                     pass.set_pipeline(&self.pipelines[&key]);
@@ -1521,7 +1611,7 @@ impl Renderer {
                     None => pass.set_vertex_buffer(0, d.mesh.vertices.slice(..)),
                 }
                 pass.set_index_buffer(d.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..d.mesh.index_count, 0, d.uniform..d.uniform + 1);
+                pass.draw_indexed(0..d.mesh.index_count, 0, batch[0]..batch[1]);
             }
             self.drawn.materials = materials;
             if !particle_draws.is_empty() {
@@ -1567,6 +1657,32 @@ impl Renderer {
             (width, height),
         );
         gpu.read_rgba(&targets.color)
+    }
+}
+
+/// A box of the scene as the camera sees it (`on_screen`: its projection
+/// times its view): the rectangle around it on the screen, from -1 to 1
+/// each way; all of the screen for one that reaches behind the camera.
+fn screen_box(on_screen: Mat4, bounds: &Bounds) -> Bounds {
+    let (mut min, mut max) = (glam::Vec2::splat(f32::MAX), glam::Vec2::splat(f32::MIN));
+    for corner in 0..8 {
+        let at = Vec3::new(
+            if corner & 1 == 0 { bounds.min.x } else { bounds.max.x },
+            if corner & 2 == 0 { bounds.min.y } else { bounds.max.y },
+            if corner & 4 == 0 { bounds.min.z } else { bounds.max.z },
+        );
+        let clip = on_screen * at.extend(1.0);
+        if clip.w.is_nan() || clip.w <= 1e-4 {
+            (min, max) = (glam::Vec2::splat(-1.0), glam::Vec2::splat(1.0));
+            break;
+        }
+        let at = clip.truncate().truncate() / clip.w;
+        (min, max) = (min.min(at), max.max(at));
+    }
+    // (What is off the screen meets nothing there.)
+    Bounds {
+        min: min.max(glam::Vec2::splat(-1.0)).extend(0.0),
+        max: max.min(glam::Vec2::splat(1.0)).extend(0.0),
     }
 }
 

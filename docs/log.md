@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [Frames at 144 a second](research/notes_frames.md) and [the deferred list](deferred.md): meshes of one model are drawn as instances of one draw where that takes no draw past one it meets (a large area's 4,807 meshes in 1,028 draws), and what that leaves different (a sample on the seam of two tiles, in 12 of 192 pictures).
 * **Creation**: [Frames at 144 a second](research/notes_frames.md): frame times against a 144 fps budget, how they are measured (`crates/mg-ui/tests/frame_perf.rs`), what an area's picture, the galleries and the lists cost before and after, and what the profile found; [the deferred list](deferred.md) has what is left, under Frames.
 * **Creation**: [Lights placed on the fly: a proposal](lights-proposal.md): three ways to place a light without a hand-made placeable, their costs and a recommended order; a draft for a decision.
 * **Update**: [Build, verify and test](manual/09-build-and-test.md) and [options](manual/10-options.md): a test can start a Steam copy of the game without Steam.

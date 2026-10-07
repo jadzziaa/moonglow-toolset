@@ -4,6 +4,7 @@
 
 pub mod anim;
 pub mod assets;
+mod batch;
 pub mod dangly;
 mod gpu;
 pub mod guard;

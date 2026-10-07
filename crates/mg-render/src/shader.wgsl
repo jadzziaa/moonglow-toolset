@@ -85,10 +85,12 @@ const SOLID_ALPHA: f32 = 0.95;
 @group(0) @binding(1) var<storage, read> lights: array<Light>;
 // Skin bone matrices (bind pose to current pose, in the skin node's space).
 @group(0) @binding(2) var<storage, read> bones: array<mat4x4<f32>>;
-// Every draw's values, and which of them this vertex or fragment is of (the
-// draw's instance number): nothing is bound anew from one draw to the next
-// but its material, when that is another.
+// Every draw's values, and which of them this vertex or fragment is of:
+// nothing is bound anew from one draw to the next but its material, when
+// that is another. Draws of one mesh are instances of one draw; an
+// instance's values are those `order` names for its number.
 @group(0) @binding(3) var<storage, read> draws: array<Draw>;
+@group(0) @binding(4) var<storage, read> order: array<u32>;
 var<private> this_draw: u32;
 @group(1) @binding(0) var tex0: texture_2d<f32>;
 @group(1) @binding(1) var tex_env: texture_2d<f32>;
@@ -112,8 +114,8 @@ struct VertexIn {
     // The model's vertex color and second texture coordinates.
     @location(6) color: vec4<f32>,
     @location(7) uv1: vec2<f32>,
-    // The draw's place among the frame's.
-    @builtin(instance_index) draw: u32,
+    // The instance's place among the frame's, in the order they are drawn.
+    @builtin(instance_index) instance: u32,
 };
 
 struct VertexOut {
@@ -149,7 +151,7 @@ fn finish(v: VertexIn, pos: vec3<f32>, normal: vec3<f32>, tangent: vec4<f32>) ->
 
 @vertex
 fn vs_main(v: VertexIn) -> VertexOut {
-    this_draw = v.draw;
+    this_draw = order[v.instance];
     return finish(v, v.pos, v.normal, v.tangent);
 }
 
@@ -161,7 +163,7 @@ struct SkinIn {
 // Up to four bone influences, as the game's skinned shaders (vslit_sk).
 @vertex
 fn vs_skinned(v: VertexIn, s: SkinIn) -> VertexOut {
-    this_draw = v.draw;
+    this_draw = order[v.instance];
     var pos = vec3<f32>(0.0);
     var normal = vec3<f32>(0.0);
     var tangent = vec3<f32>(0.0);

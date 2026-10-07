@@ -1138,3 +1138,92 @@ fn every_draw_takes_its_own_values() {
     // The see-through one is the fainter.
     assert!(image.pixel(32, 32)[1] < image.pixel(11, 32)[0], "{:?}", image.pixel(32, 32));
 }
+
+/// A model in several places is one draw of as many instances, each with
+/// its own values: of three quads of one model, the middle one lit (black,
+/// in the dark) and the others not.
+#[test]
+fn a_model_in_several_places_is_one_draw() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let instances = [-2.2, 0.0, 2.2]
+        .into_iter()
+        .map(|x| Instance {
+            unlit: x != 0.0,
+            ..Instance::new(model.clone(), Mat4::from_translation(Vec3::X * x))
+        })
+        .collect();
+    let dark = AreaLight { ambient: Vec3::ZERO, diffuse: Vec3::ZERO, ..Default::default() };
+    let scene = Scene { instances, area: dark, ..Default::default() };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let image = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+    assert_eq!((r.drawn.meshes, r.drawn.batches), (3, 1), "{:?}", r.drawn);
+    let bright = |x: u32| image.pixel(x, 32)[0] > 100;
+    assert!(
+        bright(11) && !bright(32) && bright(53),
+        "{:?}",
+        [11, 32, 53].map(|x| image.pixel(x, 32))
+    );
+}
+
+/// Drawn as instances, a scene looks as it does with a draw for each mesh:
+/// a mesh is not drawn before one it lies on or is seen through, though
+/// the draws of its model before that one are.
+#[test]
+fn instances_are_drawn_in_the_order_of_the_meshes_they_meet() {
+    let Some(gpu) = gpu() else { return };
+    let [white, red, green] =
+        [[1.0, 1.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]].map(|c| colored_quad(&gpu, c));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let at = |model: &Arc<GpuModel>, x: f32, y: f32, z: f32, opacity: f32| Instance {
+        unlit: true,
+        opacity,
+        ..Instance::new(model.clone(), Mat4::from_translation(Vec3::new(x, y, z)))
+    };
+    let scene = Scene {
+        instances: vec![
+            // On the ground, each lying half on the one before: white, red
+            // on it, white on the red; and a white one by itself.
+            at(&white, -1.6, 2.0, 0.0, 1.0),
+            at(&red, -0.6, 2.0, 0.0, 1.0),
+            at(&white, 0.4, 2.0, 0.0, 1.0),
+            at(&white, 2.3, -2.3, 0.0, 1.0),
+            // See-through, each over half of the one before: green, red,
+            // green; and a green one by itself.
+            at(&green, -1.6, -0.3, 0.3, 0.5),
+            at(&red, -0.6, -0.3, 0.6, 0.5),
+            at(&green, 0.4, -0.3, 0.9, 0.5),
+            at(&green, -2.3, -2.4, 0.3, 0.5),
+        ],
+        area: AreaLight { ambient: Vec3::splat(0.5), ..Default::default() },
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let instanced = r.render_image(&gpu, &NoAssets, &scene, &camera, 96, 96);
+    let drawn = r.drawn;
+    r.instancing = false;
+    let one_by_one = r.render_image(&gpu, &NoAssets, &scene, &camera, 96, 96);
+    assert_eq!(r.drawn.batches, r.drawn.meshes, "{:?}", r.drawn);
+    // Solid: the first white, the red, and the two other whites together.
+    // See-through (their fringes: nothing of them is solid): the same of
+    // the greens. Twelve meshes (the see-through ones in two parts).
+    assert_eq!((drawn.meshes, drawn.batches), (12, 9), "{drawn:?}");
+    assert!(instanced.data == one_by_one.data, "the same picture");
+    // (And the see-through green over the red is what is seen: more green
+    // than red there, as it would not be with the red drawn last.)
+    let over = instanced.pixel(48, 52);
+    assert!(over[1] > over[0], "green over red: {over:?}");
+}

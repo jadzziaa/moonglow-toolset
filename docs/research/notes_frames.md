@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:39:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T23:17:14Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -12,7 +12,7 @@ sources:
     resource: human:august
     title: 'The budget: a steady 144 frames a second on the development machine (7 October 2026)'
 verified:
-  - { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:39:58Z }
+  - { by: claude-code/claude-opus-5-5, at: 2026-10-07T23:17:14Z }
 ---
 
 # Frames at 144 a second: where a frame's time went
@@ -58,7 +58,7 @@ throughout, with 4x multisampling.
 | --- | --- | --- |
 | A campaign as it opens (a 30-tile area, the palettes) | 6.0 | 0.65; 3.6 redrawn |
 | A 49-tile area (1,191 meshes), all of it in sight | 4.4 | 0.6; 2.8 redrawn |
-| A 784-tile area (3,671 meshes, 749 lights), all in sight | 15.5 | 0.65; 5.4 redrawn |
+| A 784-tile area (3,671 meshes, 749 lights), all in sight | 15.5 | 0.65; 4.4 redrawn |
 | …close up (the camera 25 m from the ground) | 15.7 | 1.9 redrawn |
 | The palette's Gallery, scrolled (pictures being made) | 25 | 3.7; a slow picture up to 9 |
 | The Gallery over the whole window, smallest pictures, left alone | 26, without end | 1.7 |
@@ -67,8 +67,8 @@ throughout, with 4x multisampling.
 | The module tree, 25,000 resources listed | 3.4 | 3.4 |
 
 Of the 784-tile area's picture: its draws took 13.4 ms to encode and take
-3.9 (0.5 close up); its scene (tiles and objects posed) took 1.2 ms and
-takes 0.5.
+2.7 (0.5 close up; 3.9 before meshes of one model were drawn as
+instances); its scene (tiles and objects posed) took 1.2 ms and takes 0.5.
 
 ## What the measurements found
 
@@ -104,10 +104,10 @@ More:
   changes. With the draw's own group before the material's, every draw
   cost the material's ten textures again, whether or not the material was
   set. What changes most often goes last, or (as now) is no group at all.
-- **The draws' order is as it was.** Sorting the opaque draws by material
-  would bind fewer materials (805 of 4,807 draws change it as it is), but
-  coplanar meshes (tile floors) have equal depths, and which shows
-  depends on the order.
+- **The draws' order is as it was, where it matters.** Sorting the opaque
+  draws by material would bind fewer materials (805 of 4,807 draws change
+  it as it is), but coplanar meshes (tile floors) have equal depths, and
+  which shows depends on the order. See the instances, below.
 - **What the camera can't see isn't drawn** (a mesh's box against the
   camera's six planes; not skinned or animated meshes, which leave their
   box). Close up, 3,461 of the area's 3,700 meshes are left out.
@@ -119,6 +119,50 @@ Checked on 192 pictures of the campaigns' areas, before and after: 177
 the same to the bit, 5 with one or two pixels different by 1 of 255, and
 10 that differ from run to run of the same program (before as after: see
 Not covered).
+
+### Meshes of one model as instances of one draw
+
+What was left of a large area's picture was mostly wgpu's cost of each
+draw, the same however little it draws: 4,807 draws of some 1,000
+different meshes, an area's tiles being of few models. Draws of one mesh with one
+material are now one draw of as many instances (`batch.rs`); the draws'
+values were by instance number already.
+
+The order of draws matters where two meet (of coplanar meshes the later
+shows; see-through ones blend in order), so a draw joins those of its
+mesh only if that takes it past none it meets:
+
+- **Solid meshes meet where their boxes do in the scene:** overlapping,
+  or a flat one on a face of the other (a decal on a floor or a wall).
+  Boxes that only touch do not meet (tiles lie edge to edge), and a
+  model's own meshes keep their order whatever their boxes.
+- **See-through meshes meet where their boxes do on the screen.**
+- Skinned and animated meshes, which leave their boxes, are taken past
+  nothing.
+
+| | Meshes | Draws | Encoded |
+| --- | --- | --- | --- |
+| The 784-tile area, all in sight | 4,807 | 1,028 | 3.9 ms, now 2.7 |
+| …close up | 280 | 187 | 0.5 ms, as before |
+| A 49-tile area, all in sight | 1,184 | 638 | 1.7 ms, about as before |
+| The 192 pictures of the campaigns' areas | 255,452 | 170,858 | |
+
+An area of one tileset's few tiles gains most; interiors, each tile
+another model, little.
+
+**Not quite the same picture.** Of the 192 pictures, 12 differ from those
+drawn a mesh at a time, by one to three pixels each of 480,000: single
+samples on the seam between two tiles, where the floors of both cover
+the sample and now the other is drawn last. (Only the solid pass: with
+the see-through passes alone drawn as instances, every picture is the
+same.) Keeping the order of floors that share an edge was tried: it gave
+up a fifth of the draws saved and mended 4 of the 12, the rest being
+seams of meshes that are not flat. `Renderer::instancing` switches it
+off, to compare.
+
+These were timed with the game running beside the test: the processor's
+times held from run to run, the GPU's did not, and what instances cost
+or save the GPU is not measured.
 
 ### The galleries: 25 ms a frame, and a wide one for ever
 
@@ -151,9 +195,9 @@ Not covered).
 What is left is in [the deferred list](../deferred.md), under "Frames".
 In short:
 
-- **The largest areas in full view.** 5.4 ms for 784 tiles leaves little
-  room: a 32 by 32 area of a tileset with more meshes a tile is over the
-  budget when all of it is in sight. Close up it is not.
+- **The largest areas in full view.** 4.4 ms for 784 tiles: a 32 by 32
+  area of a tileset with more meshes a tile is near the budget when all of
+  it is in sight. Close up it is not.
 - **Opening an area** holds the window for 0.2 s (its models and
   textures are read in the frame).
 - **A slow picture** (a model with large textures) still takes a frame
