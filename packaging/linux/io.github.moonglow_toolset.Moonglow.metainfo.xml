@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.16.2" date="2026-10-07">
+      <description>
+        <p>Scripts are compiled when the module is saved, where that is
+        asked for; a nasher project's script opens in place in the
+        external editor; text shows in English where the language edited
+        has none; the module tree goes to the area of the tab chosen.</p>
+      </description>
+    </release>
     <release version="1.16.1" date="2026-10-07">
       <description>
         <p>Static placeables stand upright and a TGA's right-to-left flag
