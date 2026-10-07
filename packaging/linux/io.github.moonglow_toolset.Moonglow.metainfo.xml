@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.18.1" date="2026-10-07">
+      <description>
+        <p>The debug log is written unless switched off, a file for each
+        start with the time on each line, the last five kept: what led to
+        a crash is there to send afterwards.</p>
+      </description>
+    </release>
     <release version="1.18.0" date="2026-10-07">
       <description>
         <p>Text typed in another language than English keeps its
