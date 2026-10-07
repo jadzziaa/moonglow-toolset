@@ -595,6 +595,9 @@ pub struct Thumbnails {
 pub(crate) enum Pictured {
     Resource(ResKey),
     Look(mg_preview::CreatureLook),
+    /// A tile's model lying at this many quarter turns, as it would in
+    /// an area (a tile's variants, which differ by their turn too).
+    Tile(ResKey, u8),
 }
 
 impl Thumbnails {
@@ -604,7 +607,7 @@ impl Thumbnails {
             .iter()
             .filter_map(|(k, made)| match k {
                 Pictured::Resource(k) => Some((*k, made.as_ref().map(|(_, id)| *id))),
-                Pictured::Look(_) => None,
+                Pictured::Look(_) | Pictured::Tile(..) => None,
             })
             .collect()
     }
@@ -620,7 +623,7 @@ impl Thumbnails {
             .iter()
             .filter_map(|(k, made)| match k {
                 Pictured::Look(l) => Some((*l, made.as_ref().map(|(_, id)| *id))),
-                Pictured::Resource(_) => None,
+                Pictured::Resource(_) | Pictured::Tile(..) => None,
             })
             .collect()
     }
@@ -678,8 +681,13 @@ pub(crate) fn thumbnail_of(app: &mut Moonglow, key: Pictured) -> Option<egui::Te
 }
 
 fn render_thumbnail(app: &mut Moonglow, key: Pictured) -> Option<(Targets, egui::TextureId)> {
+    // (A tile is seen from one side always, turned as it lies.)
+    let turned = match key {
+        Pictured::Tile(_, quarters) => Some(f32::from(quarters % 4) * std::f32::consts::FRAC_PI_2),
+        _ => None,
+    };
     let (source, preview) = match key {
-        Pictured::Resource(key) => {
+        Pictured::Resource(key) | Pictured::Tile(key, _) => {
             // (A blueprint's, or a model's own: a gallery of appearances.)
             if !matches!(
                 key.restype,
@@ -718,14 +726,21 @@ fn render_thumbnail(app: &mut Moonglow, key: Pictured) -> Option<(Targets, egui:
     let towards =
         |yaw: f32| Vec3::new(yaw.cos() * pitch.cos(), yaw.sin() * pitch.cos(), pitch.sin());
     let usual = 60f32.to_radians();
-    let yaw = [usual + std::f32::consts::PI, usual + 1.57, usual - 1.57]
-        .into_iter()
-        .fold((usual, composed.facing(towards(usual))), |best, yaw| {
-            // (Only for a side that shows half as much again.)
-            let shows = composed.facing(towards(yaw));
-            if shows > best.1 * 1.5 + 1e-3 { (yaw, shows) } else { best }
-        })
-        .0;
+    let yaw = match turned {
+        // (From the south-west, as an area opens: the camera goes round
+        // the other way from the tile's turn.)
+        Some(by) => -120f32.to_radians() - by,
+        None => {
+            [usual + std::f32::consts::PI, usual + 1.57, usual - 1.57]
+                .into_iter()
+                .fold((usual, composed.facing(towards(usual))), |best, yaw| {
+                    // (Only for a side that shows half as much again.)
+                    let shows = composed.facing(towards(yaw));
+                    if shows > best.1 * 1.5 + 1e-3 { (yaw, shows) } else { best }
+                })
+                .0
+        }
+    };
     let mut particles = Vec::new();
     if let Some((model, playing, pose)) = composed.emitters(idle, 0.0) {
         let mut sim = Particles::new(model);

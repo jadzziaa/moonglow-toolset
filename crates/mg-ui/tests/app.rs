@@ -4478,6 +4478,75 @@ fn terrain_screen() {
     image.save(out.join("terrain.png")).unwrap();
 }
 
+/// Tile Properties of one tile shows the tiles that fit there as
+/// pictures; a click puts that one there, in a step of its own.
+#[test]
+fn tile_properties_choose_a_variant_by_picture() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("tile-variants") else { return };
+    let tile = |h: &mut Harness<'_, Moonglow>, i: usize| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        are.root.list("Tile_List").unwrap()[i].clone()
+    };
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Default::default(),
+        });
+    }
+    h.run_steps(2);
+    h.get_by_label("Tile Properties…").click();
+    h.run_steps(2);
+    // Its variants: the tiles that fit there, the one there now among
+    // them; another chosen is put there at once, the window staying.
+    let props = h.state().tile_props.clone().expect("the window is open");
+    assert_eq!(props.tiles, [5]);
+    let (cell, variants) = props.variants.clone().expect("one tile: its variants");
+    assert_eq!(cell, (1, 1));
+    let now = props.variant.unwrap();
+    assert!(variants.len() > 1 && variants.iter().any(|(p, _)| *p == now), "{variants:?}");
+    h.render().unwrap().save(mg_testkit::scratch_dir("ui-tile-variants").join("a.png")).unwrap();
+    let other = variants.iter().find(|(p, _)| p.tile != now.tile).unwrap();
+    h.get_by_label_contains(&format!("Variant ({} fit here)", variants.len()));
+    let before_undo = h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    // (A picture has no name of its own: the one over its model's name.)
+    let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(other.0.orientation % 4)];
+    let picture = h
+        .query_all_by_label(&format!("{}{turn}", other.1))
+        .next()
+        .map(|n| n.rect().center_top() - egui::vec2(0.0, 40.0));
+    if let Some(at) = picture {
+        h.hover_at(at);
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(4);
+        // (Which picture that was is not told apart here: one of them.)
+        let id = tile(&mut h, 5).integer("Tile_ID").unwrap();
+        assert!(variants.iter().any(|(p, _)| i64::from(p.tile) == id), "tile {id}");
+        assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tile variant"));
+        let after = h.state().tile_props.clone().expect("the window stays");
+        assert_eq!(after.variant.map(|p| i64::from(p.tile)), Some(id));
+        assert_ne!(after.variant, Some(now), "another than the one that was there");
+        assert!(!after.chosen, "taken up: the window is the new tile's");
+        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+        h.state_mut().tile_props = Some(props.clone());
+        h.run_steps(2);
+        assert_eq!(h.state().ws.as_ref().unwrap().can_undo().map(str::to_string), before_undo);
+    } else {
+        panic!("no variant pictures");
+    }
+}
+
 #[test]
 fn area_viewer_selects_tiles_and_sets_their_properties() {
     use glam::Vec3;
@@ -4584,6 +4653,26 @@ fn resize_and_rotate_area_from_the_edit_menu() {
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run_steps(1);
     assert_eq!(size(&mut h), (4, 4, 16));
+    // At the south and west edges: two columns come at the west, a row
+    // goes at the south, and the waypoints keep their places against the
+    // north and east edges: (20, 20) to (40, 10).
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Resize Area…").click();
+    h.run_steps(2);
+    let d = h.state_mut().resize_area.as_mut().expect("the window is open");
+    (d.columns, d.rows, d.edges) = (6, 3, 2);
+    h.run_steps(1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert_eq!(size(&mut h), (6, 3, 18));
+    let w = waypoints(&mut h);
+    assert!((w[0].0 - 40.0).abs() < 1e-3 && (w[0].1 - 10.0).abs() < 1e-3, "{w:?}");
+    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+    h.run_steps(1);
+    assert_eq!(size(&mut h), (4, 4, 16));
+    let w = waypoints(&mut h);
+    assert!((w[0].0 - 20.0).abs() < 1e-3 && (w[0].1 - 20.0).abs() < 1e-3, "{w:?}");
 }
 
 #[test]
@@ -6100,6 +6189,19 @@ fn conversation_options_popup_link_directions_drag_and_backup() {
     click(&mut h, "Copy");
     click(&mut h, "Hi [END DIALOGUE]");
     click(&mut h, "Paste As Link");
+    assert_eq!(
+        outline(&mut h),
+        ["Entry|Hello|", "  Reply|Hi|", "    Entry|Second|link", "Entry|Second|"]
+    );
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run();
+    // The same from the line's right-click menu, which selects it.
+    click(&mut h, "[OWNER] - Second");
+    h.get_by_label("Hi [END DIALOGUE]").click_secondary();
+    h.run();
+    h.get_all_by_label("Paste As Link").last().unwrap().click();
+    h.run();
+    h.run();
     assert_eq!(
         outline(&mut h),
         ["Entry|Hello|", "  Reply|Hi|", "    Entry|Second|link", "Entry|Second|"]
@@ -8086,6 +8188,58 @@ fn a_spawn_point_s_arrow_turns_its_facing() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
     assert_eq!(facing(&mut h), 0.0, "one undo");
+    // The foot of its post, led over the ground, moves the point alone.
+    let place = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let enc = &git.root.list("Encounter List").unwrap()[0];
+        let p = &enc.list("SpawnPointList").unwrap()[0];
+        let outline = enc.float("XPosition").unwrap();
+        (p.float("X").unwrap(), p.float("Y").unwrap(), outline)
+    };
+    let foot = screen(&h, area, Vec3::new(12.0, 30.0, 0.0));
+    h.hover_at(foot);
+    h.run_steps(1);
+    press(&h, foot, true, none);
+    let mut to = foot;
+    for k in 1..=6 {
+        to = screen(&h, area, Vec3::new(12.0 + 0.4 * k as f32, 30.0 - 0.2 * k as f32, 0.0));
+        h.hover_at(to);
+        h.run_steps(1);
+    }
+    press(&h, to, false, none);
+    h.run_steps(3);
+    let (x, y, encounter) = place(&mut h);
+    assert!((x - 14.4).abs() < 0.2 && (y - 28.8).abs() < 0.2, "moved to {x}, {y}");
+    assert_eq!(encounter, 12.0, "the encounter stays");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Move Spawn Point"));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(place(&mut h), (12.0, 30.0, 12.0), "one undo");
+    // G on an encounter raised off the ground brings it down, its lowest
+    // corner onto the ground there.
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Raise",
+        vec![mg_edit::Edit::SetField {
+            key: git_key,
+            path: mg_edit::GffPath::root().item("Encounter List", 0),
+            label: "ZPosition".into(),
+            value: Some(mg_gff::Value::Float(3.0)),
+        }],
+    )));
+    h.run_steps(2);
+    let inside = screen(&h, area, Vec3::new(10.5, 31.5, 0.0));
+    h.hover_at(inside);
+    h.run_steps(1);
+    h.key_press(egui::Key::G);
+    h.run_steps(2);
+    let z = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        git.root.list("Encounter List").unwrap()[0].float("ZPosition").unwrap()
+    };
+    assert!(z.abs() < 0.5, "on the ground: {z}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Drop to Ground"));
 }
 
 /// The palette's hover says something of a blueprint that has no model to
@@ -8675,6 +8829,30 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     let turned: Vec<f32> = waypoints(&mut h).iter().map(facing).collect();
     assert!((after[0] - turned[0] - 90f32.to_radians()).abs() < 1e-4);
 
+    // Together: the two turn about their middle as one, each keeping
+    // where the other is, seen from the way it faces.
+    let seen = |w: &[mg_gff::Struct]| {
+        let at = |s: &mg_gff::Struct| {
+            glam::Vec2::new(s.float("XPosition").unwrap(), s.float("YPosition").unwrap())
+        };
+        let to = at(&w[1]) - at(&w[0]);
+        (to.y.atan2(to.x) - facing(&w[0])).rem_euclid(std::f32::consts::TAU)
+    };
+    let was = waypoints(&mut h);
+    h.state_mut().settings.turn_together = true;
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
+    h.run_steps(2);
+    let now = waypoints(&mut h);
+    assert!((facing(&was[0]) - facing(&now[0]) - 90f32.to_radians()).abs() < 1e-4, "turned");
+    let moved = (was[0].float("XPosition").unwrap() - now[0].float("XPosition").unwrap()).abs()
+        + (was[0].float("YPosition").unwrap() - now[0].float("YPosition").unwrap()).abs();
+    assert!(moved > 0.1, "led round the middle");
+    assert!((seen(&was) - seen(&now)).abs() < 1e-3, "{} → {}", seen(&was), seen(&now));
+    h.state_mut().settings.turn_together = false;
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+
     // G drops a raised object to the ground.
     let git = ResKey::new(area, ResType::GIT);
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
@@ -9244,6 +9422,9 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     let before = grid(&mut h);
     let next = mg_tiles::paint::next_fit(&index, &before.lattice.cell(1, 1), before.tile(1, 1))
         .expect("Rural's grass has other tiles");
+    // (Previous Variant: a step back from it is where it was.)
+    let back = mg_tiles::paint::step_fit(&index, &before.lattice.cell(1, 1), next, true);
+    assert_eq!(back, Some(before.tile(1, 1)));
     let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
     h.hover_at(at);
     h.run_steps(3);
@@ -10911,6 +11092,25 @@ fn an_area_is_copied_with_its_objects() {
     assert!(!ws.module.contains(&ResKey::new(new, ResType::GIT)));
 }
 
+#[test]
+#[ignore = "a count of the particles a blueprint shows in an area (MG_BP=resref.utc)"]
+fn look_particles_of() {
+    use glam::Vec3;
+    let Ok(bp) = std::env::var("MG_BP") else { return };
+    let Some((mut h, area)) = area_harness("particles-of") else { return };
+    h.run_steps(10);
+    let (name, ext) = bp.split_once('.').unwrap();
+    let restype = if ext == "utc" { ResType::UTC } else { ResType::UTP };
+    h.state_mut().palette.selected = ResKey::parse(name, restype);
+    let at = screen(&h, area, Vec3::new(15.0, 30.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(60);
+    eprintln!("PARTICLES {bp}: {}", h.state().area_views[&area].particles_shown);
+}
+
 /// A placeable that is only an effect (flames, magic sparks: models with
 /// emitters and no mesh) shows its particles in the area, while the
 /// animations play.
@@ -11567,6 +11767,23 @@ fn arrow_keys_step_through_a_list_of_choices() {
     h.key_press(egui::Key::ArrowUp);
     h.run();
     assert_eq!(appearance(&mut h), before, "and back");
+    // The pointer resting on the list's box shows the chosen one's picture.
+    h.key_press(egui::Key::Escape);
+    h.run();
+    let pictures = |h: &Harness<'_, Moonglow>| {
+        h.query_all_by_role(egui::accesskit::Role::Image).count()
+            + h.query_all_by_label("(no picture)").count()
+    };
+    let without = pictures(&h);
+    let at = h
+        .get_all_by_role(combo)
+        .find(|n| n.accesskit_node().value().as_deref() == Some("Chest"))
+        .unwrap()
+        .rect()
+        .center();
+    h.hover_at(at);
+    h.run_steps(90);
+    assert_eq!(pictures(&h), without + 1, "the chosen appearance's picture");
 }
 
 #[test]
@@ -11928,13 +12145,15 @@ fn a_project_s_script_opens_in_place_in_the_external_editor() {
     assert_eq!(said(&h, "a copy is opened, not the project's file"), 1);
 }
 
-/// An area's tab chosen brings the area's row into view in the module
-/// tree, as the one in hand; the tab's Show in Module Tree opens it out
+/// An area opened, or its tab chosen, brings the area's row into view in
+/// the module tree, as the one in hand; the tab's Show in Module Tree opens it out
 /// to what is placed in it as well.
 #[test]
 fn the_module_tree_goes_to_the_area_of_the_tab_chosen() {
     let Some((mut h, area)) = area_harness("tree-reveal") else { return };
-    assert!(h.state().tree_area.is_none());
+    // The area opened is the one marked (a double click, View Area).
+    assert_eq!(h.state().tree_area, Some(area));
+    h.state_mut().tree_area = None;
     assert!(h.query_by_label("Waypoints (2)").is_none());
     // (As a click on the area's tab asks.)
     h.state_mut().tree_reveal = Some((area, false));

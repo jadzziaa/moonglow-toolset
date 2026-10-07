@@ -152,8 +152,8 @@ conversation's window, and the next conversation opens at that size (each
 kind of editor has its own). **Double-click a window's tab** to maximize
 it over the whole of Moonglow's window under the toolbar, and again to
 put it back; **Maximize** and
-**Restore** are on the tab's right-click menu too. Choosing an area's
-tab brings the area's row into view in the module tree, marked as the
+**Restore** are on the tab's right-click menu too. Opening an area, or choosing its
+tab, brings the area's row into view in the module tree, marked as the
 one in hand, and an object selected in the area's view is shown there
 too (its area opened out, its row marked), as in Aurora; **Show in Module Tree** on the tab's menu opens it out to
 what is placed in it as well. The bar beside the

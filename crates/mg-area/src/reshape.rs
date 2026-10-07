@@ -230,6 +230,58 @@ pub fn resize(
     Some(Reshaped { edits, deleted })
 }
 
+/// [`resize`] at other edges than the north and east ones: `turns` says
+/// which two the rows and columns come and go at (0 north and east, 1
+/// east and south, 2 south and west, 3 west and north). The area is
+/// turned that many quarters, resized and turned back, so what stays
+/// keeps its place against the two edges that stay.
+#[allow(clippy::too_many_arguments)]
+pub fn resize_at(
+    are_key: ResKey,
+    git_key: ResKey,
+    are: &Struct,
+    git: &Struct,
+    set: &Tileset,
+    index: &TileIndex,
+    width: u32,
+    height: u32,
+    turns: u8,
+    rng: &mut fastrand::Rng,
+    lights: &mut dyn FnMut() -> [u8; 3],
+) -> Option<Reshaped> {
+    let turns = turns % 4;
+    if turns == 0 {
+        return resize(are_key, git_key, are, git, set, index, width, height, rng, lights);
+    }
+    let (mut a, mut g) = (are.clone(), git.clone());
+    for _ in 0..turns {
+        rotate_once(&mut a, &mut g);
+    }
+    let (w, h) = if turns % 2 == 1 { (height, width) } else { (width, height) };
+    let r = resize(are_key, git_key, &a, &g, set, index, w, h, rng, lights)?;
+    for e in r.edits {
+        if let Edit::SetField { key, label, value: Some(v), .. } = e {
+            let of = if key == are_key { &mut a } else { &mut g };
+            of.set(&label, v);
+        }
+    }
+    for _ in 0..4 - turns {
+        rotate_once(&mut a, &mut g);
+    }
+    let mut edits = Vec::new();
+    for label in ["Width", "Height", "Tile_List"] {
+        if let Some(v) = a.get(label) {
+            edits.push(set_field(are_key, label, v.clone()));
+        }
+    }
+    for kind in ObjectKind::ALL {
+        if let Some(v) = g.get(kind.list()) {
+            edits.push(set_field(git_key, kind.list(), v.clone()));
+        }
+    }
+    Some(Reshaped { edits, deleted: r.deleted })
+}
+
 fn set_field(key: ResKey, label: &str, value: Value) -> Edit {
     Edit::SetField { key, path: GffPath::root(), label: label.into(), value: Some(value) }
 }

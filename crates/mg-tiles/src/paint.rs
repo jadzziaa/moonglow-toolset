@@ -603,12 +603,33 @@ fn settle_around(
 /// The cell's tiles in Aurora's cycling order (Shift + click): by tile,
 /// then orientation; the one after `current`, or the first.
 pub fn next_fit(index: &TileIndex, cell: &Cell, current: Placement) -> Option<Placement> {
+    step_fit(index, cell, current, false)
+}
+
+/// The tiles that fit a cell, in the order [`next_fit`] steps through
+/// them.
+pub fn fits_in_order(index: &TileIndex, cell: &Cell) -> Vec<Placement> {
     let mut fits = index.fits(cell);
     fits.sort_by_key(|p| (p.tile, p.orientation, p.height));
+    fits
+}
+
+/// [`next_fit`], or with `back` the one before `current` (the last from
+/// the first): a step back without going all the way round.
+pub fn step_fit(
+    index: &TileIndex,
+    cell: &Cell,
+    current: Placement,
+    back: bool,
+) -> Option<Placement> {
+    let fits = fits_in_order(index, cell);
+    let n = fits.len();
     let at = fits.iter().position(|p| *p == current);
-    match at {
-        Some(i) => fits.get((i + 1) % fits.len()).copied(),
-        None => fits.first().copied(),
+    match (at, back) {
+        (Some(i), false) => fits.get((i + 1) % n).copied(),
+        (Some(i), true) => fits.get((i + n - 1) % n).copied(),
+        (None, false) => fits.first().copied(),
+        (None, true) => fits.last().copied(),
     }
 }
 

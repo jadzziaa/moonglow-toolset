@@ -42,11 +42,16 @@ pub(crate) fn decode(bytes: &[u8]) -> String {
 
 /// Text as game bytes; characters the codepage lacks become `?`.
 pub(crate) fn encode(text: &str) -> Vec<u8> {
-    match Codepage::WINDOWS_1252.encode(text) {
+    encode_in(Codepage::WINDOWS_1252, text)
+}
+
+/// Text as bytes in a codepage; characters it lacks become `?`.
+fn encode_in(codepage: Codepage, text: &str) -> Vec<u8> {
+    match codepage.encode(text) {
         Some(b) => b.into_owned(),
         None => text
             .chars()
-            .map(|c| Codepage::WINDOWS_1252.encode(&c.to_string()).map_or(b'?', |b| b[0]))
+            .flat_map(|c| codepage.encode(&c.to_string()).map_or(vec![b'?'], |b| b.into_owned()))
             .collect(),
     }
 }
@@ -69,7 +74,9 @@ pub(crate) fn with_english(mut s: LocString, text: &str) -> LocString {
     if text.is_empty() {
         s.remove(language, Gender::Male);
     } else {
-        s.set(language, Gender::Male, encode(text));
+        // (In the language's own codepage, as it is read back: Polish
+        // text is Windows-1250, and its "ł" was a "?" in Windows-1252.)
+        s.set(language, Gender::Male, encode_in(language.codepage(), text));
     }
     s
 }
@@ -93,5 +100,10 @@ mod tests {
         let s = with_english(LocString::default(), "Hi");
         assert_eq!(s.text(Language::ENGLISH, Gender::Male).unwrap(), "Hi");
         assert!(with_english(s, "").strings.is_empty());
+        // Another language's text in its own codepage.
+        set_edit_language(Language::POLISH);
+        let s = with_english(LocString::default(), "Kryształowa czaszka");
+        set_edit_language(Language::ENGLISH);
+        assert_eq!(s.text(Language::POLISH, Gender::Male).unwrap(), "Kryształowa czaszka");
     }
 }

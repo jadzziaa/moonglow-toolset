@@ -1,6 +1,9 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [Areas](manual/04-areas.md) and [the deferred list](deferred.md): a tile's variants chosen by picture in Tile Properties.
+* **Update**: [Areas](manual/04-areas.md) (Together, a spawn point moved by its post's foot, Drop to Ground on triggers, Resize Area at any two edges, Previous Variant), [conversations](manual/06-conversations.md) (a line dropped above one of its kind, the lines' right-click menu), [the main window](manual/02-main-window.md) (an area opened is marked in the tree) and [the deferred list](deferred.md): text typed in another language kept in its codepage, UTF-8 names in a Custom palette, GitHub issue 8 not reproduced.
+* **Update**: [Blueprints](manual/05-blueprints.md): the chosen appearance's picture with the pointer on the list's box, following the arrow keys.
 * **Update**: [The deferred list](deferred.md): an environment map is not reflected through a shader that switches it off (checked in the game client); the Build Module window keeps its size with Advanced Controls.
 * **Update**: [The main window](manual/02-main-window.md) (Edit on the module tree's row menus) and [the deferred list](deferred.md): no key moves the camera while a text field has the keyboard.
 * **Update**: [Scripts](manual/07-scripts.md) (Open…, Find's Enter and Find In Currently Open Scripts, Help on a double click), [blueprints](manual/05-blueprints.md) (New on the palettes' menus, assigned feats), [the main window](manual/02-main-window.md) (the Filter kept in sight, Home and End, Maximize over the whole window, the tree showing the object selected) and [the deferred list](deferred.md): builders' reports after 1.16.2.

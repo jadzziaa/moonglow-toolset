@@ -624,6 +624,33 @@ open). Left, or to know:
   a text field has the keyboard. The arrows did (letters and digits were
   already the field's), so moving the text cursor in a conversation or a
   script over the view slid the area. (—)
+- **A tile's variant in Tile Properties**: with one tile chosen, the
+  tiles that fit there show as pictures (each tile's model seen from the
+  south-west, turned as it would lie, its quarter turns written under
+  it); a click puts that one there, a step of its own, and
+  the window becomes that tile's. Tile Properties is a tab now (a
+  window to resize, maximize or dock), the pictures filling it. (—)
+- **Emitters a builder does not see** (GitHub issue 8: a demon's wings,
+  braziers, shafts of light, all without particles in his area): not
+  reproduced. The game's own balor, fire elemental, campfire and brazier
+  show theirs in the area view here (`look_particles_of`), so it is his
+  content, a setting (Animations off shows none) or his machine; asked
+  of him. (?)
+- **Text typed in a field in another language than English** was
+  written in Windows-1252 whatever the language: Polish "ł" became "?".
+  It is written in the language's own codepage now, as the String Edit
+  window always did. (—)
+- **Names in UTF-8 in a Custom palette** (a module's blueprints, as
+  Moonglow writes them) were read as Windows-1252 since 1.17.0
+  ("KrysztaÅ‚owa"): UTF-8 where it is that, Windows-1252 otherwise. (—)
+- **Done from the same round**: conversation lines dropped above a line
+  of their kind, and their right-click menu; an encounter's spawn point
+  moved by the foot of its post; Drop to Ground on triggers and
+  encounters; several objects turned about their middle (Together);
+  Resize Area at any two edges (the area turned, resized and turned
+  back: what Aurora does at north and east, at the others); Previous
+  Variant; the area opened marked in the module tree; the chosen
+  appearance's picture on its list's box.
 - **A shader with the environment map switched off reflects nothing**: a
   creature whose appearance.2da row names an environment map (`default`)
   showed a pale shiny band where its hair's texture is see-through; the

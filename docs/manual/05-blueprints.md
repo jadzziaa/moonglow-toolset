@@ -115,7 +115,9 @@ The palette's buttons:
   keys once clicked or reached with Tab: Up and Down choose the one
   before and after, Page Up and Page Down ten away, Home and End the
   first and last. A creature's and a placeable's Appearance list shows
-  each appearance's picture beside the row the pointer rests on.
+  each appearance's picture beside the row the pointer rests on, and the
+  chosen one's with the pointer resting on the list's box: leave it there
+  and the picture follows the arrow keys.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it. It asks for the copy's ResRef (a free
   one is offered) and Tag first.

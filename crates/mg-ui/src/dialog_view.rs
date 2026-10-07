@@ -13,7 +13,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Gff, Struct, Value};
 use mg_module::dialog::{
     ANIMATIONS, Branch, Kind, Parent, add_node, copy_branch, is_link, link_index, link_lines,
-    links, move_link, new_dialog, node, paste_branch, remove, shift_link, word_count,
+    links, move_link_to, new_dialog, node, paste_branch, remove, shift_link, word_count,
 };
 use mg_resman::ResKey;
 use mg_schema::{GffValue, StructExt, jrl};
@@ -62,6 +62,20 @@ pub struct DialogView {
     pub assume: std::collections::BTreeMap<String, bool>,
     /// The Input Text popup's new line, while it is open.
     pub input: Option<NewLine>,
+    /// What a line's right-click menu asked for, done on the next frame
+    /// as the toolbar's button of that name does it.
+    pub menu: Option<Asked>,
+}
+
+/// A choice of a line's right-click menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Asked {
+    Add,
+    Copy,
+    Cut,
+    Paste,
+    PasteLink,
+    Delete,
 }
 
 /// A line the Input Text popup is asking for (Options › Conversation
@@ -80,6 +94,9 @@ struct Drop {
     from: Row,
     onto: Parent,
     link: bool,
+    /// Above this child of `onto` (dropped on a line of its own kind),
+    /// not at the end.
+    before: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -211,8 +228,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     let here = ui.ui_contains_pointer() && ui.memory(|m| m.focused().is_none());
     let keymap = app.keymap.clone();
     let pressed = |c: crate::keys::Cmd| here && ui.input(|i| keymap.pressed(i, c));
-    let (key_add, key_delete) =
-        (pressed(crate::keys::Cmd::AddLine), pressed(crate::keys::Cmd::DeleteLine));
+    let asked = view.menu.take();
+    let (key_add, key_delete) = (
+        pressed(crate::keys::Cmd::AddLine) || asked == Some(Asked::Add),
+        pressed(crate::keys::Cmd::DeleteLine) || asked == Some(Asked::Delete),
+    );
     let (key_find, key_find_next) =
         (pressed(crate::keys::Cmd::DialogFind), pressed(crate::keys::Cmd::DialogFindNext));
     let (key_copy, key_cut, key_paste) = if here {
@@ -228,6 +248,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     } else {
         (false, false, false)
     };
+    let (key_copy, key_cut, key_paste) = (
+        key_copy || asked == Some(Asked::Copy),
+        key_cut || asked == Some(Asked::Cut),
+        key_paste || asked == Some(Asked::Paste),
+    );
     let add_hint =
         keymap.titled("Add a line under the selection", crate::keys::Cmd::AddLine, ui.ctx());
 
@@ -313,7 +338,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             _ => None,
         };
-        if ui.add_enabled(pair.is_some(), egui::Button::new("Paste As Link")).clicked()
+        if (ui.add_enabled(pair.is_some(), egui::Button::new("Paste As Link")).clicked()
+            || asked == Some(Asked::PasteLink))
             && let Some((from, to)) = pair
         {
             let mut ng = g.clone();
@@ -594,7 +620,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 view.selected = None;
             }
             if let Some(from) = root.dnd_release_payload::<Row>() {
-                dropped = Some(Drop { from: *from, onto: Parent::Root, link: link_key(ui) });
+                dropped = Some(Drop {
+                    from: *from,
+                    onto: Parent::Root,
+                    link: link_key(ui),
+                    before: None,
+                });
             }
             let mut path = HashSet::new();
             tree(
@@ -612,7 +643,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         },
     );
     // A drag moves the line (with its branch) under the line it is dropped
-    // on; with Ctrl it links them instead, by default the dragged line to
+    // on, or above it if that is a line of its own kind (the player's on
+    // the player's); with Ctrl it links them instead, by default the dragged line to
     // the other (Link Source To Destination).
     if let Some(d) = dropped {
         let mut ng = g.clone();
@@ -625,11 +657,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             }
             _ if d.link => false,
             onto => {
-                let moved = move_link(&mut ng, d.from.parent, d.from.pos, onto);
-                if moved {
-                    view.selected = Some(Row { parent: onto, pos: links(&ng, onto).len() - 1 });
+                let at = move_link_to(&mut ng, d.from.parent, d.from.pos, onto, d.before);
+                if let Some(pos) = at {
+                    view.selected = Some(Row { parent: onto, pos });
                 }
-                moved
+                at.is_some()
             }
         };
         if done {
@@ -819,9 +851,42 @@ fn tree(
             if let Some(from) = r.dnd_release_payload::<Row>()
                 && *from != row
             {
-                *dropped =
-                    Some(Drop { from: *from, onto: Parent::Node(kind, index), link: link_key(ui) });
+                let link = link_key(ui);
+                // On a line of its own kind: above it, under its parent.
+                *dropped = Some(if !link && from.parent.child_kind() == kind {
+                    Drop { from: *from, onto: parent, link, before: Some(pos) }
+                } else {
+                    Drop { from: *from, onto: Parent::Node(kind, index), link, before: None }
+                });
             }
+            // Where a line held over this one would go: a line above it,
+            // or a frame around it.
+            if let Some(from) = r.dnd_hover_payload::<Row>()
+                && *from != row
+            {
+                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.stroke.color);
+                if !link_key(ui) && from.parent.child_kind() == kind {
+                    ui.painter().hline(r.rect.x_range(), r.rect.top(), stroke);
+                } else {
+                    ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Inside);
+                }
+            }
+            r.context_menu(|ui| {
+                view.selected = Some(row);
+                for (label, asked) in [
+                    ("Add", Asked::Add),
+                    ("Copy", Asked::Copy),
+                    ("Cut", Asked::Cut),
+                    ("Paste", Asked::Paste),
+                    ("Paste As Link", Asked::PasteLink),
+                    ("Delete", Asked::Delete),
+                ] {
+                    if ui.button(label).clicked() {
+                        view.menu = Some(asked);
+                        ui.close();
+                    }
+                }
+            });
             let r = match cond {
                 Some(c) => r.on_hover_text(format!("Appears when {c} returns TRUE")),
                 None => r,

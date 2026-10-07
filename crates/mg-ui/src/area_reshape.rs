@@ -1,5 +1,5 @@
 //! The Resize Area and Rotate Area windows (Aurora's Edit menu): the
-//! area shown last, resized at its north and east edges or turned a
+//! area shown last, resized at two of its edges or turned a
 //! multiple of 90°, as one undoable command (`mg_area::reshape`).
 
 use mg_core::{ResRef, ResType};
@@ -15,7 +15,14 @@ pub struct ResizeDraft {
     pub area: ResRef,
     pub rows: u32,
     pub columns: u32,
+    /// The two edges rows and columns come and go at: an index into
+    /// [`EDGES`] (0: north and east, as in Aurora).
+    pub edges: u8,
 }
+
+/// The pairs of edges an area is resized at, in the order
+/// `mg_area::reshape::resize_at` counts them.
+const EDGES: [&str; 4] = ["North and east", "East and south", "South and west", "West and north"];
 
 /// The Rotate Area window's choice: quarter turns counter-clockwise.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +39,8 @@ pub(crate) fn open_resize(app: &mut Moonglow, area: ResRef) {
     let Some(ws) = app.ws.as_mut() else { return };
     let Ok(are) = ws.doc(&ResKey::new(area, ResType::ARE)) else { return };
     let size = |l: &str| are.root.integer(l).unwrap_or(2).clamp(2, 32) as u32;
-    app.resize_area = Some(ResizeDraft { area, rows: size("Height"), columns: size("Width") });
+    app.resize_area =
+        Some(ResizeDraft { area, rows: size("Height"), columns: size("Width"), edges: 0 });
 }
 
 pub(crate) fn windows(app: &mut Moonglow, ctx: &egui::Context) {
@@ -73,7 +81,21 @@ fn resize_window(app: &mut Moonglow, ctx: &egui::Context) {
                     }
                 });
             });
-            ui.weak("Rows and columns come and go at the north and east edges.");
+            ui.horizontal(|ui| {
+                ui.label("Rows and columns come and go at the edges");
+                egui::ComboBox::from_id_salt("resize-edges")
+                    .selected_text(EDGES[usize::from(d.edges % 4)])
+                    .show_ui(ui, |ui| {
+                        for (i, name) in EDGES.iter().enumerate() {
+                            ui.selectable_value(&mut d.edges, i as u8, *name);
+                        }
+                    })
+                    .response
+                    .on_hover_text(
+                        "North and east as in Aurora. The other two edges stay, and what is \
+                         in the area keeps its place against them",
+                    );
+            });
             ui.horizontal(|ui| {
                 ok = ui.button("OK").on_hover_text("Accept changes").clicked()
                     || crate::widgets::enter(ui);
@@ -138,7 +160,7 @@ fn resize(app: &mut Moonglow, d: &ResizeDraft) {
     let mut lights_rng = fastrand::Rng::new();
     let mut lights = || scheme.as_ref().map_or([0; 3], |s| s.tile_lights(&mut lights_rng));
     let mut rng = fastrand::Rng::new();
-    let reshaped = mg_area::reshape::resize(
+    let reshaped = mg_area::reshape::resize_at(
         are_key,
         git_key,
         &are,
@@ -147,6 +169,7 @@ fn resize(app: &mut Moonglow, d: &ResizeDraft) {
         &index,
         d.columns,
         d.rows,
+        d.edges,
         &mut rng,
         &mut lights,
     );

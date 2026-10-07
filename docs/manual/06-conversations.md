@@ -45,8 +45,12 @@ With **Scripts** on (the default), each line names what it does besides
 its text: `if c_has_key` (its Text Appears When), `do a_give_gold` (its
 Actions Taken), `journal q_rats 20` and `sound vs_hello`.
 
-**Dragging** a line onto another moves it there; Ctrl + drag (Cmd on
-macOS) links it instead. Lines move only where they fit (an NPC line under
+**Dragging** a line onto another moves it there: under a line of the
+other kind (a player's line under an NPC's), or above a line of its own
+kind, which is how lines change places and parents in one go; a frame or
+a line above shows which it will be. Ctrl + drag (Cmd on
+macOS) links it instead. **Right-click** a line for Add, Copy, Cut,
+Paste, Paste As Link and Delete on that line. Lines move only where they fit (an NPC line under
 a player line or Root, and the reverse). Options › Conversation Editor
 sets which way Paste As Link and Ctrl + drag link, and whether a new line
 first asks for its text in a popup.

@@ -136,7 +136,10 @@ selected object, with a mark on it the way the object faces. Take the
 ring anywhere along it (near it is enough) and lead it round: the object
 turns with the pointer, its facing shown in degrees; with several
 selected, each has its ring (and with Shift its tilt rings and arrows),
-any of which leads them all: each turns about itself by the same angle. **Turn** on the
+any of which leads them all: each turns about itself by the same angle. With
+**Together** on (beside Turn on the toolbar), they turn about their
+middle as one instead, keeping their places among themselves, like a
+prefab turned whole; Q and E turn them so too. **Turn** on the
 toolbar snaps it. **Tools › Options › Area** switches the ring off.
 
 **The tilt rings**: hold **Shift** and two upright rings take the turning
@@ -181,7 +184,9 @@ one; the selection stays otherwise.
 
 **An encounter's spawn points**: with the encounter selected, the tip of
 each spawn point's arrow is a handle. Lead it round the point and what
-spawns there faces that way (**Turn** snaps it).
+spawns there faces that way (**Turn** snaps it). The square at the foot
+of its post is another: lead it over the ground and the point moves, the
+encounter staying where it is.
 
 What you are dragging stays in hand while another button turns the
 camera (hold the middle button too and swing the view), until you let go
@@ -212,7 +217,8 @@ places and turns around it.
   own, at random (by the snap angle, if one is set): for trees and rocks
   placed in numbers.
 - **Drop to Ground** (G): puts raised objects back on the ground under
-  them.
+  them. A trigger or an encounter comes down (or up) as a whole, until
+  its lowest corner is on the ground.
 - **Arrange** (several selected; the first selected leads):
   - **Line Up West–East** or **South–North**: on a line through the first.
   - **Space Evenly**: evenly spaced between the two farthest apart.
@@ -348,9 +354,17 @@ same strokes give the same tiles, heights and crossers.
 With **Select Tiles** on, a click selects a tile, Ctrl + click adds one,
 and a drag selects a box of them. **Delete** takes the selected tiles'
 crossers away. **Shift + right click** steps the tile under the pointer
-through the tiles that fit. Ctrl+C and Ctrl+V copy and paste tiles.
+through the tiles that fit, as **Next Variant** on the tile menu does;
+**Previous Variant** there steps back. Ctrl+C and Ctrl+V copy and paste tiles.
 
-A right click opens the tile menu with **Tile Properties**:
+A right click opens the tile menu with **Tile Properties**. With one
+tile chosen it shows the **variants**: every tile that fits there, as
+pictures, the one there now framed. Click another and it is put there
+at once (one step to undo), the window staying open on it. Tile
+Properties is a window like the editors': resize it, maximize it or dock
+it beside the area, and the pictures fill it. The same
+model turned another way is listed again, its picture turned so (seen
+from the south-west) and the turn written under it. And:
 - the tiles' main and source light colors and their animation loops, as
   the tile's model has them (**Defaults** puts back the lighting
   scheme's);
@@ -359,7 +373,9 @@ A right click opens the tile menu with **Tile Properties**:
   it, though Aurora has no field for it).
 
 **Edit › Resize Area…** grows or shrinks the area at its north and east
-edges; **Edit › Rotate Area…** turns it by 90° steps, objects and all.
+edges, as Aurora does, or at the two you choose there (east and south,
+south and west, west and north): what is in the area keeps its place
+against the two edges that stay; **Edit › Rotate Area…** turns it by 90° steps, objects and all.
 **Build › Area Statistics** counts the area's tiles and objects and the
 memory its models take.
 

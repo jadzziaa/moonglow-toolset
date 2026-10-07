@@ -375,10 +375,15 @@ pub struct Palette {
     pub nodes: Vec<PaletteNode>,
 }
 
-/// A name written out in a palette (`NAME`, `DELETE_ME`), as text: the
-/// game's bytes (Windows-1252: "Compañeros").
+/// A name written out in a palette (`NAME`, `DELETE_ME`), as text: UTF-8
+/// where it is that (the names Moonglow writes of a module's blueprints,
+/// in any language: "Kryształowa czaszka"), else the game's bytes
+/// (Windows-1252: a skeleton's "Compañeros").
 pub fn written(bytes: &[u8]) -> String {
-    mg_core::Codepage::WINDOWS_1252.decode(bytes).into_owned()
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(_) => mg_core::Codepage::WINDOWS_1252.decode(bytes).into_owned(),
+    }
 }
 
 fn name_of(s: &Struct) -> PaletteName {
@@ -613,6 +618,9 @@ mod tests {
         assert!(leaf.get("DELETE_ME").is_none(), "the palette has the name once");
         // And read back as a palette: named.
         assert_eq!(name_of(leaf), PaletteName::Text("Compañeros".into()));
+        // A name in UTF-8 (a blueprint's, as Moonglow writes it) is read
+        // as that.
+        assert_eq!(written("Kryształowa czaszka".as_bytes()), "Kryształowa czaszka");
     }
 
     /// A skeleton as the game's: the placeholder, a group of two

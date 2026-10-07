@@ -64,6 +64,9 @@ pub enum Tab {
     PlaceableGallery,
     /// Tools › Options.
     Options,
+    /// Tile Properties of the tiles selected in an area: their lights,
+    /// loops and, of one tile, its variants.
+    TileProperties,
     /// What an object placed in an area looks like, in the 3D viewer.
     InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
 }
@@ -110,6 +113,7 @@ impl Tab {
             Tab::References => "references",
             Tab::PlaceableGallery => "placeable-gallery",
             Tab::Options => "options",
+            Tab::TileProperties => "tile-properties",
         }
     }
 
@@ -126,6 +130,7 @@ impl Tab {
             Tab::Factions | Tab::Journal | Tab::Gff(_) => (780.0, 600.0),
             Tab::ModuleProperties | Tab::AreaProperties(_) => (760.0, 580.0),
             Tab::Options => crate::options::WINDOW_SIZE.into(),
+            Tab::TileProperties => (560.0, 640.0),
             _ => (820.0, 640.0),
         };
         egui::vec2(w, h)
@@ -200,6 +205,7 @@ impl Viewer<'_> {
                     | Tab::AreasProperties(_)
                     | Tab::ModuleProperties
                     | Tab::Options
+                    | Tab::TileProperties
             );
         // (With a tool in hand in the area, Escape over the area drops the
         // tool and no more; over this window, it closes the window.)
@@ -261,6 +267,7 @@ impl Viewer<'_> {
             Tab::References => crate::references::ui(self.app, ui),
             Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
             Tab::Options => crate::options::ui(self.app, ui),
+            Tab::TileProperties => crate::tile_select::ui(self.app, ui),
         }
     }
 }
@@ -321,6 +328,7 @@ impl TabViewer for Viewer<'_> {
             Tab::References => "References".into(),
             Tab::PlaceableGallery => "Appearance Gallery".into(),
             Tab::Options => "Options".into(),
+            Tab::TileProperties => "Tile Properties".into(),
             Tab::InstanceModel { area, path } => {
                 format!("{} (preview)", instance_title(self.app, *area, path)).into()
             }
@@ -392,6 +400,9 @@ impl TabViewer for Viewer<'_> {
         // (Closed, its draft goes: Cancel.)
         if *tab == Tab::Options {
             self.app.options = None;
+        }
+        if *tab == Tab::TileProperties {
+            self.app.tile_props = None;
         }
         if let Tab::Hak(id) = *tab {
             if self.app.haks.iter().any(|d| d.id == id && d.hak.is_dirty()) {

@@ -172,6 +172,9 @@ enum Drag {
     /// Turns spawn point `point` of the encounter at `object` (its place
     /// in the model) to face the pointer: `facing`, radians.
     FaceSpawn { object: usize, point: usize, pivot: Vec3, facing: f32 },
+    /// Moves spawn point `point` of the encounter at `object`, held by the
+    /// foot of its post, over the ground: where it is now and where it was.
+    MoveSpawn { object: usize, point: usize, at: Vec3, was: Vec3 },
     /// Moves the start location (held by its ring or its arrow's shaft,
     /// `grip` from its middle) or, held by the arrow's tip, turns it:
     /// where it is and faces now, and where it was.
@@ -381,6 +384,9 @@ pub struct AreaView {
     /// Snapping (the settings', copied each frame): grid in meters, angle in
     /// degrees.
     snap: (Option<f32>, Option<f32>),
+    /// Several selected objects turn about their middle as one
+    /// (Options: the toolbar's Together).
+    turn_together: bool,
     /// The ground point under the pointer, shown in the corner.
     pub pointer: Option<Vec3>,
     /// The tileset brush's cursor as the last frame drew it: its shapes'
@@ -480,6 +486,7 @@ impl AreaView {
             ghost_turn: 0.0,
             menu_at: None,
             snap: (None, None),
+            turn_together: false,
             pointer: None,
             brush_cursor: Vec::new(),
             terrain_drag: None,
@@ -827,6 +834,26 @@ impl AreaView {
             .map(|(i, _, k, p)| (i, k, p))
     }
 
+    /// The spawn point whose post's foot is under `pos`, of a selected
+    /// encounter: as [`spawn_arrow_at`](Self::spawn_arrow_at).
+    fn spawn_foot_at(&self, pos: Pos2) -> Option<(usize, usize, Vec3)> {
+        let model = self.model.as_ref()?;
+        model
+            .objects
+            .iter()
+            .enumerate()
+            .filter(|(i, o)| {
+                o.kind == ObjectKind::Encounter
+                    && self.selected(*i)
+                    && !o.locked
+                    && self.show[o.kind.index()]
+            })
+            .flat_map(|(i, o)| o.spawn_points.iter().enumerate().map(move |(k, p)| (i, k, *p)))
+            .find(|(_, _, p)| {
+                self.screen_pos(*p).is_some_and(|foot| foot.distance(pos) <= RING_REACH)
+            })
+    }
+
     /// Whether the start location's marker is what is selected.
     fn start_is_selected(&self) -> bool {
         self.start_selected && self.selection.is_empty()
@@ -954,6 +981,35 @@ impl AreaView {
         (d.truncate().length() > 1e-3).then(|| d.y.atan2(d.x))
     }
 
+    /// The middle of the selection to turn it about as one (Together, with
+    /// more than one object selected): the middle of the box around where
+    /// they stand.
+    fn middle(&self, model: &AreaModel) -> Option<Vec2> {
+        let at: Vec<Vec2> = self
+            .selection
+            .iter()
+            .filter_map(|&(k, i)| self.object_at(k, i))
+            .map(|i| model.objects[i].position.truncate())
+            .collect();
+        if !self.turn_together || at.len() < 2 {
+            return None;
+        }
+        let low = at.iter().copied().reduce(Vec2::min)?;
+        let high = at.iter().copied().reduce(Vec2::max)?;
+        Some((low + high) / 2.0)
+    }
+
+    /// `position` led round `middle` by `angle` (where it is, with none).
+    fn turned_about(&self, middle: Option<Vec2>, position: Vec3, angle: f32) -> Vec3 {
+        match middle {
+            Some(m) => {
+                let to = m + Vec2::from_angle(angle).rotate(position.truncate() - m);
+                to.extend(position.z)
+            }
+            None => position,
+        }
+    }
+
     /// Where each selected object stands and turns with the drag applied.
     fn dragged(&self) -> Vec<(usize, Vec3, f32)> {
         let Some(model) = &self.model else { return Vec::new() };
@@ -964,6 +1020,7 @@ impl AreaView {
                     | Drag::Tilt { .. }
                     | Drag::Scale { .. }
                     | Drag::FaceSpawn { .. }
+                    | Drag::MoveSpawn { .. }
                     | Drag::Start { .. }
             )
         };
@@ -1002,6 +1059,7 @@ impl AreaView {
                 _ => {}
             }
         }
+        let middle = self.middle(model);
         self.selection
             .iter()
             .filter_map(|&(k, i)| self.object_at(k, i))
@@ -1009,9 +1067,11 @@ impl AreaView {
                 let o = &model.objects[i];
                 match drag {
                     Drag::Move { offset, .. } => (i, self.moved(o, offset), o.rotation),
-                    Drag::Turn { angle } | Drag::Spin { angle, .. } => {
-                        (i, o.position, if turns(o.kind) { o.rotation + angle } else { o.rotation })
-                    }
+                    Drag::Turn { angle } | Drag::Spin { angle, .. } => (
+                        i,
+                        self.turned_about(middle, o.position, angle),
+                        if turns(o.kind) { o.rotation + angle } else { o.rotation },
+                    ),
                     Drag::Lift { by } | Drag::Slide { by, .. } => {
                         let by = if lifts(o.kind) { by } else { 0.0 };
                         (i, o.position + Vec3::Z * by, o.rotation)
@@ -1020,6 +1080,7 @@ impl AreaView {
                     | Drag::Tilt { .. }
                     | Drag::Scale { .. }
                     | Drag::FaceSpawn { .. }
+                    | Drag::MoveSpawn { .. }
                     | Drag::Start { .. } => (i, o.position, o.rotation),
                 }
             })
@@ -1268,6 +1329,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
         app.settings.snap_grid.map(|cm| f32::from(cm) / 100.0),
         app.settings.snap_angle.map(f32::from),
     );
+    view.turn_together = app.settings.turn_together;
     // An object to go to (from Find Instance).
     if let Some((a, kind, index)) = app.area_focus
         && a == area
@@ -1425,6 +1487,10 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             })
             .response
             .on_hover_text("Turned objects snap to this angle; Q and E turn by it (15° when free)");
+        ui.toggle_value(&mut app.settings.turn_together, "Together").on_hover_text(
+            "Several objects selected turn about their middle as one, keeping their places \
+             among themselves; off, each turns where it stands",
+        );
         ui.toggle_value(&mut view.walkmesh, labelled(icons::WALKMESH, "Walkmesh"))
             .on_hover_text("Render AABB Nodes: the ground's walkmesh, walkable faces green");
         let object_walkmeshes = labelled(icons::WALKMESH, "Object Walkmeshes");
@@ -1711,6 +1777,11 @@ fn viewport(
         && let Some(f) = shown.to_mut().objects[object].spawn_facings.get_mut(point)
     {
         *f = facing;
+    }
+    if let Some(Drag::MoveSpawn { object, point, at, .. }) = view.drag
+        && let Some(p) = shown.to_mut().objects[object].spawn_points.get_mut(point)
+    {
+        *p = at;
     }
     let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
     // Flames, sparks and portals: with the animations (they need frames).
@@ -2075,6 +2146,25 @@ fn overlays(
                                 Color32::WHITE,
                             );
                         }
+                    }
+                    // And the post's foot another: led over the ground,
+                    // it moves the point, the encounter staying.
+                    if let (true, Some(c)) = (selected && !o.locked, at(p)) {
+                        let held = matches!(view.drag, Some(Drag::MoveSpawn { object, point, .. })
+                            if object == i && point == k);
+                        let over = view.drag.is_none()
+                            && ui
+                                .ctx()
+                                .pointer_hover_pos()
+                                .is_some_and(|q| q.distance(c) <= RING_REACH);
+                        let fill = if held || over { Color32::WHITE } else { stroke.color };
+                        painter.rect(
+                            Rect::from_center_size(c, egui::vec2(8.0, 8.0)),
+                            0.0,
+                            fill,
+                            Stroke::new(1.5, Color32::from_black_alpha(200)),
+                            egui::StrokeKind::Outside,
+                        );
                     }
                 }
             }
@@ -2628,6 +2718,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && let Some(pos) = response.interact_pointer_pos()
         && (view.pick(pos).is_some()
             || !(view.spawn_arrow_at(pos).is_some()
+                || view.spawn_foot_at(pos).is_some()
                 || view.ring_at(pos).is_some_and(|_| !shift)
                 || (shift && view.tilt_ring_at(pos).is_some())
                 || (shift && view.axis_arrow_at(pos).is_some())))
@@ -2706,10 +2797,25 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         let scale = view.scale_handle_at(pos).filter(|_| shift && !alt);
         let spawn =
             view.spawn_arrow_at(pos).filter(|_| !shift && !alt && !app.settings.no_spawn_markers);
+        let foot =
+            view.spawn_foot_at(pos).filter(|_| !shift && !alt && !app.settings.no_spawn_markers);
+        // (Seen from afar the two handles of a point are close: the
+        // nearer one is meant.)
+        let nearer = |p: Vec3| view.screen_pos(p).map_or(f32::MAX, |q| q.distance(pos));
+        let spawn = spawn.filter(|&(object, point, at)| {
+            let facing = view
+                .model
+                .as_ref()
+                .and_then(|m| m.objects[object].spawn_facings.get(point).copied())
+                .unwrap_or(0.0);
+            foot.is_none_or(|f| nearer(spawn_arrow_tip(at, facing)) < nearer(f.2))
+        });
         view.drag = if let Some((object, point, pivot)) = spawn {
             let facing =
                 view.model.as_ref().and_then(|m| m.objects[object].spawn_facings.get(point));
             Some(Drag::FaceSpawn { object, point, pivot, facing: facing.copied().unwrap_or(0.0) })
+        } else if let Some((object, point, was)) = foot {
+            Some(Drag::MoveSpawn { object, point, at: was, was })
         } else if let Some(pivot) = scale {
             Some(Drag::Scale { pivot, from: pos, factor: 1.0 })
         } else if let Some(arrow) = arrow {
@@ -2792,6 +2898,15 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.drag = Some(Drag::FaceSpawn { object, point, pivot, facing });
             }
         }
+        Some(Drag::MoveSpawn { object, point, was, .. }) if held.by(button) => {
+            if let Some(now) = pointer.and_then(|p| view.ground_at(p, was.z)) {
+                // On the ground there.
+                let to = view.snapped(now);
+                let z = view.ground.as_ref().and_then(|g| g.height(to.truncate(), to.z));
+                let at = to.with_z(z.unwrap_or(to.z));
+                view.drag = Some(Drag::MoveSpawn { object, point, at, was });
+            }
+        }
         Some(Drag::Start { turn: true, grip, at, was, .. }) if held.by(button) => {
             if let Some(to) = pointer.and_then(|p| view.angle_about(at, p)) {
                 let facing = mg_area::arrange::snap_rotation(to, view.snap.1);
@@ -2872,6 +2987,25 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                         value: Some(mg_gff::Value::Float(facing)),
                     };
                     app.actions.push(Action::Apply(Command::new("Turn Spawn Point", vec![edit])));
+                }
+            }
+            Some(Drag::MoveSpawn { object, point, at, was }) => {
+                if let Some(o) = view.model.as_ref().map(|m| &m.objects[object])
+                    && at != was
+                {
+                    let path = mg_edit::GffPath::root()
+                        .item(o.kind.list(), o.index)
+                        .item("SpawnPointList", point);
+                    let edits = [("X", at.x), ("Y", at.y), ("Z", at.z)]
+                        .into_iter()
+                        .map(|(label, v)| mg_edit::Edit::SetField {
+                            key: view.git(),
+                            path: path.clone(),
+                            label: label.into(),
+                            value: Some(mg_gff::Value::Float(v)),
+                        })
+                        .collect();
+                    app.actions.push(Action::Apply(Command::new("Move Spawn Point", edits)));
                 }
             }
             Some(Drag::Start { turn, at, facing, was, .. }) => {
@@ -3571,6 +3705,22 @@ fn turns(kind: ObjectKind) -> bool {
 /// Turns each selected object in place by `by` radians (one command).
 fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
     let Some(model) = &view.model else { return };
+    // Together: all by the same angle about their middle, those that
+    // don't turn (a trigger, a sound) led round with the rest.
+    if let Some(middle) = view.middle(model) {
+        let moved: Vec<(usize, Vec3, f32)> = view
+            .selection
+            .iter()
+            .filter_map(|&(k, i)| view.object_at(k, i))
+            .map(|i| {
+                let o = &model.objects[i];
+                let r = if turns(o.kind) { o.rotation + by } else { o.rotation };
+                (i, view.turned_about(Some(middle), o.position, by), r)
+            })
+            .collect();
+        commit_moves(app, view, &moved, "Rotate");
+        return;
+    }
     let moved: Vec<(usize, Vec3, f32)> = view
         .selection
         .iter()
@@ -3603,8 +3753,9 @@ fn random_facing(app: &mut Moonglow, view: &AreaView) {
     commit_moves(app, view, &moved, "Random Facing");
 }
 
-/// Puts the selected objects on the ground under them (creatures and
-/// outlines are there already).
+/// Puts the selected objects on the ground under them (creatures are
+/// there already). A trigger or an encounter comes down, or up, as a
+/// whole, until its lowest corner is on the ground under that corner.
 fn drop_to_ground(app: &mut Moonglow, view: &AreaView) {
     let (Some(model), Some(ground)) = (&view.model, &view.ground) else { return };
     let moved: Vec<(usize, Vec3, f32)> = view
@@ -3613,8 +3764,15 @@ fn drop_to_ground(app: &mut Moonglow, view: &AreaView) {
         .filter_map(|&(k, i)| view.object_at(k, i))
         .filter_map(|i| {
             let o = &model.objects[i];
-            if o.kind == ObjectKind::Creature || o.kind.has_outline() {
+            if o.kind == ObjectKind::Creature {
                 return None;
+            }
+            if o.kind.has_outline() {
+                let low = o.outline.iter().copied().min_by(|a, b| a.z.total_cmp(&b.z))?;
+                let xy = low.truncate();
+                let z = ground.height(xy, low.z - 0.01).or_else(|| ground.height(xy, low.z))?;
+                let by = z - low.z;
+                return (by.abs() > 1e-4).then_some((i, o.position + Vec3::Z * by, o.rotation));
             }
             // The ground below it, else the nearest.
             let xy = o.position.truncate();

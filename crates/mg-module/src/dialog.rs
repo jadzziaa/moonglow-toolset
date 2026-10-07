@@ -271,9 +271,34 @@ pub fn shift_link(g: &mut Gff, parent: Parent, pos: usize, up: bool) -> Option<u
 /// same parent, a link (not a line) onto the root, or a line onto its own
 /// branch.
 pub fn move_link(g: &mut Gff, from: Parent, pos: usize, to: Parent) -> bool {
+    move_link_to(g, from, pos, to, None).is_some()
+}
+
+/// [`move_link`], to before the child at `before` of `to` (as its
+/// children are now), which may be the parent it is under already: the
+/// line put above another of its kind. Returns where it is among `to`'s
+/// children afterwards.
+pub fn move_link_to(
+    g: &mut Gff,
+    from: Parent,
+    pos: usize,
+    to: Parent,
+    before: Option<usize>,
+) -> Option<usize> {
+    moved_link(g, from, pos, to, before).then(|| match before {
+        Some(at) if to == from && pos < at => at - 1,
+        Some(at) => at,
+        None => links(g, to).len() - 1,
+    })
+}
+
+fn moved_link(g: &mut Gff, from: Parent, pos: usize, to: Parent, before: Option<usize>) -> bool {
     let Some(link) = links(g, from).get(pos).cloned() else { return false };
     let kind = from.child_kind();
-    if to.child_kind() != kind || to == from {
+    if to.child_kind() != kind || (to == from && before.is_none_or(|at| at == pos)) {
+        return false;
+    }
+    if before.is_some_and(|at| at > links(g, to).len()) {
         return false;
     }
     if let Parent::Node(k, i) = to
@@ -309,11 +334,17 @@ pub fn move_link(g: &mut Gff, from: Parent, pos: usize, to: Parent) -> bool {
             moved.set(label, v.clone());
         }
     }
+    // (Under the parent it has already, the link itself moves: its
+    // fields stay as they are.)
+    let moved = if to == from { link } else { moved };
     if let Some(l) = links_mut(g, from) {
         l.remove(pos);
     }
     if let Some(l) = links_mut(g, to) {
-        l.push(moved);
+        match before {
+            Some(at) => l.insert(if to == from && pos < at { at - 1 } else { at }, moved),
+            None => l.push(moved),
+        }
     }
     renumber(g);
     true
@@ -681,6 +712,37 @@ mod tests {
         assert!(is_link(moved) && link_index(moved) == hello);
         assert_eq!(moved.string("LinkComment"), Some(&b"note"[..]));
         assert!(links(&g, hi_links).iter().all(|l| !is_link(l)));
+    }
+
+    /// A line put above another of its kind: under the same parent, or
+    /// another's.
+    #[test]
+    fn lines_move_to_above_another_of_their_kind() {
+        let mut g = new_dialog();
+        for name in ["One", "Two", "Three"] {
+            add_node(&mut g, Parent::Root, name);
+        }
+        let first = |g: &Gff| -> Vec<String> {
+            outline(g).iter().map(|l| l.split('|').nth(1).unwrap().to_string()).collect()
+        };
+        // Three above One; then One (now second) to the end's place, above
+        // nothing after it: before index 3.
+        assert_eq!(move_link_to(&mut g, Parent::Root, 2, Parent::Root, Some(0)), Some(0));
+        assert_eq!(first(&g), ["Three", "One", "Two"]);
+        assert_eq!(move_link_to(&mut g, Parent::Root, 1, Parent::Root, Some(3)), Some(2));
+        assert_eq!(first(&g), ["Three", "Two", "One"]);
+        // Where it is already: nothing to do.
+        assert_eq!(move_link_to(&mut g, Parent::Root, 1, Parent::Root, Some(1)), None);
+        // A reply of Three's above a reply of Two's.
+        let (three, two) = (2, 1);
+        let a = add_node(&mut g, Parent::Node(Kind::Entry, three), "A");
+        add_node(&mut g, Parent::Node(Kind::Entry, two), "B");
+        let (from, to) = (Parent::Node(Kind::Entry, three), Parent::Node(Kind::Entry, two));
+        assert_eq!(move_link_to(&mut g, from, 0, to, Some(0)), Some(0));
+        assert!(links(&g, from).is_empty());
+        let under: Vec<u32> = links(&g, to).iter().map(link_index).collect();
+        assert_eq!(under[0], a);
+        assert_eq!(under.len(), 2);
     }
 
     #[test]

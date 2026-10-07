@@ -784,6 +784,12 @@ impl Moonglow {
         if self.options.is_some() && self.dock.find_tab(&Tab::Options).is_none() {
             self.run_now(Action::OpenTab(Tab::Options));
         }
+        // And Tile Properties in its own; without tiles, the tab goes.
+        match (self.tile_props.is_some(), self.dock.find_tab(&Tab::TileProperties).is_some()) {
+            (true, false) => self.run_now(Action::OpenTab(Tab::TileProperties)),
+            (false, true) => self.run_now(Action::CloseTab(Tab::TileProperties)),
+            _ => {}
+        }
         egui::CentralPanel::default().show(ui, |ui| {
             self.dock_width = Some(ui.available_width());
             self.dock_rect = Some(ui.max_rect());
@@ -843,7 +849,6 @@ impl Moonglow {
         script_wizard::window(self, ui);
         area_tools::windows(self, ui);
         area_tools::preview_window(self, ui);
-        tile_select::window(self, ui.ctx());
         area_reshape::windows(self, ui.ctx());
         area_view::stats_window(self, ui.ctx());
         build_view::window(self, ui.ctx());
@@ -1717,6 +1722,9 @@ impl Moonglow {
                 if tab == Tab::Options {
                     self.options = None;
                 }
+                if tab == Tab::TileProperties {
+                    self.tile_props = None;
+                }
                 if let Some(path) = self.dock.find_tab(&tab) {
                     self.dock.remove_tab(path);
                 }
@@ -1726,6 +1734,11 @@ impl Moonglow {
                 // The area opened last is opened again with the module.
                 if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
                     self.settings.remember_area(&module, &area.to_string());
+                }
+                // The module tree marks the area opened, as when its tab is
+                // clicked: the one marked before is not the one in front.
+                if let Tab::Area(area) = &tab {
+                    self.tree_reveal = Some((*area, false));
                 }
                 // A tab docked in an area's pane (Module Properties, docked
                 // when the module opened) moves to a window of its own

@@ -754,6 +754,12 @@ impl Form<'_> {
         // shown).
         let rows: Vec<i64> = choices.iter().map(|c| c.row as i64).collect();
         let pick = pick.or_else(|| crate::widgets::arrow_pick(ui, &list.response, &rows, current));
+        // The chosen one's picture with the pointer on the list's box: it
+        // follows the arrow keys.
+        if let (Some(about), Ok(row)) = (about, usize::try_from(current)) {
+            let app = &mut *self.app;
+            list.response.clone().on_hover_ui(|ui| about(app, ui, row));
+        }
         if let Some(v) = pick.filter(|&v| v != current) {
             self.set_int(what, label, v, default);
         }

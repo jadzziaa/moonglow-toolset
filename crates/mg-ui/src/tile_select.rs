@@ -17,10 +17,13 @@ use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::Value;
 use mg_resman::ResKey;
-use mg_tiles::paint::next_fit;
+use mg_tiles::paint::step_fit;
 
 use crate::area_view::AreaView;
 use crate::{Action, Moonglow};
+
+/// A cell and the tiles that fit there, each with its model's name.
+pub type Variants = ((u32, u32), Vec<(mg_tiles::Placement, String)>);
 
 /// The Tile Properties window's values.
 #[derive(Debug, Clone, PartialEq)]
@@ -41,6 +44,14 @@ pub struct TileProps {
     /// `Tile_ReplaceTex`: the `replacetexture.2da` row the model's
     /// `replace_tex` is drawn with (`None`: the field is left out).
     pub replace: Option<u8>,
+    /// With one tile chosen: its cell and the tiles that fit there, in
+    /// the order Next Variant steps through them, each with its model.
+    pub variants: Option<Variants>,
+    /// The tile there now.
+    pub variant: Option<mg_tiles::Placement>,
+    /// A variant just chosen: the window takes the new tile's lights and
+    /// loops once the area shows it.
+    pub chosen: bool,
 }
 
 /// Copied tiles: each at its offset from the block's south-west corner,
@@ -129,7 +140,7 @@ pub(crate) fn input(
         && shift
         && let Some(t) = response.interact_pointer_pos().and_then(|p| tile_at(view, p))
     {
-        next_variant(app, view, t);
+        next_variant(app, view, t, false);
     }
     let typing = ui.ctx().memory(|m| m.focused().is_some());
     if response.hovered()
@@ -269,7 +280,11 @@ pub(crate) fn context_menu(
         ui.close();
     }
     if ui.button("Next Variant").on_hover_text("Shift + right click").clicked() {
-        next_variant(app, view, t);
+        next_variant(app, view, t, false);
+        ui.close();
+    }
+    if ui.button("Previous Variant").on_hover_text("A step back through them").clicked() {
+        next_variant(app, view, t, true);
         ui.close();
     }
     if ui.button("Delete").on_hover_text("Delete: crossers and group tiles go").clicked() {
@@ -284,11 +299,12 @@ fn grid(app: &mut Moonglow, view: &AreaView) -> Option<mg_tiles::paint::Grid> {
     mg_area::terrain::grid(&are.root, &tools.index)
 }
 
-/// The tile's next variant among those that fit, in Aurora's order.
-fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32)) {
+/// The tile's next variant among those that fit, in Aurora's order; with
+/// `back`, the one before.
+fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32), back: bool) {
     let Some(g) = grid(app, view) else { return };
     let Some(tools) = view.terrain.as_ref() else { return };
-    let Some(next) = next_fit(&tools.index, &g.lattice.cell(x, y), g.tile(x, y)) else {
+    let Some(next) = step_fit(&tools.index, &g.lattice.cell(x, y), g.tile(x, y), back) else {
         view.notice = Some("No other tile fits there".into());
         return;
     };
@@ -336,8 +352,24 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
         let t = are.root.list("Tile_List")?.get(*tiles.first()?)?;
         t.integer("Tile_ReplaceTex").and_then(|v| u8::try_from(v).ok())
     });
+    // One tile: the others that fit there, to choose among by picture.
+    let variants = match view.tile_selection.as_slice() {
+        &[(x, y)] => grid(app, view).map(|g| {
+            let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.cell(x, y));
+            let named = fits
+                .into_iter()
+                .filter_map(|p| Some((p, tools.set.tiles.get(p.tile as usize)?.model.clone())))
+                .collect();
+            (((x, y), named), g.tile(x, y))
+        }),
+        _ => None,
+    };
+    let (variants, variant) = variants.unzip();
     app.tile_props = Some(TileProps {
         area: view.area,
+        variants,
+        variant,
+        chosen: false,
         replace,
         tiles,
         main: first.main_lights,
@@ -380,9 +412,26 @@ fn swatch(ui: &mut egui::Ui, color: Color32, enabled: bool, selected: bool) -> e
     response
 }
 
-/// The Tile Properties window and its colour picker.
-pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
+/// Tile Properties, in its tab, and its colour picker.
+pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
+    let ctx = &ui.ctx().clone();
     let Some(mut props) = app.tile_props.take() else { return };
+    // A variant chosen: once the area shows it, the window is of that
+    // tile (the lights and loops its model has).
+    if props.chosen
+        && let Some(view) = app.area_views.remove(&props.area)
+    {
+        let shown = view.model.as_ref().zip(props.tiles.first()).and_then(|(m, &i)| m.tiles.get(i));
+        let now = props.variant.map(|p| i64::from(p.tile));
+        if shown.is_some_and(|t| Some(t.id) == now) {
+            open_properties(app, &view);
+            app.area_views.insert(props.area, view);
+            self::ui(app, ui);
+            return;
+        }
+        app.area_views.insert(props.area, view);
+    }
+    let mut picked = None;
     let colors = light_colors(app);
     let color = |i: usize| colors.get(i).copied().unwrap_or(Color32::BLACK);
     let replacements: Vec<String> = app
@@ -391,16 +440,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         .and_then(|g| g.table("replacetexture").ok())
         .map(|t| (0..t.len()).map(|r| t.get(r, "TEXTURENAME").unwrap_or("").to_string()).collect())
         .unwrap_or_default();
-    let mut open = true;
     let mut cancel = false;
     let mut done = None;
-    egui::Window::new("Tile Properties")
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
-        .collapsible(false)
-        .resizable(false)
-        .open(crate::widgets::open_unless_escape(ctx, "Tile Properties", &mut open))
-        .show(ctx, |ui| {
+    {
+        {
             egui::Grid::new("tile_props").num_columns(4).spacing([12.0, 6.0]).show(ui, |ui| {
                 for k in 0..2 {
                     ui.add_enabled(
@@ -486,7 +529,34 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                     cancel = true;
                 }
             });
-        });
+            // The tile's variants: as many across as the tab is wide, the
+            // rest of its height theirs.
+            if let Some((_, variants)) = props.variants.clone().filter(|(_, v)| v.len() > 1) {
+                ui.separator();
+                ui.label(format!("Variant ({} fit here)", variants.len())).on_hover_text(
+                    "The tiles that fit here, in the order Next Variant steps through them. \
+                     Click one to put it here",
+                );
+                let across = ((ui.available_width() - 16.0) / (VARIANT + 6.0)).floor().max(1.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("tile-variants")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        egui::Grid::new("tile-variants").spacing([6.0, 6.0]).show(ui, |ui| {
+                            for (i, (p, model)) in variants.into_iter().enumerate() {
+                                let current = props.variant == Some(p);
+                                if variant_picture(app, ui, p, &model, current) {
+                                    picked = Some(p);
+                                }
+                                if i % across as usize == across as usize - 1 {
+                                    ui.end_row();
+                                }
+                            }
+                        });
+                    });
+            }
+        }
+    }
     // The colour picker: lightcolor's 32 colours (16 for source lights).
     if let Some(which) = props.picking {
         let source = which >= 2;
@@ -528,6 +598,18 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             props.picking = None;
         }
     }
+    if let (Some(p), Some(((x, y), _))) = (picked, &props.variants)
+        && props.variant != Some(p)
+        && let Some(mut view) = app.area_views.remove(&props.area)
+    {
+        if let Some(g) = grid(app, &view) {
+            view.tile_selection = vec![(*x, *y)];
+            crate::terrain_mode::tile_command(app, &view, &g, &[((*x, *y), p)], "Tile variant");
+            props.variant = Some(p);
+            props.chosen = true;
+        }
+        app.area_views.insert(props.area, view);
+    }
     match done {
         Some(true) => {
             apply(app, &props);
@@ -536,9 +618,50 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         Some(false) => defaults(app, &mut props),
         None => {}
     }
-    if open && !cancel {
+    if !cancel {
         app.tile_props = Some(props);
     }
+}
+
+/// A variant's picture's side, in points.
+const VARIANT: f32 = 84.0;
+
+/// One variant in Tile Properties: its model's picture, turned as the
+/// tile would lie (the quarter turns written under it too), framed if it
+/// is the one there now. Whether it was clicked.
+fn variant_picture(
+    app: &mut Moonglow,
+    ui: &mut egui::Ui,
+    p: mg_tiles::Placement,
+    model: &str,
+    current: bool,
+) -> bool {
+    let key = ResKey::parse(&model.to_ascii_lowercase(), ResType::MDL);
+    let pictured = key.map(|k| crate::model_view::Pictured::Tile(k, p.orientation));
+    let made = pictured.and_then(|k| crate::model_view::thumbnail_of(app, k));
+    let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
+    let name = format!("{model}{turn}");
+    let r = ui
+        .vertical(|ui| {
+            ui.set_width(VARIANT);
+            let size = egui::vec2(VARIANT, VARIANT);
+            let r = match made {
+                Some(id) => ui.add(
+                    egui::Button::image(egui::Image::new((id, size)))
+                        .selected(current)
+                        .frame(current),
+                ),
+                None => ui.add_sized(size, egui::Button::new("…").selected(current)),
+            };
+            if current {
+                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
+                ui.painter().rect_stroke(r.rect, 2.0, stroke, egui::StrokeKind::Outside);
+            }
+            ui.add(egui::Label::new(egui::RichText::new(&name).small()).truncate());
+            r
+        })
+        .inner;
+    r.on_hover_text(format!("Tile {}: {name}", p.tile)).clicked()
 }
 
 /// Defaults: the lighting scheme's first colours and every loop on (where

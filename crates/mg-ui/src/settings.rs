@@ -202,6 +202,11 @@ pub struct Settings {
     pub snap_grid: Option<u16>,
     #[serde(default)]
     pub snap_angle: Option<u16>,
+    /// The area view: several objects selected turn about their middle
+    /// as one, keeping their places among themselves, not each about
+    /// itself.
+    #[serde(default)]
+    pub turn_together: bool,
     /// Options > Sounds: Ambient music volume, of 127 (`None`: Aurora's 92).
     pub music_volume: Option<u8>,
     /// Options > Conversation Editor: Show popup when creating a new text
