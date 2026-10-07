@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.17.0" date="2026-10-07">
+      <description>
+        <p>A script editor opens other scripts, the module's, a hak's or
+        the game's; the module tree shows the object selected in the area
+        and keeps its filter in sight; New in the palettes' menus; a
+        creature's assigned feats are listed; armor and cloaks lying in an
+        area draw as the game draws them; palette categories named only in
+        the older field keep their names; animations bind by part
+        number.</p>
+      </description>
+    </release>
     <release version="1.16.2" date="2026-10-07">
       <description>
         <p>Scripts are compiled when the module is saved, where that is
