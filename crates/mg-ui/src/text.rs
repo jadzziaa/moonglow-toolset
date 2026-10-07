@@ -25,6 +25,16 @@ pub(crate) fn edited_text(ls: &LocString) -> String {
     ls.text(edit_language(), Gender::Male).map(|t| t.into_owned()).unwrap_or_default()
 }
 
+/// A localized string's text for a list or a title: in the editing
+/// language, else, where it has none in it, in another (English first).
+pub(crate) fn shown_text(ls: &LocString) -> String {
+    let text = edited_text(ls);
+    if !text.is_empty() {
+        return text;
+    }
+    ls.elsewhere(edit_language()).map(|(_, text)| text).unwrap_or_default()
+}
+
 /// Game bytes as text (Windows-1252 maps every byte, so nothing is lost).
 pub(crate) fn decode(bytes: &[u8]) -> String {
     Codepage::WINDOWS_1252.decode(bytes).into_owned()

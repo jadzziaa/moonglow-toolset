@@ -43,6 +43,24 @@ fn text_field(app: &mut Moonglow, ui: &mut Ui, id: &str, current: &str) -> Optio
     edit_field(app, ui, id, current, false)
 }
 
+/// [`edit_field`] for a localized string: its text in the language
+/// edited, else what [`crate::widgets::loc_shown`] finds, marked as not
+/// its own.
+fn loc_field(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    id: &str,
+    ls: &LocString,
+    multiline: bool,
+) -> Option<String> {
+    match crate::widgets::loc_shown(app, ls) {
+        (shown, None) => edit_field(app, ui, id, &shown, multiline),
+        (shown, Some((from, why))) => crate::widgets::borrowed_field(ui, &from, why, |ui| {
+            edit_field(app, ui, id, &shown, multiline)
+        }),
+    }
+}
+
 /// A text field (one line or several) that commits when focus leaves it.
 /// Multi-line text keeps the line-end style it had (CRLF or LF).
 fn edit_field(
@@ -153,17 +171,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     });
 }
 
-/// The text in the editing language (Options › Language).
-fn english(ls: &LocString) -> String {
-    crate::text::edited_text(ls)
-}
-
 fn basic(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     egui::Grid::new("ifo-basic").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Name");
         let name: LocString = root.read(&ifo::MOD_NAME);
         ui.horizontal(|ui| {
-            if let Some(v) = text_field(app, ui, "name", &english(&name)) {
+            if let Some(v) = loc_field(app, ui, "name", &name, false) {
                 app.actions.push(set(
                     "Module name",
                     &ifo::MOD_NAME,
@@ -293,7 +306,7 @@ fn description(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
             app.loc_edit = Some(LocStringEdit::new(t, "Module description", &desc));
         }
     });
-    if let Some(v) = edit_field(app, ui, "desc", &english(&desc), true) {
+    if let Some(v) = loc_field(app, ui, "desc", &desc, true) {
         app.actions.push(set("Module description", &ifo::MOD_DESCRIPTION, with_english(desc, &v)));
     }
 }

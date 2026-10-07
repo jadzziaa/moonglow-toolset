@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T13:30:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -568,6 +568,34 @@ objects in the area view, Fade Geometry. Left:
   (it painted when let go). A right drag that turns the view and ends
   where it began is still a right click to the brush (Raise/Lower
   lowers; other brushes are put down). (S)
+
+## From builders' reports after 1.16.1 (October 2026)
+
+- **Compiled on saving the module:** with Automatically Compile Scripts
+  on Save, File › Save compiles the scripts whose text it stores (only a
+  script's own Save did; a builder found scripts left uncompiled). A
+  script saved earlier and never compiled is not caught by it (Compile
+  All is); one the external editor saved is compiled when its text is
+  next stored here. (S)
+- **A project's script in the external editor** opens in place (the
+  project's own `.nss`), and its saves come back by the reading of files
+  changed outside, so not at all with that turned off in Options ›
+  General (the copy's way is used then). Scripts of a module file still
+  open as a copy in the temporary folder. Tried with a stand-in editor;
+  not with VS Code. (S)
+- **Text in another language where the one edited has none** (English
+  first), as a builder says Aurora shows it: the palettes, the module
+  tree, conversation lines, the journal's lists, and, marked with the
+  language named, every field that edits such text: a blueprint's and an
+  area's, Module Properties' name and description, the journal's names
+  and entries, a conversation line's text. That Aurora prefers English
+  to the first language found was not captured. A token put into a line
+  shown in another language goes into that text, which then becomes the
+  line's own in the language edited. (S)
+- **The module tree goes to the area of the tab chosen** (a click on the
+  tab), marking its row; Show in Module Tree on the tab's menu opens it
+  out too. A tab reached otherwise (opened, or by keys) doesn't move the
+  tree, and other kinds of tab (a script, a blueprint) don't. (S)
 
 ## From GitHub issue 7 (October 2026)
 

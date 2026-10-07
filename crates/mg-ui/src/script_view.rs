@@ -981,17 +981,59 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
 }
 
-/// Writes the script to a scratch file and opens it in the external
-/// editor; the editor's saves come back into the buffer
-/// ([`reload_external`]).
+/// The file of a nasher project that holds `key`'s source, where the
+/// external editor can work on it in place: the project's own file, as
+/// long as Moonglow has nothing of the script that the file lacks (text
+/// typed and not saved, or a change not yet written to the project).
+fn project_file(app: &Moonglow, key: ResKey) -> Option<std::path::PathBuf> {
+    let ws = app.ws.as_ref()?;
+    let path = ws.module.project.as_ref()?.source_path(&key)?.to_path_buf();
+    let buf = app.scripts.get(&key)?;
+    let on_disk = std::fs::read(&path).ok()?;
+    (!buf.is_dirty() && decode(&on_disk) == buf.text).then_some(path)
+}
+
+/// Opens the script in the external editor: a nasher project's own source
+/// file, in place ([`project_file`]); else a scratch copy. The editor's
+/// saves come back into the buffer ([`reload_external`]), or, for a
+/// project's file, as its files changed outside do (Options › General).
 fn open_external(app: &mut Moonglow, key: ResKey, editor: &std::path::Path) {
+    let in_place = project_file(app, key);
+    let in_project =
+        app.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) && in_place.is_none();
+    let reloads = !app.settings.no_auto_reload;
     let Some(buf) = app.scripts.get_mut(&key) else { return };
-    let dir = std::env::temp_dir().join(format!("moonglow-{}", std::process::id()));
-    let path = dir.join(format!("{}.nss", key.resref.to_lowercase()));
-    let written =
-        std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, encode(&buf.text)));
-    if let Err(e) = written {
-        app.log.error(format!("{}: {e}", path.display()));
+    let path = match in_place {
+        Some(path) => path,
+        None => {
+            let dir = std::env::temp_dir().join(format!("moonglow-{}", std::process::id()));
+            let path = dir.join(format!("{}.nss", key.resref.to_lowercase()));
+            let written = std::fs::create_dir_all(&dir)
+                .and_then(|()| std::fs::write(&path, encode(&buf.text)));
+            if let Err(e) = written {
+                app.log.error(format!("{}: {e}", path.display()));
+                return;
+            }
+            if in_project {
+                app.log.info(format!(
+                    "{key}: a copy is opened, not the project's file: Moonglow has changes to \
+                     it that the file lacks (save first to edit the file in place)"
+                ));
+            }
+            path
+        }
+    };
+    // (A project's file read again as files changed outside are: not by
+    // this buffer as well, which would then differ from the module's.)
+    if in_place_of(&path) && reloads {
+        buf.external = None;
+        match std::process::Command::new(editor).arg(&path).spawn() {
+            Ok(running) => {
+                crate::test_module::let_run(running);
+                app.log.info(format!("{key}: editing {} in {}", path.display(), editor.display()));
+            }
+            Err(e) => app.log.error(format!("{}: {e}", editor.display())),
+        }
         return;
     }
     let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
@@ -1003,6 +1045,12 @@ fn open_external(app: &mut Moonglow, key: ResKey, editor: &std::path::Path) {
         }
         Err(e) => app.log.error(format!("{}: {e}", editor.display())),
     }
+}
+
+/// Whether `path` is a file of its own (a project's), not Moonglow's
+/// scratch copy.
+fn in_place_of(path: &std::path::Path) -> bool {
+    !path.starts_with(std::env::temp_dir().join(format!("moonglow-{}", std::process::id())))
 }
 
 /// Reads back a script the external editor has saved since.
@@ -1143,6 +1191,21 @@ pub(crate) fn compile_stale(app: &mut Moonglow, scripts: &[ResKey]) -> (Vec<Stri
     (compiled, broken)
 }
 
+impl Moonglow {
+    /// Whether a script of the module that should compile (it has a
+    /// `main` or a `StartingConditional`) doesn't.
+    pub(crate) fn script_fails(&mut self, key: ResKey) -> bool {
+        let Some(text) = self.ws.as_ref().and_then(|ws| ws.module.get(&key).map(decode)) else {
+            return false;
+        };
+        if self.game.is_none() || !mg_script::outline::has_entry_point(&encode(&text)) {
+            return false;
+        }
+        let external = self.external_compiler();
+        compile_with_debug(self, key, &text, false, external.as_ref()).is_err()
+    }
+}
+
 /// Compiles one script (its text as in the editor) and stores the bytecode.
 /// Compiles one script into the module; whether it compiled.
 fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
@@ -1152,8 +1215,8 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
     app.script_tools.messages.retain(|m| m.script != key);
     app.script_tools.info = InfoTab::Compiler;
     // An include file (no `main`, no `StartingConditional`) isn't compiled
-    // on its own, as in Aurora: it is compiled into the scripts that
-    // include it, and may lean on what they bring.
+    // on its own: it is compiled into the scripts that include it, and
+    // may lean on what they bring. (Aurora's build compiles it too.)
     if !mg_script::outline::has_entry_point(&encode(text)) {
         let said = format!("{key}: an include file (no main or StartingConditional), not compiled");
         app.log.info(said.clone());

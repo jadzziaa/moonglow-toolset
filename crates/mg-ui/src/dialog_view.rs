@@ -119,14 +119,10 @@ pub struct DialogClip {
 
 /// The GFF path of a link.
 /// A line's own text: in the language edited (Options › Language), else,
-/// where it has none in it, in English.
+/// where it has none in it, in another (English first).
 fn text(n: &Struct) -> String {
     let Some(ls) = n.locstring("Text") else { return String::new() };
-    let shown = |l| ls.text(l, mg_core::Gender::Male).map(|s| s.into_owned());
-    shown(crate::text::edit_language())
-        .filter(|t| !t.is_empty())
-        .or_else(|| shown(mg_core::Language::ENGLISH))
-        .unwrap_or_default()
+    crate::text::shown_text(ls)
 }
 
 /// A line's text as shown: its own (in the language edited), else its talk-table string
@@ -939,7 +935,23 @@ fn text_panel(
     let from_tlk = (english.is_empty() && !ls.strref.is_none())
         .then(|| app.game.as_deref().and_then(|g| g.string(ls.strref)))
         .flatten();
-    if let Some(v) = commit_text(app, ui, id, &english, true, width) {
+    // Without text in the language edited or a talk-table string: its
+    // text in another language (English first), marked as not its own.
+    let other = (english.is_empty() && ls.strref.is_none())
+        .then(|| ls.elsewhere(crate::text::edit_language()))
+        .flatten();
+    let shown = other.as_ref().map_or(english.clone(), |(_, text)| text.clone());
+    let typed = match &other {
+        Some((language, _)) => crate::widgets::borrowed_field(
+            ui,
+            language.name().unwrap_or("another language"),
+            "This line's text is in another language: it has none in the language edited \
+             (Options › Language). Typing here gives it text in that language",
+            |ui| commit_text(app, ui, id, &shown, true, width),
+        ),
+        None => commit_text(app, ui, id, &shown, true, width),
+    };
+    if let Some(v) = typed {
         actions.push(set(
             key,
             "Line text",
@@ -963,7 +975,7 @@ fn text_panel(
                 egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                     for t in &tokens {
                         if ui.selectable_label(false, t).clicked() {
-                            let v = crate::widgets::with_token(ui.ctx(), id, &english, t);
+                            let v = crate::widgets::with_token(ui.ctx(), id, &shown, t);
                             actions.push(set(
                                 key,
                                 "Insert token",
@@ -1204,9 +1216,7 @@ fn other_tab(
                         for e in category.map(mg_module::journal::entries).unwrap_or(&[]) {
                             let id = e.read(&jrl::categories::entry_list::ID);
                             let t = e.read(&jrl::categories::entry_list::TEXT);
-                            let t = t
-                                .text(crate::text::edit_language(), mg_core::Gender::Male)
-                                .unwrap_or_default();
+                            let t = crate::text::shown_text(&t);
                             if ui.selectable_label(id == entry, format!("{id}: {t}")).clicked()
                                 && id != entry
                             {

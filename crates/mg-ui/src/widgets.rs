@@ -710,6 +710,82 @@ pub(crate) fn variables_button(
 
 /// A text field that commits when focus leaves it (one line, or several
 /// with their line-end style kept). Returns the new text then.
+/// What a field shows of a localized string, and where that is from if
+/// it is not the string's own text in the language edited: the talk
+/// table (its StrRef, as Aurora shows the game's blueprints), else
+/// another language (English first, as Aurora shows a name written in
+/// English alone). With the source comes why the text looks as it does.
+pub(crate) fn loc_shown(
+    app: &Moonglow,
+    ls: &mg_core::LocString,
+) -> (String, Option<(String, &'static str)>) {
+    let own = crate::text::edited_text(ls);
+    if !own.is_empty() {
+        return (own, None);
+    }
+    let table = (!ls.strref.is_none())
+        .then(|| app.game.as_deref().and_then(|g| g.string(ls.strref)))
+        .flatten()
+        .filter(|t| !t.is_empty());
+    if let Some(text) = table {
+        let why = "This text is the talk table's, not its own: typing here gives it text of \
+                   its own in its place";
+        return (text, Some((format!("StrRef {}", ls.strref.0), why)));
+    }
+    match ls.elsewhere(crate::text::edit_language()) {
+        Some((language, text)) => {
+            let why = "This text is in another language: there is none in the language edited \
+                       (Options › Language). Typing here gives it text in that language; … has \
+                       every language's";
+            (text, Some((language.name().unwrap_or("another language").to_string(), why)))
+        }
+        // (A StrRef the talk table lacks is still named.)
+        None if !ls.strref.is_none() => (
+            String::new(),
+            Some((format!("StrRef {}", ls.strref.0), "The talk table has no such string")),
+        ),
+        None => (String::new(), None),
+    }
+}
+
+/// A text field (`field` draws it) whose text is not the string's own
+/// ([`loc_shown`]): in the talk table's color, with where it is from
+/// beside it.
+pub(crate) fn borrowed_field<R>(
+    ui: &mut Ui,
+    from: &str,
+    why: &str,
+    field: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    let color = crate::blueprint::talk_table_color(ui);
+    let out = ui
+        .scope(|ui| {
+            ui.visuals_mut().override_text_color = Some(color);
+            field(ui)
+        })
+        .inner;
+    ui.colored_label(color, from).on_hover_text(why);
+    out
+}
+
+/// A text field of a localized string as [`commit_text`] makes one,
+/// showing what [`loc_shown`] says and marked where that is not its own.
+pub(crate) fn loc_text(
+    app: &mut Moonglow,
+    ui: &mut Ui,
+    id: egui::Id,
+    ls: &mg_core::LocString,
+    multiline: bool,
+    width: f32,
+) -> Option<String> {
+    match loc_shown(app, ls) {
+        (shown, None) => commit_text(app, ui, id, &shown, multiline, width),
+        (shown, Some((from, why))) => {
+            borrowed_field(ui, &from, why, |ui| commit_text(app, ui, id, &shown, multiline, width))
+        }
+    }
+}
+
 /// `current` (a text field's value, the field `id`) with `token` put
 /// where the field's caret was last, in place of what was selected: at
 /// the end if the caret was never in it. The caret is left after the

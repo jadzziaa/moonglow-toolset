@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T13:30:00Z }
 ---
 
 # Scripts
@@ -82,7 +82,8 @@ The buttons:
   Moonglow's recovery copies keep that text too.
 - **Compile**: save and compile this script; errors go to the Compiler
   messages and the log. With **Automatically Compile Scripts on Save**
-  (Options › Script Editor), Save compiles too.
+  (Options › Script Editor), Save compiles too, and so does saving the
+  module (File › Save) for the scripts whose text it saves.
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.
@@ -94,6 +95,11 @@ The buttons:
   elsewhere.)
 - **External Editor**: open the script in the editor set in Options ›
   Script Editor; what you save there comes back into Moonglow's editor.
+  In a nasher project it is the project's own file that opens, in place
+  (so your editor's own project features see it where it lives), and
+  its saves are read again as files changed outside are. A script with
+  changes Moonglow has not yet written to the project opens as a copy
+  instead: save first.
 
 ## The compiler
 

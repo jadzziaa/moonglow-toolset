@@ -351,6 +351,17 @@ impl TabViewer for Viewer<'_> {
             self.app.actions.push(crate::Action::RenameDialog(key));
             ui.close();
         }
+        // An area: its row in the module tree, opened out to what is
+        // placed in it.
+        if let Tab::Area(area) = tab
+            && ui
+                .button("Show in Module Tree")
+                .on_hover_text("Its row in the module tree, opened out to what is placed in it")
+                .clicked()
+        {
+            self.app.tree_reveal = Some((*area, true));
+            ui.close();
+        }
         // A window of its own fills the main pane, and goes back.
         if !tab.docks() && *tab != Tab::Palette {
             let label = if self.app.maximized.contains_key(tab) { "Restore" } else { "Maximize" };
@@ -364,6 +375,12 @@ impl TabViewer for Viewer<'_> {
     /// A double click on a window's tab maximizes it, and restores it.
     fn on_tab_button(&mut self, tab: &mut Tab, response: &egui::Response) {
         self.app.tab_buttons.push((tab.clone(), response.rect, response.layer_id));
+        // An area's tab chosen: the module tree goes to the area.
+        if let Tab::Area(area) = tab
+            && response.clicked()
+        {
+            self.app.tree_reveal = Some((*area, false));
+        }
         if response.double_clicked() && !tab.docks() && *tab != Tab::Palette {
             self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
         }

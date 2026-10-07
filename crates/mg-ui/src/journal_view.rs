@@ -3,7 +3,7 @@
 //! node's fields. Each change is one undoable command.
 
 use egui::Ui;
-use mg_core::{LocString, ResRef, ResType};
+use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
 use mg_module::journal::{PRIORITIES, entries, list_value, new_category, new_entry, new_journal};
@@ -38,11 +38,6 @@ pub struct JournalView {
 
 fn key() -> ResKey {
     ResKey::new(ResRef::from_str("module").expect("valid"), ResType::JRL)
-}
-
-/// The text in the editing language (Options › Language).
-fn english(ls: &LocString) -> String {
-    crate::text::edited_text(ls)
 }
 
 /// A command replacing the category list (creating the journal if the
@@ -220,7 +215,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             view.open.insert(c);
         }
         for (c, cat) in cats.iter().enumerate() {
-            let name = english(&cat.read(&jrl::categories::NAME));
+            let name = crate::text::shown_text(&cat.read(&jrl::categories::NAME));
             let tag = decode(cat.read(&jrl::categories::TAG).as_bytes());
             let count = entries(cat).len();
             let open = view.open.contains(&c);
@@ -258,7 +253,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.indent(("journal-cat", c), |ui| {
                 for (e, entry) in entries(cat).iter().enumerate() {
                     let id = entry.read(&jrl::categories::entry_list::ID);
-                    let text = english(&entry.read(&jrl::categories::entry_list::TEXT));
+                    let text =
+                        crate::text::shown_text(&entry.read(&jrl::categories::entry_list::TEXT));
                     let end = entry.read(&jrl::categories::entry_list::END) != 0;
                     let first = text.lines().next().unwrap_or_default();
                     let label =
@@ -296,7 +292,7 @@ fn category_fields(
                     let name = cat.read(&f::NAME);
                     ui.horizontal(|ui| {
                         if let Some(v) =
-                            commit_text(app, ui, id("name"), &english(&name), false, 200.0)
+                            crate::widgets::loc_text(app, ui, id("name"), &name, false, 200.0)
                         {
                             actions.push(set_field(
                                 "Category name",
@@ -428,7 +424,7 @@ fn entry_fields(
                 }
             });
             let id = egui::Id::new(("jrl-entry-text", c, e));
-            if let Some(v) = commit_text(app, ui, id, &english(&text), true, f32::INFINITY) {
+            if let Some(v) = crate::widgets::loc_text(app, ui, id, &text, true, f32::INFINITY) {
                 actions.push(set_field(
                     "Entry text",
                     path.clone(),

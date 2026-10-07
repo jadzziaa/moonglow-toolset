@@ -63,10 +63,13 @@ fn blueprint_name(game: Option<&GameData>, root: &mg_gff::Struct) -> String {
     let text = |label: &str| {
         root.locstring(label).map_or(String::new(), |name| {
             let edited = crate::text::edited_text(name);
+            // (Its text in another language is a last resort: below.)
             if !edited.is_empty() {
                 return edited;
             }
-            game.and_then(|g| g.locstring(name)).unwrap_or_default()
+            game.and_then(|g| g.locstring(name))
+                .filter(|t| !t.is_empty())
+                .unwrap_or_else(|| crate::text::shown_text(name))
         })
     };
     let full = [text("FirstName"), text("LastName")];
@@ -89,10 +92,13 @@ impl AreaNames {
         let read = |are: &Gff| {
             let name = are.root.locstring("Name").map_or(String::new(), |name| {
                 let edited = crate::text::edited_text(name);
+                // (Its text in another language is a last resort: below.)
                 if !edited.is_empty() {
                     return edited;
                 }
-                game.and_then(|g| g.locstring(name)).unwrap_or_default()
+                game.and_then(|g| g.locstring(name))
+                    .filter(|t| !t.is_empty())
+                    .unwrap_or_else(|| crate::text::shown_text(name))
             });
             AreaInfo {
                 name,
@@ -362,8 +368,13 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         let header = egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
             .id_salt(name)
             .default_open(*name == "Areas")
-            // Filtering opens every group with a match, whatever was open.
-            .open((!filter.is_empty()).then_some(true).or(fold))
+            // Filtering opens every group with a match, whatever was open;
+            // so does an area to bring into view, for the areas' group.
+            .open(
+                (!filter.is_empty() || (*name == "Areas" && app.tree_reveal.is_some()))
+                    .then_some(true)
+                    .or(fold),
+            )
             .show(ui, |ui| {
                 for k in keys {
                     let label = match (names.get(&k), k.restype) {
@@ -382,6 +393,17 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     let opened = egui::Id::new(("tree-area-open", k.resref));
                     let is_area = k.restype == ResType::ARE;
                     let mut out = is_area && ui.data(|d| d.get_temp(opened).unwrap_or(false));
+                    // The area to bring into view (a tab chosen, or its
+                    // menu's Show in Module Tree, which opens it out too).
+                    let reveal = app.tree_reveal.filter(|(a, _)| is_area && *a == k.resref);
+                    if let Some((area, open_out)) = reveal {
+                        app.tree_area = Some(area);
+                        if open_out && !out {
+                            out = true;
+                            ui.data_mut(|d| d.insert_temp(opened, true));
+                        }
+                    }
+                    let in_hand = is_area && app.tree_area == Some(k.resref);
                     let row = ui.horizontal(|ui| {
                         if is_area {
                             let arrow = if out { "⏷" } else { "⏵" };
@@ -393,9 +415,12 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                                 ui.data_mut(|d| d.insert_temp(opened, out));
                             }
                         }
-                        ui.add(egui::Button::selectable(false, label).sense(sense))
+                        ui.add(egui::Button::selectable(in_hand, label).sense(sense))
                     });
                     let mut r = row.inner;
+                    if reveal.is_some() {
+                        r.scroll_to_me(Some(egui::Align::Center));
+                    }
                     if out {
                         match app.area_contents.get(&k.resref).filter(|c| c.0 == revision) {
                             Some((_, contents)) => {
@@ -525,6 +550,10 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     });
                 }
             });
+        // (Brought into view, or not among the areas shown: done.)
+        if *name == "Areas" {
+            app.tree_reveal = None;
+        }
         if let (Some(id), Some(label)) = (new, &new_label) {
             header.header_response.context_menu(|ui| {
                 if ui.button(label).clicked() {

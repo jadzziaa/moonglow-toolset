@@ -63,6 +63,21 @@ impl LocString {
         self.get(language, gender).map(|b| language.codepage().decode(b))
     }
 
+    /// The text to show where `language` has none: another language's,
+    /// English if it has any, else the first variant with text; and the
+    /// language it is in. (Aurora shows a builder the English text of a
+    /// name written in English alone, whatever language it edits in.)
+    pub fn elsewhere(&self, language: Language) -> Option<(Language, String)> {
+        let text = |l: Language, bytes: &[u8]| (l, l.codepage().decode(bytes).into_owned());
+        let english = LocStringKey::new(Language::ENGLISH, Gender::Male);
+        let others = self.strings.iter().filter(|(k, b)| k.language() != language && !b.is_empty());
+        others
+            .clone()
+            .find(|(k, _)| *k == english)
+            .or_else(|| others.clone().next())
+            .map(|(k, b)| text(k.language(), b))
+    }
+
     /// Sets a variant, replacing it in place if present, else appending it.
     pub fn set(&mut self, language: Language, gender: Gender, bytes: impl Into<Vec<u8>>) {
         let key = LocStringKey::new(language, gender);
@@ -99,6 +114,21 @@ impl LocString {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_in_another_language_is_english_first() {
+        let polish = Language(5);
+        let mut s = LocString::default();
+        assert_eq!(s.elsewhere(polish), None);
+        s.set(Language::GERMAN, Gender::Male, b"Laden".to_vec());
+        s.set(Language::ENGLISH, Gender::Male, b"Shop".to_vec());
+        // English, though German comes first in the file.
+        assert_eq!(s.elsewhere(polish), Some((Language::ENGLISH, "Shop".to_string())));
+        // Not the language asked about, and not a variant without text.
+        assert_eq!(s.elsewhere(Language::ENGLISH), Some((Language::GERMAN, "Laden".to_string())));
+        s.set(Language::ENGLISH, Gender::Male, Vec::new());
+        assert_eq!(s.elsewhere(polish), Some((Language::GERMAN, "Laden".to_string())));
+    }
 
     #[test]
     fn keys() {

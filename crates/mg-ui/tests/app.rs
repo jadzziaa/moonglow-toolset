@@ -11777,3 +11777,154 @@ fn references_name_areas_as_the_window_does() {
     assert_eq!(h.query_all_by_label_contains(&format!("{area} ›")).count(), 0);
     assert_eq!(h.query_all_by_label_contains("Field ›").count(), by_resref);
 }
+
+/// Options › Script Editor › Automatically Compile Scripts on Save:
+/// saving the module compiles the scripts whose text it stores (it was
+/// only a script's own Save that did).
+#[test]
+fn saving_the_module_compiles_edited_scripts_when_asked() {
+    let Some((mut h, _)) = area_harness("save-compiles") else { return };
+    let (nss, ncs) = (
+        ResKey::parse("hello", ResType::NSS).unwrap(),
+        ResKey::parse("hello", ResType::NCS).unwrap(),
+    );
+    let edit = mg_edit::Edit::SetResource { key: nss, data: Some(b"void main()\n{\n}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(nss)));
+    h.run_steps(3);
+    let has = |h: &mut Harness<'_, Moonglow>, k: &ResKey| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        ws.module.contains(k)
+    };
+    // Typed in (a line indented), then the module saved: not compiled
+    // while the option is off.
+    let edit_and_save = |h: &mut Harness<'_, Moonglow>| {
+        h.state_mut().script_tools.jump = Some((nss, 0));
+        h.run_steps(2);
+        h.key_press(egui::Key::Tab);
+        h.run_steps(2);
+        h.state_mut().actions.push(mg_ui::Action::Save);
+        h.run_steps(3);
+    };
+    h.state_mut().settings.auto_compile = false;
+    edit_and_save(&mut h);
+    assert!(!has(&mut h, &ncs));
+    h.state_mut().settings.auto_compile = true;
+    edit_and_save(&mut h);
+    assert!(has(&mut h, &ncs), "compiled on save");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Compiled on save: hello")));
+}
+
+/// In a nasher project the external editor gets the project's own script
+/// file, in place; a script with text typed and not saved gets a copy.
+#[cfg(unix)]
+#[test]
+fn a_project_s_script_opens_in_place_in_the_external_editor() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "InPlace", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    let dir = mg_testkit::scratch_dir("ui-project-external").join("project");
+    m.save_as(&ModuleLocation::Project { root: dir.clone(), target: "default".into() }).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.settings.external_editor = Some("/bin/true".into());
+    app.settings.scripts_external = true;
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().filter(|(_, m)| m.contains(what)).count()
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenResource(key));
+    h.run_steps(4);
+    let file = dir.join("src/hello.nss");
+    assert!(file.is_file(), "the project's own file");
+    assert_eq!(said(&h, &format!("editing {} in /bin/true", file.display())), 1);
+    // Saved there by the editor: read again as a file changed outside is.
+    std::fs::write(&file, "void main()\n{\n    int n = 1;\n}\n").unwrap();
+    h.state_mut().reload_project_files();
+    h.run_steps(3);
+    assert!(h.state().script_text(key).unwrap().contains("int n = 1;"));
+    // With text typed here and not saved: a copy, and why.
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run_steps(2);
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    let tab = h.state().dock.find_tab(&Tab::Script(key)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::OpenResource(key));
+    h.run_steps(4);
+    assert_eq!(said(&h, "a copy is opened, not the project's file"), 1);
+}
+
+/// An area's tab chosen brings the area's row into view in the module
+/// tree, as the one in hand; the tab's Show in Module Tree opens it out
+/// to what is placed in it as well.
+#[test]
+fn the_module_tree_goes_to_the_area_of_the_tab_chosen() {
+    let Some((mut h, area)) = area_harness("tree-reveal") else { return };
+    assert!(h.state().tree_area.is_none());
+    assert!(h.query_by_label("Waypoints (2)").is_none());
+    // (As a click on the area's tab asks.)
+    h.state_mut().tree_reveal = Some((area, false));
+    h.run_steps(2);
+    assert_eq!(h.state().tree_area, Some(area));
+    assert!(h.state().tree_reveal.is_none(), "done once");
+    assert!(h.query_by_label("Waypoints (2)").is_none(), "not opened out");
+    // Show in Module Tree: opened out too.
+    h.state_mut().tree_reveal = Some((area, true));
+    h.run_steps(3);
+    assert!(h.query_by_label("Waypoints (2)").is_some());
+}
+
+/// Where a text has none in the language edited, its text in another
+/// shows in its field, with the language named: in Module Properties and
+/// in a blueprint's fields alike.
+#[test]
+fn text_in_another_language_shows_where_the_one_edited_has_none() {
+    use mg_core::{Gender, Language, LocString};
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "bandit_named", ResType::UTC) else {
+        return;
+    };
+    // The module's name and the bandit's first name, in English alone.
+    let mut name = LocString::default();
+    name.set(Language::ENGLISH, Gender::Male, b"Only English".to_vec());
+    let ifo = ResKey::parse("module", ResType::IFO).unwrap();
+    let edits = vec![
+        mg_edit::Edit::SetField {
+            key: ifo,
+            path: mg_edit::GffPath::root(),
+            label: "Mod_Name".into(),
+            value: Some(mg_gff::Value::LocString(name.clone())),
+        },
+        mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "FirstName".into(),
+            value: Some(mg_gff::Value::LocString(name)),
+        },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::ModuleProperties));
+    h.run_steps(4);
+    // Edited in English: its own text, unmarked.
+    let own = h.get_all_by_value("Only English").count();
+    assert!(own >= 2, "both fields have it");
+    assert_eq!(h.query_all_by_label("English").count(), 0);
+    // Edited in German: the English text still shows, named as English.
+    mg_ui::set_edit_language(Language::GERMAN);
+    h.run_steps(3);
+    let shown = h.get_all_by_value("Only English").count();
+    let named = h.query_all_by_label("English").count();
+    mg_ui::set_edit_language(Language::ENGLISH);
+    assert_eq!((shown, named), (own, 2));
+}

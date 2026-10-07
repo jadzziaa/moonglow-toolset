@@ -158,11 +158,17 @@ impl GameData {
     }
 
     /// The text a localized string shows in the toolset's language: the
-    /// embedded variant if there is one, else the talk-table string.
+    /// embedded variant if there is one with text, else the talk-table
+    /// string, else its text in another language (English first), as
+    /// Aurora shows a name written in English alone.
     pub fn locstring(&self, s: &LocString) -> Option<String> {
         s.text(self.language, Gender::Male)
             .map(|t| t.into_owned())
-            .or_else(|| self.string(s.strref))
+            .filter(|t| !t.is_empty())
+            .or_else(|| self.string(s.strref).filter(|t| !t.is_empty()))
+            .or_else(|| s.elsewhere(self.language).map(|(_, text)| text))
+            // (A variant that is there and empty is still its text.)
+            .or_else(|| s.text(self.language, Gender::Male).map(|t| t.into_owned()))
     }
 
     /// The rows of a 2DA as dropdown choices: each row's name (a StrRef

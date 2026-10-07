@@ -427,6 +427,13 @@ pub struct Moonglow {
     /// An armor's model is shown on a woman (the item's Appearance page
     /// chooses), rather than a man.
     pub armor_on_woman: bool,
+    /// An area for the module tree to bring into view (and, if asked, to
+    /// open out to what is placed in it): the area of the tab just chosen,
+    /// or of its menu's Show in Module Tree.
+    pub tree_reveal: Option<(mg_core::ResRef, bool)>,
+    /// The area the module tree shows as the one in hand: the last one
+    /// brought into view.
+    pub tree_area: Option<mg_core::ResRef>,
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
@@ -611,6 +618,8 @@ impl Moonglow {
             viewed: HashMap::new(),
             area_tool_at: 0,
             armor_on_woman: false,
+            tree_reveal: None,
+            tree_area: None,
             import: None,
             confirm_discard: None,
             render_info: None,
@@ -1924,10 +1933,10 @@ impl Moonglow {
     }
 
     /// Puts the script editors' unsaved text into the module (one undoable
-    /// command).
-    pub(crate) fn store_script_text(&mut self) {
+    /// command): the scripts it stored.
+    pub(crate) fn store_script_text(&mut self) -> Vec<ResKey> {
         if self.ws.is_none() {
-            return;
+            return Vec::new();
         }
         let mut edits = Vec::new();
         for (key, buf) in self.scripts.iter_mut().filter(|(_, b)| b.is_dirty()) {
@@ -1937,12 +1946,20 @@ impl Moonglow {
                 data: Some(text::encode(&buf.text)),
             });
         }
+        let stored: Vec<ResKey> = edits
+            .iter()
+            .filter_map(|e| match e {
+                mg_edit::Edit::SetResource { key, .. } => Some(*key),
+                _ => None,
+            })
+            .collect();
         if !edits.is_empty() {
             let n = edits.len();
             if let Err(e) = self.apply(Command::new(format!("Save {n} script(s)"), edits)) {
                 self.log.error(e.to_string());
             }
         }
+        stored
     }
 
     fn save(&mut self, to: Option<ModuleLocation>) {
@@ -1952,7 +1969,29 @@ impl Moonglow {
         }
         // Script editors' unsaved text goes into the module first, as saving
         // everything means; so does the talk table, a file of its own.
-        self.store_script_text();
+        let stored = self.store_script_text();
+        // Options › Script Editor › Automatically Compile Scripts on Save:
+        // the scripts whose text was just stored are compiled before the
+        // module is written (saving the module, not only a script's own
+        // Save, is a save).
+        if self.settings.auto_compile && !stored.is_empty() {
+            let (compiled, _) = script_view::compile_stale(self, &stored);
+            if !compiled.is_empty() {
+                self.log.info(format!("Compiled on save: {}", transfer::listed(&compiled)));
+            }
+            let failed: Vec<String> = stored
+                .iter()
+                .filter(|k| !compiled.contains(&k.resref.to_string()))
+                .filter(|k| self.script_fails(**k))
+                .map(|k| k.resref.to_string())
+                .collect();
+            if !failed.is_empty() {
+                self.log.error(format!(
+                    "Did not compile (saved as they are; Compile in the script's editor says why): {}",
+                    transfer::listed(&failed)
+                ));
+            }
+        }
         talk_view::save(self);
         hak_view::save_all(self);
         tileset_view::save_all(self);

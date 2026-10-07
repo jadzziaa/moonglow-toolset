@@ -160,10 +160,6 @@ pub(crate) fn side_panel<R>(ui: &mut Ui, id: egui::Id, add: impl FnOnce(&mut Ui)
         .inner
 }
 
-fn english(ls: &LocString) -> String {
-    crate::text::edited_text(ls)
-}
-
 /// A value of an integer field, of the type the field has (else `default`).
 pub(super) fn integer(existing: Option<&Value>, v: i64, default: FieldType) -> Value {
     let t = existing.map_or(default, Value::field_type);
@@ -190,21 +186,16 @@ pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
 }
 
 impl Form<'_> {
-    /// A localized string's English text, else its talk-table string (what
-    /// Aurora shows for the game's blueprints).
+    /// A localized string's text as a field shows it
+    /// ([`crate::widgets::loc_shown`]).
     fn shown_text(&self, ls: &LocString) -> String {
-        let text = english(ls);
-        if !text.is_empty() || ls.strref.is_none() {
-            return text;
-        }
-        self.app.game.as_deref().and_then(|g| g.string(ls.strref)).unwrap_or_default()
+        crate::widgets::loc_shown(self.app, ls).0
     }
 
-    /// The talk-table string a localized string shows (its StrRef), where
-    /// it has no text of its own in the language edited: shown in the talk
-    /// table's color, as Aurora tells such text apart.
-    fn talk_table_strref(&self, ls: &LocString) -> Option<u32> {
-        (english(ls).is_empty() && !ls.strref.is_none()).then_some(ls.strref.0)
+    /// Where that text is from, if it is not the string's own in the
+    /// language edited.
+    fn borrowed(&self, ls: &LocString) -> Option<(String, &'static str)> {
+        crate::widgets::loc_shown(self.app, ls).1
     }
 
     /// A text field of a localized string, in the talk table's color where
@@ -219,21 +210,12 @@ impl Form<'_> {
     ) -> Option<String> {
         let id = self.id(label);
         let shown = self.shown_text(current);
-        let Some(strref) = self.talk_table_strref(current) else {
+        let Some((from, why)) = self.borrowed(current) else {
             return commit_text(self.app, ui, id, &shown, multiline, width);
         };
-        let color = talk_table_color(ui);
-        let typed = ui
-            .scope(|ui| {
-                ui.visuals_mut().override_text_color = Some(color);
-                commit_text(self.app, ui, id, &shown, multiline, width)
-            })
-            .inner;
-        ui.colored_label(color, format!("StrRef {strref}")).on_hover_text(
-            "This text is the talk table's, not the blueprint's own: typing here gives the \
-             blueprint text of its own in its place",
-        );
-        typed
+        crate::widgets::borrowed_field(ui, &from, why, |ui| {
+            commit_text(self.app, ui, id, &shown, multiline, width)
+        })
     }
 
     /// An item's Properties, from the inventory that holds it (item `index`

@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T09:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T13:30:00Z }
 ---
 
 # Options
@@ -86,13 +86,15 @@ the module is opened again from its file.
 
 - **Code Templates Directory**: your own templates, listed with the
   game's.
-- **Automatically Compile Scripts on Save**.
+- **Automatically Compile Scripts on Save**: a script's own Save, and
+  saving the module, compile the scripts whose text they save.
 - **Generate Debug Information When Compiling Scripts** (`.ndb` files).
 - **External Script Editor**: the program the External Editor button
   opens scripts in.
 - **Open scripts in the external editor**: a script opened from the
   module tree opens there as well; what it saves comes back into
-  Moonglow's editor.
+  Moonglow's editor. In a nasher project the external editor gets the
+  project's own file (see [Scripts](07-scripts.md)).
 - **External Script Compiler**: a compiler program to use in place of the
   built-in one (empty: the built-in one, which is the game's and
   Aurora's own). Compile in the script editor, Compile All Scripts, the
@@ -132,6 +134,13 @@ the module is opened again from its file.
 The language that text is shown and edited in, for modules made for
 players of another language. Names, descriptions and conversation lines
 show and edit that language's text, and String Edit opens on it.
+Where a text has none in that language, its text in another is shown
+instead, English if it has any (as Aurora shows a name written in
+English alone): in the palette, the module tree, a conversation's lines
+and the journal's lists as it is, and in the fields that edit it (a
+blueprint's, an area's, Module Properties', the journal's, a
+conversation line's) in the talk table's color with the language named
+beside it. Typing there gives it text in the language you edit.
 
 Where your game has that language installed (a folder for it under the
 game's `lang`), the game's own text is read in it too: names and
