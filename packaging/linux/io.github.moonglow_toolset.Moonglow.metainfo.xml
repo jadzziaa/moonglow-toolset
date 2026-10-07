@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.16.1" date="2026-10-07">
+      <description>
+        <p>Static placeables stand upright and a TGA's right-to-left flag
+        is ignored, as in the game; tokens go in at the caret; a marker
+        before fields that differ among what is edited together; the keys
+        exported and imported; more of the terrain for plugins.</p>
+      </description>
+    </release>
     <release version="1.16.0" date="2026-10-07">
       <description>
         <p>Plugins can read a file or folder you choose, write haks you
