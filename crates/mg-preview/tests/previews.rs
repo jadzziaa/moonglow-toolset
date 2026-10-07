@@ -437,27 +437,38 @@ fn probe_custom_creatures() {
 /// tunic lay, and a cloak hanging from nothing); a sword lies there as
 /// itself.
 #[test]
-fn what_is_only_worn_lies_in_an_area_as_a_bag() {
+fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     let Some(game) = game() else {
         eprintln!("skipped: no game install");
         return;
     };
     let placed = |name: &str| {
         let uti = blueprint(&game, name, ResType::UTI);
-        let p = mg_preview::item_placed(&game, &uti.root).unwrap();
-        models(&p).into_iter().map(str::to_string).collect::<Vec<_>>()
+        mg_preview::item_placed(&game, &uti.root).unwrap()
     };
-    let armor = placed("nw_aarcl001");
-    assert_eq!(armor.len(), 1, "{armor:?}");
-    assert!(!armor[0].starts_with("pm"), "no body: {armor:?}");
+    // Armor: the game's model of armor dropped, by its weight (cloth,
+    // leather, chain, plate), no body.
+    let dropped =
+        |name: &str| models(&placed(name)).into_iter().map(str::to_string).collect::<Vec<_>>();
+    assert_eq!(dropped("nw_cloth001"), ["gi_armor01"]);
+    assert_eq!(dropped("nw_aarcl001"), ["gi_armor04"], "leather");
+    assert_eq!(dropped("nw_aarcl004"), ["gi_armor03"], "chain");
+    assert_eq!(dropped("nw_aarcl007"), ["gi_armor02"], "full plate");
+    // A cloak: the bag, standing.
     let cloak = placed("nw_aarcl013");
-    assert_eq!(cloak, ["it_bag"]);
-    // As it is worn: a body's parts, a cloak's model.
+    assert_eq!(models(&cloak), ["it_bag"]);
+    // As it is worn: a body's parts.
     let worn = item(&game, &blueprint(&game, "nw_aarcl001", ResType::UTI).root).unwrap();
     assert!(models(&worn).len() > 5);
     // A sword is its own model, there too.
     let sword = blueprint(&game, "nw_wswls001", ResType::UTI);
     let lying = mg_preview::item_placed(&game, &sword.root).unwrap();
     assert_eq!(models(&lying), models(&item(&game, &sword.root).unwrap()));
-    eprintln!("armor lies as {armor:?}");
+    // How each is turned where it lies: baseitems.2da's RotateOnGround.
+    let turn =
+        |name: &str| mg_preview::ground_turn(&game, &blueprint(&game, name, ResType::UTI).root);
+    assert_eq!(turn("nw_wswls001"), 1, "a sword on its flat");
+    assert_eq!(turn("nw_it_mpotion001"), 2, "a potion stood up");
+    assert_eq!(turn("nw_aarcl001"), 0, "armor as its model is");
+    assert_eq!(turn("nw_aarcl013"), 0, "the bag");
 }

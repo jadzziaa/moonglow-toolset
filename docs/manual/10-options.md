@@ -47,6 +47,9 @@ the module is opened again from its file.
 - **Build module on save**: run Build Module (with its defaults) before
   each save.
 - **Minimize Toolset on test module**.
+- **Start a Steam copy of the game through Steam for a test** (on):
+  off, the game's program is started on its own, without Steam's overlay
+  or Workshop content (see [Build, verify and test](09-build-and-test.md)).
 - **Interface size**: the whole interface, text and all, from 90% to 200%
   of its usual size.
 - **Light theme**: dark text on light, rather than the dark theme.

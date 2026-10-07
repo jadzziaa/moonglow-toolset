@@ -20,6 +20,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 # Proposal
 
+* [Lights placed on the fly: a proposal](lights-proposal.md) - A proposal for placing a light in an area without making a custom placeable by hand first - what the game offers for lights, three ways Moonglow could do it (stock light placeables, generated content, scripted effects), what each costs, a recommended order and what must be measured first. (draft)
 * [Plugins: a proposal](plugin-proposal.md) - The proposal for Moonglow's plugins, accepted 2026-10-03 - what plugins are for and can add, how one runs (sandboxed Luau), the API, safety, runtimes compared, the groundwork, documentation and testing, and where the work stands.
 * [Proposed corrections to nwn.wiki](wiki-proposal.md) - Proposed corrections to fifteen nwn.wiki pages that say something the game or Aurora does differently - for each, what the page says, what it should say and how that was checked - in order of how much trouble the current text causes.
 

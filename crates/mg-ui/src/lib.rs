@@ -2598,7 +2598,8 @@ impl Moonglow {
         name: &str,
         choose: bool,
     ) {
-        match test_module::command(client, user, name, choose).spawn() {
+        let steam = !self.settings.test_without_steam;
+        match test_module::command(client, user, name, choose, steam).spawn() {
             Ok(game) => {
                 test_module::let_game_run(game);
                 self.log.info(format!("Testing {name}"));

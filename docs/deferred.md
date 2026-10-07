@@ -610,11 +610,32 @@ listed beside the feats to choose from; the module tree's rows out of
 sight not laid out (a huge module slowed everything while a group was
 open). Left, or to know:
 
-- **Clothing lying in an area** is drawn as the game drops it: armour
-  as the base item's `DefaultModel` (a folded bundle), a cloak as the
-  bag (a builder's area showed a man standing where a tunic lay). Taken
-  from baseitems.2da and how the game is known to drop them, not from a
-  look in the client; what Aurora draws there was not captured. (S)
+- **Items lying in an area** are turned as baseitems.2da's
+  `RotateOnGround` says (1: a quarter turn about the model's Y axis, a
+  sword or a shield on its flat; 2: about X, a potion stood up; 0: as
+  the model is), which a builder's picture of Aurora beside Moonglow
+  showed missing (potions lay, shields stood on edge). Armour is the game's
+  model of armour dropped (`gi_armor01`…`04`), as Aurora draws it: by
+  its weight (the torso's parts_chest.2da `ACBONUS`: 0 cloth `01`, 1 to
+  3 leather `04`, 4 and 5 chain `03`, more plate `02`); the base item's
+  `DefaultModel` where the model is missing. Compared with the game
+  client (`items_look` in `client_render.rs`): a shield lies with its
+  face up, a potion stands, a sword lies the same way round, and
+  clothing, leather, chain and plate are those four models, as drawn
+  here. A cloak is still the bag, which was not looked at. (S)
+- **A right click with a terrain brush over an object** (a builder
+  lowering terrain past placeables got their menu): not reproduced.
+  With Raise/Lower in hand a right click on an object lowers and opens
+  no menu (`a_right_click_with_a_terrain_brush_is_the_brush_s_over_an_object`).
+  Nor with fast, sloppy clicks of either button there. He had
+  Raise/Lower in hand, on Windows, a placeable selected and the cursor
+  red; his debug log (written by default from 1.18.1) would show what
+  the click was taken for. (?)
+- **The tiles that refuse a terrain stroke flash red** (a raise, a
+  lowering, a painting, a crosser, a group, Delete on tiles): each cell
+  that has no tile fitting what the stroke would make of it, or holds a
+  group's tile the stroke would not keep, as Aurora flashes what is in
+  the way. All of them, not the first found. (—)
 - **Palette categories named in `DELETE_ME` alone** (no StrRef, no
   `NAME`: a Spanish builder's skeletons) keep their names in the Custom
   palette, which showed them blank; names written out are read in

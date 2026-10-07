@@ -97,6 +97,9 @@ pub struct Settings {
     pub area_names: bool,
     /// Options > General: Minimize Toolset on test module.
     pub minimize_on_test: bool,
+    /// Options > General: Start a Steam copy through Steam for a test is
+    /// off (the game is started bare: no overlay, no Workshop content).
+    pub test_without_steam: bool,
     /// Options > General: Create backups of modules off (Aurora's default:
     /// on; the module as it was kept as `<name>.BackupMod` at each save).
     pub no_backups: bool,

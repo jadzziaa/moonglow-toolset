@@ -250,7 +250,14 @@ fn commit(
     pick: Option<Placement>,
 ) {
     let Some(stroke) = stroke else {
-        view.notice = Some(format!("{label}: no tile fits there"));
+        // The tiles in the way flash red, as in Aurora.
+        let blocked = grid.blocked();
+        view.notice = Some(if blocked.is_empty() {
+            format!("{label}: no tile fits there")
+        } else {
+            format!("{label}: no tile fits the tiles shown in red")
+        });
+        view.refused = Some((blocked, std::time::Instant::now()));
         return;
     };
     let Some(tools) = view.terrain.as_ref() else { return };

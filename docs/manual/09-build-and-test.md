@@ -128,7 +128,10 @@ is minimized.
 
 A Steam copy of the game is started so that it reaches Steam when Steam
 is running, and loads your Steam Workshop content as when you start it
-from Steam.
+from Steam. With **Start a Steam copy of the game through Steam for a
+test** off (Options › General), the game's program is started on its
+own instead: no Steam overlay and no Workshop content, which some find
+steadier.
 
 - **Test Module, Choose Character** (Shift+F9) opens the game's
   character selection for the module instead, so you can test with any

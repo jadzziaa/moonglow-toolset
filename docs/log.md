@@ -1,6 +1,9 @@
 # Update log
 
 ## 2026-10-07
+* **Creation**: [Lights placed on the fly: a proposal](lights-proposal.md): three ways to place a light without a hand-made placeable, their costs and a recommended order; a draft for a decision.
+* **Update**: [Build, verify and test](manual/09-build-and-test.md) and [options](manual/10-options.md): a test can start a Steam copy of the game without Steam.
+* **Update**: [Areas](manual/04-areas.md) (the tiles that refuse a stroke flash red) and [the deferred list](deferred.md): items lie in an area as `RotateOnGround` turns them, armor as the game's model of armor dropped.
 * **Update**: [Troubleshooting](manual/13-troubleshooting.md), [options](manual/10-options.md) and [the deferred list](deferred.md): the debug log has the time of day on each line and a file for each start, the last five kept; it is on unless switched off, 4 MB a file.
 * **Update**: [Areas](manual/04-areas.md) and [the deferred list](deferred.md): a tile's variants chosen by picture in Tile Properties.
 * **Update**: [Areas](manual/04-areas.md) (Together, a spawn point moved by its post's foot, Drop to Ground on triggers, Resize Area at any two edges, Previous Variant), [conversations](manual/06-conversations.md) (a line dropped above one of its kind, the lines' right-click menu), [the main window](manual/02-main-window.md) (an area opened is marked in the tree) and [the deferred list](deferred.md): text typed in another language kept in its codepage, UTF-8 names in a Custom palette, GitHub issue 8 not reproduced.

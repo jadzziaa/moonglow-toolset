@@ -49,7 +49,10 @@
       <description>
         <p>The debug log is written unless switched off, a file for each
         start with the time on each line, the last five kept: what led to
-        a crash is there to send afterwards.</p>
+        a crash is there to send afterwards. Items lie in an area as the
+        game lays them, armor as its dropped model; the tiles that refuse
+        a terrain stroke flash red; a test can start the game without
+        Steam.</p>
       </description>
     </release>
     <release version="1.18.0" date="2026-10-07">

@@ -342,7 +342,9 @@ now would paint. The click or drag puts down exactly the tiles shown:
 where several fit, the one shown.
 
 The cursor is green where a click paints and red where the tileset
-refuses it. It is blue where a click only chooses tiles again: a crosser
+refuses it. Click there all the same and the tiles in the way flash red
+for a moment, as in Aurora: those that have no tile fitting what the
+stroke would make of them, or belong to a group it would break. It is blue where a click only chooses tiles again: a crosser
 over a quarter it already crosses, the Eraser with Shift, Refine Tile, and
 a corner of the brush's own terrain (with Shift, the next tiles that fit).
 

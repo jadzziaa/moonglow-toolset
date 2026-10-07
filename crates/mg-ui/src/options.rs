@@ -44,6 +44,7 @@ pub struct OptionsDraft {
     /// Per cent.
     pub ui_scale: u16,
     pub minimize_on_test: bool,
+    pub test_with_steam: bool,
     pub auto_reload: bool,
     pub backups: bool,
     pub autosave: bool,
@@ -119,6 +120,7 @@ impl OptionsDraft {
             light_theme: s.light_theme,
             ui_scale: s.ui_scale.unwrap_or(100),
             minimize_on_test: s.minimize_on_test,
+            test_with_steam: !s.test_without_steam,
             auto_reload: !s.no_auto_reload,
             backups: !s.no_backups,
             autosave: !s.no_autosave,
@@ -174,6 +176,7 @@ impl OptionsDraft {
             light_theme: self.light_theme,
             ui_scale: (self.ui_scale != 100).then_some(self.ui_scale.clamp(UI_SCALES[0], 300)),
             minimize_on_test: self.minimize_on_test,
+            test_without_steam: !self.test_with_steam,
             no_auto_reload: !self.auto_reload,
             no_backups: !self.backups,
             no_autosave: !self.autosave,
@@ -387,6 +390,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.checkbox(
                                 &mut draft.minimize_on_test,
                                 "Minimize Toolset on test module",
+                            );
+                            ui.checkbox(
+                                &mut draft.test_with_steam,
+                                "Start a Steam copy of the game through Steam for a test",
+                            )
+                            .on_hover_text(
+                                "On: the game reaches Steam (its overlay, your Workshop content), \
+                                 as when started from Steam. Off: the game's program is started \
+                                 on its own, without Steam",
                             );
                             ui.horizontal(|ui| {
                                 crate::widgets::field_label(ui, "Interface size");

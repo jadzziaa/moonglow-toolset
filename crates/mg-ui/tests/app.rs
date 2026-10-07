@@ -4399,7 +4399,10 @@ fn area_viewer_paints_terrain() {
     let before = lattice(&mut h);
     click(&mut h, Vec3::new(20.0, 10.0, 0.0));
     assert_eq!(lattice(&mut h), before);
-    h.get_by_label_contains("no tile fits there");
+    h.get_by_label_contains("no tile fits the tiles shown in red");
+    // The tiles in the way are shown in red for a moment.
+    let refused = h.state().area_views[&area].refused.clone().expect("the tiles that refused");
+    assert!(!refused.0.is_empty());
 
     // The Eraser on the road's middle tile takes the road away.
     h.get_by_label("🗑 Eraser").click();
@@ -11090,6 +11093,93 @@ fn an_area_is_copied_with_its_objects() {
     let ws = h.state().ws.as_ref().unwrap();
     assert!(!ws.module.contains(&ResKey::new(new, ResType::ARE)));
     assert!(!ws.module.contains(&ResKey::new(new, ResType::GIT)));
+}
+
+/// With a terrain brush in hand, a right click is the brush's (Raise/
+/// Lower lowers) though an object lies under the pointer: its menu does
+/// not open.
+#[test]
+fn a_right_click_with_a_terrain_brush_is_the_brush_s_over_an_object() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("brush-over-object") else { return };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    h.get_by_label("↕ Raise/Lower").click();
+    h.run_steps(2);
+    // (On the waypoint at 20, 20.)
+    let at = screen(&h, area, Vec3::new(20.0, 20.0, 0.02));
+    h.hover_at(at);
+    h.run_steps(2);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    assert!(h.query_by_label("Properties").is_none(), "no object menu");
+    assert!(h.query_by_label("Go To").is_none());
+    assert!(h.state().palette.tile_brush.is_some(), "the brush stays in hand");
+    // Fast and sloppy, as when working along a slope: presses and
+    // releases a few points apart, left and right, single and double,
+    // some begun before the last stroke is drawn. The object under them
+    // is never selected and its menu never opens.
+    let sel = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].selection.clone();
+    assert!(sel(&h).is_empty());
+    for round in 0..24 {
+        let button = if round % 2 == 0 {
+            egui::PointerButton::Primary
+        } else {
+            egui::PointerButton::Secondary
+        };
+        let slip = egui::vec2((round % 5) as f32 * 2.0, (round % 3) as f32 * 2.0);
+        let modifiers = egui::Modifiers::NONE;
+        h.event(egui::Event::PointerButton { pos: at, button, pressed: true, modifiers });
+        if round % 3 != 0 {
+            h.run_steps(1);
+        }
+        h.event(egui::Event::PointerMoved(at + slip));
+        h.event(egui::Event::PointerButton { pos: at + slip, button, pressed: false, modifiers });
+        h.run_steps(if round % 4 == 0 { 1 } else { 2 });
+        assert!(sel(&h).is_empty(), "round {round}: selected {:?}", sel(&h));
+        assert!(h.query_by_label("Go To").is_none(), "round {round}: the object's menu");
+        assert!(h.query_by_label("Properties").is_none(), "round {round}: the object's menu");
+        assert!(h.state().palette.tile_brush.is_some(), "round {round}: the brush dropped");
+    }
+}
+
+#[test]
+#[ignore = "a look at items lying in an area (MG_ITEMS=resref,resref…)"]
+fn look_items_placed() {
+    use glam::Vec3;
+    let items = std::env::var("MG_ITEMS")
+        .unwrap_or_else(|_| "nw_it_mpotion001,nw_ashsw001,nw_wswss001,nw_cloth001".into());
+    let Some((mut h, area)) = area_harness("items-placed") else { return };
+    h.set_size(egui::vec2(1500.0, 1000.0));
+    h.run_steps(10);
+    for (i, name) in items.split(',').enumerate() {
+        h.state_mut().palette.selected = ResKey::parse(name.trim(), ResType::UTI);
+        let at = screen(&h, area, Vec3::new(12.0 + 1.5 * i as f32, 14.0, 0.0));
+        h.hover_at(at);
+        h.run_steps(2);
+        press(&h, at, true, egui::Modifiers::NONE);
+        press(&h, at, false, egui::Modifiers::NONE);
+        h.run_steps(4);
+    }
+    h.state_mut().palette.selected = None;
+    let view = h.state_mut().area_views.get_mut(&area).unwrap();
+    view.selection.clear();
+    if let Some(o) = view.orbit.as_mut() {
+        o.target = Vec3::new(15.0, 14.0, 0.3);
+        (o.distance, o.yaw, o.pitch) = (4.5, -1.57, 0.6);
+    }
+    h.run_steps(20);
+    let dir = mg_testkit::scratch_dir("ui-items-placed");
+    h.render().expect("render").save(dir.join("a.png")).unwrap();
 }
 
 #[test]

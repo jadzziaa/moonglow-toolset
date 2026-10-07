@@ -65,11 +65,19 @@ impl Rules {
 }
 
 /// An area's tiles and the lattice they make.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Grid {
     pub lattice: Lattice,
     /// Row-major from the south-west, like `Tile_List`.
     pub tiles: Vec<Placement>,
+    /// The cells that refused the stroke asked for last ([`Grid::blocked`]).
+    blocked: std::cell::RefCell<Vec<(u32, u32)>>,
+}
+
+impl PartialEq for Grid {
+    fn eq(&self, other: &Grid) -> bool {
+        self.lattice == other.lattice && self.tiles == other.tiles
+    }
 }
 
 /// A change a brush makes: the lattice after it and the cells that get new
@@ -87,7 +95,7 @@ impl Grid {
     /// not in the tileset or the list is short.
     pub fn new(index: &TileIndex, width: u32, height: u32, tiles: Vec<Placement>) -> Option<Grid> {
         let (lattice, _) = Lattice::from_tiles(index, width, height, &tiles)?;
-        Some(Grid { lattice, tiles })
+        Some(Grid { lattice, tiles, blocked: Default::default() })
     }
 
     pub fn tile(&self, x: u32, y: u32) -> Placement {
@@ -406,6 +414,14 @@ impl Grid {
         Some(stroke)
     }
 
+    /// The cells that refused the stroke asked of this grid last (a brush
+    /// that gave `None`): each has no tile that fits what the stroke would
+    /// make of it, or holds a group's tile the stroke would not keep.
+    /// Empty when the last stroke was not refused there.
+    pub fn blocked(&self) -> Vec<(u32, u32)> {
+        self.blocked.borrow().clone()
+    }
+
     /// The stroke that takes the grid to `lattice`: the cells touching a
     /// changed corner, plus `also`. Refused when one of them has no tile
     /// that fits, or holds a group's tile the change would not keep.
@@ -440,16 +456,23 @@ impl Grid {
                 }
             }
         }
+        let mut blocked = Vec::new();
         for &(x, y) in &cells {
             let cell = lattice.cell(x, y);
             let tile = self.tile(x, y);
-            if index.is_grouped(tile.tile) && !unlocked.contains(&(x, y)) {
-                if index.cell(tile) != Some(cell) {
-                    return None;
-                }
-            } else if index.fits(&cell).is_empty() {
-                return None;
+            let refuses = if index.is_grouped(tile.tile) && !unlocked.contains(&(x, y)) {
+                index.cell(tile) != Some(cell)
+            } else {
+                index.fits(&cell).is_empty()
+            };
+            if refuses {
+                blocked.push((x, y));
             }
+        }
+        let refused = !blocked.is_empty();
+        *self.blocked.borrow_mut() = blocked;
+        if refused {
+            return None;
         }
         // Group tiles that still fit stay.
         cells.retain(|&(x, y)| {
@@ -791,6 +814,11 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
         let before = g.clone();
         assert!(g.paint(&index, &rules, 2, 2, w).is_none());
         assert_eq!(g, before);
+        // What refused it: the cell that would have B and W both.
+        assert_eq!(g.blocked(), [(1, 1)]);
+        // A stroke that is taken leaves nothing refused.
+        assert!(g.paint(&index, &rules, 3, 3, b).is_some());
+        assert!(g.blocked().is_empty());
     }
 
     #[test]

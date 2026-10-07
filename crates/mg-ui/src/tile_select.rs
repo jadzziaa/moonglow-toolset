@@ -322,7 +322,10 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
             let changes = g.apply(&tools.index, stroke, &mut fastrand::Rng::new());
             crate::terrain_mode::tile_command(app, view, &before, &changes, "Delete tiles");
         }
-        None => view.notice = Some("Delete: no tile fits there".into()),
+        None => {
+            view.notice = Some("Delete: no tile fits there".into());
+            view.refused = Some((g.blocked(), std::time::Instant::now()));
+        }
     }
 }
 
@@ -723,6 +726,38 @@ fn apply(app: &mut Moonglow, props: &TileProps) {
     if !edits.is_empty() {
         app.actions.push(Action::Apply(Command::new("Tile Properties", edits)));
     }
+}
+
+/// How long the tiles that refused a stroke stay red, in seconds.
+const REFUSED_SHOWN: f32 = 1.2;
+
+/// The tiles that refused the terrain stroke asked for last, in red for a
+/// moment, fading: what is in the way of a raise, a lowering or a
+/// painting, as Aurora flashes it.
+pub(crate) fn refused_overlay(ui: &egui::Ui, view: &mut AreaView) {
+    let Some((cells, at)) = &view.refused else { return };
+    let age = at.elapsed().as_secs_f32();
+    let Some(model) = view.model.as_ref().filter(|_| age < REFUSED_SHOWN) else {
+        view.refused = None;
+        return;
+    };
+    let strength = 1.0 - age / REFUSED_SHOWN;
+    let painter = ui.painter_at(view.rect);
+    for &(x, y) in cells {
+        let Some(t) = model.tiles.get((y * model.width + x) as usize) else { continue };
+        let z = t.position.z;
+        let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(dx, dy)| {
+            Vec3::new((x as f32 + dx) * mg_area::TILE_SIZE, (y as f32 + dy) * mg_area::TILE_SIZE, z)
+        });
+        let corners = view.on_ground(&corners);
+        let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
+        if screen.len() == 4 {
+            let fill = Color32::from_rgba_unmultiplied(230, 40, 40, (110.0 * strength) as u8);
+            let line = Color32::from_rgba_unmultiplied(255, 60, 60, (255.0 * strength) as u8);
+            painter.add(egui::Shape::convex_polygon(screen, fill, egui::Stroke::new(2.0, line)));
+        }
+    }
+    ui.ctx().request_repaint();
 }
 
 /// The selected tiles and the box being dragged, over the view.

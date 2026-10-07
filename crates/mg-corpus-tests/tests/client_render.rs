@@ -1015,6 +1015,85 @@ fn placeables_look() {
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
+/// Exploration: items lying in an area, in the client beside Moonglow's
+/// drawing: a shield, a potion, a sword and armor of each weight, north
+/// of the player. `MG_ITEMS` gives other blueprints (comma-separated),
+/// `MG_CLIENT_CAMERA` the client's camera as nwscript and `MG_CAMERA`
+/// Moonglow's (`distance,pitch,focus,fov`). Both views go to
+/// `target/test-output/client_items/`.
+#[test]
+#[ignore]
+fn items_look() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let dir = scratch_dir("client_items");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let light = Lighting { ambient: 0x909090, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let (mut m, are) = build_module(&game, &dir, light);
+    let enter: String =
+        ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+    let enter = match std::env::var("MG_CLIENT_CAMERA") {
+        Ok(code) => enter.replace(
+            "AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));",
+            &code,
+        ),
+        Err(_) => enter,
+    };
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let names = std::env::var("MG_ITEMS").unwrap_or_else(|_| {
+        "nw_ashsw001,nw_it_mpotion001,nw_wswss001,nw_cloth001,nw_aarcl001,nw_aarcl004,nw_aarcl007"
+            .into()
+    });
+    let names: Vec<&str> = names.split(',').map(str::trim).collect();
+    let mut placed = Vec::new();
+    for (i, name) in names.iter().enumerate() {
+        let bp = game.resman.get_named(name, ResType::UTI).unwrap();
+        let bp = Gff::read(&bp).unwrap();
+        let x = 20.0 + (i as f32 - (names.len() - 1) as f32 / 2.0) * 1.2;
+        let at = Placement { position: [x, 22.0, 0.0], rotation: 0.0 };
+        placed.push(instance(&placing, ResType::UTI, &bp.root, at, &[]).unwrap());
+    }
+    git.root.set(mg_area::ObjectKind::Item.list(), Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+
+    let model = mg_area::AreaModel::read(
+        &game,
+        &are.root,
+        &git.root,
+        mg_area::tileset(&game, ResRef::from_str("tic01").unwrap()).ok().as_ref(),
+    );
+    for o in &model.objects {
+        eprintln!("object {:?} laid {} problem {:?}", o.kind, o.laid, o.problem);
+    }
+    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let scene =
+        area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
+    let c: Vec<f32> = std::env::var("MG_CAMERA")
+        .unwrap_or_else(|_| "5,60,0.3,40".into())
+        .split(',')
+        .map(|v| v.parse().unwrap())
+        .collect();
+    let camera = fitted_camera(Vec3::new(20.0, 20.0, 0.0), c[3], c[2], c[0], c[1]);
+    let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+    save_png(&ours, &dir.join("moonglow.png"));
+    eprintln!("{}: client {}", dir.display(), client.is_some());
+}
+
 /// Exploration: creatures in the client beside Moonglow's drawing. A human
 /// (west) and an elf (east), each in an armor whose torso has colors of
 /// its own (the rest of the armor another) and a cloak, standing north of

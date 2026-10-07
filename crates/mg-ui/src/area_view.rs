@@ -333,6 +333,9 @@ pub struct AreaView {
     pub(crate) group_turns: u8,
     /// Why the last stroke did nothing.
     pub(crate) notice: Option<String>,
+    /// The tiles that refused the terrain stroke asked for last, and when:
+    /// they flash red for a moment, as in Aurora.
+    pub refused: Option<(Vec<(u32, u32)>, std::time::Instant)>,
     /// The tiles' walkmeshes.
     ground: Option<Ground>,
     pub error: Option<String>,
@@ -460,6 +463,7 @@ impl AreaView {
             tile_menu_at: None,
             group_turns: 0,
             notice: None,
+            refused: None,
             ground: None,
             error: None,
             orbit: None,
@@ -1895,6 +1899,7 @@ fn viewport(
     object_walkmesh_overlay(app, ui, view);
     crate::terrain_mode::overlay(app, ui, view);
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
+    crate::tile_select::refused_overlay(ui, view);
     // Tiles animate: keep drawing while the view is on screen.
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
     input(app, ui, view, &response);

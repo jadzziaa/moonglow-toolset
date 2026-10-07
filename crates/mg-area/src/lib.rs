@@ -308,6 +308,9 @@ pub struct AreaObject {
     /// A door's or placeable's `AnimationState` (a door: 0 closed, 1 and 2
     /// open one way or the other).
     pub state: u8,
+    /// How an item is turned where it lies (`mg_preview::ground_turn`:
+    /// baseitems.2da's `RotateOnGround`).
+    pub laid: u8,
 }
 
 /// The field Moonglow marks a locked object with: a byte the game and
@@ -359,7 +362,9 @@ impl AreaObject {
             None => (None, None),
         };
         let template_field = if kind == ObjectKind::Store { "ResRef" } else { "TemplateResRef" };
+        let laid = if kind == ObjectKind::Item { mg_preview::ground_turn(game, s) } else { 0 };
         AreaObject {
+            laid,
             kind,
             index,
             position,
@@ -405,7 +410,15 @@ impl AreaObject {
 
     /// Where its model stands and how it turns.
     pub fn transform(&self) -> Mat4 {
-        Mat4::from_rotation_translation(Quat::from_rotation_z(self.rotation), self.position)
+        let stands =
+            Mat4::from_rotation_translation(Quat::from_rotation_z(self.rotation), self.position);
+        // An item lies as its base item says (`RotateOnGround`): a sword
+        // and a shield on their flat, a potion stood up.
+        match self.laid {
+            1 => stands * Mat4::from_rotation_y(FRAC_PI_2),
+            2 => stands * Mat4::from_rotation_x(FRAC_PI_2),
+            _ => stands,
+        }
     }
 
     /// Where its model is drawn: where it stands, with its visual

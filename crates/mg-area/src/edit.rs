@@ -197,6 +197,7 @@ mod tests {
             preview: None,
             problem: None,
             outline: Vec::new(),
+            laid: 0,
             visual: None,
             is_static: false,
             trigger_type: 0,
