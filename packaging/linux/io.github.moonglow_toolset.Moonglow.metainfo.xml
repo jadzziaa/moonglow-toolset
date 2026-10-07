@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.18.0" date="2026-10-07">
+      <description>
+        <p>Text typed in another language than English keeps its
+        letters; conversation lines are dropped above one another and
+        have a right-click menu; an encounter's spawn points move on
+        their own; several objects turn together about their middle;
+        Resize Area at any two edges; a tile's variants are chosen by
+        picture in Tile Properties, now a window to resize and dock.</p>
+      </description>
+    </release>
     <release version="1.17.1" date="2026-10-07">
       <description>
         <p>No key moves the area's camera while text is typed in a window
