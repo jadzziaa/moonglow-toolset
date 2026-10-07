@@ -90,6 +90,11 @@ pub trait Dialogs {
     fn save_file(&mut self, kind: FileKind, suggested: Option<&Path>) -> Option<PathBuf>;
     /// Asks for a folder.
     fn pick_folder(&mut self, title: &str, start: Option<&Path>) -> Option<PathBuf>;
+    /// Asks for a file of any of `extensions` (none: any file), under
+    /// `title`: what a plugin asks for.
+    fn open_file_of(&mut self, _title: &str, _extensions: &[String]) -> Option<PathBuf> {
+        self.open_file(FileKind::Any, None)
+    }
     /// Asks for files to open (none: cancelled).
     fn open_files(&mut self, kind: FileKind, start: Option<&Path>) -> Vec<PathBuf> {
         self.open_file(kind, start).into_iter().collect()

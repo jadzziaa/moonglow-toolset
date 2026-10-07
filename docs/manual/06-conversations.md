@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T22:14:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
 ---
 
 # Conversations
@@ -86,7 +86,9 @@ replies whose conditions pass, numbered.
 can have tokens of its own (the game's Polish has many English doesn't):
 Token… lists those of the language you edit (Options › General), and in
 the **…** window for a text in several languages each language's row has
-its own **Token…**, which puts the token at the end of that text.
+its own **Token…**. A token goes in where the caret was last in the
+text, in place of what was selected (at the end, if the caret was never
+there).
 
 ## Writing conversations elsewhere
 

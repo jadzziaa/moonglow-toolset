@@ -419,6 +419,34 @@ impl Keymap {
         }
     }
 
+    /// The keys as a file to hand on: the commands whose keys aren't
+    /// their own, as the settings keep them.
+    pub fn to_file(&self) -> String {
+        let file = serde_json::json!({ "moonglow-keys": 1, "keys": self.chosen() });
+        serde_json::to_string_pretty(&file).unwrap_or_default()
+    }
+
+    /// Takes the keys of a file [`Keymap::to_file`] wrote: every command
+    /// back to its own keys, then the file's choices. How many commands
+    /// it sets, or why it is no such file.
+    pub fn take_file(&mut self, text: &str) -> Result<usize, String> {
+        let file: serde_json::Value =
+            serde_json::from_str(text).map_err(|e| format!("it is not a key file: {e}"))?;
+        if file.get("moonglow-keys").and_then(serde_json::Value::as_u64) != Some(1) {
+            return Err("it is not a key file of Moonglow's".into());
+        }
+        let chosen: BTreeMap<String, Vec<String>> = file
+            .get("keys")
+            .cloned()
+            .and_then(|k| serde_json::from_value(k).ok())
+            .ok_or("it has no keys")?;
+        self.reset_all();
+        for (id, list) in &chosen {
+            self.keys.insert(id.clone(), list.iter().filter_map(|t| from_text(t)).collect());
+        }
+        Ok(chosen.len())
+    }
+
     /// The settings' form: each command whose keys aren't Moonglow's.
     pub fn chosen(&self) -> BTreeMap<String, Vec<String>> {
         self.keys
@@ -556,6 +584,27 @@ impl Keymap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keys_go_to_a_file_and_come_back() {
+        let mut keys = Keymap::default();
+        let cmd = Cmd::ALL[0];
+        let own = keys.keys(cmd);
+        let chosen = from_text("Ctrl+Alt+F9").unwrap();
+        keys.set(cmd, vec![chosen]);
+        let file = keys.to_file();
+        // Into a key map with another choice of its own: the file's
+        // replace it, and what the file doesn't name is its own again.
+        let mut other = Keymap::default();
+        let second = Cmd::ALL[1];
+        other.set(second, Vec::new());
+        assert_eq!(other.take_file(&file), Ok(1));
+        assert_eq!(other.keys(cmd), [chosen]);
+        assert_eq!(other.keys(second), second.defaults());
+        assert_ne!(own, [chosen]);
+        assert!(other.take_file("{}").is_err());
+        assert!(other.take_file("not json").is_err());
+    }
 
     /// A command that is no key command has no keys until given some, keeps
     /// them through the settings, and counts in what conflicts.

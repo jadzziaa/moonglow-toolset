@@ -674,7 +674,7 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui.button("Choose File…").clicked()
-                    && let Some(path) = app.dialogs.open_file(crate::FileKind::Any, None)
+                    && let Some(path) = app.dialogs.open_file_of(title, extensions)
                 {
                     ask.answer(Some(Answer::Path(path)));
                 }

@@ -21,7 +21,7 @@ use mlua::{Lua, Table};
 use crate::runtime::{CODEPAGE, Shared, This, fail};
 
 /// The names of what an area's terrain has, as the reference writes them.
-pub(crate) const NAMES: [&str; 14] = [
+pub(crate) const NAMES: [&str; 17] = [
     "area.resref",
     "area.tileset",
     "area.width",
@@ -29,6 +29,7 @@ pub(crate) const NAMES: [&str; 14] = [
     "area.step",
     "area.terrains",
     "area.groups",
+    "area.crossers",
     "area:corner",
     "area:tile",
     "area:paint",
@@ -36,6 +37,8 @@ pub(crate) const NAMES: [&str; 14] = [
     "area:set_height",
     "area:place_group",
     "area:set_tile",
+    "area:cross",
+    "area:erase",
 ];
 
 /// The most steps one call raises or lowers a corner.
@@ -185,6 +188,9 @@ fn handle(lua: &Lua, sh: &Rc<Shared>, area: Area) -> mlua::Result<Table> {
     let terrains: Vec<String> =
         area.index.terrains().map(|t| area.index.terrain_name(t).to_string()).collect();
     t.set("terrains", terrains)?;
+    let crossers: Vec<String> =
+        area.index.crossers().map(|c| area.index.crosser_name(c).to_string()).collect();
+    t.set("crossers", crossers)?;
     let groups = lua.create_table()?;
     for g in &area.set.groups {
         let group = lua.create_table()?;
@@ -291,6 +297,50 @@ fn handle(lua: &Lua, sh: &Rc<Shared>, area: Area) -> mlua::Result<Table> {
                 }
             },
         )?,
+    )?;
+    let (a, s) = (area.clone(), sh.clone());
+    t.set(
+        "cross",
+        lua.create_function(move |_, (_, crosser, path): (This, String, Table)| {
+            let before = a.grid(&s)?;
+            let Some(found) = a.index.crosser(&crosser) else {
+                let names: Vec<&str> =
+                    a.index.crossers().map(|c| a.index.crosser_name(c)).collect();
+                return fail(format!(
+                    "the tileset has no crosser {crosser:?} (it has {})",
+                    names.join(", ")
+                ));
+            };
+            // The cells it runs through, each beside the one before.
+            let mut cells = Vec::new();
+            for step in path.sequence_values::<Table>() {
+                let step = step?;
+                let (x, y): (f64, f64) = (step.get(1)?, step.get(2)?);
+                cells.push(a.cell(&before, x, y)?);
+            }
+            if cells.len() < 2 {
+                return fail("a crosser runs through two cells or more: { {0, 0}, {1, 0} }");
+            }
+            let Some(edges) = mg_tiles::paint::path_edges(&cells) else {
+                return fail("each cell of a crosser's path is beside the one before it");
+            };
+            match before.draw_crosser(&a.index, &edges, &[], found) {
+                Some(stroke) => a.stroke(&s, &before, stroke).map(|()| true),
+                None => Ok(false),
+            }
+        })?,
+    )?;
+    let (a, s) = (area.clone(), sh.clone());
+    t.set(
+        "erase",
+        lua.create_function(move |_, (_, x, y): (This, f64, f64)| {
+            let before = a.grid(&s)?;
+            let (x, y) = a.cell(&before, x, y)?;
+            match before.erase(&a.index, x, y) {
+                Some(stroke) => a.stroke(&s, &before, stroke).map(|()| true),
+                None => Ok(false),
+            }
+        })?,
     )?;
     let (a, s) = (area, sh.clone());
     t.set(

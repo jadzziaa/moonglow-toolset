@@ -298,6 +298,9 @@ impl Grid {
     /// within a step), and the tiles around choose again; a cell the group
     /// leaves empty (`-1`) is matched like terrain. `None` when the group
     /// does not fit inside the area or a tile around it has nothing to fit.
+    /// Over part of another group it takes that one away whole (Aurora
+    /// refuses the placement there; replacing in place, undoable, was
+    /// chosen over that).
     pub fn place_group(
         &self,
         index: &TileIndex,

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T04:18:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
 ---
 
 # The main window
@@ -106,7 +106,8 @@ is offered), and for a blueprint or an area a Tag. An area is copied with
 everything placed in it and joins the module's area list; one Undo takes
 the copy away.
 
-**Delete…** asks first, and Undo brings back what it deleted. An area goes
+**Delete…** (or the Delete key, on the row under the pointer) asks
+first, and Undo brings back what it deleted. An area goes
 with everything placed in it and leaves the module's area list; a script
 goes with its compiled script. The area the module's start location is in
 can't be deleted: set the start location in another area first. Nothing

@@ -1,6 +1,9 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [The deferred list](deferred.md) and [troubleshooting](manual/13-troubleshooting.md): the debug log set aside past 32 MB; "≠" before fields that differ among what is edited together ([areas](manual/04-areas.md)); areas by name in the references list; Aurora's grid on raised ground.
+* **Update**: [Options](manual/10-options.md): the keys exported and imported; [areas](manual/04-areas.md): a sound's random place drawn, and a group over another replaced in place by decision; [the deferred list](deferred.md).
+* **Update**: [The deferred list](deferred.md): checked against the game client and Aurora (tilted and static placeables, a TGA's right-to-left bit, a worn armor's part colors, a cloak on a smaller body, special abilities' flags, groups placed over groups, the start area's deletion, include files in Aurora's build); [areas](manual/04-areas.md) (a group is refused over another), [blueprints](manual/05-blueprints.md) (what the flags mean to the game), [scripts](manual/07-scripts.md) (Aurora compiles include files), [conversations](manual/06-conversations.md) (a token goes in at the caret), [the main window](manual/02-main-window.md) (the Delete key in the module tree), the [plugin API reference](manual/17-plugin-api.md) (`cross`, `erase`, `crossers`).
 * **Update**: [Writing plugins](manual/16-writing-plugins.md), the [plugin API reference](manual/17-plugin-api.md), [Plugins](manual/15-plugins.md), [command-line tools](manual/11-command-line.md), the [API's changes](plugins/CHANGES.md) and the [authors' page](plugins/README.md): plugin API 0.2 (a file or folder the user chooses, haks written with their leave, areas and terrain, pictures) and the `tileset-import` example; [the deferred list](deferred.md): what a builder's terrain tool would need beyond it, and the `mzlm` lightmap shader known by name.
 
 ## 2026-10-06

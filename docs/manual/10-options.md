@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:14:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T09:30:00Z }
 ---
 
 # Options
@@ -152,6 +152,10 @@ what you type (a command's name, or its group's).
   it. A command can have several keys, or none.
 - **Reset** gives a command Moonglow's keys back, **Reset All** every
   command.
+- **Export…** writes the keys you chose as a file, to keep or to hand to
+  someone; **Import…** takes such a file's keys in place of yours (every
+  command the file doesn't name goes back to Moonglow's keys). As with
+  the rest of Options, OK keeps them.
 - **Conflicts:** a key two commands share where both work is named above
   the list. (A key of the whole window wins over the editors' own.)
 - The commands of enabled [plugins](15-plugins.md) are listed under

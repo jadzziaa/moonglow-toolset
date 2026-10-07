@@ -11661,3 +11661,119 @@ fn a_plugin_reads_a_chosen_folder_and_writes_a_hak() {
         h.state().log.entries
     );
 }
+
+/// The Delete key on a row of the module tree asks as its menu's Delete…
+/// does.
+#[test]
+fn delete_on_a_tree_row_asks_first() {
+    let Some((mut h, key)) = plugin_harness("ui-tree-delete-key", false) else { return };
+    h.run();
+    // The guard's row (its type opened out), under the pointer.
+    h.get_by_label("Expand All").click();
+    h.run_steps(3);
+    let found = h.query_all_by_label_contains("guard").count();
+    assert!(found > 0, "the guard's row");
+    let row = h.query_all_by_label_contains("guard").next().unwrap().rect().center();
+    h.hover_at(row);
+    h.run_steps(2);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert!(h.query_by_label("Delete").is_some(), "asked");
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    assert!(!h.state_mut().ws.as_mut().unwrap().module.contains(&key));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert!(h.state_mut().ws.as_mut().unwrap().module.contains(&key), "undone");
+}
+
+/// A script's copy takes its compiled script along.
+#[test]
+fn a_script_is_copied_with_its_compiled_script() {
+    let Some((mut h, _)) = plugin_harness("ui-copy-script", false) else { return };
+    let (nss, ncs) = (
+        ResKey::parse("greet", ResType::NSS).unwrap(),
+        ResKey::parse("greet", ResType::NCS).unwrap(),
+    );
+    let edits = vec![
+        mg_edit::Edit::SetResource { key: nss, data: Some(b"void main() { }\n".to_vec()) },
+        mg_edit::Edit::SetResource { key: ncs, data: Some(b"NCS V1.0 compiled".to_vec()) },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::CopyDialog(nss));
+    h.run_steps(3);
+    h.state_mut().copy_as.as_mut().expect("the Copy window").resref = "greet_two".into();
+    h.run_steps(2);
+    h.get_by_label("Create Copy").click();
+    h.run_steps(3);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    let copy = |t| ws.module.get(&ResKey::parse("greet_two", t).unwrap()).map(<[u8]>::to_vec);
+    assert_eq!(copy(ResType::NSS).as_deref(), Some(&b"void main() { }\n"[..]));
+    assert_eq!(copy(ResType::NCS).as_deref(), Some(&b"NCS V1.0 compiled"[..]));
+}
+
+#[test]
+#[ignore = "a look at fields that differ among blueprints edited together"]
+fn look_edit_together_mixed() {
+    use mg_edit::{Command, Edit};
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("ui-mixed-look");
+    let path = sample_module(&dir);
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.open_palette = false;
+    let game = app.game.as_deref().unwrap();
+    let base = Gff::read(&game.resman.get_named("plc_chest1", ResType::UTP).unwrap()).unwrap();
+    let keys: Vec<ResKey> =
+        ["mg_box_a", "mg_box_b"].iter().map(|n| ResKey::parse(n, ResType::UTP).unwrap()).collect();
+    let edits = keys
+        .iter()
+        .enumerate()
+        .map(|(i, k)| {
+            let mut g = base.clone();
+            g.root.set("TemplateResRef", mg_gff::Value::resref(k.resref));
+            if i == 1 {
+                g.root.set("Tag", mg_gff::Value::String(b"OTHER".to_vec()));
+                g.root.set("Hardness", mg_gff::Value::Byte(77));
+                g.root.set("Plot", mg_gff::Value::Byte(1));
+            }
+            Edit::SetResource { key: *k, data: Some(g.to_bytes().unwrap()) }
+        })
+        .collect();
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprints(keys)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    h.render().expect("render").save(dir.join("a.png")).unwrap();
+}
+
+/// The references list names an area as the rest of the window does:
+/// by its name where areas are shown by name.
+#[test]
+fn references_name_areas_as_the_window_does() {
+    let Some((mut h, area)) = area_harness("refs-area-names") else { return };
+    let waypoint = ResKey::parse("nw_waypoint001", ResType::UTW).unwrap();
+    h.state_mut().settings.area_names = false;
+    h.state_mut().actions.push(mg_ui::Action::FindReferences(waypoint));
+    h.run_steps(4);
+    let by_resref = h.query_all_by_label_contains(&format!("{area} ›")).count();
+    assert!(by_resref > 0, "its waypoints, by the area's resref");
+    h.state_mut().settings.area_names = true;
+    h.run_steps(3);
+    assert_eq!(h.query_all_by_label_contains(&format!("{area} ›")).count(), 0);
+    assert_eq!(h.query_all_by_label_contains("Field ›").count(), by_resref);
+}

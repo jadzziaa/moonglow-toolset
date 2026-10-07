@@ -24,6 +24,15 @@ impl Dialogs for NativeDialogs {
         d.pick_file()
     }
 
+    fn open_file_of(&mut self, title: &str, extensions: &[String]) -> Option<PathBuf> {
+        let title = if title.is_empty() { FileKind::Any.title(false) } else { title };
+        let mut d = rfd::FileDialog::new().set_title(title);
+        if !extensions.is_empty() {
+            d = d.add_filter("What the plugin reads", extensions).add_filter("All files", &["*"]);
+        }
+        d.pick_file()
+    }
+
     fn save_file(&mut self, kind: FileKind, suggested: Option<&Path>) -> Option<PathBuf> {
         let mut d = rfd::FileDialog::new().set_title(kind.title(true));
         if let Some((name, exts)) = kind.filter(true) {

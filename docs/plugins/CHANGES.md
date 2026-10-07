@@ -3,7 +3,7 @@ type: Changelog
 title: Plugin API changes
 description: What changed in each version of the plugin API, and what a plugin written for the version before has to change.
 tags: [plugins, api, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T04:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
 ---
 
 # Plugin API changes
@@ -30,7 +30,8 @@ plainly.
 - `ctx.terrain`: `tilesets`, `new_area` (an area as the Area Wizard
   makes it) and `open`, an area's terrain to read and paint as the area
   editor's brushes do: `corner`, `tile`, `paint`, `raise`, `set_height`,
-  `place_group`, `set_tile`.
+  `place_group`, `set_tile`; and, from Moonglow 1.16.1, `cross` (roads,
+  streams, walls), `erase` and the list `crossers`.
 - `mg.image`: a PNG, TGA or DDS picture decoded, to read its pixels.
 - `mg plugin run` takes `--file` (what the plugin gets where it asks for
   a file or folder) and `--hak-dir`.

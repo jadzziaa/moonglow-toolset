@@ -409,11 +409,12 @@ impl AreaObject {
     }
 
     /// Where its model is drawn: where it stands, with its visual
-    /// transform.
+    /// transform if it takes one (the game draws a static placeable
+    /// upright whatever its file says: `placeables_look`, in the client).
     pub fn model_transform(&self) -> Mat4 {
         match &self.visual {
-            Some(v) => self.transform() * v.matrix(),
-            None => self.transform(),
+            Some(v) if self.takes_visual_transform() => self.transform() * v.matrix(),
+            _ => self.transform(),
         }
     }
 

@@ -770,6 +770,33 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             *field = p.display().to_string();
         }
     }
+    let keys_file: Option<bool> = ui.data_mut(|d| d.remove_temp(keys_file_id()));
+    match keys_file {
+        Some(true) => {
+            let suggested = std::path::Path::new("moonglow-keys.json");
+            if let Some(p) = app.dialogs.save_file(crate::dialogs::FileKind::Any, Some(suggested)) {
+                match std::fs::write(&p, draft.keymap.to_file()) {
+                    Ok(()) => app.log.info(format!("Keys written to {}", p.display())),
+                    Err(e) => app.log.error(format!("{}: {e}", p.display())),
+                }
+            }
+        }
+        Some(false) => {
+            if let Some(p) = app.dialogs.open_file(crate::dialogs::FileKind::Any, None) {
+                let taken = std::fs::read_to_string(&p)
+                    .map_err(|e| e.to_string())
+                    .and_then(|text| draft.keymap.take_file(&text));
+                match taken {
+                    Ok(n) => app.log.info(format!(
+                        "Keys of {n} commands taken from {} (OK keeps them)",
+                        p.display()
+                    )),
+                    Err(e) => app.log.error(format!("{}: {e}", p.display())),
+                }
+            }
+        }
+        None => {}
+    }
     if close {
         app.options = None;
         app.actions.push(Action::CloseTab(crate::Tab::Options));
@@ -934,9 +961,33 @@ fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
             }
         });
     });
-    if ui.button("Reset All").clicked() {
-        draft.keymap.reset_all();
-    }
+    ui.horizontal(|ui| {
+        if ui.button("Reset All").clicked() {
+            draft.keymap.reset_all();
+        }
+        // (Asked of the file dialogs once the page is drawn.)
+        let ask = |ui: &Ui, export: bool| ui.data_mut(|d| d.insert_temp(keys_file_id(), export));
+        if ui
+            .button("Export…")
+            .on_hover_text("The keys you chose, as a file to keep or hand on")
+            .clicked()
+        {
+            ask(ui, true);
+        }
+        if ui
+            .button("Import…")
+            .on_hover_text("Take the keys of such a file, in place of these")
+            .clicked()
+        {
+            ask(ui, false);
+        }
+    });
+}
+
+/// Where the Keyboard page leaves its wish for a file dialog (true: to
+/// export).
+fn keys_file_id() -> egui::Id {
+    egui::Id::new("options-keys-file")
 }
 
 #[cfg(test)]

@@ -160,6 +160,12 @@ impl Moonglow {
         let scripts: Vec<ResKey> =
             roots.iter().filter(|k| k.restype == mg_core::ResType::NSS).copied().collect();
         let (compiled, broken) = crate::script_view::compile_stale(self, &scripts);
+        if self.game.is_none() && !scripts.is_empty() {
+            self.log.warn(
+                "No game data to compile with: the scripts go out with the compiled scripts \
+                 they have, which may be older than their source",
+            );
+        }
         let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());

@@ -963,7 +963,7 @@ fn text_panel(
                 egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                     for t in &tokens {
                         if ui.selectable_label(false, t).clicked() {
-                            let v = format!("{english}{t}");
+                            let v = crate::widgets::with_token(ui.ctx(), id, &english, t);
                             actions.push(set(
                                 key,
                                 "Insert token",

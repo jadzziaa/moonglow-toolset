@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T22:14:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T10:20:00Z }
 ---
 
 # Areas
@@ -53,7 +53,9 @@ looking straight down at their middle, north up, as in Aurora.
   from where it stands: at full volume inside the inner one (its minimum
   distance), not at all outside the outer one (its maximum). The
   selection's are brighter; a sound heard everywhere in the area has none.
-  Areas opened later open as you left it.
+  A sound that plays from a random place has a rectangle too: how far
+  east and north of itself it may play. Areas opened later open as you
+  left it.
 - **Walkmesh**: the ground's walkmesh over the area (Aurora's Render AABB
   Nodes): walkable faces green, the others red.
 - **Object Walkmeshes**: where placeables (their `.pwk`, orange) and doors
@@ -199,7 +201,9 @@ places and turns around it.
 - **Properties**: the object's properties as placed in the area (an
   instance can differ from its blueprint). With several objects of one
   kind selected, one window edits them together: a field changed there
-  changes in all of them.
+  changes in all of them. It shows the first one's values, with **≠**
+  before a field where the others have another (so too for blueprints
+  edited together from the palette).
 - **Adjust Location…**: an exact position and bearing, and the visual
   transform that EE added (scale, rotation about each axis and offset)
   for creatures, doors, items and placeables that aren't Static (a static
@@ -311,7 +315,8 @@ as Aurora's Terrain tab does:
   stays) and the brush chosen.
 - **Groups** (buildings, big features) are placed whole; right-click to
   turn one before placing it. It stays chosen, to place another. A group
-  placed over part of another takes the other away whole.
+  placed over part of another takes the other away whole (Aurora refuses
+  to place it there; Undo brings the other back).
 - The **Eraser** takes the crossers off a tile, and on a tile of a group
   or a feature takes the whole of it away (its tiles become ground that
   fits there); Shift + click steps the

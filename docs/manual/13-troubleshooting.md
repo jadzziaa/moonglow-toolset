@@ -3,7 +3,7 @@ type: Manual Page
 title: Troubleshooting
 description: Troubleshooting - the game is not found, no GPU in the area viewer, Test Module does nothing, no sound, after a crash, and where Moonglow keeps its files.
 tags: [manual, troubleshooting]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:00:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T11:00:00Z }
 ---
 
 # Troubleshooting
@@ -83,7 +83,8 @@ for, the tabs opened and where the panes are, what an area's view and
 the palettes find as they load, the graphics adapter, and the graphics
 libraries' warnings. It holds the names of your module's files and
 folders, not their contents. A new one is started each time Moonglow
-starts; to log from the very start (a module that fails as it opens),
+starts, and one that passes 32 MB is set aside as `debug-log.1.txt` and
+begun again (send both, then); to log from the very start (a module that fails as it opens),
 turn the option on, close Moonglow and start it again. (Setting the
 `MOONGLOW_DEBUG_LOG` environment variable does the same without the
 option.)

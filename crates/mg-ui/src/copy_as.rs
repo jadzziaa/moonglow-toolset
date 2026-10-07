@@ -28,6 +28,9 @@ pub struct CopyDraft {
 fn family(t: ResType) -> Vec<ResType> {
     match t {
         ResType::ARE => vec![ResType::ARE, ResType::GIT, ResType::GIC],
+        // (Its compiled script is the same under any name; its debug
+        // information names the file, and is made again by a compile.)
+        ResType::NSS => vec![ResType::NSS, ResType::NCS],
         t => vec![t],
     }
 }

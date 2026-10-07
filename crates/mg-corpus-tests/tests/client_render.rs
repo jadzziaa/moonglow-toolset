@@ -895,3 +895,310 @@ fn particles_look() {
     eprintln!("{}: client {}", dir.display(), client.is_some());
     assert!(client.is_some());
 }
+
+/// A 64×64 TGA in four colors (as its file's rows and columns go: first
+/// row red then green, last row blue then white), its descriptor as given.
+fn quadrant_tga(descriptor: u8) -> Vec<u8> {
+    let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 32, descriptor];
+    for y in 0..64 {
+        for x in 0..64 {
+            // (BGRA.)
+            t.extend(match (y < 32, x < 32) {
+                (true, true) => [0, 0, 255, 255],
+                (true, false) => [0, 255, 0, 255],
+                (false, true) => [255, 0, 0, 255],
+                (false, false) => [255, 255, 255, 255],
+            });
+        }
+    }
+    t
+}
+
+/// Exploration: placed placeables in the client beside Moonglow's drawing
+/// of the same area. Three armoires north of the player: the west one
+/// tilted (a visual transform turned about all three axes), the middle one
+/// plain, the east one tilted and static. `MG_TGA` (a number) gives the
+/// armoire's texture as a four-color TGA with that image descriptor (16:
+/// right to left; 32: top first). Both views go to
+/// `target/test-output/client_placeables/`.
+#[test]
+#[ignore]
+fn placeables_look() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let dir = scratch_dir("client_placeables");
+    std::fs::create_dir_all(dir.join("user/override")).unwrap();
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    if let Some(d) = std::env::var("MG_TGA").ok().and_then(|d| d.parse::<u8>().ok()) {
+        let model = base.resman.get_named("plc_a01", ResType::MDL).unwrap();
+        let model = Model::read(&model).unwrap();
+        let texture = model
+            .nodes
+            .iter()
+            .find_map(|n| match &n.kind {
+                mg_mdl::NodeKind::Mesh(m) => m.textures[0].clone(),
+                _ => None,
+            })
+            .unwrap();
+        eprintln!("texture {texture}");
+        std::fs::write(dir.join(format!("user/override/{texture}.tga")), quadrant_tga(d)).unwrap();
+    }
+    let game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let (mut m, are) = build_module(&game, &dir, light);
+    let enter: String =
+        ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let bp = game.resman.get_named("plc_armoire", ResType::UTP).unwrap();
+    let bp = Gff::read(&bp).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let axis = |v: f32| {
+        let mut s = mg_gff::Struct::new(0);
+        s.set("LerpType", Value::Int(0));
+        s.set("ValueTo", Value::Float(v));
+        Value::Struct(s)
+    };
+    let tilt = || {
+        let mut e = mg_gff::Struct::new(6);
+        e.set("Scope", Value::Int(0));
+        e.set("AnimationSpeed", axis(1.0));
+        for (prefix, v) in
+            [("Scale", [1.0; 3]), ("Rotate", [30.0, 20.0, 45.0]), ("Translate", [0.0; 3])]
+        {
+            for (i, a) in ["X", "Y", "Z"].iter().enumerate() {
+                e.set(&format!("{prefix}{a}"), axis(v[i]));
+            }
+        }
+        Value::List(vec![e])
+    };
+    let mut placed = Vec::new();
+    for (x, y, tilted, is_static) in
+        [(17.5, 21.0, true, false), (20.0, 23.0, false, false), (22.5, 21.0, true, true)]
+    {
+        let at = Placement { position: [x, y, 0.0], rotation: 0.0 };
+        let mut p = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+        if tilted {
+            p.set("VisTransformList", tilt());
+        }
+        p.set("Static", Value::Byte(u8::from(is_static)));
+        placed.push(p);
+    }
+    git.root.set("Placeable List", Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+
+    let model = mg_area::AreaModel::read(
+        &game,
+        &are.root,
+        &git.root,
+        mg_area::tileset(&game, ResRef::from_str("tic01").unwrap()).ok().as_ref(),
+    );
+    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let scene =
+        area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
+    let camera =
+        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+    save_png(&ours, &dir.join("moonglow.png"));
+    eprintln!("{}: client {}", dir.display(), client.is_some());
+}
+
+/// Exploration: creatures in the client beside Moonglow's drawing. A human
+/// (west) and an elf (east), each in an armor whose torso has colors of
+/// its own (the rest of the armor another) and a cloak, standing north of
+/// the player and facing it. Both views go to
+/// `target/test-output/client_creatures/`. `MG_CAMERA` gives Moonglow's
+/// camera as `distance,pitch,focus,fov` (it is not fitted for this view).
+#[test]
+#[ignore]
+fn creatures_look() {
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_rules::items::{ArmorChannel, set_armor_part_color};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let dir = scratch_dir("client_creatures");
+    std::fs::create_dir_all(dir.join("user")).unwrap();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let light = Lighting { ambient: 0x808080, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let (mut m, are) = build_module(&game, &dir, light);
+    let enter: String =
+        ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+    // `MG_CLIENT_CAMERA`: the client's camera instead, as nwscript
+    // (`SetCameraMode(pc, CAMERA_MODE_CHASE_CAMERA); AssignCommand(pc, SetCameraFacing(90.0, 5.0, 70.0, CAMERA_TRANSITION_TYPE_SNAP));`).
+    // What each creature wears, as the game has it, goes to the log.
+    let enter = enter.replace(
+        "    LockCameraDirection(pc, TRUE);",
+        "    object o = GetFirstObjectInArea(GetAreaFromLocation(start));\n    while (GetIsObjectValid(o)) {\n        if (GetObjectType(o) == OBJECT_TYPE_CREATURE) {\n            if (!GetIsObjectValid(GetItemInSlot(INVENTORY_SLOT_CLOAK, o))) { object k = CreateItemOnObject(\"mg_cloak\", o); AssignCommand(o, ActionEquipItem(k, INVENTORY_SLOT_CLOAK)); Log(\"MG_GIVEN \" + IntToString(GetIsObjectValid(k))); }\n            Log(\"MG_WORN cloak [\" + GetTag(GetItemInSlot(INVENTORY_SLOT_CLOAK, o)) + \"] chest [\" + GetTag(GetItemInSlot(INVENTORY_SLOT_CHEST, o)) + \"] wings \" + IntToString(GetCreatureWingType(o)));\n            DelayCommand(3.0, Log(\"MG_LATER cloak [\" + GetTag(GetItemInSlot(INVENTORY_SLOT_CLOAK, o)) + \"]\"));\n        }\n        o = GetNextObjectInArea(GetAreaFromLocation(start));\n    }\n    LockCameraDirection(pc, TRUE);",
+    );
+    let enter = match std::env::var("MG_CLIENT_CAMERA") {
+        Ok(code) => enter.replace(
+            "AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));",
+            &code,
+        ),
+        Err(_) => enter,
+    };
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+
+    // The first of the game's blueprints that fits.
+    let first = |restype: ResType, fits: &dyn Fn(&mg_gff::Struct) -> bool| -> Gff {
+        let mut keys: Vec<ResKey> = game
+            .resman
+            .entries()
+            .iter()
+            .map(|(k, _)| *k)
+            .filter(|k| k.restype == restype)
+            .collect();
+        keys.sort_by_key(|k| k.to_string());
+        keys.iter()
+            .filter_map(|k| Gff::read(&game.resman.get(k).ok()?).ok())
+            .find(|g| fits(&g.root))
+            .expect("a blueprint that fits")
+    };
+    let mut armor = first(ResType::UTI, &|s| {
+        s.integer("BaseItem") == Some(16)
+            && s.integer("ArmorPart_Torso").is_some_and(|t| t > 3)
+            && s.integer("ArmorPart_Robe").unwrap_or(0) == 0
+    });
+    for channel in [
+        "Cloth1Color",
+        "Cloth2Color",
+        "Leather1Color",
+        "Leather2Color",
+        "Metal1Color",
+        "Metal2Color",
+    ] {
+        armor.root.set(channel, Value::Byte(20));
+    }
+    for channel in [
+        ArmorChannel::Cloth1,
+        ArmorChannel::Cloth2,
+        ArmorChannel::Leather1,
+        ArmorChannel::Leather2,
+        ArmorChannel::Metal1,
+        ArmorChannel::Metal2,
+    ] {
+        // (Part 7: the torso.)
+        set_armor_part_color(&mut armor.root, 7, channel, Some(88));
+    }
+    let mut cloak = first(ResType::UTI, &|s| s.integer("BaseItem") == Some(80));
+    // (Nothing that could keep a creature from wearing it.)
+    cloak.root.set("PropertiesList", Value::List(Vec::new()));
+    // `MG_CLOAK`: the cloak's six colors, all the same.
+    if let Some(c) = std::env::var("MG_CLOAK").ok().and_then(|c| c.parse::<u8>().ok()) {
+        for channel in [
+            "Cloth1Color",
+            "Cloth2Color",
+            "Leather1Color",
+            "Leather2Color",
+            "Metal1Color",
+            "Metal2Color",
+        ] {
+            cloak.root.set(channel, Value::Byte(c));
+        }
+    }
+    eprintln!(
+        "armor {:?} torso {:?}, cloak {:?}",
+        armor.root.resref("TemplateResRef"),
+        armor.root.integer("ArmorPart_Torso"),
+        cloak.root.resref("TemplateResRef")
+    );
+    for f in &cloak.root.fields {
+        let label = f.label.to_string_lossy();
+        if label.contains("Color") || label.contains("Model") || label.contains("Col_") {
+            eprintln!("cloak {label} = {:?}", f.value);
+        }
+    }
+    let human = first(ResType::UTC, &|s| {
+        s.integer("Appearance_Type") == Some(6) && s.integer("Gender") == Some(0)
+    });
+    let equip = |resref: &str, slot: u32| {
+        let mut e = mg_gff::Struct::new(slot);
+        e.set("EquippedRes", Value::resref(ResRef::from_str(resref).unwrap()));
+        e
+    };
+    let items: HashMap<ResRef, mg_gff::Struct> = [("mg_armor", &armor), ("mg_cloak", &cloak)]
+        .into_iter()
+        .map(|(name, g)| {
+            let r = ResRef::from_str(name).unwrap();
+            let mut g = g.clone();
+            g.root.set("TemplateResRef", Value::resref(r));
+            m.set_gff(ResKey::new(r, ResType::UTI), &g).unwrap();
+            (r, g.root)
+        })
+        .collect();
+    let item = |r: ResRef| items.get(&r).cloned();
+    let placing = Placing { game: &game, item: &item };
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let mut placed = Vec::new();
+    for (x, appearance, race) in [(19.0, 6, 6), (21.0, 1, 1)] {
+        let mut c = human.root.clone();
+        c.set("Appearance_Type", Value::Word(appearance));
+        c.set("Race", Value::Byte(race));
+        // (Standing still: no scripts, nothing to say.)
+        let scripts: Vec<String> = c
+            .fields
+            .iter()
+            .map(|f| f.label.to_string_lossy())
+            .filter(|l| l.starts_with("Script"))
+            .collect();
+        for label in scripts {
+            c.set(&label, Value::resref(ResRef::EMPTY));
+        }
+        let mut worn = vec![equip("mg_armor", 0x2), equip("mg_cloak", 0x40)];
+        // `MG_WORN`: only the armor (1) or only the cloak (2).
+        match std::env::var("MG_WORN").as_deref() {
+            Ok("1") => worn.truncate(1),
+            Ok("2") => drop(worn.remove(0)),
+            _ => {}
+        }
+        c.set("Equip_ItemList", Value::List(worn));
+        let at = Placement { position: [x, 22.5, 0.0], rotation: std::f32::consts::PI };
+        placed.push(instance(&placing, ResType::UTC, &c, at, &[]).unwrap());
+    }
+    git.root.set("Creature List", Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+
+    let model = mg_area::AreaModel::read(
+        &game,
+        &are.root,
+        &git.root,
+        mg_area::tileset(&game, ResRef::from_str("tic01").unwrap()).ok().as_ref(),
+    );
+    for o in &model.objects {
+        eprintln!("object {:?} problem {:?}", o.kind, o.problem);
+    }
+    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let scene =
+        area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
+    let c: Vec<f32> = std::env::var("MG_CAMERA")
+        .unwrap_or_else(|_| "19,50,1.25,48".into())
+        .split(',')
+        .map(|v| v.parse().unwrap())
+        .collect();
+    let camera = fitted_camera(Vec3::new(20.0, 20.0, 0.0), c[3], c[2], c[0], c[1]);
+    let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+    save_png(&ours, &dir.join("moonglow.png"));
+    eprintln!("{}: client {}", dir.display(), client.is_some());
+}

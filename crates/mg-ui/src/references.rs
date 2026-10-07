@@ -480,13 +480,29 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         Query::Tag(t) => _ = ui.heading(format!("Tag “{t}”")),
     });
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
+        // An area's objects are said to be in the area as the rest of the
+        // window names it (Options › General: Show areas by name).
+        let shown: Vec<String> = app
+            .references
+            .usages
+            .clone()
+            .iter()
+            .map(|u| {
+                let of_area = matches!(u.from.restype, ResType::ARE | ResType::GIT | ResType::GIC);
+                if !of_area || !app.settings.area_names {
+                    return u.place.clone();
+                }
+                let name = crate::tabs::area_label(app, u.from.resref);
+                u.place.replacen(&u.from.resref.to_string(), &name, 1)
+            })
+            .collect();
         let refs = &app.references;
         if refs.usages.is_empty() {
             ui.weak("Nothing in the module names it.");
         } else {
             ui.label(format!("Used in {}:", places(refs.usages.len())));
             for (i, u) in refs.usages.iter().enumerate() {
-                if ui.link(&u.place).on_hover_text(format!("{} {}", u.from, u.path)).clicked() {
+                if ui.link(&shown[i]).on_hover_text(format!("{} {}", u.from, u.path)).clicked() {
                     go = Some(i);
                 }
             }

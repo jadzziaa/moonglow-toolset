@@ -3,7 +3,10 @@
 //! does it — each action, tabs opened and where, the panes, what an area's
 //! view and the palettes find — in `debug-log.txt` in Moonglow's data
 //! folder, to send with a report of something that fails without a word.
-//! A new file each time Moonglow starts.
+//! A new file each time Moonglow starts; one that grows past
+//! [`LIMIT`] is set aside as `debug-log.1.txt` (in place of the one set
+//! aside before) and a new one begun, so a log left on takes two files'
+//! room at most.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -16,8 +19,15 @@ use std::time::Instant;
 static ON: AtomicBool = AtomicBool::new(false);
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 
+/// How large the debug log's file grows before it is set aside, in bytes.
+pub const LIMIT: u64 = 32 << 20;
+
 struct State {
     file: File,
+    /// Where it is, how much is in it, and how much it may hold.
+    path: PathBuf,
+    written: u64,
+    limit: u64,
     started: Instant,
     /// What each topic last said ([`changed`]).
     last: HashMap<String, String>,
@@ -47,7 +57,14 @@ pub fn set(on: bool) {
                 let _ = std::fs::create_dir_all(dir);
             }
             let Ok(file) = File::create(&path) else { return };
-            *state = Some(State { file, started: Instant::now(), last: HashMap::new() });
+            *state = Some(State {
+                file,
+                path,
+                written: 0,
+                limit: LIMIT,
+                started: Instant::now(),
+                last: HashMap::new(),
+            });
             // (Once: another logger may be there in tests.)
             if log::set_logger(&LIBRARIES).is_ok() {
                 log::set_max_level(log::LevelFilter::Info);
@@ -72,7 +89,23 @@ fn write(state: &mut State, text: &str) {
     if text.len() == 1200 {
         text.push('…');
     }
-    let _ = writeln!(state.file, "[{t:9.3}] {}", text.replace('\n', "\n            "));
+    let line = format!("[{t:9.3}] {}\n", text.replace('\n', "\n            "));
+    // Full: set aside, and a new file begun.
+    if state.written + line.len() as u64 > state.limit {
+        let aside = state.path.with_file_name("debug-log.1.txt");
+        let _ = state.file.flush();
+        if std::fs::rename(&state.path, &aside).is_ok()
+            && let Ok(file) = File::create(&state.path)
+        {
+            state.file = file;
+            state.written = 0;
+            let said = format!("[{t:9.3}] (the log before this is in {})\n", aside.display());
+            let _ = state.file.write_all(said.as_bytes());
+            state.written += said.len() as u64;
+        }
+    }
+    let _ = state.file.write_all(line.as_bytes());
+    state.written += line.len() as u64;
     let _ = state.file.flush();
 }
 
@@ -123,4 +156,35 @@ impl log::Log for Libraries {
     }
 
     fn flush(&self) {}
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_full_log_is_set_aside_and_a_new_one_begun() {
+        let dir = std::env::temp_dir().join(format!("mg-trace-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("debug-log.txt");
+        let mut state = State {
+            file: File::create(&path).unwrap(),
+            path: path.clone(),
+            written: 0,
+            limit: 200,
+            started: Instant::now(),
+            last: HashMap::new(),
+        };
+        for i in 0..12 {
+            write(&mut state, &format!("line {i} of some length to fill the file"));
+        }
+        let now = std::fs::read_to_string(&path).unwrap();
+        let aside = std::fs::read_to_string(dir.join("debug-log.1.txt")).unwrap();
+        assert!(now.len() <= 200 && aside.len() <= 200, "{} {}", now.len(), aside.len());
+        assert!(now.contains("the log before this is in"));
+        assert!(now.contains("line 11") && !now.contains("line 0 "));
+        assert!(!aside.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

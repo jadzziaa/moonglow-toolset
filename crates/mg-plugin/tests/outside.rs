@@ -214,6 +214,14 @@ fn an_area_is_made_and_painted() {
         local _, top = area:corner(5, 5)
         local _, beside = area:corner(4, 4)
         local tile = area:tile(4, 4)
+        -- A road through three cells, a house beside it, and the Eraser on
+        -- both: the road's tile and the house go.
+        local road = area:cross("Road", { { 1, 5 }, { 1, 6 }, { 2, 6 } })
+        local house = area:place_group(area.groups[1].name, 6, 0)
+        local over = area:place_group(area.groups[1].name, 6, 0)
+        local erased = area:erase(1, 6) and area:erase(6, 0)
+        local crooked = pcall(function() return area:cross("Road", { { 0, 1 }, { 2, 2 } }) end)
+        ctx.log:info(`{road} {house} {over} {erased} {crooked} {#area.crossers > 0}`)
         local outside = pcall(function() return area:corner(9, 0) end)
         local unknown = pcall(function() return area:paint(1, 1, "Lava") end)
         return rural, resref, area.width, area.tileset, terrain, height, painted,
@@ -221,6 +229,7 @@ fn an_area_is_made_and_painted() {
             #area.terrains > 2, area.step
     "#;
     let outcome = run_console(code, Input { module: bare(), game: Some(game) }, h.clone()).unwrap();
+    assert_eq!(h.log.borrow_mut().remove(0), "true true true true false true");
     assert_eq!(
         h.log.borrow().as_slice(),
         [

@@ -293,6 +293,33 @@ impl Form<'_> {
         std::iter::once((self.key, &self.path)).chain(self.also.iter().map(|(k, p)| (*k, p)))
     }
 
+    /// Whether the others edited with this one have another value in
+    /// field `label` (not looked at past [`MIXED_LIMIT`] of them).
+    pub(crate) fn differs(&mut self, label: &str) -> bool {
+        if self.also.is_empty() || self.also.len() > MIXED_LIMIT {
+            return false;
+        }
+        let Some(ws) = self.app.ws.as_mut() else { return false };
+        let mine = self.root.get(label);
+        self.also.iter().any(|(key, path)| {
+            let theirs =
+                ws.doc(key).ok().and_then(|d| path.get(&d.root)).and_then(|s| s.get(label));
+            theirs != mine
+        })
+    }
+
+    /// Marks the field about to be drawn if the others edited with this
+    /// one have another value in it: "≠" before it. (Painted, not laid
+    /// out: a table's cell holds the field alone.)
+    fn mark_mixed(&mut self, ui: &Ui, label: &str) {
+        if !self.differs(label) {
+            return;
+        }
+        let at = ui.cursor().min + egui::vec2(-3.0, 2.0);
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        ui.painter().text(at, egui::Align2::RIGHT_TOP, "≠", font, ui.visuals().warn_fg_color);
+    }
+
     /// Several blueprints edited together (not placed objects).
     pub(crate) fn several_blueprints(&self) -> bool {
         !self.is_instance() && !self.also.is_empty()
@@ -351,6 +378,7 @@ impl Form<'_> {
 
     /// A one-line text field (`CExoString`) of at most `max` characters.
     pub(crate) fn text(&mut self, ui: &mut Ui, what: &str, label: &str, max: usize) {
+        self.mark_mixed(ui, label);
         let current = decode(self.root.string(label).unwrap_or_default());
         let id = self.id(label);
         let (shown, _) = crate::text::to_editor(&current);
@@ -467,6 +495,7 @@ impl Form<'_> {
         range: std::ops::RangeInclusive<f32>,
         speed: f64,
     ) {
+        self.mark_mixed(ui, label);
         let current = self.root.float(label).unwrap_or(0.0);
         if let Some(v) = crate::widgets::drag_number(ui, current, |d| {
             d.range(range).speed(speed).max_decimals(2)
@@ -494,6 +523,7 @@ impl Form<'_> {
     /// A colour stored as 0x00BBGGRR (ARE lighting), with a colour picker;
     /// what is picked is stored when the picker closes (one command).
     pub(crate) fn color(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.mark_mixed(ui, label);
         let current = self.int(label) as u32;
         let pending_id = self.id(label).with("pending");
         let pending: Option<u32> = ui.data(|d| d.get_temp(pending_id));
@@ -520,6 +550,7 @@ impl Form<'_> {
 
     /// A checkbox for a flag (BYTE 0 or 1); the value.
     pub(crate) fn check(&mut self, ui: &mut Ui, text: &str, label: &str) -> bool {
+        self.mark_mixed(ui, label);
         let current = self.int(label) != 0;
         let mut v = current;
         if ui.checkbox(&mut v, text).changed() {
@@ -536,6 +567,7 @@ impl Form<'_> {
         label: &str,
         range: std::ops::RangeInclusive<i64>,
     ) {
+        self.mark_mixed(ui, label);
         if let Some(v) = commit_number(ui, self.int(label), range) {
             self.set_int(what, label, v, FieldType::Byte);
         }
@@ -644,6 +676,7 @@ impl Form<'_> {
         choices: &[Choice],
         default: FieldType,
     ) {
+        self.mark_mixed(ui, label);
         self.choice_shown(ui, what, label, choices, default, None);
     }
 
@@ -747,6 +780,7 @@ impl Form<'_> {
     /// A resource name with a picker.
     #[allow(dead_code)] // for the editors that follow
     pub(crate) fn resref(&mut self, ui: &mut Ui, what: &str, label: &str, types: &[ResType]) {
+        self.mark_mixed(ui, label);
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
         if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
             self.set(what, label, Value::resref(v));
@@ -755,6 +789,7 @@ impl Form<'_> {
 
     /// A script field: name, picker and Edit.
     pub(crate) fn script(&mut self, ui: &mut Ui, what: &str, label: &str) {
+        self.mark_mixed(ui, label);
         let types = [ResType::NSS, ResType::NCS];
         let what = format!("{what} script");
         let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
@@ -947,7 +982,8 @@ impl Form<'_> {
     /// renames the blueprint.
     pub(crate) fn blueprint_resref(&mut self, ui: &mut Ui) {
         if self.several_blueprints() {
-            ui.weak(format!("{} and {} more", self.key.resref, self.also.len()));
+            ui.weak(format!("{} and {} more", self.key.resref, self.also.len()))
+                .on_hover_text("≠ before a field: the others have another value there");
             return;
         }
         if self.is_instance() {
@@ -1183,7 +1219,7 @@ pub(crate) fn edit_many(
     if !also.is_empty() {
         let what = if path.0.is_empty() { "blueprints" } else { "objects" };
         ui.weak(format!(
-            "{} {what}: shown as the first; what you change is set on each",
+            "{} {what}: shown as the first; what you change is set on each (≠: they differ there)",
             also.len() + 1
         ));
     }
@@ -1268,6 +1304,10 @@ pub(crate) fn edit_many(
 /// How long the note of a blueprint only looked at says a change was
 /// refused, in seconds.
 const VIEW_REFUSED_SHOWN: f64 = 4.0;
+
+/// The most objects edited together whose values are compared, field by
+/// field, to mark the fields that differ.
+const MIXED_LIMIT: usize = 64;
 
 /// The look of a form that can't be changed (the game's blueprint, opened
 /// by View): its fields are flat and dim, and don't answer the pointer.

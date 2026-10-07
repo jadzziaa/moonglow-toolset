@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:04:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
 ---
 
 # Scripts
@@ -109,8 +109,10 @@ game's order.
 **Build › Compile All Scripts** (F7) compiles every script in the module;
 the log lists the failures and how many changed. An include file (a
 script with no `main` and no `StartingConditional`; one in a comment
-doesn't count) isn't compiled on its own, as in Aurora: it is compiled
-into the scripts that include it, and may lean on what they bring.
+doesn't count) isn't compiled on its own: it is compiled into the
+scripts that include it, and may lean on what they bring. (Aurora's
+build compiles include files too, and reports an error for one that
+doesn't compile alone.)
 Compile in its editor says so. **Generate Debug
 Information** (Options › Script Editor) also stores a `.ndb` with each
 compiled script, for script debuggers.

@@ -208,6 +208,20 @@ mod tests {
         }
     }
 
+    /// A static placeable is drawn upright whatever visual transform its
+    /// file has, as the game draws it.
+    #[test]
+    fn a_static_placeable_takes_no_visual_transform() {
+        let mut o = object(ObjectKind::Placeable, Vec3::new(1.0, 2.0, 0.0), 0.5);
+        o.visual = Some(crate::VisualTransform {
+            rotate: Vec3::new(30.0, 20.0, 45.0),
+            ..Default::default()
+        });
+        assert_ne!(o.model_transform(), o.transform());
+        o.is_static = true;
+        assert_eq!(o.model_transform(), o.transform());
+    }
+
     fn labels(edits: &[Edit]) -> Vec<String> {
         edits
             .iter()

@@ -88,17 +88,12 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
         };
         out.copy_from_slice(&c);
     }
-    let row = width as usize * 4;
-    if descriptor & 0x10 != 0 {
-        // Right-to-left.
-        for line in img.data.chunks_exact_mut(row) {
-            line.as_chunks_mut::<4>().0.reverse();
-        }
-    }
     // (A top-left origin, bit 5, changes nothing: the game takes the rows
     // as stored, the first as the bottom, whatever the file declares. A
     // picture saved top row first, as Krita saves it, shows upside down in
-    // the game, and so here: `client_minimap.rs`.)
+    // the game, and so here: `client_minimap.rs`. Nor does right-to-left,
+    // bit 4: the columns are taken as stored too, `placeables_look` in
+    // `client_render.rs`.)
     let has_alpha = match kind {
         Kind::True => bits == 32 || (bits == 16 && descriptor & 0x0F != 0),
         Kind::Grey => bpp == 2,
@@ -168,6 +163,16 @@ mod tests {
         assert_eq!(img.pixel(0, 0), [255, 0, 0, 255]);
         assert_eq!(img.pixel(0, 1), [0, 0, 255, 128]);
         assert_eq!(img.pixel(1, 1), [0, 255, 0, 64]);
+    }
+
+    #[test]
+    fn right_to_left_is_ignored_as_in_the_game() {
+        let mut f = header(3, 2, 1, 8, 0x10);
+        f.extend_from_slice(&[10, 200]);
+        let img = read(&f).unwrap().to_rgba();
+        // The columns as stored.
+        assert_eq!(img.pixel(0, 0), [10, 10, 10, 255]);
+        assert_eq!(img.pixel(1, 0), [200, 200, 200, 255]);
     }
 
     #[test]

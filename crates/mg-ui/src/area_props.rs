@@ -78,7 +78,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
             })
             .collect();
         ui.weak(format!(
-            "{} areas: shown as the first ({}); what you change is set on each",
+            "{} areas: shown as the first ({}); what you change is set on each (≠: they differ there)",
             names.len(),
             names[0]
         ))

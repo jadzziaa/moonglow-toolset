@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugin API reference
 description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T02:04:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
 ---
 
 # Plugin API reference
@@ -209,13 +209,16 @@ from 0: cell (x, y) has the corners (x, y) to (x + 1, y + 1), so an area
 | `area.width`, `area.height` | Its size, in tiles. |
 | `area.step` | How high a step of height is, in metres (the tileset's `Transition`). |
 | `area.terrains` | The tileset's terrains' names, a list. |
+| `area.crossers` | The tileset's crossers' names (roads, streams, walls), a list. |
 | `area.groups` | The tileset's groups, a list of `{ name = "…", rows = 2, columns = 3 }`. |
 | `area:corner(x, y)` | A corner's terrain (its name) and its height in steps: two values. |
 | `area:tile(x, y)` | A cell's tile: `{ id = 12, orientation = 1, height = 0 }`, as the ARE has it. |
 | `area:paint(x, y, terrain)` | The terrain brush on a corner: its terrain set, the corners around changed as the tileset's rules have it, new tiles chosen. True, or false when no tile fits there (nothing changes then, as under the brush). |
 | `area:raise(x, y, steps?)` | Raise on a corner, `steps` times (once; a negative number lowers). Corners around follow so that no two neighbors are more than a step apart. False when a step was refused (those before it stay). |
 | `area:set_height(x, y, height)` | Raises or lowers a corner until it is `height` steps high. False when it could not get there. |
-| `area:place_group(group, x, y, turns?)` | A group of the tileset (by name) with its first tile in cell (x, y), turned `turns` quarter turns, as placing it from the palette. False when it doesn't fit. |
+| `area:place_group(group, x, y, turns?)` | A group of the tileset (by name) with its first tile in cell (x, y), turned `turns` quarter turns, as placing it from the palette. False when it doesn't fit. Over part of another group, it takes that one away whole. |
+| `area:cross(crosser, path)` | A crosser drawn through cells, as the crosser brush dragged through them: `path` is a list of cells, each beside the one before (`{ { 1, 5 }, { 1, 6 }, { 2, 6 } }`), and the crosser goes on the edges between them. False when a cell on the way has no tile for it. |
+| `area:erase(x, y)` | The Eraser on a cell: its crossers go, and a group or a feature that has a tile there goes whole. False when refused. |
 | `area:set_tile(x, y, id, orientation?, height?)` | Puts one tile into a cell as it is given, whether it fits its neighbors or not. |
 
 Tiles are chosen at random among those that fit, as in the area editor:

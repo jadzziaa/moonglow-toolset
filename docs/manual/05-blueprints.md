@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T22:14:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T08:30:00Z }
 ---
 
 # Blueprints
@@ -234,7 +234,10 @@ every change, as Aurora does on OK.
 - **Special Abilities** lists each ability as the game has it: so many
   **Uses** of a spell at a **Caster Level**. Clicking a spell adds a use;
   the same spell at another caster level is another ability. **Flags**
-  are the ability's own: Ready, Spontaneous, Unlimited.
+  are the ability's own, named as the file format names them: Ready,
+  Spontaneous, Unlimited. The game counts a use with any of them set as
+  one the creature has, and a use with none as spent; Unlimited does not
+  make the uses unlimited.
 
 The game reads a familiar only when one of the creature's classes has
 one (an arcane class whose `MinAssociateLevel` in `classes.2da` isn't

@@ -378,6 +378,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let mut remove = None;
             let edit_tokens = &mut edit.tokens;
             for (i, (language, gender, text, _)) in edit.entries.iter_mut().enumerate() {
+                let text_id = egui::Id::new(("loc-text", i));
                 ui.horizontal(|ui| {
                     egui::ComboBox::from_id_salt(("loc-lang", i))
                         .selected_text(language.name().unwrap_or("?"))
@@ -394,7 +395,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             }
                         });
                     // The language's own tokens (Polish has more than
-                    // English), put at the end of its text.
+                    // English), put where the caret was in its text.
+
                     let language = *language;
                     ui.menu_button("Token…", |ui| {
                         if !edit_tokens.iter().any(|(l, _)| *l == language) {
@@ -405,7 +407,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                             for t in tokens {
                                 if ui.button(t).clicked() {
-                                    text.push_str(t);
+                                    *text = with_token(ui.ctx(), text_id, text, t);
                                     ui.close();
                                 }
                             }
@@ -420,7 +422,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         remove = Some(i);
                     }
                 });
-                ui.add(egui::TextEdit::multiline(text).desired_rows(3).desired_width(420.0));
+                let field = egui::TextEdit::multiline(text).id(text_id);
+                ui.add(field.desired_rows(3).desired_width(420.0));
             }
             if let Some(i) = remove {
                 edit.entries.remove(i);
@@ -707,6 +710,33 @@ pub(crate) fn variables_button(
 
 /// A text field that commits when focus leaves it (one line, or several
 /// with their line-end style kept). Returns the new text then.
+/// `current` (a text field's value, the field `id`) with `token` put
+/// where the field's caret was last, in place of what was selected: at
+/// the end if the caret was never in it. The caret is left after the
+/// token.
+pub(crate) fn with_token(ctx: &egui::Context, id: egui::Id, current: &str, token: &str) -> String {
+    use egui::text::{CCursor, CCursorRange};
+    let (shown, crlf) = to_editor(current);
+    let chars = shown.chars().count();
+    let mut state = egui::TextEdit::load_state(ctx, id);
+    let range = state
+        .as_ref()
+        .and_then(|s| s.cursor.char_range())
+        .map(|r| {
+            (r.primary.index.0.min(r.secondary.index.0), r.primary.index.0.max(r.secondary.index.0))
+        })
+        .filter(|&(_, to)| to <= chars)
+        .unwrap_or((chars, chars));
+    let byte = |at: usize| shown.char_indices().nth(at).map_or(shown.len(), |(b, _)| b);
+    let out = format!("{}{token}{}", &shown[..byte(range.0)], &shown[byte(range.1)..]);
+    if let Some(state) = &mut state {
+        let after = CCursor::new(range.0 + token.chars().count());
+        state.cursor.set_char_range(Some(CCursorRange::one(after)));
+        state.clone().store(ctx, id);
+    }
+    from_editor(&out, crlf)
+}
+
 pub(crate) fn commit_text(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -1258,5 +1288,36 @@ mod tests {
         let mut bad = edit.clone();
         bad.strref = "x".into();
         assert_eq!(bad.value(), None);
+    }
+}
+
+#[cfg(test)]
+mod token_tests {
+    use super::with_token;
+    use egui::text::{CCursor, CCursorRange};
+
+    #[test]
+    fn a_token_goes_where_the_caret_was() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("field");
+        // The caret never in the field: at the end.
+        assert_eq!(with_token(&ctx, id, "Hello there", "<FirstName>"), "Hello there<FirstName>");
+        // After "Hello ": there, and the caret after the token.
+        let mut state = egui::text_edit::TextEditState::default();
+        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(6))));
+        state.store(&ctx, id);
+        assert_eq!(with_token(&ctx, id, "Hello there", "<FirstName>"), "Hello <FirstName>there");
+        let after = egui::TextEdit::load_state(&ctx, id).unwrap().cursor.char_range().unwrap();
+        assert_eq!(after.primary.index.0, 17);
+        // A selection is replaced; letters of more than a byte count as one.
+        let mut state = egui::text_edit::TextEditState::default();
+        state.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(1), CCursor::new(3))));
+        state.store(&ctx, id);
+        assert_eq!(with_token(&ctx, id, "żółw", "<x>"), "ż<x>w");
+        // A caret past the text (the text changed underneath): the end.
+        let mut state = egui::text_edit::TextEditState::default();
+        state.cursor.set_char_range(Some(CCursorRange::one(CCursor::new(40))));
+        state.store(&ctx, id);
+        assert_eq!(with_token(&ctx, id, "ab", "<x>"), "ab<x>");
     }
 }

@@ -122,6 +122,7 @@ export type Area = {
     height: number,
     step: number,
     terrains: { string },
+    crossers: { string },
     groups: { { name: string, rows: number, columns: number } },
     corner: (self: Area, x: number, y: number) -> (string, number),
     tile: (self: Area, x: number, y: number) -> { id: number, orientation: number, height: number },
@@ -129,6 +130,8 @@ export type Area = {
     raise: (self: Area, x: number, y: number, steps: number?) -> boolean,
     set_height: (self: Area, x: number, y: number, height: number) -> boolean,
     place_group: (self: Area, group: string, x: number, y: number, turns: number?) -> boolean,
+    cross: (self: Area, crosser: string, path: { { number } }) -> boolean,
+    erase: (self: Area, x: number, y: number) -> boolean,
     set_tile: (self: Area, x: number, y: number, id: number, orientation: number?, height: number?) -> (),
 }
 

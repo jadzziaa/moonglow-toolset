@@ -655,8 +655,9 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.strong("Uses");
                 ui.strong("Caster Level");
                 ui.strong("Flags").on_hover_text(
-                    "As BioWare's creature format has them: Ready (it can be used), \
-                     Spontaneous (cast without preparing), Unlimited (using it doesn't use it up)",
+                    "As BioWare's creature format names them. The game takes a use with any \
+                     of them set as one the creature has, and a use with none as spent; \
+                     Unlimited does not make an ability's uses unlimited",
                 );
                 ui.label("");
                 ui.end_row();

@@ -1888,6 +1888,19 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
             continue;
         }
         let alpha = if view.selected(i) { 255 } else { 150 };
+        // Where it may play from, if its place is random: so far each way
+        // east and north of where it stands.
+        if let Some(reach) = list.get(o.index).and_then(random_reach) {
+            let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(240, 150, 60, alpha));
+            let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(x, y)| {
+                view.screen_pos(o.position + Vec3::new(x * reach.x, y * reach.y, 0.0))
+            });
+            for k in 0..4 {
+                if let (Some(a), Some(b)) = (corners[k], corners[(k + 1) % 4]) {
+                    painter.line_segment([a, b], stroke);
+                }
+            }
+        }
         for (radius, width) in [(sound.min_distance, 2.0), (sound.max_distance, 1.0)] {
             if radius <= 0.0 {
                 continue;
@@ -1902,6 +1915,17 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
             }
         }
     }
+}
+
+/// How far east and north of itself a placed sound may play (its
+/// `RandomRangeX` and `RandomRangeY`), if its position is random.
+fn random_reach(sound: &mg_gff::Struct) -> Option<glam::Vec2> {
+    let reach = glam::Vec2::new(
+        sound.float("RandomRangeX").unwrap_or(0.0),
+        sound.float("RandomRangeY").unwrap_or(0.0),
+    );
+    (sound.integer("RandomPosition").unwrap_or(0) != 0 && reach.max_element() > 0.0)
+        .then_some(reach)
 }
 
 /// The points of a level circle around `centre`.
@@ -4355,6 +4379,20 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_sound_s_random_place_has_a_reach() {
+        let mut sound = mg_gff::Struct::new(6);
+        sound.set("RandomRangeX", mg_gff::Value::Float(4.0));
+        sound.set("RandomRangeY", mg_gff::Value::Float(2.5));
+        // Not random: none, whatever the ranges say.
+        assert_eq!(random_reach(&sound), None);
+        sound.set("RandomPosition", mg_gff::Value::Byte(1));
+        assert_eq!(random_reach(&sound), Some(glam::Vec2::new(4.0, 2.5)));
+        sound.set("RandomRangeX", mg_gff::Value::Float(0.0));
+        sound.set("RandomRangeY", mg_gff::Value::Float(0.0));
+        assert_eq!(random_reach(&sound), None);
+    }
 
     #[test]
     fn the_camera_goes_up_and_down_within_its_heights() {

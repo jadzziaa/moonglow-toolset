@@ -389,8 +389,11 @@ fn group_doors_match_aurora() {
 }
 
 /// A group is one thing: the Eraser on any of its tiles takes all of it
-/// away, and a group placed over part of another takes the other away
-/// whole (no half a barn left beside the new one).
+/// away (as in Aurora, driven by hand on the oracle), and a group placed
+/// over part of another takes the other away whole (no half a barn left
+/// beside the new one). Aurora refuses that placement instead (the
+/// outline turns red, the click places nothing): replacing in place was
+/// chosen over it.
 #[test]
 fn groups_go_whole() {
     let root = corpus!();

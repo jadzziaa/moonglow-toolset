@@ -413,6 +413,14 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
                     if r.double_clicked() {
                         open = Some(k);
                     }
+                    // Delete on the row under the pointer asks, as its
+                    // menu's Delete… does (not while text is typed).
+                    if r.hovered()
+                        && !ui.ctx().egui_wants_keyboard_input()
+                        && ui.input(|i| i.key_pressed(egui::Key::Delete))
+                    {
+                        app.actions.push(Action::DeleteDialog(k));
+                    }
                     r.context_menu(|ui| {
                         if let (Some(id), Some(label)) = (new, &new_label) {
                             if ui.button(label).clicked() {
