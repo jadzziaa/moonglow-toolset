@@ -4,20 +4,24 @@ title: 'Lights placed on the fly: a proposal'
 description: A proposal for placing a light in an area without making a custom placeable by hand first - what the game offers for lights, three ways Moonglow could do it (stock light placeables, generated content, scripted effects), what each costs, a recommended order and what must be measured first.
 tags: [proposal, lights, placeables, areas, custom-content]
 status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:25:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:52:10Z }
 sources:
   - id: request
-    resource: 'human:august, relaying the builder dafena (Discord, 2026-10-07)'
+    resource: human:august, relaying the builder dafena (Discord, 2026-10-07)
     title: The request - paint a light with default values, then customize it
   - id: placeables
-    resource: 'placeables.2da and lightcolor.2da in the installed game (read with mg cat, 2026-10-07)'
+    resource: placeables.2da and lightcolor.2da in the installed game (read with mg cat, 2026-10-07)
     title: The game's own tables
 ---
 
 # Lights placed on the fly: a proposal
 
-Status: a draft for a decision. Nothing here is built. What is marked
-*to measure* is not known yet and decides parts of the design.
+Status: way A was chosen first (2026-10-07) and is built: **Add Light
+Here** and **Light Color** on the area's right-click menu, and a marker
+for lights that have nothing to see (see [Areas](manual/04-areas.md)).
+The reach is measured and the ring drawn (see [Measured](#measured)).
+The 2DA merger and way B are not started. What is still marked *to
+measure* is not known yet.
 
 ## Summary
 
@@ -61,12 +65,32 @@ once), then B as the real feature, with C left out unless asked for.
   possible through a model's light node (way B) or a custom
   lightcolor.2da.
 
-*To measure* (in the game client, with the oracle the renderer uses):
-the reach and brightness of a `LightColor` light; whether a placeable's
-`LightColor` light and a model's light node light creatures and
-placeables or only tiles; how many dynamic lights the game draws at one
-place before dropping some; whether a static placeable's light behaves
-differently.
+*To measure* still (in the game client, with the oracle the renderer
+uses): whether a placeable's `LightColor` light and a model's light node
+light creatures and placeables or only tiles; how many dynamic lights
+the game draws at one place before dropping some.
+
+### Measured
+
+In the game client (`placeable_light_uniforms` in
+`crates/mg-corpus-tests/tests/client_render.rs`, which reads the lights
+the client hands its shader in a dark area), 2026-10-07:
+
+| Placeable | lightcolor.2da | The client's light |
+| --- | --- | --- |
+| Light, White (15112), static, 1.5 m up | DimWhite 0.60 | one light, color 0.325, ends at 20 m |
+| the same, not static | | the same |
+| the same, on the ground | | the same |
+| Light, Red (15111) | 1.00, 0.15, 0.10 | color 1.000, 0.015, 0.006, ends at 20 m |
+| Shaft of Light, white (166) | White 1.20 | color 1.000, ends at 24 m |
+
+So a `LightColor` light is a light of radius 10 in that color, converted
+as tile lights are: the color linearised (to the power 2.2), a color
+brighter than 1 scaled down to 1 and reaching that much further, and the
+light ending at twice the radius. Static or not, and its height, change
+nothing. This is what Moonglow already assumed for its own view, so its
+view was right; the ring in the area view is drawn at where the light
+ends.
 
 ## Way A: the stock light placeables
 

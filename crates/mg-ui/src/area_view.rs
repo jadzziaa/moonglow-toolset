@@ -580,6 +580,14 @@ impl AreaView {
         Some(out)
     }
 
+    /// The terrain brush's spot under a screen point: `None` where no
+    /// ground of the area is there (for tests).
+    pub fn ground_spot(&self, pos: Pos2) -> Option<(u32, u32)> {
+        let model = self.model.as_ref()?;
+        let p = self.ground_at(pos, 0.0)?;
+        crate::terrain_mode::spot(p, model.width, model.height).map(|s| s.cell)
+    }
+
     /// The ground point under the pointer: on the walkmesh, else on the
     /// plane at height `z`.
     pub(crate) fn ground_at(&self, pos: Pos2, z: f32) -> Option<Vec3> {
@@ -2204,6 +2212,37 @@ fn overlays(
                 ));
             }
             continue;
+        }
+        // A light with nothing to see: a small sun in its color, where it
+        // shines from.
+        if let Some(color) = scene.and_then(|s| s.bare_light(shown, i))
+            && let Some(c) = at(o.position)
+        {
+            let top = color.max_element().max(1e-3);
+            let rgb = (color / top * 255.0).to_array().map(|v| v as u8);
+            let fill = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+            let dark = Stroke::new(1.5, Color32::from_black_alpha(200));
+            for k in 0..8 {
+                let a = k as f32 * std::f32::consts::FRAC_PI_4;
+                let d = egui::vec2(a.cos(), a.sin());
+                painter.line_segment([c + d * 9.0, c + d * 14.0], Stroke::new(2.0, fill));
+            }
+            painter.circle(c, 6.5, fill, dark);
+            // Selected, how far it reaches: where the game's light ends
+            // (20 m, further for a color brighter than 1), level with it.
+            if selected {
+                let reach = mg_render::PointLight::new(Vec3::ZERO, color, LIGHT_RADIUS, false, 4);
+                let ring: Vec<Pos2> = (0..96)
+                    .filter_map(|k| {
+                        let a = k as f32 / 96.0 * std::f32::consts::TAU;
+                        at(o.position + Vec3::new(a.cos(), a.sin(), 0.0) * reach.cutoff)
+                    })
+                    .collect();
+                if ring.len() == 96 {
+                    let faint = Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], 150);
+                    painter.add(egui::Shape::closed_line(ring, Stroke::new(1.5, faint)));
+                }
+            }
         }
         let marker = !in_scene;
         if marker || selected {
@@ -4058,6 +4097,48 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
             ui.close();
         }
     }
+    // Lights: the game's placeables that are a light and nothing to see
+    // ("Light, White" and its kin). One put where the menu was opened, or
+    // the selected ones given another color.
+    let lights = stock_lights(app);
+    if !lights.is_empty() {
+        let chosen: Vec<(ObjectKind, usize)> = view
+            .selection
+            .iter()
+            .copied()
+            .filter(|&(k, i)| {
+                let at = view.object_at(k, i);
+                at.zip(view.scene.as_ref().zip(view.model.as_ref()))
+                    .is_some_and(|(i, (s, m))| s.bare_light(m, i).is_some())
+            })
+            .collect();
+        if let Some(at) = view.menu_at {
+            ui.menu_button("Add Light Here", |ui| {
+                for light in &lights {
+                    if light_button(ui, light).clicked() {
+                        add_light(app, view, light, at);
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(
+                "An invisible placeable that lights what is around it, a little above the \
+                 ground: move and raise it as any placeable. The game's own, no custom content",
+            );
+        }
+        if !chosen.is_empty() && chosen.len() == view.selection.len() {
+            ui.menu_button("Light Color", |ui| {
+                for light in &lights {
+                    if light_button(ui, light).clicked() {
+                        let row = Value::Dword(light.row as u32);
+                        set_on_selection(app, view, "Light color", "Appearance", row);
+                        ui.close();
+                    }
+                }
+            });
+        }
+    }
     if let Some((kind, index)) = single.filter(|(k, _)| k.has_outline()) {
         if ui.button("Redraw Polygon").clicked() {
             view.redraw = Some((kind, index));
@@ -4237,6 +4318,85 @@ fn start_facing(facing: f32) -> [mg_edit::Edit; 2] {
         start_field("Mod_Entry_Dir_X", Value::Float(facing.cos())),
         start_field("Mod_Entry_Dir_Y", Value::Float(facing.sin())),
     ]
+}
+
+/// A placeable appearance that is a light and nothing to see.
+struct StockLight {
+    /// Its placeables.2da row.
+    row: usize,
+    name: String,
+    color: Color32,
+}
+
+/// The radius the game gives a placeable's `LightColor` light (its light
+/// ends twice as far out: `placeable_light_uniforms`, in the client).
+const LIGHT_RADIUS: f32 = 10.0;
+
+/// How far above the ground a light is put (a lamp's height).
+const LIGHT_HEIGHT: f32 = 1.5;
+
+/// The lights there are to place: placeables.2da's rows with a
+/// `LightColor` whose model is the game's invisible one (`dag_invisible`):
+/// "Light, Blue" to "Light, Yellow" in the game's own table, and any a
+/// hak adds in the same way.
+fn stock_lights(app: &Moonglow) -> Vec<StockLight> {
+    let Some(game) = app.game.as_deref() else { return Vec::new() };
+    let (Ok(table), Ok(colors)) = (game.table("placeables"), game.table("lightcolor")) else {
+        return Vec::new();
+    };
+    (0..table.len())
+        .filter_map(|row| {
+            let model = table.get(row, "ModelName")?;
+            let color = table.get_int(row, "LightColor").filter(|c| *c > 0)?;
+            if !model.eq_ignore_ascii_case("dag_invisible") {
+                return None;
+            }
+            let label = table.get(row, "Label").unwrap_or("Light");
+            let name = label.strip_prefix("Light, ").unwrap_or(label).to_string();
+            let c = |col: &str| {
+                let v = colors.get_float(color as usize, col).unwrap_or(0.0);
+                (v.clamp(0.0, 1.0) * 255.0) as u8
+            };
+            let color = Color32::from_rgb(c("TOOLSETRED"), c("TOOLSETGREEN"), c("TOOLSETBLUE"));
+            Some(StockLight { row, name, color })
+        })
+        .collect()
+}
+
+/// A light's row in a menu: its color and its name.
+fn light_button(ui: &mut egui::Ui, light: &StockLight) -> egui::Response {
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
+        ui.painter().circle_filled(rect.center(), 5.0, light.color);
+        ui.button(&light.name)
+    })
+    .inner
+}
+
+/// Puts light `light` over the ground point `at`: a plain, static
+/// placeable of that appearance, selected.
+fn add_light(app: &mut Moonglow, view: &mut AreaView, light: &StockLight, at: Vec3) {
+    use mg_module::instances::Placement;
+    let at = view.snapped(at) + Vec3::Z * LIGHT_HEIGHT;
+    let dragged = crate::appearance_gallery::DraggedAppearance {
+        row: light.row,
+        name: format!("Light, {}", light.name),
+    };
+    let placement = Placement { position: at.to_array(), rotation: 0.0 };
+    let Some(item) = appearance_item(app, &dragged, placement) else { return };
+    let Some(ws) = app.ws.as_mut() else { return };
+    let git = view.git();
+    let kind = ObjectKind::Placeable;
+    let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
+    let edit = mg_edit::Edit::InsertItem {
+        key: git,
+        path: mg_edit::GffPath::root(),
+        list: kind.list().into(),
+        index,
+        item,
+    };
+    app.actions.push(Action::Apply(Command::new(format!("Add {}", dragged.name), vec![edit])));
+    view.selection = vec![(kind, index)];
 }
 
 /// Sets a field on every selected object (one command).

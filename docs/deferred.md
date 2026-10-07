@@ -623,14 +623,26 @@ open). Left, or to know:
   face up, a potion stands, a sword lies the same way round, and
   clothing, leather, chain and plate are those four models, as drawn
   here. A cloak is still the bag, which was not looked at. (S)
-- **A right click with a terrain brush over an object** (a builder
-  lowering terrain past placeables got their menu): not reproduced.
-  With Raise/Lower in hand a right click on an object lowers and opens
-  no menu (`a_right_click_with_a_terrain_brush_is_the_brush_s_over_an_object`).
-  Nor with fast, sloppy clicks of either button there. He had
-  Raise/Lower in hand, on Windows, a placeable selected and the cursor
-  red; his debug log (written by default from 1.18.1) would show what
-  the click was taken for. (?)
+- **Lights placed on the fly** ([the proposal](lights-proposal.md)):
+  way A is in (the game's seven invisible light placeables from the
+  area's menu, a sun for a marker, Light Color, a ring for the reach).
+  The reach is measured in the client (`placeable_light_uniforms`): a
+  light of radius 10 in the lightcolor.2da color, ending 20 m out
+  (further for a color brighter than 1), static or not, as Moonglow
+  drew it already. Not in: a palette entry beside the menu, and way B (any color and reach, by generated content), which
+  needs a 2DA merger first. An object whose model is too small to see
+  (under half a metre across, or empty) is now drawn and picked by a
+  marker's box, lights and the Invisible Object alike. (M)
+- **Raise/Lower dropped by a right click that found no ground** (a
+  builder lowering terrain past placeables got their menu, or selected
+  them): found from his debug log, which showed an object's Properties
+  opened from the area with the brush thought in hand. A right click
+  where no ground of the area is under the pointer (a cliff face with
+  nothing to stand on, the ray going on past the area's edge) dropped
+  the brush without a word, as it does for the other brushes, though
+  for Raise/Lower a right click is the lowering; the next click was the
+  object's. Raise/Lower stays in hand now (Escape drops it), and a
+  brush dropped by a right click is noted in the debug log. (—)
 - **The tiles that refuse a terrain stroke flash red** (a raise, a
   lowering, a painting, a crosser, a group, Delete on tiles): each cell
   that has no tile fitting what the stroke would make of it, or holds a

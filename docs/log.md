@@ -1,6 +1,9 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [The deferred list](deferred.md): Raise/Lower was dropped by a right click that found no ground, found from a builder's debug log.
+* **Update**: [The lights proposal](lights-proposal.md) (a placeable's light measured in the game client), [areas](manual/04-areas.md) (the ring for a light's reach) and [the deferred list](deferred.md).
+* **Update**: [Areas](manual/04-areas.md) (Add Light Here, Light Color), [the lights proposal](lights-proposal.md) (way A built) and [the deferred list](deferred.md).
 * **Creation**: [Lights placed on the fly: a proposal](lights-proposal.md): three ways to place a light without a hand-made placeable, their costs and a recommended order; a draft for a decision.
 * **Update**: [Build, verify and test](manual/09-build-and-test.md) and [options](manual/10-options.md): a test can start a Steam copy of the game without Steam.
 * **Update**: [Areas](manual/04-areas.md) (the tiles that refuse a stroke flash red) and [the deferred list](deferred.md): items lie in an area as `RotateOnGround` turns them, armor as the game's model of armor dropped.

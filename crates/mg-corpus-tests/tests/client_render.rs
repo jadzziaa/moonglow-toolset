@@ -534,6 +534,102 @@ fn light_uniforms_match_the_client() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// The light a placeable's appearance carries (placeables.2da's
+/// `LightColor`), as the client hands it to its shader in a dark area, is
+/// the light Moonglow makes of that color with a radius of 10: one light,
+/// the color linearised, ending 20 m out (further for a color brighter
+/// than 1), whether the placeable is static or not and at any height:
+/// for the game's invisible "Light, White" static and not, raised and on
+/// the ground, a colored one and a Shaft of Light. `MG_LIGHT_ROWS` gives
+/// other rows (comma-separated).
+#[test]
+#[ignore]
+fn placeable_light_uniforms() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let shader = debug_shader(&game);
+    let colors = game.table("lightcolor").unwrap();
+    let table = game.table("placeables").unwrap();
+    // (row, static, height)
+    let mut cases: Vec<(usize, bool, f32)> = vec![
+        (15112, true, 1.5),
+        (15112, false, 1.5),
+        (15112, true, 0.0),
+        (15111, true, 1.5),
+        (166, true, 0.0),
+    ];
+    if let Ok(rows) = std::env::var("MG_LIGHT_ROWS") {
+        cases = rows.split(',').map(|r| (r.trim().parse().unwrap(), true, 1.5)).collect();
+    }
+    for (row, is_static, height) in cases {
+        let dir = scratch_dir(&format!("client_plc_light_{row}_{}_{height}", u8::from(is_static)));
+        let light = Lighting { ambient: 0, diffuse: 0, main_light: 0, only_tile: None };
+        let (mut m, _are) = build_module(&game, &dir, light);
+        let enter: String =
+            ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+        m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+        let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let mut bp = mg_module::blueprints::placeable(ResRef::EMPTY, "Light", 0);
+        bp.root.set("Appearance", Value::Dword(row as u32));
+        bp.root.set("Static", Value::Byte(u8::from(is_static)));
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        // (Just north of the player, over the floor the camera looks at.)
+        let at = Placement { position: [20.0, 21.0, height], rotation: 0.0 };
+        let placed = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+        git.root.set("Placeable List", Value::List(vec![placed]));
+        m.set_gff(git_key, &git).unwrap();
+        std::fs::create_dir_all(dir.join("user/override")).unwrap();
+        std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+        std::fs::write(dir.join("user/override/inc_standard.shd"), &shader).unwrap();
+        m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+        let Some(client) = client_screenshot(&dir, "MgScene") else {
+            eprintln!("row {row}: the client did not reach the scene");
+            continue;
+        };
+        let label = table.get(row, "Label").unwrap_or("?");
+        let c = table.get_int(row, "LightColor").unwrap_or(0) as usize;
+        let of = |col: &str| colors.get_float(c, col).unwrap_or(0.0);
+        eprintln!(
+            "row {row} {label} static {is_static} height {height}: lightcolor row {c} \
+             ({:.2}, {:.2}, {:.2}); client: lights {:.0}, color ({:.3}, {:.3}, {:.3}), \
+             cutoff {:.2}, ambient only {:.0}; second light color ({:.3}, {:.3}, {:.3}) \
+             cutoff {:.2}",
+            of("RED"),
+            of("GREEN"),
+            of("BLUE"),
+            debug_value(&client, 1, 64.0),
+            debug_value(&client, 32, 8.0),
+            debug_value(&client, 33, 8.0),
+            debug_value(&client, 34, 8.0),
+            debug_value(&client, 35, 256.0),
+            debug_value(&client, 36, 1.0),
+            debug_value(&client, 40, 8.0),
+            debug_value(&client, 41, 8.0),
+            debug_value(&client, 42, 8.0),
+            debug_value(&client, 43, 256.0),
+        );
+        // As Moonglow makes a light of that color with a radius of 10.
+        let ours = mg_render::PointLight::new(
+            Vec3::ZERO,
+            Vec3::new(of("RED"), of("GREEN"), of("BLUE")),
+            10.0,
+            false,
+            4,
+        );
+        let what = format!("row {row} static {is_static} height {height}");
+        assert!((debug_value(&client, 1, 64.0) - 1.0).abs() < 0.01, "{what}: one light");
+        assert!((debug_value(&client, 35, 256.0) - ours.cutoff).abs() < 0.05, "{what}: cutoff");
+        for (k, channel) in ours.color.to_array().into_iter().enumerate() {
+            let theirs = debug_value(&client, 32 + k, 8.0);
+            assert!((theirs - channel).abs() < 0.005, "{what}: color {k}: {theirs} {channel}");
+        }
+    }
+}
+
 /// L5: the client's fog uniforms (read back through the debug shader) are
 /// Moonglow's fog: the end at the fog clip distance, the start the fog
 /// amount nearer than 30 m (at most 1 m before the end), with or without a

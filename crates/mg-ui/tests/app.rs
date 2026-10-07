@@ -11095,6 +11095,58 @@ fn an_area_is_copied_with_its_objects() {
     assert!(!ws.module.contains(&ResKey::new(new, ResType::GIT)));
 }
 
+/// A right click on the ground offers a light: one of the game's
+/// invisible light placeables is put there, a little above the ground,
+/// and its menu gives it another color.
+#[test]
+fn a_light_is_added_from_the_area_s_menu_and_recolored() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("add-light") else { return };
+    h.set_size(egui::vec2(1400.0, 1000.0));
+    h.run_steps(3);
+    let git_key = ResKey::new(area, ResType::GIT);
+    let placed = |h: &mut Harness<'_, Moonglow>| -> Vec<mg_gff::Struct> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        git.root.list("Placeable List").map(<[_]>::to_vec).unwrap_or_default()
+    };
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    right_click(&mut h, at);
+    h.get_by_label_contains("Add Light Here").hover();
+    h.run_steps(3);
+    h.get_by_label("White").click();
+    h.run_steps(3);
+    let lights = placed(&mut h);
+    assert_eq!(lights.len(), 1);
+    assert_eq!(lights[0].integer("Appearance"), Some(15112), "Light, White");
+    let (x, z) = (lights[0].float("X").unwrap(), lights[0].float("Z").unwrap());
+    assert!((x - 15.0).abs() < 0.5 && (z - 1.5).abs() < 0.3, "at {x}, up {z}");
+    assert_eq!(lights[0].integer("Static"), Some(1));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Add Light, White"));
+    assert_eq!(h.state().area_views[&area].selection, [(mg_area::ObjectKind::Placeable, 0)]);
+    h.render().unwrap().save(mg_testkit::scratch_dir("ui-add-light").join("a.png")).unwrap();
+    // Its own menu: another color.
+    let on_it = screen(&h, area, Vec3::new(x, lights[0].float("Y").unwrap(), z + 0.5));
+    right_click(&mut h, on_it);
+    h.get_by_label_contains("Light Color").hover();
+    h.run_steps(3);
+    h.get_by_label("Red").click();
+    h.run_steps(3);
+    assert_eq!(placed(&mut h)[0].integer("Appearance"), Some(15111), "Light, Red");
+}
+
 /// With a terrain brush in hand, a right click is the brush's (Raise/
 /// Lower lowers) though an object lies under the pointer: its menu does
 /// not open.
@@ -11124,6 +11176,26 @@ fn a_right_click_with_a_terrain_brush_is_the_brush_s_over_an_object() {
     assert!(h.query_by_label("Properties").is_none(), "no object menu");
     assert!(h.query_by_label("Go To").is_none());
     assert!(h.state().palette.tile_brush.is_some(), "the brush stays in hand");
+    // A right click where no ground of the area is under the pointer (off
+    // its edge; a cliff face with nothing to stand on, the ray going on
+    // past the area): Raise/Lower lowers nothing there, and stays in hand.
+    // It was dropped without a word, and the next click was the object's.
+    let off = h.state().area_views[&area].rect.left_top() + egui::vec2(12.0, 40.0);
+    assert!(h.state().area_views[&area].ground_spot(off).is_none(), "off the area");
+    h.hover_at(off);
+    h.run_steps(2);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: off,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run_steps(3);
+    assert!(h.state().palette.tile_brush.is_some(), "Raise/Lower stays in hand");
+    h.hover_at(at);
+    h.run_steps(2);
     // Fast and sloppy, as when working along a slope: presses and
     // releases a few points apart, left and right, single and double,
     // some begun before the last stroke is drawn. The object under them
