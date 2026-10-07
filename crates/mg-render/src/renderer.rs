@@ -14,7 +14,8 @@ use crate::Gpu;
 use crate::assets::Assets;
 use crate::model::{SkinVertex, Vertex};
 use crate::particles::{ParticleBlend, ParticleVertex};
-use crate::scene::{Camera, Scene};
+use crate::reach::{Frustum, LightGrid};
+use crate::scene::{Camera, Instance, Scene};
 use crate::texture::GpuTexture;
 
 /// Lights per draw, as the game's default `max-lights`.
@@ -194,20 +195,63 @@ fn env_switched_off(source: &str) -> bool {
 /// hint.
 type SlotKey = (Option<String>, [Option<String>; 3], Option<String>, bool);
 
+/// What a mesh is drawn with, for an instance of its model: its textures
+/// as the instance's renames, colours and environment map leave them, and
+/// what they say of how to draw it. Worked out when a model is first seen
+/// so dressed and kept ([`Renderer::surfaces`]): looked up by name for
+/// every mesh of every frame, it was a fifth of drawing a large area.
+#[derive(Debug)]
+struct Surface {
+    slots: Arc<Slots>,
+    /// The slots whose texture there is.
+    bound: [bool; SLOTS],
+    /// Whether there is a diffuse texture, and its own: how it blends,
+    /// whether it is a decal, its ripples and whether it is water.
+    textured: bool,
+    blending: Blending,
+    decal: bool,
+    ripple: Option<(f32, f32)>,
+    water: bool,
+    /// The texture's alpha makes the mesh see-through (not when it is an
+    /// environment map's reflectivity).
+    has_alpha: bool,
+    /// It reflects an environment map, and that is a cube map.
+    reflects: bool,
+    env_cube: bool,
+    /// Its bind group, in [`Renderer::groups`].
+    material: u32,
+}
+
+/// What a model's [`Surface`]s are kept by: the model, and of the
+/// instance its texture renames, its environment map and its PLT
+/// colours (the first two by number: [`Renderer::names`],
+/// [`Renderer::renames`]), and the scene's environment map.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct SurfaceKey {
+    model: u64,
+    renames: u32,
+    env: u32,
+    scene_env: u32,
+    plt: Option<[u8; 10]>,
+}
+
+/// How many models' surfaces are kept before they are worked out anew.
+const SURFACES_KEPT: usize = 16_384;
+
 /// One draw, ready to sort.
-#[derive(Clone)]
-struct Draw {
+#[derive(Clone, Copy)]
+struct Draw<'a> {
     pass: Pass,
     depth: f32,
     hint: u32,
-    uniform: DrawUniform,
-    material: MaterialKey,
-    vertices: wgpu::Buffer,
-    /// Replaced vertices: their bytes in the frame's dynamic buffer.
-    dynamic: Option<std::ops::Range<u64>>,
-    skin: Option<wgpu::Buffer>,
-    indices: wgpu::Buffer,
-    count: u32,
+    /// Its uniforms' place among the frame's.
+    uniform: u32,
+    /// Its material's bind group, in [`Renderer::groups`].
+    material: u32,
+    mesh: &'a crate::model::GpuMesh,
+    /// Replaced vertices: their bytes in the frame's dynamic buffer, from
+    /// and to.
+    dynamic: Option<(u64, u64)>,
 }
 
 /// What the renderer draws: the lit scene, or a value for comparing with
@@ -226,7 +270,6 @@ pub struct Renderer {
     color_format: wgpu::TextureFormat,
     sample_count: u32,
     frame_layout: wgpu::BindGroupLayout,
-    draw_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     pipelines: HashMap<(Pass, bool), wgpu::RenderPipeline>,
     particle_frame_layout: wgpu::BindGroupLayout,
@@ -239,15 +282,46 @@ pub struct Renderer {
     frame_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
     bone_buffer: wgpu::Buffer,
+    /// Every draw's uniforms, one after another: a draw's are found by
+    /// its instance number.
     draw_buffer: wgpu::Buffer,
-    draw_stride: u64,
     white: Arc<GpuTexture>,
     white_cube: Arc<GpuTexture>,
     textures: HashMap<String, Option<Arc<TextureEntry>>>,
     slots: HashMap<SlotKey, Arc<Slots>>,
-    materials: HashMap<MaterialKey, wgpu::BindGroup>,
+    /// The materials' bind groups, and each material's place among them.
+    materials: HashMap<MaterialKey, u32>,
+    groups: Vec<wgpu::BindGroup>,
+    /// Each model's meshes' surfaces, as its instances dress it.
+    surfaces: HashMap<SurfaceKey, Arc<[Surface]>>,
+    /// Environment maps' names, numbered from 1 (0: none).
+    names: HashMap<String, u32>,
+    /// Instances' texture renames, numbered from 1 (0: none), by a sum of
+    /// their pairs' hashes.
+    #[allow(clippy::type_complexity)]
+    renames: HashMap<u64, Vec<(Vec<(String, String)>, u32)>>,
+    renames_made: u32,
     samplers: HashMap<(bool, bool), wgpu::Sampler>,
     env_sampler: wgpu::Sampler,
+    /// A frame's uniforms, bones and replaced vertices: kept from frame
+    /// to frame, for their room.
+    uniforms: Vec<DrawUniform>,
+    bones: Vec<[[f32; 4]; 4]>,
+    dynamic: Vec<Vertex>,
+    /// What the last frame drew.
+    pub drawn: Drawn,
+}
+
+/// What a frame drew ([`Renderer::drawn`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Drawn {
+    /// The draws: a mesh each, two for a see-through one.
+    pub meshes: usize,
+    /// The meshes left out as out of the camera's sight.
+    pub hidden: usize,
+    /// How many times a draw's material was another than the draw's
+    /// before it.
+    pub materials: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -319,11 +393,17 @@ impl Renderer {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
-        });
-        let draw_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("draw"),
-            entries: &[uniform(0, true)],
         });
         let texture_entry = |binding| wgpu::BindGroupLayoutEntry {
             binding,
@@ -369,7 +449,7 @@ impl Renderer {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("lit"),
-            bind_group_layouts: &[Some(&frame_layout), Some(&draw_layout), Some(&material_layout)],
+            bind_group_layouts: &[Some(&frame_layout), Some(&material_layout)],
             immediate_size: 0,
         });
         let mut pipelines = HashMap::new();
@@ -554,8 +634,7 @@ impl Renderer {
                 mapped_at_creation: false,
             })
         };
-        let align = u64::from(device.limits().min_uniform_buffer_offset_alignment);
-        let draw_stride = (std::mem::size_of::<DrawUniform>() as u64).div_ceil(align) * align;
+        let draw_size = std::mem::size_of::<DrawUniform>() as u64;
         let env_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("env"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -570,7 +649,6 @@ impl Renderer {
             color_format,
             sample_count,
             frame_layout,
-            draw_layout,
             material_layout,
             pipelines,
             particle_frame_layout,
@@ -586,8 +664,7 @@ impl Renderer {
             ),
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
             bone_buffer: buffer("bones", 64 * 64, wgpu::BufferUsages::STORAGE),
-            draw_buffer: buffer("draws", draw_stride * 64, wgpu::BufferUsages::UNIFORM),
-            draw_stride,
+            draw_buffer: buffer("draws", draw_size * 64, wgpu::BufferUsages::STORAGE),
             white: Arc::new(GpuTexture::solid(gpu, "white", [255; 4])),
             white_cube: Arc::new(GpuTexture::upload_cube(gpu, "white cube", &{
                 let face =
@@ -597,8 +674,17 @@ impl Renderer {
             textures: HashMap::new(),
             slots: HashMap::new(),
             materials: HashMap::new(),
+            groups: Vec::new(),
+            surfaces: HashMap::new(),
+            names: HashMap::new(),
+            renames: HashMap::new(),
+            renames_made: 0,
             samplers: HashMap::new(),
             env_sampler,
+            uniforms: Vec::new(),
+            bones: Vec::new(),
+            dynamic: Vec::new(),
+            drawn: Drawn::default(),
         }
     }
 
@@ -611,6 +697,8 @@ impl Renderer {
         self.textures.clear();
         self.slots.clear();
         self.materials.clear();
+        self.groups.clear();
+        self.surfaces.clear();
     }
 
     /// A mesh's texture slots and MTR parameters: an MTR named by the model,
@@ -685,10 +773,11 @@ impl Renderer {
         out
     }
 
-    /// The bind group for a material key, made on first use.
-    fn material_group(&mut self, gpu: &Gpu, assets: &dyn Assets, key: &MaterialKey) {
-        if self.materials.contains_key(key) {
-            return;
+    /// The bind group for a material key (its place in
+    /// [`Renderer::groups`]), made on first use.
+    fn material_group(&mut self, gpu: &Gpu, assets: &dyn Assets, key: &MaterialKey) -> u32 {
+        if let Some(group) = self.materials.get(key) {
+            return *group;
         }
         let textures: Vec<Option<Arc<TextureEntry>>> =
             key.0.iter().map(|n| n.as_deref().and_then(|t| self.texture(gpu, assets, t))).collect();
@@ -729,7 +818,157 @@ impl Renderer {
                 tex(11, view(7)),
             ],
         });
-        self.materials.insert(key.clone(), group);
+        self.groups.push(group);
+        let at = self.groups.len() as u32 - 1;
+        self.materials.insert(key.clone(), at);
+        at
+    }
+
+    /// An environment map's number (0: none).
+    fn name_id(&mut self, name: Option<&str>) -> u32 {
+        let Some(name) = name else { return 0 };
+        if let Some(id) = self.names.get(name) {
+            return *id;
+        }
+        let id = self.names.len() as u32 + 1;
+        self.names.insert(name.to_string(), id);
+        id
+    }
+
+    /// An instance's texture renames' number (0: none): the same for the
+    /// same renames, however they are held.
+    fn renames_id(&mut self, renames: &HashMap<String, String>) -> u32 {
+        use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
+        if renames.is_empty() {
+            return 0;
+        }
+        // (A sum: whatever order the map gives its pairs in.)
+        let hasher = BuildHasherDefault::<DefaultHasher>::default();
+        let sum = renames.iter().fold(0u64, |sum, pair| sum.wrapping_add(hasher.hash_one(pair)));
+        let known = self.renames.entry(sum).or_default();
+        let same = |pairs: &[(String, String)]| {
+            pairs.len() == renames.len() && pairs.iter().all(|(k, v)| renames.get(k) == Some(v))
+        };
+        if let Some((_, id)) = known.iter().find(|(pairs, _)| same(pairs)) {
+            return *id;
+        }
+        self.renames_made += 1;
+        let pairs = renames.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        known.push((pairs, self.renames_made));
+        self.renames_made
+    }
+
+    /// The surfaces of the meshes of `inst`'s model, as the instance
+    /// dresses it (in a scene whose environment map is `scene_env`,
+    /// numbered `scene_env_id`).
+    fn surfaces(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        inst: &Instance,
+        scene_env: Option<&str>,
+        scene_env_id: u32,
+    ) -> Arc<[Surface]> {
+        let key = SurfaceKey {
+            model: inst.model.id,
+            renames: inst.textures.as_deref().map_or(0, |t| self.renames_id(t)),
+            env: self.name_id(inst.env_map.as_deref()),
+            scene_env: scene_env_id,
+            plt: inst.plt_colors,
+        };
+        if let Some(surfaces) = self.surfaces.get(&key) {
+            return surfaces.clone();
+        }
+        let surfaces: Arc<[Surface]> = inst
+            .model
+            .meshes
+            .iter()
+            .map(|mesh| self.surface(gpu, assets, &mesh.material, inst, scene_env))
+            .collect();
+        if self.surfaces.len() >= SURFACES_KEPT {
+            self.surfaces.clear();
+        }
+        self.surfaces.insert(key, surfaces.clone());
+        surfaces
+    }
+
+    /// A mesh's surface, for an instance of its model.
+    fn surface(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        mat: &crate::model::Material,
+        inst: &Instance,
+        scene_env: Option<&str>,
+    ) -> Surface {
+        let slots = self.slots(assets, mat);
+        // The instance's texture renames, and its PLT colours on the
+        // diffuse texture.
+        // (A mesh that names none takes the instance's texture
+        // for those, under the empty name: a body part's own.)
+        let unnamed = || inst.textures.as_ref().and_then(|t| t.get("")).cloned();
+        let names: [Option<String>; SLOTS] = std::array::from_fn(|i| {
+            let named = slots.names[i].clone().or_else(|| unnamed().filter(|_| i == 0));
+            named.as_ref().map(|n| {
+                let renamed = inst.textures.as_ref().and_then(|t| t.get(n)).cloned();
+                let n = renamed.unwrap_or_else(|| n.clone());
+                match (i, inst.plt_colors) {
+                    (0, Some(c)) => crate::assets::colored_name(&n, c),
+                    _ => n,
+                }
+            })
+        });
+        let tex = names[0].as_deref().and_then(|t| self.texture(gpu, assets, t));
+        let bound: [bool; SLOTS] = std::array::from_fn(|i| {
+            names[i].as_deref().is_some_and(|t| self.texture(gpu, assets, t).is_some())
+        });
+        let (blending, env, decal, clamp, has_alpha) = match &tex {
+            Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.gpu.has_alpha),
+            None => (Blending::Default, None, false, (false, false), false),
+        };
+        // The environment map: the texture's (TXI), `default` or
+        // none there meaning the object's, then the area's.
+        let fallback = || inst.env_map.clone().or_else(|| scene_env.map(str::to_string));
+        let env = match env {
+            Some(e) if e.eq_ignore_ascii_case("default") => {
+                Some(fallback().unwrap_or_else(|| "chrome1".into()))
+            }
+            Some(e) => Some(e),
+            None => inst.env_map.clone(),
+        };
+        let env_mapped = env.is_some();
+        // A shader with the environment map switched off reflects
+        // nothing; the engine still takes the texture's alpha for
+        // the map's, so without the MTR's `transparency` the mesh
+        // is drawn solid, alpha and all (seen in the client:
+        // `creatures_look` in `client_render.rs`).
+        let see_through = mat.transparency_hint > 0 || slots.transparency;
+        let (reflects, has_alpha) = (
+            env_mapped && !slots.no_env,
+            has_alpha && !(env_mapped && slots.no_env && !see_through),
+        );
+        let env_cube = env
+            .as_deref()
+            .and_then(|e| self.texture(gpu, assets, &e.to_ascii_lowercase()))
+            .is_some_and(|t| t.cube);
+        let key: MaterialKey = (
+            std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }),
+            env.map_or_else(|| "chrome1".into(), |e| e.to_ascii_lowercase()),
+            clamp,
+        );
+        Surface {
+            material: self.material_group(gpu, assets, &key),
+            slots,
+            bound,
+            textured: tex.is_some(),
+            blending,
+            decal,
+            ripple: tex.as_ref().and_then(|t| t.ripple),
+            water: tex.as_ref().is_some_and(|t| t.water),
+            has_alpha,
+            reflects,
+            env_cube,
+        }
     }
 
     fn texture(&mut self, gpu: &Gpu, assets: &dyn Assets, name: &str) -> Option<Arc<TextureEntry>> {
@@ -862,9 +1101,6 @@ impl Renderer {
         }
 
         // Draws.
-        let mut draws: Vec<Draw> = Vec::new();
-        let mut bones: Vec<[[f32; 4]; 4]> = Vec::new();
-        let mut dynamic: Vec<Vertex> = Vec::new();
         // The sky first, around the camera.
         // Around the camera, at ground level (the game's horizon fade then
         // covers what the camera sees of the horizon).
@@ -874,6 +1110,19 @@ impl Renderer {
         };
         let sky = scene.sky.as_ref().map(around);
         let fade = scene.sky_fade.as_ref().map(|(s, c)| (around(s), *c));
+        let mut draws: Vec<Draw<'_>> = Vec::new();
+        let mut uniforms = std::mem::take(&mut self.uniforms);
+        let mut bones = std::mem::take(&mut self.bones);
+        let mut dynamic = std::mem::take(&mut self.dynamic);
+        uniforms.clear();
+        bones.clear();
+        dynamic.clear();
+        let frustum = Frustum::new(proj * view);
+        let mut reach = LightGrid::new(&scene.lights);
+        let mut chosen = Vec::new();
+        let scene_env = scene.env_map.as_deref();
+        let scene_env_id = self.name_id(scene_env);
+        let mut hidden = 0;
         // (instance, sky, sky fade colour)
         let all = sky
             .iter()
@@ -883,7 +1132,8 @@ impl Renderer {
         for (inst, is_sky, fade_color) in all {
             let rest = &inst.model.rest;
             let pose: &Vec<Mat4> = inst.pose.as_deref().unwrap_or(rest);
-            for (j, mesh) in inst.model.meshes.iter().enumerate() {
+            let surfaces = self.surfaces(gpu, assets, inst, scene_env, scene_env_id);
+            for (j, (mesh, surface)) in inst.model.meshes.iter().zip(surfaces.iter()).enumerate() {
                 let replaced = inst.state.as_ref().and_then(|s| s.meshes.get(j));
                 let alpha =
                     replaced.and_then(|r| r.alpha).unwrap_or(mesh.material.alpha) * inst.opacity;
@@ -891,12 +1141,31 @@ impl Renderer {
                 if alpha <= 0.0 {
                     continue;
                 }
+                let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
+                let half = (mesh.max - mesh.min) * 0.5;
+                let centre = world.transform_point3((mesh.min + mesh.max) * 0.5);
+                // Out of the camera's sight: not drawn. (Of the meshes
+                // that stay in their box: not one a skin moves with its
+                // bones or whose vertices an animation replaces.)
+                let moved = replaced.and_then(|r| r.vertices.as_ref());
+                if !is_sky && mesh.skin.is_none() && moved.is_none() {
+                    // (The box as it lies in the scene, turned and scaled:
+                    // a ball around it.)
+                    let turned = glam::Mat3::from_mat4(world);
+                    let around = turned.x_axis.abs() * half.x
+                        + turned.y_axis.abs() * half.y
+                        + turned.z_axis.abs() * half.z;
+                    if frustum.hides(centre, around.length()) {
+                        hidden += 1;
+                        continue;
+                    }
+                }
                 let emissive = replaced.and_then(|r| r.selfillum).unwrap_or(mesh.material.emissive);
-                let dynamic_range = replaced.and_then(|r| r.vertices.as_ref()).map(|v| {
+                let dynamic_range = moved.map(|v| {
                     let size = std::mem::size_of::<Vertex>() as u64;
                     let start = dynamic.len() as u64 * size;
                     dynamic.extend_from_slice(v);
-                    start..dynamic.len() as u64 * size
+                    (start, dynamic.len() as u64 * size)
                 });
                 // Bones: bind pose to current pose, in the skin node's space.
                 let bone_base = bones.len() as u32;
@@ -908,75 +1177,20 @@ impl Renderer {
                         bones.push(cols(to_skin * now * *inverse_bind));
                     }
                 }
-                let world = inst.transform * pose.get(mesh.node).copied().unwrap_or(Mat4::IDENTITY);
                 let model_view = view * world;
-                let centre = world.transform_point3((mesh.min + mesh.max) * 0.5);
-                let radius = world.transform_vector3((mesh.max - mesh.min) * 0.5).length();
+                let radius = world.transform_vector3(half).length();
                 let mat = &mesh.material;
-                let slots = self.slots(assets, mat);
-                // The instance's texture renames, and its PLT colours on the
-                // diffuse texture.
-                // (A mesh that names none takes the instance's texture
-                // for those, under the empty name: a body part's own.)
-                let unnamed = || inst.textures.as_ref().and_then(|t| t.get("")).cloned();
-                let names: [Option<String>; SLOTS] = std::array::from_fn(|i| {
-                    let named = slots.names[i].clone().or_else(|| unnamed().filter(|_| i == 0));
-                    named.as_ref().map(|n| {
-                        let n = inst
-                            .textures
-                            .as_ref()
-                            .and_then(|t| t.get(n))
-                            .cloned()
-                            .unwrap_or_else(|| n.clone());
-                        match (i, inst.plt_colors) {
-                            (0, Some(c)) => crate::assets::colored_name(&n, c),
-                            _ => n,
-                        }
-                    })
-                });
-                let tex = names[0].as_deref().and_then(|t| self.texture(gpu, assets, t));
-                let bound: Vec<bool> = names
-                    .iter()
-                    .map(|n| n.as_deref().is_some_and(|t| self.texture(gpu, assets, t).is_some()))
-                    .collect();
+                let slots = &surface.slots;
+                let bound = surface.bound;
                 let flag = |b: bool| if b { 1.0 } else { 0.0 };
-                let (blending, env, decal, clamp, has_alpha) = match &tex {
-                    Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.gpu.has_alpha),
-                    None => (Blending::Default, None, false, (false, false), false),
-                };
-                // The environment map: the texture's (TXI), `default` or
-                // none there meaning the object's, then the area's.
-                let fallback = || inst.env_map.clone().or_else(|| scene.env_map.clone());
-                let env = match env {
-                    Some(e) if e.eq_ignore_ascii_case("default") => {
-                        Some(fallback().unwrap_or_else(|| "chrome1".into()))
-                    }
-                    Some(e) => Some(e),
-                    None => inst.env_map.clone(),
-                };
-                let env_mapped = env.is_some();
-                // A shader with the environment map switched off reflects
-                // nothing; the engine still takes the texture's alpha for
-                // the map's, so without the MTR's `transparency` the mesh
-                // is drawn solid, alpha and all (seen in the client:
-                // `creatures_look` in `client_render.rs`).
-                let see_through = mat.transparency_hint > 0 || slots.transparency;
-                let (reflects, has_alpha) = (
-                    env_mapped && !slots.no_env,
-                    has_alpha && !(env_mapped && slots.no_env && !see_through),
-                );
-                let env_cube = env
-                    .as_deref()
-                    .and_then(|e| self.texture(gpu, assets, &e.to_ascii_lowercase()))
-                    .is_some_and(|t| t.cube);
                 let pass = if fade_color.is_some() {
                     Pass::SkyFade
                 } else if is_sky {
                     Pass::Sky
-                } else if blending == Blending::Additive {
+                } else if surface.blending == Blending::Additive {
                     Pass::Additive
                 } else if alpha < 1.0
-                    || (has_alpha && !reflects)
+                    || (surface.has_alpha && !surface.reflects)
                     || mat.transparency_hint > 0
                     || slots.effect.is_some_and(|e| e.blend)
                 {
@@ -984,130 +1198,115 @@ impl Renderer {
                 } else {
                     Pass::Opaque
                 };
-                let discard = if blending == Blending::Punchthrough { 0.5 } else { ALPHA_DISCARD };
+                let discard =
+                    if surface.blending == Blending::Punchthrough { 0.5 } else { ALPHA_DISCARD };
                 // The 32 most important lights that reach the mesh.
-                let mut chosen: Vec<(u32, f32, u32)> = scene
-                    .lights
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, l)| {
-                        let d = l.position.distance(centre) - radius;
-                        (d <= l.cutoff).then_some((l.priority, d, i as u32))
-                    })
-                    .collect();
-                chosen.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
-                chosen.truncate(MAX_LIGHTS);
+                reach.reaching(centre, radius, &mut chosen);
                 let mut light_index = [[0u32; 4]; 8];
                 for (j, (_, _, i)) in chosen.iter().enumerate() {
                     light_index[j / 4][j % 4] = *i;
                 }
                 let normal = model_view.inverse().transpose();
+                let uniform = DrawUniform {
+                    world: cols(world),
+                    normal_matrix: cols(normal),
+                    // MDL colours are gamma space; the game linearises
+                    // them (read back from its uniforms).
+                    diffuse: match fade_color {
+                        // The fade: its colour, gamma space.
+                        Some(c) => c.extend(1.0).to_array(),
+                        None => lin(mat.diffuse).extend(alpha).to_array(),
+                    },
+                    ambient: lin(mat.ambient).extend(1.0).to_array(),
+                    emissive: lin(emissive).extend(1.0).to_array(),
+                    params: [
+                        discard,
+                        flag(surface.reflects),
+                        flag(surface.textured),
+                        // Unlit: 2 a marker (in its material's
+                        // colour), 1 a decal and the sky.
+                        if inst.unlit {
+                            2.0
+                        } else if surface.decal || is_sky {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                    ],
+                    material: [
+                        slots.specularity,
+                        slots.roughness,
+                        slots.metallicness,
+                        flag(surface.has_alpha),
+                    ],
+                    maps: [flag(bound[1]), flag(bound[2]), flag(bound[3]), flag(bound[4])],
+                    maps2: [
+                        flag(bound[5]),
+                        slots.displacement_offset,
+                        slots.displacement_multiplier,
+                        flag(slots.normal_variant),
+                    ],
+                    spec_color: slots.specular_color.map_or([0.0; 4], |c| c.extend(1.0).to_array()),
+                    // (w: which part of a see-through mesh, below.)
+                    extra: [flag(surface.env_cube), flag(is_sky), flag(fade_color.is_some()), 0.0],
+                    water: {
+                        let (far, fast) = surface.ripple.unwrap_or((0.0, 0.0));
+                        [far, fast, flag(surface.water), 0.0]
+                    },
+                    effect: match slots.effect {
+                        Some(e) => {
+                            // 1 vertex colors, 2 alpha mask, 4 lightmap,
+                            // 8 flow.
+                            let mask = bound[6] && !e.lightmap;
+                            let flow = bound[7] && e.slide_speed != 0.0;
+                            let bits = u8::from(e.colors)
+                                + 2 * u8::from(mask)
+                                + 4 * u8::from(bound[6] && e.lightmap)
+                                + 8 * u8::from(flow);
+                            [
+                                f32::from(bits),
+                                e.slide_speed,
+                                e.shadow_reduction,
+                                e.shadow_brightening,
+                            ]
+                        }
+                        None => [0.0; 4],
+                    },
+                    light_count: [
+                        chosen.len() as u32,
+                        u32::from(mesh.skin.is_some()),
+                        bone_base,
+                        0,
+                    ],
+                    light_index,
+                };
                 let draw = Draw {
                     pass,
                     depth: -view.transform_point3(centre).z,
                     hint: mat.transparency_hint,
-                    uniform: DrawUniform {
-                        world: cols(world),
-                        normal_matrix: cols(normal),
-                        // MDL colours are gamma space; the game linearises
-                        // them (read back from its uniforms).
-                        diffuse: match fade_color {
-                            // The fade: its colour, gamma space.
-                            Some(c) => c.extend(1.0).to_array(),
-                            None => lin(mat.diffuse).extend(alpha).to_array(),
-                        },
-                        ambient: lin(mat.ambient).extend(1.0).to_array(),
-                        emissive: lin(emissive).extend(1.0).to_array(),
-                        params: [
-                            discard,
-                            if reflects { 1.0 } else { 0.0 },
-                            if tex.is_some() { 1.0 } else { 0.0 },
-                            // Unlit: 2 a marker (in its material's
-                            // colour), 1 a decal and the sky.
-                            if inst.unlit {
-                                2.0
-                            } else if decal || is_sky {
-                                1.0
-                            } else {
-                                0.0
-                            },
-                        ],
-                        material: [
-                            slots.specularity,
-                            slots.roughness,
-                            slots.metallicness,
-                            flag(has_alpha),
-                        ],
-                        maps: [flag(bound[1]), flag(bound[2]), flag(bound[3]), flag(bound[4])],
-                        maps2: [
-                            flag(bound[5]),
-                            slots.displacement_offset,
-                            slots.displacement_multiplier,
-                            flag(slots.normal_variant),
-                        ],
-                        spec_color: slots
-                            .specular_color
-                            .map_or([0.0; 4], |c| c.extend(1.0).to_array()),
-                        // (w: which part of a see-through mesh, below.)
-                        extra: [flag(env_cube), flag(is_sky), flag(fade_color.is_some()), 0.0],
-                        water: {
-                            let (far, fast) =
-                                tex.as_ref().and_then(|t| t.ripple).unwrap_or((0.0, 0.0));
-                            [far, fast, flag(tex.as_ref().is_some_and(|t| t.water)), 0.0]
-                        },
-                        effect: match slots.effect {
-                            Some(e) => {
-                                // 1 vertex colors, 2 alpha mask, 4 lightmap,
-                                // 8 flow.
-                                let mask = bound[6] && !e.lightmap;
-                                let flow = bound[7] && e.slide_speed != 0.0;
-                                let bits = u8::from(e.colors)
-                                    + 2 * u8::from(mask)
-                                    + 4 * u8::from(bound[6] && e.lightmap)
-                                    + 8 * u8::from(flow);
-                                [
-                                    f32::from(bits),
-                                    e.slide_speed,
-                                    e.shadow_reduction,
-                                    e.shadow_brightening,
-                                ]
-                            }
-                            None => [0.0; 4],
-                        },
-                        light_count: [
-                            chosen.len() as u32,
-                            u32::from(mesh.skin.is_some()),
-                            bone_base,
-                            0,
-                        ],
-                        light_index,
-                    },
-                    material: (
-                        std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }),
-                        env.map_or_else(|| "chrome1".into(), |e| e.to_ascii_lowercase()),
-                        clamp,
-                    ),
-                    vertices: mesh.vertices.clone(),
+                    uniform: uniforms.len() as u32,
+                    material: surface.material,
+                    mesh,
                     dynamic: dynamic_range,
-                    skin: mesh.skin.as_ref().map(|s| s.vertices.clone()),
-                    indices: mesh.indices.clone(),
-                    count: mesh.index_count,
                 };
                 // A see-through mesh is drawn in two parts: what is solid
                 // of it, then the rest.
                 if pass == Pass::Blend {
-                    let mut solid = draw.clone();
-                    solid.uniform.extra[3] = 1.0;
-                    draws.push(solid);
-                    let mut rest = draw;
-                    rest.pass = Pass::Fringe;
-                    rest.uniform.extra[3] = 2.0;
-                    draws.push(rest);
+                    let part = |which: f32| {
+                        let [cube, sky, fade, _] = uniform.extra;
+                        DrawUniform { extra: [cube, sky, fade, which], ..uniform }
+                    };
+                    uniforms.push(part(1.0));
+                    draws.push(draw);
+                    uniforms.push(part(2.0));
+                    draws.push(Draw { pass: Pass::Fringe, uniform: draw.uniform + 1, ..draw });
                 } else {
+                    uniforms.push(uniform);
                     draws.push(draw);
                 }
             }
         }
+        self.drawn = Drawn { meshes: draws.len(), hidden, materials: 0 };
         // Opaque (any order), then blended back to front by hint then depth,
         // then additive.
         draws.sort_by(|a, b| {
@@ -1157,23 +1356,17 @@ impl Renderer {
         }
 
         // Upload per-draw data.
-        let needed = self.draw_stride * draws.len().max(1) as u64;
+        let needed = std::mem::size_of_val(uniforms.as_slice()) as u64;
         if self.draw_buffer.size() < needed {
             self.draw_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("draws"),
                 size: needed.next_power_of_two(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
         }
-        let mut bytes = vec![0u8; (self.draw_stride as usize) * draws.len()];
-        for (i, d) in draws.iter().enumerate() {
-            let at = i * self.draw_stride as usize;
-            bytes[at..at + std::mem::size_of::<DrawUniform>()]
-                .copy_from_slice(bytemuck::bytes_of(&d.uniform));
-        }
-        if !bytes.is_empty() {
-            gpu.queue.write_buffer(&self.draw_buffer, 0, &bytes);
+        if !uniforms.is_empty() {
+            gpu.queue.write_buffer(&self.draw_buffer, 0, bytemuck::cast_slice(&uniforms));
         }
 
         // Bind groups.
@@ -1190,23 +1383,9 @@ impl Renderer {
                     resource: self.light_buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry { binding: 2, resource: self.bone_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: self.draw_buffer.as_entire_binding() },
             ],
         });
-        let draw_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("draw"),
-            layout: &self.draw_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &self.draw_buffer,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(std::mem::size_of::<DrawUniform>() as u64),
-                }),
-            }],
-        });
-        for d in &draws {
-            self.material_group(gpu, assets, &d.material);
-        }
 
         // Particles: punch-through, then blended by render order, then
         // additive; their textures bind like meshes'.
@@ -1226,7 +1405,7 @@ impl Renderer {
             let mut names: [Option<String>; SLOTS] = Default::default();
             names[0] = b.texture.clone();
             let key: MaterialKey = (names, "chrome1".into(), (false, false));
-            self.material_group(gpu, assets, &key);
+            let group = self.material_group(gpu, assets, &key);
             let start = particle_vertices.len() as u32;
             match b.tint {
                 Some(at) => {
@@ -1241,7 +1420,7 @@ impl Renderer {
                 }
                 None => particle_vertices.extend_from_slice(&b.vertices),
             }
-            particle_draws.push((b.blend, key, start..particle_vertices.len() as u32));
+            particle_draws.push((b.blend, group, start..particle_vertices.len() as u32));
         }
         let particle_bytes = std::mem::size_of_val(particle_vertices.as_slice());
         if (self.particle_buffer.size() as usize) < particle_bytes {
@@ -1315,33 +1494,42 @@ impl Renderer {
                 ..Default::default()
             });
             pass.set_bind_group(0, &frame_group, &[]);
-            let mut current = None;
-            for (i, d) in draws.iter().enumerate() {
-                let key = (d.pass, d.skin.is_some());
-                if current != Some(key) {
+            // (A pipeline or a material that is the last draw's stays as
+            // it is, and a draw's own values are found by its instance
+            // number: binding a material and the draw's values anew for
+            // every draw was a quarter of drawing a large area.)
+            let (mut pipeline, mut material) = (None, None);
+            let mut materials = 0;
+            for d in &draws {
+                let key = (d.pass, d.mesh.skin.is_some());
+                if pipeline != Some(key) {
                     pass.set_pipeline(&self.pipelines[&key]);
-                    current = Some(key);
+                    pipeline = Some(key);
                 }
-                if let Some(skin) = &d.skin {
-                    pass.set_vertex_buffer(1, skin.slice(..));
+                if let Some(skin) = &d.mesh.skin {
+                    pass.set_vertex_buffer(1, skin.vertices.slice(..));
                 }
-                pass.set_bind_group(1, &draw_group, &[(i as u64 * self.draw_stride) as u32]);
-                pass.set_bind_group(2, &self.materials[&d.material], &[]);
-                match &d.dynamic {
-                    Some(range) => {
-                        pass.set_vertex_buffer(0, self.dynamic_buffer.slice(range.clone()))
+                if material != Some(d.material) {
+                    pass.set_bind_group(1, &self.groups[d.material as usize], &[]);
+                    material = Some(d.material);
+                    materials += 1;
+                }
+                match d.dynamic {
+                    Some((from, to)) => {
+                        pass.set_vertex_buffer(0, self.dynamic_buffer.slice(from..to))
                     }
-                    None => pass.set_vertex_buffer(0, d.vertices.slice(..)),
+                    None => pass.set_vertex_buffer(0, d.mesh.vertices.slice(..)),
                 }
-                pass.set_index_buffer(d.indices.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..d.count, 0, 0..1);
+                pass.set_index_buffer(d.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..d.mesh.index_count, 0, d.uniform..d.uniform + 1);
             }
+            self.drawn.materials = materials;
             if !particle_draws.is_empty() {
                 pass.set_bind_group(0, &particle_frame, &[]);
                 pass.set_vertex_buffer(0, self.particle_buffer.slice(..));
-                for (blend, key, range) in &particle_draws {
+                for (blend, group, range) in &particle_draws {
                     pass.set_pipeline(&self.particle_pipelines[blend]);
-                    pass.set_bind_group(1, &self.materials[key], &[]);
+                    pass.set_bind_group(1, &self.groups[*group as usize], &[]);
                     pass.draw(range.clone(), 0..1);
                 }
             }
@@ -1353,6 +1541,8 @@ impl Renderer {
             }
         }
         gpu.queue.submit([encoder.finish()]);
+        drop(draws);
+        (self.uniforms, self.bones, self.dynamic) = (uniforms, bones, dynamic);
     }
 
     /// Draws a scene offscreen and reads it back (rows top first).

@@ -85,19 +85,23 @@ const SOLID_ALPHA: f32 = 0.95;
 @group(0) @binding(1) var<storage, read> lights: array<Light>;
 // Skin bone matrices (bind pose to current pose, in the skin node's space).
 @group(0) @binding(2) var<storage, read> bones: array<mat4x4<f32>>;
-@group(1) @binding(0) var<uniform> draw: Draw;
-@group(2) @binding(0) var tex0: texture_2d<f32>;
-@group(2) @binding(1) var tex_env: texture_2d<f32>;
-@group(2) @binding(2) var samp0: sampler;
-@group(2) @binding(3) var samp_env: sampler;
-@group(2) @binding(4) var tex_normal: texture_2d<f32>;
-@group(2) @binding(5) var tex_spec: texture_2d<f32>;
-@group(2) @binding(6) var tex_rough: texture_2d<f32>;
-@group(2) @binding(7) var tex_height: texture_2d<f32>;
-@group(2) @binding(8) var tex_illum: texture_2d<f32>;
-@group(2) @binding(9) var tex_env_cube: texture_cube<f32>;
-@group(2) @binding(10) var tex_mask: texture_2d<f32>;
-@group(2) @binding(11) var tex_flow: texture_2d<f32>;
+// Every draw's values, and which of them this vertex or fragment is of (the
+// draw's instance number): nothing is bound anew from one draw to the next
+// but its material, when that is another.
+@group(0) @binding(3) var<storage, read> draws: array<Draw>;
+var<private> this_draw: u32;
+@group(1) @binding(0) var tex0: texture_2d<f32>;
+@group(1) @binding(1) var tex_env: texture_2d<f32>;
+@group(1) @binding(2) var samp0: sampler;
+@group(1) @binding(3) var samp_env: sampler;
+@group(1) @binding(4) var tex_normal: texture_2d<f32>;
+@group(1) @binding(5) var tex_spec: texture_2d<f32>;
+@group(1) @binding(6) var tex_rough: texture_2d<f32>;
+@group(1) @binding(7) var tex_height: texture_2d<f32>;
+@group(1) @binding(8) var tex_illum: texture_2d<f32>;
+@group(1) @binding(9) var tex_env_cube: texture_cube<f32>;
+@group(1) @binding(10) var tex_mask: texture_2d<f32>;
+@group(1) @binding(11) var tex_flow: texture_2d<f32>;
 
 struct VertexIn {
     @location(0) pos: vec3<f32>,
@@ -108,6 +112,8 @@ struct VertexIn {
     // The model's vertex color and second texture coordinates.
     @location(6) color: vec4<f32>,
     @location(7) uv1: vec2<f32>,
+    // The draw's place among the frame's.
+    @builtin(instance_index) draw: u32,
 };
 
 struct VertexOut {
@@ -118,29 +124,32 @@ struct VertexOut {
     @location(3) tangent_view: vec4<f32>,
     @location(4) color: vec4<f32>,
     @location(5) uv1: vec2<f32>,
+    @location(6) @interpolate(flat) draw: u32,
 };
 
 fn finish(v: VertexIn, pos: vec3<f32>, normal: vec3<f32>, tangent: vec4<f32>) -> VertexOut {
     var out: VertexOut;
     let uv = v.uv;
+    out.draw = this_draw;
     out.color = v.color;
     out.uv1 = v.uv1;
-    let p = frame.view * (draw.world * vec4<f32>(pos, 1.0));
+    let p = frame.view * (draws[this_draw].world * vec4<f32>(pos, 1.0));
     out.pos_view = p.xyz;
     out.clip = frame.proj * p;
     // The sky: at the far plane, behind everything and never cut off by it.
-    if (draw.extra.y > 0.5) {
+    if (draws[this_draw].extra.y > 0.5) {
         out.clip.z = out.clip.w * 0.99999;
     }
-    out.normal_view = (draw.normal_matrix * vec4<f32>(normal, 0.0)).xyz;
+    out.normal_view = (draws[this_draw].normal_matrix * vec4<f32>(normal, 0.0)).xyz;
     out.uv = uv;
-    let t = frame.view * (draw.world * vec4<f32>(tangent.xyz, 0.0));
+    let t = frame.view * (draws[this_draw].world * vec4<f32>(tangent.xyz, 0.0));
     out.tangent_view = vec4<f32>(t.xyz, tangent.w);
     return out;
 }
 
 @vertex
 fn vs_main(v: VertexIn) -> VertexOut {
+    this_draw = v.draw;
     return finish(v, v.pos, v.normal, v.tangent);
 }
 
@@ -152,6 +161,7 @@ struct SkinIn {
 // Up to four bone influences, as the game's skinned shaders (vslit_sk).
 @vertex
 fn vs_skinned(v: VertexIn, s: SkinIn) -> VertexOut {
+    this_draw = v.draw;
     var pos = vec3<f32>(0.0);
     var normal = vec3<f32>(0.0);
     var tangent = vec3<f32>(0.0);
@@ -159,7 +169,7 @@ fn vs_skinned(v: VertexIn, s: SkinIn) -> VertexOut {
     for (var i = 0u; i < 4u; i = i + 1u) {
         let w = s.weights[i];
         if (w > 0.0) {
-            let m = bones[draw.light_count.z + s.bones[i]];
+            let m = bones[draws[this_draw].light_count.z + s.bones[i]];
             pos = pos + w * (m * vec4<f32>(v.pos, 1.0)).xyz;
             normal = normal + w * (m * vec4<f32>(v.normal, 0.0)).xyz;
             tangent = tangent + w * (m * vec4<f32>(v.tangent.xyz, 0.0)).xyz;
@@ -248,7 +258,7 @@ fn displace(
     duv1: vec2<f32>,
     duv2: vec2<f32>,
 ) -> vec2<f32> {
-    var multiplier = draw.maps2.z;
+    var multiplier = draws[this_draw].maps2.z;
     if (multiplier == 0.0) {
         multiplier = 1.0;
     }
@@ -264,7 +274,7 @@ fn displace(
     var segment = 1.0 / iterations;
     let h = 0.5 * vd.z + 0.5;
     var step = vd.xy * 0.05 * ((1.0 - vd.z) / (h * h) + 1.0);
-    let start = uv0 + draw.maps2.y * step;
+    let start = uv0 + draws[this_draw].maps2.y * step;
     step = step * multiplier;
     var delta = 1.0 - height_at(start, duv1, duv2);
     var current = delta * segment;
@@ -283,18 +293,19 @@ fn displace(
 
 @fragment
 fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    this_draw = in.draw;
     // Derivatives first, while every fragment of the quad is running.
     let dp1 = dpdx(in.pos_view);
     let dp2 = dpdy(in.pos_view);
     let duv1 = dpdx(in.uv);
     let duv2 = dpdy(in.uv);
-    let env_mapped = draw.params.y > 0.5;
-    let has_texture = draw.params.z > 0.5;
-    let normal_mapped = draw.maps.x > 0.5;
-    let spec_mapped = draw.maps.y > 0.5;
-    let rough_mapped = draw.maps.z > 0.5;
-    let height_mapped = draw.maps.w > 0.5;
-    let nm_variant = draw.maps2.w > 0.5;
+    let env_mapped = draws[this_draw].params.y > 0.5;
+    let has_texture = draws[this_draw].params.z > 0.5;
+    let normal_mapped = draws[this_draw].maps.x > 0.5;
+    let spec_mapped = draws[this_draw].maps.y > 0.5;
+    let rough_mapped = draws[this_draw].maps.z > 0.5;
+    let height_mapped = draws[this_draw].maps.w > 0.5;
+    let nm_variant = draws[this_draw].maps2.w > 0.5;
     let surface_n = normalize(select(-in.normal_view, in.normal_view, front));
     let v = -normalize(in.pos_view);
 
@@ -302,18 +313,18 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var uv = in.uv;
     // Water: the picture pushed about by two slow waves each way (an
     // approximation of the game's procedure, which is its own).
-    if (draw.water.x > 0.0) {
-        let t = frame.time.x * draw.water.y * 0.06;
+    if (draws[this_draw].water.x > 0.0) {
+        let t = frame.time.x * draws[this_draw].water.y * 0.06;
         let k = 6.2831853;
         let wave = vec2<f32>(
             sin(k * uv.y * 1.0 + t) + sin(k * uv.x * 0.7 + t * 0.63 + 1.3),
             cos(k * uv.x * 1.0 + t * 0.81) + cos(k * uv.y * 0.6 + t * 0.47 + 2.1),
         );
         // (Under the waves of Enhanced Edition's water, half as far.)
-        uv = uv + wave * (draw.water.x * select(0.25, 0.12, draw.water.z > 0.5));
+        uv = uv + wave * (draws[this_draw].water.x * select(0.25, 0.12, draws[this_draw].water.z > 0.5));
     }
     // A known custom shader's doings (see `Draw.effect`).
-    let fx = u32(draw.effect.x + 0.5);
+    let fx = u32(draws[this_draw].effect.x + 0.5);
     let fx_colors = (fx & 1u) != 0u;
     let fx_mask = (fx & 2u) != 0u;
     let fx_lightmap = (fx & 4u) != 0u;
@@ -326,7 +337,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     // material says.
     if ((fx & 8u) != 0u) {
         let way = textureSampleLevel(tex_flow, samp0, in.uv, 0.0).rg * 2.0 - 1.0;
-        uv = uv + way * (draw.effect.y * frame.time.x);
+        uv = uv + way * (draws[this_draw].effect.y * frame.time.x);
     }
     var tsb = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), surface_n);
     if (normal_mapped || height_mapped) {
@@ -343,15 +354,15 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         }
     }
 
-    var color = vec4<f32>(1.0, 1.0, 1.0, clamp(draw.diffuse.a, 0.0, 1.0));
-    if (env_mapped && color.a <= draw.params.x) {
+    var color = vec4<f32>(1.0, 1.0, 1.0, clamp(draws[this_draw].diffuse.a, 0.0, 1.0));
+    if (env_mapped && color.a <= draws[this_draw].params.x) {
         discard;
     }
 
     // The sky fade: its colour over the sky as much as its texture is white.
-    if (draw.extra.z > 0.5) {
+    if (draws[this_draw].extra.z > 0.5) {
         let t = textureSampleGrad(tex0, samp0, uv, duv1, duv2);
-        return vec4<f32>(draw.diffuse.rgb, t.r);
+        return vec4<f32>(draws[this_draw].diffuse.rgb, t.r);
     }
 
     // Base texture.
@@ -359,7 +370,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var env_level = 0.0;
     if (has_texture) {
         tex = textureSampleGrad(tex0, samp0, uv, duv1, duv2);
-        if (draw.material.w < 0.5) {
+        if (draws[this_draw].material.w < 0.5) {
             tex.a = 1.0;
         }
     }
@@ -377,13 +388,13 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         // The alpha of a layer blended into what is under it: a mask's, on
         // the second coordinates, else the texture's by the vertex color's.
         if (fx_mask) {
-            color.a = clamp(draw.diffuse.a, 0.0, 1.0) * baked.r;
+            color.a = clamp(draws[this_draw].diffuse.a, 0.0, 1.0) * baked.r;
         } else if (fx_lightmap) {
             color.a = 1.0;
         } else if (fx_colors) {
             color.a = color.a * in.color.a;
         }
-        if (!fx_mask && color.a <= draw.params.x) {
+        if (!fx_mask && color.a <= draws[this_draw].params.x) {
             discard;
         }
         if (fx_mask && color.a <= 0.004) {
@@ -393,11 +404,11 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
 
     // A see-through mesh in two parts: what is nearly opaque of it first
     // (hiding what is behind), the rest afterwards (hiding nothing).
-    if (draw.extra.w > 1.5) {
+    if (draws[this_draw].extra.w > 1.5) {
         if (color.a >= SOLID_ALPHA) {
             discard;
         }
-    } else if (draw.extra.w > 0.5) {
+    } else if (draws[this_draw].extra.w > 0.5) {
         if (color.a < SOLID_ALPHA) {
             discard;
         }
@@ -405,15 +416,15 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
 
     // Debug view: the material colour as uploaded.
     if (frame.scene_color.w == 1.0) {
-        return vec4<f32>(draw.diffuse.rgb, 1.0);
+        return vec4<f32>(draws[this_draw].diffuse.rgb, 1.0);
     }
 
     // A marker: unlit, in its material's colour.
-    if (draw.params.w > 1.5) {
-        return vec4<f32>(color_clamp(gam(color.rgb * draw.diffuse.rgb)), color.a);
+    if (draws[this_draw].params.w > 1.5) {
+        return vec4<f32>(color_clamp(gam(color.rgb * draws[this_draw].diffuse.rgb)), color.a);
     }
     // Unlit (TXI decal).
-    if (draw.params.w > 0.5) {
+    if (draws[this_draw].params.w > 0.5) {
         return vec4<f32>(color_clamp(gam(color.rgb)), color.a);
     }
 
@@ -427,7 +438,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     // Water: small waves crossing it tip its surface this way and that, so
     // what it reflects (the environment, the lights) moves over it. Waves
     // of Moonglow's own, standing in for Enhanced Edition's water shader.
-    let watery = draw.water.z > 0.5;
+    let watery = draws[this_draw].water.z > 0.5;
     if (watery) {
         // Where the fragment is in the world: waves there run on from tile
         // to tile (by its texture coordinates, each tile had its own).
@@ -471,10 +482,10 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     }
 
     // Material values (SetupSpecularity).
-    let albedo = color.rgb * draw.diffuse.rgb;
+    let albedo = color.rgb * draws[this_draw].diffuse.rgb;
     var spec0 = 0.04;
-    if (draw.material.x > 0.0) {
-        spec0 = draw.material.x;
+    if (draws[this_draw].material.x > 0.0) {
+        spec0 = draws[this_draw].material.x;
     } else if (spec_mapped) {
         spec0 = textureSampleGrad(tex_spec, samp0, uv, duv1, duv2).r;
     } else if (env_mapped) {
@@ -482,8 +493,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     }
     let env_rough = mix(0.55, 0.125, min(env_level * 2.5, 1.0));
     var rough = 0.55;
-    if (draw.material.y > 0.0) {
-        rough = draw.material.y;
+    if (draws[this_draw].material.y > 0.0) {
+        rough = draws[this_draw].material.y;
     } else if (rough_mapped) {
         rough = textureSampleGrad(tex_rough, samp0, uv, duv1, duv2).r;
     } else if (spec_mapped) {
@@ -500,15 +511,15 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         rough = min(rough, 0.15);
     }
     var metal = clamp(10.0 * spec0 - 0.4, 0.0, 1.0);
-    if (draw.material.z > 0.0) {
-        metal = draw.material.z;
+    if (draws[this_draw].material.z > 0.0) {
+        metal = draws[this_draw].material.z;
     } else if (nm_variant) {
         let m = spec0 * spec0;
         metal = clamp(m / (0.04 + 0.96 * m), 0.0, 1.0);
     }
     var spec_color: vec3<f32>;
-    if (draw.spec_color.w > 0.5) {
-        spec_color = draw.spec_color.rgb;
+    if (draws[this_draw].spec_color.w > 0.5) {
+        spec_color = draws[this_draw].spec_color.rgb;
     } else if (height_mapped) {
         spec_color = mix(vec3<f32>(1.0), albedo, metal);
     } else {
@@ -533,7 +544,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     acc.specular = vec3<f32>(0.0);
 
     // The area light, then point lights.
-    let count = draw.light_count.x;
+    let count = draws[this_draw].light_count.x;
     for (var i = 0u; i <= count; i = i + 1u) {
         var l: vec3<f32>;
         var c: vec3<f32>;
@@ -543,7 +554,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
             c = frame.area_diffuse.rgb;
             att = 1.0;
         } else {
-            let light = lights[draw.light_index[i / 4u][i % 4u]];
+            let light = lights[draws[this_draw].light_index[i / 4u][i % 4u]];
             let to_light = light.pos.xyz - in.pos_view;
             let d2 = dot(to_light, to_light);
             let r_cut2 = abs(light.color.a);
@@ -582,13 +593,13 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         acc.specular = acc.specular + c * a * (1.0 / (den * den)) * g_l * fresnel(spec0, v_dot_h);
     }
 
-    var ambient = acc.ambient * draw.ambient.rgb;
-    let diffuse = acc.diffuse * draw.diffuse.rgb;
+    var ambient = acc.ambient * draws[this_draw].ambient.rgb;
+    let diffuse = acc.diffuse * draws[this_draw].diffuse.rgb;
     var specular = acc.specular * (r2 * 0.25) / (n_dot_v * (1.0 - k) + k);
     let env_spec = mix(fresnel(spec0, n_dot_v), spec0, sqrt(rough));
     let lod = clamp(rough * 30.0 - 1.0, 0.0, 10.0);
     var env_sample: vec3<f32>;
-    if (draw.extra.x > 0.5) {
+    if (draws[this_draw].extra.x > 0.5) {
         // Cube maps: the reflected view in world space, level 0.
         let r = reflect(-v, n);
         let to_world = transpose(mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz));
@@ -598,10 +609,10 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     }
     specular = specular + (ambient + diffuse) * env_sample * ao * env_spec;
     ambient = ambient * ao;
-    var total = draw.emissive.rgb + (1.0 - env_spec) * (ambient + diffuse);
-    total = max(total, min(frame.scene_color.rgb * draw.diffuse.rgb, vec3<f32>(1.0)));
+    var total = draws[this_draw].emissive.rgb + (1.0 - env_spec) * (ambient + diffuse);
+    total = max(total, min(frame.scene_color.rgb * draws[this_draw].diffuse.rgb, vec3<f32>(1.0)));
     var rgb = color.rgb * total;
-    if (draw.maps2.x > 0.5) {
+    if (draws[this_draw].maps2.x > 0.5) {
         rgb = rgb + lin(textureSampleGrad(tex_illum, samp0, uv, duv1, duv2).rgb);
     }
     if (color.a > 0.001 && color.a < 1.0) {
@@ -616,8 +627,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     if (fx_lightmap) {
         rgb = rgb * baked.rgb;
     } else if (fx_colors) {
-        let lit = min(in.color.rgb * (max(draw.effect.z, 0.0) + 1.0), vec3<f32>(1.0));
-        rgb = rgb * min(lit + max(draw.effect.w, 0.0), vec3<f32>(1.0));
+        let lit = min(in.color.rgb * (max(draws[this_draw].effect.z, 0.0) + 1.0), vec3<f32>(1.0));
+        rgb = rgb * min(lit + max(draws[this_draw].effect.w, 0.0), vec3<f32>(1.0));
     }
     if (frame.fog.x > 0.5) {
         let f = clamp((-in.pos_view.z - frame.fog.y) * frame.fog.w, 0.0, 1.0);

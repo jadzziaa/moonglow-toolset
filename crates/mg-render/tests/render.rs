@@ -1050,3 +1050,91 @@ fn a_see_through_edge_does_not_hide_the_ground_behind_it() {
         "beyond the ground's far edge"
     );
 }
+
+/// A [`quad`] of a colour.
+fn colored_quad(gpu: &Gpu, color: [f32; 3]) -> Arc<GpuModel> {
+    let mut model = quad();
+    if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+        (m.diffuse, m.ambient) = (color, color);
+    }
+    Arc::new(GpuModel::new(gpu, Arc::new(model)))
+}
+
+/// What the camera can't see isn't drawn, and what it sees a part of is:
+/// a quad across the picture's edge shows there, while those far to the
+/// side, below the picture and behind the camera are left out.
+#[test]
+fn meshes_out_of_the_camera_s_sight_are_left_out() {
+    let Some(gpu) = gpu() else { return };
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    // From above: the ground from -3.4 to 3.4 each way is in the picture.
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let at = |x: f32, y: f32, z: f32| {
+        Instance::new(model.clone(), Mat4::from_translation(Vec3::new(x, y, z)))
+    };
+    let scene = Scene {
+        instances: vec![
+            at(0.0, 0.0, 0.0),
+            at(3.9, 0.0, 0.0),
+            at(20.0, 0.0, 0.0),
+            at(0.0, -30.0, 0.0),
+            at(0.0, 0.0, 30.0),
+        ],
+        area: AreaLight { ambient: Vec3::splat(0.5), ..Default::default() },
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let image = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+    assert_eq!((r.drawn.meshes, r.drawn.hidden), (2, 3), "{:?}", r.drawn);
+    let lit = |x: u32| image.pixel(x, 32)[0] > 40;
+    assert!(lit(32), "the quad in the middle: {:?}", image.pixel(32, 32));
+    assert!(!lit(50), "between the two: {:?}", image.pixel(50, 32));
+    assert!(lit(62), "the quad across the edge: {:?}", image.pixel(62, 32));
+}
+
+/// Each draw takes its own values (they lie in one list, a draw's found by
+/// its number): quads of three colours show each in its own, one of them
+/// see-through (two draws, each with values of its own) between the others.
+#[test]
+fn every_draw_takes_its_own_values() {
+    let Some(gpu) = gpu() else { return };
+    let colors = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let instances = colors
+        .iter()
+        .zip([-2.2, 0.0, 2.2])
+        .map(|(color, x)| Instance {
+            opacity: if x == 0.0 { 0.5 } else { 1.0 },
+            ..Instance::new(colored_quad(&gpu, *color), Mat4::from_translation(Vec3::X * x))
+        })
+        .collect();
+    let scene = Scene {
+        instances,
+        area: AreaLight { ambient: Vec3::splat(0.8), ..Default::default() },
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let image = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+    assert_eq!(r.drawn.meshes, 4, "{:?}", r.drawn);
+    // (Where each quad is in the picture.)
+    for (channel, x) in [11, 32, 53].into_iter().enumerate() {
+        let pixel = image.pixel(x, 32);
+        let others = (0..3).filter(|c| *c != channel).map(|c| pixel[c]).max().unwrap();
+        // (Its own channel, well over the others: those have the shine.)
+        assert!(pixel[channel] > 60 && others < pixel[channel] / 3, "the quad at {x}: {pixel:?}");
+    }
+    // The see-through one is the fainter.
+    assert!(image.pixel(32, 32)[1] < image.pixel(11, 32)[0], "{:?}", image.pixel(32, 32));
+}

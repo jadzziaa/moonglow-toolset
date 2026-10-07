@@ -471,13 +471,18 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
             );
         }
         let (instances, meshes, lights, quads) = counts;
+        let did = renderer.drawn;
         println!(
             "    {what:20} scene {:5.2} ms, particles {:5.2} ms, draws encoded {:5.2} ms, GPU \
-             {:5.2} ms ({instances} instances, {meshes} meshes, {lights} lights, {quads} particles)",
+             {:5.2} ms ({instances} instances, {meshes} meshes, {lights} lights, {quads} \
+             particles; {} draws of {} materials in turn, {} meshes out of sight)",
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
             ms(pick(encode, 0.5)),
             ms(pick(drawn, 0.5)),
+            did.meshes,
+            did.materials,
+            did.hidden,
         );
     }
 }

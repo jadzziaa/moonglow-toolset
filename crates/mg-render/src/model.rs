@@ -104,11 +104,17 @@ pub struct GpuMesh {
 /// A model's meshes on the GPU.
 #[derive(Debug)]
 pub struct GpuModel {
+    /// A number of its own among the models uploaded: what the renderer
+    /// keeps of a model, it keeps by this.
+    pub id: u64,
     pub model: Arc<Model>,
     pub meshes: Vec<GpuMesh>,
     /// The rest pose (model-space node transforms).
     pub rest: Vec<Mat4>,
 }
+
+/// The next model's [`GpuModel::id`].
+static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 /// A skin's inverse bind pose for each of its bones, in the space of the
 /// skin's node `skin_node`: as the model stores it (binary models), else
@@ -220,7 +226,8 @@ impl GpuModel {
                 skin,
             });
         }
-        GpuModel { model, meshes, rest }
+        let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        GpuModel { id, model, meshes, rest }
     }
 }
 

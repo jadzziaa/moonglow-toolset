@@ -302,6 +302,65 @@ pub fn lights_layers(
     transform: Mat4,
     main_light: &dyn Fn(usize) -> Option<Vec3>,
 ) -> Vec<crate::scene::PointLight> {
+    let lamps = lamps_layers(model, layers, t, pose);
+    lamps.iter().filter_map(|l| l.placed(transform, main_light)).collect()
+}
+
+/// A light node of a model at a moment, where the model's pose has it:
+/// what [`lights_layers`] makes a scene's light of, once the model is
+/// placed. The same for every instance of the model playing the same
+/// animations (an area's tiles), which then differ by where they stand and
+/// by their main lights' colours.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Lamp {
+    /// Where it is, in the model's space.
+    pub at: Vec3,
+    /// A tile's main light 1 (0) or 2 (1), by its node's name.
+    pub main: Option<usize>,
+    /// Its own colour, radius and multiplier: the animations' where they
+    /// key them, else the node's.
+    pub color: Vec3,
+    pub radius: f32,
+    pub multiplier: f32,
+    pub ambient_only: bool,
+    pub priority: u32,
+}
+
+impl Lamp {
+    /// The light of a model placed by `transform`; none for one that is
+    /// black or reaches nowhere. A main light takes `main_light`'s colour
+    /// when it gives one, and then the engine's radius.
+    pub fn placed(
+        &self,
+        transform: Mat4,
+        main_light: &dyn Fn(usize) -> Option<Vec3>,
+    ) -> Option<crate::scene::PointLight> {
+        let tile = self.main.and_then(|slot| Some((slot, main_light(slot)?)));
+        let color = tile.map_or(self.color, |(_, c)| c);
+        let radius = match tile {
+            Some((0, _)) => 10.0,
+            Some(_) => 5.0,
+            None => self.radius,
+        };
+        if radius <= 0.0 || color == Vec3::ZERO {
+            return None;
+        }
+        Some(crate::scene::PointLight::new(
+            transform.transform_point3(self.at),
+            color * self.multiplier,
+            radius,
+            self.ambient_only,
+            self.priority,
+        ))
+    }
+}
+
+/// A model's light nodes at `t` of the animations `layers`, in `pose`.
+pub fn lamps_layers(model: &Model, layers: &[&Animation], t: f32, pose: &[Mat4]) -> Vec<Lamp> {
+    // (Without a light, nothing to look up.)
+    if !model.nodes.iter().any(|n| matches!(n.kind, mg_mdl::NodeKind::Light(_))) {
+        return Vec::new();
+    }
     let by_name = keyed(model, layers, t);
     let mut out = Vec::new();
     for (i, n) in model.nodes.iter().enumerate() {
@@ -320,30 +379,18 @@ pub fn lights_layers(
         } else {
             None
         };
-        let tile = main.and_then(|slot| Some((slot, main_light(slot)?)));
-        let color = match tile {
-            Some((_, c)) => c,
-            None => match value("color").as_deref() {
+        out.push(Lamp {
+            at: node_position(pose, i),
+            main,
+            color: match value("color").as_deref() {
                 Some([r, g, b, ..]) => Vec3::new(*r, *g, *b),
                 _ => Vec3::ONE,
             },
-        };
-        let multiplier = value("multiplier").and_then(|v| v.first().copied()).unwrap_or(1.0);
-        let radius = match tile {
-            Some((0, _)) => 10.0,
-            Some(_) => 5.0,
-            None => value("radius").and_then(|v| v.first().copied()).unwrap_or(5.0),
-        };
-        if radius <= 0.0 || color == Vec3::ZERO {
-            continue;
-        }
-        out.push(crate::scene::PointLight::new(
-            transform.transform_point3(node_position(pose, i)),
-            color * multiplier,
-            radius,
-            l.ambient_only,
-            l.priority.clamp(1, 5),
-        ));
+            radius: value("radius").and_then(|v| v.first().copied()).unwrap_or(5.0),
+            multiplier: value("multiplier").and_then(|v| v.first().copied()).unwrap_or(1.0),
+            ambient_only: l.ambient_only,
+            priority: l.priority.clamp(1, 5),
+        });
     }
     out
 }

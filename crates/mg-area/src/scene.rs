@@ -94,6 +94,35 @@ impl Loaded {
     }
 }
 
+/// What the tiles of one model playing the same animations share at a
+/// moment: its pose (`None`: at rest), what the animations change in its
+/// meshes (and Fade Geometry leaves out), its lights before they are
+/// placed, and its source lights' nodes (`sl1`, `sl2`).
+#[derive(Debug)]
+struct PosedTile {
+    pose: Option<Arc<Vec<Mat4>>>,
+    state: Option<Arc<mg_render::scene::MeshState>>,
+    lamps: Vec<anim::Lamp>,
+    sources: [Option<usize>; 2],
+}
+
+/// A source light's flame at a moment: its pose and its lights.
+#[derive(Debug)]
+struct PosedFlame {
+    pose: Arc<Vec<Mat4>>,
+    lamps: Vec<anim::Lamp>,
+}
+
+/// What a scene's tiles share (a view at a moment): an area's tiles are
+/// of few models, and each tile posed for itself was most of what making
+/// a large area's scene cost. Tiles by their model and the animation
+/// loops they play; flames by their kind (`None`: there is no such flame).
+#[derive(Debug, Default)]
+struct Shared {
+    tiles: HashMap<(usize, [bool; 3]), Arc<PosedTile>>,
+    flames: HashMap<u8, Option<Arc<PosedFlame>>>,
+}
+
 /// An object's models and their bounds (rest pose, the object's own
 /// space).
 #[derive(Debug)]
@@ -327,6 +356,7 @@ impl AreaScene {
         let models = Models { game, cache: RefCell::new(HashMap::new()) };
         let load = |name: &str| models.load(name);
         let (mut out, mut lights) = (Vec::new(), Vec::new());
+        let mut shared = Shared::default();
         for t in tiles {
             let Some(name) = t.model.as_ref() else { continue };
             let loaded = self
@@ -342,7 +372,7 @@ impl AreaScene {
                 })
                 .clone();
             if let Some(l) = loaded {
-                self.tile(t, &l, view, &mut out, &mut lights);
+                self.tile(t, &l, view, &mut shared, &mut out, &mut lights);
             }
         }
         for i in &mut out {
@@ -549,6 +579,7 @@ impl AreaScene {
     pub fn scene_hiding(&self, area: &AreaModel, view: &View, hidden: &[usize]) -> Scene {
         let mut instances = Vec::new();
         let mut lights = Vec::new();
+        let mut shared = Shared::default();
         // What fails while it is posed is drawn no more (once noted), so
         // that it doesn't fail again every frame.
         let failed = |key: usize| self.failed.borrow().contains(&key);
@@ -561,7 +592,7 @@ impl AreaScene {
             let (mut drawn, mut lit) = (Vec::new(), Vec::new());
             let name = tile.model.as_deref().unwrap_or("a tile");
             let posed = mg_render::guard::guarded(name, || {
-                self.tile(tile, loaded, view, &mut drawn, &mut lit);
+                self.tile(tile, loaded, view, &mut shared, &mut drawn, &mut lit);
             });
             match posed {
                 Some(()) => {
@@ -649,55 +680,22 @@ impl AreaScene {
         }
     }
 
-    fn tile(
-        &self,
-        tile: &AreaTile,
-        loaded: &Loaded,
-        view: &View,
-        instances: &mut Vec<Instance>,
-        lights: &mut Vec<PointLight>,
-    ) {
+    /// A tile's model as `view` shows it playing the tile's animations:
+    /// what every tile of the model playing the same shares.
+    fn posed_tile(&self, tile: &AreaTile, loaded: &Loaded, view: &View) -> PosedTile {
         let model = &loaded.gpu.model;
-        let transform = tile.transform();
         let layers = self.tile_layers(tile, loaded, view);
-        let pose = if layers.is_empty() {
-            loaded.gpu.rest.clone()
-        } else {
-            anim::pose_layers(model, &layers, view.time)
+        let pose =
+            (!layers.is_empty()).then(|| Arc::new(anim::pose_layers(model, &layers, view.time)));
+        let lamps = {
+            let pose: &[Mat4] = pose.as_deref().map_or(&loaded.gpu.rest, |p| p);
+            anim::lamps_layers(model, &layers, view.time, pose)
         };
-        let color = |row: u8| self.colors.get(usize::from(row)).copied();
-        lights.extend(anim::lights_layers(model, &layers, view.time, &pose, transform, &|slot| {
-            color(tile.main_lights[slot.min(1)])
-        }));
         // Source lights: the flame at the tile's `sl1`/`sl2` node.
-        if let Some(Some(flame)) = &self.flame {
-            for (slot, &value) in tile.source_lights.iter().enumerate() {
-                if value == 0 {
-                    continue;
-                }
-                let suffix = format!("sl{}", slot + 1);
-                let Some(node) =
-                    model.nodes.iter().position(|n| n.name.to_ascii_lowercase().ends_with(&suffix))
-                else {
-                    continue;
-                };
-                let at = transform * Mat4::from_translation(anim::node_position(&pose, node));
-                let Some(a) = flame.animation(&value.to_string()) else { continue };
-                let flame_pose = anim::pose(&flame.gpu.model, a, view.time);
-                lights.extend(anim::lights(
-                    &flame.gpu.model,
-                    Some(a),
-                    view.time,
-                    &flame_pose,
-                    at,
-                    &|_| None,
-                ));
-                instances.push(Instance {
-                    pose: Some(Arc::new(flame_pose)),
-                    ..Instance::new(flame.gpu.clone(), at)
-                });
-            }
-        }
+        let sources = [1, 2].map(|slot| {
+            let suffix = format!("sl{slot}");
+            model.nodes.iter().position(|n| n.name.to_ascii_lowercase().ends_with(&suffix))
+        });
         let mut state =
             (!layers.is_empty()).then(|| anim::mesh_state_layers(&loaded.gpu, &layers, view.time));
         // Fade Geometry: the fading meshes aren't drawn.
@@ -715,14 +713,61 @@ impl AreaScene {
                 }
             }
         }
-        let state = state.map(Arc::new);
+        PosedTile { pose, state: state.map(Arc::new), lamps, sources }
+    }
+
+    fn tile(
+        &self,
+        tile: &AreaTile,
+        loaded: &Arc<Loaded>,
+        view: &View,
+        shared: &mut Shared,
+        instances: &mut Vec<Instance>,
+        lights: &mut Vec<PointLight>,
+    ) {
+        let transform = tile.transform();
+        let key = (Arc::as_ptr(loaded) as usize, tile.anim_loops);
+        let posed = match shared.tiles.get(&key) {
+            Some(posed) => posed.clone(),
+            None => {
+                let posed = Arc::new(self.posed_tile(tile, loaded, view));
+                shared.tiles.insert(key, posed.clone());
+                posed
+            }
+        };
+        let pose: &[Mat4] = posed.pose.as_deref().map_or(&loaded.gpu.rest, |p| p);
+        let color = |row: u8| self.colors.get(usize::from(row)).copied();
+        let main_light = |slot: usize| color(tile.main_lights[slot.min(1)]);
+        lights.extend(posed.lamps.iter().filter_map(|l| l.placed(transform, &main_light)));
+        // Source lights: the flame at the tile's `sl1`/`sl2` node.
+        if let Some(Some(flame)) = &self.flame {
+            for (slot, &value) in tile.source_lights.iter().enumerate() {
+                if value == 0 {
+                    continue;
+                }
+                let Some(node) = posed.sources[slot] else { continue };
+                let at = transform * Mat4::from_translation(anim::node_position(pose, node));
+                let burning = shared.flames.entry(value).or_insert_with(|| {
+                    let a = flame.animation(&value.to_string())?;
+                    let pose = anim::pose(&flame.gpu.model, a, view.time);
+                    let lamps = anim::lamps_layers(&flame.gpu.model, &[a], view.time, &pose);
+                    Some(Arc::new(PosedFlame { pose: Arc::new(pose), lamps }))
+                });
+                let Some(burning) = burning else { continue };
+                lights.extend(burning.lamps.iter().filter_map(|l| l.placed(at, &|_| None)));
+                instances.push(Instance {
+                    pose: Some(burning.pose.clone()),
+                    ..Instance::new(flame.gpu.clone(), at)
+                });
+            }
+        }
         // The model's `replace_tex`, drawn with the tile's replacement.
         let textures = tile.replace_texture.as_ref().map(|t| {
             Arc::new(std::collections::HashMap::from([("replace_tex".to_string(), t.clone())]))
         });
         instances.push(Instance {
-            pose: (!layers.is_empty()).then(|| Arc::new(pose)),
-            state,
+            pose: posed.pose.clone(),
+            state: posed.state.clone(),
             textures,
             ..Instance::new(loaded.gpu.clone(), transform)
         });
