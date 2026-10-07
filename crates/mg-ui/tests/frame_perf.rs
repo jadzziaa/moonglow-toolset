@@ -11,7 +11,12 @@
 //! "spikes" says that one is over the budget.) Needs the game (Tyrants of the Moonsea) and a GPU; run in release:
 //! `cargo test --release -p mg-ui --test frame_perf -- --ignored --nocapture`.
 //! `FRAME_SHOTS=1` saves each view as it was timed instead
-//! (`target/test-output/frame-shots`).
+//! (`target/test-output/frame-shots`). `FRAME_VIEW=<part of a name>` times
+//! only those views, `FRAME_COUNT=<frames>` that many frames of each,
+//! `FRAME_DETAIL=1` prints each frame's time and who asked for the next,
+//! and `FRAME_TARGET=<width>x<height>` sizes the pictures of the areas
+//! taken apart at the end. (With another program drawing, the game say,
+//! the GPU's times are as much that program's: close it for those.)
 
 #[allow(dead_code)]
 mod world;
@@ -408,7 +413,14 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
     let scene = mg_area::AreaScene::new(&gpu, &game, &model);
     println!("  area {area}: models loaded in {:.0?}", t.elapsed());
     let mut view = mg_area::View::of(&model);
-    let (w, h_px) = (3000, 1250);
+    // (`FRAME_TARGET=<width>x<height>`: a picture of another size.)
+    let (w, h_px) = std::env::var("FRAME_TARGET")
+        .ok()
+        .and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some((w.parse().ok()?, h.parse().ok()?))
+        })
+        .unwrap_or((3000, 1250));
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let wait = || {
         let _ = gpu.device.poll(wgpu::PollType::Wait {
@@ -475,13 +487,17 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize) {
         let (instances, meshes, lights, quads) = counts;
         let did = renderer.drawn;
         println!(
+            // (The GPU's least times too: with another program drawing,
+            // the usual one is as much that program's.)
             "    {what:20} scene {:5.2} ms, particles {:5.2} ms, draws encoded {:5.2} ms, GPU \
-             {:5.2} ms ({instances} instances, {meshes} meshes, {lights} lights, {quads} \
-             particles; {} meshes in {} draws of {} materials in turn, {} meshes out of sight)",
+             {:5.2} ms (the quickest tenth {:5.2}) ({instances} instances, {meshes} meshes, \
+             {lights} lights, {quads} particles; {} meshes in {} draws of {} materials in turn, \
+             {} meshes out of sight)",
             ms(pick(build, 0.5)),
             ms(pick(particles, 0.5)),
             ms(pick(encode, 0.5)),
-            ms(pick(drawn, 0.5)),
+            ms(pick(drawn.clone(), 0.5)),
+            ms(pick(drawn, 0.1)),
             did.meshes,
             did.batches,
             did.materials,
