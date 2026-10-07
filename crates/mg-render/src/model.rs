@@ -21,6 +21,11 @@ pub struct Vertex {
     /// (`tangents`, or compiled with a render hint); zero otherwise, and
     /// the shader takes the tangent frame from screen-space derivatives.
     pub tangent: [f32; 4],
+    /// The model's vertex color (`colors`), white without: the game hands
+    /// it to custom shaders alone (`vCustomColor`).
+    pub color: [u8; 4],
+    /// The second texture coordinates (`tverts1`), zero without.
+    pub uv1: [f32; 2],
 }
 
 impl Vertex {
@@ -28,7 +33,8 @@ impl Vertex {
         array_stride: std::mem::size_of::<Vertex>() as u64,
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &wgpu::vertex_attr_array![
-            0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 5 => Float32x4
+            0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 5 => Float32x4,
+            6 => Unorm8x4, 7 => Float32x2
         ],
     };
 }
@@ -226,6 +232,8 @@ pub fn mesh_vertices(m: &Mesh) -> Vec<Vertex> {
             normal: m.normals.get(v).copied().unwrap_or([0.0, 0.0, 1.0]),
             uv: m.uvs[0].get(v).copied().unwrap_or([0.0, 0.0]),
             tangent: m.tangents.get(v).copied().unwrap_or([0.0; 4]),
+            color: m.colors.get(v).copied().unwrap_or([255; 4]),
+            uv1: m.uvs[1].get(v).copied().unwrap_or([0.0, 0.0]),
         })
         .collect()
 }

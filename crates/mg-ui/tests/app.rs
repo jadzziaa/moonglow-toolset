@@ -3391,15 +3391,19 @@ fn area_harness_on(
         eprintln!("skipped: no GPU adapter");
         return None;
     }
-    let install = mg_resman::GameInstall::new(&root, None, "en");
+    // (A look test on a builder's content: a user folder with it in its
+    // override, and an area with room for its groups.)
+    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
+    let side = std::env::var("MG_TEST_SIZE").ok().and_then(|s| s.parse().ok()).unwrap_or(4);
+    let install = mg_resman::GameInstall::new(&root, user, "en");
     let game = mg_rules::GameData::open(&install).unwrap();
     let mut rng = fastrand::Rng::with_seed(7);
     let mut m = new_module(&game, "Area View", &mut rng).unwrap();
     let spec = AreaSpec {
         name: "Field".into(),
         tileset: ResRef::from_str(tileset).unwrap(),
-        width: 4,
-        height: 4,
+        width: side,
+        height: side,
     };
     let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
     if let Some(id) = tile {
@@ -9654,7 +9658,7 @@ fn a_plugin_is_off_until_enabled_and_its_command_is_one_undoable_step() {
     h.run();
     // The window says what each adds; enabling one is a tick.
     h.get_by_label_contains("cannot reach your files");
-    h.get_by_label_contains("Plugins are experimental: the plugin API (0.1)");
+    h.get_by_label_contains("Plugins are experimental: the plugin API (0.2)");
     h.get_by_label("Command: Fix Creature Tags");
     h.get_by_label("Check: Creature tags are upper case");
     // (The last of the four installed: below the list's fold.)
@@ -11513,4 +11517,147 @@ fn arrow_keys_step_through_a_list_of_choices() {
     h.key_press(egui::Key::ArrowUp);
     h.run();
     assert_eq!(appearance(&mut h), before, "and back");
+}
+
+#[test]
+#[ignore = "a look at a builder's tileset group (MG_TEST_USER, MG_TILESET, MG_GROUP)"]
+fn look_custom_group() {
+    use glam::Vec3;
+    let tileset = std::env::var("MG_TILESET").unwrap_or_else(|_| "testing".into());
+    let group = std::env::var("MG_GROUP").unwrap_or_else(|_| "Volcano - Path 1".into());
+    let Some((mut h, area)) = area_harness_on("custom-group-look", &tileset, None) else { return };
+    h.set_size(egui::vec2(1500.0, 1000.0));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    h.get_by_label("🗻 Tiles").click();
+    h.run_steps(2);
+    // (The palette's own Expand All: the one to the right.)
+    let expand = h
+        .query_all_by_label("Expand All")
+        .max_by(|a, b| a.rect().left().total_cmp(&b.rect().left()))
+        .unwrap()
+        .rect()
+        .center();
+    h.hover_at(expand);
+    press(&h, expand, true, egui::Modifiers::NONE);
+    press(&h, expand, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    h.get_by_label(&group).click();
+    h.run_steps(2);
+    let at = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(5);
+    h.key_press(egui::Key::Escape);
+    {
+        let o = h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap();
+        o.pitch = std::env::var("MG_PITCH").ok().and_then(|p| p.parse().ok()).unwrap_or(0.9);
+    }
+    let dir = mg_testkit::scratch_dir("ui-custom-group-look");
+    for (name, steps) in [("a", 30), ("b", 240)] {
+        h.run_steps(steps);
+        h.render().expect("render").save(dir.join(format!("{name}.png"))).unwrap();
+    }
+    let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
+    eprintln!("LOG {}", log.join(" | ").chars().take(600).collect::<String>());
+}
+
+#[test]
+#[ignore = "a look at an area of a module with a user folder's haks (MG_MODULE, MG_AREA, MG_TEST_USER)"]
+fn look_module_area() {
+    let (Ok(module), Ok(area)) = (std::env::var("MG_MODULE"), std::env::var("MG_AREA")) else {
+        return;
+    };
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        return;
+    }
+    let user = std::env::var_os("MG_TEST_USER").map(std::path::PathBuf::from);
+    let install = mg_resman::GameInstall::new(&root, user, "en");
+    let area = ResRef::from_str(&area).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(std::path::Path::new(&module));
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1500.0, 1000.0))
+        .with_step_dt(1.0 / 60.0)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(40);
+    let dir = mg_testkit::scratch_dir("ui-module-area-look");
+    h.render().expect("render").save(dir.join("a.png")).unwrap();
+    let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
+    eprintln!("LOG {}", log.join(" | ").chars().take(900).collect::<String>());
+}
+
+/// A plugin asks for a folder and for leave to write a hak in its job's
+/// window; the hak is written into the user folder and the module lists
+/// it.
+#[test]
+fn a_plugin_reads_a_chosen_folder_and_writes_a_hak() {
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let dir = mg_testkit::scratch_dir("ui-plugin-outside");
+    let path = sample_module(&dir);
+    let (user, export) = (dir.join("user"), dir.join("export"));
+    std::fs::create_dir_all(&user).unwrap();
+    std::fs::create_dir_all(&export).unwrap();
+    std::fs::write(export.join("note.txt"), "from the folder").unwrap();
+    let dialogs = NoDialogs { folders: vec![export], ..Default::default() };
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    app.open_module(&path);
+    app.open_palette = false;
+    app.background_jobs = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().plugins.console = r#"
+        local folder = ctx.ui:open_folder({ title = "The folder to take" })
+        folder:to_hak("made", "note.txt")
+        ctx.hak:attach("made")
+    "#
+    .into();
+    h.state_mut().run_console();
+    let wait_for = |h: &mut Harness<'_, Moonglow>, label: &str| {
+        let started = std::time::Instant::now();
+        while h.query_by_label(label).is_none() {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            assert!(started.elapsed() < std::time::Duration::from_secs(20), "no {label:?}");
+        }
+        h.run_steps(3);
+    };
+    wait_for(&mut h, "Choose Folder…");
+    h.get_by_label("The folder to take");
+    h.get_by_label("Choose Folder…").click();
+    // Then its leave to write the hak, in the API's own words.
+    wait_for(&mut h, "Yes");
+    h.get_by_label_contains("made.hak in your hak folder");
+    h.get_by_label("Yes").click();
+    let started = std::time::Instant::now();
+    while h.state().busy() {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "the job never ended");
+    }
+    h.run_steps(2);
+    let hak = mg_module::hak_edit::Hak::open(&user.join("hak/made.hak")).unwrap();
+    assert_eq!(hak.data(ResKey::parse("note", ResType::TXT).unwrap()).unwrap(), b"from the folder");
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    ws.flush().unwrap();
+    assert_eq!(ws.module.haks().unwrap(), ["made"]);
+    assert!(
+        h.state().log.entries.iter().any(|(_, m)| m.contains("put 1 resources into")),
+        "{:?}",
+        h.state().log.entries
+    );
 }

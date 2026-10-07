@@ -480,7 +480,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                 });
                 ui.add_sized([90.0, row_height], egui::Label::new(size(item.size)));
                 match &item.source {
-                    Source::Archive => {}
+                    Source::Archive | Source::Bytes(_) => {}
                     Source::File(p) => {
                         ui.weak(format!("from {}", p.display()));
                     }

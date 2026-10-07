@@ -471,9 +471,48 @@ impl Moonglow {
             app.log.entries.push((l, text));
         };
         let title = title.trim_end_matches('…');
+        // Its haks first (the user agreed to each while it ran): the
+        // module's edits may name them.
+        let mut wrote = false;
+        let result = result.and_then(|outcome| {
+            let dir = self.install.as_ref().and_then(|gi| gi.user_dir.clone());
+            for hak in &outcome.haks {
+                let Some(dir) = dir.as_ref().map(|u| u.join("hak")) else {
+                    return Err(PluginError::Package(format!(
+                        "{name}: {title}: there is no user folder to write the hak {} into",
+                        hak.name
+                    )));
+                };
+                match hak.write(&dir) {
+                    Ok((added, replaced)) => {
+                        wrote = true;
+                        say(
+                            self,
+                            Level::Info,
+                            format!(
+                                "{name}: {title} put {} resources into {} ({replaced} replaced;                                  Undo doesn't take a hak back)",
+                                added + replaced,
+                                dir.join(format!("{}.hak", hak.name)).display()
+                            ),
+                        );
+                    }
+                    Err(e) => {
+                        return Err(PluginError::Package(format!(
+                            "{name}: {title}: the hak {} was not written: {e}",
+                            hak.name
+                        )));
+                    }
+                }
+            }
+            Ok(outcome)
+        });
+        if wrote {
+            // (A hak the module has already is read again.)
+            self.reload_resources(false);
+        }
         match result {
             Ok(outcome) if outcome.edits.is_empty() => {
-                if !console {
+                if !console && !wrote {
                     say(self, Level::Info, format!("{name}: {title} changed nothing"));
                 }
             }
@@ -624,6 +663,41 @@ pub(crate) fn question_ui(app: &mut Moonglow, ui: &mut egui::Ui) -> bool {
                 Some(false) => ask.answer(None),
                 None => {}
             }
+        }
+        Question::File { title, extensions } => {
+            let what = if title.is_empty() { "The plugin asks for a file." } else { title };
+            ui.label(what);
+            if !extensions.is_empty() {
+                let kinds: Vec<String> = extensions.iter().map(|e| format!(".{e}")).collect();
+                ui.weak(format!("It reads {}.", kinds.join(", ")));
+            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button("Choose File…").clicked()
+                    && let Some(path) = app.dialogs.open_file(crate::FileKind::Any, None)
+                {
+                    ask.answer(Some(Answer::Path(path)));
+                }
+                if crate::widgets::cancel(ui) {
+                    ask.answer(None);
+                }
+            });
+        }
+        Question::Folder { title } => {
+            let what = if title.is_empty() { "The plugin asks for a folder." } else { title };
+            ui.label(what);
+            ui.weak("It can read the files in the folder you choose, and nothing outside it.");
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.button("Choose Folder…").clicked()
+                    && let Some(path) = app.dialogs.pick_folder(what, None)
+                {
+                    ask.answer(Some(Answer::Path(path)));
+                }
+                if crate::widgets::cancel(ui) {
+                    ask.answer(None);
+                }
+            });
         }
     }
     true

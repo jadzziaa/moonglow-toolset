@@ -23,13 +23,13 @@ use mg_rules::GameData;
 use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue, Variadic, VmState};
 
 use crate::{
-    Answer, CheckDecl, CommandDecl, FieldKind, FormField, Host, Input, Level, MEMORY_LIMIT,
-    Manifest, Outcome, Plugin, PluginError, Question,
+    Answer, CheckDecl, CommandDecl, FieldKind, FormField, HakWrite, Host, Input, Level,
+    MEMORY_LIMIT, Manifest, Outcome, Plugin, PluginError, Question,
 };
 
 /// The codepage of a module's text, as the plugin's UTF-8 strings go in
 /// and come out.
-const CODEPAGE: Codepage = Codepage::WINDOWS_1252;
+pub(crate) const CODEPAGE: Codepage = Codepage::WINDOWS_1252;
 
 /// Where a job's scripts are read from.
 pub(crate) enum Source {
@@ -58,19 +58,25 @@ impl Source {
 }
 
 /// What a job's API works on.
-struct Shared {
+pub(crate) struct Shared {
     files: Source,
-    ws: RefCell<Workspace>,
+    pub(crate) ws: RefCell<Workspace>,
     edits: RefCell<Vec<Edit>>,
-    game: Option<Arc<GameData>>,
-    host: Rc<dyn Host>,
+    /// What the job wants written into haks, each hak once.
+    pub(crate) haks: RefCell<Vec<HakWrite>>,
+    pub(crate) game: Option<Arc<GameData>>,
+    pub(crate) host: Rc<dyn Host>,
+    /// Whose job it is, for a question the API itself asks.
+    pub(crate) who: String,
+    /// Chooses among the tiles that fit.
+    pub(crate) rng: RefCell<fastrand::Rng>,
 }
 
-fn fail<T>(message: impl std::fmt::Display) -> mlua::Result<T> {
+pub(crate) fn fail<T>(message: impl std::fmt::Display) -> mlua::Result<T> {
     Err(mlua::Error::runtime(message))
 }
 
-fn key_of(name: &str) -> mlua::Result<ResKey> {
+pub(crate) fn key_of(name: &str) -> mlua::Result<ResKey> {
     match ResKey::from_filename(name) {
         Some(key) => Ok(key),
         None => fail(format!("{name:?} is not a resource's name (name.ext)")),
@@ -79,21 +85,45 @@ fn key_of(name: &str) -> mlua::Result<ResKey> {
 
 impl Shared {
     /// Applies an edit to the private copy and records it.
-    fn apply(&self, edit: Edit) -> mlua::Result<()> {
-        let applied = self.ws.borrow_mut().apply(Command::new("plugin", vec![edit.clone()]));
+    pub(crate) fn apply(&self, edit: Edit) -> mlua::Result<()> {
+        self.apply_all(vec![edit])
+    }
+
+    /// Applies edits to the private copy, all or none, and records them.
+    pub(crate) fn apply_all(&self, edits: Vec<Edit>) -> mlua::Result<()> {
+        if edits.is_empty() {
+            return Ok(());
+        }
+        let applied = self.ws.borrow_mut().apply(Command::new("plugin", edits.clone()));
         match applied {
             Ok(()) => {
-                self.edits.borrow_mut().push(edit);
+                self.edits.borrow_mut().extend(edits);
                 Ok(())
             }
             Err(e) => fail(e),
         }
     }
 
+    /// A resource the job has put into a hak (the last one written, of
+    /// the hak written to last).
+    fn in_haks(&self, key: &ResKey) -> Option<Vec<u8>> {
+        let haks = self.haks.borrow();
+        let found = haks.iter().rev().find_map(|h| h.files.iter().rev().find(|(k, _)| k == key))?;
+        match &found.1 {
+            crate::HakData::Bytes(b) => Some(b.to_vec()),
+            crate::HakData::File(p) => std::fs::read(p).ok(),
+            crate::HakData::Archive => None,
+        }
+    }
+
     /// A resource's bytes: the module's (with the job's edits), or with
-    /// `game` what the game would load.
-    fn bytes(&self, key: &ResKey, game: bool) -> mlua::Result<Vec<u8>> {
+    /// `game` what the game would load (what the job has put into haks
+    /// first).
+    pub(crate) fn bytes(&self, key: &ResKey, game: bool) -> mlua::Result<Vec<u8>> {
         if game {
+            if let Some(bytes) = self.in_haks(key) {
+                return Ok(bytes);
+            }
             let Some(data) = &self.game else { return fail("there is no game data") };
             return match data.resman.get(key) {
                 Ok(bytes) => Ok(bytes.into_owned()),
@@ -325,7 +355,7 @@ fn typed_table(lua: &Lua, v: &LuaValue, what: &str) -> mlua::Result<Option<Value
 
 /// The first argument of a call made with a colon (`ctx.module:has(..)`):
 /// the table the function is in, not used.
-type This = LuaValue;
+pub(crate) type This = LuaValue;
 
 /// `ctx.module` or `ctx.game`: resources to read.
 fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
@@ -359,7 +389,8 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
         lua.create_function(move |_, (_, name): (This, String)| {
             let key = key_of(&name)?;
             Ok(if game {
-                s.game.as_ref().is_some_and(|g| g.resman.contains(&key))
+                s.in_haks(&key).is_some()
+                    || s.game.as_ref().is_some_and(|g| g.resman.contains(&key))
             } else {
                 s.ws.borrow().module.contains(&key)
             })
@@ -639,6 +670,8 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
     ctx.set("module", reader(lua, sh, false)?)?;
     ctx.set("game", reader(lua, sh, true)?)?;
     ctx.set("edit", editor(lua, sh)?)?;
+    ctx.set("hak", crate::files::hak(lua, sh)?)?;
+    ctx.set("terrain", crate::terrain::terrain(lua, sh)?)?;
     let plugin = lua.create_table()?;
     plugin.set("id", about[0])?;
     plugin.set("name", about[1])?;
@@ -697,6 +730,7 @@ fn context(lua: &Lua, sh: &Rc<Shared>, about: [&str; 3]) -> mlua::Result<Table> 
             }
         })?,
     )?;
+    crate::files::questions(lua, sh, &ui)?;
     ctx.set("ui", ui)?;
     Ok(ctx)
 }
@@ -766,6 +800,7 @@ fn api(lua: &Lua) -> mlua::Result<Table> {
             })?,
         )?;
     }
+    mg.set("image", lua.create_function(crate::files::image)?)?;
     // Where a struct read with `gff` is: its path, for the edits.
     mg.set(
         "path",
@@ -896,16 +931,19 @@ fn failure(name: &str, host: &Rc<dyn Host>, e: mlua::Error) -> PluginError {
 }
 
 fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
-    shared_in(Source::Folder(plugin.dir.clone()), input, host)
+    shared_in(Source::Folder(plugin.dir.clone()), &plugin.manifest.name, input, host)
 }
 
-fn shared_in(files: Source, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
+fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
     Rc::new(Shared {
         files,
         ws: RefCell::new(Workspace::new(input.module)),
         edits: RefCell::new(Vec::new()),
+        haks: RefCell::new(Vec::new()),
         game: input.game,
         host: host.clone(),
+        who: who.to_string(),
+        rng: RefCell::new(fastrand::Rng::new()),
     })
 }
 
@@ -942,7 +980,7 @@ pub(crate) fn run_command(
     if host.cancelled() {
         return Err(PluginError::Canceled(plugin.manifest.name.clone()));
     }
-    Ok(Outcome { label, edits: sh.edits.take() })
+    Ok(Outcome { label, edits: sh.edits.take(), haks: sh.haks.take() })
 }
 
 pub(crate) fn run_check(
@@ -986,7 +1024,7 @@ pub(crate) fn run_check(
         Ok(out)
     };
     let findings = run().map_err(|e| failed(plugin, &host, e))?;
-    if !sh.edits.borrow().is_empty() {
+    if !sh.edits.borrow().is_empty() || !sh.haks.borrow().is_empty() {
         return Err(PluginError::Script {
             plugin: plugin.manifest.name.clone(),
             message: format!("the check {:?} edits the module: a check only reads", decl.id),
@@ -1003,7 +1041,7 @@ pub(crate) fn inspect(
     host: Rc<dyn Host>,
 ) -> Result<Vec<String>, PluginError> {
     let input = Input { module: mg_module::Module::new(), game: None };
-    let sh = shared_in(files, input, &host);
+    let sh = shared_in(files, &manifest.name, input, &host);
     let run = || -> mlua::Result<Vec<String>> {
         let lua = start(Some(&manifest.entry), &sh)?;
         let mut faults = Vec::new();
@@ -1079,7 +1117,7 @@ pub(crate) fn run_console(
     input: Input,
     host: Rc<dyn Host>,
 ) -> Result<Outcome, PluginError> {
-    let sh = shared_in(Source::Nothing, input, &host);
+    let sh = shared_in(Source::Nothing, "The plugin console", input, &host);
     let run = || -> mlua::Result<()> {
         let lua = start(None, &sh)?;
         let ctx = context(&lua, &sh, ["console", "Console", crate::API])?;
@@ -1096,7 +1134,7 @@ pub(crate) fn run_console(
     if host.cancelled() {
         return Err(PluginError::Canceled("Console".into()));
     }
-    Ok(Outcome { label: "Plugin console".into(), edits: sh.edits.take() })
+    Ok(Outcome { label: "Plugin console".into(), edits: sh.edits.take(), haks: sh.haks.take() })
 }
 
 /// Every name a plugin's code can use, as the reference writes them
@@ -1112,7 +1150,7 @@ pub(crate) fn api_names() -> Vec<String> {
     }
     let host: Rc<dyn Host> = Rc::new(Nobody);
     let input = Input { module: mg_module::Module::new(), game: None };
-    let sh = shared_in(Source::Nothing, input, &host);
+    let sh = shared_in(Source::Nothing, "", input, &host);
     let names = || -> mlua::Result<Vec<String>> {
         let lua = start(None, &sh)?;
         let mut out = vec!["require".to_string(), "print".to_string()];
@@ -1134,8 +1172,10 @@ pub(crate) fn api_names() -> Vec<String> {
                 _ => out.push(format!("ctx.{name}")),
             }
         }
-        // What `ctx.game:table` returns.
+        // What `ctx.game:table` returns, and the other things handed out.
         out.extend(["twoda.rows", "twoda.columns", "twoda:get"].map(String::from));
+        out.extend(crate::files::NAMES.map(String::from));
+        out.extend(crate::terrain::NAMES.map(String::from));
         out.sort();
         Ok(out)
     };

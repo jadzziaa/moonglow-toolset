@@ -12,6 +12,7 @@ use mg_module::{Module, ModuleError};
 use mg_resman::ResKey;
 use thiserror::Error;
 
+pub mod terrain;
 pub mod wire;
 
 #[derive(Debug, Error)]

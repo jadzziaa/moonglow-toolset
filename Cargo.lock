@@ -1974,11 +1974,15 @@ name = "mg-edit"
 version = "1.15.1"
 dependencies = [
  "base64",
+ "glam",
  "mg-core",
  "mg-gff",
  "mg-module",
  "mg-resman",
+ "mg-rules",
  "mg-schema",
+ "mg-set",
+ "mg-tiles",
  "proptest",
  "serde_json",
  "thiserror 2.0.21",
@@ -2063,15 +2067,20 @@ dependencies = [
 name = "mg-plugin"
 version = "1.15.1"
 dependencies = [
+ "fastrand",
  "mg-core",
  "mg-edit",
  "mg-gff",
+ "mg-image",
  "mg-module",
  "mg-resman",
  "mg-rules",
  "mg-schema",
+ "mg-set",
  "mg-testkit",
+ "mg-tiles",
  "mlua",
+ "png",
  "serde_json",
  "thiserror 2.0.21",
  "zip",

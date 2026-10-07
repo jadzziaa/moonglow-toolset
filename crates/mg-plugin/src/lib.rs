@@ -14,19 +14,22 @@
 //! - [`Package`] is a plugin as an archive to hand around, read and
 //!   installed into a plugins folder.
 
+mod files;
 mod manifest;
 mod package;
 mod runtime;
+mod terrain;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-pub use manifest::{API, CheckDecl, CommandDecl, Manifest};
+pub use manifest::{API, APIS, CheckDecl, CommandDecl, Manifest};
 use mg_edit::Edit;
 use mg_module::Module;
 use mg_module::doctor::Finding;
+use mg_resman::ResKey;
 use mg_rules::GameData;
 pub use package::{
     Existing, MARKER, MAX_ARCHIVE, MAX_BYTES, MAX_FILES, Package, from_archive, pack, remove,
@@ -151,6 +154,11 @@ pub enum Question {
     Confirm(String),
     /// A form to fill.
     Form { title: String, fields: Vec<FormField> },
+    /// A file of the user's to read: what it is for, and the extensions
+    /// it may have (none: any).
+    File { title: String, extensions: Vec<String> },
+    /// A folder of the user's to read the files of.
+    Folder { title: String },
 }
 
 /// The user's answer.
@@ -162,6 +170,8 @@ pub enum Answer {
     /// A form's values, by field id (text, a number, true or false; a
     /// choice as its text).
     Values(BTreeMap<String, serde_json::Value>),
+    /// The file or the folder chosen.
+    Path(PathBuf),
 }
 
 /// What a plugin's code reaches of whoever runs it.
@@ -190,12 +200,41 @@ pub struct Input {
     pub game: Option<Arc<GameData>>,
 }
 
-/// What a command made: the edits to apply as one command, and its name.
+/// What a command made: the edits to apply as one command, and its name;
+/// and what it wants written into haks (which the user agreed to).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Outcome {
     pub label: String,
     pub edits: Vec<Edit>,
+    pub haks: Vec<HakWrite>,
 }
+
+/// Resources a command wants in a hak of the user's hak folder: added to
+/// it, or in place of those of the same name there. Not part of the
+/// command's undoable step: a file outside the module.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HakWrite {
+    /// The hak's name, without `.hak`.
+    pub name: String,
+    /// Each resource's bytes, or the file of the user's it is a copy of.
+    pub files: Vec<(ResKey, HakData)>,
+}
+
+pub use mg_module::hak_edit::Source as HakData;
+
+impl HakWrite {
+    /// Writes the resources into the hak in folder `dir`
+    /// ([`mg_module::hak_edit::write_into`]): how many were added and how
+    /// many replaced.
+    pub fn write(&self, dir: &Path) -> Result<(usize, usize), String> {
+        let path = dir.join(format!("{}.hak", self.name));
+        let done = mg_module::hak_edit::write_into(&path, self.files.clone())?;
+        Ok((done.added, done.replaced))
+    }
+}
+
+/// The largest file of the user's a plugin reads, in bytes.
+pub const MAX_FILE: u64 = 64 << 20;
 
 /// The most memory a plugin's code may hold, in bytes.
 pub const MEMORY_LIMIT: usize = 256 << 20;

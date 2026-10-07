@@ -18,12 +18,14 @@ use mg_erf::Header;
 use mg_resman::{Container, ErfContainer, ResKey};
 
 /// Where a resource's bytes are.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
     /// In the archive as it was opened (or last saved).
     Archive,
     /// A file added to it.
     File(PathBuf),
+    /// Bytes given to it.
+    Bytes(Arc<[u8]>),
 }
 
 /// One resource of the hak.
@@ -251,6 +253,31 @@ impl Hak {
         out
     }
 
+    /// Adds resources by where their bytes are (given, or a file's),
+    /// replacing those of the same name; one undo step.
+    pub fn add_sources(&mut self, resources: Vec<(ResKey, Source)>) -> Result<Added, String> {
+        let mut out = Added::default();
+        if resources.is_empty() {
+            return Ok(out);
+        }
+        let mut items = Vec::new();
+        for (key, source) in resources {
+            let size = match &source {
+                Source::Bytes(b) => b.len() as u64,
+                Source::File(p) => {
+                    std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?.len()
+                }
+                Source::Archive => return Err(format!("{key}: nothing to add")),
+            };
+            items.push(Item { key, size, source });
+        }
+        self.checkpoint("Add resources");
+        for item in items {
+            self.put(item, &mut out);
+        }
+        Ok(out)
+    }
+
     /// Adds the files of a folder and the folders in it.
     pub fn add_folder(&mut self, dir: &Path) -> Added {
         let mut files = Vec::new();
@@ -295,7 +322,7 @@ impl Hak {
         // An archive entry keeps its bytes under the new name.
         let bytes = match &self.items[i].source {
             Source::Archive => Some(self.data(key)?),
-            Source::File(_) => None,
+            Source::File(_) | Source::Bytes(_) => None,
         };
         self.checkpoint("Rename");
         self.items[i].key = to;
@@ -329,6 +356,7 @@ impl Hak {
                 a.read(&item.key).map(Cow::into_owned).map_err(|e| e.to_string())
             }
             Source::File(p) => std::fs::read(p).map_err(|e| format!("{}: {e}", p.display())),
+            Source::Bytes(b) => Ok(b.to_vec()),
         }
     }
 
@@ -414,6 +442,23 @@ impl Hak {
     }
 }
 
+/// Puts `resources` into the hak at `path`, replacing those of the same
+/// name there: the hak is made if there is none, and one that is there is
+/// first copied beside itself as `.bak`.
+pub fn write_into(path: &Path, resources: Vec<(ResKey, Source)>) -> Result<Added, String> {
+    let mut hak = if path.exists() {
+        let hak = Hak::open(path)?;
+        let bak = path.with_extension("hak.bak");
+        std::fs::copy(path, &bak).map_err(|e| format!("{}: {e}", bak.display()))?;
+        hak
+    } else {
+        Hak::new()
+    };
+    let added = hak.add_sources(resources)?;
+    hak.save(Some(path))?;
+    Ok(added)
+}
+
 impl Default for Hak {
     fn default() -> Self {
         Hak::new()
@@ -439,6 +484,33 @@ fn today() -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bytes_go_into_a_new_hak_and_into_one_that_is_there() {
+        let dir = std::env::temp_dir().join(format!("mg-hak-bytes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("made.hak");
+        let key = |n: &str| ResKey::parse(n, ResType::TXT).unwrap();
+        let bytes = |b: &[u8]| Source::Bytes(b.into());
+        let first = vec![(key("one"), bytes(b"1")), (key("two"), bytes(b"2"))];
+        let added = write_into(&path, first).unwrap();
+        assert_eq!((added.added, added.replaced), (2, 0));
+        // (One of them a file's.)
+        let file = dir.join("three.txt");
+        std::fs::write(&file, "3").unwrap();
+        let second = vec![(key("two"), bytes(b"two")), (key("three"), Source::File(file))];
+        let added = write_into(&path, second).unwrap();
+        assert_eq!((added.added, added.replaced), (1, 1));
+        let hak = Hak::open(&path).unwrap();
+        assert_eq!(hak.items().len(), 3);
+        assert_eq!(hak.data(key("one")).unwrap(), b"1");
+        assert_eq!(hak.data(key("two")).unwrap(), b"two");
+        assert_eq!(hak.data(key("three")).unwrap(), b"3");
+        // What was there before is kept beside it.
+        let bak = Hak::open(&dir.join("made.hak.bak")).unwrap();
+        assert_eq!(bak.data(key("two")).unwrap(), b"2");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     fn write(dir: &Path, name: &str, data: &[u8]) -> PathBuf {
         let p = dir.join(name);

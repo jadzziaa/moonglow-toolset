@@ -449,7 +449,15 @@ enum PluginCmd {
         /// A form's field, `ID=VALUE` (the others take their defaults).
         #[arg(long)]
         answer: Vec<String>,
-        /// Answer yes where the plugin asks to confirm (else: no).
+        /// A file or folder for the plugin where it asks for one, in the
+        /// order it asks.
+        #[arg(long)]
+        file: Vec<PathBuf>,
+        /// Where the haks it writes go (else the user folder's `hak`).
+        #[arg(long)]
+        hak_dir: Option<PathBuf>,
+        /// Answer yes where the plugin asks to confirm, or to write a hak
+        /// (else: no).
         #[arg(long)]
         yes: bool,
         /// Print the edits it would make; change nothing.
@@ -739,11 +747,12 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders } => plugins::list(folders)?,
             PluginCmd::Check { folders } => plugins::check(folders)?,
-            PluginCmd::Run { module, plugin, command, answer, yes, dry_run } => {
-                let host = plugins::CliHost::new(answer, *yes)?;
+            PluginCmd::Run { module, plugin, command, answer, file, hak_dir, yes, dry_run } => {
+                let host = plugins::CliHost::new(answer, file, *yes)?;
                 // (A plugin that reads no game data needs no game.)
                 let gi = install(cli).ok();
-                plugins::run(gi.as_ref(), module, plugin, command, host, *dry_run)?
+                let hak_dir = hak_dir.as_deref();
+                plugins::run(gi.as_ref(), module, plugin, command, host, hak_dir, *dry_run)?
             }
             PluginCmd::Pack { plugin, output } => plugins::pack(plugin, output.as_deref())?,
             PluginCmd::Install { file, folder, replace } => {

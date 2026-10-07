@@ -1,6 +1,10 @@
 # Update log
 
+## 2026-10-07
+* **Update**: [Writing plugins](manual/16-writing-plugins.md), the [plugin API reference](manual/17-plugin-api.md), [Plugins](manual/15-plugins.md), [command-line tools](manual/11-command-line.md), the [API's changes](plugins/CHANGES.md) and the [authors' page](plugins/README.md): plugin API 0.2 (a file or folder the user chooses, haks written with their leave, areas and terrain, pictures) and the `tileset-import` example; [the deferred list](deferred.md): what a builder's terrain tool would need beyond it, and the `mzlm` lightmap shader known by name.
+
 ## 2026-10-06
+* **Update**: [The deferred list](deferred.md): a known custom shader (`vertexalpha`) is drawn by Moonglow's own: vertex colors, layers blended by a mask on the second texture coordinates, a texture slid along a flow map.
 * **Update**: [The main window](manual/02-main-window.md) (the module tree's menu on an area's objects, Escape with a tool in hand), [areas](manual/04-areas.md) (Fade Geometry's three choices; prefabs renamed, told of on hover and their delete undone), [blueprints](manual/05-blueprints.md) (View is read-only, waypoints' pictures, an item's parts by picture), [modules](manual/03-modules.md) (Shift+click in the hak editor), [options](manual/10-options.md) (a tab of the dock) and [the deferred list](deferred.md).
 * **Update**: [Blueprints](manual/05-blueprints.md): an item's model in its Appearance page; [the deferred list](deferred.md): the Gallery in a narrow palette pane.
 * **Update**: [Blueprints](manual/05-blueprints.md): Properties on an item in an inventory (a placed object's item is its own), and armor and cloaks shown on a woman, icon included; [the deferred list](deferred.md).

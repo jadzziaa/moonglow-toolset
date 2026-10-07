@@ -402,12 +402,6 @@ pub fn add_area(
     spec: &AreaSpec,
     rng: &mut fastrand::Rng,
 ) -> Result<ResRef, NewError> {
-    if !AREA_SIZE_RANGE.contains(&spec.width) || !AREA_SIZE_RANGE.contains(&spec.height) {
-        return Err(NewError::Invalid(format!(
-            "an area is 2 to 32 tiles across, not {}×{}",
-            spec.width, spec.height
-        )));
-    }
     let set_name = format!("{}.set", spec.tileset);
     let data = game
         .resman
@@ -415,9 +409,27 @@ pub fn add_area(
         .map_err(|e| res_error(&set_name, e))?;
     let set =
         Tileset::parse(&data, game.language.codepage()).map_err(|e| res_error(&set_name, e))?;
-    let index = TileIndex::new(&set);
+    add_area_of(module, game, spec, &set, rng)
+}
+
+/// [`add_area`] with the tileset given (one the game data doesn't have
+/// yet: a hak about to be written).
+pub fn add_area_of(
+    module: &mut Module,
+    game: &GameData,
+    spec: &AreaSpec,
+    set: &Tileset,
+    rng: &mut fastrand::Rng,
+) -> Result<ResRef, NewError> {
+    if !AREA_SIZE_RANGE.contains(&spec.width) || !AREA_SIZE_RANGE.contains(&spec.height) {
+        return Err(NewError::Invalid(format!(
+            "an area is 2 to 32 tiles across, not {}×{}",
+            spec.width, spec.height
+        )));
+    }
+    let index = TileIndex::new(set);
     let tiles_error = |source| NewError::Tiles { tileset: spec.tileset.to_string(), source };
-    let lattice = mg_tiles::new_area(&index, &set, spec.width, spec.height).map_err(tiles_error)?;
+    let lattice = mg_tiles::new_area(&index, set, spec.width, spec.height).map_err(tiles_error)?;
     let tiles = mg_tiles::fill(&index, &lattice, rng).map_err(tiles_error)?;
 
     let defaults = AreaDefaults::for_tileset(game, spec.tileset)?;

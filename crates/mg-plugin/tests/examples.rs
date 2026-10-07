@@ -91,7 +91,8 @@ fn every_example_registers_what_it_declares() {
             "example.creature-report",
             "example.hello",
             "example.merchant-markup",
-            "example.tag-conventions"
+            "example.tag-conventions",
+            "example.tileset-import"
         ]
     );
 }
@@ -266,6 +267,12 @@ fn the_type_file_has_the_whole_api() {
                     "ctx.edit" => "Edit",
                     "ctx.log" => "Log",
                     "ctx.ui" => "Ui",
+                    "ctx.hak" => "Hak",
+                    "ctx.terrain" => "Terrain",
+                    "area" => "Area",
+                    "file" => "File",
+                    "folder" => "Folder",
+                    "image" => "Image",
                     "ctx" | "ctx.plugin" => "Context",
                     other => panic!("no type for {other}"),
                 };

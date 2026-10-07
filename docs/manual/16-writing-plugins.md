@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Writing plugins
-description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, checks, several files, trying and testing, editor types and versions.
+description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T02:04:00Z }
 ---
 
 # Writing plugins
@@ -17,7 +17,7 @@ plugin can call. What plugins are to the people who use them is in
 
 You need a text editor and Moonglow. Nothing is compiled or built.
 
-The plugin API is **experimental** (version 0.1): it may change in a
+The plugin API is **experimental** (version 0.2): it may change in a
 later release, and Versions, below, says what that means for a plugin.
 
 ## A first plugin
@@ -122,8 +122,10 @@ has no other way to change anything.
 **A sandbox.** The code has [Luau's own libraries](https://luau.org/library)
 (`string`, `table`, `math`, `utf8`, `bit32`, `buffer`, `vector`,
 `coroutine`, and of `os` only the clock and the date) and `ctx`. There
-are no files, no network, no other programs, and the libraries can't be
-replaced. `print` writes to the log. A job may use 256 MB of memory.
+are no files of its own choosing, no network, no other programs, and the
+libraries can't be replaced. What it reaches outside the module, the
+user hands it: a file or a folder they choose for it to read, and a hak
+they allow it to write ([Outside the module](#outside-the-module)). `print` writes to the log. A job may use 256 MB of memory.
 **Cancel** stops it between any two steps, even in a loop that never
 ends; `pcall` does not catch that.
 
@@ -145,7 +147,7 @@ running the plugin, to list what it adds.
 | `id` | Needed. The plugin's name for programs, the same wherever it is installed: `author.plugin-name`, in lower-case letters, digits, `.`, `-` and `_`. Settings and keys are kept under it, so don't change it between versions. |
 | `name` | Needed. Its name for people. |
 | `version` | Needed. The plugin's own version, as you number it. |
-| `api` | Needed. The plugin API it was written for: `"0.1"`. |
+| `api` | Needed. The plugin API it was written for: `"0.2"`, or `"0.1"` for a plugin that uses nothing 0.2 added (it then runs in Moonglow before 1.16 too). |
 | `license` | Needed. Its license, as an [SPDX](https://spdx.org/licenses/) name. Moonglow is GPL-3.0, and a plugin runs inside it: choose a license compatible with the GPL (`GPL-3.0-or-later`, `MIT`, `Apache-2.0`…). |
 | `description` | One or two sentences on what it does, shown in Manage Plugins. |
 | `author` | Who wrote it. Repeat the line for each author. |
@@ -328,11 +330,75 @@ Ask before the first edit: a command that is going to change nothing
 should leave no step for Undo. With `mg plugin run` there is nobody to
 ask: a message goes to the output, `confirm` is no unless `--yes` is
 given, and a form takes its defaults and `--answer ID=VALUE`. So give
-every field a sensible default.
+every field a sensible default. A file or folder asked for is the next
+`--file PATH` on the command line, and haks are written (with `--yes`)
+into `--hak-dir`, or the user folder's `hak`.
 
 A command's handler may return what Undo calls its change,
 `return { label = "Upper-case creature tags" }`; without one, Undo names
 the command's title.
+
+## Outside the module
+
+A plugin opens no files. It asks, and the user chooses:
+
+```lua
+local file = ctx.ui:open_file({ title = "The height map", extensions = { "png", "tga" } })
+if not file then return end                 -- they chose none
+file.name                                   -- "hills.png"
+local image = mg.image(file.bytes)          -- a PNG, TGA or DDS decoded
+image.width, image.height
+local r, g, b, a = image:pixel(0, 0)        -- 0 to 255, from the top left
+
+local folder = ctx.ui:open_folder({ title = "The folder with the tileset's files" })
+folder:files()                              -- { "tiles.set", "textures/grass.tga", … }
+folder:text("tiles.set")                    -- a file of it; nothing outside it
+```
+
+And it writes one kind of file, a hak in the user's hak folder, once the
+user has said it may (they are asked the first time the job writes to
+each hak; if they refuse, the job ends there):
+
+```lua
+ctx.hak:write("my_tiles", "tiles.set", text)        -- a resource, from bytes
+folder:to_hak("my_tiles", "textures/grass.tga")     -- a file of the folder, copied
+ctx.hak:attach("my_tiles")                          -- the module lists the hak
+```
+
+The hak is written when the handler returns. Resources are added to a
+hak that is already there, and a copy of it is kept as `my_tiles.hak.bak`.
+Unlike the module's edits, a hak is not undone by Undo: say what the
+command writes in its title or its form. `folder:to_hak` copies a file
+whatever its size; `ctx.hak:write` is for what the plugin computed.
+
+## Areas and terrain
+
+`ctx.terrain` makes areas and paints them the way the area editor does:
+the plugin says what the ground is at each corner, and Moonglow chooses
+tiles that fit.
+
+```lua
+local resref = ctx.terrain:new_area({ name = "High Field", tileset = "ttr01", width = 8, height = 8 })
+local area = ctx.terrain:open(resref)       -- or an area the module has
+area.terrains                               -- { "Grass", "Water", "Trees", … }
+area:corner(3, 3)                           -- "Grass", 0: its terrain and height
+area:paint(1, 1, "Water")                   -- the terrain brush on a corner
+area:set_height(5, 5, 2)                    -- raised until it is two steps high
+area:place_group("Farm House", 2, 2)        -- a group, as from the palette
+```
+
+Corners count from the south-west, from 0 to the area's width and
+height; a cell has the corners at its own number and the next. Each of
+these returns false, and changes nothing, where the area editor would
+refuse the brush: no tile of the tileset fits there. Heights are whole
+steps (`area.step` metres each), and neighbors are never more than a
+step apart, so raising one corner by two lifts the corners around it by
+one.
+
+A tileset the job is putting into a hak can be used at once, before the
+hak exists: `tileset-import` in the examples takes a folder of tileset
+files (as NWN Mapper exports them), puts them into a hak, and makes an
+area of one of the tileset's groups.
 
 ## Checks
 

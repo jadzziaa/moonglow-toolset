@@ -73,6 +73,7 @@ struct DrawUniform {
     spec_color: [f32; 4],
     extra: [f32; 4],
     water: [f32; 4],
+    effect: [f32; 4],
     light_count: [u32; 4],
     light_index: [[u32; 4]; 8],
 }
@@ -113,8 +114,40 @@ struct TextureEntry {
 }
 
 /// Texture slots: diffuse, normal, specular, roughness, height,
-/// self-illumination.
-const SLOTS: usize = 6;
+/// self-illumination; then the two a known custom shader reads
+/// ([`Effect`]): an alpha mask or lightmap, and a flow map.
+const SLOTS: usize = 8;
+/// The slots the stock shaders read (the rest are a custom shader's).
+const STOCK_SLOTS: usize = 6;
+
+/// What a custom shader Moonglow knows does, drawn by Moonglow's own
+/// shader (it runs none of the game's or a tileset's): the
+/// `vertexalpha_vs`/`vertexalpha_fs` pair community tilesets ship. It
+/// multiplies the model's vertex colors in (baked shading), takes the
+/// alpha from the vertex color or from a mask on the second texture
+/// coordinates (`texture6`: layers blended into each other), or multiplies
+/// that texture in as a lightmap (`fLightmapMode`), and slides the texture
+/// along a flow map (`texture7`, `fSlideSpeed`: lava, water).
+///
+/// And the `mzlm_vs`/`mzlm_fs` pair NWN Mapper's exports name: a baked
+/// lightmap (`texture7`, on the second texture coordinates) multiplied in
+/// where `LightmapON` is set. Its source is not at hand: this is what the
+/// exporter's materials and its own description say of it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Effect {
+    /// The vertex colors are baked shading (and the layer's alpha).
+    colors: bool,
+    slide_speed: f32,
+    shadow_reduction: f32,
+    shadow_brightening: f32,
+    lightmap: bool,
+    /// The MTR's `transparency`: drawn blended.
+    blend: bool,
+}
+
+/// The custom fragment shaders drawn as [`Effect`]s, by the start of their
+/// names.
+const EFFECT_SHADERS: [&str; 2] = ["vertexalpha", "mzlm"];
 
 /// A material bind group's key: the slots' textures, the environment map,
 /// clamping.
@@ -136,6 +169,8 @@ struct Slots {
     /// The game's normal-mapped shader variant (`_nm`): a render hint, or
     /// any map beyond the diffuse texture.
     normal_variant: bool,
+    /// A known custom shader's doings.
+    effect: Option<Effect>,
 }
 
 /// The key of a mesh's slots: MDL bitmap and texture1–3, MTR name, render
@@ -301,6 +336,8 @@ impl Renderer {
                 texture_entry(6),
                 texture_entry(7),
                 texture_entry(8),
+                texture_entry(10),
+                texture_entry(11),
                 wgpu::BindGroupLayoutEntry {
                     binding: 9,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -599,10 +636,31 @@ impl Renderer {
                 .float("CustomSpecularColor")
                 .filter(|v| v.len() >= 3 && v[..3].iter().any(|&c| c > 0.0))
                 .map(|v| glam::Vec3::new(v[0], v[1], v[2]).powf(2.2));
+            let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
+            let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
+            let mapper = fs.starts_with("mzlm");
+            out.effect = known.then(|| Effect {
+                colors: !mapper,
+                slide_speed: if mapper { 0.0 } else { f("fSlideSpeed") },
+                shadow_reduction: f("fShadowReduction"),
+                shadow_brightening: f("fShadowBrightening"),
+                lightmap: if mapper { f("LightmapON") > 0.5 } else { f("fLightmapMode") > 0.5 },
+                blend: mtr.transparency,
+            });
+            if mapper {
+                // Its lightmap is where the other pair has its flow map.
+                out.names[6] = out.names[7].take();
+            }
+        }
+        if out.effect.is_none() {
+            // (A custom shader's own slots mean nothing to the stock ones.)
+            for name in &mut out.names[STOCK_SLOTS..] {
+                *name = None;
+            }
         }
         out.normal_variant = mat.normal_mapped
             || mtr.as_ref().is_some_and(|m| m.renderhint != mg_image::mtr::RenderHint::None)
-            || out.names[1..].iter().any(Option::is_some);
+            || out.names[1..STOCK_SLOTS].iter().any(Option::is_some);
         let out = Arc::new(out);
         self.slots.insert(key, out.clone());
         out
@@ -648,6 +706,8 @@ impl Renderer {
                 tex(7, view(4)),
                 tex(8, view(5)),
                 tex(9, cube_view),
+                tex(10, view(6)),
+                tex(11, view(7)),
             ],
         });
         self.materials.insert(key.clone(), group);
@@ -886,7 +946,11 @@ impl Renderer {
                     Pass::Sky
                 } else if blending == Blending::Additive {
                     Pass::Additive
-                } else if alpha < 1.0 || (has_alpha && !env_mapped) || mat.transparency_hint > 0 {
+                } else if alpha < 1.0
+                    || (has_alpha && !env_mapped)
+                    || mat.transparency_hint > 0
+                    || slots.effect.is_some_and(|e| e.blend)
+                {
                     Pass::Blend
                 } else {
                     Pass::Opaque
@@ -961,6 +1025,25 @@ impl Renderer {
                             let (far, fast) =
                                 tex.as_ref().and_then(|t| t.ripple).unwrap_or((0.0, 0.0));
                             [far, fast, flag(tex.as_ref().is_some_and(|t| t.water)), 0.0]
+                        },
+                        effect: match slots.effect {
+                            Some(e) => {
+                                // 1 vertex colors, 2 alpha mask, 4 lightmap,
+                                // 8 flow.
+                                let mask = bound[6] && !e.lightmap;
+                                let flow = bound[7] && e.slide_speed != 0.0;
+                                let bits = u8::from(e.colors)
+                                    + 2 * u8::from(mask)
+                                    + 4 * u8::from(bound[6] && e.lightmap)
+                                    + 8 * u8::from(flow);
+                                [
+                                    f32::from(bits),
+                                    e.slide_speed,
+                                    e.shadow_reduction,
+                                    e.shadow_brightening,
+                                ]
+                            }
+                            None => [0.0; 4],
                         },
                         light_count: [
                             chosen.len() as u32,

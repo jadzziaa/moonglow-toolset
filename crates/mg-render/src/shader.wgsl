@@ -67,6 +67,11 @@ struct Draw {
     // picture is pushed about (a part of its width), y = how fast; 0: still.
     // z = 1 for water (`bumpmaptexture shinywater`): waves cross it.
     water: vec4<f32>,
+    // A known custom shader's doings (the `vertexalpha` pair): x = which
+    // (1 vertex colors, 2 an alpha mask on the second coordinates, 4 a
+    // lightmap there, 8 a flow map slides the texture), y = slide speed,
+    // z = shadow reduction, w = shadow brightening.
+    effect: vec4<f32>,
     // x = number of lights for this draw, y = 1 if skinned, z = first bone
     light_count: vec4<u32>,
     // Up to 32 light indices.
@@ -91,6 +96,8 @@ const SOLID_ALPHA: f32 = 0.95;
 @group(2) @binding(7) var tex_height: texture_2d<f32>;
 @group(2) @binding(8) var tex_illum: texture_2d<f32>;
 @group(2) @binding(9) var tex_env_cube: texture_cube<f32>;
+@group(2) @binding(10) var tex_mask: texture_2d<f32>;
+@group(2) @binding(11) var tex_flow: texture_2d<f32>;
 
 struct VertexIn {
     @location(0) pos: vec3<f32>,
@@ -98,6 +105,9 @@ struct VertexIn {
     @location(2) uv: vec2<f32>,
     // Tangent and the bitangent's sign; zero without tangents.
     @location(5) tangent: vec4<f32>,
+    // The model's vertex color and second texture coordinates.
+    @location(6) color: vec4<f32>,
+    @location(7) uv1: vec2<f32>,
 };
 
 struct VertexOut {
@@ -106,10 +116,15 @@ struct VertexOut {
     @location(1) normal_view: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) tangent_view: vec4<f32>,
+    @location(4) color: vec4<f32>,
+    @location(5) uv1: vec2<f32>,
 };
 
-fn finish(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, tangent: vec4<f32>) -> VertexOut {
+fn finish(v: VertexIn, pos: vec3<f32>, normal: vec3<f32>, tangent: vec4<f32>) -> VertexOut {
     var out: VertexOut;
+    let uv = v.uv;
+    out.color = v.color;
+    out.uv1 = v.uv1;
     let p = frame.view * (draw.world * vec4<f32>(pos, 1.0));
     out.pos_view = p.xyz;
     out.clip = frame.proj * p;
@@ -126,7 +141,7 @@ fn finish(pos: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, tangent: vec4<f32>) 
 
 @vertex
 fn vs_main(v: VertexIn) -> VertexOut {
-    return finish(v.pos, v.normal, v.uv, v.tangent);
+    return finish(v, v.pos, v.normal, v.tangent);
 }
 
 struct SkinIn {
@@ -152,9 +167,9 @@ fn vs_skinned(v: VertexIn, s: SkinIn) -> VertexOut {
         }
     }
     if (total <= 0.0) {
-        return finish(v.pos, v.normal, v.uv, v.tangent);
+        return finish(v, v.pos, v.normal, v.tangent);
     }
-    return finish(pos / total, normal, v.uv, vec4<f32>(tangent, v.tangent.w));
+    return finish(v, pos / total, normal, vec4<f32>(tangent, v.tangent.w));
 }
 
 fn lin(c: vec3<f32>) -> vec3<f32> {
@@ -297,6 +312,17 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         // (Under the waves of Enhanced Edition's water, half as far.)
         uv = uv + wave * (draw.water.x * select(0.25, 0.12, draw.water.z > 0.5));
     }
+    // A known custom shader's doings (see `Draw.effect`).
+    let fx = u32(draw.effect.x + 0.5);
+    let fx_colors = (fx & 1u) != 0u;
+    let fx_mask = (fx & 2u) != 0u;
+    let fx_lightmap = (fx & 4u) != 0u;
+    // The texture slid along its flow map (lava, water), as fast as the
+    // material says.
+    if ((fx & 8u) != 0u) {
+        let way = textureSampleLevel(tex_flow, samp0, in.uv, 0.0).rg * 2.0 - 1.0;
+        uv = uv + way * (draw.effect.y * frame.time.x);
+    }
     var tsb = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), surface_n);
     if (normal_mapped || height_mapped) {
         let t = in.tangent_view.xyz;
@@ -343,7 +369,20 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         color = vec4<f32>(color.rgb * lin(tex.rgb), color.a);
     } else {
         color = color * vec4<f32>(lin(tex.rgb), tex.a);
-        if (color.a <= draw.params.x) {
+        // The alpha of a layer blended into what is under it: a mask's, on
+        // the second coordinates, else the texture's by the vertex color's.
+        if (fx_mask) {
+            color.a = clamp(draw.diffuse.a, 0.0, 1.0)
+                * textureSampleLevel(tex_mask, samp0, in.uv1, 0.0).r;
+        } else if (fx_lightmap) {
+            color.a = 1.0;
+        } else if (fx_colors) {
+            color.a = color.a * in.color.a;
+        }
+        if (!fx_mask && color.a <= draw.params.x) {
+            discard;
+        }
+        if (fx_mask && color.a <= 0.004) {
             discard;
         }
     }
@@ -568,6 +607,14 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
 
     // Back to gamma; fog in gamma space.
     rgb = gam(rgb);
+    // Baked shading: a lightmap on the second coordinates, else the vertex
+    // colors, their shadows eased as the material says.
+    if (fx_lightmap) {
+        rgb = rgb * textureSampleLevel(tex_mask, samp0, in.uv1, 0.0).rgb;
+    } else if (fx_colors) {
+        let lit = min(in.color.rgb * (max(draw.effect.z, 0.0) + 1.0), vec3<f32>(1.0));
+        rgb = rgb * min(lit + max(draw.effect.w, 0.0), vec3<f32>(1.0));
+    }
     if (frame.fog.x > 0.5) {
         let f = clamp((-in.pos_view.z - frame.fog.y) * frame.fog.w, 0.0, 1.0);
         rgb = mix(rgb, frame.fog_color.rgb, f);

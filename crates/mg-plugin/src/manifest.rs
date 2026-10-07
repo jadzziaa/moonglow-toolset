@@ -7,7 +7,10 @@ use mg_module::doctor::Severity;
 use mg_module::nasher::{Section, sections};
 
 /// The plugin API this Moonglow serves (a manifest's `api`).
-pub const API: &str = "0.1";
+pub const API: &str = "0.2";
+/// The APIs a plugin may be written for: each later one has all of the
+/// ones before.
+pub const APIS: [&str; 2] = ["0.1", "0.2"];
 
 /// What a manifest says.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,7 +121,7 @@ impl Manifest {
                         ],
                     )?;
                     let api = required(s, "api", get("api"))?;
-                    if api != API {
+                    if !APIS.contains(&api) {
                         return Err(format!(
                             "it was written for plugin API {api}; this Moonglow has {API}"
                         ));

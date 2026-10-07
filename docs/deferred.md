@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T22:14:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T02:10:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -503,11 +503,30 @@ objects in the area view, Fade Geometry. Left:
   correctly either"). Not tried: the client is only ever run here with
   Steam hidden. With Steam running, the test then shows in Steam as the
   game being played. (needs a builder's word)
-- **A tileset's custom shader** (a builder's lava that should move): not
-  drawn; the texture shows still. Moonglow has its own shaders and
-  doesn't run the game's or a tileset's (see Custom shader effects
-  above). The game's own water is animated; a material that names a
-  shader of its own is not. (L)
+- **A tileset's custom shader:** Moonglow runs none (see Custom shader
+  effects above, and the `shaders` branch's note for what running them
+  would take). Two it knows by name are drawn by its own shader instead.
+  The `mzlm_vs`/`mzlm_fs` pair that NWN Mapper's exports name: a
+  lightmap (`texture7`, on the second texture coordinates) multiplied in
+  where `LightmapON` is set. That one's source was not at hand (the tool
+  doesn't ship it): what it does is taken from the materials the
+  exporter writes and its own description, and no export that uses it
+  was there to look at. And
+  the `vertexalpha_vs`/`vertexalpha_fs` pair a builder's tilesets ship,
+  read from its source. Of what that shader does, Moonglow does the
+  vertex colors multiplied in (with the material's `fShadowReduction`
+  and `fShadowBrightening`), the alpha from the vertex color or from
+  `texture6` on the second texture coordinates (layers blended into each
+  other), `texture6` as a lightmap under `fLightmapMode`, and the
+  texture slid along the flow map `texture7` by `fSlideSpeed` (lava).
+  Not done: its dithered edges (blended here), the framebuffer sampling
+  and bloom its materials ask for, and its lighting where that differs
+  from the stock shader's. Unknown: how fast the game's
+  `worldtimerTimeOfDay` runs (the slide is by seconds here), and how any
+  of it compares with the game, which wasn't run on it. Another shader
+  of another name, or this one renamed, is not known. The builder's
+  package had no `flowmap_s` texture: the slide was tried with a
+  stand-in. (M)
 - **Finding the game:** Steam's libraries are read from its
   `libraryfolders.vdf` (a game on a second drive), and GOG's usual
   folders tried. Steam itself installed outside its usual folder is
@@ -751,8 +770,33 @@ categories, the galleries. Water ripples. Left:
 
 ## Automation
 
-- **Plugins, beyond API 0.1** (`plugin-proposal.md`; commands and checks
-  in sandboxed Luau are built):
+- **Plugins, beyond API 0.2** (`plugin-proposal.md`; commands and checks
+  in sandboxed Luau are built; 0.2 added a file or folder the user
+  chooses, haks written with their leave, areas and terrain, pictures):
+  - **A builder's terrain tool (NWN Mapper) as the measure:** it sculpts
+    a free height field, paints texture layers and a walkmesh, bakes
+    placeables and a lightmap in, and writes a tileset's group (a model
+    and walkmesh per tile, textures, materials, a patched `.set`). A
+    plugin can now take such an export into a hak and make the area
+    (`examples/tileset-import`, tried on the builder's earlier export:
+    149 files, an area of one of its groups drawn from the hak). What
+    the tool itself does is out of a plugin's reach: there is no view
+    to draw in or brush to take input from, a plugin writes haks and
+    nothing else (no loose files, no talk table), and baking textures
+    in Luau would be slow. Sculpted terrain inside Moonglow would be a
+    feature of its own. (L)
+  - **Not tried in the application on a desktop:** the folder and the
+    hak question were driven through the UI harness and `mg`, not with
+    the real file dialogs. The file dialog a plugin's `open_file` opens
+    doesn't filter by the extensions asked for (they are shown as
+    text). (S)
+  - **A hak is written before the module's edits go in,** and stays if
+    they then fail; Undo leaves it too. A job's haks are held in memory
+    until it ends, except files copied from a chosen folder. (S)
+  - **Painting is a tile at a time:** each call reads the area's tiles
+    again, so a plugin that sets every corner of a 32 × 32 area makes
+    thousands of small edits (one undo step, but a large one). Crossers
+    (roads, streams, walls) and the Eraser have no call yet. (S–M)
   - **No list to install or update from:** plugins come as files; the
     proposal has an index with API 1.0. Remove is for what Install from
     File installed; a folder copied in by hand is deleted by hand. (M)

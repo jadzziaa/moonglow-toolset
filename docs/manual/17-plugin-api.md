@@ -1,14 +1,14 @@
 ---
 type: Manual Page
 title: Plugin API reference
-description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, logging, progress and UI, ctx.plugin, Luau, limits and what the API doesn't have yet.
+description: Reference of the plugin API - mg, ctx.module, ctx.game, ctx.edit, ctx.hak, ctx.terrain, logging, progress and UI (files and folders the user chooses), pictures, ctx.plugin, Luau, limits and what the API doesn't have yet.
 tags: [manual, plugins, api]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T02:04:00Z }
 ---
 
 # Plugin API reference
 
-Everything a plugin's code can use, for plugin API 0.1. The API is
+Everything a plugin's code can use, for plugin API 0.2. The API is
 experimental: a later release may change it, and each change is listed
 in the API's [change list](https://github.com/jadzziaa/moonglow-toolset/tree/develop/docs/plugins).
 How plugins work and how to write one is in
@@ -29,9 +29,10 @@ nothing, and a check is reported as failed.
 
 | | |
 | --- | --- |
-| `mg.api` | The plugin API of the Moonglow running, as text: `"0.1"`. |
+| `mg.api` | The plugin API of the Moonglow running, as text: `"0.2"`. |
 | `mg.command(id, handler)` | Registers the function for the command the manifest declares as `id`. `handler(ctx)` makes its edits with `ctx.edit`. It may return what Undo calls the change, as `{ label = "…" }` or the text alone; else that is the command's title. |
 | `mg.check(id, handler)` | Registers the function for the check the manifest declares as `id`. `handler(ctx)` returns a list of findings (below), or nothing for none. A check that edits fails. |
+| `mg.image(bytes, kind?)` | A picture decoded, as an `image` (below): a PNG, a TGA or a DDS, told apart by how the bytes start, or by `kind` (`"png"`, `"tga"`, `"dds"`). |
 | `mg.path(struct)` | Where a struct read with `gff` is, as a path for `ctx.edit`: `""` for the root, `"/ClassList[0]"`. Nil for a table that is no such struct. |
 
 An id is registered once; registering one the manifest doesn't declare,
@@ -164,10 +165,70 @@ and `~` are written `~1`, `~2`, `~3` and `~0`, and a label that is empty
 `~e`. These are the paths of `mg set` and of edit files
 ([Command-line tools](11-command-line.md)).
 
+## `ctx.hak`
+
+Resources for a hak in the hak folder of the user's Neverwinter Nights
+folder: the one thing a plugin writes outside the module. The first time
+a job writes to a hak, the user is asked whether to allow it, and a
+refusal ends the job. The hak is written when the command's handler has
+returned, before its edits go in: resources are added to a hak that is
+there (those of the same name replaced, a copy of the hak kept beside it
+as `name.hak.bak`), and a hak that isn't there is made. **Undo does not
+take a hak back.** A check can't write one.
+
+| | |
+| --- | --- |
+| `ctx.hak:write(hak, name, bytes)` | Puts a resource into the hak named `hak` (letters, digits, `_` and `-`; `.hak` may be left out), as `name` (`name.ext`: at most 16 letters, digits, `_` and `-`, and a type the game reads). |
+| `ctx.hak:attach(hak)` | Lists the hak at the top of the module's haks (an edit of the module, undone with the command). |
+
+A folder the user chose copies a file straight into a hak, however large
+(`folder:to_hak`, below). What a job has put into a hak, `ctx.game`
+reads in that job as if the hak were there already, and `ctx.terrain`
+takes a tileset from it.
+
+## `ctx.terrain`
+
+Areas made, and their terrain painted as the area editor's brushes paint
+it: the plugin says what a corner is, and Moonglow chooses the tiles
+that fit, as it does under the pointer. It needs a game installation.
+
+| | |
+| --- | --- |
+| `ctx.terrain:tilesets()` | The tilesets the game offers (with the module's haks), as the Area Wizard lists them: a list of `{ resref = "ttr01", name = "Rural" }`. |
+| `ctx.terrain:new_area(spec)` | Makes an area as the Area Wizard does (its three files, and its place in the module's list). `spec` is `{ name = "…", tileset = "ttr01", width = 8, height = 8 }`, the sizes in tiles, 2 to 32. Returns the area's resref. |
+| `ctx.terrain:open(area)` | An area's terrain, by the area's resref, as an `area` (below). It fails for an area whose tiles are not all the tileset's. |
+
+An `area`. Cells (tiles) and corners count from the area's south-west,
+from 0: cell (x, y) has the corners (x, y) to (x + 1, y + 1), so an area
+`width` cells across has corners 0 to `width`.
+
+| | |
+| --- | --- |
+| `area.resref` | The area's resref. |
+| `area.tileset` | Its tileset's resref. |
+| `area.width`, `area.height` | Its size, in tiles. |
+| `area.step` | How high a step of height is, in metres (the tileset's `Transition`). |
+| `area.terrains` | The tileset's terrains' names, a list. |
+| `area.groups` | The tileset's groups, a list of `{ name = "…", rows = 2, columns = 3 }`. |
+| `area:corner(x, y)` | A corner's terrain (its name) and its height in steps: two values. |
+| `area:tile(x, y)` | A cell's tile: `{ id = 12, orientation = 1, height = 0 }`, as the ARE has it. |
+| `area:paint(x, y, terrain)` | The terrain brush on a corner: its terrain set, the corners around changed as the tileset's rules have it, new tiles chosen. True, or false when no tile fits there (nothing changes then, as under the brush). |
+| `area:raise(x, y, steps?)` | Raise on a corner, `steps` times (once; a negative number lowers). Corners around follow so that no two neighbors are more than a step apart. False when a step was refused (those before it stay). |
+| `area:set_height(x, y, height)` | Raises or lowers a corner until it is `height` steps high. False when it could not get there. |
+| `area:place_group(group, x, y, turns?)` | A group of the tileset (by name) with its first tile in cell (x, y), turned `turns` quarter turns, as placing it from the palette. False when it doesn't fit. |
+| `area:set_tile(x, y, id, orientation?, height?)` | Puts one tile into a cell as it is given, whether it fits its neighbors or not. |
+
+Tiles are chosen at random among those that fit, as in the area editor:
+two runs paint the same ground with different tiles. New tiles get
+lights from the area's lighting scheme, and bring and take the doors
+their tiles have.
+
 ## `ctx.log`, `ctx.progress`, `ctx.ui`
 
 | | |
 | --- | --- |
+| `ctx.ui:open_file(options?)` | Asks the user for a file to read: a `file` (below), or nil if they chose none. `options` is `{ title = "…", extensions = { "png", "tga" } }`: what it is for, and the kinds it reads. |
+| `ctx.ui:open_folder(options?)` | Asks the user for a folder to read the files of: a `folder` (below), or nil. `options` is `{ title = "…" }`. |
 | `ctx.log:info(text)` | A line in the log, under the plugin's name. |
 | `ctx.log:warn(text)` | A warning in the log. |
 | `ctx.log:error(text)` | An error in the log (the job goes on; to stop, raise one: `error("…")`). |
@@ -187,9 +248,34 @@ A form's **field** is a table:
 | `min`, `max` | A number's limits. |
 | `choices` | A choice's options, a list of texts; needed for one. Its value is the text chosen. |
 
+A `file`, and a `folder`: what the user chose, and nothing else of
+their disk. A file in a folder is named by its path from the folder,
+with `/` (`"textures/grass.tga"`); a name that leads out of the folder
+fails. A file of more than 64 MB is not read.
+
+| | |
+| --- | --- |
+| `file.name` | The file's name, without its folder. |
+| `file.bytes` | What is in it, a string of bytes. |
+| `folder.name` | The folder's name. |
+| `folder:files()` | The names of its files and of those in its folders, sorted. |
+| `folder:bytes(name)` | A file's bytes. |
+| `folder:text(name)` | A file as text: UTF-8 if it is, else from the Windows-1252 codepage. |
+| `folder:to_hak(hak, file, name?)` | Puts a file of the folder into a hak as `ctx.hak:write` does, without reading it into the plugin's memory: as `name`, or under its own. |
+
+An `image`, from `mg.image`:
+
+| | |
+| --- | --- |
+| `image.width`, `image.height` | Its size in pixels. |
+| `image:pixel(x, y)` | A pixel's red, green, blue and alpha, each 0 to 255: four values. Pixels count from 0, from the top left. A gray picture has the same red, green and blue; 16 bits a channel are read as 8. |
+
 Where there is nobody to ask (a check; `mg plugin run`): a message is
 logged, `confirm` is false (true with `--yes`), and a form is nil in a
-check and takes its defaults and `--answer`s with `mg`.
+check and takes its defaults and `--answer`s with `mg`. A file or a
+folder is nil in a check; with `mg` it is the next `--file PATH` given.
+Writing a hak is refused in a check, and with `mg` unless `--yes` is
+given (the haks go to `--hak-dir`, or the user folder's `hak`).
 
 ## `ctx.plugin`
 
@@ -210,7 +296,9 @@ The rest is [Luau's library](https://luau.org/library): `string`,
 `table`, `math`, `utf8`, `bit32`, `buffer`, `vector`, `coroutine`,
 `os.clock`, `os.time`, `os.date`, `os.difftime`, and the globals
 (`pairs`, `pcall`, `tostring`, `tonumber`, `error`, `assert`, `type`…).
-There is no `io`, no `package`, and nothing else of `os`.
+There is no `io`, no `package`, and nothing else of `os`: files are
+reached only through what the user chooses (`ctx.ui:open_file`,
+`ctx.ui:open_folder`) and allows (`ctx.hak`).
 
 ## Limits
 
@@ -223,7 +311,7 @@ There is no `io`, no `package`, and nothing else of `os`.
 ## What the API doesn't have yet
 
 Plugins can't yet react to events (a module opened, a resource saved),
-add panels or their own editors, read what is selected in an area, or
-keep settings. These are planned for later versions of the API; what
+add panels or their own editors, draw in the area view, read what is
+selected in an area, write files other than haks, or keep settings. These are planned for later versions of the API; what
 you'd use them for is welcome on the
 [issue tracker](https://github.com/jadzziaa/moonglow-toolset/issues).

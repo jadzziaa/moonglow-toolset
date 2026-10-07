@@ -3,7 +3,7 @@ type: Manual Page
 title: Plugins
 description: Plugins for the people who use them - what a plugin can and cannot do, installing, enabling and removing, commands, checks, the console, the command line and when something goes wrong.
 tags: [manual, plugins]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T22:08:47Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T02:10:00Z }
 ---
 
 # Plugins
@@ -31,11 +31,19 @@ A plugin's code runs in a sandbox. It can:
 - propose changes to the module: fields set, list items added and
   removed, resources written and deleted;
 - write to the log, show its progress, and ask you a question (a message,
-  yes or no, or a short form).
+  yes or no, or a short form);
+- read a file or a folder **you choose** when it asks for one (the files
+  in that folder, and nothing outside it);
+- make areas and paint their terrain, as the area editor does;
+- put resources into a hak in your hak folder, **if you allow it**: it
+  asks the first time it writes to each hak. Resources are added to a
+  hak that is there, and a copy of the hak as it was is kept beside it
+  (`name.hak.bak`). Edit › Undo takes back what the plugin did to the
+  module, not the hak.
 
-It cannot read or write files, use the network, start other programs, or
-reach anything of Moonglow's beyond the above: the language it is written
-in is given no means to. It has a limit on memory (256 MB), and
+It cannot open files of its own choosing, write any other file, use the
+network, start other programs, or reach anything of Moonglow's beyond
+the above: the language it is written in is given no means to. It has a limit on memory (256 MB), and
 **Cancel** stops it.
 
 A plugin never changes the module itself. What a command hands back is a

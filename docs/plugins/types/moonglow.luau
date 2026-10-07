@@ -1,5 +1,5 @@
 --!strict
--- The types of Moonglow's plugin API, version 0.1, for editors that check
+-- The types of Moonglow's plugin API, version 0.2, for editors that check
 -- Luau (luau-lsp): point the alias "moonglow" at this file in a `.luaurc`
 -- in or above your plugin's folder, and `require("@moonglow")` is typed
 -- and completed:
@@ -75,16 +75,75 @@ export type Log = {
     error: (self: Log, text: string) -> (),
 }
 
+-- A file of the user's that they chose: its name and its bytes.
+export type File = {
+    name: string,
+    bytes: string,
+}
+
+-- A folder of the user's that they chose. Files are named by their path
+-- in it, with "/" ("sub/file.txt"); nothing outside it is reached.
+export type Folder = {
+    name: string,
+    files: (self: Folder) -> { string },
+    bytes: (self: Folder, name: string) -> string,
+    text: (self: Folder, name: string) -> string,
+    to_hak: (self: Folder, hak: string, file: string, name: string?) -> (),
+}
+
 export type Ui = {
     message: (self: Ui, text: string) -> (),
     confirm: (self: Ui, text: string) -> boolean,
     form: (self: Ui, form: Form) -> { [string]: any }?,
+    open_file: (self: Ui, options: { title: string?, extensions: { string }? }?) -> File?,
+    open_folder: (self: Ui, options: { title: string? }?) -> Folder?,
+}
+
+-- Resources for a hak of the user's hak folder (they are asked once for
+-- each hak), and the module's list of haks.
+export type Hak = {
+    write: (self: Hak, hak: string, name: string, bytes: string) -> (),
+    attach: (self: Hak, hak: string) -> (),
+}
+
+-- A picture decoded. Pixels count from 0, from the top left.
+export type Image = {
+    width: number,
+    height: number,
+    pixel: (self: Image, x: number, y: number) -> (number, number, number, number),
+}
+
+-- An area's terrain. Cells and corners count from the south-west, from 0:
+-- an area `width` cells across has corners 0 to `width`.
+export type Area = {
+    resref: string,
+    tileset: string,
+    width: number,
+    height: number,
+    step: number,
+    terrains: { string },
+    groups: { { name: string, rows: number, columns: number } },
+    corner: (self: Area, x: number, y: number) -> (string, number),
+    tile: (self: Area, x: number, y: number) -> { id: number, orientation: number, height: number },
+    paint: (self: Area, x: number, y: number, terrain: string) -> boolean,
+    raise: (self: Area, x: number, y: number, steps: number?) -> boolean,
+    set_height: (self: Area, x: number, y: number, height: number) -> boolean,
+    place_group: (self: Area, group: string, x: number, y: number, turns: number?) -> boolean,
+    set_tile: (self: Area, x: number, y: number, id: number, orientation: number?, height: number?) -> (),
+}
+
+export type Terrain = {
+    tilesets: (self: Terrain) -> { { resref: string, name: string } },
+    new_area: (self: Terrain, spec: { name: string, tileset: string, width: number, height: number }) -> string,
+    open: (self: Terrain, area: string) -> Area,
 }
 
 export type Context = {
     module: Reader,
     game: Game,
     edit: Edit,
+    hak: Hak,
+    terrain: Terrain,
     log: Log,
     ui: Ui,
     progress: (done: number, total: number, note: string?) -> (),
@@ -93,7 +152,7 @@ export type Context = {
 
 local mg = {}
 
-mg.api = "0.1"
+mg.api = "0.2"
 
 -- A command's handler may return what Undo calls the change:
 -- { label = "..." }, or the text alone.
@@ -119,6 +178,12 @@ function mg.string(value: string): Value return typed("cexostring", value) end
 function mg.resref(value: string): Value return typed("resref", value) end
 -- Text (its English), or its texts by language number, with `strref`.
 function mg.locstring(value: string | { [any]: any }): Value return typed("cexolocstring", value) end
+
+-- A PNG, TGA or DDS picture decoded (`kind`: "png", "tga" or "dds", when
+-- the bytes don't say).
+function mg.image(bytes: string, kind: string?): Image
+    return { width = 0, height = 0, pixel = function() return 0, 0, 0, 0 end }
+end
 
 -- Where a struct read with `gff` is, for the edits: "/ClassList[0]" ("" for
 -- the root).

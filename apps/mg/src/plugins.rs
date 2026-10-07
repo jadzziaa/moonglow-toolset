@@ -69,6 +69,8 @@ pub(crate) fn game_for(
 pub(crate) struct CliHost {
     pub(crate) log: RefCell<Vec<(Level, String)>>,
     answers: BTreeMap<String, String>,
+    /// The files and folders it gets where it asks for one, in order.
+    files: RefCell<std::collections::VecDeque<PathBuf>>,
     yes: bool,
     /// Answers given that no form asked for (a misspelled id, likely).
     used: RefCell<Vec<String>>,
@@ -140,12 +142,20 @@ impl Host for CliHost {
                 }
                 Some(Answer::Values(values))
             }
+            Question::File { title, .. } | Question::Folder { title } => {
+                let given = self.files.borrow_mut().pop_front();
+                match &given {
+                    Some(path) => self.log(Level::Info, &format!("{title} {}", path.display())),
+                    None => self.log(Level::Info, &format!("{title} none given (--file PATH)")),
+                }
+                given.map(Answer::Path)
+            }
         }
     }
 }
 
 impl CliHost {
-    pub(crate) fn new(answers: &[String], yes: bool) -> Result<CliHost> {
+    pub(crate) fn new(answers: &[String], files: &[PathBuf], yes: bool) -> Result<CliHost> {
         let answers = answers
             .iter()
             .map(|a| {
@@ -154,7 +164,8 @@ impl CliHost {
                     .with_context(|| format!("--answer {a:?}: give it as ID=VALUE"))
             })
             .collect::<Result<_>>()?;
-        Ok(CliHost { answers, yes, ..Default::default() })
+        let files = RefCell::new(files.iter().cloned().collect());
+        Ok(CliHost { answers, files, yes, ..Default::default() })
     }
 
     /// What was wrong with the answers given, if anything: nothing is
@@ -166,6 +177,9 @@ impl CliHost {
         }
         if let Some(fault) = self.faults.borrow().first() {
             bail!("{fault}");
+        }
+        if let Some(unasked) = self.files.borrow().front() {
+            bail!("--file {}: the plugin asked for no more files", unasked.display());
         }
         Ok(())
     }
@@ -379,6 +393,7 @@ pub(crate) fn run(
     dir: &Path,
     command: &str,
     host: CliHost,
+    hak_dir: Option<&Path>,
     dry_run: bool,
 ) -> Result<Output> {
     let plugin = Plugin::load(dir).map_err(|e| anyhow!("{e}"))?;
@@ -398,6 +413,22 @@ pub(crate) fn run(
         }
     };
     host.answered()?;
+    // Its haks first: the module's edits may name them.
+    let hak_dir = hak_dir
+        .map(Path::to_path_buf)
+        .or_else(|| gi.and_then(|gi| gi.user_dir.as_ref().map(|u| u.join("hak"))));
+    for hak in &outcome.haks {
+        let Some(dir) = &hak_dir else {
+            bail!("the plugin writes the hak {}: say where haks go (--hak-dir DIR)", hak.name);
+        };
+        let file = dir.join(format!("{}.hak", hak.name));
+        if dry_run {
+            notes.note(format!("would put {} resources into {}", hak.files.len(), file.display()));
+            continue;
+        }
+        let (added, replaced) = hak.write(dir).map_err(|e| anyhow!("{e}"))?;
+        notes.note(format!("{}: {added} resources added, {replaced} replaced", file.display()));
+    }
     let cmd = Command::new(outcome.label, outcome.edits);
     let mut out = super::edits::run(Workspace::new(m), cmd, dry_run, None, dry_run)?;
     out.notes.splice(0..0, notes.notes);
