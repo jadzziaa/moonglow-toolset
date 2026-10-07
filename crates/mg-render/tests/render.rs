@@ -457,6 +457,7 @@ struct TestAssets {
     textures: std::collections::HashMap<String, mg_image::Texture>,
     materials: std::collections::HashMap<String, mg_image::mtr::Mtr>,
     txis: std::collections::HashMap<String, mg_image::txi::Txi>,
+    shaders: std::collections::HashMap<String, String>,
 }
 
 impl TestAssets {
@@ -483,6 +484,10 @@ impl mg_render::Assets for TestAssets {
 
     fn txi(&self, name: &str) -> Option<mg_image::txi::Txi> {
         self.txis.get(name).cloned()
+    }
+
+    fn shader(&self, name: &str) -> Option<String> {
+        self.shaders.get(name).cloned()
     }
 }
 
@@ -673,6 +678,12 @@ fn environment_maps_reflect() {
     assets.solid("mirror", [128, 128, 128, 0]);
     assets.txis.insert("mirror".into(), txi("envmaptexture sky\n"));
     assets.solid("plain_clear", [128, 128, 128, 0]);
+    assets.shaders.insert("fslit_nm".into(), "#define ENVIRONMENT_MAP 0\n".into());
+    assets.shaders.insert("fslit_sm".into(), "#define ENVIRONMENT_MAP 1\n".into());
+    let mtr = |text: &str| mg_image::mtr::Mtr::parse(text.as_bytes());
+    assets.materials.insert("hair".into(), mtr("customshaderFS fslit_nm\ntransparency 1\n"));
+    assets.materials.insert("solid".into(), mtr("customshaderFS fslit_nm\n"));
+    assets.materials.insert("shiny".into(), mtr("customshaderFS fslit_sm\ntransparency 1\n"));
 
     let camera = Camera {
         // Steep: the reflected view points mostly up (+Z).
@@ -716,6 +727,24 @@ fn environment_maps_reflect() {
     eprintln!("alpha 0 texture: alone {clear:?}, with the object's environment map {object_env:?}");
     assert_eq!(clear[..3], [0, 255, 0]);
     assert!(object_env[0] > object_env[1] + 8, "{object_env:?}");
+
+    // An MTR naming a shader with the environment map switched off (the
+    // game's `fslit_nm`): nothing is reflected. With `transparency` the
+    // alpha is see-through again; without, the mesh is solid, in the
+    // texture's own color.
+    let mut with = |material: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some("plain_clear".into());
+        mesh.material = Some(material.into());
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+        shot(Instance { env_map: Some("sky".into()), ..Instance::new(model, Mat4::IDENTITY) })
+    };
+    let (hair, solid, shiny) = (with("hair"), with("solid"), with("shiny"));
+    eprintln!("no environment map in the shader: hair {hair:?}, solid {solid:?}; with: {shiny:?}");
+    assert_eq!(hair[..3], [0, 255, 0], "see-through");
+    assert!(solid[1] < 200 && solid[0].abs_diff(solid[1]) < 8, "solid grey: {solid:?}");
+    assert!(shiny[0] > shiny[1] + 8, "{shiny:?}");
 
     // The base game's cube maps: TXI and six faces.
     if let Some(root) = mg_testkit::nwn_root() {

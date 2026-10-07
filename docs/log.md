@@ -1,6 +1,8 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [The deferred list](deferred.md): an environment map is not reflected through a shader that switches it off (checked in the game client); the Build Module window keeps its size with Advanced Controls.
+* **Update**: [The main window](manual/02-main-window.md) (Edit on the module tree's row menus) and [the deferred list](deferred.md): no key moves the camera while a text field has the keyboard.
 * **Update**: [Scripts](manual/07-scripts.md) (Open…, Find's Enter and Find In Currently Open Scripts, Help on a double click), [blueprints](manual/05-blueprints.md) (New on the palettes' menus, assigned feats), [the main window](manual/02-main-window.md) (the Filter kept in sight, Home and End, Maximize over the whole window, the tree showing the object selected) and [the deferred list](deferred.md): builders' reports after 1.16.2.
 * **Update**: [The models note](research/notes_models.md) (B.19) and [the deferred list](deferred.md): animations bind by part number, as measured in the game.
 * **Update**: [The deferred list](deferred.md): what the Moonglow Viewer session proposes for the toolset (a model compiler and writers for `mg-mdl`, animations bound by part number, corrections to the models note), recorded and not yet taken up.

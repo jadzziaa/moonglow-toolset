@@ -113,7 +113,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             ui.checkbox(&mut w.unused_blueprints, "Blueprints");
                         });
                     });
-                    ui.separator();
+                    // (A gap, not a divider: a divider in a row takes all
+                    // the height there is and the window grew to the
+                    // screen's, its buttons out of reach.)
+                    ui.add_space(16.0);
                     ui.vertical(|ui| {
                         ui.add_enabled_ui(w.missing, |ui| {
                             crate::widgets::field_label(ui, "Missing Resources");
@@ -122,7 +125,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                             }
                         });
                     });
-                    ui.separator();
+                    ui.add_space(16.0);
                     ui.vertical(|ui| {
                         ui.add_enabled_ui(w.compile, |ui| {
                             crate::widgets::field_label(ui, "Compile");

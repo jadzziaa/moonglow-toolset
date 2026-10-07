@@ -529,6 +529,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                             }
                             ui.separator();
                         }
+                        if k.restype != ResType::ARE {
+                            if ui.button("Edit").clicked() {
+                                open = Some(k);
+                            }
+                            ui.separator();
+                        }
                         if k.restype == ResType::ARE {
                             if ui
                                 .button("Edit Areas Together…")

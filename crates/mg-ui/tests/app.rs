@@ -116,6 +116,47 @@ fn edit_undo_save_reopen() {
     assert!(dir.join("sample.mod.bak").is_file());
 }
 
+/// Advanced Controls shows the Build Module window's options without
+/// growing it to the screen's height: its buttons stay in reach.
+#[test]
+fn the_build_window_s_advanced_controls_keep_its_buttons_in_reach() {
+    let dir = mg_testkit::scratch_dir("ui-build-advanced");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.build = Some(Default::default());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 1000.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Advanced Controls").click();
+    h.run();
+    h.get_by_label("Creature CR");
+    let done = h.get_by_label("Done").rect();
+    assert!(done.bottom() < 800.0, "the buttons are in the window: {done:?}");
+}
+
+/// Edit on a row's right-click menu opens it, as a double click does.
+#[test]
+fn a_tree_row_s_menu_opens_it_in_its_editor() {
+    let dir = mg_testkit::scratch_dir("ui-tree-edit");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let script = ResKey::parse("hello", ResType::NSS).unwrap();
+    assert!(h.state().dock.find_tab(&Tab::Script(script)).is_none());
+    h.get_by_label_contains("Scripts (1)").click();
+    h.run();
+    h.get_by_label("hello").click_secondary();
+    h.run();
+    // (The menu bar has an Edit too; the row's menu is drawn after it.)
+    h.get_all_by_label("Edit").last().unwrap().click();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Script(script)).is_some());
+}
+
 #[test]
 fn resources_open_in_their_editors() {
     let dir = mg_testkit::scratch_dir("ui-tabs");
@@ -11601,6 +11642,18 @@ fn look_module_area() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(40);
+    // MG_AT: "x,y,z,distance,yaw,pitch" to look at one place.
+    if let Ok(at) = std::env::var("MG_AT") {
+        let v: Vec<f32> = at.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+        if let (Some(view), [x, y, z, distance, yaw, pitch]) =
+            (h.state_mut().area_views.get_mut(&area), v.as_slice())
+            && let Some(o) = view.orbit.as_mut()
+        {
+            o.target = glam::Vec3::new(*x, *y, *z);
+            (o.distance, o.yaw, o.pitch) = (*distance, *yaw, *pitch);
+        }
+        h.run_steps(10);
+    }
     let dir = mg_testkit::scratch_dir("ui-module-area-look");
     h.render().expect("render").save(dir.join("a.png")).unwrap();
     let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();

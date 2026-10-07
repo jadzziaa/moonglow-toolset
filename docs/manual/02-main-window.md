@@ -88,6 +88,8 @@ go to it in the area's view, selected; double-click for its Properties;
 right-click for those and for **Copy** (pasted in any area with Ctrl+V)
 and **Delete**. The Filter narrows an opened area's objects to those it
 finds by name.
+**Edit** on the right-click menu of any other row (a conversation, a
+script, a blueprint) opens it, as a double click does.
 A double click on a script opens its editor (and, with **Tools › Options
 › Script Editor › Open scripts in the external editor**, your own editor
 too).

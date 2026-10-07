@@ -3014,7 +3014,7 @@ fn camera_input(
         return;
     }
     use crate::keys::Cmd;
-    // Letters and digits don't move the camera while a field has the
+    // No key moves the camera while a field has the
     // keyboard (in a window over the view).
     let typing = ui.memory(|m| m.focused().is_some());
     let held = |c: Cmd| ui.input(|i| keys.held(i, c, typing));

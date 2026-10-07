@@ -171,6 +171,23 @@ struct Slots {
     normal_variant: bool,
     /// A known custom shader's doings.
     effect: Option<Effect>,
+    /// The fragment shader the MTR names has the environment map switched
+    /// off (`#define ENVIRONMENT_MAP 0`, as the game's `fslit_nm` has): the
+    /// object's environment map is not reflected, and the texture's alpha
+    /// is left to the MTR's `transparency`.
+    no_env: bool,
+    /// The MTR's `transparency`: the mesh is blended.
+    transparency: bool,
+}
+
+/// Whether a fragment shader's source switches the environment map off.
+fn env_switched_off(source: &str) -> bool {
+    source.lines().any(|l| {
+        let mut words = l.split_whitespace();
+        words.next() == Some("#define")
+            && words.next() == Some("ENVIRONMENT_MAP")
+            && words.next() == Some("0")
+    })
 }
 
 /// The key of a mesh's slots: MDL bitmap and texture1–3, MTR name, render
@@ -638,6 +655,8 @@ impl Renderer {
                 .map(|v| glam::Vec3::new(v[0], v[1], v[2]).powf(2.2));
             let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
             let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
+            out.transparency = mtr.transparency;
+            out.no_env = !fs.is_empty() && assets.shader(&fs).is_some_and(|s| env_switched_off(&s));
             let mapper = fs.starts_with("mzlm");
             out.effect = known.then(|| Effect {
                 colors: !mapper,
@@ -936,6 +955,16 @@ impl Renderer {
                     None => inst.env_map.clone(),
                 };
                 let env_mapped = env.is_some();
+                // A shader with the environment map switched off reflects
+                // nothing; the engine still takes the texture's alpha for
+                // the map's, so without the MTR's `transparency` the mesh
+                // is drawn solid, alpha and all (seen in the client:
+                // `creatures_look` in `client_render.rs`).
+                let see_through = mat.transparency_hint > 0 || slots.transparency;
+                let (reflects, has_alpha) = (
+                    env_mapped && !slots.no_env,
+                    has_alpha && !(env_mapped && slots.no_env && !see_through),
+                );
                 let env_cube = env
                     .as_deref()
                     .and_then(|e| self.texture(gpu, assets, &e.to_ascii_lowercase()))
@@ -947,7 +976,7 @@ impl Renderer {
                 } else if blending == Blending::Additive {
                     Pass::Additive
                 } else if alpha < 1.0
-                    || (has_alpha && !env_mapped)
+                    || (has_alpha && !reflects)
                     || mat.transparency_hint > 0
                     || slots.effect.is_some_and(|e| e.blend)
                 {
@@ -991,7 +1020,7 @@ impl Renderer {
                         emissive: lin(emissive).extend(1.0).to_array(),
                         params: [
                             discard,
-                            if env_mapped { 1.0 } else { 0.0 },
+                            if reflects { 1.0 } else { 0.0 },
                             if tex.is_some() { 1.0 } else { 0.0 },
                             // Unlit: 2 a marker (in its material's
                             // colour), 1 a decal and the sky.

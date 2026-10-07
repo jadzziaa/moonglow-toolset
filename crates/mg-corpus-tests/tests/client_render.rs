@@ -1034,8 +1034,18 @@ fn creatures_look() {
         return;
     };
     let dir = scratch_dir("client_creatures");
-    std::fs::create_dir_all(dir.join("user")).unwrap();
-    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    std::fs::create_dir_all(dir.join("user/override")).unwrap();
+    // `MG_OVERRIDE`: a folder of files for the scratch user folder's
+    // override (a custom creature's model, textures and appearance.2da),
+    // with `MG_APPEARANCES=west,east` for the two creatures' rows.
+    let custom = std::env::var_os("MG_OVERRIDE").map(std::path::PathBuf::from);
+    if let Some(from) = &custom {
+        for f in std::fs::read_dir(from).unwrap().flatten() {
+            std::fs::copy(f.path(), dir.join("user/override").join(f.file_name())).unwrap();
+        }
+    }
+    let user = custom.as_ref().map(|_| dir.join("user"));
+    let game = GameData::open(&GameInstall::new(&root, user, "en")).unwrap();
     let light = Lighting { ambient: 0x808080, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
     let (mut m, are) = build_module(&game, &dir, light);
     let enter: String =
@@ -1148,7 +1158,10 @@ fn creatures_look() {
     let git_key = *m.keys_of(ResType::GIT).next().unwrap();
     let mut git = m.gff(&git_key).unwrap().unwrap();
     let mut placed = Vec::new();
-    for (x, appearance, race) in [(19.0, 6, 6), (21.0, 1, 1)] {
+    let rows: Vec<u16> = std::env::var("MG_APPEARANCES")
+        .map(|r| r.split(',').map(|v| v.trim().parse().unwrap()).collect())
+        .unwrap_or_else(|_| vec![6, 1]);
+    for (x, appearance, race) in [(19.0, rows[0], 6), (21.0, rows[1], 1)] {
         let mut c = human.root.clone();
         c.set("Appearance_Type", Value::Word(appearance));
         c.set("Race", Value::Byte(race));
@@ -1165,12 +1178,15 @@ fn creatures_look() {
         let mut worn = vec![equip("mg_armor", 0x2), equip("mg_cloak", 0x40)];
         // `MG_WORN`: only the armor (1) or only the cloak (2).
         match std::env::var("MG_WORN").as_deref() {
+            Ok("0") => worn.clear(),
             Ok("1") => worn.truncate(1),
             Ok("2") => drop(worn.remove(0)),
             _ => {}
         }
         c.set("Equip_ItemList", Value::List(worn));
-        let at = Placement { position: [x, 22.5, 0.0], rotation: std::f32::consts::PI };
+        // `MG_Y`: how far north they stand (the player is at 20).
+        let y = std::env::var("MG_Y").ok().and_then(|y| y.parse().ok()).unwrap_or(22.5);
+        let at = Placement { position: [x, y, 0.0], rotation: std::f32::consts::PI };
         placed.push(instance(&placing, ResType::UTC, &c, at, &[]).unwrap());
     }
     git.root.set("Creature List", Value::List(placed));

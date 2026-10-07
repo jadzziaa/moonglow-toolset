@@ -36,6 +36,13 @@ pub trait Assets {
         let _ = name;
         None
     }
+
+    /// A shader's source by name (lower case): only read for what it
+    /// switches off, never run.
+    fn shader(&self, name: &str) -> Option<String> {
+        let _ = name;
+        None
+    }
 }
 
 /// A texture name with PLT colours (layer order), for [`Assets::texture`]:
@@ -99,6 +106,12 @@ impl Assets for ResMan {
     fn txi(&self, name: &str) -> Option<Txi> {
         let resref = named(name)?;
         self.get(&ResKey::new(resref, ResType::TXI)).ok().map(|d| Txi::parse(&d))
+    }
+
+    fn shader(&self, name: &str) -> Option<String> {
+        let resref = named(name)?;
+        let data = self.get(&ResKey::new(resref, ResType::SHD)).ok()?;
+        Some(String::from_utf8_lossy(&data).into_owned())
     }
 }
 

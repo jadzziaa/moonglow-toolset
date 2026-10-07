@@ -536,22 +536,22 @@ impl Keymap {
     }
 
     /// Whether one of the command's keys is held down. A key without
-    /// modifiers counts with none held; letters and digits only when no
-    /// text field has the keyboard (`typing`), so Ctrl+S doesn't move the
-    /// camera.
+    /// modifiers counts with none held, so Ctrl+S doesn't move the
+    /// camera; and no key counts while a text field has the keyboard
+    /// (`typing`): the arrows move its cursor, with Ctrl or Shift too.
     pub fn held(&self, i: &InputState, cmd: Cmd, typing: bool) -> bool {
         let Some(keys) = self.keys.get(cmd.id()) else { return false };
-        keys.iter().any(|s| {
-            let plain = s.modifiers.is_none();
-            let text = s.logical_key.name().chars().count() == 1;
-            i.key_down(s.logical_key)
-                && if plain {
-                    !(text && typing)
-                        && !(text && (i.modifiers.command || i.modifiers.ctrl || i.modifiers.alt))
-                } else {
-                    i.modifiers.matches_exact(s.modifiers)
-                }
-        })
+        !typing
+            && keys.iter().any(|s| {
+                let plain = s.modifiers.is_none();
+                let text = s.logical_key.name().chars().count() == 1;
+                i.key_down(s.logical_key)
+                    && if plain {
+                        !(text && (i.modifiers.command || i.modifiers.ctrl || i.modifiers.alt))
+                    } else {
+                        i.modifiers.matches_exact(s.modifiers)
+                    }
+            })
     }
 
     /// Keys that two commands working at the same moment share: the key
@@ -660,6 +660,17 @@ mod tests {
             assert_eq!(map.consume_outside_text(&mut typing, id, true), when_typing, "{id}");
             assert_eq!(typing.events.is_empty(), when_typing, "{id}: the field keeps its key");
         }
+    }
+
+    /// The arrows move the camera, but a text field's cursor while one has
+    /// the keyboard (a window over the area view).
+    #[test]
+    fn no_key_moves_the_camera_while_a_text_field_has_the_keyboard() {
+        let map = Keymap::default();
+        let mut i = InputState::default();
+        i.keys_down.insert(Key::ArrowLeft);
+        assert!(map.held(&i, Cmd::CameraLeft, false));
+        assert!(!map.held(&i, Cmd::CameraLeft, true));
     }
 
     #[test]

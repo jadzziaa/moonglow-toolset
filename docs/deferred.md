@@ -620,6 +620,25 @@ open). Left, or to know:
   palette, which showed them blank; names written out are read in
   Windows-1252 ("Compañeros"). A name that is a talk-table string the
   table lacks now says which string, in place of nothing. (—)
+- **Keys in a window over an area view**: no key moves the camera while
+  a text field has the keyboard. The arrows did (letters and digits were
+  already the field's), so moving the text cursor in a conversation or a
+  script over the view slid the area. (—)
+- **A shader with the environment map switched off reflects nothing**: a
+  creature whose appearance.2da row names an environment map (`default`)
+  showed a pale shiny band where its hair's texture is see-through; the
+  hair's MTR names `fslit_nm`, whose source has `#define ENVIRONMENT_MAP
+  0`. Seen in the client (`creatures_look`, `MG_OVERRIDE`): with that
+  shader the map is not reflected, and the alpha is see-through with the
+  MTR's `transparency` and drawn solid (the texture's own color) without
+  it; with no shader named, or no MTR, the band shows in the game too,
+  `transparency` or not. Moonglow reads the named shader's source for
+  that one line and runs none of it. (—)
+- **The Build Module window with Advanced Controls** grew to the
+  screen's height, its Build button out of reach: the dividers between
+  the three columns took all the height there was. Gaps now. (—)
+- **Edit on every row's menu in the module tree**, as a double click;
+  areas keep View Area. (—)
 - **Find In Currently Open Scripts** searches the scripts whose editors
   hold their text, which includes one closed with text typed and not
   saved. (S)
