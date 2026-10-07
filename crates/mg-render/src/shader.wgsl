@@ -317,6 +317,11 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     let fx_colors = (fx & 1u) != 0u;
     let fx_mask = (fx & 2u) != 0u;
     let fx_lightmap = (fx & 4u) != 0u;
+    // Its mask or lightmap, read here, before anything is discarded, and
+    // whether or not it is used: read in a branch after the discards, Metal
+    // drew a see-through mesh's solid part wrong for every material
+    // (`a_see_through_edge_does_not_hide_the_ground_behind_it`, on macOS).
+    let baked = textureSampleLevel(tex_mask, samp0, in.uv1, 0.0);
     // The texture slid along its flow map (lava, water), as fast as the
     // material says.
     if ((fx & 8u) != 0u) {
@@ -372,8 +377,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         // The alpha of a layer blended into what is under it: a mask's, on
         // the second coordinates, else the texture's by the vertex color's.
         if (fx_mask) {
-            color.a = clamp(draw.diffuse.a, 0.0, 1.0)
-                * textureSampleLevel(tex_mask, samp0, in.uv1, 0.0).r;
+            color.a = clamp(draw.diffuse.a, 0.0, 1.0) * baked.r;
         } else if (fx_lightmap) {
             color.a = 1.0;
         } else if (fx_colors) {
@@ -610,7 +614,7 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     // Baked shading: a lightmap on the second coordinates, else the vertex
     // colors, their shadows eased as the material says.
     if (fx_lightmap) {
-        rgb = rgb * textureSampleLevel(tex_mask, samp0, in.uv1, 0.0).rgb;
+        rgb = rgb * baked.rgb;
     } else if (fx_colors) {
         let lit = min(in.color.rgb * (max(draw.effect.z, 0.0) + 1.0), vec3<f32>(1.0));
         rgb = rgb * min(lit + max(draw.effect.w, 0.0), vec3<f32>(1.0));
