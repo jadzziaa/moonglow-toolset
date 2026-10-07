@@ -75,7 +75,7 @@ pub type Pages = HashMap<(ResKey, GffPath), &'static str>;
 /// pointer rests on in the list.
 fn creature_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
     let look = mg_preview::CreatureLook::new(row as u16);
-    picture(ui, crate::model_view::look_thumbnail(app, look));
+    picture(ui, app.thumbnails.get(crate::model_view::Pictured::Look(look)));
 }
 
 /// A placeable appearance's picture (its model).
@@ -84,19 +84,26 @@ fn placeable_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
         let t = g.table("placeables").ok()?;
         ResKey::parse(&t.get(row, "ModelName")?.to_ascii_lowercase(), ResType::MDL)
     });
-    let made = model.and_then(|m| crate::model_view::thumbnail(app, m));
+    let made = match model {
+        Some(m) => app.thumbnails.get(crate::model_view::Pictured::Resource(m)),
+        None => Some(None),
+    };
     picture(ui, made);
 }
 
-/// A model's picture beside a list's row, or that there is none.
-fn picture(ui: &mut Ui, made: Option<egui::TextureId>) {
+/// A model's picture beside a list's row, that there is none, or (`None`)
+/// that it is being made.
+fn picture(ui: &mut Ui, made: Option<Option<egui::TextureId>>) {
     const SIDE: f32 = 180.0;
     match made {
-        Some(id) => {
+        Some(Some(id)) => {
             ui.add(egui::Image::new((id, egui::vec2(SIDE, SIDE))));
         }
-        None => {
+        Some(None) => {
             ui.weak("(no picture)");
+        }
+        None => {
+            ui.weak("…");
         }
     }
 }

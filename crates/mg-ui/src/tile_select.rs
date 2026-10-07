@@ -641,7 +641,7 @@ fn variant_picture(
 ) -> bool {
     let key = ResKey::parse(&model.to_ascii_lowercase(), ResType::MDL);
     let pictured = key.map(|k| crate::model_view::Pictured::Tile(k, p.orientation));
-    let made = pictured.and_then(|k| crate::model_view::thumbnail_of(app, k));
+    let made = pictured.and_then(|k| app.thumbnails.get(k)).flatten();
     let turn = ["", " ↺90°", " ↺180°", " ↺270°"][usize::from(p.orientation % 4)];
     let name = format!("{model}{turn}");
     let r = ui

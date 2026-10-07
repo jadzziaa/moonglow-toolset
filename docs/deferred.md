@@ -1,9 +1,9 @@
 ---
 type: Backlog
 title: 'Deferred: what was left out, for a decision later'
-description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
+description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T22:39:58Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -78,6 +78,49 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Where-used at scale:** one Find References takes 0.8 s in the
   persistent world: it scans the module each time. An index kept up to
   date would make it instant. (M)
+
+## Frames (a steady 144 a second)
+
+The budget and the measurements are in
+[the frames note](research/notes_frames.md). Done: an area's picture kept
+between its animations' steps, its drawing at a third of the cost (lights
+by the ground they reach, materials worked out once, a draw's values by
+its number, what is out of sight left out, tiles of one model posed
+once), the galleries' pictures made for 2 ms a frame and kept while in
+sight.
+
+- **The largest areas in full view:** a 784-tile area's picture takes
+  5.4 ms with all of it in sight (1.9 close up). An area of 32 by 32 tiles
+  of a tileset with more meshes a tile is over the budget in full view.
+  What is left is wgpu's cost of each draw (0.8 µs): tiles of one model
+  drawn as instances of it would cut the draws to a fraction. (L)
+- **Animations step 25 times a second** (`ANIMATION_STEP`, 40 ms) while
+  only they move; before, they stepped with every frame the window drew
+  (20 a second left alone, 144 with the pointer moving). A setting, or
+  every frame once the picture is cheap enough. (S)
+- **Opening an area holds the window** for 0.2 s on a large one: its
+  models and textures are read and uploaded in the frame. In a job, with
+  the view filling in. (M)
+- **A slow picture in a gallery** (a model with large textures) takes a
+  frame of 7 to 9 ms: a picture's models and textures are read on the
+  window's thread. Read on another. (M)
+- **`Workspace::flush` writes every document read,** changed or not: its
+  cost grows with what a session has opened. It is called once a revision
+  by the pictures and by each open model view, and on saving. Marking the
+  documents an edit changes would make it what was changed. (S)
+- **The tiles' animations are looked up by name** every time one is
+  posed (three times a tile's model a frame: the pose, the lights, the
+  meshes), lower-casing each node's name. Bound once when the model is
+  loaded, a scene's 0.5 ms would be less. (S)
+- **Pictures that differ from run to run:** 10 of 192 pictures of the
+  campaigns' areas differ by a few pixels to a few hundred between two
+  runs of the same program. Something is ordered by chance (a hash map's
+  order, likely among lights or an object's parts). Not looked for. (S)
+- **The frame test only times:** `frame_perf.rs` names the views over
+  the budget and fails nothing. With budgets it would keep them. (S)
+- **The tree and the lists at persistent-world sizes** are as they were
+  (see above and "Long lists opened out"): 3.4 ms with 25,000 resources
+  listed, 5.9 ms for a store's 1,000 items.
 
 ## EE fields Aurora hides
 

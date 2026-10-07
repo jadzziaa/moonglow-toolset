@@ -17,9 +17,6 @@ use mg_resman::ResKey;
 
 use crate::{Action, Moonglow, Tab};
 
-/// How many of a Gallery's pictures are made a frame.
-pub(crate) const GALLERY_PER_FRAME: usize = 3;
-
 /// Whether blueprints of a kind have pictures (a model to draw: their own,
 /// or a waypoint's flag).
 fn pictured(kind: BlueprintKind) -> bool {
@@ -476,7 +473,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         gallery: app.settings.palette_gallery && pictured(kind),
         side: crate::appearance_gallery::tile_side(app),
         ready: app.thumbnails.all(),
-        wanted: Vec::new(),
+        shown: Vec::new(),
         about: view.about.as_ref().map(|(k, lines)| (*k, lines.as_slice())),
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
         picks: Vec::new(),
@@ -508,7 +505,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     });
     crate::widgets::home_and_end(ui, &mut list);
-    let wanted = std::mem::take(&mut tree.wanted);
+    let shown = std::mem::take(&mut tree.shown);
     let (sel, picks, hovered) = (tree.sel, tree.picks, tree.hovered);
     if sel.selected.is_some() && sel.selected != view.selected {
         view.tile_brush = None;
@@ -516,19 +513,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     view.selected = sel.selected;
     view.chosen = sel.chosen;
     app.palette = view;
-    // The Gallery's pictures still to make: a few a frame, those in sight
-    // first, so a long category doesn't hold the toolset up.
-    if !wanted.is_empty() {
-        for key in wanted.iter().take(GALLERY_PER_FRAME) {
-            crate::model_view::thumbnail(app, *key);
-        }
-        ui.ctx().request_repaint();
-    }
-    // The hovered blueprint's picture, for its tooltip next frame.
+    // The Gallery's pictures in sight: kept while they are, and those
+    // still to make are made a few a frame, the first in sight first, so
+    // a long category doesn't hold the toolset up
+    // (`model_view::make_thumbnails`).
+    use crate::model_view::Pictured;
+    app.thumbnails.show(shown.into_iter().map(Pictured::Resource));
+    // The hovered blueprint's picture, for its tooltip once it is made.
     if let Some(key) = hovered
-        && app.palette.thumb.is_none_or(|(k, _)| k != key)
+        && let Some(id) = app.thumbnails.get(Pictured::Resource(key))
+        && app.palette.thumb != Some((key, id))
     {
-        let id = crate::model_view::thumbnail(app, key);
         app.palette.thumb = Some((key, id));
         ui.ctx().request_repaint();
     }
@@ -730,11 +725,11 @@ struct Tree<'a> {
     /// The thumbnail ready for the blueprint hovered last frame.
     thumb: Option<(ResKey, Option<egui::TextureId>)>,
     /// The Gallery: blueprints as pictures. Those made so far, and those
-    /// in sight that aren't yet.
+    /// in sight (made or not).
     gallery: bool,
     side: f32,
     ready: HashMap<ResKey, Option<egui::TextureId>>,
-    wanted: Vec<ResKey>,
+    shown: Vec<ResKey>,
     /// And what there is to say of it.
     about: Option<(ResKey, &'a [String])>,
     sel: Selection,
@@ -1067,8 +1062,8 @@ impl Tree<'_> {
     fn tile(&mut self, ui: &mut egui::Ui, key: ResKey, label: &str) -> egui::Response {
         let made = self.ready.get(&key).copied();
         let (r, seen) = crate::widgets::picture_tile(ui, self.side, label, self.sel.has(key), made);
-        if seen && made.is_none() {
-            self.wanted.push(key);
+        if seen {
+            self.shown.push(key);
         }
         r
     }

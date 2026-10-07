@@ -249,7 +249,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     }
     let (mut finish, mut cancel) = (false, false);
     let summary = if w.page == 7 { review(app, &w) } else { String::new() };
-    let mut looks = Looks { ready: app.thumbnails.looks(), wanted: Vec::new() };
+    let mut looks = Looks { ready: app.thumbnails.looks(), shown: Vec::new() };
     // The game data, and its pictures (the portraits).
     let mut loader = app.loader().expect("checked");
     // Most of the screen to begin with, and resizable: the pages' lists and
@@ -288,14 +288,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             ui.heading(PAGES[w.page]);
             page(ui, &mut loader, &mut w, &summary, &mut looks);
         });
-    // The appearances' pictures still to make: a few a frame.
-    if !looks.wanted.is_empty() {
-        // (A page's worth in a frame or two: it is opened once.)
-        for look in looks.wanted.iter().take(12) {
-            crate::model_view::look_thumbnail(app, *look);
-        }
-        ctx.request_repaint();
-    }
+    // The appearances' pictures in sight: kept while they are, and those
+    // still to make are made a few a frame.
+    app.thumbnails.show(looks.shown.iter().map(|l| crate::model_view::Pictured::Look(*l)));
     if finish {
         make(app, &w);
     } else if !cancel {
@@ -304,10 +299,10 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
 }
 
 /// The pictures of creatures' looks the Appearance page shows: those made,
-/// and those in sight that aren't yet.
+/// and those in sight (made or not).
 struct Looks {
     ready: std::collections::HashMap<mg_preview::CreatureLook, Option<egui::TextureId>>,
-    wanted: Vec<mg_preview::CreatureLook>,
+    shown: Vec<mg_preview::CreatureLook>,
 }
 
 fn page(
@@ -460,8 +455,8 @@ fn page(
                                 let on = usize::from(w.appearance) == c.row;
                                 let (r, seen) =
                                     crate::widgets::picture_tile(ui, side, &c.text, on, made);
-                                if seen && made.is_none() {
-                                    looks.wanted.push(look);
+                                if seen {
+                                    looks.shown.push(look);
                                 }
                                 if r.on_hover_text(format!("{} (row {})", c.text, c.row)).clicked()
                                 {

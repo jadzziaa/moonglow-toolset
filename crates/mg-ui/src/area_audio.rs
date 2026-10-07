@@ -154,13 +154,22 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
         app.area_audio = state;
         return false;
     };
-    let git = app
+    // The area's sound properties and its placed sounds. (Of its GIT as
+    // it lies in the workspace: copying all of it, every placed object,
+    // was a cost of every frame.)
+    let placed = !app.settings.no_placed_sounds;
+    let (props, list): (mg_gff::Struct, Vec<PlacedSound>) = app
         .ws
         .as_mut()
         .and_then(|ws| ws.doc(&ResKey::new(area, ResType::GIT)).ok())
-        .map(|g| g.root.clone())
+        .map(|git| {
+            let sounds = git.root.list("SoundList").filter(|_| placed).unwrap_or(&[]);
+            (
+                git.root.child("AreaProperties").cloned().unwrap_or_default(),
+                sounds.iter().map(PlacedSound::from_git).collect(),
+            )
+        })
         .unwrap_or_default();
-    let props = git.child("AreaProperties").cloned().unwrap_or_default();
     let int = |l: &str| props.integer(l).unwrap_or(0);
 
     // Ambient sound and music, looped.
@@ -185,11 +194,6 @@ pub(crate) fn update(app: &mut Moonglow, heard: Option<Heard>, now: f64) -> bool
     loop_on(app, Channel::Music, &mut state.music, &mut state.asked[1], tune.flatten(), volume);
 
     // Placed sounds.
-    let list: Vec<PlacedSound> = if app.settings.no_placed_sounds {
-        Vec::new()
-    } else {
-        git.list("SoundList").unwrap_or(&[]).iter().map(PlacedSound::from_git).collect()
-    };
     state.placed.retain(|&i, _| {
         let keep = i < list.len();
         if !keep {

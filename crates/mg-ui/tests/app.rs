@@ -11422,6 +11422,65 @@ fn the_palette_s_gallery_shows_blueprints_as_pictures() {
     assert!(h.state().settings.palette_gallery);
 }
 
+/// A gallery's pictures are made a few a frame and kept while they are in
+/// sight, however many: more of them than are kept out of sight aren't let
+/// go and made again frame after frame. An edit that leaves the blueprints
+/// looking as they did draws none of them anew; and those gone out of
+/// sight go, down to how many are kept.
+#[test]
+fn a_gallery_s_pictures_are_made_once_and_kept_while_in_sight() {
+    let Some((mut h, area)) = area_harness("gallery-kept") else { return };
+    {
+        let p = &mut h.state_mut().palette;
+        p.kind = mg_module::palette::BlueprintKind::Placeable;
+        (p.tiles, p.custom) = (false, false);
+        p.filter = "a".into();
+    }
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().settings.gallery_tile = Some(64);
+    // (Few kept out of sight, for the test: fewer than are in sight.)
+    h.state_mut().thumbnails.keep = Some(4);
+    let settle = |h: &mut Harness<'static, Moonglow>| {
+        for _ in 0..400 {
+            h.run_steps(1);
+            if h.state().thumbnails.waiting() == 0 {
+                break;
+            }
+        }
+        h.run_steps(2);
+        assert_eq!(h.state().thumbnails.waiting(), 0, "every picture in sight is made");
+    };
+    settle(&mut h);
+    let (kept, drawn) = (h.state().thumbnails.kept(), h.state().thumbnails.drawn);
+    assert!(kept > 4, "all those in sight are kept: {kept}");
+    assert_eq!(drawn, kept as u64, "each drawn once");
+    h.run_steps(10);
+    assert_eq!(h.state().thumbnails.drawn, drawn, "none drawn again");
+    assert_eq!(h.state().thumbnails.kept(), kept);
+    // An edit elsewhere (a waypoint's tag): the pictures are looked at
+    // again, found to be of what the blueprints still look like, and kept.
+    let set = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root().item("WaypointList", 0),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String("moved".into())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![set])));
+    h.run_steps(2);
+    settle(&mut h);
+    assert_eq!(h.state().thumbnails.drawn, drawn, "none drawn anew after an edit");
+    // Other pictures in sight: the first ones, out of sight, go.
+    h.state_mut().palette.filter = "chest".into();
+    settle(&mut h);
+    h.run_steps(3);
+    let (now, more) = (h.state().thumbnails.kept(), h.state().thumbnails.drawn - drawn);
+    assert!(more > 0, "the chests' pictures are drawn");
+    assert!(
+        (now as u64) < kept as u64 + more && now as u64 <= more + 4,
+        "those out of sight are let go, but for four: {now} kept of {kept} and {more} more"
+    );
+}
+
 /// Replace Selected with This, on a blueprint in the palette: the selected
 /// object of its type becomes one of that blueprint, where it stands; the
 /// others stay; one undo.

@@ -300,7 +300,7 @@ pub struct Moonglow {
     /// The GPU for 3D views (from the window), if there is one.
     pub viewport: Option<model_view::Viewport3d>,
     /// The palette's hover previews.
-    pub(crate) thumbnails: model_view::Thumbnails,
+    pub thumbnails: model_view::Thumbnails,
     /// The module's talk table, open for editing (Tools › Talk Table).
     pub talk: Option<mg_module::talk::Table>,
     pub talk_view: talk_view::TalkView,
@@ -704,6 +704,7 @@ impl Moonglow {
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         self.trace_frame(ui);
+        self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()));
         widgets::install_fonts(ui.ctx());
         widgets::dialogs_begin(ui.ctx());
         // Models that broke what builds or poses them, last frame: left out
@@ -893,6 +894,8 @@ impl Moonglow {
         plugins::remove_window(self, ui.ctx());
         commands::palette_window(self, ui.ctx());
         jobs::window(self, ui.ctx());
+        // The pictures the frame's views asked for and lack: a few now.
+        model_view::make_thumbnails(self, ui.ctx());
         if !self.actions.is_empty() {
             self.run_actions();
             // Show the result now, not at the next input event.
@@ -1500,6 +1503,8 @@ impl Moonglow {
         // Closed (saved, or its changes discarded): no recovery copy.
         self.forget_recovery();
         self.ws = None;
+        // (Another module's blueprints of these names look different.)
+        self.thumbnails.forget(self.viewport.as_ref());
         self.scripts.clear();
         self.buffers.clear();
         self.talk = None;
@@ -2391,6 +2396,7 @@ impl Moonglow {
             game.invalidate();
         }
         self.pictures = Default::default();
+        self.thumbnails.forget(self.viewport.as_ref());
         self.palettes = Default::default();
         self.palette.forget_game_data();
         self.model_views.clear();

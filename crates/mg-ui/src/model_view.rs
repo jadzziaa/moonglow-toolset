@@ -581,12 +581,45 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     pop_out
 }
 
-/// Pictures of blueprints as they look (the palette's hover preview),
-/// rendered once each and kept until the module changes.
+/// Pictures of blueprints, models, creatures' looks and tiles as they look
+/// (the galleries, a hovered row's preview, a tile's variants). A view
+/// asks for those it shows, every frame it shows them ([`Thumbnails::get`],
+/// [`Thumbnails::show`]); those not made yet are made after the frame, a
+/// few at a time ([`make_thumbnails`]), and those not asked for any more
+/// are let go when there are many.
 #[derive(Default)]
 pub struct Thumbnails {
+    made: HashMap<Pictured, Made>,
+    /// Asked for this frame and not made (or made before the module last
+    /// changed), in the order asked.
+    wanted: Vec<Pictured>,
+    /// The frames, counted, and the module's revision in this one.
+    frame: u64,
     revision: Option<u64>,
-    made: HashMap<Pictured, Option<(Targets, egui::TextureId)>>,
+    /// The revision at which the editors' working copies were last written
+    /// into the module for the blueprints' looks (once a revision: it
+    /// writes every document the workspace has read).
+    flushed: Option<u64>,
+    /// What every picture is drawn into, before it is resolved into a
+    /// texture of its own.
+    targets: Option<Targets>,
+    /// How many pictures have been drawn.
+    pub drawn: u64,
+    /// How many pictures out of sight are kept, if not [`THUMBNAILS_KEPT`].
+    pub keep: Option<usize>,
+}
+
+/// A picture made.
+struct Made {
+    /// Its texture, and egui's name for it; `None`: nothing to draw.
+    picture: Option<(wgpu::Texture, egui::TextureId)>,
+    /// A blueprint's look when its picture was drawn, and the module's
+    /// revision it was last found to look so at: after an edit, the
+    /// picture is kept if the blueprint still looks the same.
+    look: Option<Preview>,
+    revision: Option<u64>,
+    /// The frame it was last asked for in.
+    used: u64,
 }
 
 /// What a thumbnail is of: a blueprint or a model, or a creature's look
@@ -600,13 +633,22 @@ pub(crate) enum Pictured {
     Tile(ResKey, u8),
 }
 
+impl Pictured {
+    /// Whether an edit of the module may change the picture: a
+    /// blueprint's (a model's is its own, whatever the module's
+    /// blueprints say).
+    fn follows_the_module(self) -> bool {
+        matches!(self, Pictured::Resource(k) if k.restype != ResType::MDL)
+    }
+}
+
 impl Thumbnails {
     /// The thumbnails made, by blueprint.
     pub(crate) fn all(&self) -> HashMap<ResKey, Option<egui::TextureId>> {
         self.made
             .iter()
             .filter_map(|(k, made)| match k {
-                Pictured::Resource(k) => Some((*k, made.as_ref().map(|(_, id)| *id))),
+                Pictured::Resource(k) => Some((*k, made.id())),
                 Pictured::Look(_) | Pictured::Tile(..) => None,
             })
             .collect()
@@ -614,7 +656,7 @@ impl Thumbnails {
 
     /// Every thumbnail made.
     pub(crate) fn every(&self) -> HashMap<Pictured, Option<egui::TextureId>> {
-        self.made.iter().map(|(k, made)| (*k, made.as_ref().map(|(_, id)| *id))).collect()
+        self.made.iter().map(|(k, made)| (*k, made.id())).collect()
     }
 
     /// The thumbnails made of creatures' looks.
@@ -622,10 +664,71 @@ impl Thumbnails {
         self.made
             .iter()
             .filter_map(|(k, made)| match k {
-                Pictured::Look(l) => Some((*l, made.as_ref().map(|(_, id)| *id))),
+                Pictured::Look(l) => Some((*l, made.id())),
                 Pictured::Resource(_) | Pictured::Tile(..) => None,
             })
             .collect()
+    }
+
+    /// A new frame, the module at `revision`.
+    pub(crate) fn begin_frame(&mut self, revision: Option<u64>) {
+        self.frame += 1;
+        self.revision = revision;
+        self.wanted.clear();
+    }
+
+    /// The pictures a view shows this frame: kept while they are shown,
+    /// and made if they aren't yet (or looked at again, if the module has
+    /// changed since).
+    pub(crate) fn show(&mut self, keys: impl IntoIterator<Item = Pictured>) {
+        for key in keys {
+            match self.made.get_mut(&key) {
+                Some(made) => {
+                    made.used = self.frame;
+                    if key.follows_the_module() && made.revision != self.revision {
+                        self.wanted.push(key);
+                    }
+                }
+                None => self.wanted.push(key),
+            }
+        }
+    }
+
+    /// A picture, if it is made (`Some(None)`: there is nothing to draw of
+    /// it); it is asked for either way, as [`Thumbnails::show`] asks.
+    pub(crate) fn get(&mut self, key: Pictured) -> Option<Option<egui::TextureId>> {
+        self.show([key]);
+        self.made.get(&key).map(Made::id)
+    }
+
+    /// Lets go of every picture (another module, or the game's data read
+    /// anew: the same names may now look different).
+    pub(crate) fn forget(&mut self, viewport: Option<&Viewport3d>) {
+        let old = std::mem::take(&mut self.made);
+        if let Some(vp) = viewport {
+            let mut r = vp.render_state.renderer.write();
+            for (_, id) in old.into_values().filter_map(|made| made.picture) {
+                r.free_texture(&id);
+            }
+        }
+        self.wanted.clear();
+        self.flushed = None;
+    }
+
+    /// How many pictures are kept.
+    pub fn kept(&self) -> usize {
+        self.made.len()
+    }
+
+    /// How many pictures asked for this frame are still to make.
+    pub fn waiting(&self) -> usize {
+        self.wanted.len()
+    }
+}
+
+impl Made {
+    fn id(&self) -> Option<egui::TextureId> {
+        self.picture.as_ref().map(|(_, id)| *id)
     }
 }
 
@@ -643,50 +746,107 @@ pub(crate) const THUMBNAIL: u32 = 224;
 const THUMBNAIL_STEPS: usize = 40;
 const THUMBNAIL_STEP: f32 = 0.1;
 
-/// At most this many kept; past it, the oldest are let go.
-const THUMBNAILS_KEPT: usize = 192;
+/// The pictures kept at most, those not shown in this frame or the last:
+/// past it, the ones longest unseen are let go. (What a view shows is
+/// kept, however much: a gallery over a wide window shows hundreds.)
+const THUMBNAILS_KEPT: usize = 512;
 
-/// A blueprint's thumbnail (`None`: no GPU, or nothing to draw).
-pub(crate) fn thumbnail(app: &mut Moonglow, key: ResKey) -> Option<egui::TextureId> {
-    thumbnail_of(app, Pictured::Resource(key))
-}
+/// How long pictures are made for in a frame: once it has passed, the
+/// rest wait for the next frame (one is made in every frame, however
+/// long it takes). A picture takes several milliseconds (its models and
+/// textures read and uploaded, then drawn), and a gallery wants hundreds:
+/// three a frame, as they were made, was 25 ms a frame while it filled.
+const THUMBNAIL_TIME: std::time::Duration = std::time::Duration::from_millis(2);
 
-/// A creature look's thumbnail.
-pub(crate) fn look_thumbnail(
-    app: &mut Moonglow,
-    look: mg_preview::CreatureLook,
-) -> Option<egui::TextureId> {
-    thumbnail_of(app, Pictured::Look(look))
-}
-
-pub(crate) fn thumbnail_of(app: &mut Moonglow, key: Pictured) -> Option<egui::TextureId> {
-    let revision = app.ws.as_ref().map(Workspace::revision);
-    if app.thumbnails.revision != revision || app.thumbnails.made.len() > THUMBNAILS_KEPT {
-        let old = std::mem::take(&mut app.thumbnails.made);
+/// After a frame: makes the pictures its views asked for and lack, for
+/// [`THUMBNAIL_TIME`], and asks for another frame if there are more (or
+/// to show those made).
+pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
+    let wanted = std::mem::take(&mut app.thumbnails.wanted);
+    let started = std::time::Instant::now();
+    let revision = app.thumbnails.revision;
+    // The editors' working copies, which a blueprint's look is read from.
+    if app.thumbnails.flushed != revision
+        && wanted.iter().any(|k| k.follows_the_module())
+        && let Some(ws) = app.ws.as_mut()
+    {
+        let _ = ws.flush();
+        app.thumbnails.flushed = revision;
+    }
+    let (mut made, mut waiting) = (0, Vec::new());
+    for key in wanted {
+        let current = app
+            .thumbnails
+            .made
+            .get(&key)
+            .is_some_and(|m| !key.follows_the_module() || m.revision == revision);
+        // (Asked for twice in the frame, and made the first time.)
+        if current {
+            continue;
+        }
+        if made > 0 && started.elapsed() >= THUMBNAIL_TIME {
+            waiting.push(key);
+            continue;
+        }
+        make_thumbnail(app, key);
+        made += 1;
+    }
+    if made > 0 || !waiting.is_empty() {
+        ctx.request_repaint();
+    }
+    app.thumbnails.wanted = waiting;
+    // Those not shown any more go, the longest unseen first, when there
+    // are many.
+    let thumbnails = &mut app.thumbnails;
+    let keep = thumbnails.keep.unwrap_or(THUMBNAILS_KEPT);
+    if thumbnails.made.len() > keep {
+        let frame = thumbnails.frame;
+        let mut unseen: Vec<(u64, Pictured)> = thumbnails
+            .made
+            .iter()
+            .filter(|(_, m)| m.used + 1 < frame)
+            .map(|(k, m)| (m.used, *k))
+            .collect();
+        unseen.sort_unstable_by_key(|(used, _)| *used);
+        let over = thumbnails.made.len() - keep;
+        let gone: Vec<Made> =
+            unseen.iter().take(over).filter_map(|(_, k)| thumbnails.made.remove(k)).collect();
         if let Some(vp) = &app.viewport {
             let mut r = vp.render_state.renderer.write();
-            for (_, id) in old.into_values().flatten() {
+            for (_, id) in gone.into_iter().filter_map(|made| made.picture) {
                 r.free_texture(&id);
             }
         }
-        app.thumbnails.revision = revision;
     }
-    if let Some(made) = app.thumbnails.made.get(&key) {
-        return made.as_ref().map(|(_, id)| *id);
-    }
-    let made = render_thumbnail(app, key);
-    let id = made.as_ref().map(|(_, id)| *id);
-    app.thumbnails.made.insert(key, made);
-    id
 }
 
-fn render_thumbnail(app: &mut Moonglow, key: Pictured) -> Option<(Targets, egui::TextureId)> {
-    // (A tile is seen from one side always, turned as it lies.)
-    let turned = match key {
-        Pictured::Tile(_, quarters) => Some(f32::from(quarters % 4) * std::f32::consts::FRAC_PI_2),
-        _ => None,
-    };
-    let (source, preview) = match key {
+/// Makes a picture, or finds the one made before the module changed to be
+/// what the blueprint still looks like.
+fn make_thumbnail(app: &mut Moonglow, key: Pictured) {
+    let (frame, revision) = (app.thumbnails.frame, app.thumbnails.revision);
+    let look = pictured_look(app, key);
+    let kept = key.follows_the_module().then_some(look.as_ref().map(|(_, preview)| preview));
+    if let (Some(made), Some(now)) = (app.thumbnails.made.get_mut(&key), kept)
+        && made.look.as_ref() == now
+    {
+        made.revision = revision;
+        return;
+    }
+    let picture =
+        look.as_ref().and_then(|(source, preview)| draw_thumbnail(app, key, source, preview));
+    let look = look.map(|(_, preview)| preview).filter(|_| key.follows_the_module());
+    let made = Made { picture, look, revision, used: frame };
+    app.thumbnails.drawn += 1;
+    if let Some(old) = app.thumbnails.made.insert(key, made)
+        && let (Some((_, id)), Some(vp)) = (old.picture, &app.viewport)
+    {
+        vp.render_state.renderer.write().free_texture(&id);
+    }
+}
+
+/// What a picture is drawn from: `None` for what has no picture.
+fn pictured_look(app: &Moonglow, key: Pictured) -> Option<(Source, Preview)> {
+    match key {
         Pictured::Resource(key) | Pictured::Tile(key, _) => {
             // (A blueprint's, or a model's own: a gallery of appearances.)
             if !matches!(
@@ -700,20 +860,30 @@ fn render_thumbnail(app: &mut Moonglow, key: Pictured) -> Option<(Targets, egui:
             ) {
                 return None;
             }
-            if let Some(ws) = app.ws.as_mut() {
-                let _ = ws.flush();
-            }
             let source = Source::Resource(key);
             let preview = preview_of(app, &source).ok()?;
-            (source, preview)
+            Some((source, preview))
         }
         Pictured::Look(look) => {
             let preview = mg_preview::creature_look(app.game.as_deref()?, &look).ok()?;
             // (Named, for a message, by the table its row is of.)
-            (Source::Resource(ResKey::parse("appearance", ResType::TWODA)?), preview)
+            Some((Source::Resource(ResKey::parse("appearance", ResType::TWODA)?), preview))
         }
+    }
+}
+
+fn draw_thumbnail(
+    app: &mut Moonglow,
+    key: Pictured,
+    source: &Source,
+    preview: &Preview,
+) -> Option<(wgpu::Texture, egui::TextureId)> {
+    // (A tile is seen from one side always, turned as it lies.)
+    let turned = match key {
+        Pictured::Tile(_, quarters) => Some(f32::from(quarters % 4) * std::f32::consts::FRAC_PI_2),
+        _ => None,
     };
-    let composed = compose(app, &source, &preview).ok()?;
+    let composed = compose(app, source, preview).ok()?;
     let vp = app.viewport.as_mut()?;
     // As the viewer frames it: from the front, a little to the side.
     // A model that emits (flames, sparks, a shaft of light: some are
@@ -785,8 +955,30 @@ fn render_thumbnail(app: &mut Moonglow, key: Pictured) -> Option<(Targets, egui:
         particles,
         ..Default::default()
     };
+    // Drawn into the targets every picture is drawn into, and resolved
+    // into a texture of its own: what is kept of it. (Each kept its own
+    // multisampled and depth targets, nine times its picture's memory.)
     let size = THUMBNAIL;
-    let targets = Targets::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, size, size);
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let targets = app
+        .thumbnails
+        .targets
+        .get_or_insert_with(|| Targets::new(&vp.gpu, format, SAMPLES, size, size));
+    let picture = vp.gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("thumbnail"),
+        size: wgpu::Extent3d { width: size, height: size, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = picture.create_view(&Default::default());
+    let (target, resolve) = match &targets.msaa_view {
+        Some(multisampled) => (multisampled, Some(&view)),
+        None => (&view, None),
+    };
     let resman = app.game.as_deref().map(|g| &g.resman);
     let assets: &dyn mg_render::Assets = match resman {
         Some(rm) => rm,
@@ -797,17 +989,17 @@ fn render_thumbnail(app: &mut Moonglow, key: Pictured) -> Option<(Targets, egui:
         assets,
         &scene,
         &camera,
-        targets.render_view(),
-        targets.resolve_view(),
+        target,
+        resolve,
         &targets.depth,
         (size, size),
     );
     let id = vp.render_state.renderer.write().register_native_texture(
         &vp.gpu.device,
-        &targets.color_view,
+        &view,
         wgpu::FilterMode::Linear,
     );
-    Some((targets, id))
+    Some((picture, id))
 }
 
 /// A tile's model seen from straight above, its 10 m square filling

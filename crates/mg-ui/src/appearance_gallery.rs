@@ -202,7 +202,7 @@ pub(crate) fn grid(
         .filter(|c| needle.is_empty() || c.text.to_lowercase().contains(&needle))
         .collect();
     let ready = app.thumbnails.every();
-    let (mut wanted, mut pick) = (Vec::new(), None);
+    let (mut shown, mut pick) = (Vec::new(), None);
     let gap = 4.0;
     // (The room less the scroll bar's.)
     let room = ui.available_width() - ui.spacing().scroll.bar_width - 10.0;
@@ -228,8 +228,8 @@ pub(crate) fn grid(
                     };
                     let chosen = current == Some(c.row as i64);
                     let (r, seen) = crate::widgets::picture_tile(ui, side, &c.text, chosen, made);
-                    if let (true, None, Some(k)) = (seen, made, key) {
-                        wanted.push(k);
+                    if let (true, Some(k)) = (seen, key) {
+                        shown.push(k);
                     }
                     let r = r.on_hover_text(format!("{} ({name}.2da row {})", c.text, c.row));
                     if r.clicked() {
@@ -246,12 +246,9 @@ pub(crate) fn grid(
             });
         }
     });
-    if !wanted.is_empty() {
-        for key in wanted.into_iter().take(crate::palette_view::GALLERY_PER_FRAME) {
-            crate::model_view::thumbnail_of(app, key);
-        }
-        ui.ctx().request_repaint();
-    }
+    // (Those in sight: kept while they are, and made if they aren't yet,
+    // a few a frame.)
+    app.thumbnails.show(shown);
     pick
 }
 
