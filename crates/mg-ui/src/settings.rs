@@ -55,8 +55,10 @@ pub struct Settings {
     pub hak_folders: Vec<(PathBuf, PathBuf)>,
     /// Options > General: Open a module on the area opened last is off.
     pub no_last_area: bool,
-    /// Options > General: Write a debug log (`trace`).
-    pub debug_log: bool,
+    /// Options > General: Write a debug log (`trace`) is off. (It is
+    /// written unless switched off: what was done before a crash is there
+    /// to send without having asked for it beforehand.)
+    pub no_debug_log: bool,
     /// The size each kind of editor window was last left at (its
     /// `Tab::kind`, width and height in points): the next one opens so.
     pub window_sizes: Vec<(String, [u32; 2])>,

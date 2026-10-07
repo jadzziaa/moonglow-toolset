@@ -136,6 +136,8 @@ fn crash_reports() {
         );
         let name = if carried_on { "model-failure" } else { "crash" };
         let path = dir.join(format!("{name}-{time}.txt"));
+        // (In the debug log too, if one is written: where it stopped.)
+        mg_ui::trace::note(format!("{what}: {info} (report: {})", path.display()));
         if std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, report)).is_ok() {
             eprintln!("A crash report was written to {}", path.display());
         }
@@ -150,6 +152,7 @@ fn window_icon() -> egui::IconData {
 
 fn main() -> eframe::Result<()> {
     crash_reports();
+    mg_ui::trace::by_default();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])

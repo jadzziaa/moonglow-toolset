@@ -54,7 +54,8 @@ the module is opened again from its file.
   time, the first area the module tree lists (see
   [Modules](03-modules.md)).
 - **Write a debug log**: what Moonglow does, step by step, in
-  `debug-log.txt` in its data folder (see
+  the `logs` folder of its data folder, a file for each start; on
+  unless you switch it off (see
   [Troubleshooting](13-troubleshooting.md)).
 - **List areas and blueprints by name** in the module tree, rather than
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the

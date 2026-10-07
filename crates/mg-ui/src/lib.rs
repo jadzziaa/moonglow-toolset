@@ -696,7 +696,7 @@ impl Moonglow {
         let mut app = Moonglow::new(settings.install(), dialogs);
         set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
         // (From the start, so that it has a module opened at once.)
-        trace::set(settings.debug_log || std::env::var_os("MOONGLOW_DEBUG_LOG").is_some());
+        trace::set(trace::wanted(!settings.no_debug_log));
         app.settings = settings;
         app
     }
@@ -904,7 +904,7 @@ impl Moonglow {
     /// graphics adapter; then the window and what is under way, as they
     /// change.
     fn trace_frame(&mut self, ui: &egui::Ui) {
-        trace::set(self.settings.debug_log || std::env::var_os("MOONGLOW_DEBUG_LOG").is_some());
+        trace::set(trace::wanted(!self.settings.no_debug_log));
         if !trace::on() {
             return;
         }

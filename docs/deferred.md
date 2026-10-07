@@ -807,8 +807,14 @@ categories, the galleries. Water ripples. Left:
   an area's view as it loads, the palettes, jobs, the log pane and the
   graphics libraries' warnings. Not in it: the editors' own steps
   (blueprints, conversations, scripts), saving, plugins, the model
-  viewer. Past 32 MB it is set aside as `debug-log.1.txt` and begun
-  again, so it takes 64 MB at most. (S)
+  viewer. Past 4 MB it is set aside and begun
+  again, so a session takes 8 MB at most and the five kept 40 MB. Each line has the time of
+  day (UTC); a file for each start, named by when, in `logs`, the last
+  five kept (a builder's log was gone after a crash and a restart: the
+  new start emptied the one file); a crash is noted in it. It is on
+  unless switched off, by decision (a builder who had not turned it on
+  had none to send): the option is a new one, so those who never asked
+  for a log get one too. (S)
 - **Panes' sizes at start:** the module tree is held to two fifths of
   the window and the log to half its height, whatever egui remembered,
   and names too long for the tree are cut short (a builder's module

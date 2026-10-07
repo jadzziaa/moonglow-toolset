@@ -113,7 +113,7 @@ impl OptionsDraft {
             build_on_save: s.build_on_save,
             area_names: s.area_names,
             last_area: !s.no_last_area,
-            debug_log: s.debug_log,
+            debug_log: !s.no_debug_log,
             name_resrefs: s.name_resrefs,
             palette_cr: !s.palette_no_cr,
             light_theme: s.light_theme,
@@ -168,7 +168,7 @@ impl OptionsDraft {
             build_on_save: self.build_on_save,
             area_names: self.area_names,
             no_last_area: !self.last_area,
-            debug_log: self.debug_log,
+            no_debug_log: !self.debug_log,
             name_resrefs: self.name_resrefs,
             palette_no_cr: !self.palette_cr,
             light_theme: self.light_theme,
@@ -421,8 +421,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             ui.checkbox(&mut draft.debug_log, "Write a debug log").on_hover_text(
                                 format!(
                                     "What Moonglow does, step by step, to send with a report of \
-                                     something that fails without a word: {log} (a new one each \
-                                     time Moonglow starts)"
+                                     something that fails without a word, each line with its \
+                                     time: {log} (a new one each time Moonglow starts, the last \
+                                     five kept, a few megabytes each at most). On unless you \
+                                     switch it off: after a crash, what led to it is there to send"
                                 ),
                             );
                             ui.checkbox(&mut draft.area_names, "List areas and blueprints by name")

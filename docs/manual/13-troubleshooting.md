@@ -76,25 +76,29 @@ most two fifths of the window and cuts long names short.
 ## Something fails without a word
 
 When something doesn't happen and nothing says why (an area that won't
-open, an empty pane), turn on **Tools › Options › General › Write a debug
-log**, choose OK, do the thing again, and send `debug-log.txt` from
-Moonglow's data folder with your report. It records each thing asked
+open, an empty pane), or after a crash, send the newest
+`debug-log-<date>-<time>.txt` from the `logs` folder of Moonglow's data
+folder with your report. Moonglow writes this debug log unless **Tools ›
+Options › General › Write a debug log** is switched off. Each line has the time of day (UTC) and the
+seconds since Moonglow started. It records each thing asked
 for, the tabs opened and where the panes are, what an area's view and
 the palettes find as they load, the graphics adapter, and the graphics
 libraries' warnings. It holds the names of your module's files and
 folders, not their contents. A new one is started each time Moonglow
-starts, and one that passes 32 MB is set aside as `debug-log.1.txt` and
-begun again (send both, then); to log from the very start (a module that fails as it opens),
-turn the option on, close Moonglow and start it again. (Setting the
-`MOONGLOW_DEBUG_LOG` environment variable does the same without the
-option.)
+starts, named by when, and the last five are kept: after a crash, the
+log of the session that crashed is still there when you start again, and
+its last line says where it stopped. One that passes 4 MB is set aside
+(the same name ending `.1.txt`) and
+begun again (send both, then), so the five take 40 MB at most. (Setting the
+`MOONGLOW_DEBUG_LOG` environment variable writes it with the option
+off.)
 
 ## Where Moonglow keeps its files
 
 | What | Linux | Windows | macOS |
 | --- | --- | --- | --- |
 | Settings | `~/.local/share/moonglowtoolset` | `%APPDATA%\Moonglow Toolset\data` | `~/Library/Application Support/Moonglow-Toolset` |
-| Recovery copies, crash reports, prefabs (`prefabs`), plugins (`plugins`) | `~/.local/share/moonglow` | `%APPDATA%\Moonglow` | `~/Library/Application Support/Moonglow` |
+| Recovery copies, crash reports, debug logs (`logs`), prefabs (`prefabs`), plugins (`plugins`) | `~/.local/share/moonglow` | `%APPDATA%\Moonglow` | `~/Library/Application Support/Moonglow` |
 | Conversation backups | `/tmp/moonglow-backups` | `%TEMP%\moonglow-backups` | `$TMPDIR/moonglow-backups` |
 
 On Linux, `$XDG_DATA_HOME` takes the place of `~/.local/share` when set

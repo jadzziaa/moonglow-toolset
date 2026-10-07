@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [Troubleshooting](manual/13-troubleshooting.md), [options](manual/10-options.md) and [the deferred list](deferred.md): the debug log has the time of day on each line and a file for each start, the last five kept; it is on unless switched off, 4 MB a file.
 * **Update**: [Areas](manual/04-areas.md) and [the deferred list](deferred.md): a tile's variants chosen by picture in Tile Properties.
 * **Update**: [Areas](manual/04-areas.md) (Together, a spawn point moved by its post's foot, Drop to Ground on triggers, Resize Area at any two edges, Previous Variant), [conversations](manual/06-conversations.md) (a line dropped above one of its kind, the lines' right-click menu), [the main window](manual/02-main-window.md) (an area opened is marked in the tree) and [the deferred list](deferred.md): text typed in another language kept in its codepage, UTF-8 names in a Custom palette, GitHub issue 8 not reproduced.
 * **Update**: [Blueprints](manual/05-blueprints.md): the chosen appearance's picture with the pointer on the list's box, following the arrow keys.
