@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.16.0" date="2026-10-07">
+      <description>
+        <p>Plugins can read a file or folder you choose, write haks you
+        allow, make areas and paint terrain; a folder of tileset files is
+        imported as a hak and an area; two community tileset shaders
+        (vertex-colored and blended layers, lightmaps) are drawn.</p>
+      </description>
+    </release>
     <release version="1.15.1" date="2026-10-06">
       <description>
         <p>A click lands on an object's model, not its box; fog and other
