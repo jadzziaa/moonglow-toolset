@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T13:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T16:40:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -932,6 +932,50 @@ categories, the galleries. Water ripples. Left:
   run on a Mac. (S, needs a Mac)
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
+
+## Proposed by the Moonglow Viewer session (2026-10-07)
+
+Passed on by the session that maintains Moonglow Viewer
+(`/home/august/Projects/moonglow-viewer`, its `docs/PLAN.md` §10.1 has
+the full text); nothing of it is taken up yet, and none of its findings
+were checked here beyond that the code named is there and that the
+toolset is as the proposal says it is.
+
+- **A model compiler and writers for `mg-mdl`:** the viewer's
+  `crates/mgv-mdl` has a binary MDL writer (every node type, both skin
+  layouts), an ASCII-to-binary compiler that runs in process (tangents,
+  a walkmesh's AABB tree, skins' inverse binds, part numbers), a
+  lossless ASCII writer and a linter by line, built on `mg-mdl`'s public
+  types with no new dependencies, under the same license. Its tests are
+  said to round-trip all 25,597 compiled game models and to match the
+  game's own `compilemodel`. Moved here it could serve `mg pack`, `mg
+  verify` and the hak tools without `nwnmdlcomp`. It asks one addition
+  of the reader: each node's part number and the header's node count on
+  `mg_mdl::Model`. Decided (2026-10-07): it is to live in the toolset,
+  since the viewer already builds on the toolset's crates and not the
+  other way about. Not moved yet. (M–L)
+- **Animations bind by part number, not by name** (their measurement in
+  the game client: a supermodel's nodes renumbered, and the animation no
+  longer plays as it did). `notes_models.md` B.19 says by name, marked
+  unverified, and `mg-render`'s `anim.rs` binds by name: the two differ
+  where a model's names and numbers disagree with its supermodel's (a
+  renamed node with the same number moves in the game only; a
+  same-named node elsewhere in the tree moves here only). How many
+  stock models that touches is not counted. (M, and the reader's part
+  numbers first)
+- **Other findings against `notes_models.md`,** each theirs to confirm
+  here before the note is changed: part numbers follow file order and a
+  compiled tree does not keep it (5,079 of 24,298 models without a
+  supermodel); function pointers are ignored; a mesh's box holds the
+  origin too; shininess is 1 where a text gives none; EE's 0x3B0 skin
+  layout with bone numbers as `i16[64]` is what the game takes; the
+  game compiler's normals and tangents equal `mg-mdl`'s ASCII reader's
+  to four decimals; ten `c_wingdrg2_*` wing skins are bound in another
+  pose than they rest in. (S each, the note's upkeep)
+- **Smaller:** `mg-ui`'s form widgets and palette chooser exported for
+  the viewer to use (it keeps copies); a camera framed tightly on posed
+  vertices, so that `mg-preview`'s pictures of long models (dragons)
+  fill their frame. (S each)
 
 ## From the research notes
 

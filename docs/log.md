@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [The deferred list](deferred.md): what the Moonglow Viewer session proposes for the toolset (a model compiler and writers for `mg-mdl`, animations bound by part number, corrections to the models note), recorded and not yet taken up.
 * **Update**: [Scripts](manual/07-scripts.md) and [options](manual/10-options.md): scripts compiled on saving the module, a project's script opened in place in the external editor, text in another language where the one edited has none; [the main window](manual/02-main-window.md): the module tree goes to the area of the tab chosen; [the deferred list](deferred.md): builders' reports after 1.16.1.
 * **Update**: [The deferred list](deferred.md) and [troubleshooting](manual/13-troubleshooting.md): the debug log set aside past 32 MB; "≠" before fields that differ among what is edited together ([areas](manual/04-areas.md)); areas by name in the references list; Aurora's grid on raised ground.
 * **Update**: [Options](manual/10-options.md): the keys exported and imported; [areas](manual/04-areas.md): a sound's random place drawn, and a group over another replaced in place by decision; [the deferred list](deferred.md).
