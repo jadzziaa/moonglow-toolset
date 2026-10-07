@@ -11228,6 +11228,64 @@ fn effect_placeables_show_their_particles_in_the_area() {
     img.save(mg_testkit::scratch_dir("ui-area-particles").join("particles.png")).unwrap();
 }
 
+/// An area's picture is kept while nothing it shows changes (a frame is
+/// drawn for every move of the pointer, and the picture is most of what a
+/// frame costs): drawn again as its animations step, and at once when the
+/// camera moves, the view is set to show something else, or the area is
+/// edited.
+#[test]
+fn an_area_s_picture_is_kept_until_something_in_it_changes() {
+    let Some((mut h, area)) = area_harness("picture-kept") else { return };
+    h.run_steps(10);
+    let pictures = |h: &Harness<'static, Moonglow>| h.state().area_views[&area].pictures;
+    let mut now = h.ctx.input(|i| i.time);
+    let mut frame = |h: &mut Harness<'static, Moonglow>, later: f64| {
+        now += later;
+        h.input_mut().time = Some(now);
+        h.run_steps(1);
+    };
+    frame(&mut h, 0.25);
+    let drawn = pictures(&h);
+    // Frames a 200th of a second apart: the same picture.
+    for _ in 0..5 {
+        frame(&mut h, 0.005);
+    }
+    assert_eq!(pictures(&h), drawn, "kept from frame to frame");
+    // The animations step some 25 times a second.
+    frame(&mut h, 0.03);
+    assert_eq!(pictures(&h), drawn + 1, "drawn as the animations step");
+    // The camera turned: at once.
+    h.state_mut().area_views.get_mut(&area).unwrap().orbit.as_mut().unwrap().yaw += 0.1;
+    frame(&mut h, 0.005);
+    assert_eq!(pictures(&h), drawn + 2, "drawn as the camera moves");
+    // By night.
+    h.state_mut().area_views.get_mut(&area).unwrap().night ^= true;
+    frame(&mut h, 0.005);
+    assert_eq!(pictures(&h), drawn + 3, "drawn as the view changes");
+    // The pointer over it, with nothing to place: the same picture.
+    let waypoint = screen(&h, area, glam::Vec3::new(20.0, 20.0, 0.9));
+    h.hover_at(waypoint);
+    frame(&mut h, 0.005);
+    h.hover_at(waypoint + egui::vec2(3.0, 0.0));
+    frame(&mut h, 0.005);
+    assert_eq!(pictures(&h), drawn + 3, "kept under the pointer");
+    // The area edited (a waypoint deleted).
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0)];
+    h.key_press(egui::Key::Delete);
+    frame(&mut h, 0.005);
+    frame(&mut h, 0.005);
+    let ws = h.state_mut().ws.as_mut().unwrap();
+    let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+    assert_eq!(git.root.list("WaypointList").map(<[mg_gff::Struct]>::len), Some(1));
+    assert!(pictures(&h) > drawn + 3, "drawn as the area changes");
+    let drawn = pictures(&h);
+    for _ in 0..3 {
+        frame(&mut h, 0.005);
+    }
+    assert_eq!(pictures(&h), drawn, "and kept again");
+}
+
 /// With Shift held, a selected placeable has a handle that scales its
 /// model about its feet: pulled twice as far from the object, twice the
 /// size, in one undoable step; Escape drops the drag.

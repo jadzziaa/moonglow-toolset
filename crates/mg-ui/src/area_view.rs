@@ -419,11 +419,43 @@ pub struct AreaView {
     /// The Create Set window's name, while it is open.
     pub set_name: Option<String>,
     targets: Option<(Targets, egui::TextureId)>,
+    /// What the picture in `targets` was drawn from, and when (`time`):
+    /// while that stays as it is, the picture is kept, and drawn anew only
+    /// as the animations step ([`ANIMATION_STEP`]).
+    drawn: Option<(Drawn, f32)>,
+    /// How many times the picture has been drawn.
+    pub pictures: u64,
     time: f32,
     last_frame: Option<f64>,
     /// Where the view was last drawn, in points.
     pub rect: Rect,
 }
+
+/// What an area's picture is drawn from, the animations' time aside: the
+/// camera, how the view shows the area, and whether something in it
+/// follows the pointer (a blueprint or tiles about to be placed, a drag),
+/// which is drawn every frame. (The area itself: a view that reads it
+/// anew forgets what it drew.)
+#[derive(Debug, Clone, PartialEq)]
+struct Drawn {
+    size: (u32, u32),
+    orbit: Orbit,
+    /// (Its time left at 0.)
+    settings: View,
+    grid: bool,
+    background: Option<[u8; 3]>,
+    merchant_signs: bool,
+    spawn_markers: bool,
+    follows: bool,
+}
+
+/// How long the area's picture is kept while nothing but its animations
+/// moves, seconds: the tiles' and objects' animations and the particles
+/// step this often (the camera and what is dragged are drawn every
+/// frame). The picture costs far more than the rest of a frame, and a
+/// frame is drawn for every move of the pointer over a menu or key typed
+/// in a window in front of the area.
+const ANIMATION_STEP: f32 = 0.04;
 
 impl AreaView {
     /// Reads the area's tiles and objects again from the game data (after
@@ -437,6 +469,7 @@ impl AreaView {
         self.walkable = None;
         self.object_walks = Default::default();
         self.object_faces = None;
+        self.drawn = None;
     }
 
     fn new(area: ResRef) -> AreaView {
@@ -503,6 +536,8 @@ impl AreaView {
             redraw: None,
             set_name: None,
             targets: None,
+            drawn: None,
+            pictures: 0,
             time: 0.0,
             last_frame: None,
             rect: Rect::NOTHING,
@@ -1153,6 +1188,8 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
         return;
     }
     view.revision = Some(ws.revision());
+    // (Read anew: so is its picture drawn.)
+    view.drawn = None;
     let area = view.area;
     let started = std::time::Instant::now();
     let step = |what: &str| {
@@ -1749,6 +1786,12 @@ fn viewport(
         }
     }
     view.pasted_shown = pasted.len();
+    // What follows the pointer is drawn every frame it is there (and once
+    // more when it is gone).
+    let follows = view.drag.is_some()
+        || !ghost_instances.is_empty()
+        || !preview_instances.is_empty()
+        || !hidden.is_empty();
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
     else {
@@ -1763,6 +1806,24 @@ fn viewport(
     let dt = view.last_frame.map_or(0.0, |last| (now - last) as f32).min(0.25);
     view.time += dt;
     view.last_frame = Some(now);
+
+    // The picture is kept while what it was drawn from stays as it is,
+    // until the animations step.
+    let from = Drawn {
+        size: (w, h),
+        orbit,
+        settings: View { time: 0.0, ..settings },
+        grid: view.grid,
+        background: app.settings.area_background,
+        merchant_signs: scene.merchant_signs,
+        spawn_markers: scene.spawn_markers,
+        follows,
+    };
+    let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
+    let kept = !follows
+        && view.targets.as_ref().is_some_and(|(t, _)| t.size == (w, h))
+        && view.drawn.as_ref().is_some_and(|(was, _)| *was == from)
+        && since.is_some_and(|s| (0.0..ANIMATION_STEP).contains(&s));
 
     // The scene, with the drag applied to what it moves.
     let dragged = view.dragged();
@@ -1787,25 +1848,6 @@ fn viewport(
     {
         *p = at;
     }
-    let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
-    // Flames, sparks and portals: with the animations (they need frames).
-    if settings.animate {
-        let camera = orbit.camera().view();
-        frame.particles = scene.particles(&shown, &settings, &mut view.particles, dt, camera);
-    } else {
-        view.particles.clear();
-    }
-    view.particles_shown = frame.particles.iter().map(|b| b.vertices.len() / 4).sum();
-    frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
-    frame.instances.extend(ghost_instances);
-    frame.instances.extend(preview_instances);
-    if view.grid {
-        frame.lines = grid_lines(view, &shown);
-    }
-    // Options › Area: the background colour, if chosen (gamma space).
-    if let Some([r, g, b]) = app.settings.area_background {
-        frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
-    }
     if view.targets.as_ref().is_none_or(|(t, _)| t.size != (w, h)) {
         let targets = Targets::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, w, h);
         let mut egui_renderer = vp.render_state.renderer.write();
@@ -1828,17 +1870,42 @@ fn viewport(
         view.targets = Some((targets, id));
     }
     let (targets, id) = view.targets.as_ref().expect("made above");
-    let camera = orbit.camera();
-    vp.renderer.render(
-        &vp.gpu,
-        &game.resman,
-        &frame,
-        &camera,
-        targets.render_view(),
-        targets.resolve_view(),
-        &targets.depth,
-        (w, h),
-    );
+    if !kept {
+        let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
+        // Flames, sparks and portals: with the animations (they need
+        // frames), moved on by the time since they were last drawn.
+        if settings.animate {
+            let camera = orbit.camera().view();
+            let step = since.map_or(dt, |s| s.clamp(0.0, 0.25));
+            frame.particles = scene.particles(&shown, &settings, &mut view.particles, step, camera);
+        } else {
+            view.particles.clear();
+        }
+        view.particles_shown = frame.particles.iter().map(|b| b.vertices.len() / 4).sum();
+        frame.fog = frame.fog.map(|f| view_fog(f, orbit.distance));
+        frame.instances.extend(ghost_instances);
+        frame.instances.extend(preview_instances);
+        if view.grid {
+            frame.lines = grid_lines(view, &shown);
+        }
+        // Options › Area: the background colour, if chosen (gamma space).
+        if let Some([r, g, b]) = app.settings.area_background {
+            frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
+        }
+        let camera = orbit.camera();
+        vp.renderer.render(
+            &vp.gpu,
+            &game.resman,
+            &frame,
+            &camera,
+            targets.render_view(),
+            targets.resolve_view(),
+            &targets.depth,
+            (w, h),
+        );
+        view.drawn = Some((from, view.time));
+        view.pictures += 1;
+    }
     let response = ui.add(
         egui::Image::new(egui::load::SizedTexture::new(*id, size))
             .sense(egui::Sense::click_and_drag()),
@@ -1900,8 +1967,10 @@ fn viewport(
     crate::terrain_mode::overlay(app, ui, view);
     crate::tile_select::overlay(ui, view, app.tile_clip.as_ref());
     crate::tile_select::refused_overlay(ui, view);
-    // Tiles animate: keep drawing while the view is on screen.
-    ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+    // Tiles animate: keep drawing while the view is on screen, when their
+    // next step is due.
+    let due = view.drawn.as_ref().map_or(0.0, |(_, at)| ANIMATION_STEP - (view.time - at));
+    ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(due.clamp(0.0, 1.0)));
     input(app, ui, view, &response);
 }
 
