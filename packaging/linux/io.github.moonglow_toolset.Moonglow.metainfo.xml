@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.19.2" date="2026-10-08">
+      <description>
+        <p>Triggers and encounters turn by their outlines, alone and with
+        a group. The Shaft of Light's beam stands upright. Export can add
+        to an archive that is already there. The talk table editor reads
+        and writes JSON, hides empty lines and opens .tlk files on their
+        own; the resource browser exports what it lists as files.</p>
+      </description>
+    </release>
     <release version="1.19.1" date="2026-10-08">
       <description>
         <p>A body part of an elf, halfling or other race that has no
