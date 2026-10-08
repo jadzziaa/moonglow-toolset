@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T11:33:27Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -692,7 +692,8 @@ open). Left, or to know:
   client (`items_look` in `client_render.rs`): a shield lies with its
   face up, a potion stands, a sword lies the same way round, and
   clothing, leather, chain and plate are those four models, as drawn
-  here. A cloak is still the bag, which was not looked at. (S)
+  here. (A cloak was the bag until 1.19.3: see the reports after
+  1.19.1.) (S)
 - **Lights placed on the fly** ([the proposal](lights-proposal.md)):
   way A is in (the game's seven invisible light placeables from the
   area's menu, a sun for a marker, Light Color, a ring for the reach).
@@ -796,6 +797,18 @@ that is there; the talk table as JSON, its empty lines left out of the
 list, and a `.tlk` file opened or made on its own; the resource
 browser's Save As on a row and Export as Files. Left, or to know:
 
+- **A cloak lying in an area** is the game's model of a cloak dropped
+  (`gi_cloak01`, folded, its PLT texture in the cloak's colors), as
+  Aurora and the game draw it; Moonglow drew the bag (the cloak's
+  `DefaultModel`, which neither uses for it). Compared with the game
+  client (`items_look` with three of the game's cloaks: the same model
+  and colors, lying the same way). Where the model is missing: the
+  `DefaultModel`, then the bag.
+- **An armor lying as plate here and as a tunic in Aurora**, in the
+  same builder's picture: not looked into. The model is chosen by the
+  torso's parts_chest.2da `ACBONUS` (measured with the game's own
+  armors); his armor, or his content's table, may be a case that rule
+  misses. Needs the item. (S)
 - **Models as text from the resource browser** (asked with the export):
   files go out as they are, a compiled model compiled. Writing a model
   as text needs the Viewer's decompiler in the toolset (see "Proposed by

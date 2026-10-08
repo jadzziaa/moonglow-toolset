@@ -435,10 +435,10 @@ fn probe_custom_creatures() {
     }
 }
 
-/// Armour and a cloak lying in an area are a bag, as the game drops what
-/// is only ever worn (a builder's area showed a man standing where a
-/// tunic lay, and a cloak hanging from nothing); a sword lies there as
-/// itself.
+/// Armour and a cloak lying in an area are the game's models of them
+/// dropped, not what a wearer shows (a builder's area showed a man
+/// standing where a tunic lay, and a cloak hanging from nothing); a sword
+/// lies there as itself.
 #[test]
 fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     let Some(game) = game() else {
@@ -457,9 +457,12 @@ fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     assert_eq!(dropped("nw_aarcl001"), ["gi_armor04"], "leather");
     assert_eq!(dropped("nw_aarcl004"), ["gi_armor03"], "chain");
     assert_eq!(dropped("nw_aarcl007"), ["gi_armor02"], "full plate");
-    // A cloak: the bag, standing.
+    // A cloak: the game's model of a cloak dropped, folded, in the
+    // cloak's colors.
     let cloak = placed("nw_aarcl013");
-    assert_eq!(models(&cloak), ["it_bag"]);
+    assert_eq!(models(&cloak), ["gi_cloak01"]);
+    let colors = cloak.base.colors.expect("the cloak's colors");
+    assert_eq!((colors[4], colors[5], colors[6]), (92, 99, 58), "cloth 1, cloth 2, leather 1");
     // As it is worn: a body's parts.
     let worn = item(&game, &blueprint(&game, "nw_aarcl001", ResType::UTI).root).unwrap();
     assert!(models(&worn).len() > 5);
@@ -473,7 +476,7 @@ fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     assert_eq!(turn("nw_wswls001"), 1, "a sword on its flat");
     assert_eq!(turn("nw_it_mpotion001"), 2, "a potion stood up");
     assert_eq!(turn("nw_aarcl001"), 0, "armor as its model is");
-    assert_eq!(turn("nw_aarcl013"), 0, "the bag");
+    assert_eq!(turn("nw_aarcl013"), 0, "a cloak as its model is");
 }
 
 /// A body part is drawn with its own texture where it has one, though its

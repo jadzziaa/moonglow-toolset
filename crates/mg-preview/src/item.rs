@@ -30,9 +30,12 @@ pub fn item_on(game: &GameData, uti: &Struct, female: bool) -> Result<Preview, P
 
 /// An item as it lies in an area, as Aurora draws it there. Armour,
 /// which is its wearer's body parts, is the game's model of armour
-/// dropped (`gi_armor01`…`04`, by its weight); a cloak, which hangs from shoulders, is the bag the
-/// game drops things as (`it_bag`); every other item is its own model, as
-/// [`item`] shows it. How each is turned there: [`ground_turn`].
+/// dropped (`gi_armor01`…`04`, by its weight); a cloak, which hangs from
+/// shoulders, is the game's model of a cloak dropped (`gi_cloak01`, folded,
+/// in the cloak's colors); every other item is its own model, as [`item`]
+/// shows it. Where the game's model is not there, the base item's
+/// `DefaultModel`, then the bag the game drops things as (`it_bag`). How
+/// each is turned there: [`ground_turn`].
 pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewError> {
     let lk = Lookup { game };
     let baseitems = game.table("baseitems")?;
@@ -44,8 +47,12 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
     if !armor && class != "cloak" {
         return item(game, uti);
     }
-    let one =
-        |part: Part| Preview { base: part, parts: Vec::new(), idle: None, lights: Vec::new() };
+    let one = |mut part: Part| {
+        // (A model with a PLT texture takes the item's colors.)
+        part.colors = Some(item_colors(uti, [0; 10]));
+        Preview { base: part, parts: Vec::new(), idle: None, lights: Vec::new() }
+    };
+    let default = cell(&baseitems, row, "DefaultModel").map(str::to_ascii_lowercase);
     if armor {
         // The game's own models of armor lying on the ground, by how
         // heavy it is (its torso's parts_chest.2da `ACBONUS`): cloth,
@@ -64,8 +71,14 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
             4..=5 => "gi_armor03",
             _ => "gi_armor02",
         };
-        let default = cell(&baseitems, row, "DefaultModel").map(str::to_ascii_lowercase);
-        let model = std::iter::once(by_weight.to_string()).chain(default).find(|m| lk.has_model(m));
+        let model =
+            std::iter::once(by_weight.to_string()).chain(default.clone()).find(|m| lk.has_model(m));
+        if let Some(model) = model {
+            return Ok(one(Part::new(model)));
+        }
+    }
+    if !armor {
+        let model = std::iter::once(CLOAK.to_string()).chain(default).find(|m| lk.has_model(m));
         if let Some(model) = model {
             return Ok(one(Part::new(model)));
         }
@@ -79,18 +92,18 @@ pub fn item_placed(game: &GameData, uti: &Struct) -> Result<Preview, PreviewErro
 /// How an item is turned where it lies in an area: baseitems.2da's
 /// `RotateOnGround` (0 as its model is, 1 a quarter turn about the model's
 /// Y axis, a sword or a shield on its flat; 2 about its X axis, a potion
-/// stood up). A cloak, drawn as the bag, is not turned.
+/// stood up; the game's own cloaks and armor have 0).
 pub fn ground_turn(game: &GameData, uti: &Struct) -> u8 {
     let Ok(baseitems) = game.table("baseitems") else { return 0 };
     let Ok(row) = usize::try_from(uti.integer("BaseItem").unwrap_or(0)) else { return 0 };
-    if cell(&baseitems, row, "ItemClass").is_some_and(|c| c.eq_ignore_ascii_case("cloak")) {
-        return 0;
-    }
     cell_int(&baseitems, row, "RotateOnGround").and_then(|v| u8::try_from(v).ok()).unwrap_or(0)
 }
 
 /// The bag an item with no model of its own lies in an area as.
 const BAG: &str = "it_bag";
+
+/// The game's model of a cloak lying on the ground.
+const CLOAK: &str = "gi_cloak01";
 
 /// The models of an item, at its origin (held items hang all of them from
 /// the hand). Colours for layered items start from `colors` (the wearer's

@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-08
+* **Update**: [The deferred list](deferred.md): a cloak lying in an area is the game's model of a cloak dropped (`gi_cloak01`) in the cloak's colors, checked in the game client.
 * **Update**: [Areas](manual/04-areas.md) (a trigger or an encounter turns by its outline), [modules](manual/03-modules.md) (Export adds to an archive that is there; the talk table as JSON, Only lines with text, Open File and New File), [the main window](manual/02-main-window.md) (the resource browser's Save As and Export as Files), [the models note](research/notes_models.md) (which of the two world-Z particle modes stands, seen in the client) and [the deferred list](deferred.md): builders' reports after 1.19.1.
 
 ## 2026-10-07
