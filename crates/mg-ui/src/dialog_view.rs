@@ -414,7 +414,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             if let Some(path) =
                 app.dialogs.save_file(crate::dialogs::FileKind::Conversation(f), Some(&suggested))
             {
-                match std::fs::write(&path, f.write(&g, &key.resref.to_string())) {
+                // (The lines as the module's own table reads them, if any.)
+                let text = crate::text::from_windows_1252(&f.write(&g, &key.resref.to_string()));
+                match std::fs::write(&path, text) {
                     Ok(()) => app.log.info(format!("Exported {key} to {}", path.display())),
                     Err(e) => app.log.error(format!("{}: {e}", path.display())),
                 }
@@ -430,7 +432,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             )
         {
             let mut ng = g.clone();
-            let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+            let read = (std::fs::read_to_string(&path).map_err(|e| e.to_string()))
+                .map(|csv| crate::text::for_windows_1252(&csv));
             match read.and_then(|csv| mg_module::dialog_io::update_from_csv(&mut ng, &csv)) {
                 Ok(0) => app.log.info(format!("{}: no lines changed", path.display())),
                 Ok(n) => {
@@ -1002,9 +1005,8 @@ fn text_panel(
         .flatten();
     // Without text in the language edited or a talk-table string: its
     // text in another language (English first), marked as not its own.
-    let other = (english.is_empty() && ls.strref.is_none())
-        .then(|| ls.elsewhere(crate::text::edit_language()))
-        .flatten();
+    let other =
+        (english.is_empty() && ls.strref.is_none()).then(|| crate::text::elsewhere(&ls)).flatten();
     let shown = other.as_ref().map_or(english.clone(), |(_, text)| text.clone());
     let typed = match &other {
         Some((language, _)) => crate::widgets::borrowed_field(
@@ -1510,7 +1512,7 @@ impl Moonglow {
     pub fn import_conversation(&mut self, path: &std::path::Path) -> Option<ResKey> {
         use mg_module::dialog_io::Format;
         let source = match std::fs::read_to_string(path) {
-            Ok(s) => s,
+            Ok(s) => crate::text::for_windows_1252(&s),
             Err(e) => {
                 self.log.error(format!("{}: {e}", path.display()));
                 return None;

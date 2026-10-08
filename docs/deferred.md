@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T20:18:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T23:27:37Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -317,7 +317,10 @@ a light theme. Left:
   (`engine_special_abilities.rs`): a use with any of Ready, Spontaneous
   or Unlimited set is one the creature has, a use with none is spent,
   and Unlimited doesn't make the uses unlimited (each entry is used up).
-  The editor keeps the format's names and says so. (—)
+  The editor had the format's three names as switches until 1.19.5; a
+  builder who knows the engine pointed out that it reads the byte as yes
+  or no, which is what the test had found, so there is the one switch,
+  Ready, now. (—)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays
@@ -797,6 +800,85 @@ that is there; the talk table as JSON, its empty lines left out of the
 list, and a `.tlk` file opened or made on its own; the resource
 browser's Save As on a row and Export as Files. Left, or to know:
 
+- **A module's `encoding.2da`** (EE 1.87: a table of the Unicode
+  character each of the 256 byte values stands for, shipped with fonts
+  to match, so that a module can be in a language the game has no
+  codepage for; a builder who knows the engine pointed it out) is read
+  now (`GameData::codepage`, `mg_core::Codepage::table`): the
+  toolset shows and writes the module's text by it (names and other
+  localized strings in the editors, tags and comments, scripts,
+  conversations, the journal, factions, the talk tables, the palettes,
+  the area list, Find and Replace Text, the 2DA editor), and reads it
+  anew when the hak list changes. Without a table every path is as it
+  was (Windows-1252, Windows-1250 for Polish). What the game does was
+  settled in it (`engine_encoding.rs`): the table is read from a hak,
+  not from the module file; a cell is hexadecimal with or without `0x`
+  (`305` is U+0305), of which the low 16 bits count; a blank or missing
+  row keeps the game's own character; a character two bytes stand for is
+  written as the last of them; ASCII's bytes can be moved too. Left, or
+  not known:
+  - `mg` goes by the table where it is given a module (`set`, `apply`,
+    `find`, `info`, `areas`, `replace`, `dialog` export and import, a
+    plugin's edits), finding the hak through the game install (without
+    one: Windows-1252, and nothing said). `mg gff` on a lone file,
+    nasher sources (theirs is `--nwn-encoding`), `mg nwsync`'s module
+    name and the script language server still read and write
+    Windows-1252 whatever the table. (S each)
+  - In the toolset, by choice: a prefab's file keeps the bytes (written
+    as Windows-1252 text, so that it is the same object in any module),
+    and a hak's description is the hak's, not the module's. The Store
+    Wizard's lines, a conversation exported or imported, the name Save
+    As offers and plugins' strings go by the table
+    (`Codepage::spelled_in` for code that writes Windows-1252); a
+    letter of an imported conversation the table lacks is a "?" (as is,
+    now, one Windows-1252 lacks in a module without a table: a
+    conversation's new line, a faction's name and an export's comments
+    were written as UTF-8 there). An exported or imported file is
+    spelled over as a whole, its punctuation too: of no matter unless a
+    table moves ASCII's own characters.
+  - A table is taken to stand for every language of one byte a character
+    (a Polish name in an English game is read by it too), and for none of
+    the East Asian ones; a missing row keeps the character of the game's
+    language. Only English was tried in the game.
+  - Whether the game reads the table from `override` and the like was
+    not tried (Moonglow reads it from whatever lies outside the module
+    file, haks first); nor was the game's `game.language.codepage`
+    setting, which Moonglow does not read.
+  - A text field already being typed in when the hak list changes keeps
+    what it showed until it is left.
+- **`mg roundtrip`** (a builder asked what keeps work from being
+  corrupted): a module saved, read back and each GFF and 2DA written
+  anew, compared with what it was. It does not ask the game or Aurora
+  (the engine and Aurora tests do, on the game's own modules), does not
+  write the other formats anew (scripts, models and the rest are kept as
+  bytes, and compared as such), and is not in the toolset's menus. A
+  written GFF is compared by its fields, not its bytes: Moonglow lays a
+  GFF out its own way, as every edit already does. (S)
+- **A module folder with a resource under two spellings** (a builder:
+  Aurora named two new items `x.UTI`, Moonglow wrote them again as
+  `x.uti`, and the folder had both). A folder's resource under another
+  spelling than Moonglow's (lower case) is renamed at the next save;
+  where both files are there (a folder that sets capitals apart), the
+  one changed last is the resource when the folder opens, and the save
+  leaves the one file. Nothing is said in the log, and a nasher
+  project's sources are not looked at this way. (S)
+- **A creature's box in an area** is around it as it stands (the start
+  of its pause), not around its model at rest: a builder's dragon had a
+  box several times its size (at rest it lies stretched out, wings
+  spread: 3.1 by 14.0 by 10.2 m against 5.6 by 7.3 by 6.3 standing).
+  Skinned meshes (its wings) are counted where their bones put each
+  vertex, as the renderer draws them; the joints are no longer counted;
+  wings, tails and robes that are parts of their own are counted in
+  their pose too.
+  The box does not follow the animation as it plays, and a click is
+  still tried against the model's triangles at rest (then against the
+  box). (S)
+- **A palette's rows are one line** (a builder: names with ResRefs and
+  challenge ratings wrapped onto a second line in a narrow pane), cut
+  short as the module tree's are, whole under the pointer. Not an
+  option. (—)
+- **Update Instances lists what it updated** in the log (a builder: as
+  Aurora's does, which was not captured), up to 200 of them. (—)
 - **The hak list of Module Properties** (GitHub issue 17) is the
   issue's recommended layout: a framed list numbered from the top, rows
   chosen (Ctrl and Shift for more) and moved by a drag, the arrows under
@@ -810,7 +892,9 @@ browser's Save As on a row and Export as Files. Left, or to know:
   colors wrong; Aurora's Custom palette showed the same, reading the
   same files): the custom palettes (`<type>palcus.itp`) carried their
   blueprints' and factions' names as UTF-8, and so did categories named
-  in Moonglow; the game reads them as its own text. They now carry the
+  in Moonglow; the game reads them as its text: Windows-1252 for English
+  and the western languages, the language's codepage otherwise
+  (Windows-1250 for Polish). They now carry the
   names' bytes as the module has them (not read and written again: a
   color token keeps every byte), and a category is written in the
   codepage of the game's language, refused where that cannot hold it.

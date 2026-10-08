@@ -289,8 +289,9 @@ fn value_ui(ctx: &mut Ctx<'_>, ui: &mut Ui, id: egui::Id, path: &GffPath, label:
                         ui.weak(shortened(&text, 48));
                     }
                 }
+                let english = crate::text::codepage_of(Language::ENGLISH);
                 let current = ls
-                    .text(Language::ENGLISH, Gender::Male)
+                    .text_in(Language::ENGLISH, Gender::Male, english)
                     .map(|t| t.into_owned())
                     .unwrap_or_default();
                 if let Some(t) = ctx.text(ui, id, &current) {

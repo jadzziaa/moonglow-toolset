@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+mg-2da.workspace = true
 mg-core.workspace = true
 mg-edit.workspace = true
 mg-erf.workspace = true

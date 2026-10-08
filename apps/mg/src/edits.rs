@@ -16,8 +16,19 @@ use serde_json::json;
 
 use super::{Output, resource_key};
 
-/// The codepage of the text in commands (as `mg gff` reads and writes).
-const CODEPAGE: Codepage = Codepage::WINDOWS_1252;
+/// The codepage of the text in commands: Windows-1252 (as `mg gff` reads
+/// and writes), or the table of the module's `encoding.2da`, once
+/// [`use_codepage`] has said so.
+static MODULE_CODEPAGE: std::sync::OnceLock<Codepage> = std::sync::OnceLock::new();
+
+/// The module's codepage, for the commands of this run.
+pub(crate) fn use_codepage(codepage: Codepage) {
+    let _ = MODULE_CODEPAGE.set(codepage);
+}
+
+fn codepage() -> Codepage {
+    MODULE_CODEPAGE.get().copied().unwrap_or(Codepage::WINDOWS_1252)
+}
 
 /// `mg apply`: the edits of a file (`-`: standard input), all or none.
 pub(crate) fn apply(module: &Path, edits: &Path, dry_run: bool) -> Result<Output> {
@@ -31,7 +42,7 @@ pub(crate) fn apply(module: &Path, edits: &Path, dry_run: bool) -> Result<Output
     let json: serde_json::Value =
         serde_json::from_str(&text).with_context(|| format!("{} is not JSON", edits.display()))?;
     let cmd =
-        command_from_json(&json, CODEPAGE).map_err(|e| anyhow!("{}: {e}", edits.display()))?;
+        command_from_json(&json, codepage()).map_err(|e| anyhow!("{}: {e}", edits.display()))?;
     let ws = Workspace::new(Module::open(module)?);
     run(ws, cmd, dry_run, None, false)
 }
@@ -51,7 +62,7 @@ pub(crate) fn set(
     let mut edits = Vec::new();
     // Each field as it was and as it will be, for people.
     let mut lines = Vec::new();
-    let shown = |v: Option<&Value>| match v.map(|v| mg_gff::value_to_json(v, CODEPAGE)) {
+    let shown = |v: Option<&Value>| match v.map(|v| mg_gff::value_to_json(v, codepage())) {
         Some(Ok(json)) => json.get("value").or(json.get("value64")).cloned().unwrap_or_default(),
         _ => serde_json::Value::Null,
     };
@@ -128,7 +139,7 @@ fn typed(ty: FieldType, text: &str, old: Option<&Value>) -> Result<Value> {
         Ok(v)
     };
     let encoded =
-        || CODEPAGE.encode(text).map(|b| b.into_owned()).context("text the codepage cannot hold");
+        || codepage().encode(text).map(|b| b.into_owned()).context("text the codepage cannot hold");
     Ok(match ty {
         FieldType::Byte => Value::Byte(int(0, u8::MAX.into())? as u8),
         FieldType::Char => Value::Char(int(i8::MIN.into(), i8::MAX.into())? as i8),
@@ -185,7 +196,7 @@ pub(crate) fn run(
             resources.push(*key);
         }
     }
-    let written = command_to_json(&cmd, CODEPAGE).map_err(|e| anyhow!("{e}"))?;
+    let written = command_to_json(&cmd, codepage()).map_err(|e| anyhow!("{e}"))?;
     let (label, count) = (cmd.label.clone(), cmd.edits.len());
     ws.apply(cmd)?;
     if !dry_run && count > 0 {

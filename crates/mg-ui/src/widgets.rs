@@ -63,7 +63,7 @@ impl LocStringEdit {
             .strings
             .iter()
             .map(|(k, bytes)| {
-                let text = k.language().codepage().decode(bytes);
+                let text = crate::text::codepage_of(k.language()).decode(bytes);
                 let (shown, crlf) = to_editor(&text);
                 (k.language(), k.gender(), shown, crlf)
             })
@@ -90,7 +90,7 @@ impl LocStringEdit {
         let mut out = LocString { strref, strings: Vec::new() };
         for (language, gender, text, crlf) in &self.entries {
             let text = from_editor(text, *crlf);
-            let bytes = language.codepage().encode(&text)?;
+            let bytes = crate::text::codepage_of(*language).encode(&text)?;
             out.strings.push((LocStringKey::new(*language, *gender), bytes.into_owned()));
         }
         Some(out)
@@ -762,7 +762,7 @@ pub(crate) fn loc_shown(
                    its own in its place";
         return (text, Some((format!("StrRef {}", ls.strref.0), why)));
     }
-    match ls.elsewhere(crate::text::edit_language()) {
+    match crate::text::elsewhere(ls) {
         Some((language, text)) => {
             let why = "This text is in another language: there is none in the language edited \
                        (Options › Language). Typing here gives it text in that language; … has \

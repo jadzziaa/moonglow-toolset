@@ -352,6 +352,38 @@ fn a_cloak_sits_on_a_smaller_body_s_shoulders() {
     assert!(at(cloak, "rootdummy").is_some(), "the cloak has the body's bones");
 }
 
+/// A creature's box is around it as it stands (its pause), not around its
+/// model at rest: a dragon at rest lies stretched out, and its box in an
+/// area was several times the dragon drawn.
+#[test]
+fn a_dragon_s_box_is_around_its_pause_not_its_rest() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let rm = &game.resman;
+    let load = |name: &str| -> Option<Arc<Model>> {
+        let data = rm.get_named(name, ResType::MDL).ok()?;
+        Model::read(&data).ok().map(Arc::new)
+    };
+    let utc = blueprint(&game, "nw_drgred001", ResType::UTC);
+    let p = creature(&game, &utc.root, &|_| None).unwrap();
+    let c = Composed::new(&gpu, &p, &load).unwrap();
+    let size = |(min, max): (glam::Vec3, glam::Vec3)| max - min;
+    let (rest, pause) = (size(c.bounds()), size(c.bounds_in(c.idle.as_deref(), 0.0)));
+    eprintln!("idle {:?}: at rest {rest:?}, in its pause {pause:?}", c.idle);
+    assert!(c.idle.is_some());
+    assert!(pause.y < rest.y * 0.8, "shorter than stretched out: {pause:?} against {rest:?}");
+    // Its wings are skinned: folded in its pause, they are counted where
+    // their bones put them, not spread as they were bound.
+    assert!(pause.z < rest.z * 0.8, "lower than with wings spread: {pause:?} against {rest:?}");
+}
+
 /// A look at creatures of custom content (GitHub issue 5): `MG_PROBE_USER`
 /// a user directory with the haks, `MG_PROBE_HAKS` their names (top
 /// first, comma-separated), `MG_PROBE_UTC` the blueprints' files.

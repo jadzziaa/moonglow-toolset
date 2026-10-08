@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use mg_core::{ResRef, ResType};
+use mg_core::{Codepage, ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_resman::ResKey;
 use mg_schema::{ExoString, StructExt, fac};
@@ -41,20 +41,22 @@ pub struct Factions {
     reputations: BTreeMap<(u32, u32), u32>,
     /// Anything else in the file's root.
     root: Struct,
+    /// The codepage of the names: Windows-1252, or the module's own table.
+    codepage: Codepage,
 }
 
-fn decode(b: &[u8]) -> String {
-    mg_core::Codepage::WINDOWS_1252.decode(b).into_owned()
-}
-
-fn encode(s: &str) -> Vec<u8> {
-    mg_core::Codepage::WINDOWS_1252
-        .encode(s)
-        .map_or_else(|| s.as_bytes().to_vec(), |b| b.into_owned())
+fn encode(s: &str, codepage: Codepage) -> Vec<u8> {
+    codepage.encode_lossy(s)
 }
 
 impl Factions {
     pub fn read(g: &Gff) -> Factions {
+        Factions::read_in(g, Codepage::WINDOWS_1252)
+    }
+
+    /// [`read`](Self::read) with the game's codepage, where a module has
+    /// its own table (`encoding.2da`).
+    pub fn read_in(g: &Gff, codepage: Codepage) -> Factions {
         let factions = g
             .root
             .items(&fac::FACTION_LIST)
@@ -62,7 +64,8 @@ impl Factions {
             .map(|s| {
                 let parent = s.read(&fac::faction_list::FACTION_PARENT_ID);
                 Faction {
-                    name: decode(s.read(&fac::faction_list::FACTION_NAME).as_bytes()),
+                    name: (codepage.decode(s.read(&fac::faction_list::FACTION_NAME).as_bytes()))
+                        .into_owned(),
                     parent: (parent != u32::MAX).then_some(parent),
                     global: s.read(&fac::faction_list::FACTION_GLOBAL) != 0,
                     original: s.clone(),
@@ -82,7 +85,7 @@ impl Factions {
         let mut root = g.root.clone();
         root.remove(fac::FACTION_LIST.label);
         root.remove(fac::REP_LIST.label);
-        Factions { factions, reputations, root }
+        Factions { factions, reputations, root, codepage }
     }
 
     /// The module's factions (the standard ones if it has no `repute.fac`).
@@ -105,7 +108,10 @@ impl Factions {
                 let mut s = f.original.clone();
                 s.id = i as u32;
                 s.write(&fac::faction_list::FACTION_PARENT_ID, f.parent.unwrap_or(u32::MAX));
-                s.write(&fac::faction_list::FACTION_NAME, ExoString(encode(&f.name)));
+                s.write(
+                    &fac::faction_list::FACTION_NAME,
+                    ExoString(encode(&f.name, self.codepage)),
+                );
                 s.write(&fac::faction_list::FACTION_GLOBAL, u16::from(f.global));
                 s
             })

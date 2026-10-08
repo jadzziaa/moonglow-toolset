@@ -262,7 +262,7 @@ impl Composed {
     }
 
     pub fn bounds(&self) -> (Vec3, Vec3) {
-        self.bounds_with(&self.base.gpu.rest)
+        self.bounds_with(&self.base.gpu.rest, None)
     }
 
     /// [`Composed::bounds`] as it stands in `animation` at `t`: a creature
@@ -276,9 +276,11 @@ impl Composed {
         };
         let playing = animation
             .and_then(|a| find(a).or_else(|| ["pause1", "cpause1"].iter().find_map(|a| find(a))));
-        match playing {
-            Some(a) => self.bounds_with(&anim::pose(&self.base.gpu.model, a, t)),
-            None => self.bounds(),
+        match (playing, animation) {
+            (Some(a), Some(asked)) => {
+                self.bounds_with(&anim::pose(&self.base.gpu.model, a, t), Some((asked, a, t)))
+            }
+            _ => self.bounds(),
         }
     }
 
@@ -333,20 +335,48 @@ impl Composed {
     }
 
     /// The bounds with the base's nodes at `pose` (model space).
-    fn bounds_with(&self, pose: &[Mat4]) -> (Vec3, Vec3) {
+    /// The box around it with the base's nodes at `pose`; in an animation
+    /// (`playing`: the one asked for, the base's and the time), the parts
+    /// that play it (wings, tails, robes) as they stand in it too, as
+    /// [`Composed::instances`] draws them.
+    fn bounds_with(&self, pose: &[Mat4], playing: Option<(&str, &Animation, f32)>) -> (Vec3, Vec3) {
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         let mut add = |gm: &GpuModel, nodes: &[Mat4], to: Mat4| {
-            // A skinned body is where its bones are, not where its mesh's
-            // node is: the skeleton's joints are counted too.
-            if gm.meshes.iter().any(|m| m.skin.is_some()) {
-                for at in nodes {
-                    let w = (to * *at).transform_point3(Vec3::ZERO);
-                    min = min.min(w);
-                    max = max.max(w);
-                }
-            }
             for m in &gm.meshes {
                 let node = nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
+                // A skinned mesh is where its bones put each vertex (as
+                // the renderer draws it), not where it was bound: a
+                // dragon's wings, bound spread out, are folded in its
+                // pause, and the box around the spread was several times
+                // the dragon.
+                if let Some((skin, weights, vertices)) = skinned(gm, m) {
+                    let bones: Vec<Mat4> = skin
+                        .bones
+                        .iter()
+                        .zip(&skin.inverse_bind)
+                        // (A bone that is no node of the model holds the
+                        // mesh where it is, as the renderer has it.)
+                        .map(|(&b, bind)| {
+                            to * nodes.get(b).copied().unwrap_or(Mat4::IDENTITY) * *bind
+                        })
+                        .collect();
+                    for (v, weights) in vertices.iter().zip(weights) {
+                        let v = Vec3::from(*v);
+                        let (mut at, mut total) = (Vec3::ZERO, 0.0);
+                        for &(bone, weight) in weights {
+                            if let Some(m) = bones.get(usize::from(bone)).filter(|_| weight > 0.0) {
+                                at += m.transform_point3(v) * weight;
+                                total += weight;
+                            }
+                        }
+                        // (A vertex no bone holds stays with the mesh's node.)
+                        let w =
+                            if total > 0.0 { at / total } else { (to * node).transform_point3(v) };
+                        min = min.min(w);
+                        max = max.max(w);
+                    }
+                    continue;
+                }
                 for c in 0..8 {
                     let p = Vec3::new(
                         if c & 1 == 0 { m.min.x } else { m.max.x },
@@ -362,9 +392,35 @@ impl Composed {
         add(&self.base.gpu, pose, Mat4::IDENTITY);
         for p in &self.parts {
             let at = p.attach.and_then(|i| pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-            add(&p.gpu, &p.gpu.rest, at * Mat4::from_scale(Vec3::splat(p.scale)));
+            let posed = playing.filter(|_| p.animated).and_then(|(asked, base, t)| {
+                let find = |name: &str| {
+                    let owner = p.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
+                    owner.1.animation(name)
+                };
+                let own = find(asked)
+                    .or_else(|| ["creadyl", "cpause1", "pause1"].iter().find_map(|a| find(a)));
+                let worn = self.base.gpu.model.animation_scale;
+                Some(anim::pose_worn(&p.gpu.model, own.or(Some(base))?, t, worn))
+            });
+            let nodes = posed.as_deref().unwrap_or(&p.gpu.rest);
+            add(&p.gpu, nodes, at * Mat4::from_scale(Vec3::splat(p.scale)));
         }
         if min.x > max.x { (Vec3::splat(-1.0), Vec3::splat(1.0)) } else { (min, max) }
+    }
+}
+
+/// A drawn mesh's skin, if it is skinned: its bones, and each vertex's
+/// weights and place in the skin node's space.
+type Skinned<'a> = (&'a mg_render::model::GpuSkin, &'a [[(u16, f32); 4]], &'a [[f32; 3]]);
+
+fn skinned<'a>(gm: &'a GpuModel, m: &'a mg_render::model::GpuMesh) -> Option<Skinned<'a>> {
+    let skin = m.skin.as_ref()?;
+    let mesh = gm.model.nodes.get(m.node)?.mesh()?;
+    match &mesh.extra {
+        mg_mdl::MeshExtra::Skin(s) if s.weights.len() == mesh.vertices.len() => {
+            Some((skin, &s.weights, &mesh.vertices))
+        }
+        _ => None,
     }
 }
 

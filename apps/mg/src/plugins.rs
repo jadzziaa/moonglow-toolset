@@ -400,6 +400,11 @@ pub(crate) fn run(
     let m = Module::open(module)?;
     let mut notes = Output::default();
     let game = game_for(gi, &m, &mut notes);
+    // (The edits are shown in the module's own letters, as the plugin
+    // wrote them.)
+    if let Some(game) = &game {
+        super::edits::use_codepage(game.codepage().for_language(mg_core::Language::ENGLISH));
+    }
     let host = Rc::new(host);
     let input = Input { module: m.clone(), game };
     let outcome = mg_plugin::run_command(&plugin, command, input, host.clone());

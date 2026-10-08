@@ -50,14 +50,21 @@ pub struct AreaInfo {
 
 /// Every area the module has (each ARE), by ResRef.
 pub fn list(m: &Module) -> Vec<AreaInfo> {
+    list_in(m, mg_core::Codepage::WINDOWS_1252)
+}
+
+/// [`list`] with the game's codepage, where a module has its own table
+/// (`encoding.2da`).
+pub fn list_in(m: &Module, game: mg_core::Codepage) -> Vec<AreaInfo> {
     let mut out: Vec<AreaInfo> = m
         .keys_of(ResType::ARE)
         .filter_map(|k| {
             let are = m.gff(k)?.ok()?;
             let name = are.root.locstring("Name").map_or(String::new(), |n| {
-                let english = n.text(Language::ENGLISH, mg_core::Gender::Male);
+                let english = n.text_in(Language::ENGLISH, mg_core::Gender::Male, game);
                 let any = || {
-                    n.strings.first().map(|(k, t)| k.language().codepage().decode(t).into_owned())
+                    (n.strings.first())
+                        .map(|(k, t)| game.for_language(k.language()).decode(t).into_owned())
                 };
                 english.map(|t| t.into_owned()).or_else(any).unwrap_or_default()
             });

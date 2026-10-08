@@ -3,7 +3,7 @@ type: Manual Page
 title: Writing plugins
 description: Writing plugins - a first plugin, how a plugin runs, the manifest, reading and editing the module, the game's data, talking to the user, files and haks outside the module, areas and terrain, checks, several files, trying and testing, editor types and versions.
 tags: [manual, plugins, luau]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T02:04:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T22:46:53Z }
 ---
 
 # Writing plugins
@@ -278,9 +278,10 @@ plugin's edits in the window too. Everything else is written as given: a
 plugin that renames a blueprint's resource must also set its
 `TemplateResRef`, as the file format has it.
 
-Text in a module is in the Windows-1252 codepage. Luau strings are
-UTF-8; Moonglow converts both ways, and text with a character the
-codepage lacks is an error.
+Text in a module is in the Windows-1252 codepage, or in the module's own
+table of letters where a hak of its has one (`encoding.2da`). Luau
+strings are UTF-8; Moonglow converts both ways, and text with a character
+the codepage lacks is an error.
 
 ## The game's data
 

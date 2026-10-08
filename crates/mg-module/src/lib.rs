@@ -179,12 +179,17 @@ impl Module {
         let mut files: Vec<PathBuf> =
             std::fs::read_dir(path).map_err(io(path))?.flatten().map(|e| e.path()).collect();
         files.sort();
+        // Two files of one resource (`x.UTI` as Aurora names a new one,
+        // `x.uti` as Moonglow does): the one changed last is the resource.
+        let mut changed = std::collections::HashMap::<ResKey, SystemTime>::new();
         for f in files.iter().filter(|f| f.is_file()) {
             let Some(key) = f.file_name().and_then(|n| n.to_str()).and_then(folder_key) else {
                 continue; // not a resource (notes, editor files, ...)
             };
-            if !m.resources.contains_key(&key) {
+            let at = f.metadata().and_then(|d| d.modified()).unwrap_or(std::time::UNIX_EPOCH);
+            if changed.get(&key).is_none_or(|had| at > *had) {
                 m.resources.insert(key, Arc::from(std::fs::read(f).map_err(io(f))?));
+                changed.insert(key, at);
             }
         }
         m.location = Some(ModuleLocation::Folder(path.into()));
@@ -477,6 +482,26 @@ impl Module {
                 std::fs::remove_file(&p).map_err(io(&p))?;
             }
         }
+        // A resource's file under another spelling (`x.UTI`, as Aurora
+        // names a new one) takes the module's own (`x.uti`), so that a
+        // resource is one file; where both are there (a folder that sets
+        // capitals apart), the other spelling goes.
+        let named: Vec<String> = (std::fs::read_dir(dir).map_err(io(dir))?.flatten())
+            .filter(|e| e.path().is_file())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        for name in &named {
+            let Some(own) = folder_key(name).map(|k| k.to_string()) else { continue };
+            if *name == own {
+                continue;
+            }
+            let (from, to) = (dir.join(name), dir.join(&own));
+            if named.contains(&own) {
+                std::fs::remove_file(&from).map_err(io(&from))?;
+            } else {
+                std::fs::rename(&from, &to).map_err(io(&from))?;
+            }
+        }
         for (k, v) in &self.resources {
             let p = dir.join(k.to_string());
             if std::fs::read(&p).ok().as_deref() == Some(&v[..]) {
@@ -617,6 +642,53 @@ mod tests {
         let back = Module::open(&dir.join("mymod")).unwrap();
         assert_eq!(back.len(), m.len());
         assert_eq!(back.areas().unwrap().len(), 2);
+    }
+
+    /// A builder's folder: Aurora named new items `x.UTI`, Moonglow
+    /// wrote them again as `x.uti`, and both were there.
+    #[test]
+    fn a_folder_s_resource_under_two_spellings_becomes_one_file() {
+        let dir = mg_testkit::scratch_dir("mg-module-folder-spellings");
+        let folder = dir.join("mymod");
+        let mut m = sample();
+        m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+        let names = |folder: &Path| {
+            let mut names: Vec<String> = (std::fs::read_dir(folder).unwrap().flatten())
+                .map(|e| e.file_name().into_string().unwrap())
+                .filter(|n| n.to_ascii_lowercase().ends_with(".uti"))
+                .collect();
+            names.sort();
+            names
+        };
+        // Alone under Aurora's spelling: read, and renamed at the save.
+        std::fs::write(folder.join("Bread.UTI"), b"aurora").unwrap();
+        let mut m = Module::open(&folder).unwrap();
+        assert_eq!(m.get(&key("bread", ResType::UTI)), Some(&b"aurora"[..]));
+        m.set(key("other", ResType::NSS), &b"x"[..]);
+        m.save().unwrap();
+        assert_eq!(names(&folder), ["bread.uti"]);
+        assert_eq!(std::fs::read(folder.join("bread.uti")).unwrap(), b"aurora");
+        // Under both (where the folder sets capitals apart): the one
+        // changed last is the item, and the save leaves one file of it.
+        std::fs::write(folder.join("bread.UTI"), b"newer").unwrap();
+        if names(&folder).len() == 2 {
+            let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+            let f = std::fs::File::options().write(true).open(folder.join("bread.UTI")).unwrap();
+            f.set_modified(later).unwrap();
+            let mut m = Module::open(&folder).unwrap();
+            assert_eq!(m.get(&key("bread", ResType::UTI)), Some(&b"newer"[..]));
+            m.set(key("other", ResType::NSS), &b"y"[..]);
+            m.save().unwrap();
+            assert_eq!(names(&folder), ["bread.uti"]);
+            assert_eq!(std::fs::read(folder.join("bread.uti")).unwrap(), b"newer");
+            // The older of the two is not the item, whichever its name.
+            std::fs::write(folder.join("BREAD.uti"), b"older").unwrap();
+            let before = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+            let f = std::fs::File::options().write(true).open(folder.join("BREAD.uti")).unwrap();
+            f.set_modified(before).unwrap();
+            let m = Module::open(&folder).unwrap();
+            assert_eq!(m.get(&key("bread", ResType::UTI)), Some(&b"newer"[..]));
+        }
     }
 
     #[test]

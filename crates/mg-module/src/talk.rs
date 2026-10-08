@@ -130,6 +130,9 @@ pub struct Table {
     redo: Vec<Change>,
     /// The undo depth when last saved; `None` when that state is gone.
     saved: Option<usize>,
+    /// The game's codepage, where the open module has its own table
+    /// (`encoding.2da`): the game reads the talk tables by it too.
+    pub game: Option<mg_core::Codepage>,
 }
 
 /// Talk tables are numbered from here in the game's StrRefs.
@@ -152,6 +155,7 @@ impl Table {
             undo: Vec::new(),
             redo: Vec::new(),
             saved: Some(0),
+            game: None,
         })
     }
 
@@ -167,7 +171,14 @@ impl Table {
             undo: Vec::new(),
             redo: Vec::new(),
             saved: None,
+            game: None,
         }
+    }
+
+    /// The codepage of the table's text.
+    fn codepage(&self) -> mg_core::Codepage {
+        let language = self.tlk.language;
+        self.game.map_or(language.codepage(), |g| g.for_language(language))
     }
 
     /// Whether it can be saved: a file, not part of a hak or the module.
@@ -194,7 +205,7 @@ impl Table {
 
     fn decode(&self, e: Option<&TlkEntry>) -> String {
         e.filter(|e| e.flags & FLAG_TEXT != 0)
-            .map(|e| self.tlk.language.codepage().decode(&e.text).into_owned())
+            .map(|e| self.codepage().decode(&e.text).into_owned())
             .unwrap_or_default()
     }
 
@@ -216,7 +227,7 @@ impl Table {
 
     /// The entries a line becomes; an error names what can't be written.
     fn entries(&self, line: &Line, row: usize) -> Result<Entries, String> {
-        let codepage = self.tlk.language.codepage();
+        let codepage = self.codepage();
         let encode = |t: &str| {
             codepage.encode(t).map(|b| b.into_owned()).ok_or_else(|| {
                 format!("the text has characters the table's language can't write ({codepage:?})")

@@ -195,9 +195,20 @@ impl Moonglow {
             };
             self.actions.push(Action::Apply(Command::new(what, edits)));
             self.log.info(format!(
-                "Updated {total} object(s) from {} blueprint(s)",
+                "Updated {total} object(s) from {} blueprint(s):",
                 draft.blueprints.len()
             ));
+            // Which ones, as Aurora's log lists them: the area, the kind,
+            // the tag and the blueprint of each (a long list is cut short).
+            const LISTED: usize = 200;
+            let updated: Vec<&Affected> =
+                draft.objects.iter().filter(|o| o.on && areas.contains(&o.area)).collect();
+            for o in updated.iter().take(LISTED) {
+                self.log.info(format!("  {}", o.label));
+            }
+            if updated.len() > LISTED {
+                self.log.info(format!("  … and {} more", updated.len() - LISTED));
+            }
         }
         total
     }
@@ -297,7 +308,10 @@ impl Moonglow {
             self.log.error(e.to_string());
             return;
         }
-        let hits = mg_module::text::find(&ws.module, &draft.find, draft.options, &draft.kinds);
+        // (Read as the game reads it: by the module's own table, if any.)
+        let game = self.game.as_deref().map(|g| g.codepage());
+        let options = mg_module::text::Options { game, ..draft.options };
+        let hits = mg_module::text::find(&ws.module, &draft.find, options, &draft.kinds);
         draft.hits = hits.into_iter().map(|h| (h, true)).collect();
         draft.searched = Some((draft.find.clone(), draft.options));
     }
@@ -306,6 +320,8 @@ impl Moonglow {
     /// many times.
     pub fn replace_text(&mut self, draft: &TextReplace) -> usize {
         let Some((find, options)) = draft.searched.clone() else { return 0 };
+        let game = self.game.as_deref().map(|g| g.codepage());
+        let options = mg_module::text::Options { game, ..options };
         let Some(ws) = self.ws.as_mut() else { return 0 };
         let mut edits = Vec::new();
         let mut total = 0;

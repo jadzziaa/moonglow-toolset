@@ -58,6 +58,7 @@ fn every_command_answers_in_json() {
 
     // Modules.
     assert_eq!(ok(&["verify", c])["errors"], 0);
+    assert_eq!(ok(&["roundtrip", c])["differences"], serde_json::json!([]));
     // Plugins: the plugin host's own fixture, listed, checked, run and
     // its checks counted.
     let plugins = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/mg-plugin/tests/fixtures");

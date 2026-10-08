@@ -140,9 +140,11 @@ impl Moonglow {
         let context = Context { module, game: self.game.clone(), progress: progress.clone() };
         // (The context, and its share of the game data, is dropped when
         // the work returns: before `finish` may change the game data.)
-        let thread = std::thread::Builder::new()
-            .name("moonglow job".into())
-            .spawn(move || -> Made { Box::new(work(&context)) });
+        let thread =
+            std::thread::Builder::new().name("moonglow job".into()).spawn(move || -> Made {
+                crate::text::set_game_codepage(context.game.as_deref().map(|g| g.codepage()));
+                Box::new(work(&context))
+            });
         let thread = match thread {
             Ok(t) => t,
             Err(e) => {

@@ -716,6 +716,12 @@ impl Moonglow {
 
     /// Draws the whole application.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
+        // (The game's text is read by the open module's table, if its haks
+        // have one: `encoding.2da`.)
+        text::set_game_codepage(self.game.as_deref().map(GameData::codepage));
+        if let Some(talk) = &mut self.talk {
+            talk.game = self.game.as_deref().map(GameData::codepage);
+        }
         self.trace_frame(ui);
         self.thumbnails.begin_frame(self.ws.as_ref().map(|ws| ws.revision()));
         widgets::install_fonts(ui.ctx());
@@ -1320,7 +1326,8 @@ impl Moonglow {
                         ws.module.contains(&ResKey::new(*area, ResType::ARE))
                     };
                     let first = || {
-                        let mut areas = mg_module::areas::list(&ws.module);
+                        let mut areas =
+                            mg_module::areas::list_in(&ws.module, text::game_codepage());
                         if by_name {
                             areas.sort_by_cached_key(|a| {
                                 let named = !a.name.trim().is_empty();
@@ -1364,6 +1371,7 @@ impl Moonglow {
             }
             game.resman.add(priority::MODULE, "module", LayerClass::Erf, m.container());
             game.invalidate();
+            text::set_game_codepage(Some(game.codepage()));
             self.haks_layered = haks;
         } else if self.game.is_some() && self.install.is_some() {
             // (Something still reads the game data: said, rather than a
@@ -1436,6 +1444,7 @@ impl Moonglow {
             }
         }
         game.invalidate();
+        text::set_game_codepage(Some(game.codepage()));
     }
 
     fn hak_report(&mut self) {
@@ -1539,6 +1548,7 @@ impl Moonglow {
                 game.resman.remove(&l);
             }
             game.invalidate();
+            text::set_game_codepage(Some(game.codepage()));
         }
     }
 
@@ -1551,6 +1561,7 @@ impl Moonglow {
         game.resman.remove("module");
         game.resman.add(priority::MODULE, "module", LayerClass::Erf, ws.module.container());
         game.invalidate();
+        text::set_game_codepage(Some(game.codepage()));
         self.load_order_changed();
     }
 
@@ -1697,7 +1708,11 @@ impl Moonglow {
                         .ok()?
                         .root
                         .locstring("Mod_Name")?
-                        .text(mg_core::Language::ENGLISH, mg_core::Gender::Male)?
+                        .text_in(
+                            mg_core::Language::ENGLISH,
+                            mg_core::Gender::Male,
+                            text::game_codepage(),
+                        )?
                         .into_owned();
                     let dir = self.install.as_ref()?.user_dir.as_ref()?.join("modules");
                     Some(dir.join(format!("{name}.mod")))
@@ -2455,6 +2470,7 @@ impl Moonglow {
     fn game_data_changed(&mut self) {
         if let Some(game) = exclusive(&mut self.game) {
             game.invalidate();
+            text::set_game_codepage(Some(game.codepage()));
         }
         self.pictures = Default::default();
         self.thumbnails.forget(self.viewport.as_ref());

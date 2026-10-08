@@ -63,12 +63,28 @@ impl LocString {
         self.get(language, gender).map(|b| language.codepage().decode(b))
     }
 
+    /// [`text`](Self::text) where `game` is the game's codepage: a module's
+    /// own table (`encoding.2da`) reads every language it stands for.
+    pub fn text_in(
+        &self,
+        language: Language,
+        gender: Gender,
+        game: Codepage,
+    ) -> Option<Cow<'_, str>> {
+        self.get(language, gender).map(|b| game.for_language(language).decode(b))
+    }
+
     /// The text to show where `language` has none: another language's,
     /// English if it has any, else the first variant with text; and the
     /// language it is in. (Aurora shows a builder the English text of a
     /// name written in English alone, whatever language it edits in.)
     pub fn elsewhere(&self, language: Language) -> Option<(Language, String)> {
-        let text = |l: Language, bytes: &[u8]| (l, l.codepage().decode(bytes).into_owned());
+        self.elsewhere_in(language, language.codepage())
+    }
+
+    /// [`elsewhere`](Self::elsewhere) where `game` is the game's codepage.
+    pub fn elsewhere_in(&self, language: Language, game: Codepage) -> Option<(Language, String)> {
+        let text = |l: Language, bytes: &[u8]| (l, game.for_language(l).decode(bytes).into_owned());
         let english = LocStringKey::new(Language::ENGLISH, Gender::Male);
         let others = self.strings.iter().filter(|(k, b)| k.language() != language && !b.is_empty());
         others
@@ -91,7 +107,18 @@ impl LocString {
     /// Sets a variant from text; `None` if the language's codepage cannot
     /// represent it.
     pub fn set_text(&mut self, language: Language, gender: Gender, text: &str) -> Option<()> {
-        let bytes = language.codepage().encode(text)?.into_owned();
+        self.set_text_in(language, gender, text, language.codepage())
+    }
+
+    /// [`set_text`](Self::set_text) where `game` is the game's codepage.
+    pub fn set_text_in(
+        &mut self,
+        language: Language,
+        gender: Gender,
+        text: &str,
+        game: Codepage,
+    ) -> Option<()> {
+        let bytes = game.for_language(language).encode(text)?.into_owned();
         self.set(language, gender, bytes);
         Some(())
     }

@@ -116,9 +116,8 @@ pub fn new_node(kind: Kind, text: &str) -> Struct {
     }
     s.set("Animation", Value::Dword(0));
     s.set("AnimLoop", Value::Byte(1));
-    let text = mg_core::Codepage::WINDOWS_1252
-        .encode(text)
-        .map_or_else(|| text.as_bytes().to_vec(), |b| b.into_owned());
+    // (A character Windows-1252 lacks is a "?", as where text is typed.)
+    let text = mg_core::Codepage::WINDOWS_1252.encode_lossy(text);
     s.set("Text", Value::LocString(LocString::from_text(Language::ENGLISH, Gender::Male, text)));
     s.set("Script", resref(""));
     s.set("ActionParams", Value::List(Vec::new()));

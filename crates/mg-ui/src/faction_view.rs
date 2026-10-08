@@ -57,7 +57,7 @@ impl Moonglow {
     fn factions(&mut self) -> Option<Factions> {
         let ws = self.ws.as_mut()?;
         Some(match ws.doc(&key()) {
-            Ok(g) => Factions::read(g),
+            Ok(g) => Factions::read_in(g, crate::text::game_codepage()),
             Err(_) => Factions::of_module(&ws.module),
         })
     }

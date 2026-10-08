@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T20:12:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T21:30:22Z }
 ---
 
 # Blueprints
@@ -64,6 +64,10 @@ prices, a waypoint's map note).
 word you type in their name, resref or tag, in any order (`chest secret`).
 If none has them all, it shows close matches, letters in order (`lngswd`
 finds Longsword).
+
+A row is one line: a name too long for the pane is cut short, and the
+pointer over it shows it whole, with its ResRef, tag and challenge
+rating. Widen the pane to see more.
 
 **Favorites** and **Recent** sit at the top of each palette. Right-click a
 blueprint › **Add to Favorites**; Recent holds the last dozen you placed.
@@ -174,7 +178,8 @@ the blueprint, including the object's tag, name, scripts, local variables
 and a door's transition. A window lists the objects it would change:
 - **Every area**, or **only** the area shown.
 - **Untick** objects to leave them as they are.
-- **Update** changes the rest as one undoable step.
+- **Update** changes the rest as one undoable step, and the log lists
+  each object updated: its area, kind, tag and blueprint.
 
 An item's blueprint reaches the items that placed objects hold as well:
 in a chest, in a creature's pack and what it has equipped, on a store's
@@ -264,11 +269,11 @@ every change, as Aurora does on OK.
   special ability to read what the game says of it (Aurora's F1).
 - **Special Abilities** lists each ability as the game has it: so many
   **Uses** of a spell at a **Caster Level**. Clicking a spell adds a use;
-  the same spell at another caster level is another ability. **Flags**
-  are the ability's own, named as the file format names them: Ready,
-  Spontaneous, Unlimited. The game counts a use with any of them set as
-  one the creature has, and a use with none as spent; Unlimited does not
-  make the uses unlimited.
+  the same spell at another caster level is another ability. **Ready**
+  says whether the creature has those uses or starts with them spent.
+  (The file keeps a byte of flags for each use, whose bits BioWare's
+  format names Ready, Spontaneous and Unlimited; the game reads it as
+  yes or no, and nothing makes an ability's uses unlimited.)
 
 The game reads a familiar only when one of the creature's classes has
 one (an arcane class whose `MinAssociateLevel` in `classes.2da` isn't

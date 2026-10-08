@@ -1,6 +1,11 @@
 # Update log
 
 ## 2026-10-08
+* **Update**: [The command line](manual/11-command-line.md) and [the deferred list](deferred.md): `mg roundtrip`, a module saved, read back and written anew, compared with what it was.
+* **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): `mg` goes by a module's `encoding.2da` where it is given a module.
+* **Update**: [Modules](manual/03-modules.md), [writing plugins](manual/16-writing-plugins.md) and [the deferred list](deferred.md): plugins, the Store Wizard and a conversation's export and import go by a module's `encoding.2da` too; a module folder's resource under two spellings (`x.UTI` and `x.uti`) becomes one file.
+* **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): a hak's `encoding.2da` (the character each byte of the game's text stands for) is read, and the module's text shown and written by it; what the game makes of the table, settled in it (`engine_encoding.rs`).
+* **Update**: [Blueprints](manual/05-blueprints.md) (a palette's rows one line; Update Instances lists what it updated; a special ability's one switch, Ready) and [the deferred list](deferred.md): a creature's box in an area around it as it stands.
 * **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): the hak list of Module Properties (GitHub issue 17): chosen rows moved by a drag, the keys or the arrows under it, haks not found flagged.
 * **Update**: [Blueprints](manual/05-blueprints.md) (Update Instances reaches held items; arrows after a creature's statistics; category names in the game's text), [modules](manual/03-modules.md) (the hak editor asks before replacing), [options](manual/10-options.md) (a .mod beside a module folder on save) and [the deferred list](deferred.md): a custom palette's names as the game reads them, and a hak's table not seen until a restart, not reproduced.
 * **Update**: [Areas](manual/04-areas.md) (Ctrl + wheel scales the selection), [modules](manual/03-modules.md) (the talk table's Go to; its text boxes scroll in the room they have) and [the deferred list](deferred.md).

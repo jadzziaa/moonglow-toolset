@@ -135,8 +135,9 @@ struct Shared {
     flames: HashMap<u8, Option<Arc<PosedFlame>>>,
 }
 
-/// An object's models and their bounds (rest pose, the object's own
-/// space).
+/// An object's models and their bounds (as it stands: at the start of
+/// the animation it is shown in, its rest pose without one; the object's
+/// own space).
 #[derive(Debug)]
 struct Shown {
     composed: Composed,
@@ -393,8 +394,8 @@ impl AreaScene {
         out
     }
 
-    /// Object `i`'s box in its own space: its models' (rest pose), the
-    /// arrow's, or a marker's.
+    /// Object `i`'s box in its own space: its models' (as it stands, in
+    /// its pause), the arrow's, or a marker's.
     pub fn bounds(&self, area: &AreaModel, i: usize) -> (Vec3, Vec3) {
         let shown = self.objects.get(i).and_then(Option::as_ref);
         match shown {
@@ -868,7 +869,9 @@ fn shown(
                 None => missing.push(p.base.model.clone()),
             }
             c.map(|composed| {
-                let bounds = composed.bounds();
+                // As it stands in the area: in its pause (a dragon at
+                // rest lies stretched out, wings spread).
+                let bounds = composed.bounds_in(composed.idle.as_deref(), 0.0);
                 Arc::new(Shown { composed, bounds })
             })
         })

@@ -61,7 +61,7 @@ pub(crate) fn open(app: &mut Moonglow, kind: BlueprintKind) {
 fn name_of(app: &Moonglow, node: &Struct) -> String {
     // (As the game reads text in its language; UTF-8 as Moonglow wrote
     // names before 1.19.4.)
-    let codepage = app.game.as_deref().map_or_else(Default::default, |g| g.language.codepage());
+    let codepage = app.game.as_deref().map_or_else(Default::default, |g| g.codepage());
     let text = |label: &str| node.string(label).map(|t| palette::text_of(t, codepage));
     let named = text("NAME").or_else(|| {
         let strref = u32::try_from(node.integer("STRREF")?).ok()?;
@@ -222,7 +222,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
         });
         ui.separator();
         // (A name is written as the game reads text in its language.)
-        let codepage = app.game.as_deref().map_or_else(Default::default, |g| g.language.codepage());
+        let codepage = app.game.as_deref().map_or_else(Default::default, |g| g.codepage());
         // Where a new one goes: in the group chosen, beside the
         // category chosen, else at the top.
         let chosen = w.selected.clone();

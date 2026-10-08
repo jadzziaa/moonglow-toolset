@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T20:18:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T23:09:58Z }
 ---
 
 # Modules
@@ -24,6 +24,10 @@ a directory), nasher projects (see below) and the game's campaign files
   archive or a folder. **Save As…** writes it as a `.mod` elsewhere. A new
   module is offered as `<name>.mod` in the user folder's `modules`, where
   the game (and Test Module) finds it.
+- In a module folder a resource is one file, named in lower case
+  (`bread.uti`). A file Aurora named otherwise (`bread.UTI`) is read all
+  the same and renamed at the next save; where a folder has both, the
+  one changed last is the resource, and the save leaves that one file.
 - Saving is safe. A module archive is written to a temporary file, then
   put in place, so a failure never leaves a half-written module. The
   previous version is kept beside it (`mymodule.mod.bak`). With **Create
@@ -182,6 +186,22 @@ blueprints appear in the area viewer, the palettes and the editors. Haks
 are looked for in the user folder's `hak`, then the game's `data/hk`. A
 change to the list (adding, removing, reordering, an undo) takes effect at
 once.
+
+**A language the game has no letters for.** A hak can have an
+`encoding.2da`: a table of the Unicode character each of the 256 bytes of
+the game's text stands for, shipped with fonts drawn to match (a Turkish
+module gives the bytes of "ð" and "þ" to "ğ" and "ş"). Moonglow reads the
+table as the game does and shows and writes the module's text by it:
+names, tags, descriptions, conversations, the journal, scripts and the
+talk table show the table's letters, and a letter you type is saved as
+its byte. A letter the table has no byte for is a "?" (or is refused,
+where a field says so). The table must be in a hak on the list: the game
+does not read one kept in the module itself. A module without one is
+read as ever (Windows-1252; Polish text Windows-1250). Plugins' text
+follows the table too, and so does the command line where it is given a
+module (`mg set`, `apply`, `find`, `info`, `areas`, `replace`, `dialog`):
+it needs the game install to find the hak. `mg gff` on a file of its own
+is Windows-1252.
 
 **The hak list** (Custom Content) has the module's haks numbered from the
 top: where two haks have a resource of the same name, the game takes the

@@ -339,6 +339,17 @@ enum Cmd {
     /// What a module is: its name, tag, areas, haks, talk table and
     /// resources by type.
     Info { module: PathBuf },
+    /// Check that Moonglow keeps a module as it is: saves a copy (the
+    /// module is not touched), opens it again and compares every resource
+    /// byte for byte; then writes every GFF and 2DA anew and compares what
+    /// it reads back. Exits with an error if anything differs.
+    Roundtrip {
+        /// A .mod file or a module folder.
+        module: PathBuf,
+        /// Keep the copy here (a .mod file) rather than a temporary one.
+        #[arg(long)]
+        keep: Option<PathBuf>,
+    },
     /// Make a tileset's palette (<tileset>palstd.itp) from its .set: its
     /// groups, features, terrains and crossers, as the painter offers them.
     TilesetPalette {
@@ -687,9 +698,13 @@ fn run(cli: &Cli) -> Result<Output> {
         }
         Cmd::Gff { input, output } => gff(input, output.as_deref(), cli.json)?,
         Cmd::Set { module, resource, fields, remove, dry_run } => {
+            edits::use_codepage(codepage_at(cli, module));
             edits::set(module, resource, fields, remove, *dry_run)?
         }
-        Cmd::Apply { module, edits, dry_run } => edits::apply(module, edits, *dry_run)?,
+        Cmd::Apply { module, edits, dry_run } => {
+            edits::use_codepage(codepage_at(cli, module));
+            edits::apply(module, edits, *dry_run)?
+        }
         Cmd::Which { resource } => {
             let rm = ResMan::for_game(&install(cli)?)?;
             let key = resource_key(resource)?;
@@ -946,7 +961,10 @@ fn run(cli: &Cli) -> Result<Output> {
             let key = ResKey::from_filename(dialog).context("give the conversation as name.dlg")?;
             let g = m.gff(&key).with_context(|| format!("{key} is not in the module"))??;
             let f = Format::of(output).context("the output must end .txt, .csv, .twee or .ink")?;
-            std::fs::write(output, f.write(&g, &key.resref.to_string()))?;
+            // (Its lines as the module's own table reads them, if any.)
+            let text = f.write(&g, &key.resref.to_string());
+            let text = Codepage::WINDOWS_1252.spelled_in(&text, module_codepage(cli, &m));
+            std::fs::write(output, text.as_bytes())?;
             Output::new(
                 json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
             )
@@ -959,6 +977,8 @@ fn run(cli: &Cli) -> Result<Output> {
             let key = ResKey::parse(&name, mg_core::ResType::DLG)
                 .with_context(|| format!("{name:?} isn't a resource name"))?;
             let source = std::fs::read_to_string(file)?;
+            let source =
+                (module_codepage(cli, &m).spelled_in(&source, Codepage::WINDOWS_1252)).into_owned();
             let mut out = Output::default();
             let mut changed = None;
             // A story is a conversation of its own; a text export goes
@@ -1008,8 +1028,9 @@ fn run(cli: &Cli) -> Result<Output> {
                     })
                     .collect::<Result<_>>()?
             };
-            let o = Options { match_case: *match_case, whole_word: *whole_word };
             let mut m = Module::open(module)?;
+            let game = Some(module_codepage(cli, &m));
+            let o = Options { match_case: *match_case, whole_word: *whole_word, game };
             let hits = mg_module::text::find(&m, find, o, &kinds);
             let mut out = Output::default();
             for h in &hits {
@@ -1083,7 +1104,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 changes.push(Change::DynamicPlaceables);
             }
             let mut m = Module::open(module)?;
-            let listed = areas::list(&m);
+            let listed = areas::list_in(&m, module_codepage(cli, &m));
             for a in &filter.only {
                 if !listed.iter().any(|l| l.resref == *a) {
                     bail!("{a} is not an area of the module");
@@ -1400,10 +1421,13 @@ fn run(cli: &Cli) -> Result<Output> {
                         .with_context(|| format!("{t}: not a blueprint type (utc, utp, …)"))
                 })
                 .collect::<Result<Vec<_>>>()?;
+            // (Names are matched and shown in the module's own letters.)
+            let cp = module_codepage(cli, &m);
             let q = mg_module::query::Query {
                 types,
                 tag: tag.clone(),
-                name: name.clone(),
+                name: (name.as_deref())
+                    .map(|n| cp.spelled_in(n, Codepage::WINDOWS_1252).into_owned()),
                 resref: resref.clone(),
                 area: area
                     .as_deref()
@@ -1425,7 +1449,10 @@ fn run(cli: &Cli) -> Result<Output> {
                     })
                     .collect(),
             };
-            let found = mg_module::query::find(&m, &q);
+            let mut found = mg_module::query::find(&m, &q);
+            for f in &mut found {
+                f.name = Codepage::WINDOWS_1252.spelled_in(&f.name, cp).into_owned();
+            }
             let mut out = Output::new(json!({
                 "found": found.iter().map(|f| json!({
                     "kind": if f.placed.is_some() { "placed" } else { "blueprint" },
@@ -1565,9 +1592,14 @@ fn run(cli: &Cli) -> Result<Output> {
             ));
             out
         }
+        Cmd::Roundtrip { module, keep } => roundtrip(module, keep.as_deref())?,
         Cmd::Info { module } => {
             let m = Module::open(module)?;
-            let i = mg_module::query::info(&m)?;
+            let mut i = mg_module::query::info(&m)?;
+            let cp = module_codepage(cli, &m);
+            for text in [&mut i.name, &mut i.description] {
+                *text = Codepage::WINDOWS_1252.spelled_in(text, cp).into_owned();
+            }
             let mut out = Output::new(json!({
                 "name": i.name,
                 "tag": i.tag,
@@ -1615,6 +1647,24 @@ fn run(cli: &Cli) -> Result<Output> {
 }
 
 /// The resman for a module: the game, the module's haks and the module.
+/// The codepage of a module's text: Windows-1252, or the table of an
+/// `encoding.2da` in its haks (which takes the game install to find them:
+/// without one, Windows-1252).
+fn module_codepage(cli: &Cli, m: &Module) -> Codepage {
+    let own = Codepage::WINDOWS_1252;
+    let haks = m.haks().unwrap_or_default();
+    let Ok(gi) = install(cli) else { return own };
+    let Ok(mut rm) = ResMan::for_game(&gi) else { return own };
+    let _ = rm.add_haks(&gi, &haks.iter().map(String::as_str).collect::<Vec<_>>());
+    mg_rules::encoding_of(&rm, own)
+}
+
+/// [`module_codepage`] of the module at a path (Windows-1252 if it can't
+/// be opened: the command says why).
+fn codepage_at(cli: &Cli, module: &Path) -> Codepage {
+    Module::open(module).map_or(Codepage::WINDOWS_1252, |m| module_codepage(cli, &m))
+}
+
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
     let haks = m.haks()?;
@@ -1704,6 +1754,116 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf])
         out.failed = true;
         out.note(format!("mg: {} has errors", path.display()));
     }
+    Ok(out)
+}
+
+/// `mg roundtrip`: a module saved and read back, and each GFF and 2DA of
+/// it written anew, compared with what it was.
+fn roundtrip(path: &Path, keep: Option<&Path>) -> Result<Output> {
+    let original = Module::open(path)?;
+    let copy = match keep {
+        Some(k) => k.to_path_buf(),
+        None => std::env::temp_dir().join(format!("mg-roundtrip-{}.mod", std::process::id())),
+    };
+    if keep.is_some() && copy.exists() {
+        bail!("{} is there already", copy.display());
+    }
+    let mut differences: Vec<(String, String)> = Vec::new();
+    let mut differs = |key: &ResKey, what: &str| differences.push((key.to_string(), what.into()));
+
+    // Saved as it is: every resource byte for byte.
+    let saved = original.clone().save_as(&ModuleLocation::Archive(copy.clone()));
+    let back = saved.map_err(anyhow::Error::from).and_then(|()| Ok(Module::open(&copy)?));
+    if keep.is_none() {
+        let _ = std::fs::remove_file(&copy);
+    }
+    let back = back.context("the copy could not be saved and read back")?;
+    for k in original.keys() {
+        match back.get(k) {
+            None => differs(k, "missing from the saved copy"),
+            Some(b) if Some(b) != original.get(k) => differs(k, "other bytes in the saved copy"),
+            Some(_) => {}
+        }
+    }
+    for k in back.keys().filter(|k| !original.contains(k)) {
+        differs(k, "in the saved copy alone");
+    }
+
+    // Written anew, as an edit writes it: the same when read back.
+    let cp = Codepage::WINDOWS_1252;
+    let (mut gffs, mut tables, mut unread) = (0, 0, Vec::new());
+    for k in original.keys() {
+        let data = original.get(k).expect("its own key");
+        if k.restype.is_gff() {
+            let read = match Gff::read(data) {
+                Ok(g) => g,
+                Err(e) => {
+                    unread.push((k.to_string(), e.to_string()));
+                    continue;
+                }
+            };
+            gffs += 1;
+            match read.to_bytes() {
+                Err(e) => differs(k, &format!("cannot be written: {e}")),
+                Ok(written) => match Gff::read(&written) {
+                    Err(e) => differs(k, &format!("written, it cannot be read: {e}")),
+                    Ok(again) if again != read => differs(k, "other fields once written"),
+                    Ok(again) if again.to_bytes().ok().as_ref() != Some(&written) => {
+                        differs(k, "other bytes each time it is written")
+                    }
+                    Ok(_) => {}
+                },
+            }
+        } else if k.restype == ResType::TWODA {
+            let read = match mg_2da::TwoDa::parse(data, cp) {
+                Ok(t) => t,
+                Err(e) => {
+                    unread.push((k.to_string(), e.to_string()));
+                    continue;
+                }
+            };
+            tables += 1;
+            match read.to_bytes(cp) {
+                Err(e) => differs(k, &format!("cannot be written: {e}")),
+                Ok(written) => match mg_2da::TwoDa::parse(&written, cp) {
+                    Err(e) => differs(k, &format!("written, it cannot be read: {e}")),
+                    Ok(again) if again != read => differs(k, "other cells once written"),
+                    Ok(_) => {}
+                },
+            }
+        }
+    }
+
+    let mut out = Output::new(serde_json::json!({
+        "module": path_text(path),
+        "resources": original.len(),
+        "gffs": gffs,
+        "tables": tables,
+        "differences": differences
+            .iter()
+            .map(|(k, what)| serde_json::json!({ "resource": k, "what": what }))
+            .collect::<Vec<_>>(),
+        "unread": unread
+            .iter()
+            .map(|(k, why)| serde_json::json!({ "resource": k, "why": why }))
+            .collect::<Vec<_>>(),
+        "copy": keep.map(path_text),
+    }));
+    for (k, what) in &differences {
+        out.line(format!("{k}\t{what}"));
+    }
+    for (k, why) in &unread {
+        out.note(format!("warning: {k} cannot be read ({why}): kept as it is, never written anew"));
+    }
+    out.note(format!(
+        "{} resources saved and read back, {gffs} GFFs and {tables} 2DAs written anew: {}",
+        original.len(),
+        match differences.len() {
+            0 => "all the same".to_string(),
+            n => format!("{n} differ"),
+        }
+    ));
+    out.failed = !differences.is_empty();
     Ok(out)
 }
 

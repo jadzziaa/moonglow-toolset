@@ -13,7 +13,7 @@ fn replace_lists_then_changes_the_modules_text() {
     let path = dir.join("contest.mod");
     let mut m = Module::open(&root.join("data/mod/Contest Of Champions 0492.mod")).unwrap();
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
-    let o = Options { match_case: false, whole_word: true };
+    let o = Options { match_case: false, whole_word: true, game: None };
     // The word the module uses most in its own text.
     let word = "champion";
     let hits = find(&m, word, o, &TextKind::ALL);

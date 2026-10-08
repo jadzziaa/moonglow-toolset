@@ -572,8 +572,10 @@ pub(crate) struct AbilityGroup {
 }
 
 /// The list's entries grouped into abilities, in the order each first
-/// appears: entries of one spell, caster level and flags are uses of one
-/// ability.
+/// appears: entries of one spell and caster level that are ready (or
+/// spent) alike are uses of one ability. (The game reads the flags as
+/// yes or no: entries flagged 1 and 5 are the same to it. The group has
+/// its first entry's flags.)
 pub(crate) fn ability_groups(list: &[Struct]) -> Vec<AbilityGroup> {
     let mut groups: Vec<AbilityGroup> = Vec::new();
     for (i, s) in list.iter().enumerate() {
@@ -582,7 +584,7 @@ pub(crate) fn ability_groups(list: &[Struct]) -> Vec<AbilityGroup> {
             (n("Spell", 0), n("SpellCasterLevel", 1), n("SpellFlags", 1));
         match groups
             .iter_mut()
-            .find(|g| (g.spell, g.caster_level, g.flags) == (spell, caster_level, flags))
+            .find(|g| (g.spell, g.caster_level, g.flags != 0) == (spell, caster_level, flags != 0))
         {
             Some(g) => g.entries.push(i),
             None => groups.push(AbilityGroup { spell, caster_level, flags, entries: vec![i] }),
@@ -616,9 +618,12 @@ fn set_uses(
     }
 }
 
-/// A special ability's `SpellFlags`: (bit, name), as BioWare's creature
-/// format documents them.
-const ABILITY_FLAGS: [(i64, &str); 3] = [(0x1, "Ready"), (0x2, "Spontaneous"), (0x4, "Unlimited")];
+/// A special ability's `SpellFlags` for a use the creature has: BioWare's
+/// creature format names the byte's bits Ready (1), Spontaneous (2) and
+/// Unlimited (4), but the game reads it as yes or no (any bit: a use it
+/// has; none: a use spent; `engine_special_abilities.rs`), so the editor
+/// has the one switch, and writes Ready.
+const ABILITY_READY: i64 = 0x1;
 
 pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
@@ -698,10 +703,10 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                 ui.strong("Ability");
                 ui.strong("Uses");
                 ui.strong("Caster Level");
-                ui.strong("Flags").on_hover_text(
-                    "As BioWare's creature format names them. The game takes a use with any \
-                     of them set as one the creature has, and a use with none as spent; \
-                     Unlimited does not make an ability's uses unlimited",
+                ui.strong("Ready").on_hover_text(
+                    "Whether the creature has these uses, or starts with them spent. (The \
+                     file keeps a byte of flags for each use, which the game reads as yes \
+                     or no: nothing makes an ability's uses unlimited.)",
                 );
                 ui.label("");
                 ui.end_row();
@@ -723,21 +728,19 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
                         };
                         edits.push(("Caster level", g.entries.iter().map(set).collect()));
                     }
-                    ui.horizontal(|ui| {
-                        for (bit, name) in ABILITY_FLAGS {
-                            let mut on = g.flags & bit != 0;
-                            if ui.checkbox(&mut on, name).changed() {
-                                let flags = if on { g.flags | bit } else { g.flags & !bit };
-                                let set = |&i: &usize| Edit::SetField {
-                                    key,
-                                    path: base.clone().item("SpecAbilityList", i),
-                                    label: "SpellFlags".into(),
-                                    value: Some(Value::Byte(flags as u8)),
-                                };
-                                edits.push((name, g.entries.iter().map(set).collect()));
-                            }
-                        }
-                    });
+                    // (Flags a file has besides stay as they are until
+                    // the switch is turned.)
+                    let mut on = g.flags != 0;
+                    if ui.checkbox(&mut on, "").changed() {
+                        let flags = if on { ABILITY_READY } else { 0 };
+                        let set = |&i: &usize| Edit::SetField {
+                            key,
+                            path: base.clone().item("SpecAbilityList", i),
+                            label: "SpellFlags".into(),
+                            value: Some(Value::Byte(flags as u8)),
+                        };
+                        edits.push(("Ready", g.entries.iter().map(set).collect()));
+                    }
                     if ui.small_button("Remove").clicked() {
                         edits.push((
                             "Remove special ability",
@@ -1296,6 +1299,18 @@ mod tests {
         // None: all of them; as many: nothing.
         assert_eq!(set_uses(key, &base, &list[0], entries, 0).len(), 3);
         assert!(set_uses(key, &base, &list[0], entries, 3).is_empty());
+
+        // Uses flagged otherwise but ready all the same are one ability (the
+        // game reads the flags as yes or no); spent ones are another.
+        let flagged = |flags: u8| {
+            let mut s = ability(10, 5);
+            s.set("SpellFlags", Value::Byte(flags));
+            s
+        };
+        let groups = ability_groups(&[flagged(1), flagged(5), flagged(0), flagged(2)]);
+        let shape: Vec<(bool, &[usize])> =
+            groups.iter().map(|g| (g.flags != 0, g.entries.as_slice())).collect();
+        assert_eq!(shape, [(true, &[0, 1, 3][..]), (false, &[2])]);
     }
 
     #[test]

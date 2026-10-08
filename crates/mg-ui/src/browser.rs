@@ -220,7 +220,7 @@ impl Viewed {
         let rm = &game.resman;
         let data = rm.get(&key).ok()?.into_owned();
         let origin = rm.origin(&key).unwrap_or("?").to_string();
-        let codepage = game.language.codepage();
+        let codepage = game.codepage();
         let content = if key.restype.is_gff() {
             Gff::read(&data).map_or_else(|e| Content::Error(e.to_string()), Content::Gff)
         } else if key.restype == ResType::TWODA {

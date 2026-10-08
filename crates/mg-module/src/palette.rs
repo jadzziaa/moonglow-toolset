@@ -363,7 +363,7 @@ impl PaletteName {
     pub fn text(&self, game: &GameData) -> String {
         match self {
             PaletteName::StrRef(s) => game.string(StrRef(*s)).unwrap_or_default(),
-            PaletteName::Text(t) => text_of(t, game.language.codepage()),
+            PaletteName::Text(t) => text_of(t, game.codepage()),
         }
     }
 }
@@ -558,7 +558,7 @@ pub fn rebuild_custom_palette(
     // (Categories a module named in Moonglow before 1.19.4 are UTF-8 in
     // its skeleton: in the game's bytes here.)
     if let Some(Value::List(main)) = palette.root.get_mut("MAIN") {
-        names_in_game_bytes(main, game.language.codepage());
+        names_in_game_bytes(main, game.codepage());
     }
     // Blueprints by category.
     let mut by_category: std::collections::BTreeMap<u8, Vec<(String, Struct)>> = Default::default();
@@ -652,7 +652,7 @@ pub fn rebuild_custom_palettes(module: &mut Module, game: &GameData) -> Result<u
         if module.contains(&key)
             && let Some(Ok(mut own)) = module.gff(&key)
             && let Some(Value::List(main)) = own.root.get_mut("MAIN")
-            && names_in_game_bytes(main, game.language.codepage())
+            && names_in_game_bytes(main, game.codepage())
         {
             let bytes = own.to_bytes().map_err(|e| e.to_string())?;
             module.set(key, bytes);

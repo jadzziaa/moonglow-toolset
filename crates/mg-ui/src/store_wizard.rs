@@ -54,7 +54,9 @@ pub struct StoreWizard {
 fn factions(app: &mut Moonglow) -> Option<Factions> {
     let key = ResKey::parse("repute", ResType::FAC)?;
     let ws = app.ws.as_mut()?;
-    ws.doc(&key).ok().map(|g| Factions::read(&Gff { root: g.root.clone(), ..Gff::new(*b"FAC ") }))
+    let codepage = crate::text::game_codepage();
+    (ws.doc(&key).ok())
+        .map(|g| Factions::read_in(&Gff { root: g.root.clone(), ..Gff::new(*b"FAC ") }, codepage))
 }
 
 /// The faction field of a shopkeeper in `list`.
@@ -294,9 +296,19 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
         Edit::SetResource {
             key: ResKey::new(dialog, ResType::DLG),
             data: Some(
-                store_setup::conversation(&w.greeting, &w.yes, &w.no, script)
-                    .to_bytes()
-                    .map_err(|e| e.to_string())?,
+                {
+                    // (Its lines in the module's own letters, if it has a
+                    // table of them.)
+                    let line = crate::text::for_windows_1252;
+                    store_setup::conversation(
+                        &line(&w.greeting),
+                        &line(&w.yes),
+                        &line(&w.no),
+                        script,
+                    )
+                }
+                .to_bytes()
+                .map_err(|e| e.to_string())?,
             ),
         },
         Edit::SetResource { key: nss, data: Some(crate::text::encode(&text)) },
@@ -376,7 +388,7 @@ pub(crate) fn popup_window(app: &mut Moonglow, ctx: &egui::Context) {
         });
     if ok && let Some(name) = name {
         let git = ResKey::new(p.area, ResType::GIT);
-        match store_setup::popup(&p.text).to_bytes() {
+        match store_setup::popup(&crate::text::for_windows_1252(&p.text)).to_bytes() {
             Ok(data) => {
                 let edits = vec![
                     Edit::SetResource { key: ResKey::new(name, ResType::DLG), data: Some(data) },

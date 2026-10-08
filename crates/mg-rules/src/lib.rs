@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use mg_2da::TwoDa;
-use mg_core::{Gender, Language, LocString, ResRef, ResType, StrRef};
+use mg_core::{Codepage, Gender, Language, LocString, ResRef, ResType, StrRef};
 use mg_resman::{GameInstall, ResError, ResKey, ResMan};
 use mg_tlk::Tlk;
 use thiserror::Error;
@@ -78,6 +78,48 @@ pub struct GameData {
     tlk: Tlk,
     custom_tlk: Option<Tlk>,
     tables: RwLock<HashMap<ResRef, Arc<TwoDa>>>,
+    /// The codepage of the game's text, once worked out (see
+    /// [`codepage`](Self::codepage)).
+    codepage: RwLock<Option<Codepage>>,
+}
+
+/// The codepage of an `encoding.2da`: its `Codepoint` column is the
+/// Unicode character of each byte, row by row, in hexadecimal (`0x11f`;
+/// the game reads `305` as hexadecimal too, and of a number past the
+/// Basic Multilingual Plane its low 16 bits). A row that is missing, blank
+/// or no number keeps the character of `own` (Windows-1252 where `own` has
+/// characters of more than one byte). `None` for a table that is not one,
+/// or that changes nothing. (Settled in the game:
+/// `mg-corpus-tests/tests/engine_encoding.rs`.)
+pub fn encoding_table(table: &TwoDa, own: Codepage) -> Option<Codepage> {
+    let column = table.column("Codepoint")?;
+    let base = own.chars().or_else(|| Codepage::WINDOWS_1252.chars())?;
+    let mut chars = base;
+    for (row, c) in chars.iter_mut().enumerate() {
+        let Some(cell) = table.cell(row, column) else { continue };
+        let cell = cell.trim();
+        let hex = cell.strip_prefix("0x").or_else(|| cell.strip_prefix("0X")).unwrap_or(cell);
+        let number = u64::from_str_radix(hex, 16).ok().map(|n| (n & 0xFFFF) as u32);
+        if let Some(read) = number.and_then(char::from_u32) {
+            *c = read;
+        }
+    }
+    (chars != base).then(|| Codepage::table(chars))
+}
+
+/// The codepage of the game's text with these resources: `own`, or the
+/// table of an `encoding.2da` among them. (From a hak or below, not the
+/// module file's own: the game does not read that one.)
+pub fn encoding_of(resman: &ResMan, own: Codepage) -> Codepage {
+    let key = ResKey::new(ResRef::from_str("encoding").expect("a resref"), ResType::TWODA);
+    let layer = (resman.layers().iter())
+        .find(|l| l.priority != mg_resman::priority::MODULE && l.container.contains(&key));
+    layer
+        .and_then(|l| l.container.read(&key).ok())
+        // (Read as the language's own text: it is plain numbers.)
+        .and_then(|bytes| TwoDa::parse(&bytes, own).ok())
+        .and_then(|table| encoding_table(&table, own))
+        .unwrap_or(own)
 }
 
 /// The column of a name written out in a table, used where a row's
@@ -109,6 +151,7 @@ impl GameData {
             tlk,
             custom_tlk: None,
             tables: RwLock::new(HashMap::new()),
+            codepage: RwLock::new(None),
         }
     }
 
@@ -130,6 +173,29 @@ impl GameData {
     /// when a module's haks change).
     pub fn invalidate(&self) {
         self.tables.write().expect("table cache poisoned").clear();
+        *self.codepage.write().expect("codepage poisoned") = None;
+    }
+
+    /// The codepage of the game's text: the language's, or the table of a
+    /// module's `encoding.2da` (EE 1.87: the character each of the 256
+    /// bytes stands for, shipped with fonts to match, for a language the
+    /// game has no codepage for). It is read from the module's haks (or
+    /// what lies below them), as the game reads it. Worked out once, and
+    /// again after
+    /// [`invalidate`](Self::invalidate).
+    pub fn codepage(&self) -> Codepage {
+        if let Some(c) = *self.codepage.read().expect("codepage poisoned") {
+            return c;
+        }
+        let codepage = encoding_of(&self.resman, self.language.codepage());
+        *self.codepage.write().expect("codepage poisoned") = Some(codepage);
+        codepage
+    }
+
+    /// The codepage of a language's text in this game (see
+    /// [`Codepage::for_language`]).
+    pub fn codepage_of(&self, language: Language) -> Codepage {
+        self.codepage().for_language(language)
     }
 
     /// A 2DA by name (without extension), parsed once and cached.
@@ -139,7 +205,7 @@ impl GameData {
             return Ok(t.clone());
         }
         let bytes = self.resman.get(&ResKey::new(resref, ResType::TWODA))?;
-        let table = TwoDa::parse(&bytes, self.language.codepage())
+        let table = TwoDa::parse(&bytes, self.codepage())
             .map_err(|e| RulesError::TwoDa { name: name.into(), message: e.to_string() })?;
         let table = Arc::new(table);
         self.tables.write().expect("table cache poisoned").insert(resref, table.clone());
@@ -154,7 +220,7 @@ impl GameData {
             return None;
         }
         let tlk = if strref.is_custom() { self.custom_tlk.as_ref()? } else { &self.tlk };
-        tlk.text(strref)
+        tlk.text_in(strref, self.codepage())
     }
 
     /// The text a localized string shows in the toolset's language: the
@@ -162,13 +228,14 @@ impl GameData {
     /// string, else its text in another language (English first), as
     /// Aurora shows a name written in English alone.
     pub fn locstring(&self, s: &LocString) -> Option<String> {
-        s.text(self.language, Gender::Male)
+        let game = self.codepage();
+        s.text_in(self.language, Gender::Male, game)
             .map(|t| t.into_owned())
             .filter(|t| !t.is_empty())
             .or_else(|| self.string(s.strref).filter(|t| !t.is_empty()))
-            .or_else(|| s.elsewhere(self.language).map(|(_, text)| text))
+            .or_else(|| s.elsewhere_in(self.language, game).map(|(_, text)| text))
             // (A variant that is there and empty is still its text.)
-            .or_else(|| s.text(self.language, Gender::Male).map(|t| t.into_owned()))
+            .or_else(|| s.text_in(self.language, Gender::Male, game).map(|t| t.into_owned()))
     }
 
     /// [`locstring`](Self::locstring)'s text as the bytes it has in the
@@ -253,6 +320,88 @@ mod tests {
         custom.entries.push(TlkEntry::text("From the module"));
         gd.set_custom_tlk(Some(custom));
         gd
+    }
+
+    /// The game data of a talk table in `language` with one line of the
+    /// bytes "Da\xf0\xb3", and an `encoding.2da` (byte 0xF0 is "ğ") in a
+    /// hak, in the module file, or nowhere.
+    fn encoded(language: Language, hak: bool, module: bool) -> GameData {
+        // (Row 240 by its place, as the game reads it: 240 rows before.)
+        let mut text = String::from("2DA V2.0\n\n  Codepoint\n");
+        for row in 0..240 {
+            text.push_str(&format!("{row} ****\n"));
+        }
+        text.push_str("240 0x11f\n");
+        let key = ResKey::parse("encoding", ResType::TWODA).unwrap();
+        let mut rm = ResMan::new();
+        for (on, priority, label) in
+            [(hak, priority::HAK_USER, "hak:x"), (module, priority::MODULE, "module")]
+        {
+            let mut mem = MemContainer::new();
+            if on {
+                mem.insert(key, text.as_bytes());
+            }
+            rm.add(priority, label, LayerClass::Erf, mem);
+        }
+        let mut tlk = Tlk::new(language);
+        tlk.entries.push(TlkEntry::text(b"Da\xf0\xb3".to_vec()));
+        GameData::new(rm, tlk)
+    }
+
+    #[test]
+    fn a_hak_s_encoding_table_is_the_game_s_codepage() {
+        let name = |text: &[u8]| LocString::from_text(Language::ENGLISH, Gender::Male, text);
+        // Without one: the language's own, English and Polish.
+        let gd = encoded(Language::ENGLISH, false, false);
+        assert_eq!(gd.codepage(), Codepage::WINDOWS_1252);
+        assert_eq!(gd.string(StrRef(0)).as_deref(), Some("Dað³"));
+        assert_eq!(gd.locstring(&name(b"Da\xf0")).as_deref(), Some("Dað"));
+        let gd = encoded(Language::POLISH, false, false);
+        assert_eq!(gd.codepage(), Codepage::WINDOWS_1250);
+        assert_eq!(gd.string(StrRef(0)).as_deref(), Some("Dađł"));
+        // (A name in English is Windows-1252 in a Polish game too.)
+        assert_eq!(gd.locstring(&name(b"Da\xf0")).as_deref(), Some("Dað"));
+        // In the module file alone it is not read: the game doesn't.
+        let gd = encoded(Language::ENGLISH, false, true);
+        assert_eq!(gd.codepage(), Codepage::WINDOWS_1252);
+
+        // In a hak: its letter, in the talk table and in a name; the other
+        // bytes keep the letters of the game's language.
+        let gd = encoded(Language::ENGLISH, true, true);
+        assert!(gd.codepage().is_table());
+        assert_eq!(gd.string(StrRef(0)).as_deref(), Some("Dağ³"));
+        assert_eq!(gd.locstring(&name(b"Da\xf0")).as_deref(), Some("Dağ"));
+        assert_eq!(gd.codepage().encode("Dağ").unwrap().as_ref(), b"Da\xf0");
+        let gd = encoded(Language::POLISH, true, false);
+        assert_eq!(gd.string(StrRef(0)).as_deref(), Some("Dağł"));
+        assert_eq!(gd.codepage_of(Language::ENGLISH), gd.codepage());
+        // Looked up anew when the layers change.
+        let mut gd = encoded(Language::ENGLISH, true, false);
+        assert!(gd.codepage().is_table());
+        gd.resman.remove("hak:x");
+        gd.invalidate();
+        assert_eq!(gd.codepage(), Codepage::WINDOWS_1252);
+    }
+
+    #[test]
+    fn an_encoding_table_s_cells() {
+        let own = Codepage::WINDOWS_1252;
+        let read = |rows: &str| {
+            let text = format!("2DA V2.0\n\n  Codepoint\n{rows}");
+            encoding_table(&TwoDa::parse(text.as_bytes(), own).unwrap(), own)
+        };
+        // Hexadecimal with or without its prefix; a number past 16 bits
+        // is its low 16; a blank cell, no number and half of a surrogate
+        // pair leave the byte as it is.
+        let t = read("0 0x11f\n1 131\n2 0X15E\n3 0x1F600\n4 ****\n5 zz\n6 0xD800\n").unwrap();
+        let chars = t.chars().unwrap();
+        assert_eq!(chars[..4], ['ğ', 'ı', 'Ş', '\u{f600}']);
+        assert_eq!(chars[4..], own.chars().unwrap()[4..]);
+        // The game's own letters written out are no table at all, nor is
+        // a table of another column.
+        assert_eq!(read("0 0x0\n1 0x1\n"), None);
+        let other = TwoDa::parse(b"2DA V2.0\n\n  Label\n0 0x11f\n", own).unwrap();
+        assert_eq!(encoding_table(&other, own), None);
     }
 
     #[test]

@@ -146,12 +146,7 @@ pub fn export_erf(
     if !comments.is_empty() {
         w.description = Description {
             strref: StrRef::NONE,
-            strings: vec![(
-                0,
-                mg_core::Codepage::WINDOWS_1252
-                    .encode(comments)
-                    .map_or_else(|| comments.as_bytes().to_vec(), |b| b.into_owned()),
-            )],
+            strings: vec![(0, mg_core::Codepage::WINDOWS_1252.encode_lossy(comments))],
         };
     }
     for k in resources {

@@ -63,6 +63,16 @@ pub struct Options {
     pub match_case: bool,
     /// The text must not run on into letters, digits or `_` either side.
     pub whole_word: bool,
+    /// The game's codepage, where a module has its own table
+    /// (`encoding.2da`); a language's own otherwise.
+    pub game: Option<mg_core::Codepage>,
+}
+
+impl Options {
+    /// The codepage of a language's text.
+    fn codepage(&self, language: mg_core::Language) -> mg_core::Codepage {
+        self.game.map_or(language.codepage(), |g| g.for_language(language))
+    }
 }
 
 /// A step from a GFF's root to a struct inside it.
@@ -163,9 +173,10 @@ pub fn replace_locstring(
     let mut out = ls.clone();
     for (key, _) in &ls.strings {
         let (language, gender) = (key.language(), key.gender());
-        let Some(text) = ls.text(language, gender) else { continue };
+        let game = o.codepage(language);
+        let Some(text) = ls.text_in(language, gender, game) else { continue };
         let (new, n) = replace_text(&text, query, with, o);
-        if n > 0 && out.set_text(language, gender, &new).is_none() {
+        if n > 0 && out.set_text_in(language, gender, &new, game).is_none() {
             return Err(format!(
                 "{} can't hold {with:?}",
                 language.name().unwrap_or("its language")
@@ -214,7 +225,10 @@ fn walk(
                 let mut count = 0;
                 let mut first = None;
                 for (k, _) in &ls.strings {
-                    let Some(text) = ls.text(k.language(), k.gender()) else { continue };
+                    let game = o.codepage(k.language());
+                    let Some(text) = ls.text_in(k.language(), k.gender(), game) else {
+                        continue;
+                    };
                     let n = matches(&text, query, o).len();
                     if n > 0 && first.is_none() {
                         first = Some(text.into_owned());
@@ -304,7 +318,7 @@ mod tests {
     use super::*;
 
     fn o(match_case: bool, whole_word: bool) -> Options {
-        Options { match_case, whole_word }
+        Options { match_case, whole_word, game: None }
     }
 
     #[test]

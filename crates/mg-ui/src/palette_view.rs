@@ -657,6 +657,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         ui.weak("No exact matches: close ones");
     }
     let mut list = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // A row is one line: a name too long for the pane is cut short
+        // (the pointer over it shows it whole, and its ResRef, tag and
+        // challenge rating), as in the module tree. A wider pane shows
+        // more.
+        if !tree.gallery {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+        }
         if find.is_empty() {
             tree.remembered(ui, "Favorites", &favorites, &palette);
             tree.remembered(ui, "Recent", &recent, &palette);
@@ -1173,6 +1180,9 @@ impl Tree<'_> {
             ui.label(format!("ResRef {}", b.resref));
             if let Some(t) = tags.get(&b.resref).filter(|t| !t.is_empty()) {
                 ui.label(format!("Tag {t}"));
+            }
+            if let Some(cr) = b.cr {
+                ui.label(format!("Challenge rating {cr}"));
             }
             if let Some(id) = thumb {
                 let size = 180.0;

@@ -119,6 +119,14 @@ impl Tlk {
         (e.flags & FLAG_TEXT != 0).then(|| self.language.codepage().decode(&e.text).into_owned())
     }
 
+    /// [`text`](Self::text) where `game` is the game's codepage: a module's
+    /// own table (`encoding.2da`) reads the talk tables too.
+    pub fn text_in(&self, strref: StrRef, game: mg_core::Codepage) -> Option<String> {
+        let e = self.get(strref)?;
+        let codepage = game.for_language(self.language);
+        (e.flags & FLAG_TEXT != 0).then(|| codepage.decode(&e.text).into_owned())
+    }
+
     /// Serializes: header, entry table, then the strings in entry order.
     pub fn to_bytes(&self) -> Result<Vec<u8>, TlkError> {
         let n = self.entries.len();

@@ -16,7 +16,7 @@ use mg_edit::{Edit, GffPath};
 use mg_resman::ResKey;
 use mlua::{Lua, Table, Value as LuaValue};
 
-use crate::runtime::{CODEPAGE, Shared, This, fail};
+use crate::runtime::{Shared, This, codepage, fail};
 use crate::{Answer, HakData, HakWrite, MAX_FILE, Question};
 
 /// The names of what these functions hand out, as the reference writes
@@ -174,7 +174,7 @@ pub(crate) fn questions(lua: &Lua, sh: &Rc<Shared>, ui: &Table) -> mlua::Result<
                     // UTF-8 if it is, else as the module's codepage has it.
                     match String::from_utf8(bytes) {
                         Ok(text) => lua.create_string(text.trim_start_matches('\u{feff}')),
-                        Err(e) => lua.create_string(CODEPAGE.decode(e.as_bytes()).as_bytes()),
+                        Err(e) => lua.create_string(codepage().decode(e.as_bytes()).as_bytes()),
                     }
                 })?,
             )?;

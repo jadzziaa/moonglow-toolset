@@ -1874,6 +1874,7 @@ version = "1.19.4"
 dependencies = [
  "anyhow",
  "clap",
+ "mg-2da",
  "mg-core",
  "mg-edit",
  "mg-erf",
@@ -2079,6 +2080,7 @@ dependencies = [
  "mg-set",
  "mg-testkit",
  "mg-tiles",
+ "mg-tlk",
  "mlua",
  "png",
  "serde_json",

@@ -2703,6 +2703,124 @@ fn a_creature_s_statistics_have_arrows_to_step_by_one() {
     assert_eq!(strength(&mut h), was + 2);
 }
 
+/// A waypoint's editor in a module whose hak has (or, `table` off, has
+/// not) an `encoding.2da` with the wiki's Turkish letters: byte 0xF0 is
+/// "ğ", 0xFD "ı", 0xFE "ş". The waypoint's tag is `Da\xf0`.
+fn turkish_harness(name: &str, table: bool) -> Option<(Harness<'static, Moonglow>, ResKey)> {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return None;
+    };
+    let dir = mg_testkit::scratch_dir(name);
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let mut rows = String::from("2DA V2.0\n\n     Codepoint\n");
+    let own = mg_core::Codepage::WINDOWS_1252.chars().unwrap();
+    for (b, c) in own.iter().enumerate() {
+        let c = match b {
+            0xF0 => 'ğ',
+            0xFD => 'ı',
+            0xFE => 'ş',
+            _ => *c,
+        };
+        rows.push_str(&format!("{b} 0x{:x}\n", c as u32));
+    }
+    let mut hak = mg_erf::ErfWriter::new(*b"HAK ");
+    let key = ResKey::parse(if table { "encoding" } else { "mg_other" }, ResType::TWODA).unwrap();
+    hak.add(key.resref, key.restype, rows.into_bytes()).unwrap();
+    std::fs::write(user.join("hak/mg_turkish.hak"), hak.to_bytes().unwrap()).unwrap();
+
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    let mut item = ifo::MOD_HAK_LIST.new_item();
+    item.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from("mg_turkish"));
+    info.root.items_mut(&ifo::MOD_HAK_LIST).push(item);
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let game = app.game.as_deref().unwrap();
+    assert_eq!(game.codepage().is_table(), table);
+    let data = game.resman.get_named("nw_waypoint001", ResType::UTW).unwrap();
+    let mut utw = Gff::read(&data).unwrap();
+    utw.root.set("Tag", mg_gff::Value::String(b"Da\xf0".to_vec()));
+    let key = ResKey::parse("mg_dag", ResType::UTW).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "copy",
+        vec![mg_edit::Edit::SetResource { key, data: Some(utw.to_bytes().unwrap()) }],
+    )));
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    close_tab(&mut app, &Tab::ModuleProperties);
+    app.open_palette = false;
+    let h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    Some((h, key))
+}
+
+/// A module whose hak has an `encoding.2da` (EE 1.87: the character each
+/// byte of the game's text stands for) is read and written by it: the
+/// bytes of the files are the game's, the letters on screen the table's.
+#[test]
+fn a_hak_s_encoding_table_reads_and_writes_the_module_s_text() {
+    let Some((mut h, key)) = turkish_harness("ui-encoding-table", true) else { return };
+    h.run();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    // The tag's byte 0xF0 is the table's letter.
+    h.get_all_by_value("Dağ").find(is_input).expect("the tag as the table reads it").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value("Dağ").find(is_input).unwrap().type_text("Işık dağı é");
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.run();
+    // Typed letters are the table's bytes; the rest are as ever.
+    assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"I\xfe\xfdk da\xf0\xfd \xe9");
+    // A name, too (a localized string), read back by the same table.
+    let name = field(&mut h, &key).locstring("LocalizedName").unwrap().clone();
+    let mut named = name.clone();
+    named.set(Language::ENGLISH, Gender::Male, b"Da\xf0 yolu".to_vec());
+    let game = h.state().game.clone().unwrap();
+    assert_eq!(game.locstring(&named).as_deref(), Some("Dağ yolu"));
+    // A letter the table gave up ("ð", whose byte is "ğ" now) has none.
+    assert!(game.codepage().encode("ð").is_none());
+    drop(game);
+
+    // The hak taken off the module: the game's own codepage again.
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::parse("module", ResType::IFO).unwrap(),
+        path: mg_edit::GffPath::root(),
+        label: ifo::MOD_HAK_LIST.label.to_string(),
+        value: Some(mg_gff::Value::List(Vec::new())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Haks", vec![edit])));
+    h.run();
+    assert!(!h.state().game.as_deref().unwrap().codepage().is_table());
+    assert!(h.query_all_by_value("Iþýk daðý é").any(|n| is_input(&n)));
+}
+
+/// Without the table all is as it was: Windows-1252.
+#[test]
+fn text_without_an_encoding_table_is_windows_1252() {
+    let Some((mut h, key)) = turkish_harness("ui-encoding-none", false) else { return };
+    h.run();
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value("Dað").find(is_input).expect("the tag in Windows-1252").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value("Dað").find(is_input).unwrap().type_text("Épée ğ");
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.run();
+    // (A letter Windows-1252 lacks is a "?", as before.)
+    assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"\xc9p\xe9e ?");
+}
+
 #[test]
 fn waypoint_editor_edits_and_renames() {
     let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "waypoint_copy", ResType::UTW)
@@ -3615,15 +3733,21 @@ fn creature_editor_lists() {
     h.get_all_by_label("Fireball").next().unwrap().click();
     h.run();
     assert_eq!(count(&mut h, "SpecAbilityList"), specials + 1);
-    // Its flags: Ready as added; Unlimited is set on its every use.
+    // Ready as added (the game reads the flags as yes or no: the one
+    // switch); switched off, its uses are spent.
     let flags = |h: &mut Harness<'_, Moonglow>| {
         let list = field(h, &key).list("SpecAbilityList").unwrap().to_vec();
         list.last().unwrap().integer("SpellFlags")
     };
     assert_eq!(flags(&mut h), Some(1));
-    h.get_all_by_label("Unlimited").last().unwrap().click();
+    assert!(h.query_by_label("Unlimited").is_none() && h.query_by_label("Spontaneous").is_none());
+    let ready = egui_kittest::kittest::by().role(egui::accesskit::Role::CheckBox);
+    h.query_all(ready.clone()).last().unwrap().click();
     h.run();
-    assert_eq!(flags(&mut h), Some(5));
+    assert_eq!(flags(&mut h), Some(0));
+    h.query_all(ready).last().unwrap().click();
+    h.run();
+    assert_eq!(flags(&mut h), Some(1));
     // Armor, chosen in the palette, equipped in the armor slot (the second).
     h.get_by_label("Inventory").click();
     h.run();
@@ -5400,6 +5524,13 @@ fn palette_updates_the_instances_of_a_selection_and_a_category() {
     h.run();
     let after = triggers(&mut h);
     assert_eq!((tag(&after[0]), tag(&after[1])), ("NEW_0".to_string(), tag(&before[1])));
+    // The log says which were updated: the one ticked, by its area, kind,
+    // tag and blueprint; not the one left out.
+    let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
+    assert!(log.iter().any(|l| l == "Updated 1 object(s) from 2 blueprint(s):"), "{log:?}");
+    let listed: Vec<&String> = log.iter().filter(|l| l.starts_with("  ")).collect();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert!(listed[0].contains("trigger") && listed[0].contains("(mg_trig_a)"), "{listed:?}");
     // Its outline and place are kept.
     assert_eq!(after[0].get("Geometry"), before[0].get("Geometry"));
     assert_eq!(after[0].float("XPosition"), Some(10.0));
@@ -7953,6 +8084,32 @@ fn editors_open_in_windows_over_the_area() {
     assert!(top > toolbar, "the window starts below the toolbar ({top} vs {toolbar})");
     let img = h.render().expect("render");
     let _ = img.save(mg_testkit::scratch_dir("ui-editor-windows").join("windows.png"));
+}
+
+/// A palette's row is one line however narrow the pane: a name too long
+/// for it is cut short, not wrapped onto a second line (which made the
+/// list hard to read), and the pointer over it shows the whole.
+#[test]
+fn a_palette_row_too_long_for_the_pane_stays_one_line() {
+    use mg_module::palette::BlueprintKind;
+    let Some((mut h, _)) = area_harness("palette-one-line") else { return };
+    h.state_mut().palette.kind = BlueprintKind::Waypoint;
+    h.state_mut().palette.tiles = false;
+    h.state_mut().palette.custom = false;
+    // (ResRefs beside the names: longer than the pane is wide.)
+    h.state_mut().settings.name_resrefs = true;
+    h.run_steps(3);
+    h.get_by_label_contains("(13)").click();
+    h.run_steps(4);
+    let rows: Vec<egui::Rect> =
+        h.query_all_by_label_contains("Beholder AI Exit").map(|n| n.rect()).collect();
+    assert_eq!(rows.len(), 2, "both waypoints of the name are listed");
+    let line = h.get_by_label_contains("Waypoints (13)").rect().height();
+    for r in &rows {
+        assert!(r.height() <= line + 2.0, "one line: {r:?} against {line}");
+    }
+    // One under the other, a line apart.
+    assert!((rows[1].top() - rows[0].top()) < line * 1.5, "{rows:?}");
 }
 
 /// The arrow keys move through the palette's tree after a click in it, as
@@ -12109,6 +12266,47 @@ fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
     assert_eq!(scale(&mut h), None, "an undo each");
+}
+
+/// A look (`MG_SHOT=1`): a dragon selected in an area, its box around it
+/// as it stands.
+#[test]
+fn a_dragon_s_box_in_an_area() {
+    use mg_module::instances::{Placement, Placing, instance};
+    if std::env::var_os("MG_SHOT").is_none() {
+        return;
+    }
+    let Some((mut h, area)) = area_harness("dragon-box") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("nw_drgred001", ResType::UTC).unwrap();
+        let dragon = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [20.0, 20.0, 0.0], rotation: 0.0 };
+        let item = instance(&placing, ResType::UTC, &dragon, at, &[]).unwrap();
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Creature List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    {
+        let view = h.state_mut().area_views.get_mut(&area).unwrap();
+        view.selection = vec![(mg_area::ObjectKind::Creature, 0)];
+        let o = view.orbit.as_mut().unwrap();
+        (o.target, o.yaw, o.pitch, o.distance) =
+            (glam::Vec3::new(20.0, 20.0, 2.0), 0.6, 0.45, 28.0);
+    }
+    h.run_steps(6);
+    let img = h.render().expect("render");
+    img.save(mg_testkit::scratch_dir("ui-dragon-box").join("dragon.png")).unwrap();
 }
 
 /// Ctrl + wheel over the view scales the selected placeable's model, as

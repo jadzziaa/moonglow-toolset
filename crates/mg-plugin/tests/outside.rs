@@ -318,3 +318,58 @@ fn a_tileset_folder_becomes_a_hak_and_an_area() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A module whose hak has an `encoding.2da` (byte 0xF0 is "ğ"): a
+/// plugin's strings are the table's letters, coming out and going in.
+#[test]
+fn a_plugin_s_text_is_read_and_written_by_the_module_s_encoding_table() {
+    use mg_resman::{LayerClass, MemContainer, ResMan, priority};
+    let mut rows = String::from("2DA V2.0\n\n  Codepoint\n");
+    for row in 0..240 {
+        rows.push_str(&format!("{row} ****\n"));
+    }
+    rows.push_str("240 0x11f\n");
+    let game = |table: bool| {
+        let mut hak = MemContainer::new();
+        if table {
+            hak.insert(ResKey::from_filename("encoding.2da").unwrap(), rows.as_bytes());
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "hak:x", LayerClass::Erf, hak);
+        Arc::new(GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH)))
+    };
+    let module = || {
+        let mut m = bare();
+        m.set(ResKey::from_filename("x.nss").unwrap(), &b"// da\xf0"[..]);
+        m
+    };
+    let code = r#"
+        ctx.edit:write("y.nss", "// ığ")
+        return ctx.module:text("x.nss")
+    "#;
+    let written = |outcome: &Outcome| {
+        let mut ws = Workspace::new(module());
+        ws.apply(Command::new(outcome.label.clone(), outcome.edits.clone())).unwrap();
+        ws.flush().unwrap();
+        ws.module.get(&ResKey::from_filename("y.nss").unwrap()).map(<[u8]>::to_vec)
+    };
+    let h = host([]);
+    let input = Input { module: module(), game: Some(game(true)) };
+    // ("ı" has no byte in this table: refused, as ever.)
+    let refused = run_console(code, input, h.clone()).unwrap_err().to_string();
+    assert!(refused.contains("cannot hold"), "{refused}");
+    let code = code.replace("ığ", "ğ");
+    let input = Input { module: module(), game: Some(game(true)) };
+    let outcome = run_console(&code, input, h.clone()).unwrap();
+    assert_eq!(h.log.borrow_mut().remove(0), "\"// dağ\"");
+    assert_eq!(written(&outcome).unwrap(), b"// \xf0");
+    // Without the table: Windows-1252, where "ğ" has no byte.
+    let input = Input { module: module(), game: Some(game(false)) };
+    let refused = run_console(&code, input, h.clone()).unwrap_err().to_string();
+    assert!(refused.contains("cannot hold"), "{refused}");
+    let code = code.replace("ğ", "ð");
+    let input = Input { module: module(), game: Some(game(false)) };
+    let outcome = run_console(&code, input, h.clone()).unwrap();
+    assert_eq!(h.log.borrow_mut().remove(0), "\"// dað\"");
+    assert_eq!(written(&outcome).unwrap(), b"// \xf0");
+}

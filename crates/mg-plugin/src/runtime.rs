@@ -27,9 +27,21 @@ use crate::{
     MEMORY_LIMIT, Manifest, Outcome, Plugin, PluginError, Question,
 };
 
-/// The codepage of a module's text, as the plugin's UTF-8 strings go in
-/// and come out.
+/// The codepage of a module's text where its game is not known.
 pub(crate) const CODEPAGE: Codepage = Codepage::WINDOWS_1252;
+
+thread_local! {
+    /// The codepage of the text of the job this thread runs: see
+    /// [`codepage`].
+    static GAME_CODEPAGE: std::cell::Cell<Codepage> = const { std::cell::Cell::new(CODEPAGE) };
+}
+
+/// The codepage of a module's text, as the plugin's UTF-8 strings go in
+/// and come out: Windows-1252, or the table of an `encoding.2da` in the
+/// module's haks. Set when a job's API is made (a job is one thread's).
+pub(crate) fn codepage() -> Codepage {
+    GAME_CODEPAGE.with(std::cell::Cell::get)
+}
 
 /// Where a job's scripts are read from.
 pub(crate) enum Source {
@@ -161,7 +173,7 @@ fn plain(lua: &Lua, s: &Struct, path: &GffPath) -> mlua::Result<Table> {
     let t = lua.create_table()?;
     for f in &s.fields {
         let label = f.label.to_string_lossy();
-        let text = |b: &[u8]| lua.create_string(CODEPAGE.decode(b).as_bytes());
+        let text = |b: &[u8]| lua.create_string(codepage().decode(b).as_bytes());
         let v = match &f.value {
             Value::Byte(v) => LuaValue::Number(f64::from(*v)),
             Value::Char(v) => LuaValue::Number(f64::from(*v)),
@@ -226,7 +238,7 @@ fn whole(v: &LuaValue, ty: FieldType, min: i128, max: i128) -> Result<i128, Stri
 fn text_of(v: &LuaValue, ty: FieldType) -> Result<Vec<u8>, String> {
     let LuaValue::String(s) = v else { return Err(format!("a {} takes text", ty.json_name())) };
     let s = s.to_str().map_err(|_| "text must be UTF-8".to_string())?;
-    match CODEPAGE.encode(&s) {
+    match codepage().encode(&s) {
         Some(bytes) => Ok(bytes.into_owned()),
         None => Err("text has characters the module's codepage cannot hold".into()),
     }
@@ -347,7 +359,7 @@ fn typed_table(lua: &Lua, v: &LuaValue, what: &str) -> mlua::Result<Option<Value
         return Ok(None);
     }
     let json = json_of(lua, v.clone())?;
-    match mg_gff::value_from_json(&json, CODEPAGE) {
+    match mg_gff::value_from_json(&json, codepage()) {
         Ok(value) => Ok(Some(value)),
         Err(e) => fail(format!("{what}{e}")),
     }
@@ -411,11 +423,11 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
             let key = key_of(&name)?;
             let gff = s.gff(&key, game)?;
             let json = match path.filter(|p| !p.is_empty()) {
-                None => mg_gff::to_json(&gff, CODEPAGE),
+                None => mg_gff::to_json(&gff, codepage()),
                 Some(path) => {
                     let path: GffPath = path.parse().or_else(fail)?;
                     match path.get(&gff.root) {
-                        Some(at) => mg_gff::struct_to_json(at, CODEPAGE),
+                        Some(at) => mg_gff::struct_to_json(at, codepage()),
                         None => return fail(format!("{key}: no struct at {path}")),
                     }
                 }
@@ -428,7 +440,7 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
         "text",
         lua.create_function(move |lua, (_, name): (This, String)| {
             let bytes = s.bytes(&key_of(&name)?, game)?;
-            lua.create_string(CODEPAGE.decode(&bytes).as_bytes())
+            lua.create_string(codepage().decode(&bytes).as_bytes())
         })?,
     )?;
     let s = sh.clone();
@@ -544,7 +556,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
                 let key = key_of(&name)?;
                 let (path, list) = field_from_str(&list).or_else(fail)?;
                 let json = json_of(lua, item)?;
-                let item = mg_gff::struct_from_json(&json, CODEPAGE)
+                let item = mg_gff::struct_from_json(&json, codepage())
                     .or_else(|e| fail(format!("{key} {list}: the item{e}")))?;
                 // At the end, unless a place is given (0 is first).
                 let index = match index {
@@ -582,7 +594,7 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
             let key = key_of(&name)?;
             let text =
                 text.to_str().or_else(|_| fail("text must be UTF-8 (write_bytes takes any)"))?;
-            let Some(data) = CODEPAGE.encode(&text) else {
+            let Some(data) = codepage().encode(&text) else {
                 return fail("text has characters the module's codepage cannot hold");
             };
             s.apply(Edit::SetResource { key, data: Some(data.into_owned()) })
@@ -602,7 +614,8 @@ fn editor(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
         lua.create_function(move |lua, (_, name, doc): (This, String, LuaValue)| {
             let key = key_of(&name)?;
             let json = json_of(lua, doc)?;
-            let gff = mg_gff::from_json(&json, CODEPAGE).or_else(|e| fail(format!("{key}{e}")))?;
+            let gff =
+                mg_gff::from_json(&json, codepage()).or_else(|e| fail(format!("{key}{e}")))?;
             let data = gff.to_bytes().or_else(|e| fail(format!("{key}: {e}")))?;
             s.apply(Edit::SetResource { key, data: Some(data) })
         })?,
@@ -935,6 +948,8 @@ fn shared(plugin: &Plugin, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
 }
 
 fn shared_in(files: Source, who: &str, input: Input, host: &Rc<dyn Host>) -> Rc<Shared> {
+    let game = input.game.as_deref().map_or(CODEPAGE, |g| g.codepage());
+    GAME_CODEPAGE.with(|c| c.set(game.for_language(mg_core::Language::ENGLISH)));
     Rc::new(Shared {
         files,
         ws: RefCell::new(Workspace::new(input.module)),
