@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.19.4" date="2026-10-08">
+      <description>
+        <p>Names in the game's DM Creator and in Aurora's Custom palette
+        are no longer garbled after a save: open a module and save it once
+        to repair it. Ctrl + wheel scales what is selected; the arrow keys
+        move through the palette; the hak list of Module Properties is
+        reordered by a drag or the keys; Update Instances reaches items in
+        containers; the Talk Table editor has Go to; a module folder is
+        also saved as a .mod.</p>
+      </description>
+    </release>
     <release version="1.19.3" date="2026-10-08">
       <description>
         <p>A cloak lying in an area is drawn as the game draws it: folded,
