@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T23:17:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T01:02:33Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -12,7 +12,7 @@ sources:
     resource: human:august
     title: 'The budget: a steady 144 frames a second on the development machine (7 October 2026)'
 verified:
-  - { by: claude-code/claude-opus-5-5, at: 2026-10-07T23:17:14Z }
+  - { by: claude-code/claude-opus-5-5, at: 2026-10-08T01:02:33Z }
 ---
 
 # Frames at 144 a second: where a frame's time went
@@ -56,9 +56,9 @@ throughout, with 4x multisampling.
 
 | View | Before | After |
 | --- | --- | --- |
-| A campaign as it opens (a 30-tile area, the palettes) | 6.0 | 0.65; 3.6 redrawn |
-| A 49-tile area (1,191 meshes), all of it in sight | 4.4 | 0.6; 2.8 redrawn |
-| A 784-tile area (3,671 meshes, 749 lights), all in sight | 15.5 | 0.65; 4.4 redrawn |
+| A campaign as it opens (a 30-tile area, the palettes) | 6.0 | 0.65; 3.4 redrawn |
+| A 49-tile area (1,191 meshes), all of it in sight | 4.4 | 0.6; 2.7 redrawn |
+| A 784-tile area (3,671 meshes, 749 lights), all in sight | 15.5 | 0.65; 4.1 redrawn |
 | …close up (the camera 25 m from the ground) | 15.7 | 1.9 redrawn |
 | The palette's Gallery, scrolled (pictures being made) | 25 | 3.7; a slow picture up to 9 |
 | The Gallery over the whole window, smallest pictures, left alone | 26, without end | 1.7 |
@@ -140,12 +140,12 @@ mesh only if that takes it past none it meets:
 - Skinned and animated meshes, which leave their boxes, are taken past
   nothing.
 
-| | Meshes | Draws | Encoded |
-| --- | --- | --- | --- |
-| The 784-tile area, all in sight | 4,807 | 1,028 | 3.9 ms, now 2.7 |
-| …close up | 280 | 187 | 0.5 ms, as before |
-| A 49-tile area, all in sight | 1,184 | 638 | 1.7 ms, about as before |
-| The 192 pictures of the campaigns' areas | 255,452 | 170,858 | |
+| | Meshes | Draws | Encoded | The GPU |
+| --- | --- | --- | --- | --- |
+| The 784-tile area, all in sight | 4,807 | 1,028 | 3.9 ms, now 2.7 | 1.08 ms, now 0.94 |
+| …close up | 280 | 187 | 0.5 ms, as before | as before |
+| A 49-tile area, all in sight | 1,184 | 638 | 1.7 ms, now 1.5 | 1.0 ms, as before |
+| The 192 pictures of the campaigns' areas | 255,452 | 170,858 | | |
 
 An area of one tileset's few tiles gains most; interiors, each tile
 another model, little.
@@ -160,9 +160,9 @@ up a fifth of the draws saved and mended 4 of the 12, the rest being
 seams of meshes that are not flat. `Renderer::instancing` switches it
 off, to compare.
 
-These were timed with the game running beside the test: the processor's
-times held from run to run, the GPU's did not, and what instances cost
-or save the GPU is not measured.
+(Timed first with the game running beside the test, the GPU's times
+went from half to twice a draw for each mesh's, run by run: the game's
+own frames. Its times are to be taken with nothing else drawing.)
 
 ### The galleries: 25 ms a frame, and a wide one for ever
 
@@ -195,7 +195,7 @@ or save the GPU is not measured.
 What is left is in [the deferred list](../deferred.md), under "Frames".
 In short:
 
-- **The largest areas in full view.** 4.4 ms for 784 tiles: a 32 by 32
+- **The largest areas in full view.** 4.1 ms for 784 tiles: a 32 by 32
   area of a tileset with more meshes a tile is near the budget when all of
   it is in sight. Close up it is not.
 - **Opening an area** holds the window for 0.2 s (its models and

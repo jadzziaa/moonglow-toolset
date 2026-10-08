@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T23:17:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T01:02:33Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -90,15 +90,12 @@ once, meshes of one model drawn as instances of one draw), the
 galleries' pictures made for 2 ms a frame and kept while in sight.
 
 - **The largest areas in full view:** a 784-tile area's picture takes
-  4.4 ms with all of it in sight (1.9 close up). An area of 32 by 32 tiles
+  4.1 ms with all of it in sight (1.9 close up). An area of 32 by 32 tiles
   of a tileset with more meshes a tile is near the budget in full view.
   What is left is each mesh's own work, instances or not: its lights
   chosen (0.7 ms of 2.7) and its values written. Kept from frame to frame
   for what doesn't move, with the camera's part worked out in the shader,
   it would be done once. (M–L)
-- **Instances and the GPU:** what drawing meshes as instances costs or
-  saves the GPU was not measured (the game was running beside the test).
-  `frame_perf.rs` prints both ways side by side. (S)
 - **Seams between tiles:** drawn as instances, a sample on the seam of
   two tiles may show the other tile's floor (12 of 192 pictures, one to
   three pixels each): which of two floors that both cover a sample is
