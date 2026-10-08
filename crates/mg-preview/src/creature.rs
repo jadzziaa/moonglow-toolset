@@ -386,9 +386,12 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
     // The part's own texture, where there is one, is what the game draws
     // on it, though its mesh names another part's (the game's own thigh 3
     // names thigh 2's, chest 32 chest 13's: seen in the client,
-    // `creatures_look` with `MG_PARTS`). A mesh naming something that is
-    // no part's (a head's hair, a gem) keeps that.
-    let own = Some(model.clone()).filter(|m| !named(m).is_empty() && lk.has_texture(m));
+    // `creatures_look` with `MG_PARTS`). A race's part without a texture
+    // of its name takes the human's of that name the same way (the elf's
+    // chest 3 names the human's chest 4 and is drawn in the human's
+    // chest 3). A mesh naming something that is no part's (a head's hair,
+    // a gem) keeps that.
+    let own = named(&model).into_iter().take(3).find(|c| lk.has_texture(c));
     for b in lk.bitmaps(&model) {
         if let Some(own) = own.as_ref().filter(|own| **own != b && !named(&b).is_empty()) {
             out.insert(b, own.clone());

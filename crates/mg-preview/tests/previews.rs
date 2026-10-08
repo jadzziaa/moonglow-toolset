@@ -499,3 +499,19 @@ fn a_body_part_wears_its_own_texture_whatever_its_mesh_names() {
     let right = worn.parts.iter().find(|p| p.model == "pmh0_legr003").expect("the right thigh");
     assert!(right.textures.values().all(|t| t == "pmh0_legr003"), "{:?}", right.textures);
 }
+
+/// An elf's chest 3 names the human's chest 4 and has no texture of its
+/// own name: the game draws it in the human's chest 3 (seen in the client,
+/// `creatures_look` with `MG_PARTS=Torso=3`).
+#[test]
+fn a_race_s_body_part_wears_the_human_s_texture_of_its_name() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut utc = CreatureLook::new(1).to_utc();
+    utc.set("BodyPart_Torso", mg_gff::Value::Byte(3));
+    let elf = creature(&game, &utc, &|_| None).unwrap();
+    let chest = elf.parts.iter().find(|p| p.model == "pme0_chest003").expect("the chest");
+    assert_eq!(chest.textures.get("pmh0_chest004").map(String::as_str), Some("pmh0_chest003"));
+}
