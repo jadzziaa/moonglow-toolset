@@ -45,6 +45,18 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.19.5" date="2026-10-08">
+      <description>
+        <p>A module whose hak has an encoding.2da (a language the game has
+        no letters for, such as Turkish) is read and written by it, in the
+        toolset, in plugins and in mg. A module folder with one resource
+        under two spellings (x.UTI and x.uti) is one file after a save. mg
+        roundtrip checks that a module comes back as it was. A creature's
+        selection box is around it as it stands; a palette's rows are one
+        line; Update Instances lists what it updated; a special ability
+        has one switch, Ready.</p>
+      </description>
+    </release>
     <release version="1.19.4" date="2026-10-08">
       <description>
         <p>Names in the game's DM Creator and in Aurora's Custom palette
