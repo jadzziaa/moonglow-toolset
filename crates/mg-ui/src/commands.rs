@@ -278,9 +278,11 @@ impl Id {
             Id::NewConversation => ("new-conversation", "New Conversation…", ""),
             Id::Factions => ("factions", "Faction Editor", ""),
             Id::Journal => ("journal", "Journal Editor", ""),
-            Id::TalkTable => {
-                ("talk-table", "Talk Table", "The module's own talk table: text named by StrRef")
-            }
+            Id::TalkTable => (
+                "talk-table",
+                "Talk Table",
+                "The module's own talk table (text named by StrRef), or a .tlk file",
+            ),
             Id::NewScript => ("new-script", "New Script…", ""),
             Id::Palettes => ("palettes", "Palettes", ""),
             Id::PlaceableGallery => (
@@ -435,6 +437,7 @@ impl Id {
             | Id::NewHak
             | Id::OpenHak
             | Id::BuildHak
+            | Id::TalkTable
             | Id::ReloadResources
             | Id::Options
             | Id::Plugins
@@ -473,7 +476,6 @@ impl Id {
             | Id::NewConversation
             | Id::Factions
             | Id::Journal
-            | Id::TalkTable
             | Id::NewScript
             | Id::CompileAll
             | Id::BuildModule

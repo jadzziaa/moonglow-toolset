@@ -455,6 +455,98 @@ impl Table {
             }
             lines.insert(row, line);
         }
+        self.import(lines)
+    }
+
+    /// The table as JSON, as neverwinter.nim's `nwn_tlk` writes one (and
+    /// nasher keeps one in a repository): its language and the lines that
+    /// have text or a sound, each with its `id` (the line's number in the
+    /// table, from 0). The feminine table is a file of its own there and
+    /// is left out.
+    pub fn to_json(&self) -> String {
+        let entries: Vec<serde_json::Value> = (0..self.len())
+            .map(|row| (row, self.line(row)))
+            .filter(|(_, l)| !l.text.is_empty() || !l.sound.is_empty())
+            .map(|(row, l)| {
+                let mut e = serde_json::Map::new();
+                e.insert("id".into(), row.into());
+                e.insert("text".into(), l.text.into());
+                if !l.sound.is_empty() {
+                    e.insert("sound".into(), l.sound.into());
+                }
+                if l.sound_length != 0.0 {
+                    e.insert("soundLength".into(), l.sound_length.into());
+                }
+                serde_json::Value::Object(e)
+            })
+            .collect();
+        let table = serde_json::json!({ "language": self.tlk.language.0, "entries": entries });
+        let mut out = serde_json::to_string_pretty(&table).expect("JSON");
+        out.push('\n');
+        out
+    }
+
+    /// Reads lines from JSON as [`to_json`](Self::to_json) writes it. An
+    /// entry sets the text of the line of its `id` (the game's StrRef,
+    /// 16777216 and up, is taken too) and its sound, if it names one; the
+    /// feminine text stays. Lines the file leaves out stay as they are.
+    /// As with [`import_csv`](Self::import_csv): all or nothing, one undo,
+    /// and the lines changed and added returned.
+    pub fn import_json(&mut self, text: &str) -> Result<(usize, usize), String> {
+        let json: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        let entries =
+            json.get("entries").and_then(|e| e.as_array()).ok_or("no \"entries\" list")?;
+        let empty = Line {
+            text: String::new(),
+            feminine: self.feminine.as_ref().map(|_| String::new()),
+            sound: String::new(),
+            sound_length: 0.0,
+        };
+        let mut lines: std::collections::BTreeMap<usize, Line> = Default::default();
+        for (n, e) in entries.iter().enumerate() {
+            let at = format!("entry {}", n + 1);
+            let number = e
+                .get("id")
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|id| u32::try_from(id).ok())
+                .ok_or_else(|| format!("{at}: its id is not a number"))?;
+            let row = number.checked_sub(CUSTOM).unwrap_or(number) as usize;
+            if row >= (CUSTOM as usize) {
+                return Err(format!("{at}: id {number} is past what a table holds"));
+            }
+            let mut line = match lines.remove(&row) {
+                Some(line) => line,
+                None if row < self.len() => self.line(row),
+                None => empty.clone(),
+            };
+            if let Some(t) = e.get("text") {
+                line.text = t.as_str().ok_or_else(|| format!("{at}: its text is not text"))?.into();
+            }
+            if let Some(s) = e.get("sound").and_then(|s| s.as_str()) {
+                line.sound = s.trim().to_string();
+            }
+            if let Some(l) = e.get("soundLength").and_then(serde_json::Value::as_f64) {
+                line.sound_length = l as f32;
+            }
+            lines.insert(row, line);
+        }
+        self.import(lines)
+    }
+
+    /// Sets the lines given by their places in the table as one undoable
+    /// step, adding lines (empty ones between) for those past its end:
+    /// all, or none if one is not a line the table can hold. Returns how
+    /// many changed and how many were added.
+    fn import(
+        &mut self,
+        lines: std::collections::BTreeMap<usize, Line>,
+    ) -> Result<(usize, usize), String> {
+        let empty = Line {
+            text: String::new(),
+            feminine: self.feminine.as_ref().map(|_| String::new()),
+            sound: String::new(),
+            sound_length: 0.0,
+        };
         // Every line must be one the table can hold, before any is set.
         for (row, line) in &lines {
             self.entries(line, *row)
@@ -572,6 +664,38 @@ mod tests {
         assert!(t.import_csv("StrRef,Text\n1,ok\nx,bad\n").is_err());
         assert!(t.import_csv("Text\nno strref\n").is_err());
         assert_eq!(t.to_csv(), before);
+    }
+
+    #[test]
+    fn json_goes_out_and_comes_back_as_nwn_tlk_has_it() {
+        let dir = mg_testkit::scratch_dir("talk-json");
+        let mut t = Table::create("json", &dir, Language::ENGLISH, false);
+        let line = |text: &str, sound: &str| Line {
+            text: text.into(),
+            feminine: None,
+            sound: sound.into(),
+            sound_length: 0.0,
+        };
+        t.add_line(&line("Bad Strref", "")).unwrap();
+        t.add_line(&line("", "")).unwrap();
+        t.add_line(&line("Hello \"there\"", "vs_hello")).unwrap();
+        let json = t.to_json();
+        let read: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(read["language"], 0);
+        let entries = read["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 2, "the empty line is left out");
+        assert_eq!((&entries[1]["id"], &entries[1]["sound"]), (&2.into(), &"vs_hello".into()));
+        assert_eq!(t.import_json(&json), Ok((0, 0)));
+        // A line changed, one added past a gap; by the game's StrRef too.
+        let other =
+            r#"{"language":0,"entries":[{"id":16777217,"text":"Second"},{"id":5,"text":"Sixth"}]}"#;
+        assert_eq!(t.import_json(other), Ok((1, 1)));
+        assert_eq!((t.len(), t.line(1).text, t.line(5).text), (6, "Second".into(), "Sixth".into()));
+        assert_eq!(t.line(2).sound, "vs_hello", "what the file leaves out stays");
+        t.undo();
+        assert_eq!((t.len(), t.line(1).text), (3, String::new()), "one undo");
+        assert!(t.import_json("{}").is_err());
+        assert!(t.import_json(r#"{"entries":[{"text":"no id"}]}"#).is_err());
     }
 
     #[test]

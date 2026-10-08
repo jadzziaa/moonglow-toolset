@@ -856,29 +856,53 @@ fn particles_look() {
             v
         }
         "sides" => {
-            // Flat quads facing up, seen from above (low) and below (high).
-            let flat = "render Aligned_to_World_Z\n  sizeStart 0.3\n  sizeEnd 0.3\n  birthrate 4\n  \
+            // Upright quads (`worldz` shows they are), seen from above (low)
+            // and below (high).
+            let upright = "render Aligned_to_World_Z\n  sizeStart 0.3\n  sizeEnd 0.3\n  birthrate 4\n  \
                         velocity 0.5\n  lifeExp 2";
             vec![
                 probe_emitter(
                     "low_one",
                     [column(1), 0.0, 0.0],
-                    &format!("{flat}\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
+                    &format!("{upright}\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
                 ),
                 probe_emitter(
                     "low_two",
                     [column(3), 0.0, 0.0],
-                    &format!("{flat}\n  twosidedtex 1\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
+                    &format!("{upright}\n  twosidedtex 1\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
                 ),
                 probe_emitter(
                     "high_one",
                     [column(5), 0.0, 4.0],
-                    &format!("{flat}\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
+                    &format!("{upright}\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
                 ),
                 probe_emitter(
                     "high_two",
                     [column(7), 0.0, 4.0],
-                    &format!("{flat}\n  twosidedtex 1\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
+                    &format!("{upright}\n  twosidedtex 1\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
+                ),
+            ]
+        }
+        "worldz" => {
+            // One still quad each, just above the floor (an upright one is
+            // half sunk in it): red `Aligned_to_World_Z`, blue
+            // `Billboard_to_World_Z`. The red one is cut in half: it stands,
+            // and the blue one lies flat.
+            let still = "sizeStart 1\n  sizeEnd 1\n  birthrate 1\n  velocity 0\n  lifeExp 2";
+            vec![
+                probe_emitter(
+                    "aligned",
+                    [column(1), 0.0, 0.1],
+                    &format!(
+                        "{still}\n  render Aligned_to_World_Z\n  colorStart 1 0 0\n  colorEnd 1 0 0"
+                    ),
+                ),
+                probe_emitter(
+                    "billboard",
+                    [column(6), 0.0, 0.1],
+                    &format!(
+                        "{still}\n  render Billboard_to_World_Z\n  colorStart 0 0 1\n  colorEnd 0 0 1"
+                    ),
                 ),
             ]
         }

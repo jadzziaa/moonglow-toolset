@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T02:02:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -785,6 +785,36 @@ open). Left, or to know:
   frame, which a module of tens of thousands of resources may feel. The
   palettes laid out only what is in sight already. Not measured on the
   reporter's module. (S–M)
+
+## From builders' reports after 1.19.1 (October 2026)
+
+Done: a trigger or an encounter turns by its outline, alone (about the
+outline's middle) and with others (Together); the Shaft of Light's beam
+stands and its glow lies (`Aligned_to_World_Z` and `Billboard_to_World_Z`
+were the wrong way round: seen in the client); Export adds to an archive
+that is there; the talk table as JSON, its empty lines left out of the
+list, and a `.tlk` file opened or made on its own; the resource
+browser's Save As on a row and Export as Files. Left, or to know:
+
+- **Models as text from the resource browser** (asked with the export):
+  files go out as they are, a compiled model compiled. Writing a model
+  as text needs the Viewer's decompiler in the toolset (see "Proposed by
+  the Moonglow Viewer session"). (M, with that move)
+- **Export into an archive** is a checkbox, off unless ticked; a builder
+  says Aurora adds to an existing archive itself. Aurora's own behavior
+  (whether it asks) was not captured. (S)
+- **An upright `Aligned_to_World_Z` particle** is turned about Z to the
+  eye here; whether the game turns it or keeps a fixed side was not
+  measured (a still quad looked the same from the one view taken). (S)
+- **A talk table kept as JSON in a nasher project** is not read or
+  written with the project (a builder keeps one, and may keep several,
+  one a language): Import JSON and Export JSON by hand for now. (M)
+- **Text put in the talk table as it is written** (a conversation's
+  lines, names), in a range set aside for it, and reusing a line that
+  already has the same text, asked first: proposed by builders, not
+  begun. Move to Talk Table does one string at a time. (L)
+- **The feminine table as JSON:** Export JSON writes the main table
+  only, as `nwn_tlk` would of that file. (S)
 
 ## From GitHub issue 7 (October 2026)
 

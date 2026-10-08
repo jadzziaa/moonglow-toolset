@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T10:20:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
 ---
 
 # Areas
@@ -139,7 +139,10 @@ selected, each has its ring (and with Shift its tilt rings and arrows),
 any of which leads them all: each turns about itself by the same angle. With
 **Together** on (beside Turn on the toolbar), they turn about their
 middle as one instead, keeping their places among themselves, like a
-prefab turned whole; Q and E turn them so too. **Turn** on the
+prefab turned whole; Q and E turn them so too. A trigger or an
+encounter turns by its outline: alone about the outline's middle (an
+encounter's spawn points go round with it), and with the others when
+they turn together. **Turn** on the
 toolbar snaps it. **Tools › Options › Area** switches the ring off.
 
 **The tilt rings**: hold **Shift** and two upright rings take the turning

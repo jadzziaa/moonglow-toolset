@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE model and texture formats: research notes for Moonglow Toolset'
 description: NWN:EE model and texture formats for the renderer - ASCII and binary MDL, animations and supermodels, part-based creatures and PLT, textures and materials, special nodes, walkmeshes, lights, limits - with citations, open questions and where the wiki and the data disagree.
 tags: [models, mdl, textures, plt, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T18:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -662,6 +662,7 @@ Probe emitters (an overridden `plc_a01` in a scratch user directory) in the sand
 - `m_isTinted`: the colour times the light at the emitter, the same for all its particles: the area's ambient and diffuse colours added as they are (0x40 + 0x80 grey → 0xC0, whatever the facing); under tile lights alone 156–162 at three emitters, where the renderer's light attenuation gives 141–144.
 - The three-stop values (`colorMid`, `alphaMid`, `sizeMid`, `percentStart/Mid/End` as fractions 0–1, percents 0–100 or bytes 0–255) change nothing: the client draws start to end. The game's compiler keeps them (B.8) all the same.
 - `twosidedtex` changes nothing visible: one-sided `Aligned_to_World_Z` particles show from below too.
+- `render Aligned_to_World_Z` particles stand upright (a Shaft of Light's beam) and `Billboard_to_World_Z` ones lie flat, facing up (the glow at its foot): a 1 m quad of each just above the floor, the first is cut in half by the floor and the second is whole (`particles_look`, `MG_PARTICLES=worldz`, 2026-10-08). Moonglow had them the other way round until 1.19.2.
 - Not measured: wind (`affectedByWind`, needs area wind), `splat`, `deadspace`.
 
 ### B.21 Reader recipe (Moonglow)

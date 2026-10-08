@@ -702,11 +702,20 @@ fn browse_view_and_copy_a_game_resource() {
     let dir = mg_testkit::scratch_dir("ui-browser");
     let path = sample_module(&dir);
     let install = mg_resman::GameInstall::new(&root, None, "en");
-    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let out = dir.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let dialogs = NoDialogs { folders: vec![out.clone()], ..Default::default() };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     app.open_module(&path);
     let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resources));
     h.run();
+    // Those listed go out as loose files.
+    h.state_mut().browser.filter = "nw_it_torch00".into();
+    h.run();
+    h.get_by_label_contains("as Files…").click();
+    h.run();
+    assert!(out.join("nw_it_torch001.uti").is_file());
     // The module's own script is listed from the module layer.
     h.state_mut().browser.filter = "hello".into();
     h.run();
@@ -800,6 +809,40 @@ fn module_name_in_every_language_and_variables() {
     assert!(info(h.state_mut()).items(&ifo::VAR_TABLE).is_empty());
 }
 
+/// The Talk Table editor makes and opens a `.tlk` file on its own, with no
+/// module open.
+#[test]
+fn a_talk_table_file_is_made_and_opened_on_its_own() {
+    let dir = mg_testkit::scratch_dir("ui-talk-file");
+    let file = dir.join("strings.tlk");
+    let dialogs =
+        NoDialogs { open: vec![file.clone()], save: vec![file.clone()], ..Default::default() };
+    let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).build_ui_state(
+        |ui, app: &mut Moonglow| app.ui(ui),
+        Moonglow::new(None, Box::new(dialogs)),
+    );
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run();
+    h.get_by_label("New File…").click();
+    h.run();
+    assert!(file.is_file());
+    h.get_by_label("Add Line").click();
+    h.run();
+    type_into_hint(&mut h, "the line's text", "On its own");
+    h.get_by_label("Save").click();
+    h.run();
+    let read = mg_tlk::Tlk::read(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(read.text(mg_core::StrRef(0)).as_deref(), Some("On its own"));
+    // Opened again from the file.
+    h.state_mut().talk = None;
+    h.state_mut().talk_view = Default::default();
+    h.run();
+    h.get_by_label("Open File…").click();
+    h.run();
+    h.get_by_label("16777216");
+    assert_eq!(h.state().talk.as_ref().unwrap().line(0).text, "On its own");
+}
+
 #[test]
 fn talk_table_made_edited_saved_and_used_by_strings() {
     let root = mg_testkit::corpus!();
@@ -811,7 +854,7 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     // (Export CSV and Import CSV are answered with the same file.)
     let csv = dir.join("lines.csv");
     let dialogs =
-        NoDialogs { open: vec![csv.clone()], save: vec![csv.clone()], ..Default::default() };
+        NoDialogs { open: vec![csv.clone(); 2], save: vec![csv.clone(); 2], ..Default::default() };
     let mut app = Moonglow::new(Some(install), Box::new(dialogs));
     // (The module opens on its Properties, not on an area.)
     app.settings.no_last_area = true;
@@ -876,6 +919,36 @@ fn talk_table_made_edited_saved_and_used_by_strings() {
     h.get_by_label("Undo").click();
     h.run();
     assert_eq!(line(&h).text, "Greetings", "the import is one undo");
+
+    // As JSON too (nwn_tlk's, as a nasher repository keeps a table): the
+    // lines with text, by their numbers in the table.
+    h.get_by_label("Export JSON…").click();
+    h.run();
+    let json = std::fs::read_to_string(&csv).unwrap();
+    let read: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(read["entries"][0], serde_json::json!({"id": 0, "text": "Greetings"}));
+    let other = r#"{"language":0,"entries":[{"id":0,"text":"Hail"},{"id":40,"text":"Far"}]}"#;
+    std::fs::write(&csv, other).unwrap();
+    h.get_by_label("Import JSON…").click();
+    h.run();
+    assert_eq!((line(&h).text.as_str(), h.state().talk.as_ref().unwrap().len()), ("Hail", 41));
+    // Only Lines with Text leaves the empty ones between out of the list;
+    // the selected line stays selected when they come back.
+    h.get_by_label("16777220");
+    h.get_by_label("Only lines with text").click();
+    h.run();
+    assert!(h.query_by_label("16777220").is_none(), "an empty line is not listed");
+    h.get_by_label("16777256").click();
+    h.run();
+    h.get_by_label("Only lines with text").click();
+    h.run();
+    h.run();
+    assert_eq!(h.state().talk_view.selected, Some(40));
+    h.get_by_label("16777256");
+    h.get_by_label("16777255");
+    h.get_by_label("Undo").click();
+    h.run();
+    assert_eq!((line(&h).text.as_str(), h.state().talk.as_ref().unwrap().len()), ("Greetings", 1));
 
     // Saving the module saves the table, and the game data reads it.
     h.state_mut().actions.push(mg_ui::Action::Save);
@@ -8856,8 +8929,73 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
     h.run_steps(2);
 
-    // G drops a raised object to the ground.
+    // A trigger turns by its outline: alone about the outline's middle,
+    // and Together with the rest about theirs.
     let git = ResKey::new(area, ResType::GIT);
+    let mut trigger = mg_gff::Struct::new(1);
+    for (label, v) in [("XPosition", 22.0), ("YPosition", 20.0), ("ZPosition", 0.0)] {
+        trigger.set(label, mg_gff::Value::Float(v));
+    }
+    let corner = |x: f32, y: f32| {
+        let mut p = mg_gff::Struct::new(3);
+        p.set("PointX", mg_gff::Value::Float(x));
+        p.set("PointY", mg_gff::Value::Float(y));
+        p.set("PointZ", mg_gff::Value::Float(0.0));
+        p
+    };
+    let corners = vec![corner(0.0, 0.0), corner(4.0, 0.0), corner(4.0, 2.0), corner(0.0, 2.0)];
+    trigger.set("Geometry", mg_gff::Value::List(corners));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "Trigger",
+        vec![mg_edit::Edit::InsertItem {
+            key: git,
+            path: mg_edit::GffPath::root(),
+            list: "TriggerList".into(),
+            index: 0,
+            item: trigger,
+        }],
+    )));
+    h.run_steps(3);
+    // The outline's corners in the area, from the GIT.
+    let outline = |h: &mut Harness<'_, Moonglow>| -> Vec<glam::Vec2> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let t = ws.doc(&git).unwrap().root.list("TriggerList").unwrap()[0].clone();
+        let at = glam::Vec2::new(t.float("XPosition").unwrap(), t.float("YPosition").unwrap());
+        t.list("Geometry")
+            .unwrap()
+            .iter()
+            .map(|p| at + glam::Vec2::new(p.float("PointX").unwrap(), p.float("PointY").unwrap()))
+            .collect()
+    };
+    let near = |a: glam::Vec2, b: glam::Vec2| a.distance(b) < 1e-3;
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Trigger, 0)];
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
+    h.run_steps(2);
+    // (22..26 by 20..22, a quarter turn to the right about 24, 21.)
+    let now = outline(&mut h);
+    assert!(near(now[0], glam::Vec2::new(23.0, 23.0)), "{now:?}");
+    assert!(near(now[2], glam::Vec2::new(25.0, 19.0)), "{now:?}");
+    let alone = now.clone();
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Trigger, 0), (Waypoint, 0)];
+    h.state_mut().settings.turn_together = true;
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::E);
+    h.run_steps(2);
+    let together = outline(&mut h);
+    let side = |o: &[glam::Vec2]| o[1] - o[0];
+    assert!(near(side(&together), -side(&alone).perp()), "{alone:?} → {together:?}");
+    h.state_mut().settings.turn_together = false;
+    for _ in 0..3 {
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+        h.run_steps(2);
+    }
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = both.clone();
+    h.run_steps(2);
+
+    // G drops a raised object to the ground.
     h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
         "Raise",
         vec![mg_edit::Edit::SetField {

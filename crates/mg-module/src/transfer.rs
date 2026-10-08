@@ -170,6 +170,48 @@ pub fn export_erf(
         .map_err(|e| ModuleError::Archive { path: Default::default(), message: e.to_string() })
 }
 
+/// An archive with `resources` exported into it ([`export_erf`]) and what
+/// `existing` (an ERF's bytes) already holds kept: a resource of the same
+/// name is replaced where it stands, new ones follow. The archive keeps
+/// its description unless `comments` gives another.
+pub fn export_into_erf(
+    existing: &[u8],
+    module: &Module,
+    resources: &[ResKey],
+    comments: &str,
+    reset: bool,
+) -> Result<Vec<u8>, ModuleError> {
+    let archive = |e: &dyn std::fmt::Display| ModuleError::Archive {
+        path: Default::default(),
+        message: e.to_string(),
+    };
+    let fresh = export_erf(module, resources, comments, reset)?;
+    let fresh = Erf::read(&fresh).map_err(|e| archive(&e))?;
+    let old = Erf::read(existing).map_err(|e| archive(&e))?;
+    let mut w = ErfWriter::new(old.file_type);
+    w.description =
+        if comments.is_empty() { old.description.clone() } else { fresh.description.clone() };
+    let mut seen = HashSet::new();
+    for e in &old.entries {
+        if !seen.insert(ResKey::new(e.resref, e.restype)) {
+            continue;
+        }
+        let bytes = match fresh.find(&e.resref, e.restype) {
+            Some(new) => fresh.data(new),
+            None => old.data(e),
+        };
+        let bytes = bytes.map_err(|e| archive(&e))?.into_owned();
+        w.add(e.resref, e.restype, bytes).map_err(|e| archive(&e))?;
+    }
+    for e in &fresh.entries {
+        if seen.insert(ResKey::new(e.resref, e.restype)) {
+            let bytes = fresh.data(e).map_err(|e| archive(&e))?.into_owned();
+            w.add(e.resref, e.restype, bytes).map_err(|e| archive(&e))?;
+        }
+    }
+    w.to_bytes().map_err(|e| archive(&e))
+}
+
 /// What an import will do.
 #[derive(Debug, Clone, Default)]
 pub struct ImportPlan {
@@ -380,6 +422,23 @@ mod tests {
         assert_eq!(summary.new_areas, [rr("town")]);
         assert_eq!(dst.get(&key("guard", ResType::UTC)), Some(&b"theirs"[..]));
         assert_eq!(dst.areas().unwrap(), [rr("town")]);
+    }
+
+    #[test]
+    fn exporting_into_an_archive_keeps_what_it_holds() {
+        let src = sample();
+        let town = export_erf(&src, &[key("town", ResType::ARE)], "The town", false).unwrap();
+        let mut changed = sample();
+        changed.set(key("town", ResType::ARE), b"another town".to_vec());
+        changed.set(key("guard", ResType::UTC), b"a guard".to_vec());
+        let keys = [key("guard", ResType::UTC), key("town", ResType::ARE)];
+        let both = export_into_erf(&town, &changed, &keys, "", false).unwrap();
+        let archive = Erf::read(&both).unwrap();
+        let names: Vec<String> = archive.entries.iter().map(|e| e.filename()).collect();
+        assert_eq!(names, ["town.are", "guard.utc"], "replaced where it stood, the new one after");
+        assert_eq!(&*archive.get(&rr("town"), ResType::ARE).unwrap().unwrap(), b"another town");
+        assert_eq!(archive.description.strings[0].1, b"The town", "its description is kept");
+        assert!(export_into_erf(b"not an archive", &changed, &keys, "", false).is_err());
     }
 
     #[test]

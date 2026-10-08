@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-10-08
+* **Update**: [Areas](manual/04-areas.md) (a trigger or an encounter turns by its outline), [modules](manual/03-modules.md) (Export adds to an archive that is there; the talk table as JSON, Only lines with text, Open File and New File), [the main window](manual/02-main-window.md) (the resource browser's Save As and Export as Files), [the models note](research/notes_models.md) (which of the two world-Z particle modes stands, seen in the client) and [the deferred list](deferred.md): builders' reports after 1.19.1.
+
 ## 2026-10-07
 * **Update**: [Frames at 144 a second](research/notes_frames.md) and [the deferred list](deferred.md): on macOS (Metal) a see-through mesh's solid part hid what was behind the whole of it, a discarded fragment having written its depth; every `discard` of the shaders is now followed by a `return`.
 * **Update**: [The deferred list](deferred.md): a window left maximized seemed to start twice on Windows.

@@ -97,7 +97,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
     });
     let count = browser.filtered().len();
-    ui.weak(format!("{count} of {} resources; double-click to open", browser.entries.len()));
+    ui.horizontal(|ui| {
+        ui.weak(format!("{count} of {} resources; double-click to open", browser.entries.len()));
+        // (Narrowed by a type or a name: not the whole game by a slip.)
+        let narrowed = count > 0 && count < browser.entries.len();
+        if ui
+            .add_enabled(narrowed, egui::Button::new(format!("Export {count} as Files…")))
+            .on_hover_text(
+                "The resources listed, as loose files in a folder (name.ext), as the load \
+                 order has them. Choose a type or type part of a name first.",
+            )
+            .clicked()
+        {
+            let keys = browser.shown.iter().map(|&i| browser.entries[i].0).collect();
+            actions.push(Action::SaveResources(keys));
+        }
+    });
     ui.separator();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let in_module = |k: &ResKey| ws.as_ref().is_some_and(|w| w.module.contains(k));
@@ -134,11 +149,52 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         {
                             actions.push(Action::OpenTab(Tab::Model(*k)));
                         }
+                        if ui.button("Save As…").on_hover_text("As a file, as it is").clicked() {
+                            actions.push(Action::SaveResource(*k));
+                        }
                     });
                 });
             }
         },
     );
+}
+
+/// Save As on a resource of the load order: its bytes to a file.
+pub(crate) fn save_as(app: &mut Moonglow, key: ResKey) {
+    let Some(game) = &app.game else { return };
+    let Ok(data) = game.resman.get(&key) else {
+        app.log.error(format!("{key} is not in the load order."));
+        return;
+    };
+    let Some(path) = app.dialogs.save_file(FileKind::Any, Some(&PathBuf::from(key.to_string())))
+    else {
+        return;
+    };
+    match std::fs::write(&path, &data) {
+        Ok(()) => app.log.info(format!("Saved {key} to {}", path.display())),
+        Err(e) => app.log.error(format!("Could not write {}: {e}", path.display())),
+    }
+}
+
+/// Export as Files: the resources listed, each as `name.ext` in a folder
+/// the user chooses.
+pub(crate) fn export(app: &mut Moonglow, keys: &[ResKey]) {
+    let Some(game) = &app.game else { return };
+    let Some(dir) = app.dialogs.pick_folder("Export as files into", app.export_dir.as_deref())
+    else {
+        return;
+    };
+    let mut written = 0;
+    for key in keys {
+        let Ok(data) = game.resman.get(key) else { continue };
+        if let Err(e) = std::fs::write(dir.join(key.to_string()), &data) {
+            app.log.error(format!("Could not write to {}: {e}", dir.display()));
+            return;
+        }
+        written += 1;
+    }
+    app.log.info(format!("Exported {written} resources to {}", dir.display()));
+    app.export_dir = Some(dir);
 }
 
 /// A resource read and parsed once for its viewer.

@@ -20,6 +20,8 @@ pub struct ExportDraft {
     /// Move creatures in the module's own factions to the standard ones.
     pub reset_factions: bool,
     pub comments: String,
+    /// Add to the archive chosen, if there is one, instead of replacing it.
+    pub add: bool,
 }
 
 /// An archive being imported and what to overwrite.
@@ -270,17 +272,22 @@ impl Moonglow {
             return;
         };
         let Some(ws) = &self.ws else { return };
-        let result = mg_module::transfer::export_erf(
-            &ws.module,
-            &resources,
-            &draft.comments,
-            draft.reset_factions,
-        )
+        // Add to Existing File: what the archive holds stays, but for
+        // resources of the same names.
+        let existing = if draft.add { std::fs::read(&path).ok() } else { None };
+        let (comments, reset) = (draft.comments.as_str(), draft.reset_factions);
+        let result = match &existing {
+            Some(old) => {
+                mg_module::transfer::export_into_erf(old, &ws.module, &resources, comments, reset)
+            }
+            None => mg_module::transfer::export_erf(&ws.module, &resources, comments, reset),
+        }
         .map_err(|e| e.to_string())
         .and_then(|bytes| std::fs::write(&path, bytes).map_err(|e| e.to_string()));
         match result {
             Ok(()) => self.log.info(format!(
-                "Exported {} resources to {}",
+                "{} {} resources to {}",
+                if existing.is_some() { "Added" } else { "Exported" },
                 resources.len(),
                 path.display()
             )),
@@ -321,6 +328,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             });
             ui.checkbox(&mut draft.dependencies, "Include the resources they use");
             ui.checkbox(&mut draft.reset_factions, "Put creatures in the standard factions");
+            ui.checkbox(&mut draft.add, "Add to the file if it exists").on_hover_text(
+                "Choosing an archive that is already there adds these resources to it \
+                 (replacing those of the same names) instead of replacing the whole file. \
+                 The file dialog may still ask about overwriting it.",
+            );
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Description");
                 ui.text_edit_singleline(&mut draft.comments);

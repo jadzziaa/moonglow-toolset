@@ -12,12 +12,40 @@ use mg_resman::ResKey;
 
 use crate::{AreaObject, ObjectKind};
 
-/// A field that moving an object changes: in the object itself (`None`) or
-/// in one of its spawn points.
-type Change = (Option<usize>, &'static str, Value);
+/// Where a field that moving an object changes is: in the object itself,
+/// in one of its spawn points or in a point of its outline.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Place {
+    Object,
+    Spawn(usize),
+    Point(usize),
+}
+
+impl Place {
+    fn path(self, object: &GffPath) -> GffPath {
+        match self {
+            Place::Object => object.clone(),
+            Place::Spawn(i) => object.item("SpawnPointList", i),
+            Place::Point(i) => object.item("Geometry", i),
+        }
+    }
+
+    fn of(self, s: &mut Struct) -> Option<&mut Struct> {
+        match self {
+            Place::Object => Some(s),
+            Place::Spawn(i) => s.list_mut("SpawnPointList")?.get_mut(i),
+            Place::Point(i) => s.list_mut("Geometry")?.get_mut(i),
+        }
+    }
+}
+
+/// A field that moving an object changes.
+type Change = (Place, &'static str, Value);
 
 /// What moving object `o` (its GIT struct `s`) to `position`, turned by
-/// `rotation`, changes; only fields whose value changes.
+/// `rotation`, changes; only fields whose value changes. A trigger or an
+/// encounter turns by its outline: the points turn about its position (and
+/// an encounter's spawn points with them).
 fn changes(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Vec<Change> {
     let mut fields: Vec<(&'static str, f32)> = Vec::new();
     if o.kind.has_bearing() {
@@ -41,15 +69,34 @@ fn changes(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Vec<Cha
     let mut out: Vec<Change> = fields
         .into_iter()
         .filter(|(label, v)| s.float(label) != Some(*v))
-        .map(|(label, v)| (None, label, Value::Float(v)))
+        .map(|(label, v)| (Place::Object, label, Value::Float(v)))
         .collect();
+    let turn = if o.kind.has_outline() { rotation - o.rotation } else { 0.0 };
+    let turned = turn.abs() > 1e-6;
+    let round = glam::Vec2::from_angle(turn);
+    if turned {
+        let (x, y) = if o.kind == ObjectKind::Trigger { ("PointX", "PointY") } else { ("X", "Y") };
+        for (i, p) in s.list("Geometry").unwrap_or(&[]).iter().enumerate() {
+            let was = glam::Vec2::new(p.float(x).unwrap_or(0.0), p.float(y).unwrap_or(0.0));
+            let to = round.rotate(was);
+            out.push((Place::Point(i), x, Value::Float(to.x)));
+            out.push((Place::Point(i), y, Value::Float(to.y)));
+        }
+    }
     let delta = position - o.position;
-    if o.kind == ObjectKind::Encounter && delta != Vec3::ZERO {
+    if o.kind == ObjectKind::Encounter && (delta != Vec3::ZERO || turned) {
         for (i, p) in s.list("SpawnPointList").unwrap_or(&[]).iter().enumerate() {
-            for (label, d) in [("X", delta.x), ("Y", delta.y), ("Z", delta.z)] {
-                if d != 0.0 {
-                    out.push((Some(i), label, Value::Float(p.float(label).unwrap_or(0.0) + d)));
+            let f = |label: &str| p.float(label).unwrap_or(0.0);
+            let was = Vec3::new(f("X"), f("Y"), f("Z"));
+            let about = round.rotate((was - o.position).truncate()).extend(was.z - o.position.z);
+            let to = if turned { position + about } else { was + delta };
+            for (label, was, to) in [("X", was.x, to.x), ("Y", was.y, to.y), ("Z", was.z, to.z)] {
+                if to != was {
+                    out.push((Place::Spawn(i), label, Value::Float(to)));
                 }
+            }
+            if turned && p.contains("Orientation") {
+                out.push((Place::Spawn(i), "Orientation", Value::Float(f("Orientation") + turn)));
             }
         }
     }
@@ -60,8 +107,8 @@ fn changes(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Vec<Cha
 /// to `position`, its model turned by `rotation` (radians; see
 /// [`AreaObject::rotation`]). Triggers and encounters move with their
 /// outlines (their points are relative to the position); an encounter's
-/// spawn points, which are not, move along. Sounds, triggers and
-/// encounters do not turn.
+/// spawn points, which are not, move along. Triggers and encounters turn
+/// by their outlines; sounds do not turn.
 pub fn move_edits(
     git: ResKey,
     o: &AreaObject,
@@ -72,12 +119,9 @@ pub fn move_edits(
     let path = GffPath::root().item(o.kind.list(), o.index);
     changes(o, s, position, rotation)
         .into_iter()
-        .map(|(spawn, label, value)| Edit::SetField {
+        .map(|(place, label, value)| Edit::SetField {
             key: git,
-            path: match spawn {
-                Some(i) => path.item("SpawnPointList", i),
-                None => path.clone(),
-            },
+            path: place.path(&path),
             label: label.into(),
             value: Some(value),
         })
@@ -88,14 +132,9 @@ pub fn move_edits(
 /// turned by `rotation` (for pasting).
 pub fn moved(o: &AreaObject, s: &Struct, position: Vec3, rotation: f32) -> Struct {
     let mut copy = s.clone();
-    for (spawn, label, value) in changes(o, s, position, rotation) {
-        match spawn {
-            None => copy.set(label, value),
-            Some(i) => {
-                if let Some(p) = copy.list_mut("SpawnPointList").and_then(|l| l.get_mut(i)) {
-                    p.set(label, value);
-                }
-            }
+    for (place, label, value) in changes(o, s, position, rotation) {
+        if let Some(at) = place.of(&mut copy) {
+            at.set(label, value);
         }
     }
     copy
@@ -275,6 +314,40 @@ mod tests {
         assert_eq!(labels(&edits), ["1XPosition", "1YPosition", "1ZPosition", "2X"]);
         let Edit::SetField { value, .. } = &edits[3] else { unreachable!() };
         assert_eq!(value, &Some(Value::Float(7.0)));
+    }
+
+    #[test]
+    fn a_trigger_turns_by_its_outline_and_an_encounter_takes_its_spawn_points_round() {
+        let point = |labels: [&str; 2], x: f32, y: f32| {
+            let mut p = Struct::new(3);
+            p.set(labels[0], Value::Float(x));
+            p.set(labels[1], Value::Float(y));
+            p
+        };
+        let mut t = Struct::new(1);
+        t.set("Geometry", Value::List(vec![point(["PointX", "PointY"], 2.0, 0.0)]));
+        let o = object(ObjectKind::Trigger, Vec3::new(1.0, 1.0, 0.0), 0.0);
+        let turned = moved(&o, &t, o.position, FRAC_PI_2);
+        let p = &turned.list("Geometry").unwrap()[0];
+        let (x, y) = (p.float("PointX").unwrap(), p.float("PointY").unwrap());
+        assert!(x.abs() < 1e-5 && (y - 2.0).abs() < 1e-5, "{x}, {y}");
+        // Not turned: nothing of the outline is written.
+        let unturned = move_edits(git(), &o, &t, o.position, 0.0);
+        assert!(labels(&unturned).iter().all(|l| l.starts_with('1')), "{unturned:?}");
+
+        let mut e = Struct::new(7);
+        e.set("Geometry", Value::List(vec![point(["X", "Y"], 0.0, 3.0)]));
+        let mut spawn = point(["X", "Y"], 3.0, 1.0);
+        spawn.set("Orientation", Value::Float(0.5));
+        e.set("SpawnPointList", Value::List(vec![spawn]));
+        let o = object(ObjectKind::Encounter, Vec3::new(1.0, 1.0, 0.0), 0.0);
+        let turned = moved(&o, &e, o.position, FRAC_PI_2);
+        let p = &turned.list("Geometry").unwrap()[0];
+        assert!((p.float("X").unwrap() + 3.0).abs() < 1e-5 && p.float("Y").unwrap().abs() < 1e-5);
+        let s = &turned.list("SpawnPointList").unwrap()[0];
+        let (x, y) = (s.float("X").unwrap(), s.float("Y").unwrap());
+        assert!((x - 1.0).abs() < 1e-5 && (y - 3.0).abs() < 1e-5, "{x}, {y}");
+        assert!((s.float("Orientation").unwrap() - 0.5 - FRAC_PI_2).abs() < 1e-5);
     }
 
     #[test]

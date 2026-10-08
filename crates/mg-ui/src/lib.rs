@@ -142,6 +142,16 @@ pub enum Action {
     OpenResource(ResKey),
     /// The talk table's lines to a CSV file, or (true) read from one.
     TalkCsv(bool),
+    /// The resource browser's Save As: a resource of the load order to a
+    /// file.
+    SaveResource(ResKey),
+    /// The resource browser's Export as Files: those listed, into a folder.
+    SaveResources(Vec<ResKey>),
+    /// The same, as JSON (`nwn_tlk`'s).
+    TalkJson(bool),
+    /// The talk table editor opens a `.tlk` file anywhere, or (true) makes
+    /// one.
+    TalkFile(bool),
     /// Makes every static placeable of these areas dynamic.
     DynamicPlaceables(Vec<mg_core::ResRef>),
     Apply(Command),
@@ -1840,7 +1850,11 @@ impl Moonglow {
             Action::ExportMinimap(area) => self.export_minimap(area),
             Action::StaticPlaceables(areas) => self.static_placeables(&areas),
             Action::DynamicPlaceables(areas) => self.dynamic_placeables(&areas),
-            Action::TalkCsv(import) => talk_view::csv(self, import),
+            Action::TalkCsv(import) => talk_view::transfer(self, import, false),
+            Action::TalkJson(import) => talk_view::transfer(self, import, true),
+            Action::TalkFile(new) => talk_view::file(self, new),
+            Action::SaveResource(key) => browser::save_as(self, key),
+            Action::SaveResources(keys) => browser::export(self, &keys),
             Action::OpenResource(key) => {
                 let Some(tab) = Tab::for_resource(key) else { return };
                 // Options › Script Editor: scripts open in the external

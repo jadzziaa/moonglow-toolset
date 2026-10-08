@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
 ---
 
 # The main window
@@ -181,7 +181,11 @@ the chosen blueprint in a window of its own.
 load order (the game's files, haks, override, the module), with the layer
 each one comes from. Open one to view it (GFF files as a field tree, 2DA
 tables, scripts and other text; models, and blueprints with **Preview**,
-in the model viewer), copy it into the module, or save it to a file.
+in the model viewer), copy it into the module, or save it to a file
+(**Save As…**, also on its right-click menu in the list). **Export N as
+Files…** writes all the resources listed into a folder, once a type or
+part of a name narrows the list. Files go out as they are: a model
+compiled is not turned into text.
 
 A 2DA shows the copy the game reads, with its StrRef columns (Name,
 Description, StrRef and the like) as their text; **StrRefs as numbers**

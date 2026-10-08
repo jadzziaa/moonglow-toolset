@@ -523,7 +523,11 @@ impl Particles {
                 let uv1 = uv0 + Vec2::new(1.0 / gx as f32, 1.0 / gy as f32);
                 let angle = q.rot + rot_speed * q.age;
                 let (right, up) = match render.as_str() {
-                    "billboard_to_world_z" => {
+                    // Upright, turned about the world's Z to the eye (a
+                    // shaft of light); `billboard_to_world_z` lies flat,
+                    // facing up (the glow at the shaft's foot). Seen in
+                    // the client: `particles_look`, `MG_PARTICLES=worldz`.
+                    "aligned_to_world_z" => {
                         let to_eye = (eye - pos) * Vec3::new(1.0, 1.0, 0.0);
                         let r = Vec3::Z.cross(to_eye).normalize_or(Vec3::X);
                         (r, Vec3::Z)
@@ -533,7 +537,7 @@ impl Particles {
                         let r = z.cross(eye - pos).normalize_or(Vec3::X);
                         (r, z)
                     }
-                    "aligned_to_world_z" => (Vec3::X, Vec3::Y),
+                    "billboard_to_world_z" => (Vec3::X, Vec3::Y),
                     "motion_blur" | "aligned_to_particle_dir" => {
                         let world_vel =
                             if inherit { world.transform_vector3(q.vel) } else { q.vel };
@@ -714,6 +718,29 @@ mod tests {
             p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
         }
         assert!(p.emitters[0].particles.iter().all(|q| q.age <= 1.0));
+    }
+
+    /// `Aligned_to_World_Z` particles stand (a shaft of light's beam);
+    /// `Billboard_to_World_Z` ones lie flat (the glow at its foot), as the
+    /// client draws them.
+    #[test]
+    fn world_z_particles_stand_or_lie() {
+        let heights = |render: &str| -> f32 {
+            let mut m = fountain();
+            if let NodeKind::Emitter(e) = &mut m.nodes[1].kind {
+                e.render = render.into();
+            }
+            let pose = crate::rest_pose(&m);
+            let mut p = Particles::new(&m);
+            p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+            p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+            let view = Mat4::look_at_rh(Vec3::new(0.0, -5.0, 1.0), Vec3::ZERO, Vec3::Z);
+            let b = p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, view);
+            let z: Vec<f32> = b[0].vertices[..6].iter().map(|v| v.pos[2]).collect();
+            z.iter().copied().fold(f32::MIN, f32::max) - z.iter().copied().fold(f32::MAX, f32::min)
+        };
+        assert!(heights("Aligned_to_World_Z") > 0.2, "upright");
+        assert!(heights("Billboard_to_World_Z") < 1e-4, "flat");
     }
 
     /// Thrown down from 1.5 m (the emitter turned upside down), as the

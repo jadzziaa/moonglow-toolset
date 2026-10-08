@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T04:18:16Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
 ---
 
 # Modules
@@ -221,6 +221,20 @@ module's talk table:
   the line of its StrRef, which keeps what the file has no column for;
   rows past the table's end add lines. Nothing changes unless every row
   can be read, and one Undo takes the import back.
+- **Export JSON…** and **Import JSON…** do the same with the JSON that
+  neverwinter.nim's `nwn_tlk` writes and a nasher repository keeps: the
+  table's language and the lines that have text, each with its `id` (the
+  line's number in the table). An import sets the lines the file has and
+  leaves the others; the feminine table is a file of its own there and
+  is not touched.
+- **Only lines with text** leaves the empty lines out of the list, for a
+  table with reserved ranges. The selected line stays selected: switch it
+  off again and the list is at that line, with the empty ones after it
+  to fill.
+- **Open File…** edits a `.tlk` file anywhere (with its feminine table,
+  if a file named with an `f` after its name is beside it) and **New
+  File…** makes an empty one: with or without a module open. **Module's
+  Table** goes back to the table the module names.
 - **Saving**: **Save** saves the table, as does saving the module.
 
 With no talk table, the editor makes one in the user folder's `tlk` (with
@@ -282,7 +296,10 @@ Closing a hak with unsaved changes asks first.
   Two options add the module resources they use (an area its blueprints,
   scripts and conversations, a conversation its scripts…), and move
   creatures out of the module's own factions into the standard ones.
-  Right-click a resource in the tree to export it.
+  Right-click a resource in the tree to export it. With **Add to the
+  file if it exists**, choosing an archive that is already there adds
+  the resources to it (those of the same names are replaced, the rest
+  and its description stay) instead of replacing the file.
 - **Export as Files…** (in the Export window, and on a resource's
   right-click menu in the module tree) writes resources as loose files,
   `name.ext`, into a folder you choose: as they are now in the toolset,

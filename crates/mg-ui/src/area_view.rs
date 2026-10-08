@@ -702,8 +702,8 @@ impl AreaView {
         self.chosen(model)
             .filter(|o| turns(o.kind))
             .map(|o| {
-                let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
-                TurnRing { pivot: o.position, radius, facing: o.facing() }
+                let radius = ((camera.eye - pivot(o)).length() * 0.0765).max(0.5);
+                TurnRing { pivot: pivot(o), radius, facing: o.facing() }
             })
             .collect()
     }
@@ -1107,6 +1107,8 @@ impl AreaView {
             }
         }
         let middle = self.middle(model);
+        // (An outline on its own turns about its middle, not its position.)
+        let own = |o: &mg_area::AreaObject| o.kind.has_outline().then(|| pivot(o).truncate());
         self.selection
             .iter()
             .filter_map(|&(k, i)| self.object_at(k, i))
@@ -1116,7 +1118,7 @@ impl AreaView {
                     Drag::Move { offset, .. } => (i, self.moved(o, offset), o.rotation),
                     Drag::Turn { angle } | Drag::Spin { angle, .. } => (
                         i,
-                        self.turned_about(middle, o.position, angle),
+                        self.turned_about(middle.or(own(o)), o.position, angle),
                         if turns(o.kind) { o.rotation + angle } else { o.rotation },
                     ),
                     Drag::Lift { by } | Drag::Slide { by, .. } => {
@@ -1838,10 +1840,16 @@ fn viewport(
     let mut shown = std::borrow::Cow::Borrowed(model);
     for &(i, p, r) in &dragged {
         let o = &mut shown.to_mut().objects[i];
-        let delta = p - o.position;
-        o.outline.iter_mut().for_each(|q| *q += delta);
+        // (An outline's turn is its points', led round its position.)
+        let (was, round) = (o.position, Vec2::from_angle(r - o.rotation));
+        let led = |q: &mut Vec3| *q = p + round.rotate((*q - was).truncate()).extend(q.z - was.z);
+        if o.kind.has_outline() {
+            o.outline.iter_mut().for_each(led);
+            o.spawn_points.iter_mut().for_each(led);
+        } else {
+            o.rotation = r;
+        }
         o.position = p;
-        o.rotation = r;
     }
     for (i, v) in view.tilted().into_iter().chain(view.scaled()) {
         shown.to_mut().objects[i].visual = Some(v);
@@ -3810,16 +3818,35 @@ fn paste_at(app: &mut Moonglow, view: &mut AreaView, at: Vec3) {
     }
 }
 
-/// Whether an object of this kind turns (outlines and sounds don't).
+/// Whether an object of this kind turns: all but sounds. A trigger or an
+/// encounter turns by its outline, about the outline's middle.
 fn turns(kind: ObjectKind) -> bool {
+    kind != ObjectKind::Sound
+}
+
+/// Whether an object of this kind has a facing of its own (outlines and
+/// sounds don't).
+fn faces(kind: ObjectKind) -> bool {
     !kind.has_outline() && kind != ObjectKind::Sound
+}
+
+/// What an object turns about on its own: an outline's middle, else where
+/// it stands.
+fn pivot(o: &mg_area::AreaObject) -> Vec3 {
+    if o.kind.has_outline() && !o.outline.is_empty() {
+        let low = o.outline.iter().copied().reduce(Vec3::min).unwrap_or(o.position);
+        let high = o.outline.iter().copied().reduce(Vec3::max).unwrap_or(o.position);
+        ((low + high) / 2.0).truncate().extend(o.position.z)
+    } else {
+        o.position
+    }
 }
 
 /// Turns each selected object in place by `by` radians (one command).
 fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
     let Some(model) = &view.model else { return };
     // Together: all by the same angle about their middle, those that
-    // don't turn (a trigger, a sound) led round with the rest.
+    // don't turn (a sound) led round with the rest.
     if let Some(middle) = view.middle(model) {
         let moved: Vec<(usize, Vec3, f32)> = view
             .selection
@@ -3842,7 +3869,8 @@ fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
         .map(|i| {
             let o = &model.objects[i];
             let r = mg_area::arrange::snap_rotation(o.rotation + by, view.snap.1);
-            (i, o.position, r)
+            let about = o.kind.has_outline().then(|| pivot(o).truncate());
+            (i, view.turned_about(about, o.position, r - o.rotation), r)
         })
         .collect();
     commit_moves(app, view, &moved, "Rotate");
@@ -3856,7 +3884,7 @@ fn random_facing(app: &mut Moonglow, view: &AreaView) {
         .selection
         .iter()
         .filter_map(|&(k, i)| view.object_at(k, i))
-        .filter(|&i| turns(model.objects[i].kind))
+        .filter(|&i| faces(model.objects[i].kind))
         .map(|i| {
             let o = &model.objects[i];
             let any = fastrand::f32() * std::f32::consts::TAU;
@@ -3920,7 +3948,7 @@ fn arrange_selection(
         .map(|(&i, (xy, r))| {
             let o = &model.objects[i];
             let position = view.moved(o, xy - o.position.truncate());
-            (i, position, if turns(o.kind) { r } else { o.rotation })
+            (i, position, if faces(o.kind) { r } else { o.rotation })
         })
         .collect();
     commit_moves(app, view, &moved, label);
