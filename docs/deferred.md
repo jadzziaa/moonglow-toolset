@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T11:33:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T20:18:20Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -797,6 +797,95 @@ that is there; the talk table as JSON, its empty lines left out of the
 list, and a `.tlk` file opened or made on its own; the resource
 browser's Save As on a row and Export as Files. Left, or to know:
 
+- **The hak list of Module Properties** (GitHub issue 17) is the
+  issue's recommended layout: a framed list numbered from the top, rows
+  chosen (Ctrl and Shift for more) and moved by a drag, the arrows under
+  the list or Alt + Up and Down, removed with Remove or Delete, one undo
+  each (so nothing asks before a removal, as the issue has it); haks
+  not in the hak folders flagged; the talk table in a section of its
+  own. Not done: a drag does not scroll a list longer than its frame.
+  (S)
+- **A custom palette's names in the game** (a builder: after a save in
+  Moonglow the DM's Creator showed "HipÃ³lito", and color tokens'
+  colors wrong; Aurora's Custom palette showed the same, reading the
+  same files): the custom palettes (`<type>palcus.itp`) carried their
+  blueprints' and factions' names as UTF-8, and so did categories named
+  in Moonglow; the game reads them as its own text. They now carry the
+  names' bytes as the module has them (not read and written again: a
+  color token keeps every byte), and a category is written in the
+  codepage of the game's language, refused where that cannot hold it.
+  Read back, names show in that codepage (a Polish module's in
+  Windows-1250, which also answers the palette half of GitHub issue
+  13), UTF-8 ones from before still as they were meant. A module is put
+  right by opening and saving it once: the palettes are made again at
+  every save, and categories left in UTF-8 are written in the game's
+  bytes there and in the module's own category lists (a test spoils a
+  saved palette as 1.19.3 wrote it, opens the module and saves it). Not seen in the game's DM client here (the bytes are
+  tested; the client was not run as a DM). Issue 13's other half, a
+  name's English field decoded as Windows-1252 where the tree shows it
+  in the language's codepage, was not looked at. (S)
+- **Update Instances and held items** (a builder): an item's blueprint
+  now reaches the items that placed objects hold (chests, creatures'
+  packs and equipment, stores' pages, bags in them), in the window and
+  in `mg update-instances`. A held item keeps its place, its slot, how
+  many there are (`StackSize`) and whether it drops, can be stolen or is
+  endless in a store; its charges and the rest come from the blueprint.
+  What Aurora's Update Instances does with held items was not
+  captured. Items held in other blueprints (a
+  creature blueprint's inventory) name the item's blueprint and are
+  made from it when placed, so there is nothing to update there. (S)
+- **A hak's 2DA not seen until a restart** (a builder: a creature
+  showed "appearance.2da has no row 8241", from a hak above CEP's whose
+  table has more rows; gone after restarting Moonglow): not reproduced.
+  Haks and folders that change on disk are read again every few seconds
+  and their tables forgotten, which a test holds for the override
+  folder. Suspected and not shown: `reload_resources` and `sync_haks`
+  give up without a word while anything else holds the game data (a
+  job), and try again later; on Windows a hak Moonglow has open cannot
+  be replaced by another program at all, so a hak tool may have failed
+  to write it. If it comes back: the log around it, and whether Tools ›
+  Reload Resources cures it. (S–M)
+- **The hak editor asks before replacing** files the hak already has
+  (Replace, Skip Those, Cancel), as a builder said Aurora's does. Update
+  from Folder still replaces, as it says. (—)
+- **Arrows after a creature's statistics** (abilities, natural AC, hit
+  points, save bonuses), as Aurora's fields have; the other number
+  fields have none. (S)
+- **A .mod beside a module folder on save**, as a builder says Aurora
+  writes one for a module directory: on unless Options › General
+  switches it off (the user's decision: a folder opened from elsewhere,
+  a repository's source tree, gets a `.mod` written beside it unless it
+  is off). A nasher project is left to Pack Target. Aurora's own
+  behavior was not captured. (—)
+- **Ctrl + wheel scales the selection** (a builder: Aurora's way to
+  resize a placeable, which did nothing here but zoom): the models of
+  the objects selected that take a scale, shown as the wheel turns and
+  one command when Ctrl is let go or the wheel rests. Not measured in
+  Aurora: how much a notch scales by there (here about a twentieth,
+  multiplied), and what its Ctrl + wheel does with nothing selected that
+  takes a scale (here the slow zoom it was). A static placeable takes
+  none and the status line says so. A turn under way is made a command
+  before a save; saved within a moment of the wheel's last notch, what
+  is left of its smoothed turning scales a hair more after. (S)
+- **The talk table editor** (a builder): Go to takes a StrRef or a
+  line's number; the text boxes share the room under the list and
+  scroll, where a long text ran out of the window. Not done: the split
+  between the list and the boxes cannot be dragged. (S)
+- **The arrow keys in the palette** (a builder: Aurora's go to the
+  parent on Left and let one move through and fold the tree): Up, Down,
+  Left and Right move a cursor through the blueprint palettes' rows
+  after a click in the palette, and the camera leaves the arrows alone
+  until the pointer is back in an area's view. Not done: the tileset's
+  palette, the Prefabs list and the module tree have no such keys; in
+  the Gallery Up and Down go a picture at a time, not a row of them;
+  the keys repeat only as the system repeats them. With the keys on a
+  category the blueprint selected stays in hand; whether Aurora keeps
+  one in hand then was not checked. (S–M)
+- **The module tree and the object selected in the area:** the tree
+  goes to it only where its area is opened out there; an area left
+  closed stays closed. Asked for by the user (it was opened out and
+  scrolled to on every selection, written to follow Aurora, whose own
+  tree was not captured doing so).
 - **A cloak lying in an area** is the game's model of a cloak dropped
   (`gi_cloak01`, folded, its PLT texture in the cloak's colors), as
   Aurora and the game draw it; Moonglow drew the bag (the cloak's

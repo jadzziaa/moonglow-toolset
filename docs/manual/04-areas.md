@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T13:08:11Z }
 ---
 
 # Areas
@@ -90,7 +90,7 @@ Options › Keyboard):
 | Ctrl + drag | move the camera over the area (a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
 | Alt + middle drag | move the camera |
-| Wheel | zoom (slowly with Shift or Ctrl; when painting tiles, Shift is the brush's) |
+| Wheel | zoom (slowly with Shift, or with Ctrl when nothing selected takes a scale; when painting tiles, Shift is the brush's) |
 | Arrow keys, W A S D, or numpad 4, 6, 8, 2 | move the camera |
 | Numpad 7, 9 | turn |
 | Numpad 1, 3 | tilt |
@@ -116,6 +116,7 @@ field).
 | Drag the ring around them | turn them as the pointer goes round |
 | Shift + drag a tilt ring | tilt their models about X (red) or Y (green) |
 | Shift + drag the square handle | scale their models: away from the object larger, toward it smaller |
+| Ctrl + wheel | scale their models, as in Aurora: up larger, down smaller |
 | Shift + drag an arrow | move them along one axis alone: east (red), north (green) or up (blue) |
 | Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
 | G | drop them to the ground |
@@ -170,6 +171,17 @@ every way alike (Adjust Location's Scale is the same number). Like the
 tilt, it is the model that changes, for the objects a tilt works on;
 several selected objects each scale about their own feet. Escape drops
 the drag.
+
+**Ctrl + wheel** scales the selected objects too, as Aurora's does: with
+the pointer over the view, turn the wheel up to make their models
+larger and down to make them smaller, about a twentieth a notch. The
+size shows beside the pointer and in the status line; it becomes one
+step to undo when Ctrl is let go or the wheel rests (Escape, or Undo
+meanwhile, drops it). It works on what a scale works on: creatures,
+items, doors and placeables that are not static. A static placeable
+takes no scale (the game ignores one): clear **Static** in its
+properties first; the status line says so, and the wheel zooms the view
+slowly, as it does with nothing selected that takes a scale.
 
 **The arrows**: with **Shift** held, three arrows stand out from the
 selected object: red to the east, green to the north and blue upward.

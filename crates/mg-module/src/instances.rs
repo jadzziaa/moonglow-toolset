@@ -1252,6 +1252,152 @@ pub fn update(
     (count > 0).then_some((out, count))
 }
 
+/// Where an item is held in a GIT: each list and index down to it from
+/// the GIT's root: the placed object that holds it (`Placeable List` 3),
+/// then where in that (`ItemList` 0; a creature's `Equip_ItemList`; a
+/// store's `StoreList` page and its `ItemList`; a bag's `ItemList` in
+/// any of them, or of a bag lying in the area).
+pub type Held = Vec<(&'static str, usize)>;
+
+/// Picks held items by where they are ([`Held`]).
+pub type WhichHeld<'a> = &'a dyn Fn(&[(&'static str, usize)]) -> bool;
+
+/// What an item keeps where it is held, when it is made again from its
+/// blueprint: its place in the grid, how many of it there are, whether it
+/// drops or can be stolen, and whether a store has no end of it. (The
+/// slot it is equipped in is its struct's id, kept too.)
+const HELD_KEPT: [&str; 6] =
+    ["Repos_PosX", "Repos_Posy", "StackSize", "Dropable", "Pickpocketable", "Infinite"];
+
+/// The lists of held items a struct of a GIT list (or an item) has.
+fn held_lists(list: &str) -> &'static [&'static str] {
+    match list {
+        "Creature List" => &["Equip_ItemList", "ItemList"],
+        // (A store's `StoreList` is its pages, each with an `ItemList`.)
+        "StoreList" => &["StoreList"],
+        "Placeable List" | "List" | "ItemList" | "Equip_ItemList" => &["ItemList"],
+        _ => &[],
+    }
+}
+
+/// Whether the structs of `list` under one of `parent`'s are items (a
+/// store's pages are not: their `ItemList`s are).
+fn holds_items(parent: &str, list: &str) -> bool {
+    !(parent == "StoreList" && list == "StoreList")
+}
+
+/// Walks the items held under the struct `s` of `list`, which is at `at`.
+fn walk_held(
+    s: &Struct,
+    list: &'static str,
+    at: &mut Held,
+    depth: u32,
+    found: &mut dyn FnMut(&Held, &Struct),
+) {
+    if depth > 6 {
+        return;
+    }
+    for &inner in held_lists(list) {
+        for (i, held) in s.list(inner).unwrap_or(&[]).iter().enumerate() {
+            at.push((inner, i));
+            if holds_items(list, inner) {
+                found(at, held);
+                walk_held(held, "ItemList", at, depth + 1, found);
+            } else {
+                // (A store's page.)
+                walk_held(held, "Placeable List", at, depth + 1, found);
+            }
+            at.pop();
+        }
+    }
+}
+
+/// The items held by a GIT's placed objects (in chests, creatures' packs
+/// and hands, stores' pages, and bags among them or lying in the area)
+/// that are of the item blueprints `wanted` names: where each is, its
+/// blueprint and its tag.
+pub fn held_items(git: &Struct, wanted: &dyn Fn(ResRef) -> bool) -> Vec<(Held, ResRef, String)> {
+    let mut out = Vec::new();
+    for (list, _) in GIT_LISTS {
+        for (i, s) in git.list(list).unwrap_or(&[]).iter().enumerate() {
+            let mut at: Held = vec![(list, i)];
+            walk_held(s, list, &mut at, 0, &mut |at, item| {
+                if let Some(r) = item.resref("TemplateResRef").filter(|r| wanted(*r)) {
+                    let tag = String::from_utf8_lossy(item.string("Tag").unwrap_or_default());
+                    out.push((at.clone(), r, tag.into_owned()));
+                }
+            });
+        }
+    }
+    out
+}
+
+/// [`update`] for the items a GIT's placed objects hold
+/// ([`held_items`]): each that `which` picks (by where it is) made again
+/// from its blueprint, keeping where it is held (its place in the grid,
+/// its slot), how many there are (`StackSize`: twenty arrows stay
+/// twenty) and what is said of it there (`Dropable`, `Pickpocketable`,
+/// a store's `Infinite`). A bag made again holds what its blueprint
+/// does. Returns the GIT with them replaced, and how many, or `None`
+/// when it has none of them.
+pub fn update_held(
+    p: &Placing<'_>,
+    git: &Struct,
+    blueprint: &dyn Fn(ResRef) -> Option<Struct>,
+    which: WhichHeld<'_>,
+) -> Option<(Struct, usize)> {
+    #[allow(clippy::too_many_arguments)]
+    fn remake(
+        p: &Placing<'_>,
+        s: &mut Struct,
+        list: &'static str,
+        at: &mut Held,
+        depth: u32,
+        blueprint: &dyn Fn(ResRef) -> Option<Struct>,
+        which: WhichHeld<'_>,
+        count: &mut usize,
+    ) {
+        if depth > 6 {
+            return;
+        }
+        for &inner in held_lists(list) {
+            let Some(items) = s.list_mut(inner) else { continue };
+            for (i, held) in items.iter_mut().enumerate() {
+                at.push((inner, i));
+                if !holds_items(list, inner) {
+                    remake(p, held, "Placeable List", at, depth + 1, blueprint, which, count);
+                } else if which(at)
+                    && let Some(bp) = held.resref("TemplateResRef").and_then(blueprint)
+                {
+                    let mut made = held_item(p, &bp, held.id, depth + 1);
+                    // (In the order it has them.)
+                    for f in &held.fields {
+                        let label = f.label.to_string_lossy();
+                        if HELD_KEPT.contains(&label.as_str()) {
+                            made.set(&label, f.value.clone());
+                        }
+                    }
+                    *held = made;
+                    *count += 1;
+                } else {
+                    remake(p, held, "ItemList", at, depth + 1, blueprint, which, count);
+                }
+                at.pop();
+            }
+        }
+    }
+    let mut out = git.clone();
+    let mut count = 0;
+    for (list, _) in GIT_LISTS {
+        let Some(objects) = out.list_mut(list) else { continue };
+        for (i, s) in objects.iter_mut().enumerate() {
+            let mut at: Held = vec![(list, i)];
+            remake(p, s, list, &mut at, 0, blueprint, which, &mut count);
+        }
+    }
+    (count > 0).then_some((out, count))
+}
+
 /// The waypoint Aurora's Create Waypoint makes for a creature (one of its
 /// walk waypoints): from no blueprint, facing north, at `position`.
 pub fn walk_waypoint(tag: &str, position: [f32; 3]) -> Struct {
@@ -1417,5 +1563,92 @@ mod tests {
         let names = labels(&items[0]);
         assert_eq!(names[..2], ["XPosition", "YPosition"]);
         assert_eq!(names[names.len() - 2..], ["Repos_PosX", "Repos_Posy"]);
+    }
+
+    /// Update Instances reaches the items placed objects hold: in a
+    /// chest, a creature's pack and hands, a store's page and a bag, each
+    /// made again from its blueprint where it is held.
+    #[test]
+    fn held_items_are_found_and_made_again_from_their_blueprint() {
+        let game = game();
+        let blueprint = |cost: u32| {
+            let mut s = Struct::new(0);
+            s.set("TemplateResRef", Value::resref(ResRef::from_str("potion").unwrap()));
+            s.set("BaseItem", Value::Int(49));
+            s.set("ModelPart1", Value::Byte(21));
+            s.set("Cost", Value::Dword(cost));
+            s
+        };
+        let old = |r: ResRef| (r.to_string() == "potion").then(|| blueprint(20));
+        let p = Placing { game: &game, item: &old };
+        let entry = |x: u16| {
+            let mut e = Struct::new(0);
+            e.set("InventoryRes", Value::resref(ResRef::from_str("potion").unwrap()));
+            e.set("Repos_PosX", Value::Word(x));
+            e.set("Repos_Posy", Value::Word(0));
+            e
+        };
+        // A chest of two, a creature with one in hand and one in its
+        // pack (which does not drop), a store with one it has no end of.
+        let mut chest = Struct::new(0);
+        chest.set("ItemList", Value::List(vec![entry(0), entry(2)]));
+        let chest = instance(&p, ResType::UTP, &chest, Placement::default(), &[]).unwrap();
+        let mut creature = Struct::new(0);
+        let mut hand = Struct::new(16);
+        hand.set("EquippedRes", Value::resref(ResRef::from_str("potion").unwrap()));
+        creature.set("Equip_ItemList", Value::List(vec![hand]));
+        let mut pack = entry(1);
+        pack.set("Dropable", Value::Byte(0));
+        pack.set("StackSize", Value::Word(20));
+        creature.set("ItemList", Value::List(vec![pack]));
+        let creature = instance(&p, ResType::UTC, &creature, Placement::default(), &[]).unwrap();
+        let mut store = Struct::new(0);
+        let mut page = Struct::new(0);
+        let mut stock = entry(0);
+        stock.set("Infinite", Value::Byte(1));
+        page.set("ItemList", Value::List(vec![stock]));
+        store.set("StoreList", Value::List(vec![page]));
+        let store = instance(&p, ResType::UTM, &store, Placement::default(), &[]).unwrap();
+        let mut git = Struct::new(u32::MAX);
+        git.set("Placeable List", Value::List(vec![chest]));
+        git.set("Creature List", Value::List(vec![creature]));
+        git.set("StoreList", Value::List(vec![store]));
+
+        let all = |_: ResRef| true;
+        let found: Vec<Held> = held_items(&git, &all).into_iter().map(|(at, ..)| at).collect();
+        let expected: Vec<Held> = vec![
+            vec![("Creature List", 0), ("Equip_ItemList", 0)],
+            vec![("Creature List", 0), ("ItemList", 0)],
+            vec![("Placeable List", 0), ("ItemList", 0)],
+            vec![("Placeable List", 0), ("ItemList", 1)],
+            vec![("StoreList", 0), ("StoreList", 0), ("ItemList", 0)],
+        ];
+        assert_eq!(found, expected);
+        assert!(held_items(&git, &|_| false).is_empty());
+
+        // The blueprint changed: all but the chest's second are made again.
+        let new = |r: ResRef| (r.to_string() == "potion").then(|| blueprint(99));
+        let skipped: Held = vec![("Placeable List", 0), ("ItemList", 1)];
+        let which = |at: &[(&'static str, usize)]| at != skipped.as_slice();
+        let (updated, n) = update_held(&p, &git, &new, &which).unwrap();
+        assert_eq!(n, 4);
+        let cost = |s: &Struct| s.get("Cost").cloned();
+        let chest = &updated.list("Placeable List").unwrap()[0].list("ItemList").unwrap().to_vec();
+        assert_eq!(cost(&chest[0]), Some(Value::Dword(99)));
+        assert_eq!(cost(&chest[1]), Some(Value::Dword(20)), "not picked: as it was");
+        assert_eq!(chest[0].get("Repos_PosX"), Some(&Value::Word(0)), "its place in the grid");
+        let creature = &updated.list("Creature List").unwrap()[0];
+        let hand = &creature.list("Equip_ItemList").unwrap()[0];
+        assert_eq!((hand.id, cost(hand)), (16, Some(Value::Dword(99))), "in the same slot");
+        let pack = &creature.list("ItemList").unwrap()[0];
+        assert_eq!(cost(pack), Some(Value::Dword(99)));
+        assert_eq!(pack.get("Dropable"), Some(&Value::Byte(0)), "what is said of it there");
+        assert_eq!(pack.get("StackSize"), Some(&Value::Word(20)), "and how many there are");
+        let page = &updated.list("StoreList").unwrap()[0].list("StoreList").unwrap()[0];
+        let stock = &page.list("ItemList").unwrap()[0];
+        assert_eq!(cost(stock), Some(Value::Dword(99)));
+        assert_eq!(stock.get("Infinite"), Some(&Value::Byte(1)));
+        // Nothing of the blueprints asked for: nothing to do.
+        assert!(update_held(&p, &git, &|_| None, &|_| true).is_none());
     }
 }

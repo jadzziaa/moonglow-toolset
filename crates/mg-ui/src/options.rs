@@ -35,6 +35,7 @@ pub struct OptionsDraft {
     pub user_dir: String,
     pub script_style: ScriptStyle,
     pub build_on_save: bool,
+    pub mod_beside_folder: bool,
     pub area_names: bool,
     pub last_area: bool,
     pub debug_log: bool,
@@ -112,6 +113,7 @@ impl OptionsDraft {
             user_dir: text(&s.user_dir),
             script_style: s.script_style.clone(),
             build_on_save: s.build_on_save,
+            mod_beside_folder: !s.no_mod_beside_folder,
             area_names: s.area_names,
             last_area: !s.no_last_area,
             debug_log: !s.no_debug_log,
@@ -168,6 +170,7 @@ impl OptionsDraft {
             user_dir: path(&self.user_dir),
             script_style: self.script_style.clone(),
             build_on_save: self.build_on_save,
+            no_mod_beside_folder: !self.mod_beside_folder,
             area_names: self.area_names,
             no_last_area: !self.last_area,
             no_debug_log: !self.debug_log,
@@ -387,6 +390,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 .on_hover_text(
                                     "Run Build Module (with its defaults) before saving",
                                 );
+                            ui.checkbox(
+                                &mut draft.mod_beside_folder,
+                                "Write a .mod beside a module folder on save",
+                            )
+                            .on_hover_text(
+                                "A module opened as a folder is saved into the folder, and as \
+                                 <folder>.mod next to it as well, as Aurora saves a module \
+                                 directory: the game loads the .mod. (A nasher project has \
+                                 Build › Pack Target for its module file.)",
+                            );
                             ui.checkbox(
                                 &mut draft.minimize_on_test,
                                 "Minimize Toolset on test module",

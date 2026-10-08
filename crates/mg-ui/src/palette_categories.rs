@@ -59,7 +59,10 @@ pub(crate) fn open(app: &mut Moonglow, kind: BlueprintKind) {
 
 /// A node's name as shown.
 fn name_of(app: &Moonglow, node: &Struct) -> String {
-    let text = |label: &str| node.string(label).map(|t| String::from_utf8_lossy(t).into_owned());
+    // (As the game reads text in its language; UTF-8 as Moonglow wrote
+    // names before 1.19.4.)
+    let codepage = app.game.as_deref().map_or_else(Default::default, |g| g.language.codepage());
+    let text = |label: &str| node.string(label).map(|t| palette::text_of(t, codepage));
     let named = text("NAME").or_else(|| {
         let strref = u32::try_from(node.integer("STRREF")?).ok()?;
         app.game.as_deref()?.string(mg_core::StrRef(strref))
@@ -218,6 +221,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             }
         });
         ui.separator();
+        // (A name is written as the game reads text in its language.)
+        let codepage = app.game.as_deref().map_or_else(Default::default, |g| g.language.codepage());
         // Where a new one goes: in the group chosen, beside the
         // category chosen, else at the top.
         let chosen = w.selected.clone();
@@ -244,7 +249,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 .on_hover_text(format!("A new category of that name, {where_}"))
                 .clicked()
             {
-                let added = palette::add_category(&mut w.skeleton, &parent, &w.name);
+                let added = palette::add_category(&mut w.skeleton, &parent, &w.name, codepage);
                 result = Some(added.map(|(path, _)| Some(path)));
             }
             if ui
@@ -252,7 +257,8 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 .on_hover_text(format!("A new group to hold categories, {where_}"))
                 .clicked()
             {
-                result = Some(palette::add_group(&mut w.skeleton, &parent, &w.name).map(Some));
+                let added = palette::add_group(&mut w.skeleton, &parent, &w.name, codepage);
+                result = Some(added.map(Some));
             }
             if ui
                 .add_enabled(chosen.is_some(), egui::Button::new("Rename"))
@@ -260,7 +266,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 .clicked()
                 && let Some(path) = &chosen
             {
-                let renamed = palette::rename_category(&mut w.skeleton, path, &w.name);
+                let renamed = palette::rename_category(&mut w.skeleton, path, &w.name, codepage);
                 result = Some(renamed.map(|()| Some(path.clone())));
             }
             if ui

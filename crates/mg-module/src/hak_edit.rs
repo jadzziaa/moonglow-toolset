@@ -36,6 +36,29 @@ pub struct Item {
     pub source: Source,
 }
 
+/// The files of a folder and of the folders in it, as
+/// [`Hak::add_folder`] adds them.
+pub fn folder_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(d) = dirs.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if ignored(&name) {
+                continue;
+            }
+            match e.file_type() {
+                Ok(t) if t.is_dir() => dirs.push(e.path()),
+                Ok(t) if t.is_file() => files.push(e.path()),
+                _ => {}
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
 /// What adding files did.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Added {
@@ -280,24 +303,21 @@ impl Hak {
 
     /// Adds the files of a folder and the folders in it.
     pub fn add_folder(&mut self, dir: &Path) -> Added {
-        let mut files = Vec::new();
-        let mut dirs = vec![dir.to_path_buf()];
-        while let Some(d) = dirs.pop() {
-            let Ok(rd) = std::fs::read_dir(&d) else { continue };
-            for e in rd.flatten() {
-                let name = e.file_name().to_string_lossy().into_owned();
-                if ignored(&name) {
-                    continue;
-                }
-                match e.file_type() {
-                    Ok(t) if t.is_dir() => dirs.push(e.path()),
-                    Ok(t) if t.is_file() => files.push(e.path()),
-                    _ => {}
-                }
-            }
-        }
-        files.sort();
-        self.add_files(&files)
+        self.add_files(&folder_files(dir))
+    }
+
+    /// Of `paths`, the files that would replace resources the hak has:
+    /// each with the resource (for asking first, as Aurora's hak editor
+    /// does).
+    pub fn replaced_by(&self, paths: &[PathBuf]) -> Vec<(PathBuf, ResKey)> {
+        paths
+            .iter()
+            .filter_map(|p| {
+                let name = p.file_name()?.to_string_lossy().into_owned();
+                let key = key_for(&name).ok().filter(|_| !ignored(&name))?;
+                self.items.iter().any(|i| i.key == key).then(|| (p.clone(), key))
+            })
+            .collect()
     }
 
     /// Removes resources; one undo step.

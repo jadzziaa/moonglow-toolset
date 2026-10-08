@@ -341,8 +341,9 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
 }
 
 /// The one object selected in the area in front, if it is another than
-/// the tree shows: the tree then goes to it (its area opened out, its
-/// kind's list too), as Aurora's does on a click in the area.
+/// the tree shows: the tree then goes to it (its kind's list opened),
+/// where its area is opened out there. An area left closed in the tree
+/// stays closed: the tree does not move.
 fn follow_selection(app: &mut Moonglow) {
     let selected = app.palette.area.and_then(|area| {
         let view = app.area_views.get(&area)?;
@@ -353,10 +354,7 @@ fn follow_selection(app: &mut Moonglow) {
     });
     if selected != app.tree_object {
         app.tree_object = selected;
-        if let Some((area, ..)) = selected {
-            app.tree_object_pending = true;
-            app.tree_reveal = Some((area, true));
-        }
+        app.tree_object_pending = selected.is_some();
     }
 }
 
@@ -635,6 +633,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         // (Brought into view, or not among the areas shown: done.)
         if *name == "Areas" {
             app.tree_reveal = None;
+            // The object selected was gone to if its area is opened out;
+            // if not (or the areas are folded away), the tree stays as it
+            // is. (One whose area is being read again is gone to then.)
+            if !app.tree_object.is_some_and(|(area, ..)| read.contains(&area)) {
+                app.tree_object_pending = false;
+            }
         }
         if let (Some(id), Some(label)) = (new, &new_label) {
             header.header_response.context_menu(|ui| {

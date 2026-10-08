@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:37:36Z }
 ---
 
 # The main window
@@ -154,9 +154,11 @@ it over the whole of Moonglow's window under the toolbar, and again to
 put it back; **Maximize** and
 **Restore** are on the tab's right-click menu too. Opening an area, or choosing its
 tab, brings the area's row into view in the module tree, marked as the
-one in hand, and an object selected in the area's view is shown there
-too (its area opened out, its row marked), as in Aurora; **Show in Module Tree** on the tab's menu opens it out to
-what is placed in it as well. The bar beside the
+one in hand. Where the area is opened out in the tree (the arrow beside
+its row), an object selected in the area's view is shown there too: its
+kind's list opens and its row is marked and brought into view. An area
+left closed in the tree stays closed. **Show in Module Tree** on the
+tab's menu opens it out to what is placed in it. The bar beside the
 tab does the same on a double click and a right click, and the window is
 dragged by it. The arrow at the bar's left folds the window to its bar.
 
@@ -173,7 +175,9 @@ The right-hand pane is Aurora's palette: choose a blueprint type,
 blueprint from the categories. Click in an area to place the chosen
 blueprint (see [Areas](04-areas.md)). With an area's terrain mode on, the
 palette shows the tileset's brushes instead. **Preview** (toolbar) shows
-the chosen blueprint in a window of its own.
+the chosen blueprint in a window of its own. After a click in it, the
+arrow keys move through its rows and open and close its categories (see
+[Blueprints](05-blueprints.md)).
 
 ## The resource browser
 

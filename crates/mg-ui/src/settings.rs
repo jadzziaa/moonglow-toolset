@@ -72,6 +72,10 @@ pub struct Settings {
     pub script_style: ScriptStyle,
     /// Options > General: Build module on save (Aurora's `Verify On Save`).
     pub build_on_save: bool,
+    /// Options › General: saving a module that is a folder does not write
+    /// it as a `.mod` beside the folder too (it does unless switched off,
+    /// as Aurora does for a module directory).
+    pub no_mod_beside_folder: bool,
     /// The area view's Fade Geometry (0 never, 1 in object mode only,
     /// 2 always), in views opened from now on.
     pub fade_geometry: u8,

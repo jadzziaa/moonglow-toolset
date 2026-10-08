@@ -270,6 +270,22 @@ const RING_REACH: f32 = 11.5;
 /// Half the side of a scale handle's square, points.
 const SCALE_HANDLE: f32 = 5.0;
 
+/// Ctrl + wheel scaling under way: what is scaled, by how much so far and
+/// when the wheel turned last (the input's time).
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct WheelScale {
+    selection: Vec<(ObjectKind, usize)>,
+    factor: f32,
+    at: f64,
+}
+
+/// How long the wheel rests before its scaling is made a command, seconds.
+const WHEEL_REST: f64 = 0.4;
+
+/// How much a point of the wheel's turning scales by: a notch about a
+/// twentieth.
+const WHEEL_SCALE: f32 = 0.001;
+
 /// The straight pieces the ring is drawn (and taken) as.
 const RING_SEGMENTS: usize = 48;
 
@@ -336,6 +352,12 @@ pub struct AreaView {
     /// The tiles that refused the terrain stroke asked for last, and when:
     /// they flash red for a moment, as in Aurora.
     pub refused: Option<(Vec<(u32, u32)>, std::time::Instant)>,
+    /// Ctrl + wheel scaling under way: shown as a scale drag is, and made
+    /// one command when the wheel rests or Ctrl is let go.
+    pub(crate) wheel_scale: Option<WheelScale>,
+    /// When Ctrl + wheel last found only objects that take no scale (a
+    /// static placeable): the status line says so for a moment.
+    wheel_refused: Option<f64>,
     /// The tiles' walkmeshes.
     ground: Option<Ground>,
     pub error: Option<String>,
@@ -497,6 +519,8 @@ impl AreaView {
             group_turns: 0,
             notice: None,
             refused: None,
+            wheel_scale: None,
+            wheel_refused: None,
             ground: None,
             error: None,
             orbit: None,
@@ -780,11 +804,24 @@ impl AreaView {
     /// applied: scaled by its factor, to a hundredth (with the snapping
     /// grid on, to a twentieth), within what Adjust Location takes.
     fn scaled(&self) -> Vec<(usize, mg_area::VisualTransform)> {
-        let (Some(model), Some(Drag::Scale { factor, .. })) = (&self.model, self.drag) else {
-            return Vec::new();
-        };
+        match (self.drag, &self.wheel_scale) {
+            (Some(Drag::Scale { factor, .. }), _) => self.scaled_by(&self.selection, factor),
+            // (Ctrl + wheel: the same, of what was selected when it began.)
+            (_, Some(wheel)) => self.scaled_by(&wheel.selection, wheel.factor),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The visual transforms of those of `selection` that take one (and
+    /// aren't locked), scaled by `factor`.
+    fn scaled_by(
+        &self,
+        selection: &[(ObjectKind, usize)],
+        factor: f32,
+    ) -> Vec<(usize, mg_area::VisualTransform)> {
+        let Some(model) = &self.model else { return Vec::new() };
         let step = if self.snap.0.is_some() { 0.05 } else { 0.01 };
-        self.selection
+        selection
             .iter()
             .filter_map(|&(k, i)| self.object_at(k, i))
             .filter(|&i| model.objects[i].takes_visual_transform() && !model.objects[i].locked)
@@ -1026,6 +1063,11 @@ impl AreaView {
     fn angle_about(&self, pivot: Vec3, pos: Pos2) -> Option<f32> {
         let d = self.ray(pos)?.at_height(pivot.z)? - pivot;
         (d.truncate().length() > 1e-3).then(|| d.y.atan2(d.x))
+    }
+
+    /// Whether a Ctrl + wheel scaling is under way (not yet a command).
+    pub fn wheel_scaling(&self) -> bool {
+        self.wheel_scale.is_some()
     }
 
     /// The middle of the selection to turn it about as one (Together, with
@@ -1642,6 +1684,15 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             _ => "click to place (Shift + click: place more); right click or Escape: stop",
         };
         format!("Placing {}: {what}", key.resref)
+    } else if let Some(visual) = view.wheel_scale.as_ref().and(view.scaled().first()) {
+        format!(
+            "Scale {:.2} (Ctrl + wheel; let Ctrl go to keep it, Escape to drop it)",
+            visual.1.scale.x
+        )
+    } else if view.wheel_refused.is_some_and(|at| ui.input(|i| i.time) - at < 4.0) {
+        "A static placeable takes no scale: clear Static in its properties first. (Ctrl + \
+         wheel zooms slowly meanwhile.)"
+            .to_string()
     } else if let ([(kind, index)], Some(m)) = (view.selection.as_slice(), &view.model)
         && let Some(o) = m.object(*kind, *index)
     {
@@ -2458,6 +2509,19 @@ fn overlays(
             );
         }
     }
+    // Ctrl + wheel: the size beside the pointer, as a scale drag shows it.
+    if view.wheel_scale.is_some()
+        && let Some(c) = ui.ctx().pointer_latest_pos()
+        && let Some((_, visual)) = view.scaled().first()
+    {
+        painter.text(
+            c + egui::vec2(12.0, -12.0),
+            egui::Align2::LEFT_BOTTOM,
+            format!("scale {:.2}", visual.scale.x),
+            egui::FontId::proportional(13.0),
+            Color32::WHITE,
+        );
+    }
     let rings = if tilting { view.tilt_rings(shown) } else { Vec::new() };
     if !rings.is_empty() {
         let held = match view.drag {
@@ -2661,7 +2725,8 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         app.area_tool_at = ui.ctx().cumulative_pass_nr();
     }
     view.held = Held::read(ui, response, view.held);
-    camera_input(ui, view, response, (alt, shift), command, &app.keymap);
+    let scaling = wheel_scales(app, ui, view, response, (command, shift));
+    camera_input(ui, view, response, (alt, shift), command, &app.keymap, scaling);
     // (Asked of each kind only when that is what is dragged: asking takes
     // the payload, whatever it is.)
     type Blueprint = crate::palette_view::Dragged;
@@ -3146,14 +3211,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
                 view.drag = Some(drag);
                 let scaled = view.scaled();
                 view.drag = None;
-                // (Let go where it was taken: nothing to change.)
-                let model = view.model.as_ref();
-                let changed = scaled.iter().any(|(i, v)| {
-                    model.is_some_and(|m| m.objects[*i].visual.unwrap_or_default() != *v)
-                });
-                if changed {
-                    commit_visuals(app, view, "Scale", &scaled);
-                }
+                commit_scale(app, view, &scaled);
             }
             Some(drag) => {
                 view.drag = Some(drag);
@@ -3214,6 +3272,8 @@ fn camera_input(
     (alt, shift): (bool, bool),
     command: bool,
     keys: &crate::keys::Keymap,
+    // The wheel is scaling the selection: it does not zoom.
+    scaling: bool,
 ) {
     let rect = view.rect;
     // The keys drive the area view the pointer was in last, wherever the
@@ -3221,6 +3281,8 @@ fn camera_input(
     let last = egui::Id::new("area-view-camera-keys");
     if response.hovered() {
         ui.data_mut(|d| d.insert_temp(last, view.area));
+        // (The arrow keys are the camera's again, if the palette had them.)
+        crate::palette_view::give_arrows(ui.ctx(), false);
     }
     let active = ui.data(|d| d.get_temp::<ResRef>(last)) == Some(view.area);
     let held = view.held;
@@ -3258,6 +3320,7 @@ fn camera_input(
         }
         (scroll, shift || i.modifiers.command)
     });
+    let scroll = if scaling { 0.0 } else { scroll };
     if scroll != 0.0 && response.hovered() && command && shift {
         // Ctrl + Shift + wheel: up and down, finer the nearer the view.
         raise(o, scroll * 0.0006 * o.distance);
@@ -3272,7 +3335,10 @@ fn camera_input(
     // No key moves the camera while a field has the
     // keyboard (in a window over the view).
     let typing = ui.memory(|m| m.focused().is_some());
-    let held = |c: Cmd| ui.input(|i| keys.held(i, c, typing));
+    // Nor the arrow keys while they are the palette's (after a click in
+    // its tree, until the pointer is back in an area's view).
+    let no_arrows = crate::palette_view::has_arrows(ui.ctx());
+    let held = |c: Cmd| ui.input(|i| keys.held_but(i, c, typing, no_arrows));
     let axis =
         |plus: Cmd, minus: Cmd| f32::from(u8::from(held(plus))) - f32::from(u8::from(held(minus)));
     let dt = ui.input(|i| i.stable_dt).min(0.1);
@@ -3639,6 +3705,103 @@ fn commit_moves(app: &mut Moonglow, view: &AreaView, moved: &[(usize, Vec3, f32)
     }
 }
 
+/// A scaling made a command, if it changes anything (a handle let go
+/// where it was taken, a wheel turned back, changes nothing).
+fn commit_scale(app: &mut Moonglow, view: &AreaView, scaled: &[(usize, mg_area::VisualTransform)]) {
+    let model = view.model.as_ref();
+    let changed = scaled
+        .iter()
+        .any(|(i, v)| model.is_some_and(|m| m.objects[*i].visual.unwrap_or_default() != *v));
+    if changed {
+        commit_visuals(app, view, "Scale", scaled);
+    }
+}
+
+/// Ctrl + wheel with the pointer over the view scales the models of the
+/// objects selected that take a scale (creatures, items, doors and
+/// placeables that aren't static), as Aurora's does: shown at once, and
+/// made one command when the wheel rests, Ctrl is let go or the selection
+/// changes (Escape drops it). Whether the wheel was taken: the camera
+/// then does not zoom by it. With nothing selected that takes a scale,
+/// the wheel is the camera's (a static placeable selected: the status
+/// line says why).
+fn wheel_scales(
+    app: &mut Moonglow,
+    ui: &egui::Ui,
+    view: &mut AreaView,
+    response: &egui::Response,
+    (command, shift): (bool, bool),
+) -> bool {
+    let now = ui.input(|i| i.time);
+    if let Some(wheel) = &view.wheel_scale {
+        let rest = WHEEL_REST - (now - wheel.at);
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            view.wheel_scale = None;
+        } else if rest <= 0.0 || !command || wheel.selection != view.selection {
+            let scaled = view.scaled_by(&wheel.selection, wheel.factor);
+            view.wheel_scale = None;
+            commit_scale(app, view, &scaled);
+        } else {
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(rest));
+        }
+    }
+    // (With Ctrl held, egui reports the wheel as a zoom.)
+    let speed = ui.ctx().options(|o| o.input_options.scroll_zoom_speed);
+    let turned = ui.input(|i| i.zoom_delta().ln()) / speed.max(f32::EPSILON);
+    let asked = turned != 0.0
+        && command
+        && !shift
+        && response.hovered()
+        && view.drag.is_none()
+        && crate::terrain_mode::active(app, view).is_none();
+    if !asked {
+        return false;
+    }
+    let Some(model) = &view.model else { return false };
+    let chosen = || view.selection.iter().filter_map(|&(k, i)| model.object(k, i));
+    if !chosen().any(|o| o.takes_visual_transform() && !o.locked) {
+        if chosen().any(|o| o.kind == ObjectKind::Placeable && o.is_static) {
+            view.wheel_refused = Some(now);
+        }
+        return false;
+    }
+    let selection = view.selection.clone();
+    let wheel = view.wheel_scale.get_or_insert(WheelScale { selection, factor: 1.0, at: now });
+    wheel.factor = (wheel.factor * (turned * WHEEL_SCALE).exp()).clamp(0.01, 100.0);
+    wheel.at = now;
+    ui.ctx().request_repaint();
+    true
+}
+
+/// Makes a Ctrl + wheel scaling under way in any area a command at once
+/// (before the module is saved: it is part of what is saved).
+pub(crate) fn commit_wheel_scales(app: &mut Moonglow) {
+    let pending: Vec<ResRef> =
+        app.area_views.iter().filter(|(_, v)| v.wheel_scale.is_some()).map(|(a, _)| *a).collect();
+    for area in pending {
+        let Some(mut view) = app.area_views.remove(&area) else { continue };
+        if let Some(wheel) = view.wheel_scale.take() {
+            let scaled = view.scaled_by(&wheel.selection, wheel.factor);
+            if let Some(command) = visuals_command(app, &view, "Scale", &scaled)
+                && let Err(e) = app.apply(command)
+            {
+                app.log.error(e.to_string());
+            }
+        }
+        app.area_views.insert(area, view);
+    }
+}
+
+/// Drops a Ctrl + wheel scaling under way in any area (Undo, while one
+/// is, takes that back): whether there was one.
+pub(crate) fn drop_wheel_scale(app: &mut Moonglow) -> bool {
+    let mut dropped = false;
+    for view in app.area_views.values_mut() {
+        dropped |= view.wheel_scale.take().is_some();
+    }
+    dropped
+}
+
 /// One command that gives each object (by its position in the model) the
 /// visual transform a tilt or a scaling left it.
 fn commit_visuals(
@@ -3647,18 +3810,28 @@ fn commit_visuals(
     what: &str,
     tilted: &[(usize, mg_area::VisualTransform)],
 ) {
-    let (Some(model), Some(ws)) = (&view.model, app.ws.as_mut()) else { return };
+    if let Some(command) = visuals_command(app, view, what, tilted) {
+        app.actions.push(Action::Apply(command));
+    }
+}
+
+/// [`commit_visuals`]'s command, if it changes anything.
+fn visuals_command(
+    app: &mut Moonglow,
+    view: &AreaView,
+    what: &str,
+    tilted: &[(usize, mg_area::VisualTransform)],
+) -> Option<Command> {
+    let (Some(model), Some(ws)) = (&view.model, app.ws.as_mut()) else { return None };
     let git = view.git();
-    let Ok(doc) = ws.doc(&git) else { return };
+    let doc = ws.doc(&git).ok()?;
     let mut edits = Vec::new();
     for &(i, visual) in tilted {
         let o = &model.objects[i];
         let Some(s) = doc.root.list(o.kind.list()).and_then(|l| l.get(o.index)) else { continue };
         edits.extend(mg_area::edit::visual_transform_edits(git, o, s, visual));
     }
-    if !edits.is_empty() {
-        app.actions.push(Action::Apply(Command::new(what, edits)));
-    }
+    (!edits.is_empty()).then(|| Command::new(what, edits))
 }
 
 /// Opens (or shows) the Properties of the placed object `index` of `kind`.

@@ -9,7 +9,7 @@ use egui::Context;
 use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::Struct;
-use mg_module::instances::{Placing, git_list, update};
+use mg_module::instances::{Held, Placing, git_list, held_items, update, update_held};
 use mg_resman::ResKey;
 
 use crate::{Action, Moonglow};
@@ -18,9 +18,14 @@ use crate::{Action, Moonglow};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Affected {
     pub area: ResRef,
-    /// Its GIT list and index there.
+    /// Its GIT list and index there (an item held by a placed object:
+    /// that object's).
     pub list: &'static str,
     pub index: usize,
+    /// An item held by a placed object (in a chest, a creature's pack or
+    /// hands, a store, a bag): where, down from the GIT's root. Empty for
+    /// the placed objects themselves.
+    pub held: Held,
     /// `area › creature GUARD (Guard Captain)`.
     pub label: String,
     /// Ticked: updated.
@@ -78,8 +83,28 @@ impl Moonglow {
                     let tag = String::from_utf8_lossy(s.string("Tag").unwrap_or_default());
                     let tag = if tag.is_empty() { format!("#{}", index + 1) } else { tag.into() };
                     let label = format!("{area} › {} {tag} ({r})", kind_name(list));
-                    objects.push(Affected { area, list, index, label, on: true });
+                    objects.push(Affected { area, list, index, held: Vec::new(), label, on: true });
                 }
+            }
+            // Items of these blueprints that the area's objects hold: in
+            // chests, creatures' packs and hands, stores, and bags.
+            let of_item = |r: ResRef| wanted.contains(&ResKey::new(r, ResType::UTI));
+            for (held, r, tag) in held_items(&git.root, &of_item) {
+                let (list, index) = held[0];
+                let holder = git.root.list(list).and_then(|l| l.get(index));
+                let holder_tag = holder
+                    .map(|s| String::from_utf8_lossy(s.string("Tag").unwrap_or_default()))
+                    .filter(|t| !t.is_empty())
+                    .map_or_else(|| format!("#{}", index + 1), |t| t.into_owned());
+                let tag = if tag.is_empty() { r.to_string() } else { tag };
+                let how = if held.iter().any(|(l, _)| *l == "Equip_ItemList") {
+                    "equipped"
+                } else {
+                    "held"
+                };
+                let label =
+                    format!("{area} › {} {holder_tag} › {how} item {tag} ({r})", kind_name(list));
+                objects.push(Affected { area, list, index, held, label, on: true });
             }
         }
         let names: Vec<String> = blueprints.iter().map(ResKey::to_string).collect();
@@ -130,12 +155,27 @@ impl Moonglow {
         for (key, git) in &gits {
             let (key, area) = (*key, key.resref);
             let which = |list: &str, index: usize| {
-                draft
-                    .objects
-                    .iter()
-                    .any(|o| o.area == area && o.list == list && o.index == index && o.on)
+                draft.objects.iter().any(|o| {
+                    o.area == area
+                        && o.held.is_empty()
+                        && o.list == list
+                        && o.index == index
+                        && o.on
+                })
             };
-            let Some((new, n)) = update(&placing, git, &blueprint, &which) else { continue };
+            // The items held first (where they are is by their places
+            // now), then the placed objects.
+            let held = |at: &[(&'static str, usize)]| {
+                draft.objects.iter().any(|o| o.area == area && o.held == at && o.on)
+            };
+            let item = |r: ResRef| blueprint(ResType::UTI, r);
+            let (with_held, held_n) =
+                update_held(&placing, git, &item, &held).unwrap_or_else(|| (git.clone(), 0));
+            let (new, n) = update(&placing, &with_held, &blueprint, &which)
+                .map_or((with_held, held_n), |(new, n)| (new, n + held_n));
+            if n == 0 {
+                continue;
+            }
             total += n;
             for (list, _) in mg_module::instances::GIT_LISTS {
                 if new.get(list) != git.get(list) {

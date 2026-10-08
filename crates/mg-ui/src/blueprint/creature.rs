@@ -18,7 +18,7 @@ use mg_rules::items::{part_number, wide_label};
 use mg_rules::{Challenge, Choice, ChoiceColumns, CreatureSheet, GameData};
 
 use super::{Form, creature_lists, situated};
-use crate::widgets::commit_number;
+use crate::widgets::{commit_number, spin_number};
 use crate::{Action, Moonglow, Tab};
 
 pub(super) const PAGES: [&str; 13] = [
@@ -253,7 +253,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                 ["Strength", "Dexterity", "Constitution", "Intelligence", "Wisdom", "Charisma"];
             for (i, (name, label)) in names.iter().zip(ABILITIES).enumerate() {
                 crate::widgets::field_label(ui, *name);
-                f.number(ui, name, label, 3..=100);
+                f.spin(ui, name, label, 3..=100);
                 ui.label(signed(stats.racial[i]));
                 ui.label(stats.totals[i].to_string());
                 ui.label(signed(modifier(stats.totals[i])));
@@ -268,7 +268,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                 crate::widgets::field_label(ui, "Natural AC");
                 // (Aurora takes up to 1000 here, more than the byte the file
                 // keeps; a byte is the most that is kept.)
-                f.number(ui, "Natural AC", "NaturalAC", 0..=255);
+                f.spin(ui, "Natural AC", "NaturalAC", 0..=255);
                 ui.end_row();
                 for (label, v) in [
                     ("Base", "10".to_string()),
@@ -286,7 +286,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
             egui::Grid::new(("utc-hp", f.key)).num_columns(2).spacing([16.0, 4.0]).show(ui, |ui| {
                 crate::widgets::field_label(ui, "Base Hit Points");
                 // The current hit points follow the base.
-                if let Some(v) = commit_number(ui, f.int("HitPoints"), 1..=10_000) {
+                if let Some(v) = spin_number(ui, f.int("HitPoints"), 1..=10_000) {
                     f.set_many(
                         "Hit points",
                         &[
@@ -327,7 +327,7 @@ fn statistics(f: &mut Form<'_>, ui: &mut Ui) {
                         ui.label(signed(stats.saves_modifier[i]));
                         // (To 250, as Aurora; below 0, which Aurora's field doesn't
                         // go, for the penalties files have.)
-                        if let Some(v) = commit_number(ui, f.int(label), -100..=250) {
+                        if let Some(v) = spin_number(ui, f.int(label), -100..=250) {
                             f.set_int(name, label, v, FieldType::Short);
                         }
                         ui.label(stats.saves[i].to_string());

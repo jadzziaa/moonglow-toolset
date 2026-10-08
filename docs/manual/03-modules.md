@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T09:58:19Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T20:18:20Z }
 ---
 
 # Modules
@@ -183,6 +183,22 @@ are looked for in the user folder's `hak`, then the game's `data/hk`. A
 change to the list (adding, removing, reordering, an undo) takes effect at
 once.
 
+**The hak list** (Custom Content) has the module's haks numbered from the
+top: where two haks have a resource of the same name, the game takes the
+one from the hak higher in the list. A hak that is in none of the hak
+folders is marked **not found**: the game will not load the module until
+it is there, or taken off the list.
+- **Choose** a row with a click; Ctrl + click adds or takes out a row,
+  Shift + click chooses from the last one clicked to this one.
+- **Move** what is chosen by dragging a row (by its name or the dots
+  before it) to where the line shows, with the arrows under the list, or
+  with Alt + Up and Alt + Down. Rows chosen together move together.
+- **Remove** takes the rows chosen off the list; so does Delete.
+- **The keys** work after a click in the list, with the pointer over it:
+  Up and Down choose the row above or below (with Shift, more), Home and
+  End the first and the last.
+- Each move or removal is one step to undo.
+
 **Add Haks and Talk Table…** (Custom Content) attaches downloaded content
 in one step. Choose the haks and a talk table wherever they are, and put
 the haks in order (highest priority first). Moonglow copies them into the
@@ -205,10 +221,14 @@ names, it won't load the module; Verify reports it. Name it without
 module's talk table:
 - **The lines** are listed by the StrRef the game knows them by
   (16777216 and up), with the feminine text beside them when there's a
-  feminine table. **Find** finds lines by words or by StrRef.
+  feminine table. **Find** finds lines by words or by StrRef. **Go to**
+  takes a StrRef or a line's number: press Enter and the list goes to
+  that line, among all the others, and it is chosen.
 - **A line**: choose it to edit its text, its feminine text, and the
   sound spoken with it and its length. **Copy** copies its StrRef, to put
-  in a 2DA or a script.
+  in a 2DA or a script. The text boxes take the room under the list; a
+  text longer than its box scrolls in it, and the sound's row stays in
+  sight. A larger window gives them more.
 - **Add Line** adds one at the end. **Remove Last Line** removes only the
   last, since removing another would renumber the lines after it.
 - **Undo** and **Redo** in its toolbar undo the table's changes, as do
@@ -270,8 +290,10 @@ folder's files, subfolders included, to look over and save.
   remembers the folder (from one session to the next, once saved):
   **Update from Folder** takes the folder's files again in place of the
   hak's, as they are now.
-- **Adding:** **Add Files…** and **Add Folder…** add files, replacing
-  resources of the same name. A file the game couldn't read by its name
+- **Adding:** **Add Files…** and **Add Folder…** add files. Where the hak
+  already has some of them, it asks first, listing them, as Aurora's hak
+  editor does: **Replace** them, **Skip Those** and add the rest, or
+  **Cancel**. A file the game couldn't read by its name
   is left out, and the log says why: a name over 16 characters (other hak
   tools silently cut it short), or a type the game doesn't know. Hidden
   files, `Thumbs.db` and `desktop.ini` are skipped.

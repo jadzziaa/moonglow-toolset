@@ -36,6 +36,17 @@ pub struct HakDoc {
     /// The folder the hak was built from: Update from Folder reads it
     /// again.
     pub folder: Option<PathBuf>,
+    /// Files chosen to add, some of which the hak has already: asked
+    /// about before anything is replaced.
+    pub adding: Option<Adding>,
+}
+
+/// Files chosen to add to a hak that has some of them already.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Adding {
+    pub files: Vec<PathBuf>,
+    /// Those that would replace a resource of the hak, and which.
+    pub replaced: Vec<(PathBuf, ResKey)>,
 }
 
 /// The order of a hak's list.
@@ -64,6 +75,7 @@ impl HakDoc {
             sort: Sort::Name,
             viewing: None,
             folder: None,
+            adding: None,
         }
     }
 
@@ -520,15 +532,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         None => {}
         Some(Do::AddFiles) => {
             let files = app.dialogs.open_files(FileKind::HakFiles, None);
-            let added = app.haks[i].hak.add_files(&files);
-            app.haks[i].changed();
-            report(app, &added);
+            add(app, i, files);
         }
         Some(Do::AddFolder) => {
             if let Some(dir) = app.dialogs.pick_folder("Add Folder", None) {
-                let added = app.haks[i].hak.add_folder(&dir);
-                app.haks[i].changed();
-                report(app, &added);
+                add(app, i, mg_module::hak_edit::folder_files(&dir));
             }
         }
         Some(Do::Extract(keys)) => {
@@ -562,6 +570,78 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             }
         }
     }
+}
+
+/// Adds files to hak `i`: at once, unless the hak has some of them
+/// already, which is asked about first (as Aurora's hak editor asks).
+fn add(app: &mut Moonglow, i: usize, files: Vec<PathBuf>) {
+    let replaced = app.haks[i].hak.replaced_by(&files);
+    if replaced.is_empty() {
+        let added = app.haks[i].hak.add_files(&files);
+        app.haks[i].changed();
+        report(app, &added);
+    } else {
+        app.haks[i].adding = Some(Adding { files, replaced });
+    }
+}
+
+/// Asks about files being added that a hak has already: replace them,
+/// leave those out, or add nothing.
+pub(crate) fn adding_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(i) = app.haks.iter().position(|d| d.adding.is_some()) else { return };
+    let adding = app.haks[i].adding.clone().expect("found");
+    let title = app.haks[i].title();
+    // Replace all (true), skip those (false).
+    let mut answer = None;
+    let mut cancel = false;
+    egui::Window::new("Files Already in the Hak")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            let (n, all) = (adding.replaced.len(), adding.files.len());
+            ui.label(format!(
+                "{} already has {n} of the {all} files chosen:",
+                title.trim_end_matches(" *")
+            ));
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                for (path, key) in &adding.replaced {
+                    ui.label(egui::RichText::new(key.to_string()).monospace())
+                        .on_hover_text(path.display().to_string());
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui
+                    .button(format!("Replace {n}"))
+                    .on_hover_text("Add all the files: these take the place of the hak's")
+                    .clicked()
+                {
+                    answer = Some(true);
+                }
+                if ui
+                    .button("Skip Those")
+                    .on_hover_text("Add the other files and leave the hak's as they are")
+                    .clicked()
+                {
+                    answer = Some(false);
+                }
+                cancel = crate::widgets::cancel(ui);
+            });
+        });
+    if cancel {
+        app.haks[i].adding = None;
+    }
+    let Some(replace) = answer else { return };
+    app.haks[i].adding = None;
+    let files: Vec<PathBuf> = if replace {
+        adding.files
+    } else {
+        let skip: Vec<&PathBuf> = adding.replaced.iter().map(|(p, _)| p).collect();
+        adding.files.into_iter().filter(|f| !skip.contains(&f)).collect()
+    };
+    let added = app.haks[i].hak.add_files(&files);
+    app.haks[i].changed();
+    report(app, &added);
 }
 
 /// Asks what to do with a hak's unsaved changes when its tab is closed.

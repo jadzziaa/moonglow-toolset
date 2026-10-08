@@ -311,46 +311,228 @@ fn description(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     }
 }
 
+/// The hak list of Module Properties › Custom Content: the rows chosen,
+/// and where the keys are.
+#[derive(Debug, Default)]
+pub struct HakList {
+    pub selected: std::collections::BTreeSet<usize>,
+    /// The row clicked last: Shift + click and Shift + the arrows choose
+    /// from it.
+    anchor: Option<usize>,
+    /// The row the arrow keys are at.
+    cursor: Option<usize>,
+    /// The cursor's row is to be brought into view.
+    reveal: bool,
+}
+
+/// A row of the hak list being dragged.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct HakDrag(usize);
+
+/// The order of `n` rows with those `chosen` moved together to stand
+/// before row `before` (as the rows are numbered now; `n`: at the end),
+/// in their order among themselves; and where they stand then.
+pub(crate) fn moved(
+    n: usize,
+    chosen: &std::collections::BTreeSet<usize>,
+    before: usize,
+) -> (Vec<usize>, std::collections::BTreeSet<usize>) {
+    let rest: Vec<usize> = (0..n).filter(|i| !chosen.contains(i)).collect();
+    let at = rest.iter().filter(|i| **i < before).count();
+    let mut order = rest[..at].to_vec();
+    order.extend(chosen.iter().copied().filter(|i| *i < n));
+    let end = order.len();
+    order.extend(&rest[at..]);
+    (order, (at..end).collect())
+}
+
 fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
+    use std::collections::BTreeSet;
     let items = root.items(&ifo::MOD_HAK_LIST);
     let haks: Vec<String> =
         items.iter().map(|h| decode(h.read(&ifo::mod_hak_list::MOD_HAK).as_bytes())).collect();
-    ui.label("Hak paks, highest priority first.");
+    let n = haks.len();
     let list = || ifo::MOD_HAK_LIST.label.to_string();
     let command = |edits: Vec<Edit>, label: &str| Action::Apply(Command::new(label, edits));
-    for (i, h) in haks.iter().enumerate() {
-        ui.horizontal(|ui| {
-            ui.monospace(h);
-            let item = items[i].clone();
-            let remove =
-                Edit::RemoveItem { key: info_key(), path: GffPath::root(), list: list(), index: i };
-            let insert_at = |index: usize| Edit::InsertItem {
-                key: info_key(),
-                path: GffPath::root(),
-                list: list(),
-                index,
-                item: item.clone(),
-            };
-            if ui.add_enabled(i > 0, egui::Button::new("Move Up").small()).clicked() {
-                app.actions.push(command(vec![remove.clone(), insert_at(i - 1)], "Move hak up"));
+    // The haks there are to attach, and those of the module's that are not
+    // among them: not found, which the game will not load the module with.
+    let on_disk: Option<Vec<String>> =
+        app.install.as_ref().map(|i| GameInstall::file_names(&i.hak_dirs(), "hak"));
+    let missing = |h: &str| {
+        on_disk.as_ref().is_some_and(|all| !all.iter().any(|x| x.eq_ignore_ascii_case(h)))
+    };
+    let mut state = std::mem::take(&mut app.hak_list);
+    state.selected.retain(|i| *i < n);
+    state.cursor = state.cursor.filter(|c| *c < n);
+    state.anchor = state.anchor.filter(|a| *a < n);
+    // What is asked of the list this frame: the chosen rows moved to stand
+    // before a row, or removed. One undoable step each.
+    let mut move_to: Option<usize> = None;
+    let mut remove = false;
+
+    ui.horizontal(|ui| {
+        crate::widgets::section_heading(ui, format!("Hak Files ({n})"));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.weak("Top overrides lower").on_hover_text(
+                "Where two haks have a resource of the same name, the game takes the one \
+                 from the hak higher in this list",
+            );
+        });
+    });
+    let row_height = ui.spacing().interact_size.y;
+    let frame = egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        let tall = (row_height + ui.spacing().item_spacing.y) * 14.0;
+        let mut rects = Vec::with_capacity(n);
+        egui::ScrollArea::vertical().id_salt("ifo-haks").max_height(tall).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            if n == 0 {
+                ui.weak("No haks: the module uses the game's own resources.");
             }
-            if ui.add_enabled(i + 1 < haks.len(), egui::Button::new("Move Down").small()).clicked()
+            for (i, h) in haks.iter().enumerate() {
+                let row = ui.horizontal(|ui| {
+                    // The handle to drag the row by: two columns of dots.
+                    let (grip, handle) =
+                        ui.allocate_exact_size(egui::vec2(12.0, row_height), egui::Sense::drag());
+                    let dot = ui.visuals().weak_text_color();
+                    for (dx, dy) in [
+                        (-2.5, -4.0),
+                        (2.5, -4.0),
+                        (-2.5, 0.0),
+                        (2.5, 0.0),
+                        (-2.5, 4.0),
+                        (2.5, 4.0),
+                    ] {
+                        ui.painter().circle_filled(grip.center() + egui::vec2(dx, dy), 1.2, dot);
+                    }
+                    let handle = handle.on_hover_cursor(egui::CursorIcon::Grab);
+                    let number = egui::RichText::new(format!("{:>2}", i + 1)).weak().monospace();
+                    ui.label(number);
+                    let chosen = state.selected.contains(&i);
+                    let name = ui.add(
+                        egui::Button::selectable(chosen, egui::RichText::new(h).monospace())
+                            .sense(egui::Sense::click_and_drag()),
+                    );
+                    if missing(h) {
+                        ui.colored_label(ui.visuals().warn_fg_color, "not found").on_hover_text(
+                            "No hak of this name is in the hak folders: the game will not \
+                             load the module until there is, or it is removed here",
+                        );
+                    }
+                    if state.reveal && state.cursor == Some(i) {
+                        name.scroll_to_me(None);
+                    }
+                    if name.clicked() {
+                        let (command, shift) =
+                            ui.input(|i| (i.modifiers.command, i.modifiers.shift));
+                        match (command, shift, state.anchor) {
+                            (true, ..) => {
+                                if !state.selected.remove(&i) {
+                                    state.selected.insert(i);
+                                }
+                                state.anchor = Some(i);
+                            }
+                            (false, true, Some(a)) => {
+                                state.selected = (a.min(i)..=a.max(i)).collect();
+                            }
+                            _ => {
+                                state.selected = BTreeSet::from([i]);
+                                state.anchor = Some(i);
+                            }
+                        }
+                        state.cursor = Some(i);
+                        // (The arrow keys are the list's now, not a camera's.)
+                        crate::palette_view::give_arrows(ui.ctx(), true);
+                    }
+                    if name.drag_started() || handle.drag_started() {
+                        // A row not among those chosen is dragged alone.
+                        if !state.selected.contains(&i) {
+                            state.selected = BTreeSet::from([i]);
+                            state.anchor = Some(i);
+                            state.cursor = Some(i);
+                        }
+                        egui::DragAndDrop::set_payload(ui.ctx(), HakDrag(i));
+                    }
+                });
+                rects.push(row.response.rect);
+            }
+            // A row dragged: the line where it would go, and there when
+            // it is let go.
+            if egui::DragAndDrop::has_payload_of_type::<HakDrag>(ui.ctx())
+                && let Some(pointer) = ui.ctx().pointer_latest_pos()
+                && let (Some(first), Some(last)) = (rects.first(), rects.last())
+                && (first.top() - row_height..=last.bottom() + row_height).contains(&pointer.y)
             {
-                app.actions.push(command(vec![remove.clone(), insert_at(i + 1)], "Move hak down"));
-            }
-            if ui.small_button("Remove").clicked() {
-                app.actions.push(command(vec![remove], "Remove hak"));
+                let before = rects.iter().position(|r| pointer.y < r.center().y).unwrap_or(n);
+                let y = rects.get(before).map_or(last.bottom(), |r| r.top());
+                let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
+                ui.painter().hline(first.left()..=ui.clip_rect().right(), y, stroke);
+                if ui.input(|i| i.pointer.any_released()) {
+                    egui::DragAndDrop::clear_payload(ui.ctx());
+                    move_to = Some(before);
+                }
             }
         });
+    });
+    // The keys, after a click in the list and with the pointer over it:
+    // Up and Down choose (with Shift, more), Alt + Up and Down move what is
+    // chosen, Delete removes it, Home and End go to the ends.
+    let over = ui.rect_contains_pointer(frame.response.rect);
+    let typing = ui.ctx().egui_wants_keyboard_input();
+    if over && n > 0 && !typing && crate::palette_view::has_arrows(ui.ctx()) {
+        use egui::Key;
+        let (up, down, home, end, delete, alt, shift) = ui.input(|i| {
+            (
+                i.key_pressed(Key::ArrowUp),
+                i.key_pressed(Key::ArrowDown),
+                i.key_pressed(Key::Home),
+                i.key_pressed(Key::End),
+                i.key_pressed(Key::Delete),
+                i.modifiers.alt,
+                i.modifiers.shift,
+            )
+        });
+        let (low, high) = (state.selected.first().copied(), state.selected.last().copied());
+        if alt && (up || down) {
+            match (up, low, high) {
+                (true, Some(low), _) if low > 0 => move_to = Some(low - 1),
+                (false, _, Some(high)) if high + 1 < n => move_to = Some(high + 2),
+                _ => {}
+            }
+        } else if up || down || home || end {
+            let at = state.cursor.or(if up { low } else { high });
+            let to = match (home, end, at) {
+                (true, ..) => 0,
+                (_, true, _) => n - 1,
+                (_, _, None) => 0,
+                (_, _, Some(at)) if up => at.saturating_sub(1),
+                (_, _, Some(at)) => (at + 1).min(n - 1),
+            };
+            match state.anchor.filter(|_| shift) {
+                Some(a) => state.selected = (a.min(to)..=a.max(to)).collect(),
+                None => {
+                    state.selected = BTreeSet::from([to]);
+                    state.anchor = Some(to);
+                }
+            }
+            state.cursor = Some(to);
+            state.reveal = true;
+            ui.ctx().request_repaint();
+        } else if delete && !state.selected.is_empty() {
+            remove = true;
+        }
+    } else {
+        state.reveal = false;
     }
-    let available: Vec<String> = app
-        .install
-        .as_ref()
-        .map(|i| GameInstall::file_names(&i.hak_dirs(), "hak"))
+
+    let available: Vec<String> = on_disk
+        .clone()
         .unwrap_or_default()
         .into_iter()
         .filter(|h| !haks.iter().any(|x| x.eq_ignore_ascii_case(h)))
         .collect();
+    // The list's commands, under it: what adds to it and checks it, and
+    // what is done with the rows chosen.
     ui.horizontal(|ui| {
         egui::ComboBox::from_id_salt("ifo-add-hak").selected_text("Add hak…").show_ui(ui, |ui| {
             for h in &available {
@@ -368,22 +550,82 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                 }
             }
         });
+        if ui
+            .button("Add Haks and Talk Table…")
+            .on_hover_text(
+                "Haks and a talk table from anywhere: copied into your hak and tlk folders \
+                 and attached to the module in one step",
+            )
+            .clicked()
+        {
+            start_attach(app);
+        }
         if ui.add_enabled(!haks.is_empty(), egui::Button::new("Check for Conflicts…")).clicked() {
             app.actions.push(Action::HakReport);
         }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let (low, high) = (state.selected.first().copied(), state.selected.last().copied());
+            let some = !state.selected.is_empty();
+            if ui
+                .add_enabled(some, egui::Button::new("Remove"))
+                .on_hover_text("Take the haks chosen off the list (Delete)")
+                .clicked()
+            {
+                remove = true;
+            }
+            let can_down = high.is_some_and(|h| h + 1 < n);
+            if ui
+                .add_enabled(can_down, egui::Button::new("⏷"))
+                .on_hover_text("Move the haks chosen down (Alt + Down)")
+                .clicked()
+            {
+                move_to = high.map(|h| h + 2);
+            }
+            let can_up = low.is_some_and(|l| l > 0);
+            if ui
+                .add_enabled(can_up, egui::Button::new("⏶"))
+                .on_hover_text("Move the haks chosen up (Alt + Up)")
+                .clicked()
+            {
+                move_to = low.map(|l| l - 1);
+            }
+        });
     });
-    if ui
-        .button("Add Haks and Talk Table…")
-        .on_hover_text(
-            "Haks and a talk table from anywhere: copied into your hak and tlk folders and \
-             attached to the module in one step",
-        )
-        .clicked()
-    {
-        start_attach(app);
+    ui.weak(
+        "Drag rows to reorder them (Ctrl or Shift + click chooses more), or click the list and \
+         use the keys: Up and Down, Alt + Up and Down to move, Delete to remove.",
+    );
+    // One undoable step for a move or a removal, of all the rows chosen.
+    let rewritten = |order: &[usize]| Edit::SetField {
+        key: info_key(),
+        path: GffPath::root(),
+        label: list(),
+        value: Some(Value::List(order.iter().map(|i| items[*i].clone()).collect())),
+    };
+    if let Some(before) = move_to.filter(|_| !state.selected.is_empty()) {
+        let (order, now) = moved(n, &state.selected, before);
+        if order.iter().copied().ne(0..n) {
+            let what = if state.selected.len() == 1 { "Move hak" } else { "Move haks" };
+            app.actions.push(command(vec![rewritten(&order)], what));
+            state.cursor = now.first().copied();
+            state.anchor = state.cursor;
+            state.selected = now;
+            state.reveal = true;
+        }
+    } else if remove {
+        let kept: Vec<usize> = (0..n).filter(|i| !state.selected.contains(i)).collect();
+        let what = if state.selected.len() == 1 { "Remove hak" } else { "Remove haks" };
+        app.actions.push(command(vec![rewritten(&kept)], what));
+        // (The row after those removed is at hand.)
+        let next = state.selected.first().copied().filter(|i| *i < kept.len());
+        state.selected = next.into_iter().collect();
+        state.cursor = next;
+        state.anchor = next;
     }
+    app.hak_list = state;
 
-    ui.add_space(10.0);
+    ui.add_space(crate::widgets::SECTION_GAP);
+    crate::widgets::section_heading(ui, "Talk Table");
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Custom TLK");
         let tlk = decode(root.read(&ifo::MOD_CUSTOM_TLK).as_bytes());
@@ -549,4 +791,25 @@ fn attach(app: &mut Moonglow, draft: &AttachDraft) {
     }
     app.log.info(format!("Copied {copied} files into the user folder"));
     app.actions.push(Action::Apply(Command::new("Add haks and talk table", edits)));
+}
+
+#[cfg(test)]
+mod tests {
+    /// Rows chosen move together to stand before another, in their order.
+    #[test]
+    fn chosen_rows_move_together() {
+        use std::collections::BTreeSet;
+        let set = |rows: &[usize]| rows.iter().copied().collect::<BTreeSet<usize>>();
+        // One row up, down, to the top and to the end.
+        assert_eq!(super::moved(4, &set(&[2]), 1), (vec![0, 2, 1, 3], set(&[1])));
+        assert_eq!(super::moved(4, &set(&[1]), 3), (vec![0, 2, 1, 3], set(&[2])));
+        assert_eq!(super::moved(4, &set(&[3]), 0), (vec![3, 0, 1, 2], set(&[0])));
+        assert_eq!(super::moved(4, &set(&[0]), 4), (vec![1, 2, 3, 0], set(&[3])));
+        // Two that are apart: together, where they are let go.
+        assert_eq!(super::moved(5, &set(&[0, 3]), 2), (vec![1, 0, 3, 2, 4], set(&[1, 2])));
+        // Let go on itself: as it was.
+        assert_eq!(super::moved(4, &set(&[1, 2]), 2).0, [0, 1, 2, 3]);
+        assert_eq!(super::moved(4, &set(&[1]), 1).0, [0, 1, 2, 3]);
+        assert_eq!(super::moved(4, &set(&[1]), 2).0, [0, 1, 2, 3]);
+    }
 }

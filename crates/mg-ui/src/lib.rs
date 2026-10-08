@@ -325,6 +325,8 @@ pub struct Moonglow {
     pub(crate) next_hak: u32,
     /// A hak whose tab is being closed with unsaved changes.
     pub(crate) hak_closing: Option<u32>,
+    /// Module Properties › Custom Content: the hak list's rows chosen.
+    pub hak_list: module_props::HakList,
     /// Where Build Hak from Folder suggests saving.
     pub(crate) suggested_hak: Option<std::path::PathBuf>,
     /// Add Haks and Talk Table: what goes where, before it's done.
@@ -579,6 +581,7 @@ impl Moonglow {
             haks: Vec::new(),
             next_hak: 0,
             hak_closing: None,
+            hak_list: Default::default(),
             suggested_hak: None,
             attach: None,
             publish: None,
@@ -875,6 +878,7 @@ impl Moonglow {
         bulk::update_window(self, ui.ctx());
         area_props::chooser_window(self, ui.ctx());
         hak_view::closing_window(self, ui.ctx());
+        hak_view::adding_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());
         tileset_view::closing_window(self, ui.ctx());
@@ -1713,6 +1717,11 @@ impl Moonglow {
                 if talk_view::undo(self, action == Action::Redo) {
                     return;
                 }
+                // (A Ctrl + wheel scaling under way is what Undo takes
+                // back: it is not a command yet.)
+                if action == Action::Undo && area_view::drop_wheel_scale(self) {
+                    return;
+                }
                 let Some(ws) = &mut self.ws else { return };
                 let r = if action == Action::Undo { ws.undo() } else { ws.redo() };
                 match r {
@@ -2005,6 +2014,8 @@ impl Moonglow {
     }
 
     fn save(&mut self, to: Option<ModuleLocation>) {
+        // (A Ctrl + wheel scaling still under way is part of what is saved.)
+        area_view::commit_wheel_scales(self);
         // Options > General: Build module on save.
         if self.settings.build_on_save && self.ws.is_some() {
             build_view::build_on_save(self);
@@ -2081,6 +2092,7 @@ impl Moonglow {
                 self.log.info(format!("Saved {}", path.display()));
                 self.settings.remember(&path);
                 self.forget_recovery();
+                self.write_mod_beside_folder();
             }
             Err(e) => {
                 self.log.error(format!("Save failed: {e}"));
@@ -2094,6 +2106,41 @@ impl Moonglow {
         }
         self.take_project_warnings();
         self.refresh_module_layer();
+    }
+
+    /// A module that is a folder (and no nasher project, which packs its
+    /// own target) is written as `<folder>.mod` beside the folder too when
+    /// it is saved, as Aurora saves a module directory; unless Options ›
+    /// General switches that off.
+    fn write_mod_beside_folder(&mut self) {
+        let Some(ws) = self.ws.as_ref().filter(|_| !self.settings.no_mod_beside_folder) else {
+            return;
+        };
+        let Some(ModuleLocation::Folder(dir)) = &ws.module.location else { return };
+        if ws.module.project.is_some() {
+            return;
+        }
+        let Some(name) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else { return };
+        let path = dir.with_file_name(format!("{name}.mod"));
+        // (As saving a .mod: the one there kept as its backup, and the new
+        // one written beside it, then moved into its place.)
+        if !self.settings.no_backups && path.is_file() {
+            let backup = path.with_extension("BackupMod");
+            if let Err(e) = std::fs::copy(&path, &backup) {
+                self.log.warn(format!("{}: {e}", backup.display()));
+            }
+        }
+        let part = dir.with_file_name(format!("{name}.mod.moonglow-tmp"));
+        let written = ws
+            .module
+            .to_archive_bytes()
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| std::fs::write(&part, bytes).map_err(|e| e.to_string()))
+            .and_then(|()| std::fs::rename(&part, &path).map_err(|e| e.to_string()));
+        match written {
+            Ok(()) => self.log.info(format!("Wrote {}", path.display())),
+            Err(e) => self.log.error(format!("{}: {e}", path.display())),
+        }
     }
 
     /// Logs (and clears) what the open nasher project has to say.

@@ -40,6 +40,10 @@ pub struct TalkView {
     /// The table is a file opened or made on its own (Open File, New
     /// File), not the module's.
     pub outside: bool,
+    /// Go to: a StrRef or a line's number as typed, and why it went
+    /// nowhere.
+    pub go_to: String,
+    go_to_problem: Option<String>,
 }
 
 impl TalkView {
@@ -347,7 +351,6 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         ui.strong(format!("{}.tlk", t.name));
         let lang = t.tlk.language.name().unwrap_or("?");
         let fem = if t.feminine.is_some() { ", with a feminine table" } else { "" };
-        ui.weak(format!("{} lines, {lang}{fem}; {}", t.len(), t.source));
         if t.is_dirty() {
             ui.weak("(unsaved)");
         }
@@ -360,6 +363,11 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         {
             leave = true;
         }
+        // (Where it is, cut short where the tab is narrow: the whole of
+        // it under the pointer.)
+        let about = format!("{} lines, {lang}{fem}; {}", t.len(), t.source);
+        ui.add(egui::Label::new(egui::RichText::new(&about).weak()).truncate())
+            .on_hover_text(about);
     });
     if leave {
         *talk = None;
@@ -425,8 +433,56 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
             }
         });
     });
-    // To and from a spreadsheet or a repository, and what the list shows.
+    // Go to a line; to and from a spreadsheet or a repository; and what
+    // the list shows.
     ui.horizontal_wrapped(|ui| {
+        ui.label("Go to");
+        let field = ui
+            .add(
+                egui::TextEdit::singleline(&mut v.go_to)
+                    .desired_width(110.0)
+                    .hint_text("StrRef or line"),
+            )
+            .on_hover_text(
+                "A StrRef (16777216 and up) or a line's number, then Enter: the list goes \
+                 to that line and it is chosen",
+            );
+        if field.changed() {
+            v.go_to_problem = None;
+        }
+        if field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            let typed = v.go_to.trim();
+            let row = typed
+                .parse::<u32>()
+                .ok()
+                .map(|n| n.checked_sub(talk::CUSTOM).unwrap_or(n) as usize);
+            match row {
+                Some(row) if row < t.len() => {
+                    v.selected = Some(row);
+                    // (Among all the lines: one found alone is nowhere
+                    // to go to.)
+                    v.filter.clear();
+                    v.reveal = true;
+                    v.go_to_problem = None;
+                }
+                Some(_) if t.is_empty() => {
+                    v.go_to_problem = Some("The table has no lines yet.".into());
+                }
+                Some(_) => {
+                    let last = Table::strref(t.len() - 1).0;
+                    v.go_to_problem = Some(format!(
+                        "The table has {} lines: StrRefs {} to {last}.",
+                        t.len(),
+                        talk::CUSTOM
+                    ));
+                }
+                None if typed.is_empty() => v.go_to_problem = None,
+                None => v.go_to_problem = Some("A StrRef or a line's number.".into()),
+            }
+        }
+        if let Some(problem) = &v.go_to_problem {
+            ui.colored_label(ui.visuals().warn_fg_color, problem);
+        }
         if ui
             .checkbox(&mut v.only_text, "Only lines with text")
             .on_hover_text(
@@ -499,8 +555,23 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     };
     v.selected = v.selected.filter(|&s| s < t.len());
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
-    let list_height = (ui.available_height() - 230.0).max(120.0);
     let feminine = t.feminine.is_some();
+    // The list and the chosen line's editor share the tab's height, and
+    // the editor's text boxes what is left of its part: a long text
+    // scrolls in its box, and the sound's row stays in sight under it.
+    let boxes = if feminine { 2.0 } else { 1.0 };
+    let (text, gap) = (ui.text_style_height(&egui::TextStyle::Body), ui.spacing().item_spacing.y);
+    let field = ui.spacing().interact_size.y + gap;
+    // (The separator, the StrRef's row, a label for each box, the sound's
+    // row and a line for what is wrong.)
+    let fixed = 2.0 * gap + 6.0 + 2.0 * field + (boxes + 1.0) * (text + gap);
+    let least = 3.0 * text + 8.0;
+    let available = ui.available_height();
+    // (Two boxes: a little more than half; one: a little less.)
+    let share = if feminine { 0.55 } else { 0.45 };
+    let editor = (available * share).max(fixed + boxes * (least + gap));
+    let list_height = (available - editor).max(120.0);
+    let box_height = ((available - list_height - fixed) / boxes - gap).max(least);
     let mut list = egui::ScrollArea::vertical()
         .id_salt("talk-rows")
         .max_height(list_height)
@@ -570,30 +641,31 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
     let before = line.clone();
     // Typing in a field: 0 the text, 1 the feminine text.
     let mut typing = None;
+    // A text box of the height it has here: a longer text scrolls in it.
+    let text_box = |ui: &mut Ui, salt: &str, text: &mut String, hint: &str| {
+        // (Each line's box scrolled as it was left, not as another's.)
+        let area = egui::ScrollArea::vertical()
+            .id_salt((salt, row))
+            .max_height(box_height)
+            .auto_shrink(false);
+        area.show(ui, |ui| {
+            let edit = egui::TextEdit::multiline(text)
+                .desired_rows(3)
+                .desired_width(f32::INFINITY)
+                .min_size(egui::vec2(0.0, box_height))
+                .hint_text(hint);
+            ui.add(edit).changed()
+        })
+        .inner
+    };
     ui.add_enabled_ui(editable, |ui| {
         ui.label(if feminine { "Text (masculine)" } else { "Text" });
-        if ui
-            .add(
-                egui::TextEdit::multiline(&mut line.text)
-                    .desired_rows(3)
-                    .desired_width(f32::INFINITY)
-                    .hint_text("the line's text"),
-            )
-            .changed()
-        {
+        if text_box(ui, "talk-text", &mut line.text, "the line's text") {
             typing = Some(0);
         }
         if let Some(f) = &mut line.feminine {
             ui.label("Feminine");
-            if ui
-                .add(
-                    egui::TextEdit::multiline(f)
-                        .desired_rows(3)
-                        .desired_width(f32::INFINITY)
-                        .hint_text("the feminine text"),
-                )
-                .changed()
-            {
+            if text_box(ui, "talk-feminine", f, "the feminine text") {
                 typing = Some(1);
             }
         }

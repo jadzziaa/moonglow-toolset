@@ -62,6 +62,88 @@ fn script_wizard_pages() {
     }
 }
 
+/// Module Properties › Custom Content: the hak list, two rows chosen and
+/// some haks not found.
+#[test]
+#[ignore]
+fn module_properties_haks() {
+    use mg_schema::{ExoString, StructExt, ifo};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens");
+    let user = dir.join("haks-user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let names = ["bloodwar", "bmmountainsv102", "cb_tile_atemple", "dia_udrkspid3", "ghcastlehd"];
+    for name in &names[..3] {
+        let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
+    }
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    let haks = names
+        .iter()
+        .map(|n| {
+            let mut item = ifo::MOD_HAK_LIST.new_item();
+            item.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from(*n));
+            item
+        })
+        .collect();
+    info.root.set(ifo::MOD_HAK_LIST.label, mg_gff::Value::List(haks));
+    m.set_info(&info).unwrap();
+    let path = dir.join("haks.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(
+        Some(GameInstall::new(&root, Some(user), "en")),
+        Box::new(NoDialogs::default()),
+    );
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.get_by_label("Custom Content").click();
+    h.run_steps(2);
+    h.state_mut().hak_list.selected = [1, 2].into_iter().collect();
+    shoot(&mut h, &dir, "module-properties-haks");
+}
+
+/// The Talk Table editor on a line with a long text: plain, and with a
+/// feminine table.
+#[test]
+#[ignore]
+fn talk_table_editor() {
+    use mg_module::talk::{Line, Table};
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens");
+    for feminine in [false, true] {
+        let app = Moonglow::new(None, Box::new(NoDialogs::default()));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1100.0, 760.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+        let name = if feminine { "long_f" } else { "long" };
+        let mut table = Table::create(name, &dir, mg_core::Language::ENGLISH, feminine);
+        let long: Vec<String> = (1..=50).map(|n| format!("Line {n} of a long text.")).collect();
+        for row in 0..60 {
+            let text = if row == 27 { long.join("\n") } else { format!("Text {row}") };
+            let line = Line {
+                feminine: feminine.then(|| text.clone()),
+                text,
+                sound: String::new(),
+                sound_length: 0.0,
+            };
+            table.add_line(&line).unwrap();
+        }
+        h.state_mut().talk = Some(table);
+        h.state_mut().talk_view.outside = true;
+        h.state_mut().talk_view.selected = Some(27);
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::TalkTable));
+        shoot(&mut h, &dir, &format!("talk-table-{name}"));
+    }
+}
+
 #[test]
 #[ignore]
 fn options_window() {

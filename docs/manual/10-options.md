@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T13:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T20:12:46Z }
 ---
 
 # Options
@@ -46,6 +46,13 @@ the module is opened again from its file.
   was in `<name>.BackupMod`.
 - **Build module on save**: run Build Module (with its defaults) before
   each save.
+- **Write a .mod beside a module folder on save** (on): a module opened
+  as a folder is saved into the folder and as `<folder>.mod` next to the
+  folder too, as Aurora saves a module directory, so that the game has a
+  module file to load. Switch it off to keep a folder a folder (a source
+  tree that something else packs). The `.mod`
+  that was there is kept as its `.BackupMod` (with backups on). A nasher
+  project is not packed this way: it has **Build › Pack Target**.
 - **Minimize Toolset on test module**.
 - **Start a Steam copy of the game through Steam for a test** (on):
   off, the game's program is started on its own, without Steam's overlay

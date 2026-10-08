@@ -171,6 +171,33 @@ impl GameData {
             .or_else(|| s.text(self.language, Gender::Male).map(|t| t.into_owned()))
     }
 
+    /// [`locstring`](Self::locstring)'s text as the bytes it has in the
+    /// files (the string's own, or the talk table's): what goes on to
+    /// another file is not decoded and encoded again, so a name's color
+    /// token keeps every byte, and text kept in another codepage than its
+    /// language's stays as it is.
+    pub fn locstring_bytes(&self, s: &LocString) -> Option<Vec<u8>> {
+        let own = || s.get(self.language, Gender::Male);
+        let table = || {
+            let tlk = if s.strref.is_custom() { self.custom_tlk.as_ref()? } else { &self.tlk };
+            tlk.get(s.strref).map(|e| e.text.as_slice())
+        };
+        // (As `elsewhere`: English first, else the first with text.)
+        let elsewhere = || {
+            let english = mg_core::LocStringKey::new(Language::ENGLISH, Gender::Male);
+            let mut others =
+                s.strings.iter().filter(|(k, b)| k.language() != self.language && !b.is_empty());
+            let first = others.clone().find(|(k, _)| *k == english).or_else(|| others.next());
+            first.map(|(_, b)| b.as_slice())
+        };
+        own()
+            .filter(|b| !b.is_empty())
+            .or_else(|| table().filter(|b| !b.is_empty()))
+            .or_else(elsewhere)
+            .or_else(own)
+            .map(<[u8]>::to_vec)
+    }
+
     /// The rows of a 2DA as dropdown choices: each row's name (a StrRef
     /// column resolved through the talk tables), else its label; rows with
     /// neither are skipped, as the toolset skips blank rows.

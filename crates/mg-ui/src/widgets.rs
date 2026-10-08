@@ -876,6 +876,29 @@ pub(crate) fn commit_number<T: egui::emath::Numeric>(
     drag_number(ui, current, |d| d.range(range))
 }
 
+/// [`commit_number`] with a pair of arrows after the field, as Aurora's
+/// number fields have: a click is one more or one less, within the range
+/// (one change each).
+pub(crate) fn spin_number(
+    ui: &mut Ui,
+    current: i64,
+    range: std::ops::RangeInclusive<i64>,
+) -> Option<i64> {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        let mut set = commit_number(ui, current, range.clone());
+        for (glyph, by, tip) in [("⏶", 1, "One more"), ("⏷", -1, "One less")] {
+            let to = (current + by).clamp(*range.start(), *range.end());
+            let arrow = egui::Button::new(glyph).small();
+            if ui.add_enabled(to != current, arrow).on_hover_text(tip).clicked() {
+                set = Some(to);
+            }
+        }
+        set
+    })
+    .inner
+}
+
 /// A number field showing `current`, set up by `make` (its range, speed,
 /// suffix): the number it is changed to, once: when typed, or when a drag
 /// across it is let go (the whole drag is one change). The number a drag

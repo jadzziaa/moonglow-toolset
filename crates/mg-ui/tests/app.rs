@@ -696,6 +696,129 @@ fn export_then_import_into_another_module() {
     assert!(!h.state().ws.as_ref().unwrap().module.contains(&area));
 }
 
+/// Saving writes the custom palettes with their blueprints' names as the
+/// game reads them: the bytes the names have in the module (an accent in
+/// the game's codepage, a color token's bytes), not UTF-8, which the DM's
+/// Creator in the game showed as "HipÃ³lito".
+#[test]
+fn a_saved_module_s_custom_palette_has_names_in_the_game_s_bytes() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-palette-bytes");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let name: &[u8] = b"Hip\xf3lito <c\xfe\x81\x01>rojo</c>";
+    let key = ResKey::parse("mg_book", ResType::UTI).unwrap();
+    {
+        let game = app.game.as_deref().unwrap();
+        let torch = game.resman.get_named("nw_it_torch001", ResType::UTI).unwrap();
+        let mut g = Gff::read(&torch).unwrap();
+        let named = mg_core::LocString::from_text(Language::ENGLISH, mg_core::Gender::Male, name);
+        g.root.set("LocalizedName", mg_gff::Value::LocString(named));
+        g.root.set("TemplateResRef", mg_gff::Value::resref(key.resref));
+        let data = g.to_bytes().unwrap();
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+            "book",
+            vec![mg_edit::Edit::SetResource { key, data: Some(data) }],
+        )));
+    }
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    // The file on disk, read apart from the toolset's own palette reader.
+    let saved = Module::open(&path).unwrap();
+    let palette = saved.gff(&ResKey::parse("itempalcus", ResType::ITP).unwrap()).unwrap().unwrap();
+    fn leaves(list: &[mg_gff::Struct], out: &mut Vec<(String, Vec<u8>)>) {
+        for node in list {
+            if let Some(r) = node.resref("RESREF") {
+                out.push((r.to_string(), node.string("NAME").unwrap_or_default().to_vec()));
+            }
+            leaves(node.list("LIST").unwrap_or(&[]), out);
+        }
+    }
+    let mut found = Vec::new();
+    leaves(palette.root.list("MAIN").unwrap(), &mut found);
+    let book = found.iter().find(|(r, _)| r == "mg_book").expect("the book in the palette");
+    assert_eq!(book.1, name, "{:?}", String::from_utf8_lossy(&book.1));
+
+    // A module saved by 1.19.3 has the names as UTF-8 in its palette:
+    // opened and saved, with nothing changed, it has them right.
+    let mut broken = Module::open(&path).unwrap();
+    let palcus = ResKey::parse("itempalcus", ResType::ITP).unwrap();
+    let mut palette = broken.gff(&palcus).unwrap().unwrap();
+    fn spoil(list: &mut [mg_gff::Struct]) {
+        for node in list {
+            if node.resref("RESREF").is_some()
+                && let Some(name) = node.string("NAME").map(<[u8]>::to_vec)
+            {
+                // (As 1.19.3 wrote them: the text, read as Windows-1252, in UTF-8.)
+                let text = mg_core::Codepage::WINDOWS_1252.decode(&name).into_owned();
+                node.set("NAME", mg_gff::Value::String(text.into_bytes()));
+            }
+            if let Some(mg_gff::Value::List(children)) = node.get_mut("LIST") {
+                spoil(children);
+            }
+        }
+    }
+    if let Some(mg_gff::Value::List(main)) = palette.root.get_mut("MAIN") {
+        spoil(main);
+    }
+    broken.set_gff(palcus, &palette).unwrap();
+    broken.save().unwrap();
+    let mut found = Vec::new();
+    let spoiled = Module::open(&path).unwrap().gff(&palcus).unwrap().unwrap();
+    leaves(spoiled.root.list("MAIN").unwrap(), &mut found);
+    assert_ne!(found.iter().find(|(r, _)| r == "mg_book").unwrap().1, name, "spoiled");
+    h.state_mut().open_module(&path);
+    h.run();
+    assert!(!h.state().ws.as_ref().unwrap().is_modified());
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let mut found = Vec::new();
+    let repaired = Module::open(&path).unwrap().gff(&palcus).unwrap().unwrap();
+    leaves(repaired.root.list("MAIN").unwrap(), &mut found);
+    let book = found.iter().find(|(r, _)| r == "mg_book").expect("the book in the palette");
+    assert_eq!(book.1, name, "opened and saved: {:?}", String::from_utf8_lossy(&book.1));
+}
+
+/// A module that is a folder is written as a `.mod` beside the folder too
+/// when it is saved, as Aurora saves a module directory; not with
+/// Options › General's switch off.
+#[test]
+fn a_folder_module_is_saved_as_a_mod_beside_it() {
+    let dir = mg_testkit::scratch_dir("ui-folder-mod");
+    let path = sample_module(&dir);
+    let folder = dir.join("unpacked");
+    let beside = dir.join("unpacked.mod");
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    {
+        let ws = app.ws.as_mut().unwrap();
+        ws.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    }
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(!h.state().settings.no_mod_beside_folder, "on unless switched off");
+    h.state_mut().settings.no_mod_beside_folder = true;
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(folder.join("module.ifo").is_file() || folder.join("module.ifo.json").is_file());
+    assert!(!beside.exists(), "not with the option off");
+    h.state_mut().settings.no_mod_beside_folder = false;
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let packed = mg_module::Module::open(&beside).expect("the .mod beside the folder");
+    let ours = h.state().ws.as_ref().unwrap();
+    assert_eq!(packed.keys().count(), ours.module.keys().count());
+    assert!(matches!(ours.module.location, Some(ModuleLocation::Folder(_))), "still the folder's");
+    // Saved again: the one there is kept as its backup.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert!(dir.join("unpacked.BackupMod").is_file());
+}
+
 #[test]
 fn browse_view_and_copy_a_game_resource() {
     let root = mg_testkit::corpus!();
@@ -841,6 +964,46 @@ fn a_talk_table_file_is_made_and_opened_on_its_own() {
     h.run();
     h.get_by_label("16777216");
     assert_eq!(h.state().talk.as_ref().unwrap().line(0).text, "On its own");
+    // Go to takes a StrRef or a line's number: that line is chosen and
+    // the list goes to it. A long text scrolls in its box: the sound's row
+    // under it stays in the window.
+    let long = (1..=60).map(|n| format!("Line {n}")).collect::<Vec<_>>().join("\n");
+    for row in 1..120 {
+        let line = mg_module::talk::Line {
+            text: if row == 100 { long.clone() } else { format!("Text {row}") },
+            feminine: None,
+            sound: String::new(),
+            sound_length: 0.0,
+        };
+        h.state_mut().talk.as_mut().unwrap().add_line(&line).unwrap();
+    }
+    h.run();
+    assert!(h.query_by_label("16777316").is_none(), "far down the list");
+    type_into_hint(&mut h, "StrRef or line", "16777316");
+    h.key_press(egui::Key::Enter);
+    h.run();
+    h.run();
+    assert_eq!(h.state().talk_view.selected, Some(100));
+    h.get_by_label("16777316");
+    let sound = h.get_by_label("Sound").rect();
+    assert!(
+        sound.bottom() < 800.0 && sound.top() > 400.0,
+        "the sound's row is in sight: {sound:?}"
+    );
+    // A line's number goes there too; past the end, it says what there is.
+    h.state_mut().talk_view.go_to.clear();
+    h.run();
+    type_into_hint(&mut h, "StrRef or line", "3");
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert_eq!(h.state().talk_view.selected, Some(3));
+    h.state_mut().talk_view.go_to.clear();
+    h.run();
+    type_into_hint(&mut h, "StrRef or line", "5000");
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert_eq!(h.state().talk_view.selected, Some(3), "nowhere to go");
+    assert!(h.query_by_label_contains("The table has 120 lines").is_some());
 }
 
 #[test]
@@ -1035,6 +1198,219 @@ fn two_da_view_shows_where_rows_come_from() {
     h.run();
     assert!(h.query_by_label("mus_new").is_some());
     assert!(h.query_by_label(&text).is_none());
+}
+
+/// Module Properties › Custom Content: the module's haks in a list of
+/// their own, numbered from the one that overrides the others. Rows are
+/// chosen (Ctrl and Shift for more) and moved by the keys, the arrows
+/// under the list or a drag, and removed, one undo each; a hak not in the
+/// hak folders is flagged.
+#[test]
+fn the_hak_list_is_reordered_by_keys_buttons_and_a_drag() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-hak-list");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    for name in ["alpha", "bravo", "charlie"] {
+        let empty = mg_erf::ErfWriter::new(*b"HAK ").to_bytes().unwrap();
+        std::fs::write(user.join(format!("hak/{name}.hak")), empty).unwrap();
+    }
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let info = ResKey::parse("module", ResType::IFO).unwrap();
+    let set = |h: &mut Harness<'_, Moonglow>, names: &[&str]| {
+        let items = names
+            .iter()
+            .map(|n| {
+                let mut item = ifo::MOD_HAK_LIST.new_item();
+                item.write(&ifo::mod_hak_list::MOD_HAK, ExoString::from(*n));
+                item
+            })
+            .collect();
+        let edit = mg_edit::Edit::SetField {
+            key: info,
+            path: mg_edit::GffPath::root(),
+            label: ifo::MOD_HAK_LIST.label.to_string(),
+            value: Some(mg_gff::Value::List(items)),
+        };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Haks", vec![edit])));
+        h.run();
+    };
+    let haks = |h: &mut Harness<'_, Moonglow>| -> Vec<String> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let root = ws.doc(&info).unwrap().root.clone();
+        root.items(&ifo::MOD_HAK_LIST)
+            .iter()
+            .map(|i| {
+                String::from_utf8_lossy(i.read(&ifo::mod_hak_list::MOD_HAK).as_bytes()).into_owned()
+            })
+            .collect()
+    };
+    let chosen = |h: &Harness<'_, Moonglow>| -> Vec<usize> {
+        h.state().hak_list.selected.iter().copied().collect()
+    };
+    h.get_by_label("Custom Content").click();
+    h.run();
+    set(&mut h, &["alpha", "bravo", "charlie", "gone"]);
+    h.get_by_label("Hak Files (4)");
+    h.get_by_label("Top overrides lower");
+    assert_eq!(h.query_all_by_label("not found").count(), 1, "the one not in the hak folder");
+
+    // A click chooses a row; Alt + Up moves it up, one undo back.
+    h.get_by_label("bravo").click();
+    h.run();
+    assert_eq!(chosen(&h), [1]);
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowUp);
+    h.run();
+    assert_eq!(haks(&mut h), ["bravo", "alpha", "charlie", "gone"]);
+    assert_eq!(chosen(&h), [0], "what moved stays chosen");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(haks(&mut h), ["alpha", "bravo", "charlie", "gone"]);
+
+    // Down chooses the next; with Shift, more; the arrow under the list
+    // moves what is chosen down together.
+    h.get_by_label("alpha").click();
+    h.run();
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    assert_eq!(chosen(&h), [1]);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::ArrowDown);
+    h.run();
+    assert_eq!(chosen(&h), [1, 2]);
+    h.get_by_label("⏷").click();
+    h.run();
+    assert_eq!(haks(&mut h), ["alpha", "gone", "bravo", "charlie"]);
+    assert_eq!(chosen(&h), [2, 3]);
+    // (At the end: no further.)
+    h.key_press_modifiers(egui::Modifiers::ALT, egui::Key::ArrowDown);
+    h.run();
+    assert_eq!(haks(&mut h), ["alpha", "gone", "bravo", "charlie"]);
+
+    // A row dragged by its name to before another: it is among the two
+    // chosen, which go together.
+    let from = h.get_by_label("charlie").rect().center();
+    let to = h.get_by_label("alpha").rect().center() - egui::vec2(0.0, 6.0);
+    let button = |pos, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let drag = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2| {
+        h.hover_at(from);
+        h.run_steps(1);
+        h.event(button(from, true));
+        for k in 1..=6 {
+            h.hover_at(from + (to - from) * (k as f32 / 6.0));
+            h.run_steps(1);
+        }
+        h.event(button(to, false));
+        h.run();
+    };
+    drag(&mut h, from, to);
+    assert_eq!(haks(&mut h), ["bravo", "charlie", "alpha", "gone"]);
+    assert_eq!(chosen(&h), [0, 1]);
+    // One not among those chosen is dragged alone: to the end.
+    let from = h.get_by_label("alpha").rect().center();
+    let to = h.get_by_label("gone").rect().center() + egui::vec2(0.0, 6.0);
+    drag(&mut h, from, to);
+    assert_eq!(haks(&mut h), ["bravo", "charlie", "gone", "alpha"]);
+    assert_eq!(chosen(&h), [3]);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(haks(&mut h), ["bravo", "charlie", "alpha", "gone"], "one undo for a drag");
+
+    // Ctrl + click chooses another too; Delete removes them, one undo.
+    h.get_by_label("alpha").click();
+    h.run();
+    h.get_by_label("gone").click_modifiers(egui::Modifiers::COMMAND);
+    h.run();
+    assert_eq!(chosen(&h), [2, 3]);
+    h.key_press(egui::Key::Delete);
+    h.run();
+    assert_eq!(haks(&mut h), ["bravo", "charlie"]);
+    assert_eq!(h.query_all_by_label("not found").count(), 0);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(haks(&mut h), ["bravo", "charlie", "alpha", "gone"]);
+    // Remove under the list does the same for the rows chosen.
+    h.get_by_label("bravo").click();
+    h.run();
+    h.get_by_label("Remove").click();
+    h.run();
+    assert_eq!(haks(&mut h), ["charlie", "alpha", "gone"]);
+}
+
+/// Files added to a hak that has some of them already are asked about
+/// first, as Aurora's hak editor asks: replaced, left out, or nothing
+/// added at all.
+#[test]
+fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
+    let dir = mg_testkit::scratch_dir("ui-hak-add");
+    let table = |text: &str| format!("2DA V2.0\n\n   Label\n0  {text}\n");
+    let (old, new) = (dir.join("old"), dir.join("new"));
+    for d in [&old, &new] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(old.join("mg_one.2da"), table("old")).unwrap();
+    std::fs::write(new.join("mg_one.2da"), table("new one")).unwrap();
+    std::fs::write(new.join("mg_two.2da"), table("two")).unwrap();
+    let chosen = vec![new.join("mg_one.2da"), new.join("mg_two.2da")];
+    // (Add Files… is answered three times, the last first.)
+    let dialogs = NoDialogs {
+        open_many: vec![chosen.clone(), chosen.clone(), chosen, vec![old.join("mg_one.2da")]],
+        ..Default::default()
+    };
+    let app = Moonglow::new(None, Box::new(dialogs));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    mg_ui::hak_view::new_hak(h.state_mut());
+    h.run();
+    let sizes = |h: &Harness<'_, Moonglow>| -> Vec<(String, u64)> {
+        let mut items: Vec<(String, u64)> =
+            h.state().haks[0].hak.items().iter().map(|i| (i.key.to_string(), i.size)).collect();
+        items.sort();
+        items
+    };
+    let (was, now) = (table("old").len() as u64, table("new one").len() as u64);
+    // Nothing of the name there yet: added without a word.
+    h.get_by_label("Add Files…").click();
+    h.run();
+    assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was)]);
+    assert!(h.query_by_label("Files Already in the Hak").is_none());
+    // One of the two chosen is there: asked. Cancel adds nothing.
+    h.get_by_label("Add Files…").click();
+    h.run();
+    h.get_by_label("Files Already in the Hak");
+    assert!(h.query_by_label_contains("already has 1 of the 2 files").is_some());
+    assert_eq!(sizes(&h).len(), 1, "nothing added before the answer");
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was)]);
+    // Skip Those: the other is added, the hak's own stays.
+    h.get_by_label("Add Files…").click();
+    h.run();
+    h.get_by_label("Skip Those").click();
+    h.run();
+    let two = table("two").len() as u64;
+    assert_eq!(sizes(&h), [("mg_one.2da".to_string(), was), ("mg_two.2da".to_string(), two)]);
+    // Replace: the chosen files take their place.
+    h.get_by_label("Add Files…").click();
+    h.run();
+    assert!(h.query_by_label_contains("already has 2 of the 2 files").is_some());
+    h.get_by_label("Replace 2").click();
+    h.run();
+    assert_eq!(sizes(&h), [("mg_one.2da".to_string(), now), ("mg_two.2da".to_string(), two)]);
 }
 
 #[test]
@@ -2287,6 +2663,44 @@ fn blueprint_harness(
 
 fn field(h: &mut Harness<'_, Moonglow>, key: &ResKey) -> mg_gff::Struct {
     h.state_mut().ws.as_mut().unwrap().doc(key).unwrap().root.clone()
+}
+
+/// A creature's statistics have Aurora's arrows after their numbers: a
+/// click is one more or one less, one change each, within the range.
+#[test]
+fn a_creature_s_statistics_have_arrows_to_step_by_one() {
+    let Some((mut h, key)) = blueprint_harness("nw_chicken", "stat_arrows", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Statistics").click();
+    h.run();
+    let strength = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("Str").unwrap();
+    let was = strength(&mut h);
+    // (The first pair on the page is Strength's.)
+    let up = h.query_all_by_label("⏶").next().expect("an arrow up").rect().center();
+    let down = h.query_all_by_label("⏷").next().expect("an arrow down").rect().center();
+    let click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run();
+    };
+    click(&mut h, up);
+    click(&mut h, up);
+    assert_eq!(strength(&mut h), was + 2);
+    click(&mut h, down);
+    assert_eq!(strength(&mut h), was + 1);
+    // One change each.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(strength(&mut h), was + 2);
 }
 
 #[test]
@@ -7541,6 +7955,110 @@ fn editors_open_in_windows_over_the_area() {
     let _ = img.save(mg_testkit::scratch_dir("ui-editor-windows").join("windows.png"));
 }
 
+/// The arrow keys move through the palette's tree after a click in it, as
+/// in Aurora: Up and Down through its rows, Left to the category a
+/// blueprint is in and then closing it, Right opening it and going in.
+/// They do not move the camera meanwhile, until the pointer is back in
+/// the area's view.
+#[test]
+fn the_arrow_keys_move_through_the_palette_after_a_click_in_it() {
+    use mg_module::palette::BlueprintKind;
+    let Some((mut h, area)) = area_harness("palette-arrows") else { return };
+    h.state_mut().palette.kind = BlueprintKind::Waypoint;
+    h.state_mut().palette.tiles = false;
+    h.state_mut().palette.custom = false;
+    h.run_steps(3);
+    let target = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().target;
+    let selected = |h: &Harness<'_, Moonglow>| h.state().palette.selected;
+    let press = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run_steps(4);
+    };
+    // The pointer in the area's view: the arrows are its camera's.
+    let centre = screen(&h, area, glam::Vec3::new(20.0, 20.0, 0.0));
+    h.hover_at(centre);
+    h.run_steps(2);
+    // The standard waypoints are one category: clicked, it opens, and the
+    // arrow keys are the palette's.
+    let tavern = h.state().game.as_deref().unwrap().string(mg_core::StrRef(69068)).unwrap();
+    assert!(h.query_by_label(&tavern).is_none());
+    h.get_by_label_contains("(13)").click();
+    h.run_steps(4);
+    h.get_by_label(&tavern);
+    assert_eq!(selected(&h), None);
+    let start = target(&h);
+    // Down: into the category, a blueprint at a time, each selected.
+    press(&mut h, egui::Key::ArrowDown);
+    let first = selected(&h).expect("the first waypoint");
+    press(&mut h, egui::Key::ArrowDown);
+    let second = selected(&h).expect("the second");
+    assert_ne!(first, second);
+    press(&mut h, egui::Key::ArrowUp);
+    assert_eq!(selected(&h), Some(first));
+    // Right does nothing on a blueprint. Left: to its category (the
+    // blueprint stays in hand), then the category closes.
+    press(&mut h, egui::Key::ArrowRight);
+    assert_eq!(selected(&h), Some(first));
+    press(&mut h, egui::Key::ArrowLeft);
+    assert!(h.state().palette.at_category());
+    assert_eq!(selected(&h), Some(first));
+    h.get_by_label(&tavern);
+    press(&mut h, egui::Key::ArrowLeft);
+    assert!(h.query_by_label(&tavern).is_none(), "closed");
+    // Right: it opens, then the cursor goes in.
+    press(&mut h, egui::Key::ArrowRight);
+    h.get_by_label(&tavern);
+    h.state_mut().palette.selected = None;
+    press(&mut h, egui::Key::ArrowRight);
+    assert_eq!(selected(&h), Some(first));
+    // A blueprint clicked, then Left (as a builder described Aurora's): to
+    // its category.
+    h.get_by_label(&tavern).click();
+    h.run_steps(3);
+    let tavern_key = ResKey::parse("nw_wp_tavern", ResType::UTW);
+    assert_eq!(selected(&h), tavern_key);
+    assert!(!h.state().palette.at_category());
+    press(&mut h, egui::Key::ArrowLeft);
+    assert!(h.state().palette.at_category());
+    assert_eq!(selected(&h), tavern_key, "still in hand");
+    // With the pointer elsewhere (the log, under the area), the keys
+    // leave the palette alone.
+    let palette_at = h.get_by_label(&tavern).rect().center();
+    h.hover_at(egui::pos2(300.0, 700.0));
+    h.run_steps(2);
+    press(&mut h, egui::Key::ArrowDown);
+    assert!(h.state().palette.at_category(), "the pointer is not over the palette");
+    h.hover_at(palette_at);
+    h.run_steps(2);
+    // None of that moved the camera, nor does an arrow held down.
+    let hold = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        let event = |pressed| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        h.event(event(true));
+        h.run_steps(4);
+        h.event(event(false));
+        h.run_steps(1);
+    };
+    hold(&mut h, egui::Key::ArrowUp);
+    assert_eq!(target(&h), start, "the arrows are the palette's");
+    // W still does (the pointer was in this area's view last).
+    hold(&mut h, egui::Key::W);
+    let moved = target(&h);
+    assert!((moved - start).length() > 0.1, "W moves the view all along");
+    // The pointer back in the area's view: the arrows are the camera's.
+    h.hover_at(centre);
+    h.run_steps(2);
+    let was = selected(&h);
+    hold(&mut h, egui::Key::ArrowUp);
+    assert!((target(&h) - moved).length() > 0.1, "the arrow moves the view again");
+    assert_eq!(selected(&h), was, "and the palette stays");
+}
+
 #[test]
 fn w_a_s_d_drive_the_camera_like_the_arrows() {
     let Some((mut h, area)) = area_harness("wasd") else { return };
@@ -11593,6 +12111,133 @@ fn a_scale_handle_scales_a_placeable_s_model_while_shift_is_held() {
     assert_eq!(scale(&mut h), None, "an undo each");
 }
 
+/// Ctrl + wheel over the view scales the selected placeable's model, as
+/// Aurora's does: shown as the wheel turns, one command when Ctrl is let
+/// go, and Undo takes it back whole (or drops it while it is under way).
+/// A static placeable takes no scale, and with nothing selected that
+/// does the wheel zooms, as it did.
+#[test]
+fn ctrl_and_the_wheel_scale_what_is_selected() {
+    use glam::Vec3;
+    use mg_area::ObjectKind;
+    use mg_module::instances::{Placement, Placing, instance};
+    let Some((mut h, area)) = area_harness("scale-wheel") else { return };
+    let git_key = ResKey::new(area, ResType::GIT);
+    let pivot = Vec3::new(12.0, 20.0, 0.0);
+    {
+        let app = h.state_mut();
+        let game = app.game.as_deref().unwrap();
+        let key = ResKey::parse("plc_chest1", ResType::UTP).unwrap();
+        let chest = Gff::read(&game.resman.get(&key).unwrap()).unwrap().root;
+        let none = |_: ResRef| None;
+        let placing = Placing { game, item: &none };
+        let at = Placement { position: [pivot.x, pivot.y, 0.0], rotation: 0.0 };
+        let item = instance(&placing, ResType::UTP, &chest, at, &[]).unwrap();
+        let edit = mg_edit::Edit::InsertItem {
+            key: git_key,
+            path: mg_edit::GffPath::root(),
+            list: "Placeable List".into(),
+            index: 0,
+            item,
+        };
+        app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", vec![edit])));
+    }
+    h.run_steps(3);
+    let scale = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&git_key).unwrap();
+        let chest = &git.root.list("Placeable List").unwrap()[0];
+        mg_area::VisualTransform::read(chest).map(|v| v.scale.x)
+    };
+    let distance = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().distance;
+    let ctrl = egui::Modifiers::COMMAND;
+    // The wheel turned with Ctrl held (and still held after).
+    let turn = |h: &mut Harness<'_, Moonglow>, by: f32| {
+        h.event(egui::Event::ModifiersChanged(ctrl));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, by),
+            phase: egui::TouchPhase::Move,
+            modifiers: ctrl,
+        });
+        h.run_steps(12);
+    };
+    let let_go = |h: &mut Harness<'_, Moonglow>| {
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::NONE));
+        h.run_steps(3);
+    };
+    let over = screen(&h, area, pivot);
+    h.hover_at(over);
+    h.run_steps(2);
+    // Nothing selected: the wheel zooms, slowly.
+    let far = distance(&h);
+    turn(&mut h, 200.0);
+    let_go(&mut h);
+    assert!(distance(&h) < far, "zoomed in");
+    assert_eq!(scale(&mut h), None);
+    // The chest selected: it grows as the wheel turns, shown before it is
+    // a command, and the view stays where it is.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
+    h.run_steps(2);
+    let far = distance(&h);
+    turn(&mut h, 200.0);
+    assert_eq!(scale(&mut h), None, "not a command while Ctrl is held");
+    assert!(h.query_by_label_contains("Scale 1.").is_some(), "the status line says how large");
+    turn(&mut h, 200.0);
+    let_go(&mut h);
+    let grown = scale(&mut h).expect("a visual transform");
+    assert!(grown > 1.2 && grown < 2.0, "scaled {grown}");
+    assert_eq!(distance(&h), far, "the wheel was the chest's, not the camera's");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Scale"));
+    // One undo for the wheel's whole turn.
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(scale(&mut h), None, "one undo");
+    // Turned the other way: smaller. Left to rest, it is a command too.
+    turn(&mut h, -200.0);
+    h.run_steps(40);
+    let shrunk = scale(&mut h).expect("made a command when the wheel rests");
+    assert!(shrunk < 0.9, "scaled {shrunk}");
+    let_go(&mut h);
+    // Saved while a turn is under way: the turn is part of what is saved.
+    let_go(&mut h);
+    turn(&mut h, 200.0);
+    // (The wheel's turning is smoothed over some frames: all of it in.)
+    h.run_steps(8);
+    assert!(h.state().area_views[&area].wheel_scaling(), "still under way");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    assert!(!h.state().area_views[&area].wheel_scaling(), "made a command by the save");
+    let saved = scale(&mut h).expect("a command before the save");
+    assert!(saved > shrunk, "scaled {saved}");
+    assert!(!h.state().ws.as_ref().unwrap().is_modified(), "and saved");
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run_steps(3);
+    let_go(&mut h);
+    assert_eq!(scale(&mut h), Some(shrunk));
+    // Undo while a turn is under way drops that, and no more.
+    turn(&mut h, 200.0);
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run_steps(3);
+    let_go(&mut h);
+    assert_eq!(scale(&mut h), Some(shrunk), "the turn under way was dropped");
+    // A static placeable takes no scale: the wheel zooms, and the status
+    // line says why.
+    let set = mg_edit::Edit::SetField {
+        key: git_key,
+        path: mg_edit::GffPath::root().item("Placeable List", 0),
+        label: "Static".into(),
+        value: Some(mg_gff::Value::Byte(1)),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Static", vec![set])));
+    h.run_steps(3);
+    let far = distance(&h);
+    turn(&mut h, 200.0);
+    let_go(&mut h);
+    assert!(distance(&h) < far, "zoomed");
+    assert!(h.query_by_label_contains("static placeable takes no scale").is_some());
+}
+
 /// The palette's Gallery shows a category's blueprints as pictures: a
 /// click on one chooses it to place, as a click on its name does.
 #[test]
@@ -12627,22 +13272,34 @@ fn text_in_another_language_shows_where_the_one_edited_has_none() {
     assert_eq!((shown, named), (own, 2));
 }
 
-/// An object selected in the area's view is shown in the module tree, as
-/// in Aurora: its area opened out, its kind's list too, its row marked.
+/// An object selected in the area's view is shown in the module tree
+/// where its area is opened out there: its kind's list opened, its row
+/// marked. An area left closed in the tree stays closed.
 #[test]
 fn the_module_tree_shows_the_object_selected_in_the_area() {
     use mg_area::ObjectKind;
     let Some((mut h, area)) = area_harness("tree-follows") else { return };
     h.run_steps(3);
     assert!(h.query_by_label("Waypoints (2)").is_none());
+    // The area is not opened out in the tree: it stays closed.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 1)];
     h.run_steps(6);
     assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 1)));
+    assert!(!h.state().tree_object_pending, "nothing to go to");
+    assert!(h.query_by_label("Waypoints (2)").is_none(), "the area stays closed");
+    // Opened out (its arrow): the kinds are listed, folded, and opening
+    // it does not go to the object selected before.
+    h.get_by_label("⏵").click();
+    h.run_steps(6);
+    assert!(h.query_by_label("Waypoints (2)").is_some());
+    let folded = h.query_all_by_label_contains("Waypoint").count();
+    // Another object selected: its kind's list opens to it.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    h.run_steps(6);
+    assert_eq!(h.state().tree_object, Some((area, ObjectKind::Waypoint, 0)));
     assert!(!h.state().tree_object_pending, "gone to");
-    assert!(h.query_by_label("Waypoints (2)").is_some(), "the area opened out");
-    // Its kind's list is open: both waypoints' rows are there.
     let rows = h.query_all_by_label_contains("Waypoint").count();
-    assert!(rows >= 3, "{rows}");
+    assert!(rows >= folded + 2, "both waypoints' rows are there: {folded} → {rows}");
     // Nothing selected: the tree stays as it is.
     h.state_mut().area_views.get_mut(&area).unwrap().selection.clear();
     h.run_steps(3);

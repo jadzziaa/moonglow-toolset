@@ -1211,9 +1211,16 @@ fn run(cli: &Cli) -> Result<Output> {
                     let k = ResKey::new(r, t);
                     if wanted.contains(&k) { read(k) } else { None }
                 };
-                if let Some((new, n)) =
-                    mg_module::instances::update(&placing, &git.root, &blueprint, &|_, _| true)
-                {
+                // The items the area's objects hold (in chests, creatures'
+                // packs and hands, stores, bags) first, then the objects.
+                let held_item = |r: mg_core::ResRef| blueprint(mg_core::ResType::UTI, r);
+                let (root, held) =
+                    mg_module::instances::update_held(&placing, &git.root, &held_item, &|_| true)
+                        .unwrap_or_else(|| (git.root.clone(), 0));
+                let updated =
+                    mg_module::instances::update(&placing, &root, &blueprint, &|_, _| true)
+                        .map_or((root, held), |(new, n)| (new, n + held));
+                if let (new, n @ 1..) = updated {
                     let mut g = git.clone();
                     g.root = new;
                     m.set_gff(key, &g)?;

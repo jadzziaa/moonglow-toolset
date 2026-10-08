@@ -1,6 +1,11 @@
 # Update log
 
 ## 2026-10-08
+* **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): the hak list of Module Properties (GitHub issue 17): chosen rows moved by a drag, the keys or the arrows under it, haks not found flagged.
+* **Update**: [Blueprints](manual/05-blueprints.md) (Update Instances reaches held items; arrows after a creature's statistics; category names in the game's text), [modules](manual/03-modules.md) (the hak editor asks before replacing), [options](manual/10-options.md) (a .mod beside a module folder on save) and [the deferred list](deferred.md): a custom palette's names as the game reads them, and a hak's table not seen until a restart, not reproduced.
+* **Update**: [Areas](manual/04-areas.md) (Ctrl + wheel scales the selection), [modules](manual/03-modules.md) (the talk table's Go to; its text boxes scroll in the room they have) and [the deferred list](deferred.md).
+* **Update**: [Blueprints](manual/05-blueprints.md), [the main window](manual/02-main-window.md) and [the deferred list](deferred.md): the arrow keys move through the palette's tree after a click in it.
+* **Update**: [The main window](manual/02-main-window.md) and [the deferred list](deferred.md): the module tree goes to the object selected in an area only where the area is opened out in the tree.
 * **Update**: [The deferred list](deferred.md): a cloak lying in an area is the game's model of a cloak dropped (`gi_cloak01`) in the cloak's colors, checked in the game client.
 * **Update**: [Areas](manual/04-areas.md) (a trigger or an encounter turns by its outline), [modules](manual/03-modules.md) (Export adds to an archive that is there; the talk table as JSON, Only lines with text, Open File and New File), [the main window](manual/02-main-window.md) (the resource browser's Save As and Export as Files), [the models note](research/notes_models.md) (which of the two world-Z particle modes stands, seen in the client) and [the deferred list](deferred.md): builders' reports after 1.19.1.
 

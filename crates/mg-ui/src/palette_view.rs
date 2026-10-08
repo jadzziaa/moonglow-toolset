@@ -79,9 +79,157 @@ pub struct PaletteView {
     /// Tilesets' names as Area Properties shows them, read once each (a
     /// big tileset takes milliseconds to read: too long for every frame).
     pub(crate) tileset_names: HashMap<ResRef, String>,
+    /// The row the arrow keys are at: the one clicked last, or come to
+    /// with them.
+    pub(crate) cursor: Option<At>,
+    /// A category to open or close when the palette is drawn next (the
+    /// Left and Right keys).
+    toggle: Option<(Branch, bool)>,
+    /// The cursor's row is to be brought into view: the keys moved it.
+    reveal: bool,
+}
+
+/// A branch of a palette's tree: a category (by its place among the
+/// categories, down from the top) or the Favorites or Recent list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Branch {
+    Category(Vec<usize>),
+    Remembered(&'static str),
+}
+
+/// A row of a palette's tree: a branch's own, or a blueprint's under it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct At {
+    kind: BlueprintKind,
+    custom: bool,
+    pub(crate) branch: Branch,
+    pub(crate) blueprint: Option<ResKey>,
+}
+
+/// The palette's rows as they were drawn, top to bottom, for the arrow
+/// keys to move through: listed only in a frame a key is pressed.
+#[derive(Debug, Default)]
+struct Listed {
+    branches: Vec<Listing>,
+    /// Each row's branch, and the blueprint if it is one's.
+    rows: Vec<(usize, Option<ResKey>)>,
+}
+
+/// A branch as listed: the branch it is in, its own row, and whether it
+/// is open.
+#[derive(Debug)]
+struct Listing {
+    branch: Branch,
+    parent: Option<usize>,
+    row: usize,
+    open: bool,
+}
+
+/// What an arrow key does from a row.
+#[derive(Debug, PartialEq)]
+enum Step {
+    /// The cursor goes to this row.
+    To(usize),
+    /// This branch opens or closes.
+    Fold(usize, bool),
+    Stay,
+}
+
+impl Listed {
+    fn branch(&mut self, branch: Branch, parent: Option<usize>) -> usize {
+        self.branches.push(Listing { branch, parent, row: self.rows.len(), open: false });
+        self.rows.push((self.branches.len() - 1, None));
+        self.branches.len() - 1
+    }
+
+    /// The branch a row is in (a branch's own row: its parent).
+    fn within(&self, row: usize) -> Option<usize> {
+        let (branch, blueprint) = self.rows[row];
+        if blueprint.is_some() { Some(branch) } else { self.branches[branch].parent }
+    }
+
+    /// Whether a row shows: every branch it is in is open. (A branch
+    /// closing still draws its rows for a moment.)
+    fn shows(&self, row: usize) -> bool {
+        let mut at = self.within(row);
+        while let Some(b) = at {
+            if !self.branches[b].open {
+                return false;
+            }
+            at = self.branches[b].parent;
+        }
+        true
+    }
+
+    /// The row of `at`, if it is listed.
+    fn find(&self, at: &At) -> Option<usize> {
+        let branch = self.branches.iter().position(|b| b.branch == at.branch)?;
+        match at.blueprint {
+            None => Some(self.branches[branch].row),
+            key => self.rows.iter().position(|r| *r == (branch, key)),
+        }
+    }
+
+    /// A blueprint's row, in its category before Favorites or Recent.
+    fn blueprint(&self, key: ResKey) -> Option<usize> {
+        let of = |category: bool| {
+            self.rows.iter().position(|(b, k)| {
+                *k == Some(key)
+                    && matches!(self.branches[*b].branch, Branch::Category(_)) == category
+            })
+        };
+        of(true).or_else(|| of(false))
+    }
+
+    /// What `key` does with the cursor at `row`, as in any tree: Up and
+    /// Down go through the rows showing; Left closes an open branch, and
+    /// from a closed one or a blueprint goes to the branch it is in;
+    /// Right opens a closed branch, and from an open one goes into it.
+    fn step(&self, row: usize, key: egui::Key) -> Step {
+        let (branch, blueprint) = self.rows[row];
+        let next = (row + 1..self.rows.len()).find(|r| self.shows(*r));
+        match key {
+            egui::Key::ArrowDown => next.map_or(Step::Stay, Step::To),
+            egui::Key::ArrowUp => {
+                (0..row).rev().find(|r| self.shows(*r)).map_or(Step::Stay, Step::To)
+            }
+            egui::Key::ArrowLeft if blueprint.is_none() && self.branches[branch].open => {
+                Step::Fold(branch, false)
+            }
+            egui::Key::ArrowLeft => {
+                self.within(row).map_or(Step::Stay, |b| Step::To(self.branches[b].row))
+            }
+            egui::Key::ArrowRight if blueprint.is_none() && !self.branches[branch].open => {
+                Step::Fold(branch, true)
+            }
+            egui::Key::ArrowRight if blueprint.is_none() => {
+                next.filter(|r| self.within(*r) == Some(branch)).map_or(Step::Stay, Step::To)
+            }
+            _ => Step::Stay,
+        }
+    }
+}
+
+/// Whether the arrow keys are the palette's: from a click in its tree
+/// until the pointer is in an area's view again (they move its camera
+/// there, as W, A, S and D go on doing all along). The palette moves by
+/// them with the pointer over it.
+pub(crate) fn has_arrows(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new("palette-arrow-keys"))).unwrap_or(false)
+}
+
+/// Gives the arrow keys to the palette, or back to the area's view.
+pub(crate) fn give_arrows(ctx: &egui::Context, palette: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("palette-arrow-keys"), palette));
 }
 
 impl PaletteView {
+    /// Whether the arrow keys' cursor is at a category's own row (not at
+    /// a blueprint's).
+    pub fn at_category(&self) -> bool {
+        self.cursor.as_ref().is_some_and(|c| c.blueprint.is_none())
+    }
+
     /// Forgets palettes built from the game data (after Reload Resources).
     pub(crate) fn forget_game_data(&mut self) {
         self.standard.clear();
@@ -112,6 +260,9 @@ impl Default for PaletteView {
             area: None,
             tile_palettes: HashMap::new(),
             tileset_names: HashMap::new(),
+            cursor: None,
+            toggle: None,
+            reveal: false,
         }
     }
 }
@@ -457,6 +608,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let recent = app.settings.palette_recent.clone();
     let (resrefs, cr) = (app.settings.name_resrefs, !app.settings.palette_no_cr);
     let ext = kind.restype().extension().unwrap_or_default();
+    // An arrow key pressed while the keys are the palette's, the pointer
+    // is over it (not over a list elsewhere that has keys of its own) and
+    // no text is being typed: the rows are listed as they are drawn, to
+    // move through.
+    let here = ui.rect_contains_pointer(ui.max_rect());
+    let pressed = (here && has_arrows(ui.ctx()) && !ui.ctx().egui_wants_keyboard_input())
+        .then(|| {
+            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
+            ui.input(|i| {
+                let plain = i.modifiers.is_none();
+                [ArrowUp, ArrowDown, ArrowLeft, ArrowRight]
+                    .into_iter()
+                    .find(|k| plain && i.key_pressed(*k))
+            })
+        })
+        .flatten();
     let mut tree = Tree {
         game,
         kind,
@@ -480,6 +647,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         hovered: None,
         resrefs,
         cr,
+        cursor: view.cursor.take().filter(|c| c.kind == kind && c.custom == custom),
+        reveal: std::mem::take(&mut view.reveal),
+        toggle: view.toggle.take(),
+        listed: pressed.map(|_| Listed::default()),
+        clicked: false,
     };
     if find.fuzzy {
         ui.weak("No exact matches: close ones");
@@ -490,7 +662,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             tree.remembered(ui, "Recent", &recent, &palette);
         }
         for (i, node) in palette.nodes.iter().enumerate() {
-            tree.node(ui, node, &[i]);
+            tree.node(ui, node, &[i], None);
         }
         // The room under the list has the menu too.
         let rest = egui::vec2(ui.available_width(), ui.available_height().max(24.0));
@@ -506,6 +678,52 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     });
     crate::widgets::home_and_end(ui, &mut list);
     let shown = std::mem::take(&mut tree.shown);
+    // The arrow keys: the cursor moves through the rows as they were
+    // drawn, or its category opens or closes (when the palette is drawn
+    // next). A blueprint it comes to is selected, as by a click; on a
+    // category, the blueprint selected stays in hand.
+    if let (Some(key), Some(listed)) = (pressed, tree.listed.take()) {
+        let from = tree
+            .cursor
+            .as_ref()
+            .and_then(|c| listed.find(c))
+            .filter(|r| listed.shows(*r))
+            .or_else(|| tree.sel.selected.and_then(|k| listed.blueprint(k)));
+        let step = match from {
+            Some(row) => listed.step(row, key),
+            // Nothing to start from: the first row, or the last.
+            None => {
+                let mut showing = (0..listed.rows.len()).filter(|r| listed.shows(*r));
+                let to = match key {
+                    egui::Key::ArrowDown => showing.next(),
+                    egui::Key::ArrowUp => showing.next_back(),
+                    _ => None,
+                };
+                to.map_or(Step::Stay, Step::To)
+            }
+        };
+        match step {
+            Step::To(row) => {
+                let (branch, blueprint) = listed.rows[row];
+                let branch = listed.branches[branch].branch.clone();
+                tree.cursor = Some(At { kind, custom, branch, blueprint });
+                if blueprint.is_some() {
+                    tree.sel.selected = blueprint;
+                    tree.sel.chosen.clear();
+                }
+                view.reveal = true;
+            }
+            Step::Fold(branch, open) => {
+                view.toggle = Some((listed.branches[branch].branch.clone(), open));
+            }
+            Step::Stay => {}
+        }
+        ui.ctx().request_repaint();
+    }
+    if tree.clicked {
+        give_arrows(ui.ctx(), true);
+    }
+    view.cursor = tree.cursor.take();
     let (sel, picks, hovered) = (tree.sel, tree.picks, tree.hovered);
     if sel.selected.is_some() && sel.selected != view.selected {
         view.tile_brush = None;
@@ -740,7 +958,21 @@ struct Tree<'a> {
     /// ratings.
     resrefs: bool,
     cr: bool,
+    /// The row the arrow keys are at, and whether to bring it into view.
+    cursor: Option<At>,
+    reveal: bool,
+    /// A branch the keys open or close in this frame.
+    toggle: Option<(Branch, bool)>,
+    /// The rows as drawn, where a key was pressed (`None`: not listed).
+    listed: Option<Listed>,
+    /// Something in the tree was clicked: the arrow keys are its own.
+    clicked: bool,
 }
+
+/// Where a blueprint's row is: its branch, the branch's place in the
+/// keys' listing (if the rows are listed) and the blueprint the cursor is
+/// at in the branch.
+type Within<'a> = (&'a Branch, Option<usize>, Option<ResKey>);
 
 /// A blueprint's row: its name, its ResRef in parentheses and a creature's
 /// challenge rating, where each is asked for.
@@ -772,11 +1004,63 @@ impl Tree<'_> {
             || node.children.iter().any(|c| self.any_shown(c))
     }
 
-    fn node(&mut self, ui: &mut egui::Ui, node: &PaletteNode, path: &[usize]) {
+    /// Whether the arrow keys' cursor is in `branch`: at its own row, or
+    /// at a blueprint's under it.
+    fn cursor_in(&self, branch: &Branch) -> Option<Option<ResKey>> {
+        self.cursor.as_ref().filter(|c| c.branch == *branch).map(|c| c.blueprint)
+    }
+
+    /// What the keys ask of a branch's header, this frame: open or closed.
+    fn asked(&self, branch: &Branch) -> Option<bool> {
+        self.fold.or(self.toggle.as_ref().filter(|(b, _)| b == branch).map(|(_, open)| *open))
+    }
+
+    /// A branch's header as drawn: marked where the cursor is at it,
+    /// brought into view if the keys moved the cursor there, the cursor's
+    /// on a click, and listed open or closed for the keys.
+    fn header(
+        &mut self,
+        ui: &egui::Ui,
+        branch: &Branch,
+        listing: Option<usize>,
+        header: &egui::Response,
+        behind: egui::layers::ShapeIdx,
+    ) {
+        if self.cursor_in(branch) == Some(None) {
+            let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.6);
+            let radius = ui.visuals().widgets.inactive.corner_radius;
+            ui.painter().set(behind, egui::epaint::RectShape::filled(header.rect, radius, fill));
+            if self.reveal {
+                header.scroll_to_me(None);
+            }
+        }
+        if header.clicked() {
+            let (kind, custom) = (self.kind, self.custom);
+            self.cursor = Some(At { kind, custom, branch: branch.clone(), blueprint: None });
+            self.clicked = true;
+        }
+        if let (Some(at), Some(listed)) = (listing, &mut self.listed) {
+            use egui::collapsing_header::CollapsingState;
+            listed.branches[at].open =
+                CollapsingState::load(ui.ctx(), header.id).is_some_and(|s| s.is_open());
+        }
+    }
+
+    fn node(
+        &mut self,
+        ui: &mut egui::Ui,
+        node: &PaletteNode,
+        path: &[usize],
+        parent: Option<usize>,
+    ) {
         if !self.any_shown(node) {
             return;
         }
         let (game, kind, custom) = (self.game, self.kind, self.custom);
+        let branch = Branch::Category(path.to_vec());
+        let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), parent));
+        let within = self.cursor_in(&branch).flatten();
+        let behind = ui.painter().add(egui::Shape::Noop);
         let count = node.blueprints.len();
         let title = if count > 0 {
             format!("{} ({count})", shown_name(&node.name, game))
@@ -787,17 +1071,18 @@ impl Tree<'_> {
         // through `fold`: they can be closed again after.)
         let shown = egui::CollapsingHeader::new(title)
             .id_salt(("palette", kind, custom, path))
-            .open(self.fold)
+            .open(self.asked(&branch))
             .show(ui, |ui| {
                 for (i, child) in node.children.iter().enumerate() {
                     let mut p = path.to_vec();
                     p.push(i);
-                    self.node(ui, child, &p);
+                    self.node(ui, child, &p, listing);
                 }
                 let rows: Vec<&PaletteBlueprint> =
                     node.blueprints.iter().filter(|b| self.shown(b)).collect();
-                self.rows(ui, &rows);
+                self.rows(ui, &rows, (&branch, listing, within));
             });
+        self.header(ui, &branch, listing, &shown.header_response, behind);
         if !custom {
             return;
         }
@@ -835,18 +1120,26 @@ impl Tree<'_> {
         }
     }
 
-    fn row(&mut self, ui: &mut egui::Ui, b: &PaletteBlueprint) {
+    /// A blueprint's row in a branch: with the branch, its place in the
+    /// keys' listing and the blueprint the cursor is at in it.
+    fn row(&mut self, ui: &mut egui::Ui, b: &PaletteBlueprint, within: Within<'_>) {
+        let (branch, listing, cursor) = within;
+        let (kind, custom) = (self.kind, self.custom);
+        let key = ResKey::new(b.resref, kind.restype());
+        if let (Some(at), Some(listed)) = (listing, &mut self.listed) {
+            listed.rows.push((at, Some(key)));
+        }
+        // (The row the keys moved the cursor to is brought into view.)
+        let reveal = self.reveal && cursor == Some(key);
         // Rows out of sight take their room only (a palette may list
         // thousands).
         let height = ui.spacing().interact_size.y;
         let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
-        if !self.gallery && !ui.is_rect_visible(room) {
+        if !self.gallery && !reveal && !ui.is_rect_visible(room) {
             ui.allocate_space(egui::vec2(1.0, height));
             return;
         }
-        let (kind, custom) = (self.kind, self.custom);
         let name = shown_name(&b.name, self.game);
-        let key = ResKey::new(b.resref, kind.restype());
         let favorite = self.favorites.contains(&b.resref);
         let label =
             blueprint_label(&name, self.resrefs.then_some(b.resref), b.cr.filter(|_| self.cr));
@@ -863,6 +1156,14 @@ impl Tree<'_> {
         };
         if r.hovered() {
             self.hovered = Some(key);
+        }
+        if reveal {
+            r.scroll_to_me(None);
+        }
+        if r.clicked() {
+            // The arrow keys go on from here.
+            self.cursor = Some(At { kind, custom, branch: branch.clone(), blueprint: Some(key) });
+            self.clicked = true;
         }
         let thumb = self.thumb.filter(|(k, _)| *k == key).and_then(|(_, t)| t);
         let about = self.about.filter(|(k, _)| *k == key).map_or(&[][..], |(_, lines)| lines);
@@ -1012,7 +1313,13 @@ impl Tree<'_> {
 
     /// Favorites or Recent: the remembered blueprints this palette has, in
     /// order.
-    fn remembered(&mut self, ui: &mut egui::Ui, title: &str, list: &[String], palette: &Palette) {
+    fn remembered(
+        &mut self,
+        ui: &mut egui::Ui,
+        title: &'static str,
+        list: &[String],
+        palette: &Palette,
+    ) {
         let ext = self.kind.restype().extension().unwrap_or_default();
         let all = palette.blueprints();
         let here: Vec<&PaletteBlueprint> = list
@@ -1023,15 +1330,20 @@ impl Tree<'_> {
         if here.is_empty() {
             return;
         }
-        egui::CollapsingHeader::new(format!("{title} ({})", here.len()))
+        let branch = Branch::Remembered(title);
+        let listing = self.listed.as_mut().map(|l| l.branch(branch.clone(), None));
+        let within = self.cursor_in(&branch).flatten();
+        let behind = ui.painter().add(egui::Shape::Noop);
+        let shown = egui::CollapsingHeader::new(format!("{title} ({})", here.len()))
             .id_salt(("palette-remembered", title, self.kind, self.custom))
             .default_open(true)
-            .open(self.fold)
-            .show(ui, |ui| self.rows(ui, &here));
+            .open(self.asked(&branch))
+            .show(ui, |ui| self.rows(ui, &here, (&branch, listing, within)));
+        self.header(ui, &branch, listing, &shown.header_response, behind);
     }
 
     /// A category's blueprints: a list, or in the Gallery a grid.
-    fn rows(&mut self, ui: &mut egui::Ui, rows: &[&PaletteBlueprint]) {
+    fn rows(&mut self, ui: &mut egui::Ui, rows: &[&PaletteBlueprint], within: Within<'_>) {
         if self.gallery {
             // As many across as fit, grown to fill the palette's width.
             let asked = self.side;
@@ -1045,13 +1357,13 @@ impl Tree<'_> {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
                 for b in rows {
-                    self.row(ui, b);
+                    self.row(ui, b, within);
                 }
             });
             self.side = asked;
         } else {
             for b in rows {
-                self.row(ui, b);
+                self.row(ui, b, within);
             }
         }
     }
@@ -1290,6 +1602,58 @@ fn prefabs_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The arrow keys in a tree: Favorites (open) with one blueprint, a
+    /// category (open) holding a closed category and two blueprints, and
+    /// a closed category after it.
+    #[test]
+    fn the_arrow_keys_move_through_the_rows_showing() {
+        use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
+        let key = |name: &str| ResKey::parse(name, mg_core::ResType::UTP).unwrap();
+        let mut l = Listed::default();
+        let favorites = l.branch(Branch::Remembered("Favorites"), None); // row 0
+        l.rows.push((favorites, Some(key("chest")))); // 1
+        let outer = l.branch(Branch::Category(vec![0]), None); // 2
+        let inner = l.branch(Branch::Category(vec![0, 0]), Some(outer)); // 3
+        l.rows.push((inner, Some(key("hidden")))); // 4: drawn, its branch closing
+        l.rows.push((outer, Some(key("chest")))); // 5
+        l.rows.push((outer, Some(key("barrel")))); // 6
+        let last = l.branch(Branch::Category(vec![1]), None); // 7
+        l.branches[favorites].open = true;
+        l.branches[outer].open = true;
+        // Down and Up: the rows showing, not those of a closed branch.
+        assert_eq!(l.step(3, ArrowDown), Step::To(5));
+        assert_eq!(l.step(5, ArrowUp), Step::To(3));
+        assert_eq!(l.step(6, ArrowDown), Step::To(7));
+        assert_eq!(l.step(7, ArrowDown), Step::Stay);
+        assert_eq!(l.step(0, ArrowUp), Step::Stay);
+        // Left: a blueprint to its branch, an open branch closes, a closed
+        // one goes to the branch it is in (none: it stays).
+        assert_eq!(l.step(6, ArrowLeft), Step::To(2));
+        assert_eq!(l.step(2, ArrowLeft), Step::Fold(outer, false));
+        assert_eq!(l.step(3, ArrowLeft), Step::To(2));
+        assert_eq!(l.step(7, ArrowLeft), Step::Stay);
+        assert_eq!(l.step(1, ArrowLeft), Step::To(0));
+        // Right: a closed branch opens, an open one goes into it, a
+        // blueprint stays.
+        assert_eq!(l.step(3, ArrowRight), Step::Fold(inner, true));
+        assert_eq!(l.step(2, ArrowRight), Step::To(3));
+        assert_eq!(l.step(0, ArrowRight), Step::To(1));
+        assert_eq!(l.step(5, ArrowRight), Step::Stay);
+        assert_eq!(l.step(7, ArrowRight), Step::Fold(last, true));
+        // A blueprint is found in its category before Favorites; a row by
+        // its branch.
+        assert_eq!(l.blueprint(key("chest")), Some(5));
+        let at = |branch, blueprint| At {
+            kind: BlueprintKind::Placeable,
+            custom: false,
+            branch,
+            blueprint,
+        };
+        assert_eq!(l.find(&at(Branch::Remembered("Favorites"), Some(key("chest")))), Some(1));
+        assert_eq!(l.find(&at(Branch::Category(vec![0, 0]), None)), Some(3));
+        assert!(!l.shows(4) && l.shows(3));
+    }
 
     #[test]
     fn a_blueprints_row_names_what_is_asked_for() {

@@ -562,6 +562,21 @@ impl Form<'_> {
         }
     }
 
+    /// [`number`](Self::number) with Aurora's pair of arrows after the
+    /// field (a creature's statistics).
+    pub(crate) fn spin(
+        &mut self,
+        ui: &mut Ui,
+        what: &str,
+        label: &str,
+        range: std::ops::RangeInclusive<i64>,
+    ) {
+        self.mark_mixed(ui, label);
+        if let Some(v) = crate::widgets::spin_number(ui, self.int(label), range) {
+            self.set_int(what, label, v, FieldType::Byte);
+        }
+    }
+
     /// A PLT colour (0–175) picked from a palette's swatches (Aurora's
     /// colour chooser; `palette` as `pal_cloth01`); the game is given where
     /// the page has lent it out.

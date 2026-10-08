@@ -540,12 +540,22 @@ impl Keymap {
     /// camera; and no key counts while a text field has the keyboard
     /// (`typing`): the arrows move its cursor, with Ctrl or Shift too.
     pub fn held(&self, i: &InputState, cmd: Cmd, typing: bool) -> bool {
+        self.held_but(i, cmd, typing, false)
+    }
+
+    /// [`held`](Self::held), but for the arrow keys where they are taken
+    /// (`no_arrows`: the palette's tree moves by them after a click in
+    /// it; the command's other keys go on working).
+    pub fn held_but(&self, i: &InputState, cmd: Cmd, typing: bool, no_arrows: bool) -> bool {
+        use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
         let Some(keys) = self.keys.get(cmd.id()) else { return false };
         !typing
             && keys.iter().any(|s| {
                 let plain = s.modifiers.is_none();
                 let text = s.logical_key.name().chars().count() == 1;
-                i.key_down(s.logical_key)
+                let arrow = matches!(s.logical_key, ArrowDown | ArrowLeft | ArrowRight | ArrowUp);
+                !(no_arrows && arrow)
+                    && i.key_down(s.logical_key)
                     && if plain {
                         !(text && (i.modifiers.command || i.modifiers.ctrl || i.modifiers.alt))
                     } else {
@@ -671,6 +681,10 @@ mod tests {
         i.keys_down.insert(Key::ArrowLeft);
         assert!(map.held(&i, Cmd::CameraLeft, false));
         assert!(!map.held(&i, Cmd::CameraLeft, true));
+        // The arrows taken (the palette's): the command's other keys work.
+        assert!(!map.held_but(&i, Cmd::CameraLeft, false, true));
+        i.keys_down.insert(Key::A);
+        assert!(map.held_but(&i, Cmd::CameraLeft, false, true));
     }
 
     #[test]

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-07T21:30:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T20:12:46Z }
 ---
 
 # Blueprints
@@ -44,6 +44,9 @@ follow it.
   name, as in Aurora).
 - A renamed category keeps its blueprints; one with blueprints of the
   module in it isn't removed until they are given another.
+- A name is written as the game reads text in its language (Options ›
+  Language), so that the DM's Creator in the game shows it as typed; a
+  name with letters that text cannot hold is refused, and says so.
 - **Use the Game's Categories** drops the module's list.
 - Aurora reads custom categories from palette files kept in a module too
   (a builder who keeps them so reports it; Moonglow's own check against
@@ -68,6 +71,16 @@ Both are kept between sessions.
 
 Drag a custom blueprint onto another category of the custom palette to
 move it there.
+
+**The arrow keys** move through the palette after a click in it, as in
+Aurora's: **Up** and **Down** go from row to row, and a blueprint they
+come to is selected, as by a click. **Left** on a blueprint goes to its
+category; on a category it closes it, or goes to the one it is in.
+**Right** opens a category, and goes into one that is open. While the
+keys are on a category, the blueprint selected stays in hand. The keys
+work with the pointer over the palette, and are the palette's until the
+pointer is back in an area's view, where they move the camera again;
+W, A, S and D move it all along.
 
 The palette's buttons:
 
@@ -163,6 +176,14 @@ and a door's transition. A window lists the objects it would change:
 - **Untick** objects to leave them as they are.
 - **Update** changes the rest as one undoable step.
 
+An item's blueprint reaches the items that placed objects hold as well:
+in a chest, in a creature's pack and what it has equipped, on a store's
+pages, and in a bag in any of them. Each is listed with what holds it
+("held item" or "equipped item"), and keeps its place in the inventory,
+its slot, how many of it there are (a stack of twenty stays twenty), and
+what is said of it there (whether it drops or can be stolen, a store's
+endless supply).
+
 New blueprints come from the **Wizards** menu (or the palette's New). Each
 type's wizard asks what Aurora's asks (the base item for an item, the
 appearance for a placeable, the classes for a creature…), a palette
@@ -217,7 +238,8 @@ Shared parts:
 ### Creatures
 
 Basic (name, race, gender, portrait, appearance, faction, conversation),
-**Statistics** (abilities, saves, armor class, hit points, speed),
+**Statistics** (abilities, saves, armor class, hit points, speed; the
+arrows after a number make it one more or one less, as Aurora's do),
 **Appearance** (body parts, colors, wings, tail, the phenotype), **Classes**
 (classes and levels, a cleric's domains and a wizard's school, the
 familiar and animal companion; **Levelup Wizard…** levels the creature up
