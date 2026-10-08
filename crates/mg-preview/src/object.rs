@@ -35,6 +35,7 @@ pub fn placeable(game: &GameData, utp: &Struct) -> Result<Preview, PreviewError>
                 offset("LightOffsetZ"),
             ),
             color: Vec3::new(ch("RED"), ch("GREEN"), ch("BLUE")),
+            // (Measured in the client: `placeable_light_uniforms`.)
             radius: 10.0,
         });
     }

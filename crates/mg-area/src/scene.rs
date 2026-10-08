@@ -25,6 +25,18 @@ use crate::{AreaModel, AreaObject, AreaTile, Lighting, ObjectKind, TILE_SIZE};
 /// of hundreds of torches still draws at once): those nearest the view.
 const MAX_PARTICLE_OBJECTS: usize = 256;
 
+/// A model no larger than this across (metres) has nothing to see or to
+/// click (the game's `dag_invisible`): its object is drawn and picked by a
+/// marker's box.
+const BARE: f32 = 0.5;
+
+/// Whether a model's box is that of nothing to see: [`BARE`] across at
+/// most, or no box at all (a model without a vertex).
+fn bare((min, max): (Vec3, Vec3)) -> bool {
+    let across = max - min;
+    !across.is_finite() || across.min_element() < 0.0 || across.length() < BARE
+}
+
 /// An emitter new to the view is run ahead this far, in steps this long,
 /// so that it shows as it does once going: a wide mist lets out a few
 /// slow particles a second that live a quarter of a minute, and showed
@@ -387,9 +399,22 @@ impl AreaScene {
         let shown = self.objects.get(i).and_then(Option::as_ref);
         match shown {
             _ if self.as_arrow(&area.objects[i], shown) => crate::marker::arrow_bounds(),
+            // (Nothing to see or to click: a light of an invisible model.)
+            Some(s) if bare(s.bounds) => crate::pick::marker_bounds(area.objects[i].kind),
             Some(s) => s.bounds,
             None => crate::pick::marker_bounds(area.objects[i].kind),
         }
+    }
+
+    /// Whether object `i` is only a light: a placeable whose appearance
+    /// has a light (placeables.2da's `LightColor`) and a model too small
+    /// to see, as the game's "Light, White" has. Its color, if
+    /// so (lightcolor.2da's values).
+    pub fn bare_light(&self, area: &AreaModel, i: usize) -> Option<Vec3> {
+        let shown = self.objects.get(i).and_then(Option::as_ref)?;
+        let o = area.objects.get(i)?;
+        let light = o.preview.as_ref()?.lights.first()?;
+        (o.kind == ObjectKind::Placeable && bare(shown.bounds)).then_some(light.color)
     }
 
     /// How far along `ray` it meets object `i`'s model itself (its

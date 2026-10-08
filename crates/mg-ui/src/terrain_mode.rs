@@ -607,7 +607,12 @@ pub(crate) fn input(
                 let tools = view.terrain.as_ref().expect("checked");
                 let (st, label, pick) = click(tools, &g, &brush, s, shift, lower, 0);
                 commit(app, view, g, st, &label, pick);
-            } else if response.secondary_clicked() {
+            } else if response.secondary_clicked() && brush.brush != Brush::RaiseLower {
+                // (Raise/Lower's right click lowers: where it finds no
+                // ground to lower, a cliff face or past the area's edge,
+                // it does nothing. Dropped there, the next click was the
+                // object's under the pointer: its menu, or selected.)
+                crate::trace::note(format!("tile brush {} dropped by a right click", brush.label));
                 app.palette.tile_brush = None;
             }
         }

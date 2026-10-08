@@ -182,6 +182,18 @@ down the screen.
 A click on a ring or an arrow selects the object under it, if there is
 one; the selection stays otherwise.
 
+**Lights**: right-click the ground and choose **Add Light Here**, then
+a color. Moonglow puts one of the game's invisible light placeables
+there ("Light, White" and the six others of placeables.2da), a little
+above the ground: it lights what is around it in the game and needs no
+custom content. It shows as a small sun in its color; select, move and
+raise it as any placeable. **Light Color** on its right-click menu gives
+it another of the colors. Selected, a ring in its color shows how far
+it reaches: where the game's light ends, 20 m out, the light fading
+all the way there. These are the game's fixed lights: seven colors, one
+reach. A hak that adds rows of the same kind (a `LightColor`
+on the model `dag_invisible`) adds to the list.
+
 **An encounter's spawn points**: with the encounter selected, the tip of
 each spawn point's arrow is a handle. Lead it round the point and what
 spawns there faces that way (**Turn** snaps it). The square at the foot
