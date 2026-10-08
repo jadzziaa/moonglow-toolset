@@ -45,6 +45,16 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.19.0" date="2026-10-07">
+      <description>
+        <p>Lights: Add Light Here on an area's right-click menu places one
+        of the game's invisible lights, shown as a small sun with a ring
+        for its reach. Body parts are drawn in their own textures, as the
+        game draws them; Raise/Lower stays in hand on a right click that
+        finds no ground; on Windows a maximized window no longer seems to
+        start twice.</p>
+      </description>
+    </release>
     <release version="1.18.1" date="2026-10-07">
       <description>
         <p>The debug log is written unless switched off, a file for each
