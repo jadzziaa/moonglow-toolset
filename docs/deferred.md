@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T01:02:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T02:02:35Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -883,7 +883,11 @@ categories, the galleries. Water ripples. Left:
   it kept the ground from showing, and the water under it showed. Shown
   in a renderer test; not confirmed on the reporter's area, nor compared
   with the client.) Two see-through surfaces crossing each other still
-  sort by their middles. Each see-through mesh costs two draws. The
+  sort by their middles. Each see-through mesh costs two draws. On
+  macOS the solid part's discarded fragments wrote their depth (the
+  plant's edge hid the ground again) until the shader stopped at each
+  discard: seen and mended on the CI's Mac, a virtual one; no real Mac
+  was looked at. The
   smaller levels made of an uncompressed texture leave transparent
   pixels' colors out; a compressed DDS's own levels are used as stored.
   (S–M)

@@ -62,7 +62,9 @@ fn fs_punch(in: VertexOut) -> @location(0) vec4<f32> {
     let t = textureSample(tex0, samp0, in.uv);
     let c = t * in.color;
     if (c.a < 0.5) {
+        // (And nothing more of it: see the lit meshes' shader.)
         discard;
+        return vec4<f32>(0.0);
     }
     return vec4<f32>(mix(c.rgb, frame.fog_color.rgb, fog_amount(in.depth)), 1.0);
 }

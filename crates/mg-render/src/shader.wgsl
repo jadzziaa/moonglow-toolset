@@ -356,9 +356,16 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         }
     }
 
+    // Every `discard` here is followed by a `return`: a discarded fragment
+    // that went on running (as WGSL has it, and as Metal's
+    // `discard_fragment` does) wrote its depth on Metal, so a see-through
+    // mesh's solid part hid what was behind the whole of it
+    // (`a_see_through_edge_does_not_hide_the_ground_behind_it`, on macOS).
+    // Nothing after takes a derivative, so nothing is lost by stopping.
     var color = vec4<f32>(1.0, 1.0, 1.0, clamp(draws[this_draw].diffuse.a, 0.0, 1.0));
     if (env_mapped && color.a <= draws[this_draw].params.x) {
         discard;
+        return vec4<f32>(0.0);
     }
 
     // The sky fade: its colour over the sky as much as its texture is white.
@@ -398,9 +405,11 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         }
         if (!fx_mask && color.a <= draws[this_draw].params.x) {
             discard;
+            return vec4<f32>(0.0);
         }
         if (fx_mask && color.a <= 0.004) {
             discard;
+            return vec4<f32>(0.0);
         }
     }
 
@@ -409,10 +418,12 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     if (draws[this_draw].extra.w > 1.5) {
         if (color.a >= SOLID_ALPHA) {
             discard;
+            return vec4<f32>(0.0);
         }
     } else if (draws[this_draw].extra.w > 0.5) {
         if (color.a < SOLID_ALPHA) {
             discard;
+            return vec4<f32>(0.0);
         }
     }
 

@@ -3,7 +3,7 @@ type: Research Note
 title: 'Frames at 144 a second: where a frame''s time went'
 description: Frame times against a 144 fps budget (6.94 ms) on the development machine - how each view is timed, what an area's picture, the galleries and the lists cost before and after October 2026's work, what the profile found, and what is left.
 tags: [performance, frames, renderer, area-view, galleries]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T01:02:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T02:02:35Z }
 sources:
   - id: frame-perf
     resource: crates/mg-ui/tests/frame_perf.rs
@@ -11,8 +11,11 @@ sources:
   - id: budget
     resource: human:august
     title: 'The budget: a steady 144 frames a second on the development machine (7 October 2026)'
+  - id: metal-ci
+    resource: https://github.com/jadzziaa/moonglow-toolset/actions/runs/37715321115
+    title: The macOS job of a CI run that drew one scene with six variants of the lit shader (8 October 2026)
 verified:
-  - { by: claude-code/claude-opus-5-5, at: 2026-10-08T01:02:33Z }
+  - { by: claude-code/claude-opus-5-5, at: 2026-10-08T02:02:47Z }
 ---
 
 # Frames at 144 a second: where a frame's time went
@@ -104,6 +107,20 @@ More:
   changes. With the draw's own group before the material's, every draw
   cost the material's ten textures again, whether or not the material was
   set. What changes most often goes last, or (as now) is no group at all.
+- **On Metal, a fragment that is discarded has to stop there.** With the
+  draws' values read from the storage buffer, macOS (the CI's machine;
+  Linux and Windows were right) drew a see-through mesh's solid part with
+  the depth of every fragment of it, the discarded ones too: a plant's
+  soft edge hid the ground behind it, and a quad discarded altogether hid
+  it as well. WGSL's `discard` lets the fragment run on (as Metal's
+  `discard_fragment` does), and what ran after it there was the reading
+  of the draw's values. Drawn right in variants of the shader tried on
+  macOS: a `return` after each `discard`, or the draw's values copied
+  before any; not with the solid part alone told by the vertex stage, and
+  no differently a draw for each mesh. Every `discard` of the shaders is
+  now followed by a `return` (a test holds them to it); nothing after
+  takes a derivative. The same test had failed on macOS alone once
+  before, for a texture read in a branch after the discards.
 - **The draws' order is as it was, where it matters.** Sorting the opaque
   draws by material would bind fewer materials (805 of 4,807 draws change
   it as it is), but coplanar meshes (tile floors) have equal depths, and

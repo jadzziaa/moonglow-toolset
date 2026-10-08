@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [Frames at 144 a second](research/notes_frames.md) and [the deferred list](deferred.md): on macOS (Metal) a see-through mesh's solid part hid what was behind the whole of it, a discarded fragment having written its depth; every `discard` of the shaders is now followed by a `return`.
 * **Update**: [The deferred list](deferred.md): a window left maximized seemed to start twice on Windows.
 * **Update**: [The deferred list](deferred.md): a body part is drawn in its own texture whatever its mesh names (GitHub issue 5), checked in the game client.
 * **Update**: [Frames at 144 a second](research/notes_frames.md) and [the deferred list](deferred.md): instances timed with nothing else drawing (they save the GPU a little too: the swings seen before were the game's frames), and the frames' times after them.

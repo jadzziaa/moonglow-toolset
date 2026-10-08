@@ -1796,4 +1796,31 @@ mod tests {
         assert!((max_inv - 0.4098).abs() < 1e-3, "{max_inv}");
         assert!((falloff - 136.31).abs() < 0.1, "{falloff}");
     }
+
+    /// A fragment shader stops where it discards. On Metal a discarded
+    /// fragment that goes on running writes its depth: a see-through mesh's
+    /// solid part hid what was behind the whole of it there (the tests of
+    /// `tests/render.rs` see that on macOS alone; this one sees its cause
+    /// anywhere).
+    #[test]
+    fn a_shader_returns_where_it_discards() {
+        for (name, source) in [
+            ("shader.wgsl", include_str!("shader.wgsl")),
+            ("particle.wgsl", include_str!("particle.wgsl")),
+            ("line.wgsl", include_str!("line.wgsl")),
+        ] {
+            let lines: Vec<&str> = source.lines().map(str::trim).collect();
+            for (i, line) in lines.iter().enumerate() {
+                if line.starts_with("//") || !line.contains("discard;") {
+                    continue;
+                }
+                let next = lines.get(i + 1).copied().unwrap_or_default();
+                assert!(
+                    *line == "discard;" && next.starts_with("return "),
+                    "{name}:{}: a discard without a return on the line after it",
+                    i + 1
+                );
+            }
+        }
+    }
 }
