@@ -384,3 +384,56 @@ fn binding_by_part_number_and_by_name() {
         }
     }
 }
+
+/// Exploration: the game's own body part models (`p<g><r><pheno>_<part>NNN`)
+/// whose mesh names another texture than the part's own, and whether the
+/// part's own texture exists too (the game draws the part's own).
+#[test]
+#[ignore]
+fn body_parts_that_name_another_part_s_texture() {
+    let root = corpus!();
+    let rm = ResMan::for_game(&GameInstall::new(&root, None, "en")).unwrap();
+    let has = |name: &str| {
+        let Ok(r) = name.parse::<mg_core::ResRef>() else { return false };
+        [ResType::PLT, ResType::TGA, ResType::DDS]
+            .into_iter()
+            .any(|t| rm.contains(&mg_resman::ResKey::new(r, t)))
+    };
+    let (mut parts, mut other, mut both) = (0, 0, Vec::new());
+    for r in rm.list(ResType::MDL) {
+        let name = r.to_string().to_ascii_lowercase();
+        let b = name.as_bytes();
+        if !(name.len() > 5 && b[0] == b'p' && b[4] == b'_' && b[3].is_ascii_digit()) {
+            continue;
+        }
+        let Ok(data) = rm.get(&mg_resman::ResKey::new(r, ResType::MDL)) else { continue };
+        let Ok(m) = Model::read(&data) else { continue };
+        parts += 1;
+        for n in &m.nodes {
+            let NodeKind::Mesh(mesh) = &n.kind else { continue };
+            let Some(t) = mesh.textures[0].as_deref().map(str::to_ascii_lowercase) else {
+                continue;
+            };
+            if t != name && t != "null" {
+                other += 1;
+                if has(&name) && has(&t) {
+                    both.push(format!("{name} names {t}"));
+                }
+            }
+        }
+    }
+    both.sort();
+    both.dedup();
+    eprintln!(
+        "{parts} part models; {other} meshes name another texture; {} of them where both \
+         textures exist: {:?}",
+        both.len(),
+        both.iter()
+            .filter(|b| {
+                b.starts_with("pmh0_chest")
+                    || b.starts_with("pmh0_leg")
+                    || b.starts_with("pmh0_pelvis")
+            })
+            .collect::<Vec<_>>()
+    );
+}

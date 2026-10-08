@@ -359,10 +359,11 @@ pub fn creature(
     Ok(preview)
 }
 
-/// Textures of a part model that are missing, and the game's fallbacks:
-/// the texture of the part's own name (`p<g><r><pheno>_<part>`: the game
-/// applies it whatever the model names) → phenotype 0 → human of the same
-/// gender → human male; then the same from the texture's name.
+/// The textures a part model is drawn with in place of those its meshes
+/// name: the part's own (`p<g><r><pheno>_<part>NNN`), which the game
+/// applies whatever the model names; and for one that is missing, the
+/// game's fallbacks: the part's own name → phenotype 0 → human of the
+/// same gender → human male; then the same from the texture's name.
 fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<String, String> {
     // A part's name, and its fallbacks.
     let named = |name: &str| -> Vec<String> {
@@ -382,7 +383,17 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
     };
     let model = model.to_ascii_lowercase();
     let mut out = std::collections::BTreeMap::new();
+    // The part's own texture, where there is one, is what the game draws
+    // on it, though its mesh names another part's (the game's own thigh 3
+    // names thigh 2's, chest 32 chest 13's: seen in the client,
+    // `creatures_look` with `MG_PARTS`). A mesh naming something that is
+    // no part's (a head's hair, a gem) keeps that.
+    let own = Some(model.clone()).filter(|m| !named(m).is_empty() && lk.has_texture(m));
     for b in lk.bitmaps(&model) {
+        if let Some(own) = own.as_ref().filter(|own| **own != b && !named(&b).is_empty()) {
+            out.insert(b, own.clone());
+            continue;
+        }
         if lk.has_texture(&b) {
             continue;
         }

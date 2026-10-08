@@ -390,6 +390,25 @@ categories folding, prefabs deleted from the palette, Copy… in the
 module tree (areas with what is placed in them), particles of placed
 objects in the area view, Fade Geometry. Left:
 
+- **Moonglow seeming to start twice on Windows** (a builder's video: a
+  blank white window, gone again, then the real one): his window was
+  last left maximized. eframe creates its window hidden until the first
+  frame is drawn, and winit on Windows shows a window created hidden
+  and maximized all the same. A window left maximized is now created
+  unmaximized there and maximized after its first frame. Not tried on
+  Windows: nothing here runs it; told by the video, eframe's source and
+  the fix's own test of what it asks for. (?)
+- **A body part drawn in another part's texture (GitHub issue 5, its
+  second half):** a part was drawn with the texture its mesh names where
+  that exists, but the game draws the part's own (`p<g><r><pheno>_<part>NNN`)
+  whatever the mesh names. The game's own thigh 3 names thigh 2's
+  texture and chest 32 chest 13's (598 such meshes in the base game
+  alone), so this was wrong without any custom content: the reporter's
+  "shows part 2, should be part 3". Seen in the client (`creatures_look`
+  with `MG_PARTS`: plate thighs, where Moonglow drew thigh 2's cloth),
+  and the same now. A mesh that names something that is no part's keeps
+  it. The reporter's own armor (a CEP robe) was not drawn here: its
+  part models are in CEP haks not on this machine. (—)
 - **Dynamic body parts from custom content (GitHub issue 5):** fixed
   with the reporter's haks over CEP 2.71. Under armor a creature's own
   part shows where the armor's is bare skin (part 1) or none, as the

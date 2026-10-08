@@ -83,12 +83,37 @@ struct App {
     title: String,
 }
 
+/// Windows: the window was last left maximized and is to be maximized
+/// once it has drawn (see [`maximize_later`]).
+static MAXIMIZE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// On Windows, a window created hidden and maximized is shown at once all
+/// the same, blank, then hidden, then shown again when its first frame is
+/// drawn: it looks like Moonglow starting twice. So a window left
+/// maximized is created as it was before that, and maximized after its
+/// first frame ([`MAXIMIZE`]). Elsewhere the window is created as it was
+/// left.
+fn maximize_later(window: egui::ViewportBuilder, windows: bool) -> egui::ViewportBuilder {
+    if windows && window.maximized == Some(true) {
+        MAXIMIZE.store(true, std::sync::atomic::Ordering::Relaxed);
+        window.with_maximized(false)
+    } else {
+        window
+    }
+}
+
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Closing the window asks about unsaved work like File > Exit.
         if ui.ctx().input(|i| i.viewport().close_requested()) && !self.moonglow.quit_requested {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.moonglow.actions.push(Action::Quit);
+        }
+        // (The first frame is drawn hidden; the window shows after it.)
+        if ui.ctx().cumulative_frame_nr() >= 1
+            && MAXIMIZE.swap(false, std::sync::atomic::Ordering::Relaxed)
+        {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(true));
         }
         self.moonglow.ui(ui);
         let title = self.moonglow.title();
@@ -176,6 +201,7 @@ fn main() -> eframe::Result<()> {
         // The settings stay where they were before the window had an app
         // ID (eframe would otherwise name their folder after it).
         persistence_path: eframe::storage_dir(APP_NAME).map(|d| d.join("app.ron")),
+        window_builder: Some(Box::new(|window| maximize_later(window, cfg!(windows)))),
         ..Default::default()
     };
     eframe::run_native(
@@ -218,6 +244,20 @@ fn main() -> eframe::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    /// On Windows a window left maximized is created unmaximized, to be
+    /// maximized once drawn; elsewhere, and a window not maximized, as it
+    /// was left.
+    #[test]
+    fn a_maximized_window_is_maximized_after_its_first_frame_on_windows() {
+        use std::sync::atomic::Ordering;
+        let left = |maximized| egui::ViewportBuilder::default().with_maximized(maximized);
+        assert_eq!(super::maximize_later(left(true), false).maximized, Some(true));
+        assert_eq!(super::maximize_later(left(false), true).maximized, Some(false));
+        assert!(!super::MAXIMIZE.load(Ordering::Relaxed));
+        assert_eq!(super::maximize_later(left(true), true).maximized, Some(false));
+        assert!(super::MAXIMIZE.swap(false, Ordering::Relaxed));
+    }
+
     #[test]
     fn the_window_icon_decodes() {
         let icon = super::window_icon();

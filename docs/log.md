@@ -1,6 +1,8 @@
 # Update log
 
 ## 2026-10-07
+* **Update**: [The deferred list](deferred.md): a window left maximized seemed to start twice on Windows.
+* **Update**: [The deferred list](deferred.md): a body part is drawn in its own texture whatever its mesh names (GitHub issue 5), checked in the game client.
 * **Update**: [Frames at 144 a second](research/notes_frames.md) and [the deferred list](deferred.md): instances timed with nothing else drawing (they save the GPU a little too: the swings seen before were the game's frames), and the frames' times after them.
 * **Update**: [Frames at 144 a second](research/notes_frames.md) and [the deferred list](deferred.md): meshes of one model are drawn as instances of one draw where that takes no draw past one it meets (a large area's 4,807 meshes in 1,028 draws), and what that leaves different (a sample on the seam of two tiles, in 12 of 192 pictures).
 * **Creation**: [Frames at 144 a second](research/notes_frames.md): frame times against a 144 fps budget, how they are measured (`crates/mg-ui/tests/frame_perf.rs`), what an area's picture, the galleries and the lists cost before and after, and what the profile found; [the deferred list](deferred.md) has what is left, under Frames.

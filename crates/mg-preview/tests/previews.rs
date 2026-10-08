@@ -141,7 +141,9 @@ fn a_part_naming_a_missing_texture_takes_its_own() {
     let belt = p.parts.iter().find(|x| x.model == "pfh0_belt063").expect("the belt");
     assert_eq!(belt.textures.get("beltmerged").map(String::as_str), Some("pfh0_belt063"));
     // No part of the base game's human bodies is left without a texture
-    // that one of its own name (or its fallbacks') would give it.
+    // that one of its own name (or its fallbacks') would give it; one that
+    // exists is replaced only by the part's own (a right foot's mesh names
+    // the left's).
     let has = |name: &str| {
         [ResType::PLT, ResType::DDS, ResType::TGA]
             .iter()
@@ -149,7 +151,8 @@ fn a_part_naming_a_missing_texture_takes_its_own() {
     };
     for part in &p.parts {
         for (old, new) in &part.textures {
-            assert!(!has(old) && has(new), "{}: {old} -> {new}", part.model);
+            assert!(has(new), "{}: {old} -> {new}", part.model);
+            assert!(!has(old) || *new == part.model, "{}: {old} -> {new}", part.model);
         }
     }
 }
@@ -471,4 +474,28 @@ fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     assert_eq!(turn("nw_it_mpotion001"), 2, "a potion stood up");
     assert_eq!(turn("nw_aarcl001"), 0, "armor as its model is");
     assert_eq!(turn("nw_aarcl013"), 0, "the bag");
+}
+
+/// A body part is drawn with its own texture where it has one, though its
+/// mesh names another part's: the game's thigh 3 names thigh 2's, and was
+/// drawn in thigh 2's (GitHub issue 5: "shows part 2").
+#[test]
+fn a_body_part_wears_its_own_texture_whatever_its_mesh_names() {
+    let Some(game) = game() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let mut armor = blueprint(&game, "nw_aarcl001", ResType::UTI);
+    for label in ["ArmorPart_LThigh", "ArmorPart_RThigh"] {
+        armor.root.set(label, mg_gff::Value::Byte(3));
+        let wide = mg_rules::items::wide_label(label);
+        if armor.root.get(&wide).is_some() {
+            armor.root.set(&wide, mg_gff::Value::Word(3));
+        }
+    }
+    let worn = item(&game, &armor.root).unwrap();
+    let thigh = worn.parts.iter().find(|p| p.model == "pmh0_legl003").expect("the left thigh");
+    assert_eq!(thigh.textures.get("pmh0_legl002").map(String::as_str), Some("pmh0_legl003"));
+    let right = worn.parts.iter().find(|p| p.model == "pmh0_legr003").expect("the right thigh");
+    assert!(right.textures.values().all(|t| t == "pmh0_legr003"), "{:?}", right.textures);
 }
