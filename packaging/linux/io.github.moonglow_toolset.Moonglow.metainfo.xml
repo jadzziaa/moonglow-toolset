@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.19.1" date="2026-10-08">
+      <description>
+        <p>A body part of an elf, halfling or other race that has no
+        texture of its own name is drawn in the human's of that name, as
+        the game draws it: clothes on such creatures no longer show
+        another part's texture.</p>
+      </description>
+    </release>
     <release version="1.19.0" date="2026-10-07">
       <description>
         <p>Lights: Add Light Here on an area's right-click menu places one
