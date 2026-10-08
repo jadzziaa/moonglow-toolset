@@ -803,7 +803,9 @@ browser's Save As on a row and Export as Files. Left, or to know:
   `DefaultModel`, which neither uses for it). Compared with the game
   client (`items_look` with three of the game's cloaks: the same model
   and colors, lying the same way). Where the model is missing: the
-  `DefaultModel`, then the bag.
+  `DefaultModel`, then the bag. Whether a custom base item of cloaks
+  that names a model of its own should lie as that instead was not
+  measured (the game's own names the bag, which it does not use). (S)
 - **An armor lying as plate here and as a tunic in Aurora**, in the
   same builder's picture: not looked into. The model is chosen by the
   torso's parts_chest.2da `ACBONUS` (measured with the game's own

@@ -45,6 +45,12 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.19.3" date="2026-10-08">
+      <description>
+        <p>A cloak lying in an area is drawn as the game draws it: folded,
+        in the cloak's colors, where Moonglow drew a bag.</p>
+      </description>
+    </release>
     <release version="1.19.2" date="2026-10-08">
       <description>
         <p>Triggers and encounters turn by their outlines, alone and with
