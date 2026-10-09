@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.20.3" date="2026-10-09">
+      <description>
+        <p>A material that says twosided is drawn from behind too, as the
+        game draws it: leaves, cloth and other thin surfaces no longer
+        vanish seen from their back.</p>
+      </description>
+    </release>
     <release version="1.20.2" date="2026-10-09">
       <description>
         <p>Fog and other particle effects with a flip-book texture play
