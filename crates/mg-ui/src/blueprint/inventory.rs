@@ -178,16 +178,8 @@ impl Form<'_> {
 
     pub(super) fn item_fit(&mut self, resref: ResRef) -> ItemFit {
         let base = self.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
-        let table = self.app.game.as_deref().and_then(|g| g.table("baseitems").ok());
-        let cell = |col: &str| {
-            let t = table.as_ref()?;
-            t.get_int(usize::try_from(base?).ok()?, col).and_then(|v| u32::try_from(v).ok())
-        };
-        ItemFit {
-            panel: cell("StorePanel"),
-            w: cell("InvSlotWidth").unwrap_or(1).clamp(1, GRID_WIDTH),
-            h: cell("InvSlotHeight").unwrap_or(1).max(1),
-        }
+        // (No blueprint or no base item: no row, as a negative one.)
+        self.base_item_fit(base.unwrap_or(-1))
     }
 
     /// A new entry for `resref` in an inventory holding `items`: at the

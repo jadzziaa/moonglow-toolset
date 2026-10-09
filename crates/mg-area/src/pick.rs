@@ -112,16 +112,8 @@ pub fn marker_bounds(kind: ObjectKind) -> (Vec3, Vec3) {
 /// The nearest object `ray` meets: objects by their boxes (`bounds` gives
 /// object `i`'s, in its own space), triggers and encounters by their
 /// outlines. Only objects `shown` count.
-pub fn pick(
-    area: &AreaModel,
-    ray: &Ray,
-    bounds: &dyn Fn(usize) -> (Vec3, Vec3),
-    shown: &dyn Fn(ObjectKind) -> bool,
-) -> Option<usize> {
-    pick_precisely(area, ray, bounds, &|_| None, shown)
-}
-
-/// [`pick`], an object with a model by the model itself where `model`
+///
+/// An object with a model is picked by the model itself where `model`
 /// tells (how far along the ray it meets object `i`'s triangles;
 /// `Some(None)`: the ray passes them; `None`: by its box): a click through
 /// the empty part of a wide box reaches what is behind it, a trigger on

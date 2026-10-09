@@ -181,18 +181,6 @@ pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
 }
 
 impl Form<'_> {
-    /// A localized string's text as a field shows it
-    /// ([`crate::widgets::loc_shown`]).
-    fn shown_text(&self, ls: &LocString) -> String {
-        crate::widgets::loc_shown(self.app, ls).0
-    }
-
-    /// Where that text is from, if it is not the string's own in the
-    /// language edited.
-    fn borrowed(&self, ls: &LocString) -> Option<(String, &'static str)> {
-        crate::widgets::loc_shown(self.app, ls).1
-    }
-
     /// A text field of a localized string, in the talk table's color where
     /// that is where its text is from, with the StrRef beside it.
     fn loc_text(
@@ -203,14 +191,7 @@ impl Form<'_> {
         multiline: bool,
         width: f32,
     ) -> Option<String> {
-        let id = self.id(label);
-        let shown = self.shown_text(current);
-        let Some((from, why)) = self.borrowed(current) else {
-            return commit_text(self.app, ui, id, &shown, multiline, width);
-        };
-        crate::widgets::borrowed_field(ui, &from, why, |ui| {
-            commit_text(self.app, ui, id, &shown, multiline, width)
-        })
+        crate::widgets::loc_text(self.app, ui, self.id(label), current, multiline, width)
     }
 
     /// An item's Properties, from the inventory that holds it (item `index`
@@ -315,16 +296,7 @@ impl Form<'_> {
 
     /// Sets a field (one undoable command named `what`).
     pub(crate) fn set(&mut self, what: &str, label: &str, value: Value) {
-        let edits = self
-            .targets()
-            .map(|(key, path)| Edit::SetField {
-                key,
-                path: path.clone(),
-                label: label.to_string(),
-                value: Some(value.clone()),
-            })
-            .collect();
-        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+        self.set_opt(what, label, Some(value));
     }
 
     /// Sets a field, or removes it (`None`).
@@ -432,19 +404,7 @@ impl Form<'_> {
                 (*label, integer(self.root.get(label), *v, t))
             })
             .collect();
-        let values = &values;
-        let edits = self
-            .targets()
-            .flat_map(|(key, path)| {
-                values.iter().map(move |(label, value)| Edit::SetField {
-                    key,
-                    path: path.clone(),
-                    label: label.to_string(),
-                    value: Some(value.clone()),
-                })
-            })
-            .collect();
-        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+        self.set_fields(what, values);
     }
 
     /// A slider for an integer field.

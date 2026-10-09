@@ -835,14 +835,6 @@ impl AreaScene {
         u.textures = textures.len();
         u
     }
-
-    /// How many distinct looks the objects have (each loaded once).
-    pub fn object_models(&self) -> usize {
-        let mut seen: Vec<*const Shown> = self.objects.iter().flatten().map(Arc::as_ptr).collect();
-        seen.sort();
-        seen.dedup();
-        seen.len()
-    }
 }
 
 /// An object's models, from `cache` if an object that looks the same

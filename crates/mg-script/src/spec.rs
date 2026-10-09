@@ -105,7 +105,6 @@ impl Spec {
             }
             // A statement: collect significant tokens up to `;` or the end of
             // a `#define` line.
-            let start = i;
             if t.kind == TokenKind::Directive {
                 let mut words = Vec::new();
                 i += 1;
@@ -164,9 +163,7 @@ impl Spec {
                         doc: docs,
                     });
                 }
-                _ => {
-                    let _ = start;
-                }
+                _ => {}
             }
         }
         spec

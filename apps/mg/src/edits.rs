@@ -62,9 +62,9 @@ pub(crate) fn set(
     let mut edits = Vec::new();
     // Each field as it was and as it will be, for people.
     let mut lines = Vec::new();
-    let shown = |v: Option<&Value>| match v.map(|v| mg_gff::value_to_json(v, codepage())) {
-        Some(Ok(json)) => json.get("value").or(json.get("value64")).cloned().unwrap_or_default(),
-        _ => serde_json::Value::Null,
+    let shown = |v: &Value| match mg_gff::value_to_json(v, codepage()) {
+        Ok(json) => json.get("value").or(json.get("value64")).cloned().unwrap_or_default(),
+        Err(_) => serde_json::Value::Null,
     };
     for a in assignments {
         let (spec, text) =
@@ -96,8 +96,8 @@ pub(crate) fn set(
         let value = typed(ty, text, old).with_context(|| field.to_string())?;
         let place = mg_edit::wire::field_to_string(&path, &label);
         lines.push(match old {
-            Some(old) => format!("{key} {place}: {} -> {}", shown(Some(old)), shown(Some(&value))),
-            None => format!("{key} {place}: {} (new, {})", shown(Some(&value)), ty.json_name()),
+            Some(old) => format!("{key} {place}: {} -> {}", shown(old), shown(&value)),
+            None => format!("{key} {place}: {} (new, {})", shown(&value), ty.json_name()),
         });
         edits.push(Edit::SetField { key, path, label, value: Some(value) });
     }
