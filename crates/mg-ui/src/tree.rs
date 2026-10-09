@@ -1,6 +1,7 @@
 //! The module contents tree (Aurora's left pane).
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::{ResRef, ResType};
@@ -54,6 +55,24 @@ pub(crate) struct AreaNames {
     read: HashMap<ResRef, ((usize, usize), AreaInfo)>,
     /// Blueprints' names, likewise.
     names: HashMap<ResKey, ((usize, usize), String)>,
+    /// What each of the tree's groups lists, as made for a revision of the
+    /// workspace and the two options that shape it (areas by name, ResRefs
+    /// beside names): not made again every frame.
+    groups: Option<Groups>,
+}
+
+/// A group's resources in the order the tree shows them, and the names of
+/// those shown by name.
+type GroupList = (Vec<ResKey>, HashMap<ResKey, String>);
+
+/// The groups' lists and what they were made for: the workspace's
+/// revision and how many resources the module has (which also tells one
+/// put in past the workspace's commands), areas by name, ResRefs beside
+/// names.
+#[derive(Debug)]
+struct Groups {
+    shape: (u64, usize, bool, bool),
+    lists: Arc<Vec<GroupList>>,
 }
 
 /// A blueprint's name in the editing language, else as the game shows it:
@@ -375,33 +394,45 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     let mut open = None;
     let mut make = None;
     let mut listed = 0;
-    for (name, types) in GROUPS {
-        let mut keys: Vec<ResKey> =
-            ws.module.keys().filter(|k| types.contains(&k.restype)).copied().collect();
-        keys.sort();
-        listed += keys.len();
-        // Areas by name (Options › General): named, and in the names'
-        // order; the filter finds a name or a ResRef.
-        let mut names: HashMap<ResKey, String> = HashMap::new();
-        let named = types == &[ResType::ARE]
-            || types.iter().all(|t| mg_area::ObjectKind::from_restype(*t).is_some());
-        if by_name && named {
-            let game = app.game.as_deref();
-            for k in &keys {
-                let name = if k.restype == ResType::ARE {
-                    app.area_names.name(ws, game, k.resref)
-                } else {
-                    app.area_names.blueprint(ws, game, *k)
-                };
-                // (One without a name keeps its ResRef.)
-                if !name.trim().is_empty() {
-                    names.insert(*k, named_label(&name, k.resref, resrefs));
+    // What the groups list: made when the module or the options that
+    // shape the lists change (a module can hold thousands of a kind, and
+    // every group was gathered, named and sorted each frame, open or not).
+    let shape = (revision, ws.module.len(), by_name, resrefs);
+    if app.area_names.groups.as_ref().is_none_or(|g| g.shape != shape) {
+        let game = app.game.as_deref();
+        let mut lists = Vec::with_capacity(GROUPS.len());
+        for (_, types) in GROUPS {
+            let mut keys: Vec<ResKey> =
+                ws.module.keys().filter(|k| types.contains(&k.restype)).copied().collect();
+            keys.sort();
+            // Areas by name (Options › General): named, and in the names'
+            // order; the filter finds a name or a ResRef.
+            let mut names: HashMap<ResKey, String> = HashMap::new();
+            let named = types == &[ResType::ARE]
+                || types.iter().all(|t| mg_area::ObjectKind::from_restype(*t).is_some());
+            if by_name && named {
+                for k in &keys {
+                    let name = if k.restype == ResType::ARE {
+                        app.area_names.name(ws, game, k.resref)
+                    } else {
+                        app.area_names.blueprint(ws, game, *k)
+                    };
+                    // (One without a name keeps its ResRef.)
+                    if !name.trim().is_empty() {
+                        names.insert(*k, named_label(&name, k.resref, resrefs));
+                    }
                 }
+                let shown =
+                    |k: &ResKey| names.get(k).map_or_else(|| k.resref.to_string(), String::clone);
+                keys.sort_by_cached_key(|k| (shown(k).to_lowercase(), *k));
             }
-            let shown =
-                |k: &ResKey| names.get(k).map_or_else(|| k.resref.to_string(), String::clone);
-            keys.sort_by_cached_key(|k| (shown(k).to_lowercase(), *k));
+            lists.push((keys, names));
         }
+        app.area_names.groups = Some(Groups { shape, lists: Arc::new(lists) });
+    }
+    let lists = app.area_names.groups.as_ref().map(|g| g.lists.clone()).expect("made above");
+    for ((name, types), (all, names)) in GROUPS.iter().zip(lists.iter()) {
+        listed += all.len();
         // (An area opened out stays for what is placed in it, too.)
         let holds = |k: &ResKey| {
             k.restype == ResType::ARE
@@ -413,12 +444,15 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                         .any(|(_, names)| names.iter().any(|n| n.to_lowercase().contains(&filter)))
                 })
         };
-        keys.retain(|k| {
-            filter.is_empty()
-                || k.to_string().contains(&filter)
-                || names.get(k).is_some_and(|n| n.to_lowercase().contains(&filter))
-                || holds(k)
+        let found: Option<Vec<ResKey>> = (!filter.is_empty()).then(|| {
+            let finds = |k: &ResKey| {
+                k.to_string().contains(&filter)
+                    || names.get(k).is_some_and(|n| n.to_lowercase().contains(&filter))
+                    || holds(k)
+            };
+            all.iter().copied().filter(finds).collect()
         });
+        let keys: &[ResKey] = found.as_deref().unwrap_or(all);
         // What makes a new resource of the group (its wizard, or the New
         // window): on the group's and its resources' right-click menus.
         let new = new_command(types);
@@ -430,7 +464,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             // typed opens every group, through `fold`).
             .open((*name == "Areas" && app.tree_reveal.is_some()).then_some(true).or(fold))
             .show(ui, |ui| {
-                for k in keys {
+                for &k in keys {
                     let label = match (names.get(&k), k.restype) {
                         (Some(name), _) => name.clone(),
                         (None, ResType::ARE | ResType::DLG | ResType::NSS) => k.resref.to_string(),
