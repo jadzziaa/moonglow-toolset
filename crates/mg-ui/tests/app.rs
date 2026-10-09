@@ -10702,6 +10702,37 @@ fn areas_are_listed_by_name_when_asked() {
     assert!(h.query_by_label("A Quay").is_none());
 }
 
+/// The tree's filter finds a name whatever the case of its letters, those
+/// past ASCII too (an area named in German, typed with its capital).
+#[test]
+fn the_tree_s_filter_ignores_the_case_of_any_letter() {
+    let dir = mg_testkit::scratch_dir("ui-tree-filter-case");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let mut are = Gff::new(*b"ARE ");
+    // (Its bytes in Windows-1252, as the file holds them.)
+    let name = LocString::from_text(Language::ENGLISH, Gender::Male, b"\xDCbelwald".to_vec());
+    are.root.set("Name", mg_gff::Value::LocString(name));
+    m.set(ResKey::parse("area001", ResType::ARE).unwrap(), are.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().settings.area_names = true;
+    h.run();
+    h.get_by_label("Übelwald");
+    for typed in ["Übel", "ÜBEL", "übel"] {
+        h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+        h.run();
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text(typed);
+        h.run();
+        assert!(h.query_by_label("Übelwald").is_some(), "{typed}");
+        assert!(h.query_by_label("start").is_none(), "{typed}");
+    }
+}
+
 /// The plugin host's fixture plugins, as an installed plugins folder.
 fn plugin_fixtures() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures")

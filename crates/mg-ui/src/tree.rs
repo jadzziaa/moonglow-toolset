@@ -325,7 +325,8 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         ui.add(egui::TextEdit::singleline(&mut filter).desired_width(f32::INFINITY));
     });
     app.buffers.insert(filter_id, filter.clone());
-    let filter = filter.to_ascii_lowercase();
+    // (As the names it is looked for in are lowered: every letter.)
+    let filter = filter.to_lowercase();
     // Every group opened or closed at once (this frame). A filter typed
     // opens every group with a match, as it is typed: they can be closed
     // again after.
