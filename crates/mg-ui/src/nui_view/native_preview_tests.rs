@@ -395,7 +395,9 @@ fn nui_native_color_gradient_updates_simulation_without_editing_source() {
             && value["b"].as_u64().unwrap() < 40,
         "Expected red at HSV corner: {value}"
     );
-    assert_eq!(value["a"], 91, "RGB picker must preserve the hidden alpha value");
+    // NWN EE 8193.37 (nui_picker_s, authored 128): the bind reads 255 once
+    // the window is open, and after every pick.
+    assert_eq!(value["a"], 255, "The client's RGB picker writes an opaque colour");
     assert_eq!(h.state().doc, before);
 }
 

@@ -442,3 +442,67 @@ recovery. Invalid drafts cannot generate scripts. The checks describe the
 stock `nw_inc_nui` API contract and generator requirements. Passing them and
 compiling do **not** prove visual or event parity: use Aurora's script/build
 workflow and test the window, edits, clicks, watches and closing in NWN.
+
+### What the game refuses, and what it does on its own
+
+These were measured in NWN EE 8193.37 with windows built here; the checks
+and the preview follow them.
+
+- **A child that doesn't fit across its row or column.** The game lays a
+  window out with a constraint solver. In a row with a fixed height, each
+  child's fixed height plus its margins (2 on each side unless you set one)
+  must fit: a row 30 high with a button 30 high is refused with *Error
+  constructing window from json: The constraint can not be satisfied*, a row
+  34 high is fine, and so is a button with margin 0. The same holds for a
+  column's fixed width. This is an error, so the window can't be built.
+  Along a row or column, children may run past its size. The Creator keeps you
+  from getting there: a control added or moved into such a row or column is
+  shrunk to fit, a resize handle stops at the room left, and a size given to a
+  row or column (the **Auto** button, **Add property**) leaves room for its
+  controls and their margins.
+- **Margins.** Every control has a margin of 2. Setting one replaces it, so a
+  margin of 10 moves a control 8 further out, and 0 moves it 2 back.
+- **Room left in a column.** The window's column fills the window. What its
+  controls leave goes to those with no height of their own that take room:
+  labels, text, images, lists, charts, color pickers, spacers, groups, and rows
+  or columns holding only such controls (an empty row too). A button with no
+  height is 50 high, or what its row has room for.
+- **Text** breaks lines at spaces only; a word wider than the line is cut. Its
+  scrollbars move what it holds plus 36 points: a horizontal bar always has 36
+  to move, a short text has nothing to scroll vertically.
+- **A disabled slider** still takes a click or a drag, and sets its bind to
+  its minimum. A warning says so; hide such a slider instead, or check the
+  value in your event script.
+- **A color picker** has no alpha: the game writes 255 to its bind as soon as
+  the window opens, and with every pick. Interact does the same.
+- **A Close button** with the ID `mg_close` but no **Clicked → Close window**
+  event does nothing in the game. A warning says so.
+- **Clip to control** (a control's draw layers) clips nothing in the game: the
+  layers draw past the control either way. On the last draw layers of a window
+  it blanks the whole window, so that is an error; the preview doesn't clip.
+- **Events.** *Clicked* comes from buttons; a label or a list cell sends only
+  *Mouse pressed* and *released* (with the button and the pointer's position
+  in the control as payload). A text input sends *Focus gained* and *lost*; a
+  list sends *Visible range changed* with the rows in view (`a` to `z`) on
+  opening and when scrolled. *Window closed* comes only when the player closes
+  the window with its X, never when a script does (the **Close window**
+  action). A script setting a watched bind runs its *Value changed* event at
+  once, inside that script: a watch action that sets its own bind back would
+  never end, so such cycles are errors.
+- **Loading the JUI from the client** (`NuiCreateFromResRef`) works with the
+  same events and actions, Group layouts included.
+- **Lists.** A list with no width is as wide as its column. It scrolls by whole
+  rows: at its end, as many rows stay on top as fit with 36 points to spare.
+  Its horizontal bar is drawn but has nothing to move; cells past its width
+  are cut.
+- **Charts.** Each series scales between its own lowest and highest value; equal
+  values draw nothing. Columns follow the game's formula, quirks included: when
+  every value is above zero they hang from the top of the chart, and a column
+  can reach past the chart.
+- **Draw layers with array binds** (`arrayBinds`) take one value per list row,
+  as other binds in a list do: outside a list the first values are drawn, once.
+- **The window.** `title` set to false, with collapsing and closing off, hides
+  the title bar. With `accepts_input` false, clicks go through the window. An
+  edge constraint keeps the window inside its margins without changing a bound
+  geometry's value. A placeholder is drawn greyed. A missing image shows the
+  game's own missing-image picture in the game, and a note in the preview.

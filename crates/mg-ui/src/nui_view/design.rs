@@ -214,6 +214,7 @@ pub(super) fn insert(v: &mut Value, selected: &mut String, ty: &str) {
     let mut node = mg_nui::template(ty);
     assign_ids(&mut node, v);
     let parent = v.pointer_mut(&parent_path).unwrap();
+    fit_into(parent, &mut node);
     if parent["type"] == "list" {
         if let Some(cells) = parent["row_template"].as_array_mut() {
             *selected = format!("{parent_path}/row_template/{}/0", cells.len());
@@ -222,6 +223,29 @@ pub(super) fn insert(v: &mut Value, selected: &mut String, ty: &str) {
     } else if let Some(children) = parent["children"].as_array_mut() {
         *selected = format!("{parent_path}/children/{}", children.len());
         children.push(node);
+    }
+}
+
+/// Shrink a control put in a row of a fixed height (or a column of a fixed
+/// width) to what fits there with its margins: the client refuses the whole
+/// window if it doesn't (mg_nui::validate). Too little room: no fixed size.
+pub(super) fn fit_into(parent: &Value, node: &mut Value) {
+    let key = match parent["type"].as_str() {
+        Some("row") => "height",
+        Some("col") => "width",
+        _ => return,
+    };
+    let (Some(room), Some(size)) = (parent[key].as_f64(), node[key].as_f64()) else { return };
+    let margin = node["margin"].as_f64().unwrap_or(2.0);
+    if size + 2.0 * margin > room
+        && let Some(object) = node.as_object_mut()
+    {
+        let fits = room - 2.0 * margin;
+        if fits >= 8.0 {
+            object.insert(key.into(), json!(fits));
+        } else {
+            object.remove(key);
+        }
     }
 }
 
@@ -235,6 +259,9 @@ pub(super) fn insert_at(
     let (dest, index, cell) = structure::destination(doc, target, position)?;
     let mut node = mg_nui::template(if ty == "swap" { "group" } else { ty });
     assign_ids(&mut node, doc);
+    if let Some(parent) = dest.strip_suffix("/children").and_then(|p| doc.pointer(p)) {
+        fit_into(parent, &mut node);
+    }
     let array = doc.pointer_mut(&dest)?.as_array_mut()?;
     if index > array.len() {
         return None;

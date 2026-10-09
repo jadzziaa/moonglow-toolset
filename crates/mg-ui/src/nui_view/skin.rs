@@ -435,6 +435,44 @@ impl Assets {
         }
         true
     }
+
+    /// A scrollbar's cursor: its picture repeated along the bar at the
+    /// picture's own size (the stock 16-pixel ribs, as the client draws them),
+    /// stretched across it.
+    pub(super) fn paint_tiled(
+        &self,
+        p: &Painter,
+        path: &str,
+        rect: Rect,
+        scale: f32,
+        horizontal: bool,
+        tint: Color32,
+    ) -> bool {
+        let Some(image) =
+            self.value(path).and_then(toml::Value::as_str).and_then(|v| self.picture(v))
+        else {
+            return self.paint(p, path, rect, scale, true, tint);
+        };
+        let axis = usize::from(!horizontal);
+        let across = 1 - axis;
+        let tile = (image.size[axis] * scale).max(1.0);
+        // Without the picture's rounded ends across the bar, as in the client.
+        let cap = 3.0_f32.min(image.size[across] / 4.0) / image.size[across];
+        let mut at = rect.min[axis];
+        while at < rect.max[axis] {
+            let end = (at + tile).min(rect.max[axis]);
+            let mut r = rect;
+            r.min[axis] = at;
+            r.max[axis] = end;
+            let mut uv = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+            uv.min[across] = cap;
+            uv.max[across] = 1.0 - cap;
+            uv.max[axis] = (end - at) / tile;
+            p.image(image.texture.id(), r, uv, tint);
+            at = end;
+        }
+        true
+    }
 }
 
 fn toml_number(v: &toml::Value) -> Option<f32> {

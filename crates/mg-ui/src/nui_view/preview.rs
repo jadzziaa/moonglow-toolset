@@ -118,6 +118,19 @@ fn native_decimal(mut n: f64, precision: usize) -> String {
     format!("{n:.precision$}")
 }
 
+/// Nuklear's clamp, as NWN wraps NuiText: spaces only; a word stays only if
+/// it ends inside the line; a word with no space before it is cut a glyph
+/// past the edge; the text's last glyph may overflow too.
+#[test]
+fn native_wrap_follows_nuklear_text_clamp() {
+    let wrap = |text: &str, width: f32| native_wrap(text, &vec![10.0; text.chars().count()], width);
+    assert_eq!(wrap("aaa bbbb", 65.0), "aaa \nbbbb");
+    assert_eq!(wrap("aaa bbb", 65.0), "aaa bbb");
+    assert_eq!(wrap("abcdefghij", 35.0), "abcd\nefgh\nij");
+    assert_eq!(wrap("a-b-c-d e_f", 45.0), "a-b-c\n-d \ne_f");
+    assert_eq!(wrap("Żółć żółć", 45.0), "Żółć \nżółć");
+}
+
 #[test]
 fn native_decimal_changes_exact_ties_without_double_rounding() {
     for sign in [1.0, -1.0] {
@@ -185,12 +198,7 @@ pub(super) fn text(
         return;
     }
     let (font_id, spacing) = assets.font(p.ctx(), font, scale);
-    let mut job = egui::text::LayoutJob::default();
-    job.append(
-        label,
-        0.0,
-        egui::TextFormat { font_id, color, extra_letter_spacing: spacing, ..Default::default() },
-    );
+    let mut job = native_job(p.ctx(), label, &font_id, spacing, color, None);
     job.wrap.max_width = if wrap { rect.width() } else { f32::INFINITY };
     let galley = p.layout_job(job);
     // NWN clips overflowing single-line text at the right edge; centering an
@@ -198,6 +206,116 @@ pub(super) fn text(
     let mut position = align.align_size_within_rect(galley.size(), rect).min;
     position.x = position.x.max(rect.left());
     p.with_clip_rect(rect.intersect(p.clip_rect())).galley(position, galley, color);
+}
+
+/// One glyph's advance as the client draws it: the font's own plus the skin's
+/// `spacing_h`, snapped to a whole pixel (`pixel_snap`). Where NWN EE 8193.37
+/// wraps NuiText, and how long its lines are, follow this and not the
+/// unsnapped advance.
+fn native_advances(
+    ctx: &egui::Context,
+    text: &str,
+    font_id: &egui::FontId,
+    spacing: f32,
+) -> Vec<f32> {
+    ctx.fonts_mut(|f| {
+        text.chars()
+            .map(|c| if c == '\n' { 0.0 } else { (f.glyph_width(font_id, c) + spacing).round() })
+            .collect()
+    })
+}
+
+/// Longer texts are laid out with the plain spacing: a section per glyph is
+/// what the snapped advances cost.
+const SNAPPED_TEXT: usize = 8192;
+
+/// A job whose glyphs advance by `native_advances`: egui's own advance, and
+/// before each next glyph the space that makes up the difference.
+pub(super) fn native_job(
+    ctx: &egui::Context,
+    text: &str,
+    font_id: &egui::FontId,
+    spacing: f32,
+    color: Color32,
+    line_height: Option<f32>,
+) -> egui::text::LayoutJob {
+    let mut format =
+        egui::TextFormat { font_id: font_id.clone(), color, line_height, ..Default::default() };
+    if text.len() > SNAPPED_TEXT {
+        format.extra_letter_spacing = spacing;
+        return egui::text::LayoutJob::single_section(text.to_owned(), format);
+    }
+    let mut job = egui::text::LayoutJob::default();
+    let mut lead = 0.0;
+    ctx.fonts_mut(|f| {
+        for c in text.chars() {
+            job.append(c.encode_utf8(&mut [0; 4]), lead, format.clone());
+            lead = if c == '\n' {
+                0.0
+            } else {
+                let w = f.glyph_width(font_id, c);
+                (w + spacing).round() - w
+            };
+        }
+    });
+    job
+}
+
+/// Text laid out as the client's NuiText lays it out: lines break at spaces
+/// only, and a word wider than the whole line is cut where it stops fitting
+/// (egui would also break after hyphens and underscores). Each line is `pitch`
+/// high.
+fn native_text_layout(
+    p: &Painter,
+    text: &str,
+    font_id: &egui::FontId,
+    spacing: f32,
+    pitch: f32,
+    color: Color32,
+    width: f32,
+) -> std::sync::Arc<egui::Galley> {
+    let mut lines = String::with_capacity(text.len() + 16);
+    for (n, paragraph) in text.split('\n').enumerate() {
+        if n > 0 {
+            lines.push('\n');
+        }
+        let advances = native_advances(p.ctx(), paragraph, font_id, spacing);
+        lines.push_str(&native_wrap(paragraph, &advances, width));
+    }
+    p.layout_job(native_job(p.ctx(), &lines, font_id, spacing, color, Some(pitch)))
+}
+
+/// One paragraph with a line break wherever the client breaks it: Nuklear's
+/// `nk_text_clamp` with a space as the only separator. A glyph is taken while
+/// the line is still short of `width`, so a word stays on the line only if it
+/// ends inside it, while a word cut for having no space before it may run one
+/// glyph past the edge.
+fn native_wrap(paragraph: &str, advances: &[f32], width: f32) -> String {
+    let chars: Vec<char> = paragraph.chars().collect();
+    if width <= 0.0 {
+        return paragraph.to_owned();
+    }
+    let mut out = String::with_capacity(paragraph.len() + 8);
+    let mut start = 0;
+    while start < chars.len() {
+        let mut end = start;
+        let mut used = 0.0;
+        let mut after_space = None;
+        while used < width && end < chars.len() {
+            used += advances[end];
+            if chars[end] == ' ' {
+                after_space = Some(end + 1);
+            }
+            end += 1;
+        }
+        let cut = if end == chars.len() { end } else { after_space.unwrap_or(end) };
+        if start > 0 {
+            out.push('\n');
+        }
+        out.extend(&chars[start..cut]);
+        start = cut;
+    }
+    out
 }
 
 /// Aspect constants are the stock nw_inc_nui constants, not egui's image modes.
@@ -301,7 +419,11 @@ fn natural(node: &Value, s: &Settings, row: Option<usize>, depth: usize) -> Vec2
                 sizes.iter().map(|s| s.y).sum::<f32>() + gap,
             )
         };
-    } else if matches!(ty, "list" | "chart") {
+    } else if ty == "list" {
+        // A list with no width is as wide as its column (NWN EE 8193.37: 304
+        // beside two 150 tabs, 150 under a lone button); it doesn't widen it.
+        size = vec2(150.0, 100.0);
+    } else if ty == "chart" {
         size = vec2(220.0, 100.0);
     } else if ty == "color_picker" {
         size = vec2(300.0, 100.0);
@@ -322,9 +444,13 @@ fn natural(node: &Value, s: &Settings, row: Option<usize>, depth: usize) -> Vec2
         size.x = 0.0;
     } else if ty == "text" {
         size.y = 64.0;
+    } else if matches!(ty, "button" | "button_select" | "button_image") {
+        // NUI_STYLE_PRIMARY_HEIGHT: a button with no height is 50 high in the
+        // client (less where its row has less room).
+        size.y = 50.0;
     }
     let padding = layout_padding(node, s, row);
-    let margin = num(&node["margin"], s, row, 0.0).clamp(0.0, 256.0);
+    let margin = extra_margin(node, s, row);
     size += Vec2::splat(2.0 * padding);
     let width = num(&node["width"], s, row, -1.0);
     let height = num(&node["height"], s, row, -1.0);
@@ -342,6 +468,17 @@ fn natural(node: &Value, s: &Settings, row: Option<usize>, depth: usize) -> Vec2
         size.x = size.y * aspect;
     }
     (size + Vec2::splat(2.0 * margin)).clamp(Vec2::ZERO, vec2(4096.0, 4096.0))
+}
+
+/// How much farther out a control's own margin puts it than the client's
+/// default margin of 2 (which the layout's padding and gaps already hold): a
+/// margin m moves it m - 2, 0 and 1 included (NWN EE 8193.37: margins 0..20
+/// measured against the same control without one).
+fn extra_margin(node: &Value, s: &Settings, row: Option<usize>) -> f32 {
+    if node.get("margin").is_none_or(Value::is_null) {
+        return 0.0;
+    }
+    num(&node["margin"], s, row, 2.0).clamp(0.0, 256.0) - 2.0
 }
 
 fn layout_padding(node: &Value, s: &Settings, row: Option<usize>) -> f32 {
@@ -366,7 +503,7 @@ fn child_gap(parent_type: &str, child: &Value) -> f32 {
 // vertical height30/90/150 reserves layout space without stretching items;
 // overflow remains painted/clickable. Horizontal height30/60 caps at35.
 // These are stock control row metrics, separate from the outer allocation.
-fn choice_rects(body: Rect, count: usize, vertical: bool, scale: f32) -> Vec<Rect> {
+fn choice_rects(body: Rect, count: usize, vertical: bool, tabs: bool, scale: f32) -> Vec<Rect> {
     let gap = 4.0 * scale;
     let height = if vertical {
         35.0 * scale
@@ -379,7 +516,19 @@ fn choice_rects(body: Rect, count: usize, vertical: bool, scale: f32) -> Vec<Rec
             let offset = i as f32 * step;
             Rect::from_min_size(
                 body.min + if vertical { vec2(0.0, offset) } else { vec2(offset, 0.0) },
-                vec2(if vertical { body.width() } else { (step - gap).max(0.0) }, height),
+                // Vertical tabs are as wide as a horizontal one (NWN EE: 150
+                // each), whatever room the control has; vertical options are
+                // hit across their whole width.
+                vec2(
+                    if vertical && tabs {
+                        body.width().min(150.0 * scale)
+                    } else if vertical {
+                        body.width()
+                    } else {
+                        (step - gap).max(0.0)
+                    },
+                    height,
+                ),
             )
         })
         .collect()
@@ -413,10 +562,24 @@ fn fills_width(node: &Value, s: &Settings, row: Option<usize>) -> bool {
         )
 }
 
+/// What takes the room a column has left, when it has no height of its own.
+/// The client's root column fills its window: in NWN EE 8193.37 an empty Row
+/// with no height pushes everything after it to the window's bottom, and a
+/// Label, Text or picker with none is centred in a tall slot.
 fn fills_height(node: &Value, s: &Settings, row: Option<usize>) -> bool {
     num(&node["height"], s, row, -1.0) < 0.0
         && !(num(&node["aspect"], s, row, 0.0) > 0.0 && num(&node["width"], s, row, -1.0) >= 0.0)
-        && matches!(node["type"].as_str(), Some("group" | "spacer"))
+        && match node["type"].as_str() {
+            Some(
+                "group" | "spacer" | "label" | "text" | "image" | "list" | "chart" | "color_picker",
+            ) => true,
+            // A row or column is as high as its controls want, unless none of
+            // them wants a height (an empty one too).
+            Some("row" | "col") => node["children"]
+                .as_array()
+                .is_none_or(|c| c.iter().all(|c| fills_height(c, s, row))),
+            _ => false,
+        }
 }
 
 /// Native List demo: variable cells share the remaining span equally, while
@@ -552,8 +715,9 @@ fn color_picker(
         stroke,
     );
     if changed {
-        let [r, g, b, a] = hsv.to_srgba_unmultiplied();
-        Some(json!({"r":r,"g":g,"b":b,"a":a}))
+        // What the client's picker writes: opaque, whatever alpha it had.
+        let [r, g, b, _] = hsv.to_srgba_unmultiplied();
+        Some(json!({"r":r,"g":g,"b":b,"a":255}))
     } else {
         None
     }
@@ -579,12 +743,14 @@ pub(super) fn canvas(
             state.resize = None;
             state.list_scroll.clear();
             state.group_scroll_x.clear();
+            state.text_scroll_x.clear();
             state.text_scroll_y.clear();
         }
         if state.preview_interactive && ui.button("Reset").clicked() {
             state.runtime = None;
             state.list_scroll.clear();
             state.group_scroll_x.clear();
+            state.text_scroll_x.clear();
             state.text_scroll_y.clear();
         }
         ui.menu_button("Scale", |ui| {
@@ -665,6 +831,7 @@ pub(super) fn canvas(
         runtime = Some(interaction::Session::new(v, s));
         state.list_scroll.clear();
         state.group_scroll_x.clear();
+        state.text_scroll_x.clear();
         state.text_scroll_y.clear();
     }
     if state.preview_interactive
@@ -747,7 +914,13 @@ pub(super) fn canvas(
             let collapsed = flag(&v["collapsed"], s, None, false);
             let collapsible = authored["collapsed"].as_bool() != Some(false);
             let closable = flag(&v["closable"], s, None, true);
-            let title = localized_string(&v["title"], s, None, assets);
+            // `false` is how a script asks for no title (and, with collapsing
+            // and closing off too, no title bar), not the word "false".
+            let title = if *resolved(&v["title"], s) == false {
+                String::new()
+            } else {
+                localized_string(&v["title"], s, None, assets)
+            };
             let font = string(&v["font"], s, None);
             let header_height =
                 if title.is_empty() && !collapsible && !closable { 0.0 } else { 34.0 * scale };
@@ -1028,7 +1201,7 @@ impl Renderer<'_> {
         let layout = matches!(ty, "col" | "row" | "group" | "list");
         let s = self.s;
         let scale = self.scale;
-        let margin = num(&node["margin"], s, row, 0.0).clamp(0.0, 256.0) * scale;
+        let margin = extra_margin(node, s, row) * scale;
         let rect = outer.shrink(margin);
         if !rect.is_positive() {
             return;
@@ -1041,6 +1214,7 @@ impl Renderer<'_> {
                 body,
                 val(&node["elements"], s, row).as_array().map_or(0, Vec::len),
                 val(&node["direction"], s, row).as_i64() == Some(1),
+                ty == "tabbar",
                 scale,
             )
         } else {
@@ -1293,7 +1467,12 @@ impl Renderer<'_> {
                             .max(0.0);
                         let mut cursor = inner.min - vec2(scroll_x, 0.0);
                         let old_clip = ui.clip_rect();
-                        ui.set_clip_rect(inner.intersect(old_clip));
+                        // Only a group (like the window and a list) clips what is
+                        // inside it; a row or a column doesn't: draw layers in it
+                        // reach past it in the client (np_scissor2).
+                        if ty == "group" {
+                            ui.set_clip_rect(inner.intersect(old_clip));
+                        }
                         for (i, child) in children.iter().enumerate() {
                             let mut size = sizes[i];
                             if ty == "row" && fills_width(child, s, row) {
@@ -1309,12 +1488,16 @@ impl Renderer<'_> {
                                 size.y = if ty == "row" || ty == "group" {
                                     inner.height()
                                 } else {
-                                    height_share
+                                    // Never less than its own: the window scrolls instead.
+                                    height_share.max(size.y)
                                 };
                             } else if ty == "group"
                                 && matches!(child["type"].as_str(), Some("col" | "row"))
                             {
                                 size.y = inner.height();
+                            } else if ty == "row" && num(&child["height"], s, row, -1.0) < 0.0 {
+                                // A control's own height gives way to its row's.
+                                size.y = size.y.min(inner.height());
                             }
                             if num(&child["aspect"], s, row, 0.0) > 0.0
                                 && num(&child["height"], s, row, -1.0) < 0.0
@@ -1349,11 +1532,29 @@ impl Renderer<'_> {
                     let count = count
                         .as_array()
                         .map_or_else(|| count.as_u64().unwrap_or(0) as usize, |v| v.len());
-                    let content_height = (count as f32 * stride - 4.0 * scale).max(0.0);
-                    let max_scroll = (content_height - inner.height()).max(0.0);
                     // Explicit Y/BOTH reserves a scrollbar even if all rows fit.
                     let scrolling =
                         matches!(val(&node["scrollbars"], s, row).as_i64().unwrap_or(2), 2 | 3);
+                    // A list's horizontal bar is drawn but has nothing to move:
+                    // cells past its width are cut (NWN EE 8193.37, np_list2).
+                    let mut y_body = body;
+                    if matches!(val(&node["scrollbars"], s, row).as_i64(), Some(1 | 3)) {
+                        let height = a.number("window.scrollbar_size_y", 18.0) * scale;
+                        let mut area = body;
+                        if scrolling {
+                            area.max.x -= a.number("window.scrollbar_size_x", 18.0) * scale;
+                        }
+                        self.scrollbar(&p, area, 1.0, 0.0, true);
+                        inner.max.y -= height;
+                        y_body.max.y -= height;
+                    }
+                    let content_height = (count as f32 * stride - 4.0 * scale).max(0.0);
+                    // The client scrolls a list by whole rows, its last stop leaving
+                    // as many rows on top as fit with 36 points to spare (NWN EE
+                    // 8193.37: 10 rows in 100 end at row 9, 40 in 200 at row 35,
+                    // 40 in 300 at row 32).
+                    let fit = ((inner.height() - 36.0 * scale) / stride).floor().max(0.0);
+                    let max_scroll = ((count as f32 - fit).max(0.0) * stride).max(0.0);
                     let scroll_key = format!("{path}/{row:?}");
                     let mut offset = self
                         .state
@@ -1367,7 +1568,7 @@ impl Renderer<'_> {
                         inner.max.x -= width;
                         let track = Rect::from_min_max(
                             pos2(inner.right(), inner.top()),
-                            body.max - vec2(4.0, 4.0) * scale,
+                            y_body.max - vec2(4.0, 4.0) * scale,
                         );
                         let scroll_response = ui.interact(
                             track,
@@ -1403,7 +1604,7 @@ impl Renderer<'_> {
                         offset = offset.clamp(0.0, max_scroll);
                         self.scrollbar(
                             &p,
-                            body,
+                            y_body,
                             inner.height() / content_height.max(1.0),
                             offset / max_scroll.max(1.0),
                             false,
@@ -1499,135 +1700,156 @@ impl Renderer<'_> {
                         );
                     }
                 }
-                "label" | "text" => {
-                    // Clip painting, not layout: intersecting here reanchors and
-                    // rewraps Text when its parent Group scrolls horizontally.
-                    let mut body = body;
-                    if ty == "text" && flag(&node["border"], s, row, true) {
-                        a.paint(&p, "window.border_image", body, scale, true, tint);
-                    }
-                    if ty == "text" {
-                        let scroll = val(&node["scrollbars"], s, row).as_i64().unwrap_or(4);
-                        let desired_width = num(&node["width"], s, row, -1.0) * scale;
-                        if matches!(scroll, 1 | 3) || (scroll == 4 && desired_width > body.width())
-                        {
-                            self.scrollbar(
-                                &p,
-                                body,
-                                body.width() / desired_width.max(1.0),
-                                0.0,
-                                true,
-                            );
-                            body.max.y -= a.number("window.scrollbar_size_y", 18.0) * scale;
-                        }
-                    }
-                    let align = if ty == "text" {
-                        Align2::LEFT_TOP
-                    } else {
-                        alignment(
+                "label" => {
+                    if body.width() >= a.font_height(font) * scale * 0.5 {
+                        let value = localized_string(&node["value"], s, row, a);
+                        let align = alignment(
                             val(&node["text_halign"], s, row).as_i64().unwrap_or(0),
                             val(&node["text_valign"], s, row).as_i64().unwrap_or(0),
-                        )
-                    };
-                    if ty != "label" || body.width() >= a.font_height(font) * scale * 0.5 {
-                        let value = localized_string(&node["value"], s, row, a);
-                        if ty == "text" {
-                            let mode = val(&node["scrollbars"], s, row).as_i64().unwrap_or(4);
-                            let mut content = body.shrink2(vec2(4.0, 2.0) * scale);
-                            let (font_id, spacing) = a.font(p.ctx(), font, scale);
-                            let layout = |width| {
-                                let mut job = egui::text::LayoutJob::default();
-                                job.append(
-                                    &value,
-                                    0.0,
-                                    egui::TextFormat {
-                                        font_id: font_id.clone(),
-                                        color: fg,
-                                        extra_letter_spacing: spacing,
-                                        ..Default::default()
-                                    },
-                                );
-                                job.wrap.max_width = width;
-                                p.layout_job(job)
-                            };
-                            let mut galley = layout(content.width());
-                            let vertical = matches!(mode, 2 | 3)
-                                || (mode == 4 && galley.size().y > content.height());
-                            let key = format!("{path}/{row:?}");
-                            let mut offset = 0.0;
-                            if vertical {
-                                let width = a.number("window.scrollbar_size_x", 18.0) * scale;
-                                content.max.x -= width;
-                                galley = layout(content.width().max(1.0));
-                                let maximum = (galley.size().y - content.height()).max(0.0);
-                                offset =
-                                    (self.state.text_scroll_y.get(&key).copied().unwrap_or(0.0)
-                                        * scale)
-                                        .clamp(0.0, maximum);
-                                let strip = Rect::from_min_max(
-                                    pos2(
-                                        body.right() - width - 2.0 * scale,
-                                        body.top() + 2.0 * scale,
-                                    ),
-                                    body.right_bottom() - Vec2::splat(2.0 * scale),
-                                );
-                                let scroll_response = ui.interact(
-                                    strip,
-                                    ui.id().with(("text-scroll-y", source_path, row)),
-                                    Sense::click_and_drag(),
-                                );
-                                scroll_response.widget_info(|| {
-                                    egui::WidgetInfo::labeled(
-                                        egui::WidgetType::Slider,
-                                        !disabled,
-                                        format!("Scroll text vertically {path}"),
-                                    )
-                                });
-                                if !disabled && editable {
-                                    if ui.rect_contains_pointer(body) {
-                                        offset -= ui.input_mut(|i| {
-                                            let delta = i.smooth_scroll_delta.y;
-                                            i.smooth_scroll_delta.y = 0.0;
-                                            delta
-                                        });
-                                    }
-                                    if (scroll_response.clicked() || scroll_response.dragged())
-                                        && let Some(pointer) =
-                                            scroll_response.interact_pointer_pos()
-                                    {
-                                        let start = strip.top() + width;
-                                        let end = strip.bottom() - width;
-                                        if pointer.y < start {
-                                            offset -= a.font_height(font) * scale;
-                                        } else if pointer.y > end {
-                                            offset += a.font_height(font) * scale;
-                                        } else {
-                                            offset = ((pointer.y - start) / (end - start).max(1.0))
-                                                .clamp(0.0, 1.0)
-                                                * maximum;
-                                        }
-                                    }
-                                }
-                                offset = offset.clamp(0.0, maximum);
-                                self.scrollbar(
-                                    &p,
-                                    body,
-                                    content.height() / galley.size().y.max(1.0),
-                                    offset / maximum.max(1.0),
-                                    false,
-                                );
-                            }
-                            self.state.text_scroll_y.insert(key, offset / scale);
-                            // Scroll the laid-out content, retaining a fixed viewport and wrap width.
-                            p.with_clip_rect(content.intersect(p.clip_rect())).galley(
-                                content.min - vec2(0.0, offset),
-                                galley,
-                                fg,
-                            );
-                        } else {
-                            label(body, &value, align, false);
-                        }
+                        );
+                        label(body, &value, align, false);
                     }
+                }
+                "text" => {
+                    // NuiText is a group around wrapped text. As measured in the
+                    // client (NWN EE 8193.37): its text starts 5 in and 6 down
+                    // from the border and wraps 18 short of its right (or of its vertical
+                    // bar), a line is
+                    // the font's height plus 4, lines
+                    // break at spaces only (a word wider than the line is cut
+                    // where it stops fitting), and what scrolls is the laid-out
+                    // text plus 36 both ways: X always has 36 to scroll, a short
+                    // text none in Y. AUTO shows only the vertical bar.
+                    if flag(&node["border"], s, row, true) {
+                        a.paint(&p, "window.border_image", body, scale, true, tint);
+                    }
+                    let mode = val(&node["scrollbars"], s, row).as_i64().unwrap_or(4);
+                    let bar_y = a.number("window.scrollbar_size_y", 18.0) * scale;
+                    let bar_x = a.number("window.scrollbar_size_x", 18.0) * scale;
+                    let horizontal = matches!(mode, 1 | 3);
+                    let mut view = body;
+                    if horizontal {
+                        view.max.y -= bar_y;
+                    }
+                    let value = localized_string(&node["value"], s, row, a);
+                    let (font_id, spacing) = a.font(p.ctx(), font, scale);
+                    let pitch = (a.font_height(font) + 4.0) * scale;
+                    let layout = |width: f32| {
+                        native_text_layout(&p, &value, &font_id, spacing, pitch, fg, width)
+                    };
+                    let mut content = Rect::from_min_max(
+                        body.min + vec2(5.0, 6.0) * scale,
+                        view.max - vec2(18.0, 2.0) * scale,
+                    );
+                    let extra = 36.0 * scale;
+                    let mut galley = layout(content.width());
+                    let vertical = matches!(mode, 2 | 3)
+                        || (mode == 4 && galley.size().y + extra > content.height());
+                    if vertical {
+                        content.max.x = body.right() - bar_x - 18.0 * scale;
+                        galley = layout(content.width().max(1.0));
+                    }
+                    let key = format!("{path}/{row:?}");
+                    let max_x = if horizontal { extra } else { 0.0 };
+                    let max_y = if vertical {
+                        (galley.size().y + extra - content.height()).max(0.0)
+                    } else {
+                        0.0
+                    };
+                    let mut offset = vec2(
+                        self.state.text_scroll_x.get(&key).copied().unwrap_or(0.0) * scale,
+                        self.state.text_scroll_y.get(&key).copied().unwrap_or(0.0) * scale,
+                    );
+                    // The bars' rectangles: in BOTH they stop short of each other.
+                    let y_area = Rect::from_min_max(body.min, pos2(body.right(), view.bottom()));
+                    let x_right = if vertical { body.right() - bar_x } else { body.right() };
+                    let x_area = Rect::from_min_max(body.min, pos2(x_right, body.bottom()));
+                    for (axis, on, maximum, area, name) in [
+                        (1, vertical, max_y, y_area, "vertically"),
+                        (0, horizontal, max_x, x_area, "horizontally"),
+                    ] {
+                        if !on {
+                            offset[axis] = 0.0;
+                            continue;
+                        }
+                        let size = if axis == 1 { bar_x } else { bar_y };
+                        let inset = 2.0 * scale;
+                        let strip = if axis == 1 {
+                            Rect::from_min_max(
+                                pos2(area.right() - size - inset, area.top() + inset),
+                                area.right_bottom() - Vec2::splat(inset),
+                            )
+                        } else {
+                            Rect::from_min_max(
+                                pos2(area.left() + inset, area.bottom() - size - inset),
+                                area.right_bottom() - Vec2::splat(inset),
+                            )
+                        };
+                        let response = ui.interact(
+                            strip,
+                            ui.id().with(("text-scroll", axis, source_path, row)),
+                            Sense::click_and_drag(),
+                        );
+                        response.widget_info(|| {
+                            egui::WidgetInfo::labeled(
+                                egui::WidgetType::Slider,
+                                !disabled,
+                                format!("Scroll text {name} {path}"),
+                            )
+                        });
+                        if !disabled && editable {
+                            if ui.rect_contains_pointer(body) {
+                                offset[axis] -= ui.input_mut(|i| {
+                                    let delta = i.smooth_scroll_delta[axis];
+                                    i.smooth_scroll_delta[axis] = 0.0;
+                                    delta
+                                });
+                            }
+                            if (response.clicked() || response.dragged())
+                                && let Some(pointer) = response.interact_pointer_pos()
+                            {
+                                let start = strip.min[axis] + size;
+                                let end = strip.max[axis] - size;
+                                if pointer[axis] < start {
+                                    offset[axis] -= a.font_height(font) * scale;
+                                } else if pointer[axis] > end {
+                                    offset[axis] += a.font_height(font) * scale;
+                                } else {
+                                    offset[axis] = ((pointer[axis] - start)
+                                        / (end - start).max(1.0))
+                                    .clamp(0.0, 1.0)
+                                        * maximum;
+                                }
+                            }
+                        }
+                        offset[axis] = offset[axis].clamp(0.0, maximum);
+                        let length = if axis == 1 {
+                            galley.size().y + extra
+                        } else {
+                            content.width() + extra
+                        };
+                        self.scrollbar(
+                            &p,
+                            area,
+                            content.size()[axis] / length.max(1.0),
+                            offset[axis] / maximum.max(1.0),
+                            axis == 0,
+                        );
+                    }
+                    self.state.text_scroll_x.insert(key.clone(), offset.x / scale);
+                    self.state.text_scroll_y.insert(key, offset.y / scale);
+                    // Scroll the laid-out content, retaining a fixed viewport and wrap
+                    // width. A glyph past the wrap width still shows, up to the bars.
+                    let right = if vertical { body.right() - bar_x } else { body.right() };
+                    let clip = Rect::from_min_max(
+                        pos2(content.left(), content.top()),
+                        pos2(right - 2.0 * scale, view.bottom() - 2.0 * scale),
+                    );
+                    p.with_clip_rect(clip.intersect(p.clip_rect())).galley(
+                        content.min - offset,
+                        galley,
+                        fg,
+                    );
                 }
                 "textedit" | "combo" => {
                     let section = if ty == "combo" { "combo" } else { "edit" };
@@ -1717,9 +1939,17 @@ impl Renderer<'_> {
                             changed = Some(Some(value.text.into()));
                         }
                     } else {
-                        label(
+                        // The client greys a placeholder (an empty input's label).
+                        let placeholder = ty == "textedit"
+                            && localized_string(&node["value"], s, row, a).is_empty();
+                        text(
+                            &p,
+                            a,
                             content,
                             &value,
+                            font,
+                            scale,
+                            if placeholder { fg.gamma_multiply(0.5) } else { fg },
                             if ty == "textedit" && flag(&node["multiline"], s, row, false) {
                                 Align2::LEFT_TOP
                             } else {
@@ -1958,6 +2188,14 @@ impl Renderer<'_> {
                 }
                 "color_picker" => {
                     let color = rgba_channels(val(&node["value"], s, row));
+                    // The client's picker has no alpha: as soon as the window is
+                    // open its bind reads alpha 255 (NWN EE 8193.37, nui_picker_s
+                    // authored with 128). A value correction, not an edit.
+                    if interactive && val(&node["value"], s, row).is_object() && color[3] != 255 {
+                        let [r, g, b, _] = color;
+                        changed = Some(Some(json!({"r":r,"g":g,"b":b,"a":255})));
+                        normalization = true;
+                    }
                     if let Some(value) = color_picker(
                         ui,
                         &p,
@@ -1974,9 +2212,9 @@ impl Renderer<'_> {
                 }
                 "chart" => {
                     if let Some(slots) = val(&node["value"], s, row).as_array() {
-                        // Measured in the GUI-authored mixed/equal/empty native demo.
-                        // Each series scales independently; its sample count includes
-                        // the trailing x slot. Columns extend from zero and touch.
+                        // Measured in the client (nui_chart_s, np_chart3): each series
+                        // scales between its own minimum and maximum; a line's points
+                        // are a width / count apart from the left edge; columns touch.
                         let chart = body.shrink(4.0 * scale);
                         if slots.is_empty() {
                             label(body, "No chart data.", Align2::CENTER_CENTER, false);
@@ -2011,12 +2249,30 @@ impl Renderer<'_> {
                                 })
                                 .collect();
                             if slot["type"] == 1 {
-                                let zero = y(0.0).clamp(chart.top(), chart.bottom());
-                                for point in points {
+                                // Nuklear's nk_chart_push_column, as the client draws
+                                // it (NWN EE 8193.37, np_chart3): a column is
+                                // |v / range| high, stands at (v + |min|) / range from
+                                // the bottom, or hangs (v - max) / range from the top
+                                // when negative. With all values above zero they hang
+                                // from the top; nothing keeps them inside the chart.
+                                let (h, range) = (f64::from(chart.height()), max - min);
+                                for (i, v) in data.iter().enumerate() {
+                                    let Some(v) = v.as_f64().filter(|n| n.is_finite()) else {
+                                        continue;
+                                    };
+                                    let height = h * (v / range).abs();
+                                    let top = if v >= 0.0 {
+                                        f64::from(chart.bottom())
+                                            - h * (v + min.abs()) / range.abs()
+                                    } else {
+                                        f64::from(chart.top()) + h * ((v - max) / range).abs()
+                                            - height
+                                    };
+                                    let x = chart.left() + i as f32 * step;
                                     p.rect_filled(
-                                        Rect::from_min_max(
-                                            pos2(point.x, point.y.min(zero)),
-                                            pos2(point.x + step, point.y.max(zero)),
+                                        Rect::from_min_size(
+                                            pos2(x, top as f32),
+                                            vec2(step, height as f32),
                                         ),
                                         0,
                                         color,
@@ -2133,12 +2389,12 @@ impl Renderer<'_> {
         let size = length * fraction.clamp(0.05, 1.0);
         thumb.min[axis] += (length - size) * offset.clamp(0.0, 1.0);
         thumb.max[axis] = thumb.min[axis] + size;
-        self.assets.paint(
+        self.assets.paint_tiled(
             p,
             &format!("{section}.cursor_normal"),
             thumb,
             self.scale,
-            true,
+            horizontal,
             Color32::WHITE,
         );
     }

@@ -190,3 +190,96 @@ fn nui_saved_module_preview() {
     h.render().unwrap().save(output).unwrap();
     assert_eq!(std::fs::read(path).unwrap(), before, "Preview must not rewrite the module");
 }
+
+/// Where each control of each window of a module is, relative to its window,
+/// as the preview lays it out (NUI_LAYOUT_JSON): where to click in the client.
+#[test]
+#[ignore]
+fn nui_module_layout_json() {
+    use egui_kittest::kittest::NodeT;
+    let module = std::env::var("NUI_PREVIEW_MODULE").expect("NUI_PREVIEW_MODULE");
+    let output = std::env::var("NUI_LAYOUT_JSON").expect("NUI_LAYOUT_JSON");
+    let path = std::path::Path::new(&module);
+    let keys: Vec<_> = mg_module::Module::open(path)
+        .unwrap()
+        .keys()
+        .filter(|k| k.restype == ResType::JUI)
+        .copied()
+        .collect();
+    let mut all = serde_json::Map::new();
+    for key in keys {
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(path).unwrap()));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1300.0, 1150.0))
+            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, Some(key)), app);
+        h.run_steps(3);
+        h.get_by_value("Editor").click();
+        h.run();
+        h.get_by_label("Preview only").click();
+        h.run();
+        h.get_by_label("100%").click();
+        h.run_steps(3);
+        // A window without a title bar has nothing to measure from.
+        let Some(window) = h.query_by_label("Canvas window").map(|n| n.rect()) else { continue };
+        let controls: Vec<_> = h
+            .query_all_by_label_contains("Canvas ")
+            .filter_map(|n| {
+                let label = n.accesskit_node().label()?;
+                let r = n.rect();
+                Some(serde_json::json!({
+                    "label": label,
+                    "rect": [r.min.x - window.min.x, r.min.y - window.min.y, r.width(), r.height()],
+                }))
+            })
+            .collect();
+        all.insert(
+            key.resref.to_string(),
+            serde_json::json!({"window": [window.width(), window.height()], "controls": controls}),
+        );
+    }
+    std::fs::write(output, serde_json::to_string_pretty(&all).unwrap()).unwrap();
+}
+
+/// Every window of a module as the clean preview alone, at 100%, one PNG
+/// each in NUI_PREVIEW_DIR: what is put beside the game client's screenshots.
+#[test]
+#[ignore]
+fn nui_module_previews() {
+    mg_testkit::gpu::hold();
+    let module = std::env::var("NUI_PREVIEW_MODULE").expect("NUI_PREVIEW_MODULE");
+    let dir = std::path::PathBuf::from(std::env::var("NUI_PREVIEW_DIR").expect("NUI_PREVIEW_DIR"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = std::path::Path::new(&module);
+    let before = std::fs::read(path).unwrap();
+    let only = std::env::var("NUI_PREVIEW_RESREF").ok();
+    let keys: Vec<_> = mg_module::Module::open(path)
+        .unwrap()
+        .keys()
+        .filter(|k| k.restype == ResType::JUI)
+        .filter(|k| only.as_ref().is_none_or(|n| k.resref.to_string() == *n))
+        .copied()
+        .collect();
+    for key in keys {
+        let mut app = Moonglow::new(
+            Some(mg_resman::GameInstall::new(mg_testkit::corpus!(), None, "en")),
+            Box::new(crate::NoDialogs::default()),
+        );
+        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::open(path).unwrap()));
+        let mut h = Harness::builder()
+            .with_size(egui::vec2(1300.0, 1150.0))
+            .wgpu()
+            .build_ui_state(|ui, app: &mut Moonglow| super::ui(app, ui, Some(key)), app);
+        h.run_steps(3);
+        h.get_by_value("Editor").click();
+        h.run();
+        h.get_by_label("Preview only").click();
+        h.run();
+        h.get_by_label("Clean view").click();
+        h.run();
+        h.get_by_label("100%").click();
+        h.run_steps(3);
+        h.render().unwrap().save(dir.join(format!("{}.png", key.resref))).unwrap();
+    }
+    assert_eq!(std::fs::read(path).unwrap(), before, "Preview must not rewrite the module");
+}

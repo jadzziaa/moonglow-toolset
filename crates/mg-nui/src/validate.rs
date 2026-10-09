@@ -36,6 +36,16 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
         }
         None => c.error("/root", "Missing window layout"),
     }
+    // NWN EE 8193.37: with Clip to control on the last draw list painted,
+    // the whole window shows blank (its own layers aren't clipped either).
+    if let Some((path, node)) = window.get("root").and_then(|r| last_draw_list(r, "/root"))
+        && scissor_on(node, settings)
+    {
+        c.error(
+            &format!("{path}/draw_list_scissor"),
+            "NWN shows this window blank: the last draw layers in it have Clip to control on. Turn it off (it clips nothing in the game)",
+        );
+    }
     for k in ["resizable", "collapsed", "closable", "transparent", "border", "accepts_input"] {
         c.property(window, k, "", Kind::Bool, true, false);
     }
@@ -124,6 +134,16 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
             }
         }
     }
+    // A window made before Close became an explicit event keeps its button:
+    // regenerated, it closes nothing (seen in NWN EE with such a window).
+    if ids.contains("mg_close")
+        && !settings.actions.iter().any(|r| r.event == "click" && r.element == "mg_close")
+    {
+        c.warn(
+            "/actions",
+            "The mg_close button has no Clicked event: in game it does nothing. Add Clicked → Close window.",
+        );
+    }
     if settings.window_id.as_ref().is_some_and(|id| id.is_empty() || id.contains('\0')) {
         c.error("/settings/window_id", "Window ID must be nonempty and contain no NUL");
     }
@@ -158,23 +178,57 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
             at = next;
         }
     }
+    // Include window geometry/title, not only child widgets. Clearing routes
+    // prevents recursion through the action being checked. Only problems the
+    // new value causes are the action's: the others are reported once above.
+    let errors = |s: &Settings| -> BTreeSet<(String, String)> {
+        validate(window, s)
+            .into_iter()
+            .filter(|d| d.severity == Severity::Error)
+            .map(|d| (d.path, d.message))
+            .collect()
+    };
+    let mut unchanged = None;
     for route in &settings.actions {
         if let crate::Action::Set { bind, value } = &route.action {
-            let mut changed = settings.clone();
+            let mut changed = Settings { actions: Vec::new(), ..settings.clone() };
+            let unchanged = unchanged.get_or_insert_with(|| errors(&changed));
             if let Some(b) = changed.bindings.get_mut(bind) {
                 b.value = value.clone();
             }
-            // Include window geometry/title, not only child widgets. Clearing
-            // routes prevents recursion through the action being checked.
-            changed.actions.clear();
-            for issue in
-                validate(window, &changed).into_iter().filter(|d| d.severity == Severity::Error)
-            {
-                c.error("/actions", &format!("Set {bind}: {} at {}", issue.message, issue.path));
+            for (path, message) in errors(&changed).difference(unchanged) {
+                c.error("/actions", &format!("Set {bind}: {message} at {path}"));
             }
         }
     }
     c.findings
+}
+
+/// Clip to control on, literally or by its bind's initial value.
+fn scissor_on(node: &Value, settings: &Settings) -> bool {
+    let v = &node["draw_list_scissor"];
+    let v = v["bind"].as_str().and_then(|b| settings.bindings.get(b)).map_or(v, |b| &b.value);
+    node["draw_list"].is_array() && *v == true
+}
+
+/// The element whose draw list is painted last, in layout order.
+fn last_draw_list<'a>(v: &'a Value, path: &str) -> Option<(String, &'a Value)> {
+    let mut last = v["draw_list"].is_array().then(|| (path.to_owned(), v));
+    if let Some(children) = v["children"].as_array() {
+        for (i, c) in children.iter().enumerate() {
+            if let Some(found) = last_draw_list(c, &format!("{path}/children/{i}")) {
+                last = Some(found);
+            }
+        }
+    }
+    if let Some(cells) = v["row_template"].as_array() {
+        for (i, c) in cells.iter().enumerate() {
+            if let Some(found) = last_draw_list(&c[0], &format!("{path}/row_template/{i}/0")) {
+                last = Some(found);
+            }
+        }
+    }
+    last
 }
 
 #[derive(Clone, Copy)]
@@ -412,6 +466,18 @@ impl Check<'_> {
                 );
             }
         }
+        // NWN EE 8193.37: a disabled slider still takes a click or a drag,
+        // and sets its bind to its minimum (seen with integer and decimal
+        // sliders, dragged either way); enabled ones behave.
+        if matches!(ty, "slider" | "sliderf")
+            && v["value"]["bind"].is_string()
+            && v.get("enabled").is_some_and(|e| *e != Value::Bool(true))
+        {
+            self.warn(
+                &format!("{path}/enabled"),
+                "A disabled slider still sets its bind to its minimum when clicked or dragged in NWN: hide it, or check the value in the server script",
+            );
+        }
         if ty == "textedit" {
             self.property(v, "max", path, Kind::Int, false, false);
             if v.get("max").is_some_and(|m| m.as_u64().is_none_or(|n| !(1..=65535).contains(&n))) {
@@ -449,6 +515,35 @@ impl Check<'_> {
             if let Some(a) = v.get("children").and_then(Value::as_array) {
                 if ty == "group" && a.len() != 1 {
                     self.error(path, "NuiGroup has exactly one child");
+                }
+                // The client lays NUI out with a constraint solver: across a
+                // row (its height) or a column (its width), a child's size and
+                // margins must fit in the parent's. Otherwise the window fails
+                // with "The constraint can not be satisfied" (NWN EE 8193.37:
+                // row 30/33 with a child of 30 fails, 34 opens; margin 0 opens
+                // at 30). Along the row or column, children may overflow.
+                let across = match ty {
+                    "row" => Some("height"),
+                    "col" => Some("width"),
+                    _ => None,
+                };
+                if let Some(key) = across
+                    && let Some(room) = v.get(key).and_then(Value::as_f64)
+                {
+                    for (i, child) in a.iter().enumerate() {
+                        let Some(size) = child.get(key).and_then(Value::as_f64) else { continue };
+                        let margin = child.get("margin").and_then(Value::as_f64).unwrap_or(2.0);
+                        if size + 2.0 * margin > room + 1e-3 {
+                            self.error(
+                                &format!("{path}/children/{i}/{key}"),
+                                &format!(
+                                    "NWN refuses this window: {key} {size} plus margins {} exceeds the {}'s {key} {room} (\"The constraint can not be satisfied\")",
+                                    2.0 * margin,
+                                    if ty == "row" { "row" } else { "column" },
+                                ),
+                            );
+                        }
+                    }
                 }
                 for (i, child) in a.iter().enumerate() {
                     self.element(child, &format!("{path}/children/{i}"), array_bind);
@@ -495,13 +590,10 @@ impl Check<'_> {
         if v.get("draw_list").is_some() {
             self.property(v, "draw_list_scissor", path, Kind::Bool, false, array_bind);
             if let Some(items) = v["draw_list"].as_array() {
-                if v["type"] == "spacer"
-                    && v["draw_list_scissor"] == true
-                    && items.iter().any(|item| item["type"] == 7 && item["enabled"] != false)
-                {
+                if scissor_on(v, self.settings) {
                     self.warn(
                         &format!("{path}/draw_list_scissor"),
-                        "NWN EE 8193.37 can show a blank window when a rectangle draw layer on a Spacer uses Clip to control. Disable clipping and verify in game.",
+                        "Clip to control clips nothing in NWN EE 8193.37 (the layers draw past the control either way), and on the window's last draw list it blanks the whole window",
                     );
                 }
                 for (i, item) in items.iter().enumerate() {

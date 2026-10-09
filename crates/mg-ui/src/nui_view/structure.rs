@@ -51,11 +51,14 @@ pub(super) fn relocate(doc: &mut Value, from: &str, target: &str, pos: Position)
     let item = next.pointer_mut(&parent)?.as_array_mut()?.remove(index);
     let target = after_remove(target, &parent, index);
     let (dest, at, to_cell) = destination(&next, &target, pos)?;
-    let item = match (cell, to_cell) {
+    let mut item = match (cell, to_cell) {
         (true, false) => item[0].clone(),
         (false, true) => json!([item, 150.0, true]),
         _ => item,
     };
+    if !to_cell && let Some(parent) = dest.strip_suffix("/children").and_then(|p| next.pointer(p)) {
+        design::fit_into(&parent.clone(), &mut item);
+    }
     let array = next.pointer_mut(&dest)?.as_array_mut()?;
     if at > array.len() {
         return None;
@@ -250,6 +253,60 @@ mod tests {
         assert_eq!(d, before);
         relocate(&mut d, "/root/children/2", "/root/children/0", Position::Before).unwrap();
         assert_eq!(d["root"]["children"][0]["type"], "col");
+    }
+
+    /// A row 30 high holding a 30-high button is a window NWN EE refuses to
+    /// build ("The constraint can not be satisfied"): no editing gesture of
+    /// the Creator leads there.
+    #[test]
+    fn nui_edits_never_make_a_window_the_client_refuses() {
+        let errors = |d: &Value| {
+            mg_nui::validate(d, &Settings::default())
+                .into_iter()
+                .filter(|x| x.severity == mg_nui::Severity::Error)
+                .collect::<Vec<_>>()
+        };
+        let mut d = mg_nui::window();
+        d["root"]["children"] = json!([
+            {"type":"row","height":30.0,"children":[]},
+            {"type":"col","width":120.0,"children":[]},
+            {"type":"button","label":"tall","height":50.0}
+        ]);
+        // A palette control (30 high, 150 wide) into the fixed row and column.
+        let mut selected = "/root/children/0".to_owned();
+        design::insert(&mut d, &mut selected, "button");
+        assert_eq!(d.pointer(&selected).unwrap()["height"], 26.0);
+        let at = design::insert_at(&mut d, "/root/children/1", Position::Inside, "button").unwrap();
+        assert_eq!(d.pointer(&at).unwrap()["height"], 30.0);
+        assert!(errors(&d).is_empty(), "{:?}", errors(&d));
+        // A taller control moved into the row shrinks to fit.
+        let moved =
+            relocate(&mut d, "/root/children/2", "/root/children/0", Position::Inside).unwrap();
+        assert_eq!(d.pointer(&moved).unwrap()["height"], 26.0);
+        assert!(errors(&d).is_empty(), "{:?}", errors(&d));
+        // Resizing by a handle stops at the room the row leaves.
+        let mut resize = interaction::Resize {
+            path: moved.clone(),
+            source: d.clone(),
+            origin: egui::pos2(0.0, 0.0),
+            scale: 1.0,
+            anchor: egui::Vec2::ZERO,
+            initial: egui::vec2(150.0, 26.0),
+            size: egui::vec2(150.0, 26.0),
+            horizontal: true,
+            vertical: true,
+        };
+        resize.move_to(egui::pos2(40.0, 40.0));
+        assert_eq!(resize.size, egui::vec2(190.0, 26.0));
+        resize.apply(&mut d);
+        assert!(errors(&d).is_empty(), "{:?}", errors(&d));
+        // A fixed height given to a row leaves room for its children and margins.
+        let row = d["root"]["children"][0].as_object().unwrap();
+        assert_eq!(super::super::fitting_size(row, "height", 30.0), 34.0);
+        d["root"]["children"][0]["children"][0]["height"] = json!(40.0);
+        let row = d["root"]["children"][0].as_object().unwrap();
+        assert_eq!(super::super::fitting_size(row, "height", 30.0), 44.0);
+        assert_eq!(super::super::fitting_size(row, "width", 150.0), 150.0);
     }
 
     #[test]

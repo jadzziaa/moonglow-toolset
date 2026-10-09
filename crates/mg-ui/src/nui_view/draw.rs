@@ -155,41 +155,34 @@ pub(super) fn paint(
     mouse: [bool; 4],
 ) {
     let Some(items) = host["draw_list"].as_array() else { return };
-    let p = if flag(&host["draw_list_scissor"], s, row, false) {
-        p.with_clip_rect(bounds.intersect(p.clip_rect()))
-    } else {
-        p.clone()
-    };
+    // Clip to control clips nothing in the client (NWN EE 8193.37: a scissored
+    // rectangle draws past its spacer); the window it blanks is an error.
+    let p = p.clone();
     for item in items {
         if (item["order"].as_i64().unwrap_or(1) < 0) != before {
             continue;
         }
         if item["arrayBinds"] == true {
-            let count = mg_nui::bind_names(item)
-                .iter()
-                .filter_map(|n| s.bindings.get(n).and_then(|b| b.value.as_array()).map(Vec::len))
-                .min()
-                .unwrap_or(1)
-                .min(512);
-            for index in 0..count {
-                let instance = instance_settings(item, s, index);
-                let mut copy = item.clone();
-                copy["arrayBinds"] = false.into();
-                paint(
-                    &p,
-                    &json!({"draw_list":[copy]}),
-                    bounds,
-                    scale,
-                    &instance,
-                    assets,
-                    None,
-                    before,
-                    mouse,
-                );
-            }
+            // Array binds hold one value per list row, as other binds in a
+            // list do: the client draws the item once, with this row's values
+            // (the first ones outside a list), not once per value (NWN EE
+            // 8193.37, np_drawidx: three rectangles bound, the first drawn).
+            let instance = instance_settings(item, s, row.unwrap_or(0));
+            let mut copy = item.clone();
+            copy["arrayBinds"] = false.into();
+            paint(
+                &p,
+                &json!({"draw_list":[copy]}),
+                bounds,
+                scale,
+                &instance,
+                assets,
+                None,
+                before,
+                mouse,
+            );
             continue;
         }
-        let row = None;
         if !flag(&item["enabled"], s, row, true) {
             continue;
         }
@@ -343,9 +336,9 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                 if ui.button(*name).clicked() {
                     if !node["draw_list"].is_array() {
                         node["draw_list"] = json!([]);
-                        // The native 8193.37 client can blank a window when a
-                        // rectangle on a spacer enables scissoring. Make this
-                        // opt-in, preserving an explicitly authored setting.
+                        // The 8193.37 client blanks a window whose last draw list
+                        // has Clip to control on. Off by default; an explicitly
+                        // authored setting is kept.
                         if node.get("draw_list_scissor").is_none() {
                             node["draw_list_scissor"] = false.into();
                         }
@@ -393,29 +386,22 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                     }
                 }
                 let shown = drag.as_ref().map_or(&*item, |g| &g.draft);
-                let host = json!({"draw_list":[shown],"draw_list_scissor":true});
-                paint(
-                    ui.painter(),
-                    &host,
-                    area,
-                    scale,
-                    s,
-                    assets,
-                    None,
-                    false,
-                    [true, true, true, true],
-                );
-                paint(
-                    ui.painter(),
-                    &host,
-                    area,
-                    scale,
-                    s,
-                    assets,
-                    None,
-                    true,
-                    [true, true, true, true],
-                );
+                let host = json!({"draw_list":[shown]});
+                // The editor's own thumbnail stays inside its area.
+                let painter = ui.painter().with_clip_rect(area.intersect(ui.clip_rect()));
+                for before in [false, true] {
+                    paint(
+                        &painter,
+                        &host,
+                        area,
+                        scale,
+                        s,
+                        assets,
+                        None,
+                        before,
+                        [true, true, true, true],
+                    );
+                }
                 let resize_rect = (shown["rect"]["w"].is_number()
                     && shown["rect"]["h"].is_number())
                 .then(|| rect(&shown["rect"], s, None, area.min, scale));

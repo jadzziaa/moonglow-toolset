@@ -186,37 +186,49 @@ fn missing_defaults_and_bad_settings_are_not_silently_invented() {
     assert_eq!(Settings::parse(&s.bytes()).unwrap(), s);
 }
 
+/// NWN EE 8193.37 (np_scissor, np_scissor2, nui_draw_a/b/dyn): Clip to
+/// control clips nothing, and on the window's last draw list it blanks the
+/// whole window. Later lists without it bring the window back.
 #[test]
-fn warns_about_native_spacer_rectangle_scissor_without_rewriting_output() {
-    let mut w = mg_nui::window();
-    w["root"]["children"] = json!([{
-        "type":"spacer", "draw_list_scissor":true,
-        "draw_list":[{"type":7,"enabled":true,"rect":{"x":10.0,"y":10.0,"w":140.0,"h":70.0}}]
-    }]);
-    let before = w.clone();
-    let warnings = mg_nui::validate(&w, &Settings::default());
-    assert!(warnings.iter().any(|d| d.severity == Severity::Warning
-        && d.path == "/root/children/0/draw_list_scissor"
-        && d.message.contains("blank window")));
-    assert!(!warnings.iter().any(|d| d.severity == Severity::Error));
-    assert_eq!(w, before, "A runtime advisory must not silently change authored JSON");
-    for (host, clip, kind, enabled) in [
-        ("spacer", false, 7, true),
-        ("spacer", true, 0, true),
-        ("button", true, 7, true),
-        ("spacer", true, 7, false),
-    ] {
-        w["root"]["children"][0]["type"] = json!(host);
-        w["root"]["children"][0]["draw_list_scissor"] = json!(clip);
-        w["root"]["children"][0]["draw_list"][0]["type"] = json!(kind);
-        w["root"]["children"][0]["draw_list"][0]["enabled"] = json!(enabled);
-        assert!(
-            !mg_nui::validate(&w, &Settings::default())
-                .iter()
-                .any(|d| d.message.contains("blank window")),
-            "Do not generalize the observed native case"
-        );
-    }
+fn clip_to_control_on_the_last_draw_list_blanks_the_window() {
+    let spacer = |clip: Value| {
+        json!({"type":"spacer","width":200.0,"height":60.0,"draw_list_scissor":clip,
+            "draw_list":[{"type":7,"enabled":true,"rect":{"x":-20.0,"y":-20.0,"w":240.0,"h":100.0}}]})
+    };
+    let check = |children: Value, s: &Settings| {
+        let mut w = mg_nui::window();
+        w["root"]["children"] = children;
+        let before = w.clone();
+        let found = mg_nui::validate(&w, s);
+        assert_eq!(w, before, "checking never changes the document");
+        let blank =
+            found.iter().any(|d| d.severity == Severity::Error && d.message.contains("blank"));
+        let warned = found
+            .iter()
+            .any(|d| d.severity == Severity::Warning && d.message.contains("clips nothing"));
+        (blank, warned)
+    };
+    let s = Settings::default();
+    // Shown blank in the game.
+    assert_eq!(
+        check(json!([spacer(json!(true)), spacer(json!(false)), spacer(json!(true))]), &s),
+        (true, true)
+    );
+    assert_eq!(
+        check(
+            json!([{"type":"button","label":"b","draw_list_scissor":true,
+        "draw_list":[{"type":7,"rect":{"x":0.0,"y":0.0,"w":9.0,"h":9.0}}]}]),
+            &s
+        ),
+        (true, true)
+    );
+    // Shown, unclipped.
+    assert_eq!(check(json!([spacer(json!(true)), spacer(json!(false))]), &s), (false, true));
+    assert_eq!(check(json!([spacer(json!(false)), spacer(json!(false))]), &s), (false, false));
+    // A bind's initial value counts.
+    let mut bound = Settings::default();
+    bound.bindings.insert("clip".into(), Binding { value: json!(true), ..Default::default() });
+    assert_eq!(check(json!([spacer(json!({"bind":"clip"}))]), &bound), (true, true));
 }
 
 #[test]
@@ -533,6 +545,99 @@ fn rejects_watch_cycles_bad_action_types_and_non_native_draw_points() {
             .iter()
             .any(|d| d.message.contains("Set bounds") && d.message.contains("at /geometry"))
     );
+    // A problem the Set does not cause is reported once, not again per action.
+    w["title"] = json!(7);
+    s.actions = (0..3)
+        .map(|i| Route {
+            event: "click".into(),
+            element: "flag".into(),
+            action: Action::Set { bind: "bounds".into(), value: json!({"x":i,"y":0,"w":9,"h":9}) },
+        })
+        .collect();
+    let found = mg_nui::validate(&w, &s);
+    assert_eq!(found.iter().filter(|d| d.path == "/title").count(), 1);
+    assert!(!found.iter().any(|d| d.message.contains("Set bounds")), "{found:?}");
+}
+
+/// NWN EE 8193.37 (nui_ranges_s, nui_disable_s): a disabled slider dragged
+/// or clicked sets its bind to its minimum.
+#[test]
+fn disabled_sliders_that_write_a_bind_are_flagged() {
+    let warned = |slider: Value| {
+        let mut w = mg_nui::window();
+        w["root"]["children"] = json!([slider]);
+        let mut s = Settings::default();
+        for name in ["v", "on"] {
+            s.bindings.insert(name.into(), Binding { value: json!(true), ..Default::default() });
+        }
+        s.bindings.get_mut("v").unwrap().value = json!(5);
+        mg_nui::validate(&w, &s).iter().any(|d| d.message.contains("disabled slider"))
+    };
+    let slider = |enabled: Value| json!({"type":"slider","value":{"bind":"v"},"min":0,"max":10,"step":1,"enabled":enabled});
+    assert!(warned(slider(json!(false))));
+    assert!(warned(slider(json!({"bind":"on"}))));
+    assert!(!warned(slider(json!(true))));
+    assert!(!warned(json!({"type":"slider","value":{"bind":"v"},"min":0,"max":10,"step":1})));
+    assert!(!warned(json!({"type":"slider","value":5,"min":0,"max":10,"step":1,"enabled":false})));
+}
+
+/// A Close button without its event does nothing in the client (an older
+/// window regenerated: nui_draw_dyn in NWN EE 8193.37).
+#[test]
+fn a_close_button_without_its_event_is_flagged() {
+    let w = mg_nui::window();
+    let close = |s: &Settings| {
+        mg_nui::validate(&w, s).iter().any(|d| d.message.contains("mg_close button has no Clicked"))
+    };
+    let mut s = Settings::default();
+    assert!(close(&s));
+    s.actions.push(mg_nui::Route {
+        event: "click".into(),
+        element: "mg_close".into(),
+        action: mg_nui::Action::Close,
+    });
+    assert!(!close(&s));
+}
+
+/// What the client refuses to construct, measured in NWN EE 8193.37 with
+/// windows generated by `mg nui generate` (target/nui-native probes).
+#[test]
+fn cross_axis_sizes_that_the_client_cannot_satisfy_are_errors() {
+    let button = |key: &str, size: f64, margin: Option<f64>| {
+        let mut b = json!({"type":"button","label":"b","value":null});
+        b[key] = json!(size);
+        if let Some(m) = margin {
+            b["margin"] = json!(m);
+        }
+        b
+    };
+    let fails = |root: Value| {
+        let mut w = mg_nui::window();
+        w["root"]["children"] = json!([root]);
+        mg_nui::validate(&w, &Settings::default())
+            .iter()
+            .any(|d| d.severity == Severity::Error && d.message.contains("constraint"))
+    };
+    let row = |h: f64, child: Value| json!({"type":"row","height":h,"children":[child]});
+    let col = |w: f64, child: Value| json!({"type":"col","width":w,"children":[child]});
+    // Refused by the client.
+    assert!(fails(row(60.0, button("height", 80.0, None))));
+    assert!(fails(row(30.0, button("height", 30.0, None))));
+    assert!(fails(row(33.0, button("height", 30.0, None))));
+    assert!(fails(row(30.0, button("height", 29.0, None))));
+    assert!(fails(col(100.0, button("width", 150.0, None))));
+    assert!(fails(col(150.0, button("width", 150.0, None))));
+    // Opened by the client.
+    assert!(!fails(row(34.0, button("height", 30.0, None))));
+    assert!(!fails(row(30.0, button("height", 30.0, Some(0.0)))));
+    assert!(!fails(col(154.0, button("width", 150.0, None))));
+    assert!(!fails(row(60.0, json!({"type":"group","height":40.0,"children":[{"type":"label"}]}))));
+    // Along a row, children may overflow it; a group scrolls a taller child.
+    assert!(!fails(json!({"type":"row","width":300.0,"children":[
+        button("width", 200.0, None), button("width", 200.0, None)]})));
+    assert!(!fails(
+        json!({"type":"group","height":60.0,"children":[button("height", 100.0, None)]})
+    ));
 }
 
 #[test]

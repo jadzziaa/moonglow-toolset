@@ -33,7 +33,10 @@ fn row_count(doc: &Value, path: &str, settings: &Settings) -> Option<usize> {
 fn compatible(doc: &Value, path: &str, key: &str, settings: &Settings, candidate: &Value) -> bool {
     let mut probe = doc.clone();
     let Some(node) = probe.pointer_mut(path) else { return false };
-    let mut settings = settings.clone();
+    // Only the property's own diagnostics matter: actions and views would
+    // repeat whole-document checks once per candidate bind, every frame.
+    let mut settings =
+        Settings { actions: Vec::new(), views: Default::default(), ..settings.clone() };
     let mut name = "__creator_bind_probe".to_owned();
     while settings.bindings.contains_key(&name) {
         name.push('_');
@@ -83,17 +86,18 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
         ui.push_id((&path, &key), |ui| {
             let draft_id = ui.make_persistent_id("property-bind-draft");
             let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
-            let choices: Vec<_> = settings
-                .bindings
-                .iter()
-                .filter(|(_, b)| compatible(doc, &path, &key, settings, &b.value))
-                .map(|(n, _)| n.clone())
-                .collect();
             let mut chosen = bound.clone().unwrap_or_default();
             egui::ComboBox::from_id_salt("property-bind-source")
                 .selected_text(bound.as_deref().unwrap_or("Constant (no bind)"))
                 .width(ui.available_width().max(0.0))
                 .show_ui(ui, |ui| {
+                    // Checked only while the list is open.
+                    let choices: Vec<_> = settings
+                        .bindings
+                        .iter()
+                        .filter(|(_, b)| compatible(doc, &path, &key, settings, &b.value))
+                        .map(|(n, _)| n.clone())
+                        .collect();
                     ui.selectable_value(&mut chosen, String::new(), "Constant (no bind)");
                     for name in &choices {
                         ui.selectable_value(&mut chosen, name.clone(), name);

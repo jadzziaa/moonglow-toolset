@@ -294,15 +294,42 @@ pub(super) struct Resize {
     pub vertical: bool,
 }
 
+/// The largest size a child may take across its row (height) or column
+/// (width) and still let the client build the window: its size and margins
+/// within the parent's (NWN refuses the window past that; see mg_nui::validate).
+pub(super) fn cross_room(doc: &Value, path: &str) -> Vec2 {
+    let mut room = Vec2::splat(4096.0);
+    let Some((parent, _)) = path.rsplit_once("/children/") else { return room };
+    let (Some(parent), Some(node)) = (doc.pointer(parent), doc.pointer(path)) else {
+        return room;
+    };
+    let margin = node["margin"].as_f64().unwrap_or(2.0) as f32;
+    match parent["type"].as_str() {
+        Some("row") => {
+            if let Some(h) = parent["height"].as_f64() {
+                room.y = h as f32 - 2.0 * margin;
+            }
+        }
+        Some("col") => {
+            if let Some(w) = parent["width"].as_f64() {
+                room.x = w as f32 - 2.0 * margin;
+            }
+        }
+        _ => {}
+    }
+    room
+}
+
 impl Resize {
     pub(super) fn move_to(&mut self, pointer: Pos2) {
         let delta = (pointer - self.origin) / self.scale.max(0.001);
         let minimum = if self.path.is_empty() { 80.0 } else { 8.0 };
+        let room = cross_room(&self.source, &self.path).max(Vec2::splat(minimum));
         if self.horizontal {
-            self.size.x = (self.initial.x + delta.x).round().clamp(minimum, 4096.0);
+            self.size.x = (self.initial.x + delta.x).round().clamp(minimum, room.x);
         }
         if self.vertical {
-            self.size.y = (self.initial.y + delta.y).round().clamp(minimum, 4096.0);
+            self.size.y = (self.initial.y + delta.y).round().clamp(minimum, room.y);
         }
     }
 

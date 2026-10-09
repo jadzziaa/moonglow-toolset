@@ -591,6 +591,17 @@ impl Output {
 }
 
 fn main() -> ExitCode {
+    // `run`'s one match over every command takes more than Windows' 1 MB main
+    // stack in a debug build: it runs on a thread of its own with room.
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(cli_main)
+        .expect("start the command's thread")
+        .join()
+        .unwrap_or(ExitCode::FAILURE)
+}
+
+fn cli_main() -> ExitCode {
     let cli = Cli::parse();
     let json = cli.json;
     let result = run(&cli).and_then(|out| {

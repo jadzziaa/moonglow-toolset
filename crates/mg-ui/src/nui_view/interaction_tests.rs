@@ -470,6 +470,166 @@ fn nui_group_horizontal_scroll_respects_disabled_and_no_overflow() {
     assert!(h.state().state.group_scroll_x.values().all(|v| *v == 0.0));
 }
 
+/// NWN EE 8193.37 (np_list2, np_list3): a list scrolled to its end has
+/// moved by whole 29-point rows: 10 rows in 100 to row 9, 40 in 200 to row
+/// 35, 40 in 300 to row 32.
+#[test]
+fn nui_list_scrolls_to_the_rows_the_client_ends_on() {
+    for (count, height, last_top_row) in [(10, 100.0, 9.0), (40, 200.0, 35.0), (40, 300.0, 32.0)] {
+        let rows: Vec<_> = (0..count).map(|i| format!("Row {i}")).collect();
+        let mut settings = Settings::default();
+        settings
+            .bindings
+            .insert("rows".into(), Binding { value: json!(rows), ..Default::default() });
+        let mut h = harness(
+            json!([{"type":"list","row_template":[[{"type":"label","value":{"bind":"rows"}},0.0,true]],
+                "row_count":{"bind":"rows"},"row_height":25.0,"border":true,"scrollbars":2,
+                "width":200.0,"height":height}]),
+            settings,
+        );
+        h.state_mut().state.zoom = 1.0;
+        h.state_mut().state.preview_interactive = true;
+        h.run();
+        let track = h.get_by_label("Scroll list /root/children/0").rect();
+        click_at(&mut h, egui::pos2(track.center().x, track.bottom() - 2.0));
+        let offset = *h.state().state.list_scroll.values().next().unwrap();
+        assert_eq!(offset, last_top_row * 29.0, "{count} rows in {height}");
+    }
+}
+
+/// NWN EE 8193.37 (np_chart3): columns as Nuklear's nk_chart_push_column
+/// draws them, quirks included. Positions as fractions of the chart's height
+/// from its top: [1,2,3] all hang from the top (the first down to the middle),
+/// [5,-2,0,4] stand on a zero line at 5/7.
+#[test]
+fn nui_chart_columns_follow_the_clients_formula() {
+    let columns = |data: Value| {
+        let mut h = harness(
+            json!([{"type":"chart","width":300.0,"height":200.0,"value":[
+                {"type":1,"legend":"","color":{"r":10,"g":20,"b":30,"a":255},"data":data}]}]),
+            Settings::default(),
+        );
+        h.state_mut().state.zoom = 1.0;
+        h.run();
+        let chart = h.get_by_label("Canvas Chart").rect();
+        let colour = egui::Color32::from_rgb(10, 20, 30);
+        let mut rects: Vec<_> = h
+            .output()
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Rect(r) if r.fill == colour => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        rects.sort_by(|a, b| a.left().total_cmp(&b.left()));
+        (chart, rects)
+    };
+    let (chart, rects) = columns(json!([1.0, 2.0, 3.0]));
+    assert_eq!(rects.len(), 3);
+    // Inside the chart's own 4-point inset.
+    let (top, height) = (chart.top() + 4.0, chart.height() - 8.0);
+    let at = |y: f32| (y - top) / height;
+    for (r, (t, b)) in rects.iter().zip([(0.0, 0.5), (-0.5, 0.5), (-1.0, 0.5)]) {
+        assert!((at(r.top()) - t).abs() < 0.01 && (at(r.bottom()) - b).abs() < 0.01, "{r:?}");
+    }
+    let (_, rects) = columns(json!([5.0, -2.0, 0.0, 4.0]));
+    let zero = 5.0 / 7.0;
+    for (r, (t, b)) in rects.iter().zip([(0.0, zero), (zero, 1.0), (zero, zero), (1.0 / 7.0, zero)])
+    {
+        assert!((at(r.top()) - t).abs() < 0.01 && (at(r.bottom()) - b).abs() < 0.01, "{r:?}");
+    }
+    // Equal values: no range, nothing drawn.
+    assert!(columns(json!([2.0, 2.0, 2.0])).1.is_empty());
+}
+
+/// NWN EE 8193.37 (np_margin, np_gap): a margin m moves a control m - 2
+/// from where it stands with none (0 and 1 move it back), keeping its width;
+/// a button with no height is 50 high.
+#[test]
+fn nui_margins_move_controls_by_their_excess_over_the_default() {
+    let button = |label: &str, margin: Option<f64>| {
+        let mut b = json!({"type":"button","label":label,"height":30.0});
+        if let Some(m) = margin {
+            b["margin"] = json!(m);
+        }
+        b
+    };
+    let mut h = harness(
+        json!([button("none", None), button("m0", Some(0.0)), button("m1", Some(1.0)),
+            button("m3", Some(3.0)), button("m10", Some(10.0)), {"type":"button","label":"auto"}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.run();
+    let at =
+        |h: &Harness<'_, Case>, l: &str| h.get_by_label(&format!("Canvas Button · {l}")).rect();
+    let none = at(&h, "none");
+    for (label, shift) in [("m0", -2.0), ("m1", -1.0), ("m3", 1.0), ("m10", 8.0)] {
+        let r = at(&h, label);
+        assert!((r.left() - none.left() - shift).abs() < 0.1, "{label}: {r:?} vs {none:?}");
+        assert!((r.width() - none.width()).abs() < 0.1, "{label}");
+    }
+    // Between two controls: their default margins (4), or what a margin adds.
+    assert!((at(&h, "m0").top() - at(&h, "none").bottom() - 2.0).abs() < 0.1);
+    assert!((at(&h, "m10").top() - at(&h, "m3").bottom() - 13.0).abs() < 0.1);
+    assert_eq!(at(&h, "auto").height(), 50.0);
+}
+
+/// NWN EE 8193.37 (nui_orient_s): the root column fills its window, and a
+/// Row with nothing in it takes what the controls leave, pushing those after
+/// it to the bottom.
+#[test]
+fn nui_an_empty_row_takes_the_room_a_column_has_left() {
+    let mut h = harness(
+        json!([{"type":"button","label":"top","height":30.0},
+            {"type":"row","children":[]},
+            {"type":"button","label":"bottom","height":30.0}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.run();
+    let column = h.get_by_label("Canvas Column").rect();
+    let bottom = h.get_by_label("Canvas Button · bottom").rect();
+    assert!((column.bottom() - bottom.bottom()).abs() < 4.0, "{column:?} {bottom:?}");
+    let row = h.get_by_label("Canvas Row").rect();
+    assert!(row.height() > 300.0, "{row:?}");
+}
+
+/// NWN EE 8193.37, Text of widths 200, 360 and 560 with X scrolling: its
+/// bar moves the text 36 to the left at the end, whatever the text; the
+/// lines don't rewrap. A short text has nothing to scroll in Y.
+#[test]
+fn nui_text_scrolls_its_measured_extents() {
+    let message = "FIRST 01 Lorem ipsum dolor sit amet. 02 Long text checks wrapping.";
+    for width in [200.0, 360.0] {
+        let mut h = harness(
+            json!([{"type":"text","value":message,"width":width,"height":90,"scrollbars":1}]),
+            Settings::default(),
+        );
+        h.state_mut().state.zoom = 1.0;
+        h.state_mut().state.preview_interactive = true;
+        h.run();
+        let track = h.get_by_label("Scroll text horizontally /root/children/0").rect();
+        // The increment arrow, until the end.
+        for _ in 0..4 {
+            click_at(&mut h, egui::pos2(track.right() - 4.0, track.center().y));
+        }
+        let offset = *h.state().state.text_scroll_x.values().next().unwrap();
+        assert_eq!(offset, 36.0, "{width}");
+    }
+    let mut h = harness(
+        json!([{"type":"text","value":"Short text, one line.","width":360,"height":90,"scrollbars":2}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.state_mut().state.preview_interactive = true;
+    h.run();
+    let track = h.get_by_label("Scroll text vertically /root/children/0").rect();
+    click_at(&mut h, egui::pos2(track.center().x, track.bottom() - 20.0));
+    assert_eq!(*h.state().state.text_scroll_y.values().next().unwrap(), 0.0);
+}
+
 #[test]
 fn nui_group_scroll_translates_text_without_rewrapping_at_viewport_edge() {
     let message = "Nested group: this longer sentence must move with its content.";
@@ -489,8 +649,9 @@ fn nui_group_scroll_translates_text_without_rewrapping_at_viewport_edge() {
             .shapes
             .iter()
             .find_map(|shape| {
+                // Lines break where the client's do: as line breaks in the job.
                 if let egui::Shape::Text(text) = &shape.shape
-                    && text.galley.job.text == message
+                    && text.galley.job.text.replace('\n', "") == message
                 {
                     Some((text.pos, text.galley.size(), shape.clip_rect))
                 } else {
@@ -849,7 +1010,7 @@ fn nui_textedit_wordwrap_preserves_explicit_lines_and_clips_overflow() {
 }
 
 #[test]
-fn nui_picker_hue_preserves_brightness_and_alpha() {
+fn nui_picker_hue_preserves_brightness_and_writes_opaque_alpha() {
     // A hue-only edit must not progressively darken unmultiplied RGB.
     // Exercise the actual canvas/runtime, including fully transparent colors.
     for alpha in [128, 64, 0, 255] {
@@ -883,15 +1044,19 @@ fn nui_picker_hue_preserves_brightness_and_alpha() {
                 "Hue changed brightness: alpha={alpha}, color={color}"
             );
             assert!(rgb.iter().min().unwrap().abs_diff(64) <= 1, "Hue changed saturation: {color}");
-            assert_eq!(color["a"], alpha);
+            // NWN EE 8193.37: the picker has no alpha and writes 255.
+            assert_eq!(color["a"], 255);
         }
         assert_eq!(h.state().doc, source);
         assert_eq!(h.state().settings, source_settings);
         h.get_by_label("Reset").click();
         h.run();
+        // Opened anew: the authored colour, made opaque as the client's picker does.
+        let mut opaque = initial.clone();
+        opaque["a"] = json!(255);
         assert_eq!(
             h.state().state.runtime.as_ref().unwrap().settings.bindings["color"].value,
-            initial
+            opaque
         );
     }
 }

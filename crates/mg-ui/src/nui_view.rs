@@ -41,6 +41,7 @@ struct State {
     tree_selection: String,
     list_scroll: std::collections::BTreeMap<String, f32>,
     group_scroll_x: std::collections::BTreeMap<String, f32>,
+    text_scroll_x: std::collections::BTreeMap<String, f32>,
     text_scroll_y: std::collections::BTreeMap<String, f32>,
     selected_many: std::collections::BTreeSet<String>,
     layer_search: String,
@@ -64,6 +65,15 @@ struct State {
     view_mode: usize,
     name: String,
     load_search: String,
+    checks: Option<Checks>,
+}
+
+/// The API checks and build status of what the tab last showed.
+#[derive(Clone, Default)]
+struct Checks {
+    key: u64,
+    findings: Vec<mg_nui::Diagnostic>,
+    needs_build: bool,
 }
 
 impl State {
@@ -219,18 +229,36 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         state.main_doc = Some(doc.clone());
         state.layout_groups = mg_nui::group_ids(doc);
     }
-    let findings = match (&parsed, &settings) {
-        (Ok(v), Ok(s)) => mg_nui::validate(v, s),
-        _ => Vec::new(),
+    // Checking the whole document is not free: only redo it when the window,
+    // its settings or its generated scripts change.
+    let checks_key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (&raw, &config_raw).hash(&mut h);
+        for (suffix, ty) in [("_o", ResType::NSS), ("_o", ResType::NCS), ("_e", ResType::NSS)] {
+            ResKey::parse(&format!("{name}{suffix}"), ty)
+                .and_then(|k| ws.module.get(&k))
+                .hash(&mut h);
+        }
+        ResKey::parse(&format!("{name}_e"), ResType::NCS)
+            .is_some_and(|k| ws.module.contains(&k))
+            .hash(&mut h);
+        h.finish()
     };
+    if state.checks.as_ref().is_none_or(|c| c.key != checks_key) {
+        let (findings, needs_build) = match (&parsed, &settings) {
+            (Ok(v), Ok(s)) => {
+                (mg_nui::validate(v, s), !mg_nui::is_current(&ws.module, &name, v, s))
+            }
+            _ => (Vec::new(), false),
+        };
+        state.checks = Some(Checks { key: checks_key, findings, needs_build });
+    }
+    let Checks { findings, needs_build, .. } = state.checks.clone().unwrap_or_default();
     let errors = findings.iter().filter(|d| d.severity == Severity::Error).count()
         + usize::from(parsed.is_err())
         + usize::from(settings.is_err());
     let warnings = findings.iter().filter(|d| d.severity == Severity::Warning).count();
-    let needs_build = match (&parsed, &settings) {
-        (Ok(v), Ok(s)) => !mg_nui::is_current(&ws.module, &name, v, s),
-        _ => false,
-    };
     ui.spacing_mut().button_padding = egui::vec2(10.0, 5.0);
     ui.horizontal_wrapped(|ui| {
         ui.heading("NUI Creator");
@@ -709,7 +737,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                                     .on_hover_text("Use a fixed size instead")
                                     .clicked()
                                 {
-                                    obj.insert(key.into(), json!(fixed));
+                                    obj.insert(key.into(), json!(fitting_size(obj, key, fixed)));
                                 }
                             });
                         }
@@ -718,12 +746,15 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
             });
     }
     ui.add_space(8.0);
+    let (fit_width, fit_height) =
+        (fitting_size(obj, "width", 150.0), fitting_size(obj, "height", 30.0));
     ui.menu_button("+ Add property", |ui| {
         for (k, label, val) in [
             ("id", "Element ID", json!("element")),
-            ("width", "Width", json!(150.0)),
-            ("height", "Height", json!(30.0)),
-            ("margin", "Margin", json!(0.0)),
+            ("width", "Width", json!(fit_width)),
+            ("height", "Height", json!(fit_height)),
+            // The client's own margin: adding the field changes nothing yet.
+            ("margin", "Margin", json!(2.0)),
             ("padding", "Padding", json!(0.0)),
             ("enabled", "Enabled", json!(true)),
             ("visible", "Visible", json!(true)),
@@ -790,6 +821,30 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     }
 }
 
+/// A fixed size for a row's height or a column's width that its children
+/// fit in, margins included (the client refuses the window otherwise), and a
+/// `fallback`-sized control too; for anything else, `fallback`.
+fn fitting_size(node: &serde_json::Map<String, Value>, key: &str, fallback: f64) -> f64 {
+    let across = match node.get("type").and_then(Value::as_str) {
+        Some("row") => "height",
+        Some("col") => "width",
+        _ => return fallback,
+    };
+    if key != across {
+        return fallback;
+    }
+    node.get("children")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|c| {
+            let size = c.get(key)?.as_f64()?;
+            Some(size + 2.0 * c.get("margin").and_then(Value::as_f64).unwrap_or(2.0))
+        })
+        // Room for a new control of the default size and its margins too.
+        .fold(fallback + 4.0, f64::max)
+}
+
 /// A missing value must use the property's type, not a generic JSON type menu.
 /// Unknown/custom fields remain losslessly editable in the source editor.
 fn property_default(ty: &str, key: &str) -> Option<Value> {
@@ -807,7 +862,8 @@ fn property_default(ty: &str, key: &str) -> Option<Value> {
         "id" | "tooltip" | "disabled_tooltip" | "font" => json!(""),
         "width" => json!(150.0),
         "height" => json!(30.0),
-        "margin" | "padding" => json!(0.0),
+        "margin" => json!(2.0),
+        "padding" => json!(0.0),
         "aspect" => json!(1.0),
         "enabled" | "visible" => json!(true),
         "encouraged" | "collapsed" => json!(false),
@@ -2341,5 +2397,106 @@ mod tests {
         compact.get_by_label("Properties").click();
         compact.run();
         compact.render().unwrap().save(dir.join("compact.png")).unwrap();
+    }
+
+    /// Hand-written or foreign JUI reaches every page and Interact: wrong
+    /// types, impossible sizes and missing binds are diagnostics, never a panic.
+    #[test]
+    fn nui_editor_survives_malformed_documents() {
+        let mut deep = json!({"type":"label","value":"bottom"});
+        for _ in 0..100 {
+            deep = json!({"type":"col","children":[deep]});
+        }
+        let roots = [
+            json!({"type":"col","children":5}),
+            json!({"type":"group","children":[]}),
+            json!({"type":"group","children":[{"type":"label"},{"type":"label"}],"scrollbars":99}),
+            json!({"type":"list","row_template":[[1],[{"type":"label"}],"x",[null,-5.0,true]],
+                "row_count":-5,"row_height":0.0,"scrollbars":4}),
+            json!({"type":"list","row_template":[[{"type":"check","value":{"bind":"rows"}},0.0,true]],
+                "row_count":{"bind":"rows"},"row_height":-25.0}),
+            json!({"type":"list","row_template":[[{"type":"label","value":"x"},1e30,false]],
+                "row_count":1_000_000_000_000_i64}),
+            json!({"type":"row","children":[
+                {"type":"combo","elements":"abc","value":"x"},
+                {"type":"combo","elements":[[1,"a"],["b"]],"value":99},
+                {"type":"options","elements":[1,2],"value":-7,"direction":5},
+                {"type":"tabbar","elements":{"bind":"missing"},"value":{"bind":"missing"}},
+                {"type":"slider","value":5,"min":10,"max":0,"step":0},
+                {"type":"sliderf","value":0.5,"min":0.0,"max":1.0,"step":-1.0},
+                {"type":"progress","value":"half"},
+                {"type":"textedit","max":0,"value":7,"label":{"strref":-1}},
+                {"type":"color_picker","value":"red"},
+                {"type":"chart","value":"x"},
+                {"type":"chart","value":[{"type":9,"data":["a",null]},5]},
+                {"type":"image","value":"","image_region":{"x":-5,"y":1e9,"w":-1,"h":0}},
+                {"type":"button_image","label":{"strref":999999999}},
+                {"type":"text","value":{"strref":-1},"scrollbars":-3},
+                {"type":"label","value":{"bind":7},"text_halign":"left"},
+                {"type":"canvas","children":"none"},
+                {"type":7},
+                {"children":[]},
+                {"type":"spacer","width":"wide","margin":1e30,"padding":-5.0,"aspect":0.0},
+                {"type":"spacer","width":-100.0,"height":-100.0,"aspect":-1.0}
+            ]}),
+            json!({"type":"col","draw_list":"x","children":[
+                {"type":"spacer","draw_list_scissor":true,"draw_list":[
+                    {"type":0,"points":[1.0,2.0,3.0]},
+                    {"type":0,"points":{"bind":"missing"},"arrayBinds":true},
+                    {"type":1},{"type":2,"rect":"x"},{"type":3,"radius":-1.0,"amin":1e30},
+                    {"type":4,"text":{"strref":-1},"rect":{"x":0,"y":0,"w":-1,"h":-1}},
+                    {"type":5,"image":"","rect":{"x":0,"y":0,"w":1e9,"h":1e9}},
+                    {"type":6},{"type":7,"fill":"yes"},{"type":99},{"type":"x"},5,null
+                ]}
+            ]}),
+            deep,
+            json!(5),
+        ];
+        let windows = roots
+            .into_iter()
+            .map(|root| {
+                let mut window = mg_nui::window();
+                window["root"] = root;
+                window
+            })
+            .chain([
+                json!({"version":"one","root":{"type":"col","children":[]},"geometry":
+                    {"x":"a","y":null,"w":-100.0,"h":0.0},"title":{"bind":"missing"},
+                    "size_constraint":{"x":900.0,"y":900.0,"w":10.0,"h":10.0}}),
+                json!({"geometry":{"bind":"geometry"},"root":{"type":"col","children":[]}}),
+                json!([]),
+                json!(null),
+            ]);
+        let mut settings = Settings::default();
+        settings.bindings.insert("rows".into(), Binding { value: json!(7), ..Default::default() });
+        settings
+            .bindings
+            .insert("geometry".into(), Binding { value: json!("x"), ..Default::default() });
+        settings.views.insert("broken".into(), json!({"type":"group","children":7}));
+        for window in windows {
+            let mut app = app();
+            let ws = app.ws.as_mut().unwrap();
+            ws.module.set(
+                mg_nui::key("nui_test", ResType::JUI),
+                serde_json::to_vec_pretty(&window).unwrap(),
+            );
+            ws.module.set(mg_nui::key("nui_test", ResType::TXT), settings.bytes());
+            let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
+                |ui, app: &mut Moonglow| {
+                    super::ui(app, ui, Some(mg_nui::key("nui_test", ResType::JUI)));
+                    app.run_actions();
+                },
+                app,
+            );
+            h.run();
+            if let Some(interact) = h.query_by_label("Interact") {
+                interact.click();
+                h.run();
+            }
+            for page in ["Bindings", "Views & events", "Design"] {
+                h.get_by_label(page).click();
+                h.run();
+            }
+        }
     }
 }

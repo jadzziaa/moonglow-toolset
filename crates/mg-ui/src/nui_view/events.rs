@@ -250,12 +250,20 @@ fn label(event: &str) -> &str {
 
 fn explanation(event: &str) -> &str {
     match event {
-        "click" => "Runs when this control sends a click event.",
+        "click" => {
+            "Runs when this button is clicked. A label or list cell sends only Mouse pressed and released."
+        }
         "open" => "Runs when the window opens. No control ID is needed.",
-        "close" => "Runs after the window closes; it is not the action that closes it.",
-        "watch" => "Runs when the bind value changes. Watching is enabled automatically on build.",
-        "focus" | "blur" => "Focus events come from controls that support keyboard focus.",
-        "range" => "List range events report the visible row range. Verify the behavior in NWN.",
+        "close" => {
+            "Runs when the player closes the window with its X. Closing it from a script (the Close window action) does not send it."
+        }
+        "watch" => {
+            "Runs when the bind value changes, from the player or a script setting it (at once, inside that script). Watching is enabled automatically on build."
+        }
+        "focus" | "blur" => "A text input sends these when it gains or loses the keyboard.",
+        "range" => {
+            "A list sends the rows in view (payload a to z) when they change by scrolling, and when the window opens."
+        }
         _ => "Native mouse event. Availability depends on the control and game client.",
     }
 }
