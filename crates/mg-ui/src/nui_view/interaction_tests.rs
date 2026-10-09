@@ -1221,6 +1221,42 @@ hover = \"btn_h\"
 }
 
 #[test]
+fn nui_missing_images_show_the_clients_gui_error_in_the_middle() {
+    // NWN EE 8193.37, np_imgmiss: at every aspect and alignment the client
+    // draws gui_error at its own size in the middle of the image.
+    let mut tga = vec![0u8; 18];
+    (tga[2], tga[12], tga[14], tga[16]) = (2, 4, 2, 24);
+    tga.extend([255u8; 4 * 2 * 3]);
+    let mut module = mg_module::Module::new();
+    module.set(ResKey::parse("gui_error", ResType::TGA).unwrap(), tga);
+    let mut h = harness(
+        json!([{"type":"image","value":"no_such_image","image_aspect":1,"image_halign":2,
+            "width":240,"height":60}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    let ctx = h.ctx.clone();
+    let case = h.state_mut();
+    case.assets.prepare(&ctx, None, &module, 0, &case.doc, &case.settings);
+    let error = case.assets.picture("gui_error").unwrap().texture.id();
+    h.run();
+    let image = h.get_by_label("Canvas Image · no_such_image").rect();
+    let drawn = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Mesh(m) if m.texture_id == error => {
+                Some(egui::Rect::from_points(&m.vertices.iter().map(|v| v.pos).collect::<Vec<_>>()))
+            }
+            _ => None,
+        })
+        .expect("gui_error drawn");
+    assert_eq!(drawn.size(), egui::vec2(4.0, 2.0));
+    assert_eq!(drawn.center(), image.center());
+}
+
+#[test]
 fn nui_content_starts_under_the_clients_33_point_title_bar() {
     // NWN EE 8193.37, np_group: a window's first control (margin 2) is 43
     // points under its top: a 33-point title bar, then the body's 8.

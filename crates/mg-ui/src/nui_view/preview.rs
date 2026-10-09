@@ -2270,7 +2270,19 @@ impl Renderer<'_> {
                 }
                 "image" => {
                     let name = localized_string(&node["value"], s, row, a);
-                    if !draw_image(&p, a, &name, body, node, s, row, scale, tint) {
+                    if !draw_image(&p, a, &name, body, node, s, row, scale, tint)
+                        && let Some(error) = a.picture("gui_error")
+                    {
+                        // The client draws its gui_error at its own size in the
+                        // middle, whatever the aspect and alignment (NWN EE
+                        // 8193.37, np_imgmiss).
+                        p.image(
+                            error.texture.id(),
+                            Rect::from_center_size(body.center(), error.size * scale),
+                            Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                            tint,
+                        );
+                    } else if a.picture(&name).is_none() {
                         p.rect_stroke(
                             body,
                             0,
@@ -2541,11 +2553,13 @@ impl Renderer<'_> {
         let axis = usize::from(!horizontal);
         let mut dec = strip;
         dec.max[axis] = (dec.min[axis] + width).min(strip.max[axis]);
+        // Nuklear doesn't shrink the end buttons of a short bar: the second
+        // is drawn over the first (NWN EE 8193.37, a one-entry combo list).
         let mut inc = strip;
-        inc.min[axis] = (inc.max[axis] - width).max(dec.max[axis]);
+        inc.min[axis] = (inc.max[axis] - width).max(strip.min[axis]);
         let mut track = strip;
         track.min[axis] = dec.max[axis];
-        track.max[axis] = inc.min[axis];
+        track.max[axis] = inc.min[axis].max(track.min[axis]);
         let section = if horizontal { "scrollh" } else { "scrollv" };
         for (property, r) in
             [("normal", track), ("dec_button.normal", dec), ("inc_button.normal", inc)]
@@ -2561,6 +2575,9 @@ impl Renderer<'_> {
         }
         let mut thumb = track.shrink(self.scale * 2.0);
         let length = thumb.size()[axis];
+        if length <= 0.0 {
+            return;
+        }
         let size = length * fraction.clamp(0.05, 1.0);
         thumb.min[axis] += (length - size) * offset.clamp(0.0, 1.0);
         thumb.max[axis] = thumb.min[axis] + size;

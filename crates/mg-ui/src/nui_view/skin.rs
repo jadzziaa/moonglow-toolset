@@ -225,6 +225,8 @@ impl Assets {
     ) {
         let mut wanted = BTreeSet::new();
         names(v, s, &mut wanted);
+        // What the client draws for an image it can't find (nuklear_image.cpp).
+        wanted.insert("gui_error".into());
         wanted.extend(self.requested.iter().cloned());
         let layers: Vec<_> = rm
             .into_iter()
@@ -299,7 +301,9 @@ impl Assets {
         for name in wanted {
             let Some((ty, bytes, origin)) = image_resource(rm, module, &name) else {
                 self.pictures.remove(&name);
-                self.issues.push(format!("Missing image: {name}"));
+                if name != "gui_error" {
+                    self.issues.push(format!("Missing image: {name}"));
+                }
                 continue;
             };
             self.origins.insert(format!("{name}.{ty}"), origin);

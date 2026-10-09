@@ -505,8 +505,8 @@ and the preview follow them.
   the title bar. With `accepts_input` false, clicks go through the window. An
   edge constraint keeps the window inside its margins without changing a bound
   geometry's value. A placeholder is drawn greyed. A missing image shows the
-  game's own missing-image picture in the game (built into the client, so not
-  one the preview can load), and a note in the preview. The title bar is 33
+  game's `gui_error` picture at its own size in the middle of the image,
+  whatever its aspect and alignment; the preview does the same. The title bar is 33
   high, and the body below it has its own frame.
 - **Groups** scroll until the far edge of what they hold (with 2 points of
   padding on each side) meets the end of the bar's track. The track stops
@@ -528,6 +528,14 @@ and the preview follow them.
 - **Text inputs** count `max` in UTF-8 bytes. Below 4, a letter outside ASCII
   can be stored as garbage (with `max` 1, typing *Ż* stores U+0005). A warning
   says so.
-- **UI scale** is capped at the screen's height divided by 720, unless
-  `ui.unconstrain-scale` is set: at 150% on a window 993 high the game draws
-  at 1.38. The preview's **Screen** mode applies the same cap.
+- **UI scale** is capped at the screen's height divided by 720 (never below
+  100%), unless `ui.unconstrain-scale` is set: at 150% on a window 800 high
+  the game draws at 1.11, on one 993 high at 1.38. The preview's **Screen**
+  mode applies the same cap. The game rounds each scaled size down to whole
+  pixels (a row 34 high is 37 at 1.11, not 37.8), so at a scale that isn't
+  whole the preview's rows drift from the game's by up to a pixel each.
+- **A control with no width** in a column is as wide as the column's widest
+  control, in the game and in the preview. One case differs: after a control
+  with a width of its own, rows of buttons without widths can make the game
+  pick a narrower width (an image after a row of three buttons, an image 200
+  wide and a row of two is 308 wide in the game, 462 in the preview).

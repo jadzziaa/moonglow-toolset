@@ -1,5 +1,8 @@
 # Update log
 
+## 2026-10-10
+* **Update**: [NUI Creator](manual/07-scripts.md#what-the-game-refuses-and-what-it-does-on-its-own): a missing image shows the game's `gui_error` picture, as the game does (found in the client's image loader); a short scrollbar's end buttons overlap as the game draws them; the UI scale's cap measured at two more window heights; a column's width-less controls checked in eleven windows, one case the game sizes differently recorded.
+
 ## 2026-10-09
 * **Add**: [NUI Creator](manual/07-scripts.md#nui-creator): native NUI windows (JUI) designed and previewed in the game's skin and fonts, checked against the stock `nw_inc_nui` API, and built into an opener include and a compiled event script; `mg nui new`, `validate` and `generate`.
 * **Update**: [NUI Creator](manual/07-scripts.md#what-the-game-refuses-and-what-it-does-on-its-own), checked in the game client: a window the game refuses to construct (a child too big across its row or column) is an error and the Creator's gestures keep clear of it; margins, a column's leftover room, Text's line breaks and scrolling and the color picker's alpha as the game does them; a disabled slider bound to a value and a Close button without its event are flagged; every event type, a script's bind setting running its watch, and loading the JUI from the client checked; Clip to control on a window's last draw layers (which blanks it in the game) is an error; lists' scroll range, charts' columns, array-bound draw layers and a hidden title bar as the game draws them.
