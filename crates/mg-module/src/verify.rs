@@ -113,10 +113,16 @@ pub fn module_references(module: &Module) -> Vec<Reference> {
 /// usually the module layer too) can satisfy. Scripts need their compiled
 /// form; one with only a source is reported as uncompiled.
 pub fn missing(module: &Module, resman: &ResMan) -> Vec<Missing> {
+    missing_of(module, resman, module_references(module))
+}
+
+/// [`missing`] among the module's references already gathered
+/// ([`module_references`]: every GFF read; [`unused_of`] takes them too).
+pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) -> Vec<Missing> {
     let has = |k: &ResKey| module.contains(k) || resman.contains(k);
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for r in module_references(module) {
+    for r in references {
         let candidates = r.candidates();
         // The game runs compiled scripts; a source alone does not satisfy a
         // script reference (but is reported as uncompiled, not missing).
@@ -143,8 +149,13 @@ pub fn missing(module: &Module, resman: &ResMan) -> Vec<Missing> {
 /// blueprints, conversations and scripts (script sources count as used when
 /// `#include`d; a compiled script and its source are one script).
 pub fn unused(module: &Module) -> Vec<ResKey> {
+    unused_of(module, &module_references(module))
+}
+
+/// [`unused`] by the module's references already gathered.
+pub fn unused_of(module: &Module, references: &[Reference]) -> Vec<ResKey> {
     let mut used: HashSet<(mg_core::ResRef, ResType)> = HashSet::new();
-    for r in module_references(module) {
+    for r in references {
         for k in r.candidates() {
             used.insert((k.resref, k.restype));
         }

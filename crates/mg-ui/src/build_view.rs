@@ -353,8 +353,15 @@ fn check(
     notes: &mut Vec<String>,
 ) {
     let line = |text: String, about: Option<ResKey>| Finding { text, about };
+    // (Every GFF of the module read once for both checks.)
+    let references = if w.missing || w.unused {
+        mg_module::verify::module_references(module)
+    } else {
+        Vec::new()
+    };
+    let unused = w.unused.then(|| mg_module::verify::unused_of(module, &references));
     if w.missing {
-        let missing = mg_module::verify::missing(module, &game.resman);
+        let missing = mg_module::verify::missing_of(module, &game.resman, references);
         let mut n = 0;
         for m in missing.iter().filter(|m| w.missing_of.get(&m.category).copied().unwrap_or(true)) {
             n += 1;
@@ -373,8 +380,8 @@ fn check(
         }
         notes.push(format!("Build: {n} missing resources"));
     }
-    if w.unused {
-        let unused: Vec<ResKey> = mg_module::verify::unused(module)
+    if let Some(unused) = unused {
+        let unused: Vec<ResKey> = unused
             .into_iter()
             .filter(|k| match k.restype {
                 ResType::NSS | ResType::NCS => w.unused_scripts,

@@ -1701,8 +1701,11 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf])
     let m = Module::open(path)?;
     let mut out = Output::default();
     let rm = module_resman(gi, &m, &mut out)?;
-    let missing = mg_module::verify::missing(&m, &rm);
-    let unused = if show_unused { mg_module::verify::unused(&m) } else { Vec::new() };
+    // (Every GFF of the module read once for both.)
+    let references = mg_module::verify::module_references(&m);
+    let unused =
+        if show_unused { mg_module::verify::unused_of(&m, &references) } else { Vec::new() };
+    let missing = mg_module::verify::missing_of(&m, &rm, references);
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
     let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
     let custom = m.custom_tlk().ok().flatten().and_then(|name| {
