@@ -412,28 +412,6 @@ pub fn door(resref: ResRef, display: &str, category: u8) -> Gff {
     gff(b"UTD ", fields)
 }
 
-/// The EE part fields of armor, in the order Aurora writes them.
-const ARMOR_PARTS: [&str; 18] = [
-    "ArmorPart_RFoot",
-    "ArmorPart_LFoot",
-    "ArmorPart_RShin",
-    "ArmorPart_LShin",
-    "ArmorPart_LThigh",
-    "ArmorPart_RThigh",
-    "ArmorPart_Pelvis",
-    "ArmorPart_Torso",
-    "ArmorPart_Belt",
-    "ArmorPart_Neck",
-    "ArmorPart_RFArm",
-    "ArmorPart_LFArm",
-    "ArmorPart_RBicep",
-    "ArmorPart_LBicep",
-    "ArmorPart_RShoul",
-    "ArmorPart_LShoul",
-    "ArmorPart_RHand",
-    "ArmorPart_LHand",
-];
-
 const COLORS: [&str; 6] =
     ["Leather1Color", "Leather2Color", "Cloth1Color", "Cloth2Color", "Metal1Color", "Metal2Color"];
 
@@ -458,10 +436,10 @@ pub fn item(game: &GameData, resref: ResRef, display: &str, base_item: u32, cate
             }
         }
         3 => {
-            for label in ARMOR_PARTS {
-                part(&mut model, label, 4);
+            // In the order Aurora writes them (the game's): no robe.
+            for (label, _) in mg_rules::items::ARMOR_PARTS {
+                part(&mut model, label, if label == "ArmorPart_Robe" { 1 } else { 4 });
             }
-            part(&mut model, "ArmorPart_Robe", 1);
         }
         _ => part(&mut model, "ModelPart1", 1),
     }
