@@ -631,6 +631,42 @@ fn nui_text_scrolls_its_measured_extents() {
 }
 
 #[test]
+fn nui_group_scrolls_to_the_ends_the_client_stops_at() {
+    // NWN EE 8193.37, np_group: a 300 × 150 group with both bars, holding a
+    // 600-wide label and ten buttons, ends 290 down and 370 across.
+    let mut rows = vec![json!({"type":"label","value":"wide","width":600,"height":30})];
+    rows.extend((0..10).map(|i| json!({"type":"button","label":format!("row {i}"),"height":30})));
+    let mut h = harness(
+        json!([{"type":"group","width":300,"height":150,"scrollbars":3,
+            "children":[{"type":"col","children":rows}]}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.state_mut().state.preview_interactive = true;
+    h.run();
+    let key = "/root/children/0/None".to_owned();
+    h.state_mut().state.group_scroll_y.insert(key.clone(), 1e4);
+    h.run();
+    assert_eq!(h.state().state.group_scroll_y[&key], 290.0);
+    // The client draws row 9 then 56 points below the group's top.
+    let group = h.get_by_label("Canvas Group").rect();
+    assert_eq!(h.get_by_label("Canvas Button · row 9").rect().top() - group.top(), 56.0);
+    h.state_mut().state.group_scroll_x.insert(key.clone(), 1e4);
+    h.run();
+    assert_eq!(h.state().state.group_scroll_x[&key], 370.0);
+    let track = h.get_by_label("Scroll group vertically /root/children/0").rect();
+    click_at(&mut h, track.center());
+    assert!(h.state().state.group_scroll_y[&key] < 290.0);
+    // A group whose content fits shows no bar in AUTO.
+    h.state_mut().doc["root"]["children"][0]["scrollbars"] = json!(4);
+    h.state_mut().doc["root"]["children"][0]["children"][0]["children"] =
+        json!([{"type":"label","value":"fits","height":30}]);
+    h.run();
+    assert!(h.query_by_label("Scroll group vertically /root/children/0").is_none());
+    assert!(h.query_by_label("Scroll group horizontally /root/children/0").is_none());
+}
+
+#[test]
 fn nui_group_scroll_translates_text_without_rewrapping_at_viewport_edge() {
     let message = "Nested group: this longer sentence must move with its content.";
     let mut h = harness(
@@ -1086,6 +1122,159 @@ fn nui_close_button_requires_explicit_action_and_removal_stops_closing() {
     h.get_by_label("Canvas Button · Close").click();
     h.run();
     assert!(!h.state().state.runtime.as_ref().unwrap().closed);
+}
+
+#[test]
+fn nui_bound_tooltips_follow_their_binds_and_the_enabled_state() {
+    // NWN EE 8193.37, np_tips: a disabled button shows its bound disabled
+    // tooltip, a new value shows at once, and enabled it shows its tooltip.
+    let mut settings = Settings::default();
+    for (name, value) in [("on", json!(false)), ("dtip", json!("first disabled"))] {
+        settings.bindings.insert(name.into(), Binding { value, ..Default::default() });
+    }
+    let mut h = harness(
+        json!([{"type":"button","label":"Disabled","height":30,"enabled":{"bind":"on"},
+            "tooltip":"normal tooltip","disabled_tooltip":{"bind":"dtip"}}]),
+        settings,
+    );
+    h.state_mut().state.preview_interactive = true;
+    h.run();
+    let tip = |h: &mut Harness<'_, Case>, text: &str| {
+        h.get_by_label("Canvas Button · Disabled").hover();
+        h.run();
+        assert!(h.query_by_label_contains(text).is_some(), "{text} shown");
+    };
+    tip(&mut h, "first disabled");
+    let runtime = h.state_mut().state.runtime.as_mut().unwrap();
+    runtime.settings.bindings.get_mut("dtip").unwrap().value = json!("second disabled");
+    h.run();
+    tip(&mut h, "second disabled");
+    let runtime = h.state_mut().state.runtime.as_mut().unwrap();
+    runtime.settings.bindings.get_mut("on").unwrap().value = json!(true);
+    h.run();
+    tip(&mut h, "normal tooltip");
+}
+
+#[test]
+fn nui_combo_popup_rows_sit_where_the_clients_do() {
+    // NWN EE 8193.37, np_combo: the popup's top meets the combo's bottom
+    // bevel, entries 8 in from its left and 23 apart.
+    let mut h = harness(
+        json!([{"type":"combo","value":0,"height":30,"width":100,
+            "elements":[["One",0],["Two",1]]}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.state_mut().state.preview_interactive = true;
+    h.run();
+    let combo = h.get_by_label("Canvas Dropdown").rect();
+    h.get_by_label("Canvas Dropdown").click();
+    h.run();
+    let one = h.get_by_label("One").rect();
+    let two = h.get_by_label("Two").rect();
+    assert_eq!(one.left() - combo.left(), 8.0);
+    assert_eq!(one.top(), combo.bottom());
+    assert_eq!(two.top() - one.top(), 23.0);
+    h.get_by_label("Two").click();
+    h.run();
+    assert_eq!(h.state().state.runtime.as_ref().unwrap().doc["root"]["children"][0]["value"], 1);
+}
+
+#[test]
+fn nui_encouraged_buttons_show_their_hover_look() {
+    // NWN EE 8193.37, np_misc: an encouraged button breathes between
+    // nui_button_n and nui_button_h; the preview shows the peak.
+    let pixel = |rgb: [u8; 3]| {
+        let mut b = vec![0u8; 18];
+        (b[2], b[12], b[14], b[16]) = (2, 1, 1, 24);
+        b.extend_from_slice(&[rgb[2], rgb[1], rgb[0]]);
+        b
+    };
+    let mut module = mg_module::Module::new();
+    module.set(
+        ResKey::parse("nui_skin", ResType::TML).unwrap(),
+        b"[button]
+normal = \"btn_n\"
+hover = \"btn_h\"
+"
+        .to_vec(),
+    );
+    module.set(ResKey::parse("btn_n", ResType::TGA).unwrap(), pixel([0, 0, 255]));
+    module.set(ResKey::parse("btn_h", ResType::TGA).unwrap(), pixel([255, 0, 0]));
+    let shown = |encouraged: bool| {
+        let mut h = harness(
+            json!([{"type":"button","label":"Go","height":30,"encouraged":encouraged}]),
+            Settings::default(),
+        );
+        let ctx = h.ctx.clone();
+        let case = h.state_mut();
+        case.assets.prepare(&ctx, None, &module, 0, &case.doc, &case.settings);
+        let hover = case.assets.picture("btn_h").unwrap().texture.id();
+        h.run();
+        h.output().shapes.iter().any(|s| {
+            matches!(&s.shape,
+            egui::Shape::Mesh(m) if m.texture_id == hover)
+        })
+    };
+    assert!(shown(true));
+    assert!(!shown(false));
+}
+
+#[test]
+fn nui_content_starts_under_the_clients_33_point_title_bar() {
+    // NWN EE 8193.37, np_group: a window's first control (margin 2) is 43
+    // points under its top: a 33-point title bar, then the body's 8.
+    let mut h =
+        harness(json!([{"type":"button","label":"First","height":30}]), Settings::default());
+    h.state_mut().state.zoom = 1.0;
+    h.run();
+    let window = h.get_by_label("Canvas window").rect();
+    assert_eq!(window.height(), 33.0);
+    assert_eq!(h.get_by_label("Canvas Button · First").rect().top() - window.top(), 43.0);
+}
+
+#[test]
+fn nui_screen_preview_caps_ui_scale_at_the_screen_height_over_720() {
+    // NWN EE 8193.37: ui.scale 1.5 on a 993-high client draws at 1.38.
+    let mut h =
+        harness(json!([{"type":"button","label":"Scaled","height":30}]), Settings::default());
+    h.state_mut().state.zoom = 1.0;
+    h.state_mut().state.preview_scale = 1.5;
+    h.run();
+    let width = |h: &Harness<'_, Case>| h.get_by_label("Canvas Button · Scaled").rect().width();
+    assert_eq!(width(&h), 225.0);
+    h.state_mut().state.screen_preview = true;
+    h.state_mut().state.screen_size = egui::vec2(1280.0, 720.0);
+    h.run();
+    assert_eq!(width(&h), 150.0);
+    assert!(h.query_by_label_contains("UI scale 100%").is_some());
+}
+
+#[test]
+fn nui_bound_slider_values_are_clamped_into_their_bound_range() {
+    // NWN EE 8193.37, np_slider: 100 in 0..8 reads back 8; raising min to 5
+    // turns 0 into 5. A correction: the source keeps its value.
+    let mut settings = Settings::default();
+    for (name, value) in [("v", json!(100)), ("lo", json!(0)), ("hi", json!(8))] {
+        settings.bindings.insert(name.into(), Binding { value, ..Default::default() });
+    }
+    let mut h = harness(
+        json!([{"type":"slider","value":{"bind":"v"},"min":{"bind":"lo"},"max":{"bind":"hi"},
+            "step":1,"height":30,"width":300}]),
+        settings,
+    );
+    h.state_mut().state.preview_interactive = true;
+    h.run();
+    let value = |h: &Harness<'_, Case>| {
+        h.state().state.runtime.as_ref().unwrap().settings.bindings["v"].value.clone()
+    };
+    assert_eq!(value(&h), json!(8));
+    let runtime = h.state_mut().state.runtime.as_mut().unwrap();
+    runtime.settings.bindings.get_mut("v").unwrap().value = json!(0);
+    runtime.settings.bindings.get_mut("lo").unwrap().value = json!(5);
+    h.run();
+    assert_eq!(value(&h), json!(5));
+    assert_eq!(h.state().settings.bindings["v"].value, json!(100));
 }
 
 #[test]

@@ -250,6 +250,7 @@ pub(super) fn presets(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &mu
                 {
                     assign_ids(&mut node, doc);
                     let target = doc.pointer_mut(&parent).unwrap();
+                    design::fit_into(target, &mut node);
                     if target["type"] == "list" {
                         if let Some(a) = target["row_template"].as_array_mut() {
                             a.push(json!([node, 150.0, true]));

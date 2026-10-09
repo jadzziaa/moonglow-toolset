@@ -505,4 +505,29 @@ and the preview follow them.
   the title bar. With `accepts_input` false, clicks go through the window. An
   edge constraint keeps the window inside its margins without changing a bound
   geometry's value. A placeholder is drawn greyed. A missing image shows the
-  game's own missing-image picture in the game, and a note in the preview.
+  game's own missing-image picture in the game (built into the client, so not
+  one the preview can load), and a note in the preview. The title bar is 33
+  high, and the body below it has its own frame.
+- **Groups** scroll until the far edge of what they hold (with 2 points of
+  padding on each side) meets the end of the bar's track. The track stops
+  short of the view by the bar's two buttons, so a group always scrolls 36
+  points past its content. The preview scrolls groups both ways.
+- **Sliders** keep a bound value between their bound minimum and maximum, and
+  write the corrected value back: 100 in 0 to 8 becomes 8, and raising the
+  minimum to 5 turns 0 into 5. Interact does the same.
+- **Bound values take effect at once**: a tooltip or disabled tooltip, and an
+  image's aspect and alignment, change as soon as a script sets their binds.
+- **Text that doesn't fit.** Left-aligned text (a label, a combo's choice)
+  loses its last letters whole; the letter that reaches the edge stays.
+  Centred and right-aligned text is cut at the edge instead. A combo's text
+  stops 14 points before its arrow.
+- **A combo's list** is as wide as its widest choice plus 67, whatever the
+  combo's width, 23 points a choice plus 5 high, and always has a scrollbar.
+- **Encouraged** controls pulse between their normal and their hover look; the
+  preview shows the hover look.
+- **Text inputs** count `max` in UTF-8 bytes. Below 4, a letter outside ASCII
+  can be stored as garbage (with `max` 1, typing *Ż* stores U+0005). A warning
+  says so.
+- **UI scale** is capped at the screen's height divided by 720, unless
+  `ui.unconstrain-scale` is set: at 150% on a window 993 high the game draws
+  at 1.38. The preview's **Screen** mode applies the same cap.

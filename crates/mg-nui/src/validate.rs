@@ -485,6 +485,13 @@ impl Check<'_> {
                     &format!("{path}/max"),
                     "NuiTextEdit max length must be a static integer from 1 to 65535",
                 );
+            } else if v["max"].as_u64().is_some_and(|n| n < 4) {
+                // max counts UTF-8 bytes: in NWN EE 8193.37 with max 1, typing
+                // "Ż" stores U+0005 and "é" U+0003.
+                self.warn(
+                    &format!("{path}/max"),
+                    "max counts UTF-8 bytes, and below 4 NWN can store part of a non-ASCII character as garbage: allow at least 4",
+                );
             }
         }
         // Unlike NuiCombo, Options/Toggles require the labels array itself at

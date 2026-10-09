@@ -194,13 +194,54 @@ pub(super) fn text(
     align: Align2,
     wrap: bool,
 ) {
+    draw_text(p, assets, rect, label, font, scale, color, align, wrap, true);
+}
+
+/// `clamp`: drawn by nk_draw_text, which cuts glyphs; an edit field only clips.
+#[allow(clippy::too_many_arguments)]
+fn draw_text(
+    p: &Painter,
+    assets: &skin::Assets,
+    rect: Rect,
+    label: &str,
+    font: &str,
+    scale: f32,
+    color: Color32,
+    align: Align2,
+    wrap: bool,
+    clamp: bool,
+) {
     if !rect.is_positive() || label.is_empty() {
         return;
     }
     let (font_id, spacing) = assets.font(p.ctx(), font, scale);
-    let mut job = native_job(p.ctx(), label, &font_id, spacing, color, None);
-    job.wrap.max_width = if wrap { rect.width() } else { f32::INFINITY };
-    let galley = p.layout_job(job);
+    let layout = |label: &str| {
+        let mut job = native_job(p.ctx(), label, &font_id, spacing, color, None);
+        job.wrap.max_width = if wrap { rect.width() } else { f32::INFINITY };
+        p.layout_job(job)
+    };
+    let mut galley = layout(label);
+    // nk_draw_text cuts a left-aligned line after the glyph that reaches its
+    // end (nk_text_clamp; NWN EE 8193.37, np_misc: a 200-wide combo shows
+    // "A very long dropdow"); centred and right-aligned text is clipped instead.
+    if clamp
+        && !wrap
+        && align.x() == egui::Align::Min
+        && !label.contains('\n')
+        && galley.size().x > rect.width()
+    {
+        let mut width = 0.0;
+        let fit = label
+            .char_indices()
+            .zip(native_advances(p.ctx(), label, &font_id, spacing))
+            .find(|(_, advance)| {
+                let past = width >= rect.width();
+                width += advance;
+                past
+            })
+            .map_or(label.len(), |((i, _), _)| i);
+        galley = layout(&label[..fit]);
+    }
     // NWN clips overflowing single-line text at the right edge; centering an
     // oversized galley would hide the start of a label instead.
     let mut position = align.align_size_within_rect(galley.size(), rect).min;
@@ -743,6 +784,7 @@ pub(super) fn canvas(
             state.resize = None;
             state.list_scroll.clear();
             state.group_scroll_x.clear();
+            state.group_scroll_y.clear();
             state.text_scroll_x.clear();
             state.text_scroll_y.clear();
         }
@@ -750,6 +792,7 @@ pub(super) fn canvas(
             state.runtime = None;
             state.list_scroll.clear();
             state.group_scroll_x.clear();
+            state.group_scroll_y.clear();
             state.text_scroll_x.clear();
             state.text_scroll_y.clear();
         }
@@ -831,6 +874,7 @@ pub(super) fn canvas(
         runtime = Some(interaction::Session::new(v, s));
         state.list_scroll.clear();
         state.group_scroll_x.clear();
+        state.group_scroll_y.clear();
         state.text_scroll_x.clear();
         state.text_scroll_y.clear();
     }
@@ -869,15 +913,23 @@ pub(super) fn canvas(
     if state.screen_size.x <= 0.0 {
         state.screen_size = vec2(1920.0, 1080.0);
     }
-    let extent = if state.screen_preview { state.screen_size / state.preview_scale } else { size };
+    // The client caps UI scale at its screen height over 720 unless
+    // ui.unconstrain-scale is set (NWN EE 8193.37: 150% on a 993-high screen
+    // draws at 1.38).
+    let ui_scale = if state.screen_preview {
+        state.preview_scale.min(state.screen_size.y / 720.0)
+    } else {
+        state.preview_scale
+    };
+    let extent = if state.screen_preview { state.screen_size / ui_scale } else { size };
     let zoom = if state.zoom == 0.0 {
-        ((available.x - 40.0) / (extent.x * state.preview_scale))
-            .min((available.y - 48.0) / (extent.y * state.preview_scale))
+        ((available.x - 40.0) / (extent.x * ui_scale))
+            .min((available.y - 48.0) / (extent.y * ui_scale))
             .clamp(0.1, 1.0)
     } else {
         state.zoom
     };
-    let scale = state.resize.as_ref().map_or(zoom * state.preview_scale, |r| r.scale);
+    let scale = state.resize.as_ref().map_or(zoom * ui_scale, |r| r.scale);
     let mut dropped = None;
     let mut unsupported = BTreeSet::new();
     let mut close_requested = false;
@@ -923,7 +975,7 @@ pub(super) fn canvas(
             };
             let font = string(&v["font"], s, None);
             let header_height =
-                if title.is_empty() && !collapsible && !closable { 0.0 } else { 34.0 * scale };
+                if title.is_empty() && !collapsible && !closable { 0.0 } else { 33.0 * scale };
             let shown_size = if collapsed { vec2(size.x, header_height / scale) } else { size };
             let rect = match state.resize.as_ref().filter(|r| r.path.is_empty()) {
                 Some(resize) => Rect::from_min_size(space.min + resize.anchor, shown_size * scale),
@@ -949,6 +1001,12 @@ pub(super) fn canvas(
             let header = Rect::from_min_size(rect.min, vec2(rect.width(), header_height));
             if header_height > 0.0 {
                 assets.paint(&p, "window.header.normal", header, scale, true, Color32::WHITE);
+                // Under its 33-point title bar the client frames the body on its
+                // own: two lines between them (NWN EE 8193.37, np_group).
+                if border && !collapsed {
+                    let body = Rect::from_min_max(header.left_bottom(), rect.max);
+                    assets.paint(&p, "window.border_image", body, scale, true, Color32::WHITE);
+                }
                 let mut title_rect = header.shrink2(vec2(10.0, 2.0) * scale);
                 let button_count = usize::from(closable) + usize::from(collapsible);
                 title_rect.max.x -= 26.0 * button_count as f32 * scale;
@@ -1104,7 +1162,7 @@ pub(super) fn canvas(
         "{} × {} · UI scale {}% · Game resources; local layout preview",
         size.x as u32,
         size.y as u32,
-        (state.preview_scale * 100.0) as u32
+        (ui_scale * 100.0).round() as u32
     ));
     if !unsupported.is_empty() {
         ui.colored_label(
@@ -1285,6 +1343,9 @@ impl Renderer<'_> {
             match mode {
                 2 => "hover",
                 3 => "active",
+                // An encouraged control breathes between its normal and hover
+                // looks (NWN EE 8193.37, np_misc); a still preview shows the peak.
+                _ if flag(&node["encouraged"], s, row, false) => "hover",
                 _ => "normal",
             }
         };
@@ -1358,72 +1419,115 @@ impl Renderer<'_> {
                         a.paint(&p, "window.border_image", body, scale, true, tint);
                     }
                     let mut inner = if ty == "group" { body.shrink(4.0 * scale) } else { body };
-                    let mut scroll_x = 0.0;
+                    let mut scrolled = Vec2::ZERO;
                     if ty == "group" {
-                        let child_width =
-                            natural(&node["children"][0], s, row, depth + 1).x * scale;
+                        // Nuklear scrolls a group until its content's far edge (with
+                        // the group's 2-point padding each side) meets the end of the
+                        // bar's track, which falls short of the view by the bar's two
+                        // end buttons (NWN EE 8193.37, np_group: 374 + 4 − (124 − 36)
+                        // = 290 down).
+                        let content = natural(&node["children"][0], s, row, depth + 1) * scale
+                            + Vec2::splat(4.0 * scale);
                         let scroll = val(&node["scrollbars"], s, row).as_i64().unwrap_or(4);
+                        // x: the vertical bar's width; y: the horizontal bar's height.
+                        let bars = vec2(
+                            a.number("window.scrollbar_size_x", 18.0),
+                            a.number("window.scrollbar_size_y", 18.0),
+                        ) * scale;
+                        let mut on = [matches!(scroll, 1 | 3), matches!(scroll, 2 | 3)];
+                        if scroll == 4 {
+                            on[0] = content.x > inner.width();
+                            on[1] = content.y > inner.height() - if on[0] { bars.y } else { 0.0 };
+                            on[0] = content.x > inner.width() - if on[1] { bars.x } else { 0.0 };
+                        }
+                        if on[0] {
+                            inner.max.y -= bars.y;
+                        }
+                        if on[1] {
+                            inner.max.x -= bars.x;
+                        }
                         let key = format!("{path}/{row:?}");
-                        let max_scroll = (child_width - inner.width()).max(0.0);
-                        if matches!(scroll, 1 | 3) || (scroll == 4 && max_scroll > 0.0) {
+                        for axis in [0, 1] {
+                            let horizontal = axis == 0;
+                            // A bar's end buttons are as long as the bar is thick.
+                            let thick = if horizontal { bars.y } else { bars.x };
+                            let max = (content[axis] - (inner.size()[axis] - 2.0 * thick)).max(0.0);
+                            let stored = if horizontal {
+                                &self.state.group_scroll_x
+                            } else {
+                                &self.state.group_scroll_y
+                            };
                             // Logical units keep the visible content stable when zoom changes.
-                            scroll_x =
-                                (self.state.group_scroll_x.get(&key).copied().unwrap_or(0.0)
-                                    * scale)
-                                    .clamp(0.0, max_scroll);
-                            let height = a.number("window.scrollbar_size_y", 18.0) * scale;
-                            let inset = 2.0 * scale;
-                            let strip = Rect::from_min_max(
-                                pos2(body.left() + inset, body.bottom() - height - inset),
-                                body.right_bottom() - Vec2::splat(inset),
-                            );
-                            let scroll_response = ui.interact(
-                                strip,
-                                ui.id().with(("group-scroll-x", source_path, row)),
-                                Sense::click_and_drag(),
-                            );
-                            scroll_response.widget_info(|| {
-                                egui::WidgetInfo::labeled(
-                                    egui::WidgetType::Slider,
-                                    !disabled,
-                                    format!("Scroll group horizontally {path}"),
-                                )
-                            });
-                            if !disabled && editable {
-                                if ui.rect_contains_pointer(body) {
-                                    scroll_x -= ui.input_mut(|i| {
-                                        let delta = i.smooth_scroll_delta.x;
-                                        i.smooth_scroll_delta.x = 0.0;
-                                        delta
-                                    });
+                            let mut offset = stored.get(&key).copied().unwrap_or(0.0) * scale;
+                            if on[axis] {
+                                let mut area = body;
+                                if horizontal && on[1] {
+                                    area.max.x -= bars.x;
+                                } else if !horizontal && on[0] {
+                                    area.max.y -= bars.y;
                                 }
-                                if (scroll_response.clicked() || scroll_response.dragged())
-                                    && let Some(pointer) = scroll_response.interact_pointer_pos()
-                                {
-                                    let start = strip.left() + height;
-                                    let end = strip.right() - height;
-                                    if pointer.x < start {
-                                        scroll_x -= 20.0 * scale;
-                                    } else if pointer.x > end {
-                                        scroll_x += 20.0 * scale;
-                                    } else {
-                                        scroll_x = ((pointer.x - start) / (end - start).max(1.0))
+                                let inset = 2.0 * scale;
+                                let mut strip = area.shrink(inset);
+                                strip.min[1 - axis] = strip.max[1 - axis] - thick;
+                                let scroll_response = ui.interact(
+                                    strip,
+                                    ui.id().with(("group-scroll", axis, source_path, row)),
+                                    Sense::click_and_drag(),
+                                );
+                                scroll_response.widget_info(|| {
+                                    egui::WidgetInfo::labeled(
+                                        egui::WidgetType::Slider,
+                                        !disabled,
+                                        format!(
+                                            "Scroll group {} {path}",
+                                            if horizontal { "horizontally" } else { "vertically" }
+                                        ),
+                                    )
+                                });
+                                if !disabled && editable {
+                                    if ui.rect_contains_pointer(body) {
+                                        offset -= ui.input_mut(|i| {
+                                            let delta = i.smooth_scroll_delta[axis];
+                                            i.smooth_scroll_delta[axis] = 0.0;
+                                            delta
+                                        });
+                                    }
+                                    if (scroll_response.clicked() || scroll_response.dragged())
+                                        && let Some(pointer) =
+                                            scroll_response.interact_pointer_pos()
+                                    {
+                                        let start = strip.min[axis] + thick;
+                                        let end = strip.max[axis] - thick;
+                                        if pointer[axis] < start {
+                                            offset -= 20.0 * scale;
+                                        } else if pointer[axis] > end {
+                                            offset += 20.0 * scale;
+                                        } else {
+                                            offset = ((pointer[axis] - start)
+                                                / (end - start).max(1.0))
                                             .clamp(0.0, 1.0)
-                                            * max_scroll;
+                                                * max;
+                                        }
                                     }
                                 }
+                                offset = offset.clamp(0.0, max);
+                                self.scrollbar(
+                                    &p,
+                                    area,
+                                    (inner.size()[axis] - 2.0 * thick) / content[axis].max(1.0),
+                                    offset / max.max(1.0),
+                                    horizontal,
+                                );
+                            } else {
+                                offset = 0.0;
                             }
-                            scroll_x = scroll_x.clamp(0.0, max_scroll);
-                            self.scrollbar(
-                                &p,
-                                body,
-                                inner.width() / child_width.max(1.0),
-                                scroll_x / max_scroll.max(1.0),
-                                true,
-                            );
-                            inner.max.y -= height;
+                            scrolled[axis] = offset;
+                            if horizontal {
+                                self.state.group_scroll_x.insert(key.clone(), offset / scale);
+                            } else {
+                                self.state.group_scroll_y.insert(key.clone(), offset / scale);
+                            }
                         }
-                        self.state.group_scroll_x.insert(key, scroll_x / scale);
                     }
                     if let Some(children) = node["children"].as_array() {
                         if children.is_empty() && self.state.guides() {
@@ -1465,7 +1569,7 @@ impl Renderer<'_> {
                         let height_share = ((inner.height() - fixed_height - total_gap)
                             / height_flex.max(1) as f32)
                             .max(0.0);
-                        let mut cursor = inner.min - vec2(scroll_x, 0.0);
+                        let mut cursor = inner.min - scrolled;
                         let old_clip = ui.clip_rect();
                         // Only a group (like the window and a list) clips what is
                         // inside it; a row or a column doesn't: draw layers in it
@@ -1484,17 +1588,18 @@ impl Renderer<'_> {
                                     inner.width()
                                 };
                             }
-                            if fills_height(child, s, row) {
+                            if ty == "group"
+                                && matches!(child["type"].as_str(), Some("col" | "row"))
+                            {
+                                // A group's layout fills it, or runs past it and scrolls.
+                                size.y = inner.height().max(size.y);
+                            } else if fills_height(child, s, row) {
                                 size.y = if ty == "row" || ty == "group" {
                                     inner.height()
                                 } else {
                                     // Never less than its own: the window scrolls instead.
                                     height_share.max(size.y)
                                 };
-                            } else if ty == "group"
-                                && matches!(child["type"].as_str(), Some("col" | "row"))
-                            {
-                                size.y = inner.height();
                             } else if ty == "row" && num(&child["height"], s, row, -1.0) < 0.0 {
                                 // A control's own height gives way to its row's.
                                 size.y = size.y.min(inner.height());
@@ -1857,11 +1962,15 @@ impl Renderer<'_> {
                     let pad = a.number(&format!("{section}.padding_x"), 10.0) * scale;
                     let mut content = body.shrink2(vec2(pad, 2.0 * scale));
                     let value = if ty == "combo" {
-                        content.max.x -= 22.0 * scale;
-                        let arrow = Rect::from_center_size(
-                            body.right_center() - vec2(18.0 * scale, 0.0),
-                            vec2(22.0, 22.0) * scale,
+                        // nk_combo_begin_text: a square button inset 4 top and
+                        // bottom at the right, and the label stops the content
+                        // padding plus a spacing of 4 before it.
+                        let button = Rect::from_min_size(
+                            pos2(body.right() - body.height(), body.top() + 4.0 * scale),
+                            Vec2::splat((body.height() - 8.0 * scale).max(0.0)),
                         );
+                        content.max.x = button.left() - pad - 4.0 * scale;
+                        let arrow = button;
                         a.paint(&p, "combo.button.normal", arrow, scale, false, tint);
                         let entries = val(&node["elements"], s, row).as_array();
                         let selected = val(&node["value"], s, row);
@@ -1942,7 +2051,7 @@ impl Renderer<'_> {
                         // The client greys a placeholder (an empty input's label).
                         let placeholder = ty == "textedit"
                             && localized_string(&node["value"], s, row, a).is_empty();
-                        text(
+                        draw_text(
                             &p,
                             a,
                             content,
@@ -1957,32 +2066,79 @@ impl Renderer<'_> {
                             },
                             flag(&node["multiline"], s, row, false)
                                 && flag(&node["wordwrap"], s, row, true),
+                            ty == "combo",
                         );
                     }
                     if ty == "combo" && interactive {
+                        // The client's popup (NWN EE 8193.37, np_combo): as wide as
+                        // its widest entry plus 67, 23 a row plus 5, the bevel of a
+                        // group, its top on the combo's bottom bevel and always a
+                        // vertical bar; no mark on the selected entry.
+                        let entries: Vec<String> = val(&node["elements"], s, row)
+                            .as_array()
+                            .map(|e| e.iter().map(|e| localized_string(&e[0], s, row, a)).collect())
+                            .unwrap_or_default();
+                        let (font_id, spacing) = a.font(ui.ctx(), font, scale);
+                        let widest = entries
+                            .iter()
+                            .map(|e| {
+                                native_advances(ui.ctx(), e, &font_id, spacing).iter().sum::<f32>()
+                            })
+                            .fold(0.0, f32::max);
+                        let size = vec2(
+                            widest + 67.0 * scale,
+                            (23.0 * entries.len() as f32 + 5.0) * scale,
+                        );
                         egui::Popup::menu(&response)
-                            .frame(
-                                egui::Frame::new()
-                                    .fill(Color32::BLACK)
-                                    .stroke(Stroke::new(1.0, GOLD))
-                                    .inner_margin(6),
-                            )
+                            .frame(egui::Frame::NONE)
+                            .at_position(pos2(body.left(), body.bottom() - 5.0 * scale))
+                            .gap(0.0)
                             .show(|ui| {
-                                ui.style_mut().override_font_id =
-                                    Some(a.font(ui.ctx(), font, scale).0);
-                                if let Some(entries) = val(&node["elements"], s, row).as_array() {
-                                    for entry in entries {
-                                        if ui
-                                            .selectable_label(
-                                                entry[1] == *val(&node["value"], s, row),
-                                                localized_string(&entry[0], s, row, a),
-                                            )
-                                            .clicked()
-                                        {
-                                            changed = Some(Some(entry[1].clone()));
-                                            normalization = false;
-                                            ui.close();
-                                        }
+                                let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+                                let p = ui.painter();
+                                p.rect_filled(
+                                    rect,
+                                    0,
+                                    a.color("window.background", Color32::BLACK),
+                                );
+                                a.paint(p, "window.border_image", rect, scale, true, tint);
+                                self.scrollbar(p, rect, 0.78, 0.0, false);
+                                for (i, entry) in entries.iter().enumerate() {
+                                    let item = Rect::from_min_size(
+                                        rect.min + vec2(8.0, 5.0 + 23.0 * i as f32) * scale,
+                                        vec2(rect.width() - 30.0 * scale, 23.0 * scale),
+                                    );
+                                    text(
+                                        p,
+                                        a,
+                                        item,
+                                        entry,
+                                        font,
+                                        scale,
+                                        fg,
+                                        Align2::LEFT_CENTER,
+                                        false,
+                                    );
+                                    let pick = ui.interact(
+                                        item,
+                                        ui.id().with(("combo-entry", i)),
+                                        Sense::click(),
+                                    );
+                                    pick.widget_info(|| {
+                                        egui::WidgetInfo::labeled(
+                                            egui::WidgetType::Button,
+                                            true,
+                                            entry,
+                                        )
+                                    });
+                                    if pick.clicked()
+                                        && let Some(id) = val(&node["elements"], s, row)
+                                            .get(i)
+                                            .map(|e| e[1].clone())
+                                    {
+                                        changed = Some(Some(id));
+                                        normalization = false;
+                                        ui.close();
                                     }
                                 }
                             });
@@ -2057,6 +2213,25 @@ impl Renderer<'_> {
                         } else {
                             json!(value)
                         }));
+                    }
+                    // The client clamps a bound value into the slider's range and
+                    // writes it back (NWN EE 8193.37, np_slider: 100 in 0..8 reads
+                    // 8; min raised to 5 turns 0 into 5). A correction, not an edit.
+                    let current = num(&node["value"], s, row, 0.0);
+                    if interactive
+                        && ty != "progress"
+                        && changed.is_none()
+                        && max >= min
+                        && node["value"].get("bind").is_some()
+                        && !(min..=max).contains(&current)
+                    {
+                        let value = current.clamp(min, max);
+                        changed = Some(Some(if ty == "slider" {
+                            json!(value.round() as i64)
+                        } else {
+                            json!(value)
+                        }));
+                        normalization = true;
                     }
                     let ratio = ((num(&node["value"], s, row, 0.0) - min)
                         / (max - min).max(f32::EPSILON))

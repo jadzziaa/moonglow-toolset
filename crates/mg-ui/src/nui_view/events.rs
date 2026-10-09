@@ -630,7 +630,9 @@ pub(super) fn editor(
                 ui.weak("New binds and layouts are saved together with this event.");
             });
         }
-        if let Some(i) = ui.ctx().data_mut(|d| d.remove_temp::<usize>(draft_id.with("remove"))) {
+        if let Some(i) = ui.ctx().data_mut(|d| d.remove_temp::<usize>(draft_id.with("remove")))
+            && i < s.actions.len()
+        {
             s.actions.remove(i);
         }
         ui.ctx().data_mut(|d| {

@@ -279,6 +279,14 @@ fn nui_module_previews() {
         h.run();
         h.get_by_label("100%").click();
         h.run_steps(3);
+        // NUI_PREVIEW_CLICK="Canvas Dropdown#2": Interact, then click the 2nd such control.
+        if let Ok(click) = std::env::var("NUI_PREVIEW_CLICK") {
+            let (label, nth) = click.split_once('#').unwrap_or((&click, "1"));
+            h.get_by_label("Interact").click();
+            h.run();
+            h.get_all_by_label(label).nth(nth.parse::<usize>().unwrap() - 1).unwrap().click();
+            h.run_steps(3);
+        }
         h.render().unwrap().save(dir.join(format!("{}.png", key.resref))).unwrap();
     }
     assert_eq!(std::fs::read(path).unwrap(), before, "Preview must not rewrite the module");

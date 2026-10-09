@@ -41,6 +41,7 @@ struct State {
     tree_selection: String,
     list_scroll: std::collections::BTreeMap<String, f32>,
     group_scroll_x: std::collections::BTreeMap<String, f32>,
+    group_scroll_y: std::collections::BTreeMap<String, f32>,
     text_scroll_x: std::collections::BTreeMap<String, f32>,
     text_scroll_y: std::collections::BTreeMap<String, f32>,
     selected_many: std::collections::BTreeSet<String>,
@@ -361,6 +362,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             }
             for d in &findings {
                 ui.label(format!("{:?} {}: {}", d.severity, d.path, d.message));
+                if d.message.starts_with("The mg_close button has no Clicked event")
+                    && let Ok(s) = &settings
+                    && ui.small_button("Add Clicked → Close window").clicked()
+                {
+                    let mut s = s.clone();
+                    s.actions.push(mg_nui::Route {
+                        event: "click".into(),
+                        element: "mg_close".into(),
+                        action: mg_nui::Action::Close,
+                    });
+                    config_raw = String::from_utf8(s.bytes()).unwrap();
+                }
             }
             if errors + warnings == 0 {
                 ui.weak("No API issues found. Verify the final appearance and events in NWN.");
@@ -2397,6 +2410,41 @@ mod tests {
         compact.get_by_label("Properties").click();
         compact.run();
         compact.render().unwrap().save(dir.join("compact.png")).unwrap();
+    }
+
+    /// The Close button the Creator inserts does nothing in game without its
+    /// route; the warning carries the fix.
+    #[test]
+    fn nui_close_button_warning_adds_its_route() {
+        let mut window = mg_nui::window();
+        window["root"]["children"] =
+            json!([{"type":"button","id":"mg_close","label":"Close","value":null}]);
+        let mut app = app();
+        let ws = app.ws.as_mut().unwrap();
+        ws.module.set(
+            mg_nui::key("nui_test", ResType::JUI),
+            serde_json::to_vec_pretty(&window).unwrap(),
+        );
+        ws.module.set(mg_nui::key("nui_test", ResType::TXT), Settings::default().bytes());
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 850.0)).build_ui_state(
+            |ui, app: &mut Moonglow| {
+                super::ui(app, ui, Some(mg_nui::key("nui_test", ResType::JUI)));
+                app.run_actions();
+            },
+            app,
+        );
+        h.run();
+        h.get_by_label_contains("warnings").click();
+        h.run();
+        h.get_by_label("Add Clicked → Close window").click();
+        h.run();
+        let ws = h.state().ws.as_ref().unwrap();
+        let s = Settings::parse(ws.module.get(&mg_nui::key("nui_test", ResType::TXT)).unwrap())
+            .unwrap();
+        assert!(s.actions.iter().any(|r| r.element == "mg_close"
+            && r.event == "click"
+            && r.action == mg_nui::Action::Close));
+        assert!(h.query_by_label("Add Clicked → Close window").is_none());
     }
 
     /// Hand-written or foreign JUI reaches every page and Interact: wrong

@@ -144,9 +144,11 @@ pub(super) fn chart(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
         for (i,slot) in slots.iter_mut().enumerate() {
             ui.push_id(i,|ui| {
                 ui.strong(format!("Series {}",i+1));
-                let mut kind=slot["type"].as_i64().unwrap_or(0);
+                let before=slot["type"].as_i64().unwrap_or(0);
+                let mut kind=before;
                 ui.horizontal(|ui|{ui.selectable_value(&mut kind,0,"Lines");ui.selectable_value(&mut kind,1,"Columns");});
-                slot["type"]=json!(kind);
+                // Only a choice writes: looking at a series never edits it.
+                if kind!=before {slot["type"]=json!(kind);}
                 let mut ignored=None;
                 for field in ["legend","color","data"]{ui.push_id(field,|ui|property(ui,field,"chart_slot",&mut slot[field],s,&mut ignored));}
                 if ui.button("Remove series").clicked(){remove=Some(i);}
