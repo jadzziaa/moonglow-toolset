@@ -342,9 +342,6 @@ pub fn tag_for(name: &str) -> String {
     name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(32).collect()
 }
 
-/// Adds a new area to a module, as Aurora's Area Wizard makes it, and
-/// returns its resref. The module's first area becomes its starting area,
-/// entered at the centre facing north.
 /// A lighting scheme (an environment.2da row, Aurora's Area Properties ›
 /// Visual): the area's sun, moon, fog, shadows, day and night and weather,
 /// and colours its tiles' lights are picked from.
@@ -404,6 +401,9 @@ impl Scheme {
     }
 }
 
+/// Adds a new area to a module, as Aurora's Area Wizard makes it, and
+/// returns its resref. The module's first area becomes its starting area,
+/// entered at the centre facing north.
 pub fn add_area(
     module: &mut Module,
     game: &GameData,
@@ -440,7 +440,7 @@ pub fn add_area_of(
     let lattice = mg_tiles::new_area(&index, set, spec.width, spec.height).map_err(tiles_error)?;
     let tiles = mg_tiles::fill(&index, &lattice, rng).map_err(tiles_error)?;
 
-    let defaults = AreaDefaults::for_tileset(game, spec.tileset)?;
+    let defaults = AreaDefaults::for_tileset(game, spec.tileset);
     let scheme = Scheme::read(game, defaults.env_scheme)?;
     let taken = |r: &ResRef| module.contains(&ResKey::new(*r, ResType::ARE));
     let area = resref_for(&spec.name, taken);
@@ -598,7 +598,7 @@ pub struct AreaDefaults {
 }
 
 impl AreaDefaults {
-    pub fn for_tileset(game: &GameData, tileset: ResRef) -> Result<AreaDefaults, NewError> {
+    pub fn for_tileset(game: &GameData, tileset: ResRef) -> AreaDefaults {
         let mut d = AreaDefaults {
             env_scheme: 0,
             flags: 0,
@@ -609,9 +609,9 @@ impl AreaDefaults {
             scripts: [ResRef::EMPTY; 4],
             audio: AreaAudio::default(),
         };
-        let Ok(data) = game.resman.get_named("areag", ResType::INI) else { return Ok(d) };
+        let Ok(data) = game.resman.get_named("areag", ResType::INI) else { return d };
         let ini = Ini::parse(&game.language.codepage().decode(&data));
-        let Some(s) = ini.section(&tileset.to_string()) else { return Ok(d) };
+        let Some(s) = ini.section(&tileset.to_string()) else { return d };
         let int = |k: &str| s.int(k).unwrap_or(0);
         d.env_scheme = usize::try_from(int("EnvScheme")).unwrap_or(0);
         d.flags = u32::from(int("Interior") != 0)
@@ -637,6 +637,6 @@ impl AreaDefaults {
             music_night: int("MusicNight"),
             music_delay: int("MusicDelay"),
         };
-        Ok(d)
+        d
     }
 }

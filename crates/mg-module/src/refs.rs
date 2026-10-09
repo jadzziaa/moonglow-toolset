@@ -1,6 +1,6 @@
 //! What a module's resources refer to: scripts, conversations, blueprints,
 //! areas, sounds, tilesets. The graph drives verification (missing and unused
-//! resources), export (dependencies) and, later, renaming.
+//! resources), export (dependencies) and renaming.
 //!
 //! References are found by walking every `CResRef` field of a GFF and
 //! classifying it by its label and the list it sits in; script sources add

@@ -83,17 +83,6 @@ impl Usage {
         let (list, rest) = first.split_once('[')?;
         Some((list, rest.strip_suffix(']')?.parse().ok()?))
     }
-
-    /// For a conversation: the node (its list, `EntryList` or `ReplyList`,
-    /// and index).
-    pub fn node(&self) -> Option<(&str, usize)> {
-        if self.from.restype != ResType::DLG {
-            return None;
-        }
-        let first = self.path.strip_prefix('/')?.split('/').next()?;
-        let (list, rest) = first.split_once('[')?;
-        Some((list, rest.strip_suffix(']')?.parse().ok()?))
-    }
 }
 
 /// A string in a script that spells a name (`"guard_spawn"`).

@@ -61,8 +61,6 @@ pub enum ModuleError {
     NoInfo,
     #[error("module.ifo: {0}")]
     BadInfo(String),
-    #[error("{0} is not a valid resource file name")]
-    BadName(String),
     #[error("{name}: {message}")]
     Source { name: String, message: String },
     #[error("changed on disk since Moonglow read them: {}", .0.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))]

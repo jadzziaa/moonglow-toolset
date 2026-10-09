@@ -487,18 +487,8 @@ impl Default for Hak {
 
 /// Today as an ERF's build date: years since 1900 and the day of the year.
 fn today() -> (u32, u32) {
-    let days = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() / 86_400);
-    let (mut year, mut left) = (1970u32, days as u32);
-    loop {
-        let len = if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 { 366 } else { 365 };
-        if left < len {
-            return (year - 1900, left);
-        }
-        left -= len;
-        year += 1;
-    }
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH);
+    crate::year_day(now.map_or(0, |d| d.as_secs()))
 }
 
 #[cfg(test)]

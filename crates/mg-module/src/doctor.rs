@@ -552,7 +552,7 @@ fn material(d: &mut Doctor, source: &str, key: ResKey) {
 }
 
 /// Columns that hold a talk-table string, by table.
-const STRREF_COLUMNS: [(&str, &str); 11] = [
+const STRREF_COLUMNS: [(&str, &str); 10] = [
     ("appearance", "STRING_REF"),
     ("baseitems", "Name"),
     ("classes", "Name"),
@@ -562,7 +562,6 @@ const STRREF_COLUMNS: [(&str, &str); 11] = [
     ("racialtypes", "Name"),
     ("skills", "Name"),
     ("spells", "Name"),
-    ("portraits", "BaseResRef"),
     ("doortypes", "StringRefGame"),
 ];
 
@@ -649,7 +648,7 @@ fn two_da(d: &mut Doctor, source: &str, key: ResKey, layer: usize) {
         row >= base.len() || mine != theirs
     };
     for (t, column) in STRREF_COLUMNS {
-        if name != t || column == "BaseResRef" {
+        if name != t {
             continue;
         }
         for row in 0..table.len() {
