@@ -6,7 +6,6 @@ use egui::Ui;
 use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct};
 use mg_module::palette::BlueprintKind;
-use mg_rules::ChoiceColumns;
 
 use super::{Form, inventory, situated};
 use crate::Action;
@@ -69,15 +68,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 }
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
-    let appearances = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("placeables", ChoiceColumns { name: Some("StrRef"), label: Some("Label") })
-                .ok()
-        })
-        .unwrap_or_default();
+    let appearances = f.choices("placeables", Some("StrRef"), Some("Label"));
     egui::Grid::new(("utp-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocName");
@@ -129,14 +120,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
 /// Treasure Model (the body bag left when it is destroyed), with an
 /// inventory.
 fn treasure(f: &mut Form<'_>, ui: &mut Ui) {
-    let bags = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("bodybag", ChoiceColumns { name: Some("Name"), label: Some("LABEL") }).ok()
-        })
-        .unwrap_or_default();
+    let bags = f.choices("bodybag", Some("Name"), Some("LABEL"));
     let has = f.int("HasInventory") != 0;
     ui.add_enabled_ui(has, |ui| ui.label("Treasure Model"));
     ui.add_enabled_ui(has, |ui| f.choice(ui, "Treasure model", "BodyBag", &bags, FieldType::Byte));

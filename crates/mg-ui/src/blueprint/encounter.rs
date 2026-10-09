@@ -6,7 +6,7 @@ use mg_core::ResRef;
 use mg_edit::{Command, Edit};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::BlueprintKind;
-use mg_rules::{Choice, ChoiceColumns};
+use mg_rules::Choice;
 
 use super::{Form, situated};
 use crate::Action;
@@ -35,12 +35,7 @@ pub(super) fn page(f: &mut Form<'_>, ui: &mut Ui, page: &str) {
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let game = f.app.game.as_deref();
-    let difficulties = game
-        .and_then(|g| {
-            g.choices("encdifficulty", ChoiceColumns { name: Some("STRREF"), label: Some("LABEL") })
-                .ok()
-        })
-        .unwrap_or_default();
+    let difficulties = f.choices("encdifficulty", Some("STRREF"), Some("LABEL"));
     let values: Vec<i64> = game
         .and_then(|g| g.table("encdifficulty").ok())
         .map(|t| (0..t.len()).map(|r| t.get_int(r, "VALUE").map_or(0, i64::from)).collect())

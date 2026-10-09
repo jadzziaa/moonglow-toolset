@@ -168,15 +168,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
-    let all = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("feat", ChoiceColumns { name: Some("FEAT"), label: Some("LABEL") }).ok()
-        })
-        .map(mg_rules::by_name)
-        .unwrap_or_default();
+    let all = mg_rules::by_name(f.choices("feat", Some("FEAT"), Some("LABEL")));
     let list: Vec<i64> =
         f.root.list("FeatList").unwrap_or(&[]).iter().filter_map(|s| s.integer("Feat")).collect();
     let id = egui::Id::new(("utc-feats", key));
@@ -629,15 +621,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
-    let names = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") }).ok()
-        })
-        .map(mg_rules::by_name)
-        .unwrap_or_default();
+    let names = mg_rules::by_name(f.choices("spells", Some("Name"), Some("Label")));
     let name_of = |row: i64| {
         names
             .iter()

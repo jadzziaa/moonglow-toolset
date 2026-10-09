@@ -113,11 +113,7 @@ pub(crate) fn refresh_hit_points(
 }
 
 fn choices(f: &Form<'_>, table: &str, name: &str, label: &str) -> Vec<Choice> {
-    f.app
-        .game
-        .as_ref()
-        .and_then(|g| g.choices(table, ChoiceColumns { name: Some(name), label: Some(label) }).ok())
-        .unwrap_or_default()
+    f.choices(table, Some(name), Some(label))
 }
 
 /// A creature's challenge rating, its gear read from the module's item

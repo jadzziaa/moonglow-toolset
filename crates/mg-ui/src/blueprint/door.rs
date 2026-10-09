@@ -79,15 +79,7 @@ fn door_types(f: &Form<'_>) -> Vec<Choice> {
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let types = door_types(f);
-    let generic = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("genericdoors", ChoiceColumns { name: Some("Name"), label: Some("Label") })
-                .ok()
-        })
-        .unwrap_or_default();
+    let generic = f.choices("genericdoors", Some("Name"), Some("Label"));
     egui::Grid::new(("utd-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Name");
         f.locstring(ui, "Name", "LocName");

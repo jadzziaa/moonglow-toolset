@@ -11,7 +11,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::{BlueprintKind, Palette};
 use mg_resman::ResKey;
-use mg_rules::Choice;
+use mg_rules::{Choice, ChoiceColumns};
 
 use crate::dialogs::FileKind;
 use crate::text::{decode, encode, with_english};
@@ -181,6 +181,19 @@ pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
 }
 
 impl Form<'_> {
+    /// A table's rows as a dropdown's choices: each row's name (its StrRef
+    /// column `name`), else its `label`. None without the game's data or
+    /// the table.
+    pub(crate) fn choices(
+        &self,
+        table: &str,
+        name: Option<&str>,
+        label: Option<&str>,
+    ) -> Vec<Choice> {
+        let game = self.app.game.as_ref();
+        game.and_then(|g| g.choices(table, ChoiceColumns { name, label }).ok()).unwrap_or_default()
+    }
+
     /// A text field of a localized string, in the talk table's color where
     /// that is where its text is from, with the StrRef beside it.
     fn loc_text(
