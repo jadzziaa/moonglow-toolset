@@ -369,7 +369,10 @@ mod tests {
         assert!(!watch.changed.load(Ordering::Relaxed), "nothing changed: nothing said");
         std::fs::write(dir.join("src/c.nss"), "void main() {}").unwrap();
         assert!(seen(&watch), "a file added is seen");
+        // (The watch may have seen the file made and then written: twice.)
         std::thread::sleep(Duration::from_millis(300));
-        assert!(!watch.changed.load(Ordering::Relaxed));
+        watch.changed.store(false, Ordering::Relaxed);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!watch.changed.load(Ordering::Relaxed), "and nothing said after");
     }
 }
