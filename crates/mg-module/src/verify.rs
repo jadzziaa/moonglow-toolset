@@ -39,6 +39,7 @@ impl Category {
             "Creature List" => Some(Category::Creatures),
             "Door List" => Some(Category::Doors),
             "Encounter List" => Some(Category::Encounters),
+            "List" => Some(Category::Items),
             "Placeable List" => Some(Category::Placeables),
             "SoundList" => Some(Category::Sounds),
             "StoreList" => Some(Category::Stores),
@@ -236,5 +237,31 @@ mod tests {
         );
         let unused: Vec<String> = unused(&m).iter().map(|k| k.to_string()).collect();
         assert_eq!(unused, ["lonely.ncs", "spare_bp.utc"]);
+    }
+
+    #[test]
+    fn an_item_blueprint_only_lying_in_an_area_is_used() {
+        let mut m = Module::new();
+        m.set_info(&Gff::new(*b"IFO ")).unwrap();
+        let mut g = Gff::new(*b"GIT ");
+        let on_the_ground = |name: &str| {
+            let mut item = mg_gff::Struct::new(0);
+            item.set("TemplateResRef", mg_gff::Value::resref(rr(name)));
+            item
+        };
+        g.root.set(
+            "List",
+            mg_gff::Value::List(vec![on_the_ground("floor_sword"), on_the_ground("gone_sword")]),
+        );
+        m.set_gff(key("area1", ResType::GIT), &g).unwrap();
+        m.set(key("floor_sword", ResType::UTI), Vec::new());
+        m.set(key("spare_sword", ResType::UTI), Vec::new());
+
+        let unused: Vec<String> = unused(&m).iter().map(|k| k.to_string()).collect();
+        assert_eq!(unused, ["spare_sword.uti"]);
+        let miss = missing(&m, &ResMan::new());
+        let got: Vec<(String, Category)> =
+            miss.iter().map(|m| (m.reference.target.to_string(), m.category)).collect();
+        assert_eq!(got, [("gone_sword".into(), Category::Items)]);
     }
 }

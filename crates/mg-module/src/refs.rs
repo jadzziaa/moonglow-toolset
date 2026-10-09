@@ -126,6 +126,11 @@ fn classify(file_type: &str, list: Option<&str>, label: &str) -> Option<RefKind>
     }
     Some(match label {
         "Conversation" => RefKind::Conversation,
+        // Items lying in an area are in its GIT's `List` (a name other
+        // files use for other things).
+        "TemplateResRef" if file_type == "GIT" && list == Some("List") => {
+            RefKind::Blueprint(ResType::UTI)
+        }
         "TemplateResRef" | "InventoryRes" | "EquippedRes" => {
             // In a blueprint, the root's TemplateResRef is its own name.
             RefKind::Blueprint(list.and_then(list_blueprint)?)
@@ -310,6 +315,21 @@ mod tests {
         let refs = gff_references(ResKey::parse("self", ResType::UTC).unwrap(), &g);
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].kind, RefKind::Blueprint(ResType::UTI));
+    }
+
+    #[test]
+    fn an_item_lying_in_an_area_references_its_blueprint() {
+        let mut item = Struct::new(0);
+        item.set("TemplateResRef", Value::resref(rr("my_sword")));
+        let mut g = Gff::new(*b"GIT ");
+        g.root.set("List", Value::List(vec![item.clone()]));
+        let refs = gff_references(ResKey::parse("area1", ResType::GIT).unwrap(), &g);
+        let got: Vec<(RefKind, &str)> = refs.iter().map(|r| (r.kind, r.path.as_str())).collect();
+        assert_eq!(got, [(RefKind::Blueprint(ResType::UTI), "/List[0]/TemplateResRef")]);
+        // A `List` elsewhere is not the area's items.
+        let mut other = Gff::new(*b"GIC ");
+        other.root.set("List", Value::List(vec![item]));
+        assert!(gff_references(ResKey::parse("area1", ResType::GIC).unwrap(), &other).is_empty());
     }
 
     #[test]
