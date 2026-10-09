@@ -14,7 +14,7 @@ The user manual, a chapter per file, also built into the program (Help › User 
 * [Areas](04-areas.md) - Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 * [Blueprints](05-blueprints.md) - Blueprints - palettes, the blueprint editors and wizards, and instances.
 * [Conversations](06-conversations.md) - Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
-* [Scripts](07-scripts.md) - Scripts - the script editor, finding your way in code, and the compiler.
+* [Scripts](07-scripts.md) - Scripts - the script editor, finding your way in code, the compiler and the NUI Creator.
 * [Journal and factions](08-journal-and-factions.md) - The Journal Editor and the Faction Editor.
 * [Build, verify and test](09-build-and-test.md) - Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 * [Options](10-options.md) - The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.

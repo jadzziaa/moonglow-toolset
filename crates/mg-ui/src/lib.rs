@@ -33,6 +33,7 @@ pub mod levelup_view;
 mod manual;
 pub mod model_view;
 pub mod module_props;
+mod nui_view;
 pub mod nwsync_view;
 mod options;
 mod outside;
@@ -99,6 +100,8 @@ enum Place {
 /// Something the user asked for, run after the frame is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
+    NewNui(String),
+    GenerateNui(String, bool),
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
     NewModule(String),
@@ -295,6 +298,7 @@ pub struct Moonglow {
     pub speaker: Box<dyn audio::Speaker>,
     /// Game images decoded for the UI, by lowercase name.
     pictures: images::Pictures,
+    pub(crate) nui_assets: nui_view::skin::Assets,
     palettes: images::Palettes,
     /// The area's sounds (Options › Sounds), and the area view heard this
     /// frame.
@@ -594,6 +598,7 @@ impl Moonglow {
             dialogs,
             speaker: Box::new(audio::Silence::default()),
             pictures: HashMap::new(),
+            nui_assets: Default::default(),
             palettes: HashMap::new(),
             area_audio: Default::default(),
             heard: None,
@@ -1782,6 +1787,7 @@ impl Moonglow {
     /// The game data's layers changed: the browser and the read-only
     /// viewers show them anew.
     fn load_order_changed(&mut self) {
+        self.nui_assets.invalidate();
         self.browser.stale = true;
         self.viewed.clear();
     }
@@ -2146,6 +2152,8 @@ impl Moonglow {
                     self.log.error(e.to_string());
                 }
             }
+            Action::NewNui(name) => nui_view::create(self, &name),
+            Action::GenerateNui(name, export) => nui_view::generate(self, &name, export),
             Action::CloseTab(tab) => {
                 if tab == Tab::Options {
                     self.options = None;
@@ -2169,6 +2177,7 @@ impl Moonglow {
             }
             Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
             Action::OpenTab(tab) => {
+                nui_view::route_tab(&mut self.dock, &tab);
                 // The area opened last is opened again with the module.
                 if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
                     self.settings.remember_area(&module, &area.to_string());

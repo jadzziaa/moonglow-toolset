@@ -7,6 +7,7 @@ use std::process::ExitCode;
 
 mod edits;
 mod lsp;
+mod nui;
 mod plugins;
 
 use anyhow::{Context, Result, bail};
@@ -39,6 +40,11 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Cmd {
+    /// Author NUI windows, check their API contract and compile their scripts.
+    Nui {
+        #[command(subcommand)]
+        cmd: nui::NuiCmd,
+    },
     /// List the contents of an ERF archive (mod, hak, erf, nwm, sav).
     Ls { archive: PathBuf },
     /// Unpack an ERF archive into a directory.
@@ -659,6 +665,7 @@ fn compiled(out: &mut Output, results: &[mg_module::build::ScriptResult]) -> ser
 fn run(cli: &Cli) -> Result<Output> {
     use serde_json::json;
     let out = match &cli.cmd {
+        Cmd::Nui { cmd } => nui::run(cli, cmd)?,
         Cmd::Ls { archive } => {
             let data = std::fs::read(archive).with_context(|| path_text(archive))?;
             let erf = Erf::read(&data)?;

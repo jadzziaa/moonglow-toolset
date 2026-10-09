@@ -46,6 +46,7 @@ pub enum Id {
     Journal,
     TalkTable,
     NewScript,
+    NewNui,
     Palettes,
     PlaceableGallery,
     Resources,
@@ -166,6 +167,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::Journal),
             Do(Id::TalkTable),
             Do(Id::NewScript),
+            Do(Id::NewNui),
             Separator,
             Do(Id::Palettes),
             Do(Id::PlaceableGallery),
@@ -308,6 +310,7 @@ impl Id {
                 "The module's own talk table (text named by StrRef), or a .tlk file",
             ),
             Id::NewScript => ("new-script", "New Script…", ""),
+            Id::NewNui => ("new-nui", "NUI Creator…", "Create a game UI window and its scripts"),
             Id::Palettes => ("palettes", "Palettes", ""),
             Id::PlaceableGallery => (
                 "placeable-gallery",
@@ -541,6 +544,7 @@ impl Id {
             | Id::Factions
             | Id::Journal
             | Id::NewScript
+            | Id::NewNui
             | Id::CompileAll
             | Id::BuildModule
             | Id::PublishNwsync
@@ -629,6 +633,7 @@ impl Id {
                 app.new_script = Some(String::new());
                 return;
             }
+            Id::NewNui => Action::OpenTab(Tab::Nui(None)),
             Id::NewTileset => return crate::tileset_view::new_tileset(app),
             Id::OpenTileset => return crate::tileset_view::open(app),
             Id::NewHak => return crate::hak_view::new_hak(app),

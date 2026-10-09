@@ -28,6 +28,21 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 `--no-user-dir` reads the game alone; `--json` prints the result as JSON
 (below). `mg COMMAND --help` describes each command.
 
+NUI authoring uses the same document checks and generator as the GUI:
+
+```text
+mg nui new path/to/module.mod my_window
+mg --json nui validate path/to/module.mod my_window
+mg nui generate path/to/module.mod my_window
+```
+
+`new` and `generate` save the module; `validate` is read-only and exits with an
+error for invalid JSON, settings or API-contract errors. `generate` compiles
+the opener and event handler before saving. An edited opener or a resource
+collision stops generation. Output explicitly leaves runtime verification
+unclaimed. See [NUI Creator](07-scripts.md#nui-creator) for binds, deployment
+and testing in Aurora/NWN.
+
 ## Archives and files
 
 | Command | Does |

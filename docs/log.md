@@ -1,6 +1,8 @@
 # Update log
 
 ## 2026-10-09
+* **Add**: [NUI Creator](manual/07-scripts.md#nui-creator): native JUI hierarchy/properties, list data, named views and event actions, draw layers, image selection, presets, source editing, API diagnostics and transactional script compilation/export; matching `mg nui` commands. The local game-art preview and compiler checks do not claim NWN runtime parity.
+* **Fix**: NUI Creator properties stay within resized panels; empty action targets offer bind creation with Undo. Validation checks static API arguments, chart data and image regions against the installed NUI includes; whole-window views and repeated drawing text retain their preview behavior and formatting.
 * **Update**: [The deferred list](deferred.md): cut-out textures and shadows as the client draws them (`decal` is unlit, only an MTR's `twosided` shows a face from behind, placeables cast shadows); `twosided` followed, shadows left.
 * **Update**: [The deferred list](deferred.md): a module's files are watched for changes off the window's thread.
 * **Update**: [The deferred list](deferred.md): a flip-book begins at the picture's top left and a Linked ribbon is twice its particles' size across, seen in the client (a builder's fog placeable).

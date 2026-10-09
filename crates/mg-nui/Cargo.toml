@@ -1,0 +1,23 @@
+[package]
+name = "mg-nui"
+description = "NWN NUI documents, diagnostics and script generation"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mg-core.workspace = true
+mg-edit.workspace = true
+mg-module.workspace = true
+mg-resman.workspace = true
+mg-script.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+mg-testkit.workspace = true
+
+[lints]
+workspace = true

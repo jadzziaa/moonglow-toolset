@@ -22,6 +22,7 @@ mg-erf = { path = "crates/mg-erf" }
 mg-key = { path = "crates/mg-key" }
 mg-mdl = { path = "crates/mg-mdl" }
 mg-module = { path = "crates/mg-module" }
+mg-nui = { path = "crates/mg-nui" }
 mg-plugin = { path = "crates/mg-plugin" }
 mg-preview = { path = "crates/mg-preview" }
 mg-render = { path = "crates/mg-render" }

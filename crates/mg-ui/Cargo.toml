@@ -24,6 +24,7 @@ glam.workspace = true
 mg-gff.workspace = true
 mg-mdl.workspace = true
 mg-module.workspace = true
+mg-nui.workspace = true
 mg-plugin.workspace = true
 mg-preview.workspace = true
 mg-render.workspace = true
@@ -37,6 +38,9 @@ mg-tiles.workspace = true
 mg-tlk.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml = "1.1"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "tga"] }
+skrifa = "0.44"
 wgpu.workspace = true
 
 [dev-dependencies]

@@ -1,7 +1,7 @@
 ---
 type: Manual Page
 title: Scripts
-description: Scripts - the script editor, finding your way in code, and the compiler.
+description: Scripts - the script editor, finding your way in code, the compiler and the NUI Creator.
 tags: [manual, scripts, nwscript]
 generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:33:31Z }
 ---
@@ -138,3 +138,307 @@ fields open them. The button is there as soon as a name is typed. For a name tha
 script in the module (the log says so) and opens it, as in Aurora: type
 the name of a new script into an event and click Edit. A conversation's
 "Text Appears When" script starts as a condition (`StartingConditional`).
+
+## NUI Creator
+
+**Tools › NUI Creator…** creates an Enhanced Edition UI window. Choose a
+unique resource name of 1–14 lowercase ASCII letters, digits or underscores.
+Existing windows open from **NUI windows** in the module tree. One JUI resource
+represents one window. Opening a document replaces the start page in the same
+creator workspace. **New NUI…** in the document header creates another document
+with a validated resource name. **Load NUI…** searches and opens NUI resources
+from the current module. Additional documents share that workspace as tabs.
+
+The **Design** page puts the canvas between a searchable component palette
+and the selected element's properties. Click a control on the canvas or in
+**Layers** to select it. Click a component to add it to the selected layout
+(or the selected control's parent); drag it onto a row, column or list to
+choose its destination. A list adds template cells. **Element actions** and
+the Layers menu offer move, duplicate and delete. The side panels resize;
+in a narrow tab they become **Add element**, **Layers** and **Properties** menus.
+**Layers** is a collapsible tree: use its arrows or **Expand all / Collapse all**.
+Selecting a control on the canvas reveals its ancestors. Up/Down visit visible
+rows; Left/Right collapse/expand branches. New lists start with an empty row
+template and a 150-point height. Add the controls you want repeated in each row;
+the empty-list hint belongs only to the editor. Existing list contents are kept.
+
+Select **Window** in Layers (or click the preview title) to resize the whole
+NUI window. Select a list or another element to resize that control instead.
+Drag its right, bottom or corner handle
+to change width, height or both. Release to apply one Undo step; Esc cancels.
+Handles are hidden in Clean view and remain available during Interact.
+Window resizing edits its geometry, preserving position and the `resizable`
+setting that controls whether players may resize it in game. List-template cells get
+their width from the template; resize their containing list or edit cell settings
+in JUI source. Dynamic dimensions are not replaced by a resize gesture.
+
+**Fit** and **100%** control canvas zoom. **Game preview** reads `nui_skin.tml`,
+textures and TrueType fonts from your configured NWN installation and current
+module content. No game artwork is bundled with Moonglow. **Scale** previews
+100–200% UI scaling; **State** shows the selected control normally, hovered,
+pressed or disabled. **Clean view** hides selection outlines and editor guides.
+Images and image buttons show the named game resource,
+including image regions, alignment and aspect modes. List rows use their
+corresponding bind-array values.
+
+Standard controls without an explicit width keep their 150-point width in a
+column. Widening the window does not stretch those controls; set **Width** when
+you need a wider label, button or input. Interact also supports the window's
+collapse button. A static `collapsed: false` hides that button; Reset restores
+the initial preview state. Font sizes use the installed font's vertical metrics.
+
+Turn on **Interact** to try checkboxes, toggle buttons, sliders, text fields,
+dropdowns, options, tabs and the color picker. Buttons run declarative actions
+configured in **Views & events** locally; they do not execute arbitrary event
+scripts. Preview values and list-row values are temporary and leave the
+JUI, initial bindings, module dirty state and Undo history unchanged. **Reset**
+restores the initial values; leaving Interact discards them. Editing the source
+also resets the simulation. List contents scroll with the wheel or scrollbar.
+The palette, Layers and properties remain editable during Interact, including
+dragging components into layouts. An authoring change resets the simulation
+to the updated document. Select controls in Layers while their preview handles
+input. Element shortcuts work over the editor panels; over the interactive
+canvas, keys belong to the simulated controls.
+Disabled and hidden controls cannot change values. This mode simulates local
+input and authored action routes; NWN event timing and the native layout solver
+still require a game test.
+
+Drag palette components into Layers to add them: the middle of a container
+appends a child, while its upper and lower edges insert before or after it.
+A leaf inserts after itself when dropped on its middle. The highlighted line
+or outline shows the destination. This also works inside the active Swap layout
+variant; surrounding controls remain read-only until you return to the main window.
+Drag existing controls in Layers to reorder them or move them into containers.
+Drop near the top/bottom of a row to insert before/after; the middle targets its
+container. Ctrl-click selects several elements for Delete. Use the layer search
+to reveal matching branches. **Element actions** can wrap a selection in a row,
+column or group. List-to-list moves retain cell width and variable-width settings.
+
+Select a list cell to edit its width and stretch behavior. Select the list itself
+to edit **Row data**: add, duplicate or remove a row across its bind arrays.
+Structured arrays, colors and rectangles are editable in Properties and Bindings.
+Dropdown entries expose their numeric values separately from their labels.
+Bind formatting exposes the stock number flags, decimal precision and text flags.
+
+Add **Swap layout** from the Design palette to create an area with replaceable
+contents. Select it and use **Variants** in Properties: edit its initial contents,
+add an empty variant or copy the initial contents. Variants appear underneath
+that Swap layout in Layers and are edited in place, with the rest of the window
+visible. The breadcrumb returns to that area's properties. Existing controls or
+Groups can be converted with **Convert to Swap layout**.
+
+Switching requires an explicit event: select a Button, **Add event**, **Clicked**,
+**Replace group layout**, then choose the target area and variant. Build generates
+`NuiSetGroupLayout` only for saved actions. **Views & events** lists existing
+variants with their targets and the same event editor. Other actions close
+the window, toggle a boolean bind (including a clicked list row), or set a bind.
+Watch routes enable the corresponding watch after initial values are assigned.
+Recursive watch cycles, missing targets and incompatible Set values are errors.
+The custom window ID is independent of the resource name.
+
+**Resources** shows where the skin, images and fonts came from and reports
+missing or invalid resources. HAKs take precedence over the current module,
+then lower resource layers; NUI images use DDS only after other supported
+formats. **Tools › Reload Resources** refreshes changed assets. Edits to module
+assets also invalidate the preview cache. Missing assets never alter the JUI.
+
+The preview uses game artwork with local layout and font rendering; it does
+not run the NWN engine or scripts. Stock frame bevels are preserved when resized.
+Charts render authored series; **Chart series** edits line/column series and
+their data. **Draw layers** adds polylines, curves, ellipses, arcs, text, images,
+lines and rectangles. Coordinate handles move shapes/control points and resize
+rectangles; fields expose binds, clipping, paint order and mouse conditions.
+Array-bound drawings repeat locally with a 512-instance preview limit. Numeric
+text preview limits precision to 16 digits. These are editor limits, not engine
+restrictions. Verify exact spacing, drawing, scrolling and events in the game.
+
+**Choose game image** searches the current resource stack and displays up to 24
+matching thumbnails. Cropping uses the native image region. Individual list-row
+images are edited in Row data. **Component presets** saves and inserts presets
+within this window, assigning fresh element IDs. **Screen** previews common
+resolutions and enables title dragging to author window position. A geometry
+bind remains a bind. Position and resize gestures commit on release; Esc cancels.
+The layout selector offers the full editor, preview alone, or preview beside
+editable JUI source. While editing a view, split source shows the companion
+settings JSON. Incomplete drafts still participate in Undo and recovery.
+
+With the pointer over **Design**, outside a text field or an open menu:
+
+| Keys | Action |
+| --- | --- |
+| Delete | Delete the selected element; select its neighbor |
+| Ctrl+D | Duplicate with new element IDs |
+| Ctrl+C / Ctrl+X / Ctrl+V | Copy / cut / paste elements between NUI windows in this Moonglow session |
+| Up / Down | Select the previous / next element in Layers |
+| Left / Right | Collapse / expand the selected branch, or visit its parent / child |
+| Alt+Up / Alt+Down | Move the element among its siblings |
+| Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) | Module Undo / Redo |
+
+On macOS, use Cmd instead of Ctrl. **Options › Keyboard › NUI Creator**
+changes the delete, duplicate, navigation and reorder keys; action menus
+show the current bindings. Text fields retain their text editing keys.
+Window roots and a group's required child cannot be deleted. Pasting retains
+list cell settings and initial bind values, renaming conflicting binds instead
+of replacing the destination's values. The element clipboard is internal to
+Moonglow; copying places a short marker on the system clipboard so native
+paste keys work even if it was empty. It does not import arbitrary clipboard
+text as a layout.
+Unknown fields and widget types are retained. Duplicate JSON keys are reported
+instead of silently discarding a value.
+Unused null `label`/`value` slots are hidden in the inspector. For a supported
+property, **Set value…** initializes the appropriate type instead of offering
+arbitrary JSON types. Custom data remains available in **Advanced › JUI source**.
+**Advanced properties** appears only when the selected element has additional
+editable fields; it does not show an empty section for type/version metadata.
+**Tooltip when control is disabled** explains an unavailable control on hover
+(for example, insufficient gold). It is optional text, not a switch that turns
+the regular tooltip off; remove the tooltip property when no tooltip is wanted.
+
+In **Design**, select a control and use **Property binding** at the top of its
+Properties panel. Choose the property, then **+ New bind for property**.
+The suggested name and initial value come from the control; **Create & connect**
+creates and connects the value in one Undo step. **Cancel bind** leaves the module
+unchanged. The source dropdown offers compatible existing binds, or **Constant
+(no bind)** to detach while keeping the initial value (the first row for a list).
+Other controls using the same bind are unaffected by detaching.
+
+List-template properties create an array with one value per existing row.
+Ordinary properties do not offer row arrays. **When this value changes** configures
+a watch action beside the property: close the window, set/toggle another bind,
+or replace a group layout. The layout, preview, initial value and action remain
+visible in Design. **Bindings** still lists all values for document-wide editing.
+
+The property's **… › Make dynamic (bind)** menu remains a shortcut.
+The menu is available for dynamic arguments in the stock NUI API. Layout
+arguments such as list row height and group borders remain constants; replace
+the layout to change them while the window is open.
+**Bindings › + Create bind** creates a named, typed value with an explicit
+initial value. Under **When this value changes**, use **+ Add event**, choose
+the action in **Then**, and **Save event**. These actions enable a `watch`
+automatically at build time; **Edit event** reopens the saved route.
+A watch reacts to a value change. The window's `close`
+event and the **Close window** action are separate concepts.
+**Bindings** also edits structured initial values and optional watches;
+**Advanced › Binding JSON** exposes the underlying settings. List-template binds need arrays;
+ordinary binds use the property's scalar, rectangle or color. The generator
+requires explicit defaults and sets every value before enabling watches.
+These authoring settings live in `<name>.txt`, marked `moonglow.nui/1`.
+The JUI itself contains only game UI data. Both resources use UTF-8.
+
+In an event form, **Target bind › + Create bind** prepares a named value and
+selects it for the action. Choose its type and initial value, then **Create &
+select**. The new bind is saved together with **Save event**; one Undo reverses
+the whole change. **Cancel event** also discards its new binds and layouts. Toggle
+actions offer boolean binds. To display or edit the same value in a control,
+assign that bind to the control's property as well. **Whole window** as a view
+target replaces the root content while keeping the window's title and geometry.
+The **Group layouts (NuiSetGroupLayout)** section stores replacement layouts;
+the **Replace group layout** action applies one to a Group ID or **Whole window**.
+In **Design**, a selected Group has a **Swap layouts** section. Use **+ Add
+layout** for an empty vertical or horizontal variant, or **Copy current
+contents** to preserve its current content as a reusable layout. Creating a
+variant assigns a missing Group ID and opens the variant on the canvas. It
+copies the contents, not the outer Group frame.
+
+To replace a fragment anywhere in the layout tree, select it and choose
+**Make swappable group**. This wraps it in an unbordered Group with a unique
+ID, retaining existing child IDs and explicit dimensions. A leaf is placed
+inside a Column so more controls can be added. Check the Group's size: native
+Groups do not determine their size from their children. The wrapper and each
+new variant are undoable; neither creates an event automatically.
+
+The **Swap layout** component adds a native Group slot. **Layers** names it
+**Swap layout · ID** and lists **Initial contents** and its named variants under
+the slot. Choose a variant there to edit its contents in place, inside the
+surrounding window. The slot keeps its size, border and position; surrounding
+controls are read-only. **Edit swap slot** returns to the Group's properties.
+Nested targets inside another variant are resolved through their declared
+parent target. This is a local preview; verify the generated result in NWN.
+The event form requires an explicit target;
+**Whole window** is available but is never chosen by default.
+
+The selected control's **Events** section is available directly in **Design**.
+Use **+ Add event**, choose **When** it runs and **Then** what it does. Nothing
+is saved until **Save event**. Controls without an ID receive a unique ID on
+save. Existing event cards show their trigger and action, with **Edit event**
+and **Remove event**. Selecting Window offers window-open/window-close events;
+bind reactions offer value-changed events. **Views & events** uses the same form
+with an explicit **For** target selector for document-wide editing.
+
+For a button that switches layouts, choose **When: Clicked**, then **Replace
+group layout**, the target Group (or **Whole window**) and the layout. You can
+create the missing layout here. **Save event** commits the route and layout
+together. To change an existing click action, use its **Edit event**; duplicate
+routes and recursive watch actions are rejected before saving.
+
+**Edit layout on canvas** opens the variant for authoring; **Back to main
+window** returns to the original. The layout tabs and **Layouts…** menu remain
+available above the Design workspace. Switching the edited layout does not
+change the initial in-game content or trigger an event. Use **Interact** on the
+main window to try the configured button locally, then Build and test in NWN.
+The event selector supports `click`, `watch`, `open`, `close`, `mousedown`,
+`mouseup`, `mousescroll`, `focus`, `blur` and `range`. The local Interact preview
+does not simulate every native event; verify the generated behavior in NWN.
+
+Use **Preview code** on an event card or a valid event draft to inspect that
+event's generated NWScript without saving it. **Event script…** on the main
+toolbar previews all configured events. The preview is read-only, uses the same
+generator as Build, and supports syntax highlighting and **Copy code**.
+**Generated code** is a snapshot taken when the preview opens, not compiled
+output. **Module script** shows the actual full handler, including manual code;
+unsaved changes in an open script editor take priority and are clearly marked.
+**Open in script editor** opens that handler for editing. A missing handler is
+reported explicitly; previewing does not build or add resources to the module.
+
+**Build & compile** prepares `<name>_o.nss` (an include with `Open_<name>`),
+`<name>_e.nss` (events) and the event handler's NCS bytecode using the installed
+game's API and Moonglow's built-in Beamdog compiler. The opener is validated by
+compiling a temporary caller; that caller is never stored in the module.
+It changes the module only if validation and event compilation succeed;
+one Undo reverses the generated set. Generated event routes are refreshed while
+the generated source is intact. Manual changes are preserved; changing the
+generated routes then reports a conflict instead of overwriting that source.
+The build status includes both scripts, actions and view layouts.
+A manually changed opener is reported as a conflict, not replaced. Save any
+open script edits before generation, including changed includes.
+
+The opener has **no `main` and no automatic player selection**. Include it in
+your own script, choose the player for that script's event and call
+`Open_<name>(oPlayer)`. For example, an explicitly chosen OnClientEnter hook is:
+
+```c
+#include "example_o"
+void main()
+{
+    Open_example(GetEnteringObject());
+}
+```
+
+Attach your own script to the event you want. Regenerating an untouched older
+opener removes its obsolete NCS in the same undoable operation. Manually edited
+openers are still protected. Recompile your calling scripts after regeneration
+so they include the current layout; Build does not rewrite those callers.
+The event handler receives the window's events directly; generating does not
+change the module's OnNuiEvent binding. A newly created window stores an explicit
+**Clicked → Close window** event for its Close button. Select the button in Design
+to edit or remove this event. The `mg_close` ID has no built-in behavior: deleting
+the route stops closing in both the preview and regenerated scripts. Existing
+projects without this route need it added explicitly if closing is desired.
+Rebuild older generated scripts to remove the former implicit fallback; manually
+edited event scripts remain protected and must be reviewed separately.
+
+The default opener sends the layout with `NuiCreate`. **Bindings › Client
+delivery › Load JUI from the client by resource name** instead uses
+`NuiCreateFromResRef`, which requires distributing the
+JUI to every client, for example in a HAK. Images and fonts also need to be
+available on the client. **Export…** compiles first, then opens the
+normal export dialog with JUI, settings and both source/compiled scripts
+selected together, plus referenced image/TXI resources present in the module,
+including images in named views. External HAK/game artwork is not copied into
+the module automatically; include required custom artwork in client distribution.
+
+Edits, including incomplete JSON drafts, participate in module Save, Undo and
+recovery. Invalid drafts cannot generate scripts. The checks describe the
+stock `nw_inc_nui` API contract and generator requirements. Passing them and
+compiling do **not** prove visual or event parity: use Aurora's script/build
+workflow and test the window, edits, clicks, watches and closing in NWN.
