@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:33:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:37:34Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1424,8 +1424,9 @@ categories, the galleries. Water ripples. Left:
 
 A review of the whole workspace for dead code, clumsy code and code
 written twice found more than it changed. What it changed (some forty
-commits, with a test for each bug it fixed) is in the history; this is
-what it left, found by reading and not by running unless it says so.
+commits, with a test for all but one of the bugs it fixed) is in the
+history; this is what it left, found by reading and not by running
+unless it says so.
 
 - **The "≠" mark on a multi-edit's fields:** the appearance and loading
   screen choices, localized text, memos, sliders, palette colors, the
