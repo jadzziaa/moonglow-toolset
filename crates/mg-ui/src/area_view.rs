@@ -599,6 +599,12 @@ impl AreaView {
         self.model.as_ref()?.objects.iter().position(|o| o.kind == kind && o.index == index)
     }
 
+    /// Where the selected objects are in `model.objects`, in the order
+    /// they were selected.
+    fn selected_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.selection.iter().filter_map(|&(k, i)| self.object_at(k, i))
+    }
+
     fn selected(&self, i: usize) -> bool {
         let Some(o) = self.model.as_ref().and_then(|m| m.objects.get(i)) else { return false };
         self.selection.contains(&(o.kind, o.index))
@@ -1021,9 +1027,7 @@ impl AreaView {
             return Vec::new();
         };
         let tilts: Vec<usize> = self
-            .selection
-            .iter()
-            .filter_map(|&(k, i)| self.object_at(k, i))
+            .selected_indices()
             .filter(|&i| model.objects[i].takes_visual_transform() && !model.objects[i].locked)
             .collect();
         // Snapping turns the first to the angle; the others by as much.
@@ -1071,12 +1075,8 @@ impl AreaView {
     /// more than one object selected): the middle of the box around where
     /// they stand.
     fn middle(&self, model: &AreaModel) -> Option<Vec2> {
-        let at: Vec<Vec2> = self
-            .selection
-            .iter()
-            .filter_map(|&(k, i)| self.object_at(k, i))
-            .map(|i| model.objects[i].position.truncate())
-            .collect();
+        let at: Vec<Vec2> =
+            self.selected_indices().map(|i| model.objects[i].position.truncate()).collect();
         if !self.turn_together || at.len() < 2 {
             return None;
         }
@@ -1148,9 +1148,7 @@ impl AreaView {
         let middle = self.middle(model);
         // (An outline on its own turns about its middle, not its position.)
         let own = |o: &mg_area::AreaObject| o.kind.has_outline().then(|| pivot(o).truncate());
-        self.selection
-            .iter()
-            .filter_map(|&(k, i)| self.object_at(k, i))
+        self.selected_indices()
             .map(|i| {
                 let o = &model.objects[i];
                 match drag {
@@ -2196,6 +2194,11 @@ fn overlays(
 ) {
     let painter = ui.painter_at(view.rect);
     let at = |p: Vec3| view.screen_pos(p);
+    // What a handle says beside itself (an angle, a scale, a height).
+    let note = |at: Pos2, text: String| {
+        let font = egui::FontId::proportional(13.0);
+        painter.text(at, egui::Align2::LEFT_BOTTOM, text, font, Color32::WHITE);
+    };
     let line = |a: Vec3, b: Vec3, stroke: Stroke| {
         if let (Some(a), Some(b)) = (at(a), at(b)) {
             painter.line_segment([a, b], stroke);
@@ -2256,12 +2259,9 @@ fn overlays(
                             Stroke::new(1.5, Color32::from_black_alpha(200)),
                         );
                         if held {
-                            painter.text(
+                            note(
                                 c + egui::vec2(10.0, -10.0),
-                                egui::Align2::LEFT_BOTTOM,
                                 format!("{:.0}°", facing.to_degrees().rem_euclid(360.0)),
-                                egui::FontId::proportional(13.0),
-                                Color32::WHITE,
                             );
                         }
                     }
@@ -2455,13 +2455,7 @@ fn overlays(
             && let Some(c) = ui.ctx().pointer_latest_pos()
             && let Some((_, visual)) = view.scaled().first()
         {
-            painter.text(
-                c + egui::vec2(12.0, -12.0),
-                egui::Align2::LEFT_BOTTOM,
-                format!("scale {:.2}", visual.scale.x),
-                egui::FontId::proportional(13.0),
-                Color32::WHITE,
-            );
+            note(c + egui::vec2(12.0, -12.0), format!("scale {:.2}", visual.scale.x));
         }
     }
     // Ctrl + wheel: the size beside the pointer, as a scale drag shows it.
@@ -2469,13 +2463,7 @@ fn overlays(
         && let Some(c) = ui.ctx().pointer_latest_pos()
         && let Some((_, visual)) = view.scaled().first()
     {
-        painter.text(
-            c + egui::vec2(12.0, -12.0),
-            egui::Align2::LEFT_BOTTOM,
-            format!("scale {:.2}", visual.scale.x),
-            egui::FontId::proportional(13.0),
-            Color32::WHITE,
-        );
+        note(c + egui::vec2(12.0, -12.0), format!("scale {:.2}", visual.scale.x));
     }
     let rings = if tilting { view.tilt_rings(shown) } else { Vec::new() };
     if !rings.is_empty() {
@@ -2508,13 +2496,7 @@ fn overlays(
         {
             painter.circle_filled(c, 3.5, ring.color());
             let degrees = visual.rotate[ring.axis];
-            painter.text(
-                c + egui::vec2(10.0, -10.0),
-                egui::Align2::LEFT_BOTTOM,
-                format!("{} {degrees:.0}°", ["X", "Y"][ring.axis]),
-                egui::FontId::proportional(13.0),
-                Color32::WHITE,
-            );
+            note(c + egui::vec2(10.0, -10.0), format!("{} {degrees:.0}°", ["X", "Y"][ring.axis]));
         }
     }
     // And the arrows for moving it along one axis: east red, north green,
@@ -2548,12 +2530,9 @@ fn overlays(
             }
             if sliding.is_some() {
                 let name = ["X", "Y", "Z"][arrow.axis];
-                painter.text(
+                note(
                     t + egui::vec2(10.0, -4.0),
-                    egui::Align2::LEFT_BOTTOM,
                     format!("{name} {:.2} m", arrow.pivot[arrow.axis]),
-                    egui::FontId::proportional(13.0),
-                    Color32::WHITE,
                 );
             }
         }
@@ -2584,13 +2563,7 @@ fn overlays(
             painter.circle_filled(c, 3.5, stroke.color);
             if spinning {
                 let degrees = ring.facing.to_degrees().rem_euclid(360.0);
-                painter.text(
-                    c + egui::vec2(10.0, -10.0),
-                    egui::Align2::LEFT_BOTTOM,
-                    format!("{degrees:.0}°"),
-                    egui::FontId::proportional(13.0),
-                    Color32::WHITE,
-                );
+                note(c + egui::vec2(10.0, -10.0), format!("{degrees:.0}°"));
             }
         }
     }
@@ -2656,12 +2629,9 @@ fn overlays(
             };
             painter.circle(c, radius, fill, Stroke::new(1.5, Color32::from_black_alpha(220)));
             if turning {
-                painter.text(
+                note(
                     c + egui::vec2(12.0, -10.0),
-                    egui::Align2::LEFT_BOTTOM,
                     format!("{:.0}°", facing.to_degrees().rem_euclid(360.0)),
-                    egui::FontId::proportional(13.0),
-                    Color32::WHITE,
                 );
             }
         }
@@ -3415,9 +3385,20 @@ fn drop_appearance(
     let at = view.snapped(at);
     let placement = Placement { position: at.to_array(), rotation: view.ghost_turn };
     let Some(item) = appearance_item(app, dragged, placement) else { return };
-    let Some(ws) = app.ws.as_mut() else { return };
+    append_object(app, view, ObjectKind::Placeable, item, format!("Place {}", dragged.name));
+}
+
+/// Adds `item` at the end of the area's objects of `kind`, as one command
+/// named `what`, and selects it. Whether there was a module to add it to.
+fn append_object(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    kind: ObjectKind,
+    item: mg_gff::Struct,
+    what: String,
+) -> bool {
+    let Some(ws) = app.ws.as_mut() else { return false };
     let git = view.git();
-    let kind = ObjectKind::Placeable;
     let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
     let edit = mg_edit::Edit::InsertItem {
         key: git,
@@ -3426,9 +3407,9 @@ fn drop_appearance(
         index,
         item,
     };
-    let what = format!("Place {}", dragged.name);
     app.actions.push(Action::Apply(Command::new(what, vec![edit])));
     view.selection = vec![(kind, index)];
+    true
 }
 
 /// How many blueprints the palette's Recent keeps.
@@ -3468,18 +3449,9 @@ fn place(
             return;
         }
     };
-    let Some(ws) = app.ws.as_mut() else { return };
-    let git = view.git();
-    let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
-    let edit = mg_edit::Edit::InsertItem {
-        key: git,
-        path: mg_edit::GffPath::root(),
-        list: kind.list().into(),
-        index,
-        item,
-    };
-    app.actions.push(Action::Apply(Command::new(format!("Place {}", key.resref), vec![edit])));
-    view.selection = vec![(kind, index)];
+    if !append_object(app, view, kind, item, format!("Place {}", key.resref)) {
+        return;
+    }
     // Remembered in the palette's Recent, the last first.
     let recent = &mut app.settings.palette_recent;
     let r = crate::palette_view::remembered(key);
@@ -3970,9 +3942,7 @@ fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
     // don't turn (a sound) led round with the rest.
     if let Some(middle) = view.middle(model) {
         let moved: Vec<(usize, Vec3, f32)> = view
-            .selection
-            .iter()
-            .filter_map(|&(k, i)| view.object_at(k, i))
+            .selected_indices()
             .map(|i| {
                 let o = &model.objects[i];
                 let r = if turns(o.kind) { o.rotation + by } else { o.rotation };
@@ -3983,9 +3953,7 @@ fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
         return;
     }
     let moved: Vec<(usize, Vec3, f32)> = view
-        .selection
-        .iter()
-        .filter_map(|&(k, i)| view.object_at(k, i))
+        .selected_indices()
         .filter(|&i| turns(model.objects[i].kind))
         .map(|i| {
             let o = &model.objects[i];
@@ -4002,9 +3970,7 @@ fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
 fn random_facing(app: &mut Moonglow, view: &AreaView) {
     let Some(model) = &view.model else { return };
     let moved: Vec<(usize, Vec3, f32)> = view
-        .selection
-        .iter()
-        .filter_map(|&(k, i)| view.object_at(k, i))
+        .selected_indices()
         .filter(|&i| faces(model.objects[i].kind))
         .map(|i| {
             let o = &model.objects[i];
@@ -4021,9 +3987,7 @@ fn random_facing(app: &mut Moonglow, view: &AreaView) {
 fn drop_to_ground(app: &mut Moonglow, view: &AreaView) {
     let (Some(model), Some(ground)) = (&view.model, &view.ground) else { return };
     let moved: Vec<(usize, Vec3, f32)> = view
-        .selection
-        .iter()
-        .filter_map(|&(k, i)| view.object_at(k, i))
+        .selected_indices()
         .filter_map(|i| {
             let o = &model.objects[i];
             if o.kind == ObjectKind::Creature {
@@ -4056,8 +4020,7 @@ fn arrange_selection(
     label: &str,
 ) {
     let Some(model) = &view.model else { return };
-    let chosen: Vec<usize> =
-        view.selection.iter().filter_map(|&(k, i)| view.object_at(k, i)).collect();
+    let chosen: Vec<usize> = view.selected_indices().collect();
     let before: Vec<(Vec2, f32)> = chosen
         .iter()
         .map(|&i| (model.objects[i].position.truncate(), model.objects[i].rotation))
@@ -4602,19 +4565,7 @@ fn add_light(app: &mut Moonglow, view: &mut AreaView, light: &StockLight, at: Ve
     };
     let placement = Placement { position: at.to_array(), rotation: 0.0 };
     let Some(item) = appearance_item(app, &dragged, placement) else { return };
-    let Some(ws) = app.ws.as_mut() else { return };
-    let git = view.git();
-    let kind = ObjectKind::Placeable;
-    let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
-    let edit = mg_edit::Edit::InsertItem {
-        key: git,
-        path: mg_edit::GffPath::root(),
-        list: kind.list().into(),
-        index,
-        item,
-    };
-    app.actions.push(Action::Apply(Command::new(format!("Add {}", dragged.name), vec![edit])));
-    view.selection = vec![(kind, index)];
+    append_object(app, view, ObjectKind::Placeable, item, format!("Add {}", dragged.name));
 }
 
 /// Sets a field on every selected object (one command).
