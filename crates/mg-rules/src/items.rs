@@ -514,7 +514,7 @@ impl GameData {
         };
         let Some(t) = self.property_type(p.property) else { return parts.remove(0) };
         if t.subtypes.is_some() {
-            parts.extend(name_of(t.subtypes.clone(), p.subtype as usize));
+            parts.extend(name_of(t.subtypes, p.subtype as usize));
         }
         if p.cost_table != 0 {
             let table = self.text("iprp_costtable", p.cost_table as usize, "Name");

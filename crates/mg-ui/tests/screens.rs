@@ -774,7 +774,7 @@ fn tileset_minimap_pictures() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run();
-    mg_ui::tileset_view::open_path(h.state_mut(), path.clone());
+    mg_ui::tileset_view::open_path(h.state_mut(), path);
     h.run();
     h.state_mut().tilesets[0].page = mg_ui::tileset_view::Page::Tiles;
     h.state_mut().tilesets[0].tile = Some(3);

@@ -1414,7 +1414,7 @@ mod tests {
         let edit = LocStringEdit::new(target(), "Name", &ls);
         assert_eq!(edit.entries[0].2, "a\nb");
         assert_eq!(edit.value(), Some(ls));
-        let mut bad = edit.clone();
+        let mut bad = edit;
         bad.strref = "x".into();
         assert_eq!(bad.value(), None);
     }

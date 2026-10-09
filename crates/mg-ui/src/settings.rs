@@ -340,7 +340,7 @@ mod tests {
     fn settings_saved_before_script_styles_still_load() {
         let s: Settings = serde_json::from_str(r#"{"recent":["a.mod"]}"#).unwrap();
         assert_eq!(s.script_style, ScriptStyle::default());
-        let mut t = s.clone();
+        let mut t = s;
         t.script_style.colors[3] = Some([1, 2, 3]);
         let back: Settings = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
         assert_eq!(back, t);

@@ -159,7 +159,7 @@ fn check_scripts(label: &str, rm: &ResMan, names: &[String], spec: &Spec, result
                         let Some(ndb) = out.ndb else { continue };
                         // The script's include closure (each file once).
                         let mut order: Vec<String> = Vec::new();
-                        let mut stack = vec![name.to_string()];
+                        let mut stack = vec![name.clone()];
                         let mut seen = BTreeSet::new();
                         while let Some(n) = stack.pop() {
                             let n = n.to_ascii_lowercase();

@@ -57,7 +57,7 @@ fn exported_area_imports_into_another_module_intact() {
     );
 
     let mut runs = Vec::new();
-    for (name, mut m) in [("src", source.clone()), ("dst", dest)] {
+    for (name, mut m) in [("src", source), ("dst", dest)] {
         with_probe(&mut m, &probe);
         let user = dir.join(format!("user-{name}"));
         m.save_as(&ModuleLocation::Archive(user.join(format!("modules/{name}.mod")))).unwrap();

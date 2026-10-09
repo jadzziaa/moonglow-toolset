@@ -129,7 +129,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         ui.weak(format!("{} file", doc.file_type_str()));
     });
     ui.separator();
-    let file_type = doc.file_type_str().to_string();
+    let file_type = doc.file_type_str();
     let mut ctx = Ctx { key, file_type, game: game.as_deref(), actions, buffers };
     egui::ScrollArea::both().auto_shrink([false, false]).show(ui, |ui| {
         struct_ui(&mut ctx, ui, &doc.root, &GffPath::root());

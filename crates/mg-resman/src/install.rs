@@ -369,7 +369,7 @@ mod install_tests {
         assert_eq!(&*with.get(&key("mg_both")).unwrap(), b"user", "the user's own comes first");
         assert!(install.hak_dirs().contains(&item.join("hak")));
         // Not for a game outside a Steam library.
-        let elsewhere = GameInstall { root: lib.join("game"), ..install.clone() };
+        let elsewhere = GameInstall { root: lib.join("game"), ..install };
         assert!(elsewhere.workshop_items().is_empty());
         let _ = std::fs::remove_dir_all(&lib);
     }

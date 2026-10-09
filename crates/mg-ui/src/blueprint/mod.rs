@@ -780,7 +780,7 @@ impl Form<'_> {
         // follows the arrow keys.
         if let (Some(about), Ok(row)) = (about, usize::try_from(current)) {
             let app = &mut *self.app;
-            list.response.clone().on_hover_ui(|ui| about(app, ui, row));
+            list.response.on_hover_ui(|ui| about(app, ui, row));
         }
         if let Some(v) = pick.filter(|&v| v != current) {
             self.set_int(what, label, v, default);

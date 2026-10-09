@@ -562,7 +562,7 @@ pub fn rebuild_custom_palette(
     }
     // Blueprints by category.
     let mut by_category: std::collections::BTreeMap<u8, Vec<(String, Struct)>> = Default::default();
-    for key in module.keys_of(kind.restype()).copied().collect::<Vec<_>>() {
+    for key in module.keys_of(kind.restype()).copied() {
         let Some(Ok(g)) = module.gff(&key) else { continue };
         let Some(id) = g.root.integer(kind.palette_field()).and_then(|v| u8::try_from(v).ok())
         else {

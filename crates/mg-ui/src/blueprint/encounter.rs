@@ -175,7 +175,7 @@ fn creatures(f: &mut Form<'_>, ui: &mut Ui) {
             None => d.remove::<usize>(sel_id),
         });
     });
-    let path = base.clone();
+    let path = base;
     if let Some(r) = add {
         let item = creature_entry(f.app, r);
         f.app.actions.push(Action::Apply(Command::new(

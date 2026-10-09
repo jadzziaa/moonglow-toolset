@@ -110,7 +110,7 @@ fn hello_is_the_plugin_of_the_manual() {
     let outcome = run_command(&plugin, "stamp", input(&module()), host.clone()).unwrap();
     assert!(outcome.edits.is_empty());
     host.answers.borrow_mut().push_back(Some(Answer::Yes));
-    let outcome = run_command(&plugin, "stamp", input(&module()), host.clone()).unwrap();
+    let outcome = run_command(&plugin, "stamp", input(&module()), host).unwrap();
     assert_eq!(outcome.label, "Stamp creature comments");
     let mut ws = Workspace::new(module());
     ws.apply(Command::new(outcome.label, outcome.edits)).unwrap();

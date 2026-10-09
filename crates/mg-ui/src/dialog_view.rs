@@ -1007,7 +1007,7 @@ fn text_panel(
     // text in another language (English first), marked as not its own.
     let other =
         (english.is_empty() && ls.strref.is_none()).then(|| crate::text::elsewhere(&ls)).flatten();
-    let shown = other.as_ref().map_or(english.clone(), |(_, text)| text.clone());
+    let shown = other.as_ref().map_or(english, |(_, text)| text.clone());
     let typed = match &other {
         Some((language, _)) => crate::widgets::borrowed_field(
             ui,

@@ -1256,7 +1256,7 @@ impl Tree<'_> {
                     .on_hover_text("Write it out as a file or an ERF, as in Aurora (File › Export)")
                     .clicked()
                 {
-                    let all = if keys.len() > 1 { keys.clone() } else { vec![key] };
+                    let all = if keys.len() > 1 { keys } else { vec![key] };
                     picks.push(Pick::Export(all));
                     ui.close();
                 }

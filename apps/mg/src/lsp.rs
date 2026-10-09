@@ -211,7 +211,7 @@ impl Server {
         let uri = params["textDocument"]["uri"].as_str()?;
         let name = script_name(&uri_path(uri)?)?;
         let text = self.text(&name)?;
-        Some((name.clone(), offset(&text, &params["position"])))
+        Some((name, offset(&text, &params["position"])))
     }
 
     fn declaration(&mut self, params: &Value) -> Option<Declaration> {

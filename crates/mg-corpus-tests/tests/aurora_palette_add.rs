@@ -122,7 +122,7 @@ fn create_waypoint_and_set_match_aurora() {
     assert_eq!(creature_tag, "WP_MGP_UTC_01");
     let made = mg_module::instances::walk_waypoint(&creature_tag, position);
     // Create Set renames it.
-    let mut set = made.clone();
+    let mut set = made;
     set.set("Tag", Value::String(mg_module::instances::set_tag("Patrol", &[]).into_bytes()));
     assert!(
         differences("the waypoint", &set, &captured).is_none(),

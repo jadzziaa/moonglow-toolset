@@ -44,7 +44,7 @@ fn main() {
     let list = vec![entry("nw_bandit001"), entry("mgp_crit"), entry("mgp_nosuch")];
     let mut enc = read("nw_giantevil", ResType::UTE);
     enc.root.set("TemplateResRef", Value::resref(r("mgp_enc")));
-    enc.root.set("CreatureList", Value::List(list.clone()));
+    enc.root.set("CreatureList", Value::List(list));
     m.set_gff(ResKey::new(r("mgp_enc"), ResType::UTE), &enc).unwrap();
     let none = |_: ResRef| None;
     let placing = Placing { game: &game, item: &none };

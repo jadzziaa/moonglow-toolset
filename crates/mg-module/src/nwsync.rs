@@ -126,7 +126,7 @@ pub fn module_contents(
         out.push((key, Source::Bytes(found.data.into())));
     }
     if with_module {
-        for key in m.keys().copied().collect::<Vec<_>>() {
+        for key in m.keys().copied() {
             let Some(data) = m.get(&key) else { continue };
             let data: Arc<[u8]> = if key == ResKey::parse("module", ResType::IFO).expect("valid") {
                 let mut ifo = m.info().map_err(|e| e.to_string())?;

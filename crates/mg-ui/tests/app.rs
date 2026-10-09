@@ -579,7 +579,7 @@ fn options_choose_the_game_folder() {
     h.get_by_label("OK").click();
     h.run();
     assert_eq!(h.state().settings.game_root.as_deref(), Some(dir.as_path()));
-    assert_eq!(h.state().install.as_ref().map(|i| i.root.clone()), Some(dir.clone()));
+    assert_eq!(h.state().install.as_ref().map(|i| i.root.clone()), Some(dir));
     assert!(h.state().game.is_none());
     assert!(
         h.state().log.entries.iter().any(|(_, m)| m.starts_with("Could not load the game data"))
@@ -2486,7 +2486,7 @@ fn palette_edit_copy_and_delete() {
     h.run();
     let draft = h.state().copy_as.clone().expect("the Copy window");
     assert_eq!(draft.resref, "nw_wp_tavern001");
-    let tag = draft.tag.clone().expect("a waypoint has a tag");
+    let tag = draft.tag.expect("a waypoint has a tag");
     h.state_mut().copy_as.as_mut().unwrap().tag = Some("MY_TAVERN".into());
     h.get_by_label("Create Copy").click();
     h.run();
@@ -2782,7 +2782,7 @@ fn a_hak_s_encoding_table_reads_and_writes_the_module_s_text() {
     assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"I\xfe\xfdk da\xf0\xfd \xe9");
     // A name, too (a localized string), read back by the same table.
     let name = field(&mut h, &key).locstring("LocalizedName").unwrap().clone();
-    let mut named = name.clone();
+    let mut named = name;
     named.set(Language::ENGLISH, Gender::Male, b"Da\xf0 yolu".to_vec());
     let game = h.state().game.clone().unwrap();
     assert_eq!(game.locstring(&named).as_deref(), Some("Dağ yolu"));
@@ -5153,7 +5153,7 @@ fn tile_properties_choose_a_variant_by_picture() {
         assert_ne!(after.variant, Some(now), "another than the one that was there");
         assert!(!after.chosen, "taken up: the window is the new tile's");
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-        h.state_mut().tile_props = Some(props.clone());
+        h.state_mut().tile_props = Some(props);
         h.run_steps(2);
         assert_eq!(h.state().ws.as_ref().unwrap().can_undo().map(str::to_string), before_undo);
     } else {
@@ -5810,8 +5810,7 @@ fn script_sets_save_and_load() {
     // A set that names only OnSpawn: loading it sets OnSpawn and clears
     // the others, in one undoable step.
     std::fs::write(&path, "[ResRefs]\r\nOnSpawn=mg_spawn\r\n").unwrap();
-    h.state_mut().dialogs =
-        Box::new(mg_ui::NoDialogs { open: vec![path.clone()], ..Default::default() });
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![path], ..Default::default() });
     h.get_by_label("Load Script Set").click();
     h.run();
     let s = field(&mut h, &key);
@@ -5857,8 +5856,7 @@ fn class_spell_lists_save_clear_and_load() {
     h.get_by_label("Clear Class Spell List").click();
     h.run();
     assert!(known(&mut h).iter().all(Vec::is_empty));
-    h.state_mut().dialogs =
-        Box::new(mg_ui::NoDialogs { open: vec![path.clone()], ..Default::default() });
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![path], ..Default::default() });
     h.get_by_label("Load Class Spell List").click();
     h.run();
     assert_eq!(known(&mut h), before, "each spell back at its level");
@@ -6360,7 +6358,7 @@ fn conversations_export_and_import() {
     assert!(std::fs::read_to_string(&twee).unwrap().contains("[[Sorry.->END]]"));
     let edited = std::fs::read_to_string(&csv).unwrap().replace("Halt!", "Stop right there!");
     std::fs::write(&csv, edited).unwrap();
-    h.state_mut().dialogs = Box::new(NoDialogs { open: vec![csv.clone()], ..Default::default() });
+    h.state_mut().dialogs = Box::new(NoDialogs { open: vec![csv], ..Default::default() });
     h.get_by_label("Import Lines…").click();
     h.run();
     let line = |h: &mut Harness<'_, Moonglow>, k: ResKey| {
@@ -7055,7 +7053,7 @@ fn portraits_are_chosen_from_their_pictures() {
     let count = |h: &Harness<'_, Moonglow>| -> usize {
         let n = h.get_by_label_contains(" portraits");
         let a = n.accesskit_node();
-        let text = a.label().or_else(|| a.value()).map(|t| t.to_string()).unwrap();
+        let text = a.label().or_else(|| a.value()).unwrap();
         text.split(' ').next().unwrap().parse().unwrap()
     };
     let creatures = count(&h);
@@ -7099,7 +7097,7 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     let before = field(&mut h, &key).integer("ModelPart1").unwrap();
     let other = h
         .get_all_by_label_contains("Appearance ")
-        .filter_map(|n| n.accesskit_node().label().map(|l| l.to_string()))
+        .filter_map(|n| n.accesskit_node().label())
         .find(|l| l != &format!("Appearance {before}"))
         .expect("another appearance");
     h.get_by_label(&other).click();
@@ -9652,7 +9650,7 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     let now = outline(&mut h);
     assert!(near(now[0], glam::Vec2::new(23.0, 23.0)), "{now:?}");
     assert!(near(now[2], glam::Vec2::new(25.0, 19.0)), "{now:?}");
-    let alone = now.clone();
+    let alone = now;
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(mg_area::ObjectKind::Trigger, 0), (Waypoint, 0)];
     h.state_mut().settings.turn_together = true;
@@ -11106,7 +11104,7 @@ fn several_areas_are_edited_together() {
     h.get_by_label("Edit 2 Together").click();
     h.run_steps(3);
     let caves: Vec<ResRef> = ["cave1", "cave2"].map(|n| ResRef::from_str(n).unwrap()).to_vec();
-    assert!(h.state().dock.find_tab(&Tab::AreasProperties(caves.clone())).is_some());
+    assert!(h.state().dock.find_tab(&Tab::AreasProperties(caves)).is_some());
     assert!(h.query_by_label("Edit Areas Together").is_none(), "the chooser closed");
 
     // Visual: always dark, on both caves and not on the inn.

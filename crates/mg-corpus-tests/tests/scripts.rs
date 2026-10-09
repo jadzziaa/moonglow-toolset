@@ -204,7 +204,7 @@ fn an_external_compiler_compiles_a_module_s_scripts() {
     compile_scripts(&mut built_in, &rm, ScriptSelection::All);
     let compiler = ExternalCompiler {
         program: tool,
-        game: Some(root.clone()),
+        game: Some(root),
         user: Some(scratch_dir("external-compiler-user")),
         ..Default::default()
     };

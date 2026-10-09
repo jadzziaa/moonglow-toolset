@@ -2323,7 +2323,7 @@ impl Moonglow {
             ));
             return;
         };
-        let Some(user) = install.user_dir.clone() else {
+        let Some(user) = install.user_dir else {
             self.log.error("Test Module needs the game's user folder (Options › Folders)");
             return;
         };

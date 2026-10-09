@@ -930,11 +930,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let s = c.items[i].clone();
             let start = c.start;
             script_tools.completion = None;
-            let text = if s.kind == SymbolKind::Function {
-                format!("{}(", s.name)
-            } else {
-                s.name.clone()
-            };
+            let text = if s.kind == SymbolKind::Function { format!("{}(", s.name) } else { s.name };
             let at = cursor(&ctx, key).map_or(start, |x| x.0);
             insert(buf, &ctx, key, start, at, &text);
         }
