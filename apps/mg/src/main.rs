@@ -1243,13 +1243,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
                 let key = ResKey::new(a, mg_core::ResType::GIT);
                 let Some(Ok(git)) = m.gff(&key) else { continue };
-                let read = |k: ResKey| -> Option<mg_gff::Struct> {
-                    let data = m
-                        .get(&k)
-                        .map(<[u8]>::to_vec)
-                        .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-                    mg_gff::Gff::read(&data).ok().map(|g| g.root)
-                };
+                let read = |k: ResKey| mg_module::gff_root(Some(&m), &game, &k);
                 let item = |r: mg_core::ResRef| read(ResKey::new(r, mg_core::ResType::UTI));
                 let placing = mg_module::instances::Placing { game: &game, item: &item };
                 let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {
@@ -1383,7 +1377,7 @@ fn run(cli: &Cli) -> Result<Output> {
         Cmd::Attach { module, files, replace } => {
             use mg_module::attach::{There, copy, hak_list, placements};
             let gi = install(cli)?;
-            let user = gi.user_dir.clone().context("no user folder; pass --user-dir")?;
+            let user = gi.user_dir.context("no user folder; pass --user-dir")?;
             let placed = placements(&user, files).map_err(anyhow::Error::msg)?;
             let differ: Vec<String> = placed
                 .iter()
@@ -1674,7 +1668,6 @@ fn run(cli: &Cli) -> Result<Output> {
     Ok(out)
 }
 
-/// The resman for a module: the game, the module's haks and the module.
 /// The codepage of a module's text: Windows-1252, or the table of an
 /// `encoding.2da` in its haks (which takes the game install to find them:
 /// without one, Windows-1252).
@@ -1693,6 +1686,7 @@ fn codepage_at(cli: &Cli, module: &Path) -> Codepage {
     Module::open(module).map_or(Codepage::WINDOWS_1252, |m| module_codepage(cli, &m))
 }
 
+/// The resman for a module: the game, the module's haks and the module.
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
     let haks = m.haks()?;
@@ -1707,8 +1701,11 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf])
     let m = Module::open(path)?;
     let mut out = Output::default();
     let rm = module_resman(gi, &m, &mut out)?;
-    let missing = mg_module::verify::missing(&m, &rm);
-    let unused = if show_unused { mg_module::verify::unused(&m) } else { Vec::new() };
+    // (Every GFF of the module read once for both.)
+    let references = mg_module::verify::module_references(&m);
+    let unused =
+        if show_unused { mg_module::verify::unused_of(&m, &references) } else { Vec::new() };
+    let missing = mg_module::verify::missing_of(&m, &rm, references);
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
     let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
     let custom = m.custom_tlk().ok().flatten().and_then(|name| {

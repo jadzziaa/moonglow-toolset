@@ -33,9 +33,6 @@ use mg_set::Tileset;
 
 use crate::{Action, Moonglow};
 
-/// Multisampling for the area view.
-const SAMPLES: u32 = 4;
-
 /// How far from a door hook a click places a door on it, metres.
 const DOOR_REACH: f32 = 4.0;
 
@@ -602,6 +599,12 @@ impl AreaView {
         self.model.as_ref()?.objects.iter().position(|o| o.kind == kind && o.index == index)
     }
 
+    /// Where the selected objects are in `model.objects`, in the order
+    /// they were selected.
+    fn selected_indices(&self) -> impl Iterator<Item = usize> + '_ {
+        self.selection.iter().filter_map(|&(k, i)| self.object_at(k, i))
+    }
+
     fn selected(&self, i: usize) -> bool {
         let Some(o) = self.model.as_ref().and_then(|m| m.objects.get(i)) else { return false };
         self.selection.contains(&(o.kind, o.index))
@@ -775,7 +778,7 @@ impl AreaView {
         let right = (camera.target - camera.eye).cross(Vec3::Z).try_normalize().unwrap_or(Vec3::X);
         let out = (right + Vec3::Z).normalize();
         self.chosen(model)
-            .filter(|o| o.takes_visual_transform() && !o.locked)
+            .filter(|o| o.takes_visual_transform())
             .map(|o| {
                 let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
                 (o.position, o.position + out * radius * 1.25)
@@ -1024,9 +1027,7 @@ impl AreaView {
             return Vec::new();
         };
         let tilts: Vec<usize> = self
-            .selection
-            .iter()
-            .filter_map(|&(k, i)| self.object_at(k, i))
+            .selected_indices()
             .filter(|&i| model.objects[i].takes_visual_transform() && !model.objects[i].locked)
             .collect();
         // Snapping turns the first to the angle; the others by as much.
@@ -1074,12 +1075,8 @@ impl AreaView {
     /// more than one object selected): the middle of the box around where
     /// they stand.
     fn middle(&self, model: &AreaModel) -> Option<Vec2> {
-        let at: Vec<Vec2> = self
-            .selection
-            .iter()
-            .filter_map(|&(k, i)| self.object_at(k, i))
-            .map(|i| model.objects[i].position.truncate())
-            .collect();
+        let at: Vec<Vec2> =
+            self.selected_indices().map(|i| model.objects[i].position.truncate()).collect();
         if !self.turn_together || at.len() < 2 {
             return None;
         }
@@ -1151,9 +1148,7 @@ impl AreaView {
         let middle = self.middle(model);
         // (An outline on its own turns about its middle, not its position.)
         let own = |o: &mg_area::AreaObject| o.kind.has_outline().then(|| pivot(o).truncate());
-        self.selection
-            .iter()
-            .filter_map(|&(k, i)| self.object_at(k, i))
+        self.selected_indices()
             .map(|i| {
                 let o = &model.objects[i];
                 match drag {
@@ -1330,7 +1325,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
 /// The module's start location, if it is in this area: position and facing.
 fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
     let ws = app.ws.as_mut()?;
-    let info = ws.doc(&ResKey::parse("module", ResType::IFO)?).ok()?;
+    let info = ws.doc(&crate::module_props::info_key()).ok()?;
     let r = &info.root;
     if r.read(&ifo::MOD_ENTRY_AREA) != area {
         return None;
@@ -1915,27 +1910,7 @@ fn viewport(
     {
         *p = at;
     }
-    if view.targets.as_ref().is_none_or(|(t, _)| t.size != (w, h)) {
-        let targets = Targets::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, w, h);
-        let mut egui_renderer = vp.render_state.renderer.write();
-        let id = match view.targets.take() {
-            Some((_, id)) => {
-                egui_renderer.update_egui_texture_from_wgpu_texture(
-                    &vp.gpu.device,
-                    &targets.color_view,
-                    wgpu::FilterMode::Linear,
-                    id,
-                );
-                id
-            }
-            None => egui_renderer.register_native_texture(
-                &vp.gpu.device,
-                &targets.color_view,
-                wgpu::FilterMode::Linear,
-            ),
-        };
-        view.targets = Some((targets, id));
-    }
+    vp.size_targets(&mut view.targets, w, h);
     let (targets, id) = view.targets.as_ref().expect("made above");
     if !kept {
         let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
@@ -2219,6 +2194,11 @@ fn overlays(
 ) {
     let painter = ui.painter_at(view.rect);
     let at = |p: Vec3| view.screen_pos(p);
+    // What a handle says beside itself (an angle, a scale, a height).
+    let note = |at: Pos2, text: String| {
+        let font = egui::FontId::proportional(13.0);
+        painter.text(at, egui::Align2::LEFT_BOTTOM, text, font, Color32::WHITE);
+    };
     let line = |a: Vec3, b: Vec3, stroke: Stroke| {
         if let (Some(a), Some(b)) = (at(a), at(b)) {
             painter.line_segment([a, b], stroke);
@@ -2279,12 +2259,9 @@ fn overlays(
                             Stroke::new(1.5, Color32::from_black_alpha(200)),
                         );
                         if held {
-                            painter.text(
+                            note(
                                 c + egui::vec2(10.0, -10.0),
-                                egui::Align2::LEFT_BOTTOM,
                                 format!("{:.0}°", facing.to_degrees().rem_euclid(360.0)),
-                                egui::FontId::proportional(13.0),
-                                Color32::WHITE,
                             );
                         }
                     }
@@ -2385,28 +2362,8 @@ fn overlays(
                 _ => Color32::from_rgb(230, 70, 70),
             };
             let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
-            let corner = |c: usize| {
-                transform.transform_point3(Vec3::new(
-                    if c & 1 == 0 { min.x } else { max.x },
-                    if c & 2 == 0 { min.y } else { max.y },
-                    if c & 4 == 0 { min.z } else { max.z },
-                ))
-            };
-            for (a, b) in [
-                (0, 1),
-                (1, 3),
-                (3, 2),
-                (2, 0),
-                (4, 5),
-                (5, 7),
-                (7, 6),
-                (6, 4),
-                (0, 4),
-                (1, 5),
-                (2, 6),
-                (3, 7),
-            ] {
-                line(corner(a), corner(b), stroke);
+            for (a, b) in box_edges(transform, min, max) {
+                line(a, b, stroke);
             }
         }
     }
@@ -2418,17 +2375,15 @@ fn overlays(
         for ((o, _, _), p) in
             clip.objects.iter().zip(pasted_positions(view, clip, view.snapped(at)))
         {
-            let (min, max) = match (&view.scene, o.kind.has_outline()) {
-                (_, true) => {
-                    let d = p - o.position;
-                    let n = o.outline.len();
-                    for k in 0..n {
-                        line(o.outline[k] + d, o.outline[(k + 1) % n] + d, stroke);
-                    }
-                    continue;
+            if o.kind.has_outline() {
+                let d = p - o.position;
+                let n = o.outline.len();
+                for k in 0..n {
+                    line(o.outline[k] + d, o.outline[(k + 1) % n] + d, stroke);
                 }
-                _ => mg_area::pick::marker_bounds(o.kind),
-            };
+                continue;
+            }
+            let (min, max) = mg_area::pick::marker_bounds(o.kind);
             let t =
                 glam::Mat4::from_rotation_translation(glam::Quat::from_rotation_z(o.rotation), p);
             for (a, b) in box_edges(t, min, max) {
@@ -2500,13 +2455,7 @@ fn overlays(
             && let Some(c) = ui.ctx().pointer_latest_pos()
             && let Some((_, visual)) = view.scaled().first()
         {
-            painter.text(
-                c + egui::vec2(12.0, -12.0),
-                egui::Align2::LEFT_BOTTOM,
-                format!("scale {:.2}", visual.scale.x),
-                egui::FontId::proportional(13.0),
-                Color32::WHITE,
-            );
+            note(c + egui::vec2(12.0, -12.0), format!("scale {:.2}", visual.scale.x));
         }
     }
     // Ctrl + wheel: the size beside the pointer, as a scale drag shows it.
@@ -2514,13 +2463,7 @@ fn overlays(
         && let Some(c) = ui.ctx().pointer_latest_pos()
         && let Some((_, visual)) = view.scaled().first()
     {
-        painter.text(
-            c + egui::vec2(12.0, -12.0),
-            egui::Align2::LEFT_BOTTOM,
-            format!("scale {:.2}", visual.scale.x),
-            egui::FontId::proportional(13.0),
-            Color32::WHITE,
-        );
+        note(c + egui::vec2(12.0, -12.0), format!("scale {:.2}", visual.scale.x));
     }
     let rings = if tilting { view.tilt_rings(shown) } else { Vec::new() };
     if !rings.is_empty() {
@@ -2553,13 +2496,7 @@ fn overlays(
         {
             painter.circle_filled(c, 3.5, ring.color());
             let degrees = visual.rotate[ring.axis];
-            painter.text(
-                c + egui::vec2(10.0, -10.0),
-                egui::Align2::LEFT_BOTTOM,
-                format!("{} {degrees:.0}°", ["X", "Y"][ring.axis]),
-                egui::FontId::proportional(13.0),
-                Color32::WHITE,
-            );
+            note(c + egui::vec2(10.0, -10.0), format!("{} {degrees:.0}°", ["X", "Y"][ring.axis]));
         }
     }
     // And the arrows for moving it along one axis: east red, north green,
@@ -2593,12 +2530,9 @@ fn overlays(
             }
             if sliding.is_some() {
                 let name = ["X", "Y", "Z"][arrow.axis];
-                painter.text(
+                note(
                     t + egui::vec2(10.0, -4.0),
-                    egui::Align2::LEFT_BOTTOM,
                     format!("{name} {:.2} m", arrow.pivot[arrow.axis]),
-                    egui::FontId::proportional(13.0),
-                    Color32::WHITE,
                 );
             }
         }
@@ -2629,13 +2563,7 @@ fn overlays(
             painter.circle_filled(c, 3.5, stroke.color);
             if spinning {
                 let degrees = ring.facing.to_degrees().rem_euclid(360.0);
-                painter.text(
-                    c + egui::vec2(10.0, -10.0),
-                    egui::Align2::LEFT_BOTTOM,
-                    format!("{degrees:.0}°"),
-                    egui::FontId::proportional(13.0),
-                    Color32::WHITE,
-                );
+                note(c + egui::vec2(10.0, -10.0), format!("{degrees:.0}°"));
             }
         }
     }
@@ -2701,12 +2629,9 @@ fn overlays(
             };
             painter.circle(c, radius, fill, Stroke::new(1.5, Color32::from_black_alpha(220)));
             if turning {
-                painter.text(
+                note(
                     c + egui::vec2(12.0, -10.0),
-                    egui::Align2::LEFT_BOTTOM,
                     format!("{:.0}°", facing.to_degrees().rem_euclid(360.0)),
-                    egui::FontId::proportional(13.0),
-                    Color32::WHITE,
                 );
             }
         }
@@ -2886,9 +2811,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
         return;
     }
-    if view.redraw.is_none() {
-        view.outline.clear();
-    }
+    view.outline.clear();
 
     // Selection. (A click on a ring or an arrow with nothing under it
     // leaves the selection be; with an object under it, it picks that.)
@@ -3232,14 +3155,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // (While placing, they turn what is being placed instead.)
     if hovered && !typing && !placing && !view.selection.is_empty() {
         use crate::keys::Cmd;
-        let keys = app.keymap.clone();
-        let pressed = |c: Cmd| ui.input(|i| keys.pressed(i, c));
-        for (cmd, by) in turn_keys(view) {
-            if pressed(cmd) {
-                rotate_selection(app, view, by);
-            }
+        // (Which were pressed first: what they do changes the app, not
+        // the keys.)
+        let pressed = |c: Cmd| ui.input(|i| app.keymap.pressed(i, c));
+        let turns: Vec<f32> =
+            turn_keys(view).into_iter().filter(|(cmd, _)| pressed(*cmd)).map(|t| t.1).collect();
+        let drop = pressed(Cmd::DropToGround);
+        for by in turns {
+            rotate_selection(app, view, by);
         }
-        if pressed(Cmd::DropToGround) {
+        if drop {
             drop_to_ground(app, view);
         }
     }
@@ -3460,9 +3385,20 @@ fn drop_appearance(
     let at = view.snapped(at);
     let placement = Placement { position: at.to_array(), rotation: view.ghost_turn };
     let Some(item) = appearance_item(app, dragged, placement) else { return };
-    let Some(ws) = app.ws.as_mut() else { return };
+    append_object(app, view, ObjectKind::Placeable, item, format!("Place {}", dragged.name));
+}
+
+/// Adds `item` at the end of the area's objects of `kind`, as one command
+/// named `what`, and selects it. Whether there was a module to add it to.
+fn append_object(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    kind: ObjectKind,
+    item: mg_gff::Struct,
+    what: String,
+) -> bool {
+    let Some(ws) = app.ws.as_mut() else { return false };
     let git = view.git();
-    let kind = ObjectKind::Placeable;
     let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
     let edit = mg_edit::Edit::InsertItem {
         key: git,
@@ -3471,9 +3407,9 @@ fn drop_appearance(
         index,
         item,
     };
-    let what = format!("Place {}", dragged.name);
     app.actions.push(Action::Apply(Command::new(what, vec![edit])));
     view.selection = vec![(kind, index)];
+    true
 }
 
 /// How many blueprints the palette's Recent keeps.
@@ -3513,18 +3449,9 @@ fn place(
             return;
         }
     };
-    let Some(ws) = app.ws.as_mut() else { return };
-    let git = view.git();
-    let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
-    let edit = mg_edit::Edit::InsertItem {
-        key: git,
-        path: mg_edit::GffPath::root(),
-        list: kind.list().into(),
-        index,
-        item,
-    };
-    app.actions.push(Action::Apply(Command::new(format!("Place {}", key.resref), vec![edit])));
-    view.selection = vec![(kind, index)];
+    if !append_object(app, view, kind, item, format!("Place {}", key.resref)) {
+        return;
+    }
     // Remembered in the palette's Recent, the last first.
     let recent = &mut app.settings.palette_recent;
     let r = crate::palette_view::remembered(key);
@@ -3600,14 +3527,7 @@ fn instance_of(
     use mg_module::instances::{Placing, instance};
     let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return Ok(None) };
     let _ = ws.flush();
-    let read = |k: ResKey| -> Option<mg_gff::Struct> {
-        let data = ws
-            .module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        Gff::read(&data).ok().map(|g| g.root)
-    };
+    let read = |k: ResKey| mg_module::gff_root(Some(&ws.module), game, &k);
     let blueprint = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
     let items = |r: ResRef| read(ResKey::new(r, ResType::UTI));
     let placing = Placing { game, item: &items };
@@ -3854,8 +3774,6 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
     }
 }
 
-/// Save as Prefab for the selection of `area`'s view (the palette's
-/// Prefabs asks for it): whether there was a selection to save.
 /// The palette's Replace Selected: each selected object of the
 /// blueprint's type becomes one made from blueprint `key`, where it stands
 /// and facing as it faces (one command). Objects of other types, locked
@@ -3909,6 +3827,8 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) ->
     replaced
 }
 
+/// Save as Prefab for the selection of `area`'s view (the palette's
+/// Prefabs asks for it): whether there was a selection to save.
 pub(crate) fn save_selection_as_prefab(app: &mut Moonglow, area: ResRef) -> bool {
     let Some(view) = app.area_views.remove(&area) else { return false };
     let clip = copy_selection(app, &view);
@@ -4022,9 +3942,7 @@ fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
     // don't turn (a sound) led round with the rest.
     if let Some(middle) = view.middle(model) {
         let moved: Vec<(usize, Vec3, f32)> = view
-            .selection
-            .iter()
-            .filter_map(|&(k, i)| view.object_at(k, i))
+            .selected_indices()
             .map(|i| {
                 let o = &model.objects[i];
                 let r = if turns(o.kind) { o.rotation + by } else { o.rotation };
@@ -4035,9 +3953,7 @@ fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
         return;
     }
     let moved: Vec<(usize, Vec3, f32)> = view
-        .selection
-        .iter()
-        .filter_map(|&(k, i)| view.object_at(k, i))
+        .selected_indices()
         .filter(|&i| turns(model.objects[i].kind))
         .map(|i| {
             let o = &model.objects[i];
@@ -4054,9 +3970,7 @@ fn rotate_selection(app: &mut Moonglow, view: &AreaView, by: f32) {
 fn random_facing(app: &mut Moonglow, view: &AreaView) {
     let Some(model) = &view.model else { return };
     let moved: Vec<(usize, Vec3, f32)> = view
-        .selection
-        .iter()
-        .filter_map(|&(k, i)| view.object_at(k, i))
+        .selected_indices()
         .filter(|&i| faces(model.objects[i].kind))
         .map(|i| {
             let o = &model.objects[i];
@@ -4073,9 +3987,7 @@ fn random_facing(app: &mut Moonglow, view: &AreaView) {
 fn drop_to_ground(app: &mut Moonglow, view: &AreaView) {
     let (Some(model), Some(ground)) = (&view.model, &view.ground) else { return };
     let moved: Vec<(usize, Vec3, f32)> = view
-        .selection
-        .iter()
-        .filter_map(|&(k, i)| view.object_at(k, i))
+        .selected_indices()
         .filter_map(|i| {
             let o = &model.objects[i];
             if o.kind == ObjectKind::Creature {
@@ -4108,8 +4020,7 @@ fn arrange_selection(
     label: &str,
 ) {
     let Some(model) = &view.model else { return };
-    let chosen: Vec<usize> =
-        view.selection.iter().filter_map(|&(k, i)| view.object_at(k, i)).collect();
+    let chosen: Vec<usize> = view.selected_indices().collect();
     let before: Vec<(Vec2, f32)> = chosen
         .iter()
         .map(|&i| (model.objects[i].position.truncate(), model.objects[i].rotation))
@@ -4568,7 +4479,7 @@ fn turn_start_location(app: &mut Moonglow, facing: f32) {
 /// An edit of one of the IFO's fields.
 fn start_field(label: &str, value: Value) -> mg_edit::Edit {
     mg_edit::Edit::SetField {
-        key: ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO),
+        key: crate::module_props::info_key(),
         path: mg_edit::GffPath::root(),
         label: label.into(),
         value: Some(value),
@@ -4654,19 +4565,7 @@ fn add_light(app: &mut Moonglow, view: &mut AreaView, light: &StockLight, at: Ve
     };
     let placement = Placement { position: at.to_array(), rotation: 0.0 };
     let Some(item) = appearance_item(app, &dragged, placement) else { return };
-    let Some(ws) = app.ws.as_mut() else { return };
-    let git = view.git();
-    let kind = ObjectKind::Placeable;
-    let index = ws.doc(&git).ok().and_then(|g| g.root.list(kind.list())).map_or(0, <[_]>::len);
-    let edit = mg_edit::Edit::InsertItem {
-        key: git,
-        path: mg_edit::GffPath::root(),
-        list: kind.list().into(),
-        index,
-        item,
-    };
-    app.actions.push(Action::Apply(Command::new(format!("Add {}", dragged.name), vec![edit])));
-    view.selection = vec![(kind, index)];
+    append_object(app, view, ObjectKind::Placeable, item, format!("Add {}", dragged.name));
 }
 
 /// Sets a field on every selected object (one command).
@@ -4871,13 +4770,7 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
         return;
     };
     let module = &ws.module;
-    let original = |k: ResKey| -> Option<mg_gff::Struct> {
-        let data = module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        Gff::read(&data).ok().map(|g| g.root)
-    };
+    let original = |k: ResKey| mg_module::gff_root(Some(module), game, &k);
     let taken = |k: &ResKey| module.contains(k) || game.resman.get(k).is_ok();
     let Some(added) =
         mg_module::palette_add::add_to_palette(game, kind.restype(), &placed, &original, &taken)

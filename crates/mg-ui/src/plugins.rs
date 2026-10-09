@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use mg_edit::{Command, Edit};
+use mg_edit::Command;
 use mg_module::doctor::{Finding, Severity};
 use mg_plugin::{
     Answer, Existing, FieldKind, Host, Input, Outcome, Package, Plugin, PluginError, Question,
@@ -311,7 +311,7 @@ impl Moonglow {
         let run = move |input: Input, host: Rc<dyn Host>| {
             mg_plugin::run_command(&plugin, &command, input, host)
         };
-        self.run_plugin(name, title, run);
+        self.run_plugin(name, title, false, run);
     }
 
     /// Plugins › Install Plugin from File…: asks for a plugin's archive
@@ -396,7 +396,7 @@ impl Moonglow {
     }
 
     fn install_said(&mut self, level: Level, text: String) {
-        self.log.entries.push((level, text.clone()));
+        self.log.said(level, text.clone());
         self.plugins.install_note = Some((level, text));
     }
 
@@ -407,14 +407,16 @@ impl Moonglow {
         let run =
             move |input: Input, host: Rc<dyn Host>| mg_plugin::run_console(&code, input, host);
         self.plugins.console_output.clear();
-        self.run_plugin("Console".into(), "Console".into(), run);
+        self.run_plugin("Console".into(), "Console".into(), true, run);
     }
 
     /// A job running a plugin's code (`run`), with the window as its host.
+    /// `console`: the plugin console's, whose output shows under it too.
     fn run_plugin(
         &mut self,
         name: String,
         title: String,
+        console: bool,
         run: impl FnOnce(Input, Rc<dyn Host>) -> Result<Outcome, PluginError> + Send + 'static,
     ) {
         // Its questions are answered in the job's window; where there is
@@ -438,7 +440,7 @@ impl Moonglow {
                 let input = Input { module: job.module.clone(), game: job.game.clone() };
                 run(input, host)
             },
-            move |app, result| app.plugin_finished(&job_name, &title, result, &log),
+            move |app, result| app.plugin_finished(&job_name, &title, console, result, &log),
         );
         if !self.busy() {
             self.plugins.ask = None;
@@ -451,24 +453,24 @@ impl Moonglow {
         &mut self,
         name: &str,
         title: &str,
+        console: bool,
         result: Result<Outcome, PluginError>,
         log: &Logged,
     ) {
         self.plugins.ask = None;
         self.plugins.form = None;
-        let console = name == "Console";
         let logged = std::mem::take(&mut *log.lock().unwrap_or_else(|e| e.into_inner()));
         for (l, text) in logged {
             if console {
                 self.plugins.console_output.push((level(l), text.clone()));
             }
-            self.log.entries.push((level(l), format!("{name}: {text}")));
+            self.log.said(level(l), format!("{name}: {text}"));
         }
         let say = |app: &mut Moonglow, l: Level, text: String| {
             if console {
                 app.plugins.console_output.push((l, text.clone()));
             }
-            app.log.entries.push((l, text));
+            app.log.said(l, text);
         };
         let title = title.trim_end_matches('…');
         // Its haks first (the user agreed to each while it ran): the
@@ -490,7 +492,7 @@ impl Moonglow {
                             self,
                             Level::Info,
                             format!(
-                                "{name}: {title} put {} resources into {} ({replaced} replaced;                                  Undo doesn't take a hak back)",
+                                "{name}: {title} put {} resources into {} ({replaced} replaced; Undo doesn't take a hak back)",
                                 added + replaced,
                                 dir.join(format!("{}.hak", hak.name)).display()
                             ),
@@ -519,12 +521,8 @@ impl Moonglow {
             Ok(outcome) => {
                 let mut resources = Vec::new();
                 for e in &outcome.edits {
-                    let (Edit::SetField { key, .. }
-                    | Edit::InsertItem { key, .. }
-                    | Edit::RemoveItem { key, .. }
-                    | Edit::SetResource { key, .. }) = e;
-                    if !resources.contains(key) {
-                        resources.push(*key);
+                    if !resources.contains(e.key()) {
+                        resources.push(*e.key());
                     }
                 }
                 let n = resources.len();
@@ -764,12 +762,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
             if let Some((l, note)) = &app.plugins.install_note {
-                let color = match l {
-                    Level::Error => ui.visuals().error_fg_color,
-                    Level::Warning => ui.visuals().warn_fg_color,
-                    Level::Info => ui.visuals().text_color(),
-                };
-                ui.colored_label(color, note);
+                ui.colored_label(l.color(ui), note);
             }
             if app.no_plugins {
                 ui.colored_label(
@@ -865,12 +858,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 );
                 run_console = ui.add_enabled(app.ws.is_some(), egui::Button::new("Run")).clicked();
                 for (l, line) in &app.plugins.console_output {
-                    let color = match l {
-                        Level::Info => ui.visuals().text_color(),
-                        Level::Warning => ui.visuals().warn_fg_color,
-                        Level::Error => ui.visuals().error_fg_color,
-                    };
-                    ui.label(egui::RichText::new(line).monospace().color(color));
+                    ui.label(egui::RichText::new(line).monospace().color(l.color(ui)));
                 }
             });
         });

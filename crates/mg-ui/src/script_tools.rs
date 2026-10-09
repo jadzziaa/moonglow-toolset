@@ -499,9 +499,9 @@ mod tests {
         let t = "Foo foo food Foo";
         assert_eq!(find(t, "foo", 0, &o), Some((0, 3)));
         assert_eq!(find(t, "foo", 1, &o), Some((4, 7)));
-        let whole = SearchOptions { whole_word: true, match_case: true, ..o.clone() };
+        let whole = SearchOptions { whole_word: true, match_case: true, ..o };
         assert_eq!(find(t, "Foo", 1, &whole), Some((13, 16)));
-        let back = SearchOptions { backwards: true, ..o.clone() };
+        let back = SearchOptions { backwards: true, ..o };
         assert_eq!(find(t, "foo", 4, &back), Some((0, 3)));
         assert_eq!(replace_all(t, "foo", "bar", &whole), ("Foo bar food Foo".into(), 1));
         assert_eq!(

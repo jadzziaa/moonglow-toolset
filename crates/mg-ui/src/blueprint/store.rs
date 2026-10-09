@@ -145,7 +145,7 @@ fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
     let edit = match index {
         Some(i) => Edit::InsertItem {
             key: f.key,
-            path: base.clone().item("StoreList", i),
+            path: base.item("StoreList", i),
             list: "ItemList".into(),
             index: items.len(),
             item,
@@ -155,7 +155,7 @@ fn add_item(f: &mut Form<'_>, resref: ResRef) -> u32 {
             p.set("ItemList", Value::List(vec![item]));
             Edit::InsertItem {
                 key: f.key,
-                path: base.clone(),
+                path: base,
                 list: "StoreList".into(),
                 index: pages.len(),
                 item: p,
@@ -274,8 +274,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
     } else if !not_buy.is_empty() {
         only = false;
     }
-    let (label, current) =
-        if only { ("WillOnlyBuy", only_buy.clone()) } else { ("WillNotBuy", not_buy.clone()) };
+    let (label, current) = if only { ("WillOnlyBuy", only_buy) } else { ("WillNotBuy", not_buy) };
     let entries = |rows: &[i64]| -> Value {
         Value::List(
             rows.iter()
@@ -387,7 +386,7 @@ fn restrictions(f: &mut Form<'_>, ui: &mut Ui) {
     if let Some(i) = remove.and_then(|row| current.iter().position(|&r| r == row)) {
         f.app.actions.push(Action::Apply(Command::new(
             "Remove restricted item",
-            vec![Edit::RemoveItem { key, path: base.clone(), list: label.into(), index: i }],
+            vec![Edit::RemoveItem { key, path: base, list: label.into(), index: i }],
         )));
         right = None;
     }

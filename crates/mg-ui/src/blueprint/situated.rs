@@ -24,14 +24,7 @@ pub(super) const BYTE_MAX: i64 = 250;
 pub(super) fn trap(f: &mut Form<'_>, ui: &mut Ui) {
     let trapped = f.check(ui, "Is Trapped", "TrapFlag");
     ui.separator();
-    let traps = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("traps", ChoiceColumns { name: Some("TrapName"), label: Some("Label") }).ok()
-        })
-        .unwrap_or_default();
+    let traps = f.choices("traps", Some("TrapName"), Some("Label"));
     let row = f.int("TrapType");
     let table = f.app.game.as_deref().and_then(|g| g.table("traps").ok());
     let cell = |col: &str| {
@@ -405,15 +398,7 @@ fn destinations(f: &mut Form<'_>) -> Vec<(String, String, i64)> {
 /// The Area Transition page of doors and transition triggers: the
 /// destination's tag and type, Setup Area Transition, the loading screen.
 pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
-    let loadscreens = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("loadscreens", ChoiceColumns { name: Some("StrRef"), label: Some("Label") })
-                .ok()
-        })
-        .unwrap_or_default();
+    let loadscreens = f.choices("loadscreens", Some("StrRef"), Some("Label"));
     egui::Grid::new(("utt-transition", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Destination Tag");
         f.text(ui, "Destination tag", "LinkedTo", 32);
@@ -429,19 +414,22 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         });
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        // Aurora's Setup Area Transition: a door or waypoint in an area.
-        let dests = destinations(f);
-        // (Areas by name, when the module tree lists them so.)
-        let mut areas: std::collections::HashMap<_, String> = Default::default();
-        for (area, _, _) in &dests {
-            let named = area.parse().map(|r| crate::tabs::area_label(f.app, r));
-            areas.entry(area.clone()).or_insert_with(|| named.unwrap_or_else(|_| area.clone()));
-        }
+        // Aurora's Setup Area Transition: a door or waypoint in an area
+        // (gathered while the list is open: from every area's objects).
         let mut pick = None;
         egui::ComboBox::from_id_salt(("utt-setup", f.key))
             .selected_text("Setup Area Transition…")
             .width(260.0)
             .show_ui(ui, |ui| {
+                let dests = destinations(f);
+                // (Areas by name, when the module tree lists them so.)
+                let mut areas: std::collections::HashMap<_, String> = Default::default();
+                for (area, _, _) in &dests {
+                    let named = area.parse().map(|r| crate::tabs::area_label(f.app, r));
+                    areas
+                        .entry(area.clone())
+                        .or_insert_with(|| named.unwrap_or_else(|_| area.clone()));
+                }
                 if dests.is_empty() {
                     ui.weak("No doors or waypoints with tags in the module's areas");
                 }

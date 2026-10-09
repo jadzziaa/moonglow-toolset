@@ -5,7 +5,7 @@
 use egui::Ui;
 use mg_gff::FieldType;
 use mg_module::palette::BlueprintKind;
-use mg_rules::{Choice, ChoiceColumns};
+use mg_rules::Choice;
 
 use super::{Form, situated};
 
@@ -73,12 +73,7 @@ fn transition(f: &mut Form<'_>, ui: &mut Ui) {
 }
 
 fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
-    let cursors = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| g.choices("cursors", ChoiceColumns { name: None, label: Some("Label") }).ok())
-        .unwrap_or_default();
+    let cursors = f.choices("cursors", None, Some("Label"));
     egui::Grid::new(("utt-advanced", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         crate::widgets::field_label(ui, "Blueprint ResRef");
         f.blueprint_resref(ui);

@@ -47,7 +47,6 @@ pub(crate) struct LaidOut {
     galley: std::sync::Arc<egui::Galley>,
 }
 
-/// Underlines (wavy red, as editors mark errors) what is on a 0-based line.
 /// The room a side list's row takes beside its name: the scroll bar and
 /// the panel's and the row's margins.
 const SIDE_MARGINS: f32 = 44.0;
@@ -55,6 +54,7 @@ const SIDE_MARGINS: f32 = 44.0;
 /// The longest name the side lists open wide enough for, characters.
 const LONG_NAME: usize = 44;
 
+/// Underlines (as editors mark errors) what is on a 0-based line.
 fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) {
     let start = if line == 0 {
         0
@@ -300,7 +300,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
     // The symbols the script can use (its own, its includes', nwscript's).
     let symbols = {
-        let text = app.scripts[&key].text.clone();
+        let text = &app.scripts[&key].text;
         let (game, ws) = (&app.game, &app.ws);
         let mut source = |name: &str| -> Option<String> {
             let k = tools::nss(name)?;
@@ -313,7 +313,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         };
         app.script_tools.symbols_for(
             key,
-            &text,
+            text,
             || {
                 let g = game.as_ref()?;
                 let data = g.resman.get_named("nwscript", ResType::NSS).ok()?;
@@ -338,7 +338,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         use egui::{Key, KeyboardShortcut, Modifiers};
         let pressed = |m, k| ui.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
         // The keys of Options › Keyboard.
-        let keys = app.keymap.clone();
+        let keys = &app.keymap;
         let cmd = |c: Cmd| ui.input_mut(|i| keys.consume(i, c));
         rename = cmd(Cmd::RenameSymbol);
         open_find = cmd(Cmd::Find);
@@ -423,7 +423,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         to_scratch = ui.button("To Scratch").on_hover_text(tip).clicked();
         ui.separator();
         use crate::keys::Cmd;
-        let keymap = app.keymap.clone();
+        let keymap = &app.keymap;
         let ctx = ui.ctx().clone();
         let tip = |text: &str, cmd: Cmd| keymap.titled(text, cmd, &ctx);
         let find_tip = format!("{}; {}", tip("Find", Cmd::Find), tip("Find Next", Cmd::FindNext));
@@ -930,11 +930,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let s = c.items[i].clone();
             let start = c.start;
             script_tools.completion = None;
-            let text = if s.kind == SymbolKind::Function {
-                format!("{}(", s.name)
-            } else {
-                s.name.clone()
-            };
+            let text = if s.kind == SymbolKind::Function { format!("{}(", s.name) } else { s.name };
             let at = cursor(&ctx, key).map_or(start, |x| x.0);
             insert(buf, &ctx, key, start, at, &text);
         }
@@ -1221,8 +1217,8 @@ impl Moonglow {
     }
 }
 
-/// Compiles one script (its text as in the editor) and stores the bytecode.
-/// Compiles one script into the module; whether it compiled.
+/// Compiles one script (its text as in the editor) into the module;
+/// whether it compiled.
 fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
     if app.ws.is_none() {
         return false;
@@ -1356,8 +1352,8 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
 }
 
 /// The Open Script window: a name to find, which scripts to show (as
-/// Aurora's Resources to Show), and the list; a double click, or Enter for
-/// the first listed, opens one (the game's and a hak's to read only).
+/// Aurora's Resources to Show), and the list; a click, or Enter for the
+/// first listed, opens one (the game's and a hak's to read only).
 fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
     use crate::script_tools::{ScriptFrom, ScriptsShown};
     let Some(mut w) = app.script_tools.open_script.take() else { return };
@@ -1415,7 +1411,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                                 ScriptFrom::Hak => _ = ui.weak("hak"),
                                 ScriptFrom::Game => _ = ui.weak("game"),
                             }
-                            if r.double_clicked() || r.clicked() {
+                            if r.clicked() {
                                 chosen = Some((*key, *from));
                             }
                         });

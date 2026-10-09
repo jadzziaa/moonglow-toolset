@@ -306,7 +306,8 @@ const VAR_VALUE_WIDTH: f32 = 220.0;
 /// The room under the Variables list for its buttons and notes.
 const VAR_FOOT: f32 = 96.0;
 
-fn window(title: &str) -> egui::Window<'_> {
+/// A window in the middle of the app's, of a size its content gives it.
+pub(crate) fn window(title: &str) -> egui::Window<'_> {
     egui::Window::new(title)
         .collapsible(false)
         .resizable(false)
@@ -322,7 +323,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.game.as_deref()?.string(StrRef(n))
     };
 
-    if let Some(edit) = app.loc_edit.clone() {
+    if let Some(edit) = app.loc_edit.take() {
         let mut edit = edit;
         let mut close = false;
         let tlk = tlk_text(app, &edit.strref);
@@ -465,7 +466,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.loc_edit = if close { None } else { Some(edit) };
     }
 
-    if let Some(mut edit) = app.var_edit.clone() {
+    if let Some(mut edit) = app.var_edit.take() {
         let mut close = false;
         // A window to size as the list needs: its edges are dragged, and the
         // name and value fields take the width there is.
@@ -618,7 +619,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.var_edit = if close { None } else { Some(edit) };
     }
 
-    if let Some(mut p) = app.picker.clone() {
+    if let Some(mut p) = app.picker.take() {
         let mut close = false;
         window(&p.title).show(&ctx, |ui| {
             ui.horizontal(|ui| {
@@ -708,8 +709,6 @@ pub(crate) fn variables_button(
     }
 }
 
-/// A text field that commits when focus leaves it (one line, or several
-/// with their line-end style kept). Returns the new text then.
 /// Whether the text kept under `id` (a list's filter) is another than at
 /// the frame before: what a filter opens, it opens when it changes, and
 /// leaves to be closed again after.
@@ -843,6 +842,8 @@ pub(crate) fn with_token(ctx: &egui::Context, id: egui::Id, current: &str, token
     from_editor(&out, crlf)
 }
 
+/// A text field that commits when focus leaves it (one line, or several
+/// with their line-end style kept). Returns the new text then.
 pub(crate) fn commit_text(
     app: &mut Moonglow,
     ui: &mut Ui,
@@ -1414,7 +1415,7 @@ mod tests {
         let edit = LocStringEdit::new(target(), "Name", &ls);
         assert_eq!(edit.entries[0].2, "a\nb");
         assert_eq!(edit.value(), Some(ls));
-        let mut bad = edit.clone();
+        let mut bad = edit;
         bad.strref = "x".into();
         assert_eq!(bad.value(), None);
     }

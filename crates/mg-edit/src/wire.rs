@@ -635,7 +635,7 @@ mod tests {
         #[test]
         fn json_that_is_no_command_is_an_error_not_a_panic(json in any_json()) {
             let _ = command_from_json(&json, Codepage::WINDOWS_1252);
-            let _ = command_from_json(&json!({"edits": [json.clone()]}), Codepage::WINDOWS_1252);
+            let _ = command_from_json(&json!({"edits": [json]}), Codepage::WINDOWS_1252);
             let _ = command_from_json(&json!({"edits": json}), Codepage::WINDOWS_1252);
         }
     }

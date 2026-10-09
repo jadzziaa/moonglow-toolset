@@ -460,7 +460,7 @@ fn reader(lua: &Lua, sh: &Rc<Shared>, game: bool) -> mlua::Result<Table> {
                 let out = lua.create_table()?;
                 out.set("rows", table.len())?;
                 out.set("columns", table.columns().to_vec())?;
-                let cells = table.clone();
+                let cells = table;
                 out.set(
                     "get",
                     lua.create_function(move |_, (_, row, column): (This, usize, String)| {

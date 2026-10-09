@@ -184,10 +184,6 @@ impl TileIndex {
         &self.crossers[usize::from(c.0)]
     }
 
-    pub fn tile_count(&self) -> usize {
-        self.cells.len()
-    }
-
     /// What a placed tile puts in its cell; `None` for a tile the tileset
     /// does not have.
     pub fn cell(&self, p: Placement) -> Option<Cell> {

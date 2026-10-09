@@ -72,7 +72,7 @@ use mg_core::ResType;
 use mg_edit::{Command, Workspace};
 use mg_module::new::AreaSpec;
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{GameInstall, LayerClass, ResKey, priority};
 use mg_rules::GameData;
 
 pub use browser::Browser;
@@ -175,7 +175,6 @@ pub enum Action {
     /// A tab's own window made to fill the main pane, or put back as it
     /// was.
     ToggleMaximize(Tab),
-    /// Renames a blueprint (and points its editor at the new name).
     /// Build › Test Module, Choose Character: the game's character
     /// selection for the module.
     TestModuleChoose,
@@ -192,8 +191,6 @@ pub enum Action {
     PlacePrefab(String),
     /// Edit › Find References: where a resource is used.
     FindReferences(ResKey),
-    /// Where a tag is used.
-    FindTag(String),
     /// The Rename window for a resource.
     RenameDialog(ResKey),
     /// Opens the Placeable Gallery.
@@ -214,6 +211,7 @@ pub enum Action {
     /// Deletes a resource of the module (an area with its objects, a
     /// script with its compiled one).
     DeleteResource(ResKey),
+    /// Renames a blueprint (and points its editor at the new name).
     RenameBlueprint {
         from: ResKey,
         to: mg_core::ResRef,
@@ -246,6 +244,17 @@ pub enum Level {
     Error,
 }
 
+impl Level {
+    /// The color its messages are written in.
+    pub(crate) fn color(self, ui: &egui::Ui) -> egui::Color32 {
+        match self {
+            Level::Info => ui.visuals().text_color(),
+            Level::Warning => ui.visuals().warn_fg_color,
+            Level::Error => ui.visuals().error_fg_color,
+        }
+    }
+}
+
 /// The message log (Aurora's output pane).
 #[derive(Debug, Clone, Default)]
 pub struct Log {
@@ -259,8 +268,8 @@ impl Log {
     pub fn warn(&mut self, s: impl Into<String>) {
         self.said(Level::Warning, s.into());
     }
-    /// (The debug log has the messages too.)
-    fn said(&mut self, level: Level, s: String) {
+    /// A message of any level. (The debug log has the messages too.)
+    pub(crate) fn said(&mut self, level: Level, s: String) {
         trace::note(format!("log {level:?}: {s}"));
         self.entries.push((level, s));
     }
@@ -353,10 +362,10 @@ pub struct Moonglow {
     /// A tileset whose tab is being closed with unsaved changes.
     pub(crate) tileset_closing: Option<u32>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
-    /// The areas' names as last read (Options › General: Show areas by
-    /// name).
     /// The Palette Categories window, when open.
     pub palette_categories: Option<palette_categories::PaletteCategories>,
+    /// The areas' names as last read (Options › General: Show areas by
+    /// name).
     pub(crate) area_names: tree::AreaNames,
     /// What is placed in the areas opened out in the module tree, each as
     /// read at a revision of the workspace.
@@ -741,8 +750,6 @@ impl Moonglow {
         }
     }
 
-    /// The application with saved settings: their game install (or the
-    /// detected one) and recent modules.
     /// Gives the app the window's GPU, for 3D views.
     pub fn set_render_state(&mut self, render_state: egui_wgpu::RenderState) {
         self.render_info = Some(format!(
@@ -755,6 +762,8 @@ impl Moonglow {
         self.viewport = Some(model_view::Viewport3d::new(render_state));
     }
 
+    /// The application with saved settings: their game install (or the
+    /// detected one) and recent modules.
     pub fn with_settings(settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
         let mut app = Moonglow::new(settings.install(), dialogs);
         set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
@@ -785,8 +794,6 @@ impl Moonglow {
                  Troubleshooting)"
             ));
         }
-        // Options › General › Interface size (when chosen; else the size is
-        // egui's own, which Ctrl with + and - change).
         // Options › General › Light theme (dark unless chosen).
         let theme = if self.settings.light_theme { egui::Theme::Light } else { egui::Theme::Dark };
         if ui.ctx().theme() != theme {
@@ -799,6 +806,8 @@ impl Moonglow {
         if ui.ctx().global_style().spacing.scroll != bars {
             ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
         }
+        // Options › General › Interface size (when chosen; else the size is
+        // egui's own, which Ctrl with + and - change).
         match self.settings.ui_scale {
             Some(scale) => {
                 let zoom = f32::from(scale) / 100.0;
@@ -821,8 +830,9 @@ impl Moonglow {
             self.shortcuts(ui);
         }
         egui::Panel::top("menu").show(ui, |ui| {
-            self.menu(ui);
-            self.toolbar(ui);
+            commands::menu_bar(self, ui);
+            // Buttons for the common commands, below the menu as in Aurora.
+            commands::toolbar(self, ui);
         });
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         // The log shrinks to a single line if the user wants it that small.
@@ -1630,15 +1640,6 @@ impl Moonglow {
         commands::keys_pressed(self, ui);
     }
 
-    fn menu(&mut self, ui: &mut egui::Ui) {
-        commands::menu_bar(self, ui);
-    }
-
-    /// Buttons for the common commands, below the menu as in Aurora.
-    fn toolbar(&mut self, ui: &mut egui::Ui) {
-        commands::toolbar(self, ui);
-    }
-
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let module = match (self.module_path(), &self.ws) {
             (Some(p), _) => p.display().to_string(),
@@ -1674,12 +1675,7 @@ impl Moonglow {
             .min_scrolled_height(0.0)
             .show(ui, |ui| {
                 for (level, msg) in &self.log.entries {
-                    let color = match level {
-                        Level::Info => ui.visuals().text_color(),
-                        Level::Warning => ui.visuals().warn_fg_color,
-                        Level::Error => ui.visuals().error_fg_color,
-                    };
-                    ui.label(egui::RichText::new(msg).color(color).monospace());
+                    ui.label(egui::RichText::new(msg).color(level.color(ui)).monospace());
                 }
             });
     }
@@ -1790,15 +1786,15 @@ impl Moonglow {
         self.viewed.clear();
     }
 
-    /// Loads the module's custom talk table (from its haks, the module or
-    /// the user's `tlk/` folder, as the game looks) when the module names
-    /// another one than is loaded.
     /// Reads the module's custom talk table again (after it was saved).
     pub(crate) fn reload_custom_tlk(&mut self) {
         self.custom_tlk = None;
         self.load_custom_tlk();
     }
 
+    /// Loads the module's custom talk table (from its haks, the module or
+    /// the user's `tlk/` folder, as the game looks) when the module names
+    /// another one than is loaded.
     fn load_custom_tlk(&mut self) {
         let (Some(ws), Some(game)) = (&self.ws, exclusive(&mut self.game)) else { return };
         let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
@@ -2078,6 +2074,8 @@ impl Moonglow {
             Action::HakReport => self.hak_report(),
             Action::OptionsDialog => {
                 let mut draft = OptionsDraft::from_settings(&self.settings);
+                // (Looked for once: it reads Steam's library files.)
+                draft.detected = GameInstall::detect();
                 // The plugins' commands take keys like the rest.
                 let commands = self.plugin_commands();
                 plugins::register_keys(&mut draft.keymap, &commands);
@@ -2279,7 +2277,6 @@ impl Moonglow {
             }
             Action::RenameBlueprint { from, to } => blueprint::rename(self, from, to),
             Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
-            Action::FindTag(t) => self.find_references(references::Query::Tag(t)),
             Action::RenameDialog(k) => self.rename_dialog(k),
             Action::CopyDialog(k) => self.copy_dialog(k, false),
             Action::PlaceableGallery => {
@@ -2457,6 +2454,12 @@ impl Moonglow {
     }
 
     fn save(&mut self, to: Option<ModuleLocation>) {
+        // A module never saved is asked a place first: Save As comes back
+        // here with it, and a save called off there does nothing.
+        if to.is_none() && self.ws.as_ref().is_some_and(|ws| ws.module.location.is_none()) {
+            self.run_now(Action::SaveAsDialog);
+            return;
+        }
         // (A Ctrl + wheel scaling still under way is part of what is saved.)
         area_view::commit_wheel_scales(self);
         // Options > General: Build module on save.
@@ -2523,10 +2526,6 @@ impl Moonglow {
         }
         let result = match to {
             Some(loc) => ws.save_as(&loc).map_err(|e| e.to_string()),
-            None if ws.module.location.is_none() => {
-                self.run_now(Action::SaveAsDialog);
-                return;
-            }
             None => ws.save().map_err(|e| e.to_string()),
         };
         match result {
@@ -2751,7 +2750,7 @@ impl Moonglow {
             ));
             return;
         };
-        let Some(user) = install.user_dir.clone() else {
+        let Some(user) = install.user_dir else {
             self.log.error("Test Module needs the game's user folder (Options › Folders)");
             return;
         };
@@ -3032,8 +3031,7 @@ impl Moonglow {
     fn listed_haks(&mut self) -> Vec<String> {
         use mg_schema::StructExt;
         let Some(ws) = &mut self.ws else { return Vec::new() };
-        let key = ResKey::parse("module", ResType::IFO).expect("valid");
-        let Ok(info) = ws.doc(&key) else { return Vec::new() };
+        let Ok(info) = ws.doc(&module_props::info_key()) else { return Vec::new() };
         let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
         let mut haks: Vec<String> = info
             .root
@@ -3193,8 +3191,6 @@ impl Moonglow {
         );
     }
 
-    /// Uses new game and user folders: closes the module and reloads the
-    /// game data.
     /// Options › Conversation Editor: backs the open conversations up
     /// every so many minutes (Aurora's default: 5).
     fn backup_timer(&mut self, ui: &egui::Ui) {
@@ -3317,20 +3313,15 @@ impl Moonglow {
             .map(|b| b.numbered.iter().enumerate().filter_map(|(n, l)| Some((n, (*l)?))).collect())
             .unwrap_or_default()
     }
-
-    /// A resman view for things that need one without a game install (tests).
-    pub fn resman(&self) -> Option<&ResMan> {
-        self.game.as_deref().map(|g| &g.resman)
-    }
 }
 
-/// Loads the game data of an install, logging the outcome.
 /// The game data to change (its layers, its talk table): only while no job
 /// is reading it, which is whenever the window takes input.
 pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
     game.as_mut().and_then(Arc::get_mut)
 }
 
+/// Loads the game data of an install, logging the outcome.
 fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameData>> {
     match install {
         Some(gi) => match GameData::open(gi) {

@@ -116,7 +116,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     ui.separator();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
     let in_module = |k: &ResKey| ws.as_ref().is_some_and(|w| w.module.contains(k));
-    let shown = browser.shown.clone();
+    let shown = &browser.shown;
     egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(
         ui,
         row_height,

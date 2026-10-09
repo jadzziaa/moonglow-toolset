@@ -160,7 +160,7 @@ const LISTS: &[&str] = &[
 /// Lists whose lines start with a name, not a number (counts are trusted).
 const NAMED_LISTS: &[&str] = &["weights", "texturenames", "multimaterial"];
 
-/// A list as written: its keyword's line, the count it gives and its rows.
+/// A list as written: its keyword's line and its rows.
 #[derive(Default)]
 struct List<'a> {
     line: usize,
@@ -361,7 +361,7 @@ fn key_controller(name: &str, rows: &[Vec<f32>], bezier: bool) -> Controller {
     let bezier = bezier && width >= 3 && width % 3 == 0;
     let columns = if bezier { width / 3 } else { width };
     let mut c = Controller {
-        name: if name == "setfillumcolor" { "selfillumcolor".into() } else { name.into() },
+        name: ctrl::canonical(name).into(),
         columns: if orientation { 4 } else { columns },
         ..Default::default()
     };
@@ -384,7 +384,7 @@ fn key_controller(name: &str, rows: &[Vec<f32>], bezier: bool) -> Controller {
     c
 }
 
-/// De-indexes a mesh's faces; returns the mesh streams.
+/// De-indexes a mesh's faces into `m`'s streams.
 fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh, notes: &mut Vec<Note>) {
     let verts = vec3s(raw.list("verts"));
     let tangents: Vec<[f32; 4]> = raw
@@ -659,7 +659,7 @@ fn geometry_node(raw: &RawNode<'_>, notes: &mut Vec<Note>) -> Node {
         if values.is_empty() && cols > 0 {
             continue;
         }
-        let name = if k == "setfillumcolor" { "selfillumcolor" } else { k.as_str() };
+        let name = ctrl::canonical(k);
         node.controllers.retain(|c| c.name != name);
         node.controllers.push(Controller::constant(name, &values[..values.len().min(cols)]));
     }
@@ -748,7 +748,7 @@ fn anim_node(raw: &RawNode<'_>, source_counts: &HashMap<String, (usize, usize)>)
     for (k, v) in &raw.props {
         let is_ctrl = matches!(k.as_str(), "position" | "orientation" | "scale")
             || ctrl::columns(node_flags, k).is_some();
-        if !is_ctrl || n.controllers.iter().any(|c| &c.name == k) {
+        if !is_ctrl || n.controllers.iter().any(|c| c.name == ctrl::canonical(k)) {
             continue;
         }
         let mut row: Vec<f32> = vec![0.0];
@@ -1199,6 +1199,22 @@ donemodel test
         assert!(!c[1].is_bezier() && c[1].columns == 2);
         assert_eq!(map.notes.len(), 1, "{:?}", map.notes);
         assert!(map.notes[0].message.starts_with("scalebezierkey"));
+    }
+
+    #[test]
+    fn an_animation_s_self_illumination_is_one_controller_under_either_spelling() {
+        // Keys under one spelling and a single value under the other: the
+        // keys are the controller (as for a keyword spelled alike twice).
+        let mdl = "newmodel t\nbeginmodelgeom t\nnode dummy t\nendnode\nnode trimesh m\nparent t\n\
+                   endnode\nendmodelgeom t\n\
+                   newanim a t\nlength 1\nnode trimesh m\nparent t\n\
+                   selfillumcolorkey 2\n0 0 0 0\n1 1 1 1\nendlist\n\
+                   setfillumcolor 0.5 0.5 0.5\nendnode\ndoneanim a t\n";
+        let m = read(mdl.as_bytes()).unwrap();
+        let names: Vec<&str> =
+            m.animations[0].nodes[0].controllers.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["selfillumcolor"]);
+        assert_eq!(m.animations[0].nodes[0].controllers[0].times.len(), 2);
     }
 
     #[test]

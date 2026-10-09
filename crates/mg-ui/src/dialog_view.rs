@@ -134,7 +134,6 @@ pub struct DialogClip {
     pub target: (Kind, u32),
 }
 
-/// The GFF path of a link.
 /// A line's own text: in the language edited (Options › Language), else,
 /// where it has none in it, in another (English first).
 fn text(n: &Struct) -> String {
@@ -156,6 +155,7 @@ fn line_text(game: Option<&mg_rules::GameData>, n: &Struct) -> String {
         .unwrap_or_default()
 }
 
+/// The GFF path of a link.
 fn link_path(row: Row) -> GffPath {
     match row.parent {
         Parent::Root => GffPath::root().item("StartingList", row.pos),
@@ -201,7 +201,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             return;
         }
     };
-    let mut view = app.dialog_views.get(&key).cloned().unwrap_or_default();
+    // (Taken for the frame and put back at its end, not copied.)
+    let mut view = app.dialog_views.remove(&key).unwrap_or_default();
     // A selection the conversation no longer has (undo) is dropped.
     view.selected = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
     let mut actions: Vec<Action> = Vec::new();
@@ -226,7 +227,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // Keys, with the pointer over the editor and no text being typed:
     // Options › Keyboard's, and the platform's Copy, Cut and Paste.
     let here = ui.ui_contains_pointer() && ui.memory(|m| m.focused().is_none());
-    let keymap = app.keymap.clone();
+    let keymap = &app.keymap;
     let pressed = |c: crate::keys::Cmd| here && ui.input(|i| keymap.pressed(i, c));
     let asked = view.menu.take();
     let (key_add, key_delete) = (
@@ -313,12 +314,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             delete = true;
         }
         let paste_parent = add_parent;
-        let clip = app.dialog_clip.clone();
-        let fits = |p: Parent| clip.as_ref().is_some_and(|c| c.branch.kind == p.child_kind());
+        let clip = app.dialog_clip.as_ref();
+        let fits = |p: Parent| clip.is_some_and(|c| c.branch.kind == p.child_kind());
         let can_paste = paste_parent.is_some_and(fits);
         if (ui.add_enabled(can_paste, egui::Button::new("Paste")).clicked() || key_paste)
             && can_paste
-            && let (Some(p), Some(c)) = (paste_parent, &clip)
+            && let (Some(p), Some(c)) = (paste_parent, clip)
         {
             let mut ng = g.clone();
             if paste_branch(&mut ng, p, &c.branch, c.from == key) {
@@ -330,7 +331,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // copied one (Link Destination To Source); the other way round,
         // the copied line gets a link to the selected one.
         let selected_line = sel.filter(|r| !is_link(&links(&g, r.parent)[r.pos])).map(target_of);
-        let pair = match (selected_line, clip.as_ref().filter(|c| c.from == key)) {
+        let pair = match (selected_line, clip.filter(|c| c.from == key)) {
             (Some(dest), Some(c)) => {
                 let (from, to) =
                     if paste_source_first { (c.target, dest) } else { (dest, c.target) };
@@ -947,20 +948,20 @@ fn text_panel(
     let width = ui.available_width();
     ui.set_max_width(width);
     if kind == Kind::Entry {
-        let tags = creature_tags(app);
         ui.horizontal_wrapped(|ui| {
             ui.label("Speaker Tag");
             let speaker = decode(n.string("Speaker").unwrap_or_default());
             let id = egui::Id::new(("dlg-speaker", key, index));
             let mut chosen = commit_text(app, ui, id, &speaker, false, 160.0);
-            // The tags of the creatures placed in the module's areas.
+            // The tags of the creatures placed in the module's areas (read
+            // only while the list is open: it takes every area's objects).
             egui::ComboBox::from_id_salt(("dlg-speaker-tags", key, index))
                 .selected_text("")
                 .width(24.0)
                 .show_ui(ui, |ui| {
-                    for t in &tags {
-                        if ui.selectable_label(*t == speaker, t).clicked() {
-                            chosen = Some(t.clone());
+                    for t in creature_tags(app) {
+                        if ui.selectable_label(t == speaker, &t).clicked() {
+                            chosen = Some(t);
                         }
                     }
                 })
@@ -1007,7 +1008,7 @@ fn text_panel(
     // text in another language (English first), marked as not its own.
     let other =
         (english.is_empty() && ls.strref.is_none()).then(|| crate::text::elsewhere(&ls)).flatten();
-    let shown = other.as_ref().map_or(english.clone(), |(_, text)| text.clone());
+    let shown = other.as_ref().map_or(english, |(_, text)| text.clone());
     let typed = match &other {
         Some((language, _)) => crate::widgets::borrowed_field(
             ui,
@@ -1504,8 +1505,6 @@ fn search_pane(
     }
 }
 
-/// Test mode: click through the conversation from a greeting, as a player
-/// would, without evaluating conditions.
 impl Moonglow {
     /// Reads a Twine or Ink story as a new conversation of the module,
     /// named after the file (made unique), and opens it; its name.

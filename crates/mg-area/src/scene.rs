@@ -223,8 +223,6 @@ impl AreaScene {
         scene
     }
 
-    /// Follows `area` after an edit: loads the models of tiles and objects
-    /// not seen before.
     /// Loads the skybox's day and night models (skyboxes.2da), unless it
     /// is the one loaded.
     fn load_sky(&mut self, gpu: &Gpu, models: &Models<'_>, game: &GameData, area: &AreaModel) {
@@ -267,6 +265,8 @@ impl AreaScene {
         }
     }
 
+    /// Follows `area` after an edit: loads the models of tiles and objects
+    /// not seen before.
     pub fn update(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel) {
         if self.arrow.is_none() {
             self.arrow = Some(Arc::new(GpuModel::new(gpu, Arc::new(crate::marker::arrow()))));
@@ -615,19 +615,17 @@ impl AreaScene {
             if failed(key) {
                 continue;
             }
-            let (mut drawn, mut lit) = (Vec::new(), Vec::new());
+            // (Into the scene's own lists, not a pair of new ones for each
+            // tile each frame: what a tile added before it failed goes.)
+            let (drawn, lit) = (instances.len(), lights.len());
             let name = tile.model.as_deref().unwrap_or("a tile");
             let posed = mg_render::guard::guarded(name, || {
-                self.tile(tile, loaded, view, &mut shared, &mut drawn, &mut lit);
+                self.tile(tile, loaded, view, &mut shared, &mut instances, &mut lights);
             });
-            match posed {
-                Some(()) => {
-                    instances.extend(drawn);
-                    lights.extend(lit);
-                }
-                None => {
-                    self.failed.borrow_mut().insert(key);
-                }
+            if posed.is_none() {
+                instances.truncate(drawn);
+                lights.truncate(lit);
+                self.failed.borrow_mut().insert(key);
             }
         }
         for (o, shown) in area.objects.iter().zip(&self.objects) {
@@ -799,11 +797,6 @@ impl AreaScene {
         });
     }
 
-    /// Whether the area has a skybox model loaded.
-    pub fn has_sky(&self) -> bool {
-        self.sky.iter().any(Option::is_some)
-    }
-
     /// What the loaded models use (Area Statistics): distinct tile and
     /// object models, their meshes and triangles, the GPU memory of their
     /// vertex and index buffers, and the distinct textures they name.
@@ -839,14 +832,6 @@ impl AreaScene {
         textures.dedup();
         u.textures = textures.len();
         u
-    }
-
-    /// How many distinct looks the objects have (each loaded once).
-    pub fn object_models(&self) -> usize {
-        let mut seen: Vec<*const Shown> = self.objects.iter().flatten().map(Arc::as_ptr).collect();
-        seen.sort();
-        seen.dedup();
-        seen.len()
     }
 }
 

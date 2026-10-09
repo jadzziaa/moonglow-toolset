@@ -14,7 +14,7 @@ use crate::widgets::{FieldTarget, LocStringEdit, resref_field, variables_button}
 use crate::{Action, Moonglow};
 
 pub(crate) fn info_key() -> ResKey {
-    ResKey::parse("module", ResType::IFO).expect("valid")
+    mg_module::Module::info_key()
 }
 
 fn target(label: &str) -> FieldTarget {
@@ -269,13 +269,14 @@ fn advanced(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
 
         crate::widgets::field_label(ui, "Starting movie");
         let movie = root.read(&ifo::MOD_START_MOVIE);
-        let movies = app
-            .install
-            .as_ref()
-            .map(|i| GameInstall::file_names(&i.movie_dirs(), "bik"))
-            .unwrap_or_default();
         let shown = if movie.is_empty() { "(none)".to_string() } else { movie.to_string() };
         egui::ComboBox::from_id_salt("ifo-movie").selected_text(shown).show_ui(ui, |ui| {
+            // (Read only while the list is open.)
+            let movies = app
+                .install
+                .as_ref()
+                .map(|i| GameInstall::file_names(&i.movie_dirs(), "bik"))
+                .unwrap_or_default();
             if ui.selectable_label(movie.is_empty(), "(none)").clicked() && !movie.is_empty() {
                 app.actions.push(set("Starting movie", &ifo::MOD_START_MOVIE, ResRef::EMPTY));
             }
@@ -629,19 +630,20 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
     ui.horizontal(|ui| {
         crate::widgets::field_label(ui, "Custom TLK");
         let tlk = decode(root.read(&ifo::MOD_CUSTOM_TLK).as_bytes());
-        // The game reads talk tables from haks and the module too.
-        let mut tlks = app
-            .install
-            .as_ref()
-            .map(|i| GameInstall::file_names(&i.tlk_dirs(), "tlk"))
-            .unwrap_or_default();
-        if let Some(game) = &app.game {
-            tlks.extend(game.resman.list(mg_core::ResType::TLK).iter().map(|r| r.to_string()));
-            tlks.sort();
-            tlks.dedup();
-        }
         let shown = if tlk.is_empty() { "(none)".to_string() } else { tlk.clone() };
         egui::ComboBox::from_id_salt("ifo-tlk").selected_text(shown).show_ui(ui, |ui| {
+            // (Read only while the list is open.) The game reads talk
+            // tables from haks and the module too.
+            let mut tlks = app
+                .install
+                .as_ref()
+                .map(|i| GameInstall::file_names(&i.tlk_dirs(), "tlk"))
+                .unwrap_or_default();
+            if let Some(game) = &app.game {
+                tlks.extend(game.resman.list(mg_core::ResType::TLK).iter().map(|r| r.to_string()));
+                tlks.sort();
+                tlks.dedup();
+            }
             let mut chosen = None;
             if ui.selectable_label(tlk.is_empty(), "(none)").clicked() {
                 chosen = Some(String::new());

@@ -246,13 +246,6 @@ fn item_types(game: &GameData) -> Vec<(u32, String)> {
     out
 }
 
-fn window(title: &str) -> egui::Window<'_> {
-    egui::Window::new(title)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-}
-
 /// The open blueprint wizard.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let Some(mut w) = app.blueprint_wizard.take() else { return };
@@ -263,7 +256,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let mut close = false;
     let mut finish = false;
     let title = format!("{} Wizard", w.kind.label().trim_end_matches('s'));
-    window(&title).show(&ctx, |ui| {
+    crate::widgets::window(&title).show(&ctx, |ui| {
         ui.set_min_width(420.0);
         let key_taken = |app: &Moonglow, r: &ResRef| {
             app.ws.as_ref().is_some_and(|ws| ws.module.contains(&ResKey::new(*r, w.kind.restype())))

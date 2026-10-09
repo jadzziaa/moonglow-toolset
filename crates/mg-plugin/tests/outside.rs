@@ -293,8 +293,7 @@ fn a_tileset_folder_becomes_a_hak_and_an_area() {
         ("group".to_string(), serde_json::json!(group.name)),
         ("area".to_string(), serde_json::json!("Imported")),
     ]);
-    let h =
-        host([Some(Answer::Path(folder.clone())), Some(Answer::Values(form)), Some(Answer::Yes)]);
+    let h = host([Some(Answer::Path(folder)), Some(Answer::Values(form)), Some(Answer::Yes)]);
     let input = Input { module: bare(), game: Some(game) };
     let outcome = run_command(&plugin, "import", input, h.clone()).unwrap();
     let log = h.log.borrow().join("\n");

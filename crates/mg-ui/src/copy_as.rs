@@ -25,7 +25,7 @@ pub struct CopyDraft {
 }
 
 /// The resources that go with one: an area's objects and comments.
-fn family(t: ResType) -> Vec<ResType> {
+pub(crate) fn family(t: ResType) -> Vec<ResType> {
     match t {
         ResType::ARE => vec![ResType::ARE, ResType::GIT, ResType::GIC],
         // (Its compiled script is the same under any name; its debug
@@ -107,8 +107,8 @@ impl Moonglow {
             return None;
         }
         // An area is one of the module's once the module lists it.
+        let ifo = crate::module_props::info_key();
         if draft.from.restype == ResType::ARE
-            && let Some(ifo) = ResKey::parse("module", ResType::IFO)
             && let Some(ws) = self.ws.as_mut()
             && let Ok(info) = ws.doc(&ifo)
         {

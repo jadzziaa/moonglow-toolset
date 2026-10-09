@@ -360,7 +360,7 @@ impl Project {
         if !self.settings.remove_unused_areas {
             return;
         }
-        let info_key = ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO);
+        let info_key = crate::Module::info_key();
         let Some(Ok(mut info)) = resources.get(&info_key).map(|b| Gff::read(b)) else { return };
         let listed: Vec<ResRef> = info
             .root

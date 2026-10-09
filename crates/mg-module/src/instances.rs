@@ -515,28 +515,16 @@ const ITEM: &[(&str, D)] = &[
     ("TemplateResRef", D::ResRef),
 ];
 
-/// An armour's parts, in Aurora's order.
-const ARMOR_PARTS: [&str; 19] = [
-    "ArmorPart_RFoot",
-    "ArmorPart_LFoot",
-    "ArmorPart_RShin",
-    "ArmorPart_LShin",
-    "ArmorPart_LThigh",
-    "ArmorPart_RThigh",
-    "ArmorPart_Pelvis",
-    "ArmorPart_Torso",
-    "ArmorPart_Belt",
-    "ArmorPart_Neck",
-    "ArmorPart_RFArm",
-    "ArmorPart_LFArm",
-    "ArmorPart_RBicep",
-    "ArmorPart_LBicep",
-    "ArmorPart_RShoul",
-    "ArmorPart_LShoul",
-    "ArmorPart_RHand",
-    "ArmorPart_LHand",
-    "ArmorPart_Robe",
-];
+/// An armour's parts, in Aurora's order (the game's).
+const ARMOR_PARTS: [&str; 19] = {
+    let mut fields = [""; 19];
+    let mut i = 0;
+    while i < fields.len() {
+        fields[i] = mg_rules::items::ARMOR_PARTS[i].0;
+        i += 1;
+    }
+    fields
+};
 const MODEL_PARTS: [&str; 3] = ["ModelPart1", "ModelPart2", "ModelPart3"];
 /// An item property's fields in Aurora's order.
 const PROPERTY_ORDER: &[&str] =
@@ -834,6 +822,16 @@ fn arrange(s: &mut Struct, order: &[&str], parts: &[&str]) {
     s.fields.sort_by_key(rank);
 }
 
+/// An item's fields in Aurora's order: its parts and then its colors where
+/// the order has `#parts`.
+fn arrange_item(s: &mut Struct) {
+    let parts: Vec<&str> = MODEL_PARTS.iter().chain(&ARMOR_PARTS).copied().collect();
+    let mut order: Vec<&str> = ITEM_ORDER.to_vec();
+    let after_parts = order.iter().position(|l| *l == "#parts").map_or(order.len(), |i| i + 1);
+    order.splice(after_parts..after_parts, ITEM_COLORS);
+    arrange(s, &order, &parts);
+}
+
 /// An item as a placed object holds it (in its inventory, a store page or
 /// equipped), as Aurora writes it: the item blueprint's fields as placed, at
 /// −1, −1, −1 facing north; containers hold theirs. `id` is its struct id
@@ -856,11 +854,7 @@ fn held_item(p: &Placing<'_>, bp: &Struct, id: u32, depth: u32) -> Struct {
     ] {
         s.set(label, Value::Float(v));
     }
-    let parts: Vec<&str> = MODEL_PARTS.iter().chain(&ARMOR_PARTS).copied().collect();
-    let mut order: Vec<&str> = ITEM_ORDER.to_vec();
-    let after_parts = order.iter().position(|l| *l == "#parts").map_or(order.len(), |i| i + 1);
-    order.splice(after_parts..after_parts, ITEM_COLORS);
-    arrange(&mut s, &order, &parts);
+    arrange_item(&mut s);
     s
 }
 
@@ -922,11 +916,8 @@ fn item_fields(p: &Placing<'_>, bp: &Struct, depth: u32) -> Struct {
         arrange(property, PROPERTY_ORDER, &[]);
     }
     s.set("PropertiesList", Value::List(properties));
-    let parts: Vec<&str> = MODEL_PARTS.iter().chain(&ARMOR_PARTS).copied().collect();
-    let mut order: Vec<&str> = ITEM_ORDER.to_vec();
-    let after_parts = order.iter().position(|l| *l == "#parts").map_or(order.len(), |i| i + 1);
-    order.splice(after_parts..after_parts, ITEM_COLORS);
-    arrange(&mut s, &order, &parts);
+    // (Its fields are put in Aurora's order by who asked, once the fields
+    // of the item's place are in.)
     s
 }
 
@@ -1036,11 +1027,7 @@ pub fn instance(
             s = item_fields(p, &s, 0);
             s.id = id;
             orientation(&mut s);
-            let parts: Vec<&str> = MODEL_PARTS.iter().chain(&ARMOR_PARTS).copied().collect();
-            let mut order: Vec<&str> = ITEM_ORDER.to_vec();
-            let after = order.iter().position(|l| *l == "#parts").map_or(order.len(), |i| i + 1);
-            order.splice(after..after, ITEM_COLORS);
-            arrange(&mut s, &order, &parts);
+            arrange_item(&mut s);
             return Some(s);
         }
         ResType::UTM => {

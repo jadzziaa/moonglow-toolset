@@ -168,15 +168,7 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
-    let all = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("feat", ChoiceColumns { name: Some("FEAT"), label: Some("LABEL") }).ok()
-        })
-        .map(mg_rules::by_name)
-        .unwrap_or_default();
+    let all = mg_rules::by_name(f.choices("feat", Some("FEAT"), Some("LABEL")));
     let list: Vec<i64> =
         f.root.list("FeatList").unwrap_or(&[]).iter().filter_map(|s| s.integer("Feat")).collect();
     let id = egui::Id::new(("utc-feats", key));
@@ -266,11 +258,11 @@ pub(super) fn feats(f: &mut Form<'_>, ui: &mut Ui) {
         Some((row, true)) => {
             let mut s = Struct::new(FEAT_ID);
             s.set("Feat", Value::Word(row as u16));
-            apply(f, "Add feat", vec![insert(key, base.clone(), "FeatList", list.len(), s)]);
+            apply(f, "Add feat", vec![insert(key, base, "FeatList", list.len(), s)]);
         }
         Some((row, false)) => {
             if let Some(i) = list.iter().position(|&r| r == row as i64) {
-                apply(f, "Remove feat", vec![remove(key, base.clone(), "FeatList", i)]);
+                apply(f, "Remove feat", vec![remove(key, base, "FeatList", i)]);
             }
         }
         None => {}
@@ -408,7 +400,7 @@ pub(super) fn spells(f: &mut Form<'_>, ui: &mut Ui) {
     let in_category = |row: usize| {
         category.is_none_or(|c| innate.as_ref().and_then(|t| t.get_int(row, "Category")) == Some(c))
     };
-    let path = base.clone().item("ClassList", index);
+    let path = base.item("ClassList", index);
     let mut change: Option<(usize, usize, i64)> = None; // (spell, level, delta)
     egui::ScrollArea::vertical().id_salt(("utc-spell-list", key)).show(ui, |ui| {
         egui::Grid::new(("utc-spell-grid", key, which)).num_columns(3).striped(true).show(
@@ -629,15 +621,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let described_by = f.app.game.clone();
     let base = f.path.clone();
     let key = f.key;
-    let names = f
-        .app
-        .game
-        .as_ref()
-        .and_then(|g| {
-            g.choices("spells", ChoiceColumns { name: Some("Name"), label: Some("Label") }).ok()
-        })
-        .map(mg_rules::by_name)
-        .unwrap_or_default();
+    let names = mg_rules::by_name(f.choices("spells", Some("Name"), Some("Label")));
     let name_of = |row: i64| {
         names
             .iter()

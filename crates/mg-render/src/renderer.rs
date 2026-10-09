@@ -282,7 +282,9 @@ pub struct Renderer {
     frame_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     pipelines: HashMap<(Pass, bool), wgpu::RenderPipeline>,
-    particle_frame_layout: wgpu::BindGroupLayout,
+    /// The frame's uniforms as the particles' and the lines' pipelines bind
+    /// them (the one buffer for good: made once).
+    particle_frame: wgpu::BindGroup,
     particle_pipelines: HashMap<ParticleBlend, wgpu::RenderPipeline>,
     particle_buffer: wgpu::Buffer,
     line_pipeline: wgpu::RenderPipeline,
@@ -360,6 +362,14 @@ impl LineVertex {
 /// A gamma-space colour in linear space.
 fn lin(c: glam::Vec3) -> glam::Vec3 {
     c.max(glam::Vec3::ZERO).powf(2.2)
+}
+
+/// A material's `CustomSpecularColor` in linear space, where it has one
+/// that is not black.
+fn custom_specular(mtr: &mg_image::mtr::Mtr) -> Option<glam::Vec3> {
+    mtr.float("CustomSpecularColor")
+        .filter(|v| v.len() >= 3 && v[..3].iter().any(|&c| c > 0.0))
+        .map(|v| lin(glam::Vec3::new(v[0], v[1], v[2])))
 }
 
 fn cols(m: Mat4) -> [[f32; 4]; 4] {
@@ -661,6 +671,19 @@ impl Renderer {
             })
         };
         let draw_size = std::mem::size_of::<DrawUniform>() as u64;
+        let frame_buffer = buffer(
+            "frame",
+            std::mem::size_of::<FrameUniform>() as u64,
+            wgpu::BufferUsages::UNIFORM,
+        );
+        let particle_frame = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("particle frame"),
+            layout: &particle_frame_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: frame_buffer.as_entire_binding(),
+            }],
+        });
         let env_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("env"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -678,17 +701,13 @@ impl Renderer {
             frame_layout,
             material_layout,
             pipelines,
-            particle_frame_layout,
+            particle_frame,
             particle_pipelines,
             particle_buffer: buffer("particles", 1 << 16, wgpu::BufferUsages::VERTEX),
             line_pipeline,
             line_buffer: buffer("lines", 1 << 16, wgpu::BufferUsages::VERTEX),
             dynamic_buffer: buffer("dynamic vertices", 1 << 16, wgpu::BufferUsages::VERTEX),
-            frame_buffer: buffer(
-                "frame",
-                std::mem::size_of::<FrameUniform>() as u64,
-                wgpu::BufferUsages::UNIFORM,
-            ),
+            frame_buffer,
             light_buffer: buffer("lights", 32 * 256, wgpu::BufferUsages::STORAGE),
             bone_buffer: buffer("bones", 64 * 64, wgpu::BufferUsages::STORAGE),
             draw_buffer: buffer("draws", draw_size * 64, wgpu::BufferUsages::STORAGE),
@@ -766,10 +785,7 @@ impl Renderer {
             out.metallicness = f("Metallicness");
             out.displacement_offset = f("DisplacementOffset");
             out.displacement_multiplier = f("DisplacementMultiplier");
-            out.specular_color = mtr
-                .float("CustomSpecularColor")
-                .filter(|v| v.len() >= 3 && v[..3].iter().any(|&c| c > 0.0))
-                .map(|v| glam::Vec3::new(v[0], v[1], v[2]).powf(2.2));
+            out.specular_color = custom_specular(mtr);
             let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
             let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
             out.transparency = mtr.transparency;
@@ -1543,15 +1559,6 @@ impl Renderer {
         if line_bytes > 0 {
             gpu.queue.write_buffer(&self.line_buffer, 0, bytemuck::cast_slice(&line_vertices));
         }
-        let particle_frame = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("particle frame"),
-            layout: &self.particle_frame_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.frame_buffer.as_entire_binding(),
-            }],
-        });
-
         let bg = scene.background;
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         {
@@ -1615,7 +1622,7 @@ impl Renderer {
             }
             self.drawn.materials = materials;
             if !particle_draws.is_empty() {
-                pass.set_bind_group(0, &particle_frame, &[]);
+                pass.set_bind_group(0, &self.particle_frame, &[]);
                 pass.set_vertex_buffer(0, self.particle_buffer.slice(..));
                 for (blend, group, range) in &particle_draws {
                     pass.set_pipeline(&self.particle_pipelines[blend]);
@@ -1625,7 +1632,7 @@ impl Renderer {
             }
             if !line_vertices.is_empty() {
                 pass.set_pipeline(&self.line_pipeline);
-                pass.set_bind_group(0, &particle_frame, &[]);
+                pass.set_bind_group(0, &self.particle_frame, &[]);
                 pass.set_vertex_buffer(0, self.line_buffer.slice(..));
                 pass.draw(0..line_vertices.len() as u32, 0..1);
             }
@@ -1770,8 +1777,21 @@ impl Targets {
 
 #[cfg(test)]
 mod tests {
-    /// The client's `lightMaxIntensityInv` and `lightFalloffFactor` with the
-    /// default settings.
+    /// A component below zero is no light, not a number that is none (a
+    /// power of a negative number), which the shader would spread.
+    #[test]
+    fn a_specular_color_with_a_negative_component_stays_a_color() {
+        let mtr = |line: &str| mg_image::mtr::Mtr::parse(line.as_bytes());
+        let c = super::custom_specular(&mtr("parameter float CustomSpecularColor 1.0 -0.5 0.5"));
+        let c = c.expect("not black");
+        assert!(c.is_finite(), "{c:?}");
+        assert_eq!((c.x, c.y), (1.0, 0.0));
+        assert!((c.z - 0.5f32.powf(2.2)).abs() < 1e-6);
+        // Black, or none: the model's own.
+        assert_eq!(super::custom_specular(&mtr("parameter float CustomSpecularColor 0 0 0")), None);
+        assert_eq!(super::custom_specular(&mtr("renderhint NormalAndSpecMapped")), None);
+    }
+
     /// What the client draws for tinted white particles (`client_render.rs`
     /// `particles_look`): ambient 0x40 grey and diffuse 0x80 grey give 0xC0;
     /// a red diffuse 0xC0 and green ambient 0x40 give (0xC0, 0x40, 0).
@@ -1790,6 +1810,8 @@ mod tests {
         assert_eq!(super::tint_light(&scene(0xFFFFFF, 0xFFFFFF), Vec3::ZERO), Vec3::ONE);
     }
 
+    /// The client's `lightMaxIntensityInv` and `lightFalloffFactor` with the
+    /// default settings.
     #[test]
     fn attenuation_matches_the_game() {
         let (max_inv, falloff) = super::attenuation_params();

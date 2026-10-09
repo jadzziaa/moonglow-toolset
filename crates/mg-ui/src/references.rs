@@ -244,7 +244,7 @@ impl Moonglow {
     /// in stays.
     pub(crate) fn undeletable(&mut self, key: ResKey) -> Option<String> {
         let ws = self.ws.as_mut()?;
-        let info = ws.doc(&ResKey::parse("module", ResType::IFO)?).ok()?;
+        let info = ws.doc(&crate::module_props::info_key()).ok()?;
         let start = info.root.resref("Mod_Entry_Area")?;
         (key.restype == ResType::ARE && start == key.resref).then(|| {
             "The module's start location is in this area: set it in another area first \
@@ -268,8 +268,8 @@ impl Moonglow {
             _ => &[],
         };
         let mut edits = Vec::new();
+        let ifo = crate::module_props::info_key();
         if key.restype == ResType::ARE
-            && let Some(ifo) = ResKey::parse("module", ResType::IFO)
             && let Ok(info) = ws.doc(&ifo)
             && let Some(index) = info
                 .root
@@ -536,7 +536,6 @@ fn places(n: usize) -> String {
     if n == 1 { "1 place".into() } else { format!("{n} places") }
 }
 
-/// The Rename window.
 /// The module tree's Delete…: asks first (the area's objects go with it).
 pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(key) = app.confirm_delete else { return };
@@ -577,16 +576,13 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
+/// The Rename window.
 pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut draft) = app.rename.take() else { return };
     let mut open = true;
     let mut cancel = false;
     let mut done = false;
-    let family = match draft.from.restype {
-        ResType::NSS => vec![ResType::NSS, ResType::NCS],
-        ResType::ARE => vec![ResType::ARE, ResType::GIT, ResType::GIC],
-        t => vec![t],
-    };
+    let family = crate::copy_as::family(draft.from.restype);
     let exists = |to: &ResRef| {
         app.ws
             .as_ref()

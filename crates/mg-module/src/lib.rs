@@ -61,8 +61,6 @@ pub enum ModuleError {
     NoInfo,
     #[error("module.ifo: {0}")]
     BadInfo(String),
-    #[error("{0} is not a valid resource file name")]
-    BadName(String),
     #[error("{name}: {message}")]
     Source { name: String, message: String },
     #[error("changed on disk since Moonglow read them: {}", .0.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))]
@@ -257,7 +255,8 @@ impl Module {
         Ok(())
     }
 
-    fn info_key() -> ResKey {
+    /// `module.ifo`'s key.
+    pub fn info_key() -> ResKey {
         ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO)
     }
 
@@ -529,6 +528,20 @@ pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.file_name().unwrap_or_default().to_os_string();
     name.push(suffix);
     path.with_file_name(name)
+}
+
+/// A GFF's root from `module` as it is now, else from the game: how a
+/// blueprint is read wherever one is needed.
+pub fn gff_root(
+    module: Option<&Module>,
+    game: &mg_rules::GameData,
+    key: &ResKey,
+) -> Option<mg_gff::Struct> {
+    let root = |data: &[u8]| Gff::read(data).ok().map(|g| g.root);
+    match module.and_then(|m| m.get(key)) {
+        Some(data) => root(data),
+        None => root(&game.resman.get(key).ok()?),
+    }
 }
 
 /// (years since 1900, day of the year) for the ERF header.

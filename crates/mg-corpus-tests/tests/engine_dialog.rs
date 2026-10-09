@@ -98,7 +98,7 @@ fn conversation_runs_in_the_engine() {
         m.set(ResKey::parse(name, ResType::NCS).unwrap(), ncs);
     }
     let npc = Gff::read(&game.resman.get_named("nw_commale", ResType::UTC).unwrap()).unwrap();
-    let mut npc = npc.clone();
+    let mut npc = npc;
     npc.root.write(&utc::TEMPLATE_RES_REF, ResRef::from_str("mg_npc").unwrap());
     npc.root.write(&utc::CONVERSATION, ResRef::from_str("mg_dlg").unwrap());
     m.set_gff(ResKey::parse("mg_npc", ResType::UTC).unwrap(), &npc).unwrap();

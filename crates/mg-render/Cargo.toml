@@ -15,7 +15,6 @@ mg-image.workspace = true
 mg-mdl.workspace = true
 mg-resman.workspace = true
 pollster.workspace = true
-thiserror.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]

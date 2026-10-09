@@ -2005,9 +2005,7 @@ version = "1.19.6"
 dependencies = [
  "base64",
  "mg-core",
- "mg-testkit",
  "proptest",
- "rayon",
  "serde_json",
  "thiserror 2.0.21",
 ]
@@ -2034,7 +2032,6 @@ dependencies = [
 name = "mg-mdl"
 version = "1.19.6"
 dependencies = [
- "mg-core",
  "thiserror 2.0.21",
 ]
 
@@ -2043,7 +2040,6 @@ name = "mg-module"
 version = "1.19.6"
 dependencies = [
  "fastrand",
- "glam",
  "indexmap",
  "mg-2da",
  "mg-core",
@@ -2122,7 +2118,6 @@ dependencies = [
  "mg-testkit",
  "png",
  "pollster 0.4.0",
- "thiserror 2.0.21",
  "wgpu",
 ]
 
@@ -2303,7 +2298,6 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "mg-audio",
- "mg-resman",
  "mg-ui",
  "rfd",
  "rodio",

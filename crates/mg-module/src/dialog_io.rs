@@ -694,7 +694,7 @@ struct Passage {
     links: Vec<(String, String)>,
 }
 
-fn parse_twee(source: &str) -> Result<Story, String> {
+fn parse_twee(source: &str) -> Story {
     let mut passages: HashMap<String, Passage> = HashMap::new();
     let mut order = Vec::new();
     let mut current: Option<(String, Vec<String>, String)> = None;
@@ -761,7 +761,7 @@ fn parse_twee(source: &str) -> Result<Story, String> {
         }
     }
     finish(current.take(), &mut passages, &mut start);
-    Ok((passages, start, order))
+    (passages, start, order)
 }
 
 /// A reply's label as read: its text and the braces after it (`{if c}`,
@@ -865,7 +865,7 @@ impl Builder<'_> {
 /// Twine) as a new conversation. Harlowe's or SugarCube's macros are kept
 /// as text.
 pub fn from_twee(source: &str) -> Result<Gff, String> {
-    let (passages, start, order) = parse_twee(source)?;
+    let (passages, start, order) = parse_twee(source);
     let start = start.or_else(|| order.first().cloned()).ok_or("no passages")?;
     let mut lines = HashMap::new();
     for (name, p) in &passages {

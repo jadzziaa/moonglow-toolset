@@ -60,13 +60,6 @@ pub(crate) fn listed(names: &[String]) -> String {
     }
 }
 
-fn window(title: &str) -> egui::Window<'_> {
-    egui::Window::new(title)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-}
-
 impl Moonglow {
     pub(crate) fn open_import(&mut self) {
         let Some(ws) = &mut self.ws else { return };
@@ -302,7 +295,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         let mut keys: Vec<ResKey> = ws.module.keys().copied().collect();
         keys.sort_by_key(|k| (k.restype.extension().unwrap_or_default(), k.resref));
-        window("Export Resources").show(&ctx, |ui| {
+        crate::widgets::window("Export Resources").show(&ctx, |ui| {
             ui.horizontal(|ui| {
                 crate::widgets::field_label(ui, "Filter");
                 let field = ui.text_edit_singleline(&mut draft.filter);
@@ -373,7 +366,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         let mut close = false;
         let name =
             draft.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        window("Import Resources").show(&ctx, |ui| {
+        crate::widgets::window("Import Resources").show(&ctx, |ui| {
             ui.label(format!("{name}: {} resources", draft.resources.len()));
             if !draft.overwrites.is_empty() {
                 ui.add_space(6.0);

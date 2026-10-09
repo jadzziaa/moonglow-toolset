@@ -85,12 +85,14 @@ pub struct OptionsDraft {
     pub ambient_music: bool,
     pub music_volume: u8,
     pub keymap: crate::keys::Keymap,
-    /// The command whose next key press is being taken as a new key.
     /// The enabled plugins' commands, listed after the window's: the id
     /// each one's keys are kept under, and its name.
     pub plugin_commands: Vec<(String, String)>,
     /// The command (by the id its keys are kept under) taking the next key.
     pub recording: Option<String>,
+    /// The game install found on this machine when Options opened, for the
+    /// Folders page's hints under an empty field.
+    pub detected: Option<GameInstall>,
 }
 
 fn text(p: &Option<PathBuf>) -> String {
@@ -109,6 +111,7 @@ impl OptionsDraft {
             keymap: crate::keys::Keymap::new(&s.key_bindings),
             plugin_commands: Vec::new(),
             recording: None,
+            detected: None,
             game_root: text(&s.game_root),
             user_dir: text(&s.user_dir),
             script_style: s.script_style.clone(),
@@ -257,7 +260,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.actions.push(Action::CloseTab(crate::Tab::Options));
         return;
     };
-    let detected = GameInstall::detect();
+    let detected = draft.detected.clone();
     let mut browse = None;
     let mut close = false;
     // Enter is OK while the pointer is over the tab (it is one window among

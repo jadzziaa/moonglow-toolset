@@ -190,7 +190,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             |app, built| {
                 let results = match built {
                     Some(built) => finish(app, built),
-                    None => vec![Finding { text: "No module open".into(), about: None }],
+                    None => vec![Finding { text: NO_GAME.into(), about: None }],
                 };
                 if let Some(w) = &mut app.build {
                     w.results = results;
@@ -220,19 +220,12 @@ pub(crate) fn build_on_save(app: &mut Moonglow) {
 
 /// A blueprint type (the Unused › Blueprints check).
 fn is_blueprint(t: ResType) -> bool {
-    matches!(
-        t,
-        ResType::UTC
-            | ResType::UTD
-            | ResType::UTE
-            | ResType::UTI
-            | ResType::UTP
-            | ResType::UTS
-            | ResType::UTM
-            | ResType::UTT
-            | ResType::UTW
-    )
+    mg_module::palette::BlueprintKind::from_restype(t).is_some()
 }
+
+/// What a build says without the game's data (as an editor's tab does).
+const NO_GAME: &str =
+    "No game data: choose your Neverwinter Nights installation in Tools > Options.";
 
 /// Runs the build and waits for it (the build before saving): the compile
 /// passes, as one undoable command, then the checks. The results are the
@@ -240,8 +233,9 @@ fn is_blueprint(t: ResType) -> bool {
 /// did goes to the log.
 fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
     app.refresh_module_layer();
-    let none = || vec![Finding { text: "No module open".into(), about: None }];
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return none() };
+    let none = |text: &str| vec![Finding { text: text.into(), about: None }];
+    let Some(game) = app.game.as_deref() else { return none(NO_GAME) };
+    let Some(ws) = app.ws.as_mut() else { return none("No module open") };
     let built = match ws.snapshot() {
         Ok(module) => work(&module, game, w),
         Err(e) => return vec![Finding { text: e.to_string(), about: None }],
@@ -325,14 +319,17 @@ fn compile(
             notes.push(format!("Build: compiled {} scripts, {failed} with errors", results.len()));
         }
         if w.compile_cr {
-            let item = |r: ResRef| read_gff(module, game, ResKey::new(r, ResType::UTI));
+            let item =
+                |r: ResRef| mg_module::gff_root(Some(module), game, &ResKey::new(r, ResType::UTI));
             let n = mg_module::build::compile_creature_cr(&mut staged, game, &item);
             notes.push(format!("Build: {n} creature challenge ratings brought up to date"));
         }
         if w.compile_encounters {
             // The creatures as they are now, ratings included.
             let snapshot = staged.clone();
-            let read = |r: ResRef| read_gff(&snapshot, game, ResKey::new(r, ResType::UTC));
+            let read = |r: ResRef| {
+                mg_module::gff_root(Some(&snapshot), game, &ResKey::new(r, ResType::UTC))
+            };
             let n = mg_module::build::compile_encounters(&mut staged, &read);
             notes.push(format!("Build: {n} encounter creature entries brought up to date"));
         }
@@ -356,8 +353,15 @@ fn check(
     notes: &mut Vec<String>,
 ) {
     let line = |text: String, about: Option<ResKey>| Finding { text, about };
+    // (Every GFF of the module read once for both checks.)
+    let references = if w.missing || w.unused {
+        mg_module::verify::module_references(module)
+    } else {
+        Vec::new()
+    };
+    let unused = w.unused.then(|| mg_module::verify::unused_of(module, &references));
     if w.missing {
-        let missing = mg_module::verify::missing(module, &game.resman);
+        let missing = mg_module::verify::missing_of(module, &game.resman, references);
         let mut n = 0;
         for m in missing.iter().filter(|m| w.missing_of.get(&m.category).copied().unwrap_or(true)) {
             n += 1;
@@ -376,8 +380,8 @@ fn check(
         }
         notes.push(format!("Build: {n} missing resources"));
     }
-    if w.unused {
-        let unused: Vec<ResKey> = mg_module::verify::unused(module)
+    if let Some(unused) = unused {
+        let unused: Vec<ResKey> = unused
             .into_iter()
             .filter(|k| match k.restype {
                 ResType::NSS | ResType::NCS => w.unused_scripts,
@@ -390,17 +394,4 @@ fn check(
         }
         notes.push(format!("Build: {} unused resources", unused.len()));
     }
-}
-
-/// A GFF resource from the module, else the game.
-fn read_gff(
-    module: &mg_module::Module,
-    game: &mg_rules::GameData,
-    k: ResKey,
-) -> Option<mg_gff::Struct> {
-    let data = module
-        .get(&k)
-        .map(<[u8]>::to_vec)
-        .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-    mg_gff::Gff::read(&data).ok().map(|g| g.root)
 }

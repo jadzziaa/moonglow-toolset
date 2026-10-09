@@ -139,11 +139,6 @@ impl Composed {
         self.base.anims.iter().map(|(n, _)| n.clone()).collect()
     }
 
-    /// Instances at time `t` of `animation` (none: the rest pose), placed
-    /// by `transform`.
-    ///
-    /// A model that breaks what poses it gives nothing, from then on: the
-    /// failure is noted (`mg_render::guard`) and the toolset carries on.
     /// The base model's particle emitters, to simulate: the model, the
     /// animation it stands in and its nodes' places at `t`. `None` for a
     /// model without emitters (most).
@@ -167,6 +162,11 @@ impl Composed {
         Some((model, playing, pose))
     }
 
+    /// Instances at time `t` of `animation` (none: the rest pose), placed
+    /// by `transform`.
+    ///
+    /// A model that breaks what poses it gives nothing, from then on: the
+    /// failure is noted (`mg_render::guard`) and the toolset carries on.
     pub fn instances(&self, animation: Option<&str>, t: f32, transform: Mat4) -> Vec<Instance> {
         use std::sync::atomic::Ordering;
         if self.failed.load(Ordering::Relaxed) {
@@ -238,7 +238,6 @@ impl Composed {
             .collect()
     }
 
-    /// Bounds of everything in the rest pose (for framing a camera).
     /// How much of the base model's surface faces a viewer in direction
     /// `towards` (from the model, in its space): its vertices' normals,
     /// summed as far as they point that way. A flat thing made to hang on
@@ -261,6 +260,7 @@ impl Composed {
         sum
     }
 
+    /// Bounds of everything in the rest pose (for framing a camera).
     pub fn bounds(&self) -> (Vec3, Vec3) {
         self.bounds_with(&self.base.gpu.rest, None)
     }
@@ -334,11 +334,10 @@ impl Composed {
         self.models().any(|m| !m.meshes.is_empty())
     }
 
-    /// The bounds with the base's nodes at `pose` (model space).
-    /// The box around it with the base's nodes at `pose`; in an animation
-    /// (`playing`: the one asked for, the base's and the time), the parts
-    /// that play it (wings, tails, robes) as they stand in it too, as
-    /// [`Composed::instances`] draws them.
+    /// The box around it with the base's nodes at `pose` (model space); in
+    /// an animation (`playing`: the one asked for, the base's and the
+    /// time), the parts that play it (wings, tails, robes) as they stand in
+    /// it too, as [`Composed::instances`] draws them.
     fn bounds_with(&self, pose: &[Mat4], playing: Option<(&str, &Animation, f32)>) -> (Vec3, Vec3) {
         let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         let mut add = |gm: &GpuModel, nodes: &[Mat4], to: Mat4| {

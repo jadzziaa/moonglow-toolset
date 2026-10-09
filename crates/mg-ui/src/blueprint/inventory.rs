@@ -169,30 +169,17 @@ impl Form<'_> {
     pub(super) fn held_item(&mut self, resref: ResRef, id: u32) -> Option<Struct> {
         let bp = self.blueprint(BlueprintKind::Item, resref)?;
         let game = self.app.game.as_deref()?;
-        let ws = self.app.ws.as_ref();
-        let item = |r: ResRef| -> Option<Struct> {
-            let k = ResKey::new(r, mg_core::ResType::UTI);
-            let data = ws
-                .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
-                .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-            mg_gff::Gff::read(&data).ok().map(|g| g.root)
-        };
+        let module = self.app.ws.as_ref().map(|w| &w.module);
+        let item =
+            |r: ResRef| mg_module::gff_root(module, game, &ResKey::new(r, mg_core::ResType::UTI));
         let placing = mg_module::instances::Placing { game, item: &item };
         Some(mg_module::instances::held(&placing, &bp, id))
     }
 
     pub(super) fn item_fit(&mut self, resref: ResRef) -> ItemFit {
         let base = self.blueprint(BlueprintKind::Item, resref).and_then(|u| u.integer("BaseItem"));
-        let table = self.app.game.as_deref().and_then(|g| g.table("baseitems").ok());
-        let cell = |col: &str| {
-            let t = table.as_ref()?;
-            t.get_int(usize::try_from(base?).ok()?, col).and_then(|v| u32::try_from(v).ok())
-        };
-        ItemFit {
-            panel: cell("StorePanel"),
-            w: cell("InvSlotWidth").unwrap_or(1).clamp(1, GRID_WIDTH),
-            h: cell("InvSlotHeight").unwrap_or(1).max(1),
-        }
+        // (No blueprint or no base item: no row, as a negative one.)
+        self.base_item_fit(base.unwrap_or(-1))
     }
 
     /// A new entry for `resref` in an inventory holding `items`: at the

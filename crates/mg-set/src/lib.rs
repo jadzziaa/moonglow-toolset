@@ -2,7 +2,8 @@
 //! with their corner terrains, heights, lights and doors, and tile groups.
 //!
 //! [`Tileset::parse`] reads the typed model; the underlying [`Ini`] is kept
-//! for anything the model does not cover. The toolset never writes tilesets.
+//! for anything the model does not cover. [`edit`] changes a tileset's text
+//! in place.
 
 pub mod edit;
 pub mod ini;

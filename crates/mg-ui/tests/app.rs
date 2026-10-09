@@ -471,6 +471,42 @@ fn reload_resources_picks_up_new_files_in_override() {
     assert!(app.log.entries.iter().any(|(_, m)| m == "Reload Resources: nothing changed"));
 }
 
+/// Saving a module that was never saved asks where first, and then does
+/// what a save does once: the build before saving is not run for the
+/// question and again for the answer, and not at all if it is called off.
+#[test]
+fn a_first_save_builds_once_and_not_when_called_off() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-first-save");
+    let path = dir.join("fresh.mod");
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    // The first Save As is called off, the second answered.
+    let app = Moonglow::new(
+        Some(install),
+        Box::new(NoDialogs { save: vec![path.clone()], ..Default::default() }),
+    );
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::NewModule("Fresh".into()));
+    h.run();
+    h.state_mut().wizard = None;
+    h.state_mut().settings.build_on_save = true;
+    h.run();
+    let builds = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().filter(|(_, m)| m == "Building Module...").count()
+    };
+    let dialogs = std::mem::replace(&mut h.state_mut().dialogs, Box::new(NoDialogs::default()));
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert_eq!(h.state().module_path(), None);
+    assert_eq!(builds(&h), 0, "called off: nothing was done");
+    h.state_mut().dialogs = dialogs;
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+    assert_eq!(builds(&h), 1, "{:?}", h.state().log.entries);
+}
+
 #[test]
 fn new_module_and_area_through_the_wizards() {
     let root = mg_testkit::corpus!();
@@ -579,7 +615,7 @@ fn options_choose_the_game_folder() {
     h.get_by_label("OK").click();
     h.run();
     assert_eq!(h.state().settings.game_root.as_deref(), Some(dir.as_path()));
-    assert_eq!(h.state().install.as_ref().map(|i| i.root.clone()), Some(dir.clone()));
+    assert_eq!(h.state().install.as_ref().map(|i| i.root.clone()), Some(dir));
     assert!(h.state().game.is_none());
     assert!(
         h.state().log.entries.iter().any(|(_, m)| m.starts_with("Could not load the game data"))
@@ -1004,6 +1040,42 @@ fn a_talk_table_file_is_made_and_opened_on_its_own() {
     h.run();
     assert_eq!(h.state().talk_view.selected, Some(3), "nowhere to go");
     assert!(h.query_by_label_contains("The table has 120 lines").is_some());
+}
+
+/// A talk table the module names that is there but cannot be read is tried
+/// once and said once, not every frame the editor is drawn.
+#[test]
+fn a_talk_table_that_cannot_be_read_is_tried_once() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-bad");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    std::fs::write(user.join("tlk/mg_bad.tlk"), b"not a talk table").unwrap();
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_bad".to_vec()));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(8);
+    let said: Vec<&String> = h
+        .state()
+        .log
+        .entries
+        .iter()
+        .map(|(_, m)| m)
+        .filter(|m| m.starts_with("Talk table mg_bad"))
+        .collect();
+    assert_eq!(said.len(), 1, "{said:?}");
 }
 
 #[test]
@@ -1895,6 +1967,61 @@ fn tileset_made_edited_saved_with_its_palette() {
     assert_eq!(a.lines().zip(b.lines()).filter(|(x, y)| x != y).count(), 1);
 }
 
+/// A tileset group's name is typed like any other field: kept while it is
+/// typed, set when focus leaves.
+#[test]
+fn a_tileset_group_s_name_is_typed() {
+    let dir = mg_testkit::scratch_dir("ui-tileset-group");
+    let set_path = dir.join("zzz02.set");
+    let dialogs = NoDialogs { save: vec![set_path.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.open_module(&sample_module(&dir));
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1300.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    mg_ui::tileset_view::new_tileset(h.state_mut());
+    h.run();
+    h.get_by_label("Terrains and Crossers").click();
+    h.run();
+    h.state_mut().tilesets[0].new_type = "Grass".into();
+    h.run();
+    h.get_by_label("Add Terrain").click();
+    h.run();
+    h.get_by_label("Tiles").click();
+    h.run();
+    h.get_by_label("Add Tile").click();
+    h.run();
+    h.get_by_label("Groups").click();
+    h.run();
+    h.get_by_label("Add Group").click();
+    h.run();
+    let group =
+        |h: &Harness<'_, Moonglow>| h.state().tilesets[0].tileset().unwrap().groups[0].clone();
+    let before = group(&h).name;
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value(&before).find(is_input).expect("the group's name field").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&before).find(is_input).expect("the group's name field").type_text("Bridge");
+    h.run();
+    h.run();
+    assert_eq!(group(&h).name, before, "not before focus leaves");
+    h.key_press(egui::Key::Tab);
+    h.run();
+    assert_eq!(group(&h).name, "Bridge");
+    // What Check found is of the file as it was: an undo or a redo, like
+    // any change, clears it.
+    for step in [mg_ui::tileset_view::TilesetDoc::undo, mg_ui::tileset_view::TilesetDoc::redo] {
+        h.state_mut().tilesets[0].findings = Some(Vec::new());
+        step(&mut h.state_mut().tilesets[0]);
+        assert!(h.state().tilesets[0].findings.is_none());
+    }
+    assert_eq!(group(&h).name, "Bridge");
+}
+
 #[test]
 fn conversation_lines_show_their_talk_table_text() {
     let root = mg_testkit::corpus!();
@@ -2488,7 +2615,7 @@ fn palette_edit_copy_and_delete() {
     h.run();
     let draft = h.state().copy_as.clone().expect("the Copy window");
     assert_eq!(draft.resref, "nw_wp_tavern001");
-    let tag = draft.tag.clone().expect("a waypoint has a tag");
+    let tag = draft.tag.expect("a waypoint has a tag");
     h.state_mut().copy_as.as_mut().unwrap().tag = Some("MY_TAVERN".into());
     h.get_by_label("Create Copy").click();
     h.run();
@@ -2784,7 +2911,7 @@ fn a_hak_s_encoding_table_reads_and_writes_the_module_s_text() {
     assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"I\xfe\xfdk da\xf0\xfd \xe9");
     // A name, too (a localized string), read back by the same table.
     let name = field(&mut h, &key).locstring("LocalizedName").unwrap().clone();
-    let mut named = name.clone();
+    let mut named = name;
     named.set(Language::ENGLISH, Gender::Male, b"Da\xf0 yolu".to_vec());
     let game = h.state().game.clone().unwrap();
     assert_eq!(game.locstring(&named).as_deref(), Some("Dağ yolu"));
@@ -5721,7 +5848,7 @@ fn tile_properties_choose_a_variant_by_picture() {
         assert_ne!(after.variant, Some(now), "another than the one that was there");
         assert!(!after.chosen, "taken up: the window is the new tile's");
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-        h.state_mut().tile_props = Some(props.clone());
+        h.state_mut().tile_props = Some(props);
         h.run_steps(2);
         assert_eq!(h.state().ws.as_ref().unwrap().can_undo().map(str::to_string), before_undo);
     } else {
@@ -6378,8 +6505,7 @@ fn script_sets_save_and_load() {
     // A set that names only OnSpawn: loading it sets OnSpawn and clears
     // the others, in one undoable step.
     std::fs::write(&path, "[ResRefs]\r\nOnSpawn=mg_spawn\r\n").unwrap();
-    h.state_mut().dialogs =
-        Box::new(mg_ui::NoDialogs { open: vec![path.clone()], ..Default::default() });
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![path], ..Default::default() });
     h.get_by_label("Load Script Set").click();
     h.run();
     let s = field(&mut h, &key);
@@ -6425,8 +6551,7 @@ fn class_spell_lists_save_clear_and_load() {
     h.get_by_label("Clear Class Spell List").click();
     h.run();
     assert!(known(&mut h).iter().all(Vec::is_empty));
-    h.state_mut().dialogs =
-        Box::new(mg_ui::NoDialogs { open: vec![path.clone()], ..Default::default() });
+    h.state_mut().dialogs = Box::new(mg_ui::NoDialogs { open: vec![path], ..Default::default() });
     h.get_by_label("Load Class Spell List").click();
     h.run();
     assert_eq!(known(&mut h), before, "each spell back at its level");
@@ -6928,7 +7053,7 @@ fn conversations_export_and_import() {
     assert!(std::fs::read_to_string(&twee).unwrap().contains("[[Sorry.->END]]"));
     let edited = std::fs::read_to_string(&csv).unwrap().replace("Halt!", "Stop right there!");
     std::fs::write(&csv, edited).unwrap();
-    h.state_mut().dialogs = Box::new(NoDialogs { open: vec![csv.clone()], ..Default::default() });
+    h.state_mut().dialogs = Box::new(NoDialogs { open: vec![csv], ..Default::default() });
     h.get_by_label("Import Lines…").click();
     h.run();
     let line = |h: &mut Harness<'_, Moonglow>, k: ResKey| {
@@ -7629,7 +7754,7 @@ fn portraits_are_chosen_from_their_pictures() {
     let count = |h: &Harness<'_, Moonglow>| -> usize {
         let n = h.get_by_label_contains(" portraits");
         let a = n.accesskit_node();
-        let text = a.label().or_else(|| a.value()).map(|t| t.to_string()).unwrap();
+        let text = a.label().or_else(|| a.value()).unwrap();
         text.split(' ').next().unwrap().parse().unwrap()
     };
     let creatures = count(&h);
@@ -7673,7 +7798,7 @@ fn items_show_their_icons_and_choose_appearances_by_icon() {
     let before = field(&mut h, &key).integer("ModelPart1").unwrap();
     let other = h
         .get_all_by_label_contains("Appearance ")
-        .filter_map(|n| n.accesskit_node().label().map(|l| l.to_string()))
+        .filter_map(|n| n.accesskit_node().label())
         .find(|l| l != &format!("Appearance {before}"))
         .expect("another appearance");
     h.get_by_label(&other).click();
@@ -10228,7 +10353,7 @@ fn placement_tools_turn_ground_arrange_lock_and_make_prefabs() {
     let now = outline(&mut h);
     assert!(near(now[0], glam::Vec2::new(23.0, 23.0)), "{now:?}");
     assert!(near(now[2], glam::Vec2::new(25.0, 19.0)), "{now:?}");
-    let alone = now.clone();
+    let alone = now;
     h.state_mut().area_views.get_mut(&area).unwrap().selection =
         vec![(mg_area::ObjectKind::Trigger, 0), (Waypoint, 0)];
     h.state_mut().settings.turn_together = true;
@@ -11223,6 +11348,60 @@ fn areas_are_listed_by_name_when_asked() {
     assert!(h.query_by_label("A Quay").is_none());
 }
 
+/// The tree's filter finds a name whatever the case of its letters, those
+/// past ASCII too (an area named in German, typed with its capital).
+#[test]
+fn the_tree_s_filter_ignores_the_case_of_any_letter() {
+    let dir = mg_testkit::scratch_dir("ui-tree-filter-case");
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let mut are = Gff::new(*b"ARE ");
+    // (Its bytes in Windows-1252, as the file holds them.)
+    let name = LocString::from_text(Language::ENGLISH, Gender::Male, b"\xDCbelwald".to_vec());
+    are.root.set("Name", mg_gff::Value::LocString(name));
+    m.set(ResKey::parse("area001", ResType::ARE).unwrap(), are.to_bytes().unwrap());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().settings.area_names = true;
+    h.run();
+    h.get_by_label("Übelwald");
+    for typed in ["Übel", "ÜBEL", "übel"] {
+        h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().click();
+        h.run();
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text(typed);
+        h.run();
+        assert!(h.query_by_label("Übelwald").is_some(), "{typed}");
+        assert!(h.query_by_label("start").is_none(), "{typed}");
+    }
+}
+
+/// Build Module without the game's data says that it is the game's data
+/// that is missing (there is a module).
+#[test]
+fn a_build_without_game_data_says_so() {
+    let dir = mg_testkit::scratch_dir("ui-build-no-game");
+    let mut app = app_with(Vec::new());
+    app.open_module(&sample_module(&dir));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Build").click();
+    h.run_steps(2);
+    h.get_by_label("Build Module…").click();
+    h.run_steps(2);
+    h.get_all_by_label("Build").last().unwrap().click();
+    h.run_steps(3);
+    let results: Vec<String> =
+        h.state().build.as_ref().unwrap().results.iter().map(|f| f.text.clone()).collect();
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert!(results[0].starts_with("No game data"), "{results:?}");
+}
+
 /// The plugin host's fixture plugins, as an installed plugins folder.
 fn plugin_fixtures() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures")
@@ -11682,7 +11861,7 @@ fn several_areas_are_edited_together() {
     h.get_by_label("Edit 2 Together").click();
     h.run_steps(3);
     let caves: Vec<ResRef> = ["cave1", "cave2"].map(|n| ResRef::from_str(n).unwrap()).to_vec();
-    assert!(h.state().dock.find_tab(&Tab::AreasProperties(caves.clone())).is_some());
+    assert!(h.state().dock.find_tab(&Tab::AreasProperties(caves)).is_some());
     assert!(h.query_by_label("Edit Areas Together").is_none(), "the chooser closed");
 
     // Visual: always dark, on both caves and not on the inn.

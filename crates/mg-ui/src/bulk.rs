@@ -140,14 +140,8 @@ impl Moonglow {
             })
             .collect();
         let module = &ws.module;
-        let items = |r: ResRef| -> Option<Struct> {
-            let k = ResKey::new(r, ResType::UTI);
-            let data = module
-                .get(&k)
-                .map(<[u8]>::to_vec)
-                .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-            mg_gff::Gff::read(&data).ok().map(|g| g.root)
-        };
+        let items =
+            |r: ResRef| mg_module::gff_root(Some(module), game, &ResKey::new(r, ResType::UTI));
         let placing = Placing { game, item: &items };
         let blueprint = |t: ResType, r: ResRef| blueprints.get(&ResKey::new(r, t)).cloned();
         let mut edits = Vec::new();

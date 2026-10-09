@@ -725,6 +725,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             })
         })
         .flatten();
+    let gallery = app.settings.palette_gallery && pictured(kind);
     let mut tree = Tree {
         game,
         kind,
@@ -738,9 +739,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .filter_map(|f| ResRef::from_str(f.strip_prefix(&format!("{ext}:"))?).ok())
             .collect(),
         thumb: view.thumb,
-        gallery: app.settings.palette_gallery && pictured(kind),
+        gallery,
         side: crate::appearance_gallery::tile_side(app),
-        ready: app.thumbnails.all(),
+        // (The pictures made so far: of use in the Gallery alone.)
+        ready: if gallery { app.thumbnails.all() } else { HashMap::new() },
         shown: Vec::new(),
         about: view.about.as_ref().map(|(k, lines)| (*k, lines.as_slice())),
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },
@@ -957,9 +959,6 @@ fn all_under(node: &PaletteNode, kind: BlueprintKind, out: &mut Vec<ResKey>) {
     }
 }
 
-/// A palette search: words, each found in a blueprint's name, resref or
-/// tag; or, when nothing has every word, letters in order (`lngswd` finds
-/// Longsword).
 /// A palette name as its row shows it: its text, or, where it is a
 /// talk-table string that isn't there (a custom talk table that wasn't
 /// found, a line the table lacks), which string it is, so that a row
@@ -1004,6 +1003,9 @@ fn new_blueprint(app: &mut Moonglow, kind: BlueprintKind) {
     }
 }
 
+/// A palette search: words, each found in a blueprint's name, resref or
+/// tag; or, when nothing has every word, letters in order (`lngswd` finds
+/// Longsword).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Find {
     words: Vec<String>,
@@ -1357,7 +1359,7 @@ impl Tree<'_> {
                     .on_hover_text("Write it out as a file or an ERF, as in Aurora (File › Export)")
                     .clicked()
                 {
-                    let all = if keys.len() > 1 { keys.clone() } else { vec![key] };
+                    let all = if keys.len() > 1 { keys } else { vec![key] };
                     picks.push(Pick::Export(all));
                     ui.close();
                 }

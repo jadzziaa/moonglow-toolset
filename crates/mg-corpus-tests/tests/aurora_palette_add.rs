@@ -110,6 +110,23 @@ fn add_to_palette_matches_aurora() {
 /// Create Waypoint on the bandit (where the context menu was opened), then
 /// Create Set named "Patrol": a waypoint from no blueprint, facing north,
 /// tagged `WP_MGP_UTC_01` and then `Patrol_01`.
+/// An item that holds one placed from its own blueprint (a bag in a bag):
+/// each gets a blueprint of its own.
+#[test]
+fn an_item_holding_one_of_its_kind_gets_two_blueprints() {
+    let root = corpus!();
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let mut inner = Struct::new(0);
+    let template = ResKey::parse("mg_bag", ResType::UTI).unwrap().resref;
+    inner.set("TemplateResRef", Value::resref(template));
+    inner.set("BaseItem", Value::Int(66));
+    let mut bag = inner.clone();
+    bag.set("ItemList", Value::List(vec![inner]));
+    let added = add_to_palette(&game, ResType::UTI, &bag, &|_| None, &|_| false).unwrap();
+    let keys: Vec<String> = added.blueprints.iter().map(|(k, _)| k.to_string()).collect();
+    assert_eq!(keys, ["mg_bag001.uti", "mg_bag002.uti"]);
+}
+
 #[test]
 fn create_waypoint_and_set_match_aurora() {
     let _ = corpus!();
@@ -122,7 +139,7 @@ fn create_waypoint_and_set_match_aurora() {
     assert_eq!(creature_tag, "WP_MGP_UTC_01");
     let made = mg_module::instances::walk_waypoint(&creature_tag, position);
     // Create Set renames it.
-    let mut set = made.clone();
+    let mut set = made;
     set.set("Tag", Value::String(mg_module::instances::set_tag("Patrol", &[]).into_bytes()));
     assert!(
         differences("the waypoint", &set, &captured).is_none(),

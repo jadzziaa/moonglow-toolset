@@ -8,7 +8,8 @@ use mg_core::bin::Reader;
 
 use crate::{ImageError, Rgba, check_size};
 
-/// The ten layers, in PLT order.
+/// The ten layers, in PLT order. (Named by Moonglow Viewer, which builds on
+/// this crate; nothing in this workspace does.)
 pub const LAYERS: [&str; 10] = [
     "Skin",
     "Hair",

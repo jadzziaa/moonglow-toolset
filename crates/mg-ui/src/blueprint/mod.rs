@@ -11,7 +11,7 @@ use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{FieldType, Struct, Value};
 use mg_module::palette::{BlueprintKind, Palette};
 use mg_resman::ResKey;
-use mg_rules::Choice;
+use mg_rules::{Choice, ChoiceColumns};
 
 use crate::dialogs::FileKind;
 use crate::text::{decode, encode, with_english};
@@ -37,18 +37,7 @@ mod waypoint;
 
 /// Whether a blueprint type has its own editor.
 pub(crate) fn has_editor(t: ResType) -> bool {
-    matches!(
-        t,
-        ResType::UTW
-            | ResType::UTC
-            | ResType::UTI
-            | ResType::UTS
-            | ResType::UTT
-            | ResType::UTE
-            | ResType::UTM
-            | ResType::UTD
-            | ResType::UTP
-    )
+    BlueprintKind::from_restype(t).is_some()
 }
 
 /// The pages of a blueprint type's editor.
@@ -67,7 +56,6 @@ pub fn pages(t: ResType) -> &'static [&'static str] {
     }
 }
 
-/// Each open editor's page.
 /// Each open editor's page, by document and the object's path in it.
 pub type Pages = HashMap<(ResKey, GffPath), &'static str>;
 
@@ -108,7 +96,6 @@ fn picture(ui: &mut Ui, made: Option<Option<egui::TextureId>>) {
     }
 }
 
-/// A blueprint's fields, laid out.
 /// Shows something of a 2DA row (a picture) in a choice's list.
 type Shown = fn(&mut Moonglow, &mut Ui, usize);
 
@@ -138,6 +125,7 @@ fn load_screen_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
     }
 }
 
+/// A blueprint's fields, laid out.
 pub(crate) struct Form<'a> {
     pub app: &'a mut Moonglow,
     /// The document: the blueprint, or the area's GIT for a placed object.
@@ -193,16 +181,17 @@ pub(crate) fn talk_table_color(ui: &Ui) -> egui::Color32 {
 }
 
 impl Form<'_> {
-    /// A localized string's text as a field shows it
-    /// ([`crate::widgets::loc_shown`]).
-    fn shown_text(&self, ls: &LocString) -> String {
-        crate::widgets::loc_shown(self.app, ls).0
-    }
-
-    /// Where that text is from, if it is not the string's own in the
-    /// language edited.
-    fn borrowed(&self, ls: &LocString) -> Option<(String, &'static str)> {
-        crate::widgets::loc_shown(self.app, ls).1
+    /// A table's rows as a dropdown's choices: each row's name (its StrRef
+    /// column `name`), else its `label`. None without the game's data or
+    /// the table.
+    pub(crate) fn choices(
+        &self,
+        table: &str,
+        name: Option<&str>,
+        label: Option<&str>,
+    ) -> Vec<Choice> {
+        let game = self.app.game.as_ref();
+        game.and_then(|g| g.choices(table, ChoiceColumns { name, label }).ok()).unwrap_or_default()
     }
 
     /// A text field of a localized string, in the talk table's color where
@@ -215,14 +204,7 @@ impl Form<'_> {
         multiline: bool,
         width: f32,
     ) -> Option<String> {
-        let id = self.id(label);
-        let shown = self.shown_text(current);
-        let Some((from, why)) = self.borrowed(current) else {
-            return commit_text(self.app, ui, id, &shown, multiline, width);
-        };
-        crate::widgets::borrowed_field(ui, &from, why, |ui| {
-            commit_text(self.app, ui, id, &shown, multiline, width)
-        })
+        crate::widgets::loc_text(self.app, ui, self.id(label), current, multiline, width)
     }
 
     /// An item's Properties, from the inventory that holds it (item `index`
@@ -327,16 +309,7 @@ impl Form<'_> {
 
     /// Sets a field (one undoable command named `what`).
     pub(crate) fn set(&mut self, what: &str, label: &str, value: Value) {
-        let edits = self
-            .targets()
-            .map(|(key, path)| Edit::SetField {
-                key,
-                path: path.clone(),
-                label: label.to_string(),
-                value: Some(value.clone()),
-            })
-            .collect();
-        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+        self.set_opt(what, label, Some(value));
     }
 
     /// Sets a field, or removes it (`None`).
@@ -444,19 +417,7 @@ impl Form<'_> {
                 (*label, integer(self.root.get(label), *v, t))
             })
             .collect();
-        let values = &values;
-        let edits = self
-            .targets()
-            .flat_map(|(key, path)| {
-                values.iter().map(move |(label, value)| Edit::SetField {
-                    key,
-                    path: path.clone(),
-                    label: label.to_string(),
-                    value: Some(value.clone()),
-                })
-            })
-            .collect();
-        self.app.actions.push(Action::Apply(Command::new(what, edits)));
+        self.set_fields(what, values);
     }
 
     /// A slider for an integer field.
@@ -780,20 +741,10 @@ impl Form<'_> {
         // follows the arrow keys.
         if let (Some(about), Ok(row)) = (about, usize::try_from(current)) {
             let app = &mut *self.app;
-            list.response.clone().on_hover_ui(|ui| about(app, ui, row));
+            list.response.on_hover_ui(|ui| about(app, ui, row));
         }
         if let Some(v) = pick.filter(|&v| v != current) {
             self.set_int(what, label, v, default);
-        }
-    }
-
-    /// A resource name with a picker.
-    #[allow(dead_code)] // for the editors that follow
-    pub(crate) fn resref(&mut self, ui: &mut Ui, what: &str, label: &str, types: &[ResType]) {
-        self.mark_mixed(ui, label);
-        let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
-            self.set(what, label, Value::resref(v));
         }
     }
 
@@ -1026,8 +977,6 @@ impl Form<'_> {
     }
 }
 
-/// After a command: values derived from what it changed (an item's cost, a
-/// creature's maximum hit points), as part of it.
 /// The objects of type `restype` a command changed (other than by setting
 /// `derived`, the field kept from them): blueprints at their root, placed
 /// objects at their GIT entry.
@@ -1084,6 +1033,8 @@ pub(crate) fn derived_of(cmd: &Command) -> Derived {
     }
 }
 
+/// After a command: values derived from what it changed (an item's cost, a
+/// creature's maximum hit points), as part of it.
 pub(crate) fn after_apply(app: &mut Moonglow, derived: Derived) {
     item::refresh_costs(app, derived.items);
     creature::refresh_hit_points(app, derived.creatures);
@@ -1267,7 +1218,7 @@ pub(crate) fn edit_many(
         let mut i = pending;
         while i < app.actions.len() {
             let changes = matches!(&app.actions[i], Action::Apply(cmd)
-                if cmd.edits.iter().any(|e| edit_key(e) == key));
+                if cmd.edits.iter().any(|e| *e.key() == key));
             if changes {
                 app.actions.remove(i);
                 tried = true;
@@ -1291,7 +1242,7 @@ pub(crate) fn edit_many(
         while i < app.actions.len() {
             let partial = match &app.actions[i] {
                 Action::Apply(cmd) => {
-                    let edited: Vec<ResKey> = cmd.edits.iter().map(edit_key).collect();
+                    let edited: Vec<ResKey> = cmd.edits.iter().map(|e| *e.key()).collect();
                     keys.iter().any(|k| edited.contains(k))
                         && !keys.iter().all(|k| edited.contains(k))
                 }
@@ -1350,13 +1301,3 @@ const LIST_PAGES: [&str; 9] = [
     "Creature List",
     "Restrictions",
 ];
-
-/// The document an edit changes.
-fn edit_key(e: &Edit) -> ResKey {
-    match e {
-        Edit::SetField { key, .. }
-        | Edit::InsertItem { key, .. }
-        | Edit::RemoveItem { key, .. }
-        | Edit::SetResource { key, .. } => *key,
-    }
-}

@@ -13,7 +13,6 @@ use std::rc::Rc;
 
 use mg_core::ResType;
 use mg_edit::{Edit, GffPath};
-use mg_resman::ResKey;
 use mlua::{Lua, Table, Value as LuaValue};
 
 use crate::runtime::{Shared, This, codepage, fail};
@@ -243,7 +242,7 @@ pub(crate) fn hak(lua: &Lua, sh: &Rc<Shared>) -> mlua::Result<Table> {
         "attach",
         lua.create_function(move |_, (_, hak): (This, String)| {
             let hak = hak_name(&hak)?;
-            let key = ResKey::parse("module", ResType::IFO).expect("a resref");
+            let key = mg_module::Module::info_key();
             let list = {
                 let mut ws = s.ws.borrow_mut();
                 let info = ws.doc(&key).or_else(fail)?;

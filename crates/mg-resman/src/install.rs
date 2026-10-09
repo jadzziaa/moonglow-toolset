@@ -140,11 +140,11 @@ impl GameInstall {
     }
 }
 
-/// Where the game may be: in each Steam library (Steam's own folder, and
-/// those it lists on other drives), then where GOG puts it.
 /// The game's number on Steam.
 const STEAM_APP: &str = "704450";
 
+/// Where the game may be: in each Steam library (Steam's own folder, and
+/// those it lists on other drives), then where GOG puts it.
 fn candidate_roots() -> Vec<PathBuf> {
     let home = env::var_os("HOME").map(PathBuf::from);
     let game = Path::new("steamapps").join("common").join("Neverwinter Nights");
@@ -369,7 +369,7 @@ mod install_tests {
         assert_eq!(&*with.get(&key("mg_both")).unwrap(), b"user", "the user's own comes first");
         assert!(install.hak_dirs().contains(&item.join("hak")));
         // Not for a game outside a Steam library.
-        let elsewhere = GameInstall { root: lib.join("game"), ..install.clone() };
+        let elsewhere = GameInstall { root: lib.join("game"), ..install };
         assert!(elsewhere.workshop_items().is_empty());
         let _ = std::fs::remove_dir_all(&lib);
     }

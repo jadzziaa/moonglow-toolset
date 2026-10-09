@@ -169,11 +169,11 @@ pub struct Settings {
     /// the area's fog colour, as the game shows it (Aurora: silver grey,
     /// 0xC0C0C0).
     pub area_background: Option<[u8; 3]>,
-    /// Options > Area: Show Encounter Spawnpoint Markers off (Aurora's
-    /// default: on, height 12 and width 4).
     /// Options > Area: the spawn point markers' Height and Width, in
     /// tenths of a metre (`None`: Aurora's 12 and 4).
     pub spawn_marker_size: Option<(u8, u8)>,
+    /// Options > Area: Show Encounter Spawnpoint Markers off (Aurora's
+    /// default: on, height 12 and width 4).
     pub no_spawn_markers: bool,
     /// Options > Area: Show Door Orientation Arrows off (Aurora's default:
     /// on).
@@ -348,7 +348,7 @@ mod tests {
     fn settings_saved_before_script_styles_still_load() {
         let s: Settings = serde_json::from_str(r#"{"recent":["a.mod"]}"#).unwrap();
         assert_eq!(s.script_style, ScriptStyle::default());
-        let mut t = s.clone();
+        let mut t = s;
         t.script_style.colors[3] = Some([1, 2, 3]);
         let back: Settings = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
         assert_eq!(back, t);

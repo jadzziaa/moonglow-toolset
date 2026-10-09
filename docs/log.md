@@ -8,6 +8,7 @@
 * **Update**: [The main window](manual/02-main-window.md) and [the deferred list](deferred.md): the main pane keeps its place with no area open (GitHub issue 11), and the tabs by the keyboard, a middle click and Close Others (issue 15).
 
 ## 2026-10-08
+* **Update**: [Scripts](manual/07-scripts.md): Open Script opens on a click (as it always did; the page said a double click). [The deferred list](deferred.md): what a code review found and left.
 * **Update**: [The command line](manual/11-command-line.md), [modules](manual/03-modules.md) and [the deferred list](deferred.md): `mg model-files`, and Export Files asks before writing over files.
 * **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): Export Files on a model's picture writes the files the game draws it with (models, walkmeshes, textures, materials) from the haks into a folder.
 * **Update**: [The deferred list](deferred.md): a waterfall's particles fall the world's way, whatever way their emitter is turned.

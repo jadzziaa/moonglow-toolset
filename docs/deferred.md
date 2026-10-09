@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:59:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T02:59:11Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1447,6 +1447,89 @@ categories, the galleries. Water ripples. Left:
   the module uses, or in development). (M)
 - **The palette's arrangement:** it's generated flat, without the
   subfolders hand-made palettes have. (S)
+
+## From a code review (October 2026)
+
+A review of the whole workspace for dead code, clumsy code and code
+written twice found more than it changed. What it changed (some forty
+commits, with a test for all but one of the bugs it fixed) is in the
+history; this is what it left, found by reading and not by running
+unless it says so.
+
+- **The "≠" mark on a multi-edit's fields:** the appearance and loading
+  screen choices, localized text, memos, sliders, palette colors, the
+  category and the conversation never call `Form::mark_mixed`, which
+  marks a field whose value differs among the blueprints edited
+  together. Nothing says which fields are meant to have it, and a
+  painted mark is in no test. (S, needs the intent)
+- **A talk table the module names that is not found is looked for every
+  frame** (`talk_view::open`: the folders and the resource stack each
+  time), as one that could not be read was before it was remembered.
+  (S)
+- **Area Properties copies the whole ARE, tile list included, each frame
+  it is open** (`area_props.rs`): its form owns the root it edits. (M)
+- **Still made every frame, each needing something kept:** a blueprint's
+  category list (`Form::category` reads and parses the palette),
+  `picker::blueprint_names` and `inventory::entry_icon` (a blueprint
+  read per row), Module Properties' list of the hak folder, the script
+  editor's sorted symbols and its templates folder, Find in Files'
+  results (copied twice), the thumbnails' lists for the Appearance
+  Gallery and the Creature Wizard, the module tree's rows for the
+  keyboard (each group's resources copied). (S each)
+- **A dropdown's choices are kept but copied to who asks:**
+  `GameData::choice_list` hands the kept list out shared; the editors
+  still call `choices`, which copies it. (S)
+- **Written more than once, in the editors:** the inventory pages' list
+  setup and "add what was picked, pasted or dropped" (three pages);
+  some 30 `Edit` literals where `creature_lists.rs` has `apply`,
+  `insert` and `remove`; an item's cloak list built twice; the PLT layer
+  table in four places; a tile's square outline (seven times across the
+  tile and terrain tools); copy, cut and paste detection (three); the
+  tools' radius by distance (four). (M together)
+- **Written more than once, in the windows:** the text field that sets
+  its value when focus leaves (`widgets::commit_text`, Module
+  Properties' own, the GFF editor's); the centered dialog that Escape
+  closes (six, each passing its title twice); New Script, New
+  Conversation and Save Script As; Options' "text field and Browse…" row
+  (five). (M together)
+- **Written more than once, in mg and the window:** the game, the
+  module's haks and the module stacked into a resource manager three
+  ways in mg, again in the window and in 16 corpus tests;
+  `ResMan::add_haks` takes `&[&str]`, so 16 of its 19 callers convert
+  first; `mg set` and `mg apply` open the module twice and pass the
+  codepage through a static; a plugin's archive read and its "the check
+  failed" finding are in both. (M)
+- **Written more than once, below:** a loose value made a typed GFF
+  value (mg, the plugin host, the JSON reader: the integer ranges by
+  type); "check the table is there, then a cursor at it" seven times
+  across the format readers; in mg-module, five recursive GFF walks
+  (four of which one visitor would serve, with their path strings kept
+  to the letter), the GIT list table in four shapes, `Struct::integer`
+  and `list` rewritten by hand at some 15 sites, the conversation's
+  owning links walked three times, creature parts and colors listed in
+  both `blueprints.rs` and `instances.rs`. (M)
+- **Written more than once, in the renderer and previews:** a buffer
+  grown and written seven times in `renderer.rs`; the rest pose worked
+  out three ways; an animation found by name five times in mg-preview;
+  `armor()` rebuilding `CreatureLook::to_utc`; the ray and box and ray
+  and triangle tests in both mg-preview and mg-area; a group's slot
+  turned in three places. Also there: `LightGrid::new` makes five lists
+  a frame, and the light count, the fog's end and the skinned flag are
+  put in uniforms no shader reads. (M; the renderer's through CI on the
+  three systems)
+- **Never used, or never otherwise:** the second half of
+  `ModelView::frame` (the model is there exactly when the composed
+  preview is); arguments that are always the same
+  (`situated::beside_model`'s `model_first`, `Form::palette_color`'s
+  `game`, `dialog_view::script_with_params`' label, list and salt,
+  `render_minimaps`' size, `GameInstall::talk_table`'s `feminine`);
+  fields nothing reads (`widgets::Picker.types`, `LoadedTexture.mtr`);
+  `commands::Id::defaults` (the table behind it is kept in step with
+  the key commands and has a test, but nothing asks it for keys);
+  `DebugView::MaterialDiffuse` (never set); `Renderer::color_format`,
+  `Reader::data` and `Reader::pos`, `Txi::alpha_mean`,
+  `SetFile::is_empty`. A `pub` item of a crate Moonglow Viewer builds on
+  may be in use there: `plt::LAYERS` is. (S each)
 
 ## Release and packaging (v0.1.0)
 

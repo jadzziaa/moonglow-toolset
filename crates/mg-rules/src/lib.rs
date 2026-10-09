@@ -69,6 +69,8 @@ pub struct ChoiceColumns<'a> {
     pub label: Option<&'a str>,
 }
 
+type ChoiceKey = (ResRef, Option<usize>, Option<usize>);
+
 /// The resource manager, talk tables and caches for one game install (and,
 /// once opened, one module).
 #[derive(Debug)]
@@ -78,6 +80,9 @@ pub struct GameData {
     tlk: Tlk,
     custom_tlk: Option<Tlk>,
     tables: RwLock<HashMap<ResRef, Arc<TwoDa>>>,
+    /// The choice lists made so far ([`choice_list`](Self::choice_list)),
+    /// by table and the two columns' places in it.
+    choices: RwLock<HashMap<ChoiceKey, Arc<Vec<Choice>>>>,
     /// The codepage of the game's text, once worked out (see
     /// [`codepage`](Self::codepage)).
     codepage: RwLock<Option<Codepage>>,
@@ -151,6 +156,7 @@ impl GameData {
             tlk,
             custom_tlk: None,
             tables: RwLock::new(HashMap::new()),
+            choices: RwLock::new(HashMap::new()),
             codepage: RwLock::new(None),
         }
     }
@@ -158,6 +164,8 @@ impl GameData {
     /// Sets (or clears) the module's custom talk table.
     pub fn set_custom_tlk(&mut self, tlk: Option<Tlk>) {
         self.custom_tlk = tlk;
+        // (The lists name rows by its strings.)
+        self.choices.get_mut().expect("choice cache poisoned").clear();
     }
 
     pub fn custom_tlk(&self) -> Option<&Tlk> {
@@ -173,6 +181,7 @@ impl GameData {
     /// when a module's haks change).
     pub fn invalidate(&self) {
         self.tables.write().expect("table cache poisoned").clear();
+        self.choices.write().expect("choice cache poisoned").clear();
         *self.codepage.write().expect("codepage poisoned") = None;
     }
 
@@ -269,9 +278,26 @@ impl GameData {
     /// column resolved through the talk tables), else its label; rows with
     /// neither are skipped, as the toolset skips blank rows.
     pub fn choices(&self, table: &str, cols: ChoiceColumns<'_>) -> Result<Vec<Choice>, RulesError> {
+        self.choice_list(table, cols).map(|c| c.to_vec())
+    }
+
+    /// [`choices`](Self::choices) without a copy: the list is made once for
+    /// a table and its columns (editors ask for theirs every frame), and
+    /// again after the tables are forgotten or the module's talk table is
+    /// another.
+    pub fn choice_list(
+        &self,
+        table: &str,
+        cols: ChoiceColumns<'_>,
+    ) -> Result<Arc<Vec<Choice>>, RulesError> {
         let t = self.table(table)?;
         let name_col = cols.name.and_then(|c| t.column(c));
         let label_col = cols.label.and_then(|c| t.column(c));
+        let resref = ResRef::from_str(table).map_err(|_| RulesError::BadName(table.into()))?;
+        let key = (resref, name_col, label_col);
+        if let Some(made) = self.choices.read().expect("choice cache poisoned").get(&key) {
+            return Ok(made.clone());
+        }
         // A name written out in the table, for a row without a talk-table
         // string (ambientmusic.2da's `DisplayName`, for custom music).
         let display_col = t.column(DISPLAY_NAME);
@@ -293,6 +319,8 @@ impl GameData {
                 out.push(Choice { row, text });
             }
         }
+        let out = Arc::new(out);
+        self.choices.write().expect("choice cache poisoned").insert(key, out.clone());
         Ok(out)
     }
 }
@@ -436,5 +464,39 @@ mod tests {
         // Cached: the same Arc comes back.
         assert!(Arc::ptr_eq(&gd.table("things").unwrap(), &gd.table("THINGS").unwrap()));
         assert!(matches!(gd.table("missing"), Err(RulesError::Res(_))));
+    }
+
+    #[test]
+    fn a_choice_list_is_made_once_and_again_when_what_it_reads_changes() {
+        let mut gd = data();
+        let cols = ChoiceColumns { name: Some("name"), label: Some("label") };
+        let texts = |gd: &GameData, cols| -> Vec<String> {
+            gd.choice_list("things", cols).unwrap().iter().map(|c| c.text.clone()).collect()
+        };
+        let first = gd.choice_list("things", cols).unwrap();
+        assert!(Arc::ptr_eq(&first, &gd.choice_list("THINGS", cols).unwrap()));
+        assert_eq!(texts(&gd, cols), ["Longsword", "Axe", "From the module"]);
+        // Other columns: another list.
+        let labels = ChoiceColumns { name: None, label: Some("label") };
+        assert_eq!(texts(&gd, labels), ["Sword", "Axe", "Custom"]);
+        // Another talk table of the module's: its strings.
+        let mut custom = Tlk::new(Language::ENGLISH);
+        custom.entries.push(TlkEntry::text("From another"));
+        gd.set_custom_tlk(Some(custom));
+        assert_eq!(texts(&gd, cols), ["Longsword", "Axe", "From another"]);
+        // The table changed (a hak over it): read again once forgotten.
+        let mut over = MemContainer::new();
+        over.insert(
+            ResKey::parse("things", ResType::TWODA).unwrap(),
+            &b"2DA V2.0
+
+  LABEL NAME
+0 Mace ****
+"[..],
+        );
+        gd.resman.add(priority::HAK_USER, "hak:x", LayerClass::Erf, over);
+        assert_eq!(texts(&gd, cols), ["Longsword", "Axe", "From another"], "until forgotten");
+        gd.invalidate();
+        assert_eq!(texts(&gd, cols), ["Mace"]);
     }
 }

@@ -197,8 +197,9 @@ struct Lookup<'a> {
 }
 
 impl Lookup<'_> {
+    /// Whether the game has the model (by its lists: nothing is read).
     fn has_model(&self, name: &str) -> bool {
-        ResRef::from_str(name).is_ok() && self.game.resman.get_named(name, ResType::MDL).is_ok()
+        mg_resman::ResKey::parse(name, ResType::MDL).is_some_and(|k| self.game.resman.contains(&k))
     }
 
     fn model(&self, name: &str) -> Option<Arc<Model>> {
@@ -206,40 +207,41 @@ impl Lookup<'_> {
         Model::read(&data).ok().map(Arc::new)
     }
 
-    /// Whether a texture name resolves to anything (MTR, DDS, TGA, PLT).
+    /// Whether a texture name resolves to anything (MTR, DDS, TGA, PLT),
+    /// by the game's lists.
     fn has_texture(&self, name: &str) -> bool {
         let Ok(r) = ResRef::from_str(name) else { return false };
-        let rm = &self.game.resman;
-        rm.texture(r).is_some()
-            || [ResType::PLT, ResType::MTR]
-                .iter()
-                .any(|&t| rm.get(&mg_resman::ResKey::new(r, t)).is_ok())
-    }
-
-    /// Whether a mesh the model draws names no texture.
-    fn unnamed_mesh(&self, model: &str) -> bool {
-        self.model(model).is_some_and(|m| {
-            m.nodes.iter().any(|n| {
-                matches!(&n.kind, NodeKind::Mesh(mesh) if mesh.render && mesh.textures[0].is_none())
-            })
-        })
+        [ResType::DDS, ResType::TGA, ResType::PLT, ResType::MTR]
+            .iter()
+            .any(|&t| self.game.resman.contains(&mg_resman::ResKey::new(r, t)))
     }
 
     /// The meshes' textures (lower case).
     fn bitmaps(&self, model: &str) -> Vec<String> {
-        let Some(m) = self.model(model) else { return Vec::new() };
-        let mut out: Vec<String> = m
-            .nodes
-            .iter()
-            .filter_map(|n| match &n.kind {
-                NodeKind::Mesh(mesh) if mesh.render => mesh.textures[0].clone(),
-                _ => None,
-            })
-            .collect();
-        out.sort();
-        out.dedup();
-        out
+        self.model(model).map_or_else(Vec::new, |m| bitmaps(&m))
     }
+}
+
+/// Whether a mesh the model draws names no texture.
+fn unnamed_mesh(m: &Model) -> bool {
+    m.nodes.iter().any(
+        |n| matches!(&n.kind, NodeKind::Mesh(mesh) if mesh.render && mesh.textures[0].is_none()),
+    )
+}
+
+/// The textures of the meshes a model draws (lower case).
+fn bitmaps(m: &Model) -> Vec<String> {
+    let mut out: Vec<String> = m
+        .nodes
+        .iter()
+        .filter_map(|n| match &n.kind {
+            NodeKind::Mesh(mesh) if mesh.render => mesh.textures[0].clone(),
+            _ => None,
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
 }
 
 #[cfg(test)]
@@ -279,5 +281,52 @@ mod tests {
         assert_eq!(p.base.textures.get("plc_chest1").map(String::as_str), Some("mg_new"));
         assert_eq!(p.base.textures.get("restored").map(String::as_str), Some("fallback"));
         assert_eq!(p.idle.as_deref(), Some("mg_idle"));
+    }
+
+    /// A container that lists its resources and gives none.
+    #[derive(Debug)]
+    struct Listed(Vec<mg_resman::ResKey>);
+
+    impl mg_resman::Container for Listed {
+        fn contains(&self, key: &mg_resman::ResKey) -> bool {
+            self.0.contains(key)
+        }
+        fn read(
+            &self,
+            key: &mg_resman::ResKey,
+        ) -> Result<std::borrow::Cow<'_, [u8]>, mg_resman::ResError> {
+            panic!("{key} was read to ask whether it is there")
+        }
+        fn keys(&self) -> Box<dyn Iterator<Item = mg_resman::ResKey> + '_> {
+            Box::new(self.0.iter().copied())
+        }
+        fn len(&self) -> usize {
+            self.0.len()
+        }
+    }
+
+    /// Whether a model or a texture is there is asked of the lists, not by
+    /// reading it (a creature asks of every part it might wear, and a
+    /// hak's resource is read from its file each time).
+    #[test]
+    fn asking_whether_a_model_or_a_texture_is_there_reads_nothing() {
+        let key = |n: &str, t| mg_resman::ResKey::parse(n, t).unwrap();
+        let listed = Listed(vec![
+            key("c_orc", ResType::MDL),
+            key("c_orc", ResType::DDS),
+            key("old", ResType::TGA),
+            key("skin", ResType::PLT),
+            key("metal", ResType::MTR),
+        ]);
+        let mut rm = mg_resman::ResMan::new();
+        rm.add(mg_resman::priority::HAK_USER, "hak:x", mg_resman::LayerClass::Erf, listed);
+        let game = GameData::new(rm, mg_tlk::Tlk::new(mg_core::Language::ENGLISH));
+        let lk = Lookup { game: &game };
+        assert!(lk.has_model("c_orc") && !lk.has_model("c_elf"));
+        assert!(!lk.has_model("a name too long for a resource"));
+        for texture in ["c_orc", "old", "skin", "metal"] {
+            assert!(lk.has_texture(texture), "{texture}");
+        }
+        assert!(!lk.has_texture("none") && !lk.has_texture("a name too long for a resource"));
     }
 }

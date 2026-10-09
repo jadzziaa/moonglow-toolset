@@ -273,14 +273,7 @@ fn build(app: &mut Moonglow, w: &StoreWizard) -> Result<Vec<Edit>, String> {
     };
     let game = app.game.as_deref().ok_or("no game data")?;
     let ws = app.ws.as_ref().ok_or("no module")?;
-    let read = |k: ResKey| {
-        let data = ws
-            .module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        Gff::read(&data).ok().map(|g| g.root)
-    };
+    let read = |k: ResKey| mg_module::gff_root(Some(&ws.module), game, &k);
     let blueprint =
         read(ResKey::new(store, ResType::UTM)).ok_or("the store blueprint is missing")?;
     let item = |r: ResRef| read(ResKey::new(r, ResType::UTI));

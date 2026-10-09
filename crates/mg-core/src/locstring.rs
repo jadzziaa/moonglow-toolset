@@ -130,12 +130,6 @@ impl LocString {
         self.strings.retain(|(k, _)| *k != key);
         self.strings.len() != before
     }
-
-    /// Decodes a variant with an explicit codepage (for files whose codepage is
-    /// known to differ from the language default).
-    pub fn text_with(&self, key: LocStringKey, codepage: Codepage) -> Option<Cow<'_, str>> {
-        self.strings.iter().find(|(k, _)| *k == key).map(|(_, v)| codepage.decode(v))
-    }
 }
 
 #[cfg(test)]

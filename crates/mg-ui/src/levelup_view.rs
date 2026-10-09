@@ -176,12 +176,7 @@ fn level_up(app: &mut Moonglow, w: &LevelupWizard) {
     // blueprint's name for a blueprint, the whole item for a placed one.
     let module = &ws.module;
     let item = |r: mg_core::ResRef| {
-        let k = ResKey::new(r, mg_core::ResType::UTI);
-        let data = module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        mg_gff::Gff::read(&data).ok().map(|g| g.root)
+        mg_module::gff_root(Some(module), game, &ResKey::new(r, mg_core::ResType::UTI))
     };
     let placing = mg_module::instances::Placing { game, item: &item };
     let placed = !w.path.0.is_empty();

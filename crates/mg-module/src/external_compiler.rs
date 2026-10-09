@@ -45,8 +45,6 @@ pub struct ExternalCompiler {
 /// What the compiler made of one script.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Outcome {
-    /// The script's name (its resref, lower case).
-    pub name: String,
     pub ncs: Option<Vec<u8>>,
     pub ndb: Option<Vec<u8>>,
     /// What the compiler said of it, when it made no `.ncs`.
@@ -175,7 +173,7 @@ impl ExternalCompiler {
                         self.program.file_name().unwrap_or_default().to_string_lossy()
                     ),
                 };
-                Outcome { name: name.clone(), ncs, ndb: read(name, "ndb"), message }
+                Outcome { ncs, ndb: read(name, "ndb"), message }
             })
             .collect())
     }

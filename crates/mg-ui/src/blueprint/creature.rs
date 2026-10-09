@@ -113,42 +113,32 @@ pub(crate) fn refresh_hit_points(
 }
 
 fn choices(f: &Form<'_>, table: &str, name: &str, label: &str) -> Vec<Choice> {
-    f.app
-        .game
-        .as_ref()
-        .and_then(|g| g.choices(table, ChoiceColumns { name: Some(name), label: Some(label) }).ok())
-        .unwrap_or_default()
+    f.choices(table, Some(name), Some(label))
 }
 
 /// A creature's challenge rating, its gear read from the module's item
 /// blueprints, else the game's.
 fn challenge(game: &GameData, module: &mg_module::Module, creature: &Struct) -> Challenge {
-    let item = |r: mg_core::ResRef| -> Option<Struct> {
-        let k = ResKey::new(r, ResType::UTI);
-        let data = module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        mg_gff::Gff::read(&data).ok().map(|g| g.root)
-    };
+    let item =
+        |r: mg_core::ResRef| mg_module::gff_root(Some(module), game, &ResKey::new(r, ResType::UTI));
     let mut sheet = CreatureSheet::from_gff(creature);
     sheet.gear_value = game.gear_value(creature, &item);
     game.challenge(&sheet)
 }
 
-/// The stored rating as Aurora shows it (fractions below 1), and the
-/// calculation behind it.
-fn rating_text(f: &Form<'_>) -> (String, Option<String>) {
+/// The stored rating as Aurora shows it (fractions below 1); under the
+/// pointer, the calculation behind it (worked out then: it reads every
+/// item the creature wears).
+fn rating_label(f: &Form<'_>, ui: &mut Ui) {
     let stored = f.root.float("ChallengeRating").unwrap_or(0.0);
-    let text = Challenge { calculated: stored, rating: stored }.text();
-    let detail = match (f.app.game.as_deref(), f.app.ws.as_ref()) {
-        (Some(game), Some(ws)) => {
+    let r = ui.label(Challenge { calculated: stored, rating: stored }.text());
+    if let (Some(game), Some(ws)) = (f.app.game.as_deref(), f.app.ws.as_ref()) {
+        r.on_hover_ui(|ui| {
             let c = challenge(game, &ws.module, &f.root);
-            Some(format!("Calculated {:.2}, rated {}", c.calculated, c.text()))
-        }
-        _ => None,
-    };
-    (text, detail)
+            ui.set_max_width(ui.spacing().tooltip_width);
+            ui.label(format!("Calculated {:.2}, rated {}", c.calculated, c.text()));
+        });
+    }
 }
 
 fn basic(f: &mut Form<'_>, ui: &mut Ui) {
@@ -156,7 +146,6 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
     let appearances = choices(f, "appearance", "STRING_REF", "LABEL");
     let phenotypes = choices(f, "phenotype", "Name", "Label");
     let genders = choices(f, "gender", "NAME", "GENDER");
-    let (cr, cr_detail) = rating_text(f);
     egui::Grid::new(("utc-basic", f.key)).num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for (text, what, label, last) in [
             ("First Name", "First name", "FirstName", false),
@@ -204,10 +193,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         f.choice(ui, "Gender", "Gender", &genders, FieldType::Byte);
         ui.end_row();
         crate::widgets::field_label(ui, "Challenge Rating");
-        let r = ui.label(&cr);
-        if let Some(d) = &cr_detail {
-            r.on_hover_text(d);
-        }
+        rating_label(f, ui);
         ui.end_row();
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Creature);
@@ -344,7 +330,7 @@ fn signed(v: i32) -> String {
 }
 
 /// Body parts: (label, field, capart.2da model name).
-const BODY_PARTS: [(&str, &str, &str); 18] = [
+const BODY_PARTS: [(&str, &str, &str); 19] = [
     ("Head", "Appearance_Head", "head"),
     ("Neck", "BodyPart_Neck", "neck"),
     ("Torso", "BodyPart_Torso", "chest"),
@@ -364,6 +350,7 @@ const BODY_PARTS: [(&str, &str, &str); 18] = [
     ("Left Shin", "BodyPart_LShin", "shinl"),
     // The creature's right foot really is `ArmorPart_RFoot`.
     ("Right Foot", "ArmorPart_RFoot", "footr"),
+    ("Left Foot", "BodyPart_LFoot", "footl"),
 ];
 
 /// The part numbers with a model for a body's prefix (`pmh0_chest`), cached.
@@ -798,7 +785,6 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
     let bags = choices(f, "bodybag", "Name", "LABEL");
     let sounds = choices(f, "soundset", "STRREF", "LABEL");
     let ranges = choices(f, "ranges", "Name", "Label");
-    let (cr, cr_detail) = rating_text(f);
     crate::widgets::two_columns(ui, 440.0, |ui, col| {
         if col == 0 {
             egui::Grid::new(("utc-adv", f.key)).num_columns(2).spacing([12.0, 6.0]).show(
@@ -923,10 +909,7 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
                 }
                 ui.end_row();
                 crate::widgets::field_label(ui, "Challenge Rating");
-                let r = ui.label(&cr);
-                if let Some(d) = &cr_detail {
-                    r.on_hover_text(d);
-                }
+                rating_label(f, ui);
                 ui.end_row();
             });
         }
@@ -946,4 +929,22 @@ fn sound_set_sample(app: &crate::Moonglow, set: i64) -> Option<ResRef> {
         ResRef::from_str(&s).ok().filter(|r| !r.is_empty())
     };
     ssf.entries.get(21).and_then(sound).or_else(|| ssf.entries.iter().find_map(sound))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_right_body_part_has_its_left() {
+        // (Aurora's Appearance page: `cbFootRight` and `cbFootLeft`.)
+        for (name, ..) in BODY_PARTS {
+            if let Some(part) = name.strip_prefix("Right ") {
+                let left = format!("Left {part}");
+                assert!(BODY_PARTS.iter().any(|(n, ..)| *n == left), "{name} without {left}");
+            }
+        }
+        let fields: Vec<&str> = BODY_PARTS.iter().map(|(_, field, _)| *field).collect();
+        assert!(fields.contains(&"BodyPart_LFoot"));
+    }
 }

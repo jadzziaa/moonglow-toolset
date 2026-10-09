@@ -148,14 +148,13 @@ fn module_info(game: &GameData, name: &str, rng: &mut fastrand::Rng) -> Result<G
 /// The factions of a new module (PC, Hostile, Commoner, Merchant, Defender)
 /// and how each regards the others. How factions regard PCs is not stored.
 pub fn default_factions() -> Gff {
-    const NAMES: [&str; 5] = ["PC", "Hostile", "Commoner", "Merchant", "Defender"];
     // REPUTATION[t][p - 1]: how faction p (1..=4) regards faction t; how
     // the PC faction regards others is not stored.
     const REPUTATION: [[u32; 4]; 5] =
         [[0, 50, 50, 50], [100, 0, 0, 0], [0, 100, 50, 100], [0, 50, 100, 100], [0, 50, 100, 100]];
     let mut g = Gff::new(*b"FAC ");
     let factions = g.root.items_mut(&fac::FACTION_LIST);
-    for (i, name) in NAMES.iter().enumerate() {
+    for (i, name) in crate::factions::STANDARD.iter().enumerate() {
         let mut s = Struct::new(i as u32);
         s.write(&fac::faction_list::FACTION_PARENT_ID, u32::MAX);
         s.write(&fac::faction_list::FACTION_NAME, ExoString::from(*name));
@@ -343,9 +342,6 @@ pub fn tag_for(name: &str) -> String {
     name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(32).collect()
 }
 
-/// Adds a new area to a module, as Aurora's Area Wizard makes it, and
-/// returns its resref. The module's first area becomes its starting area,
-/// entered at the centre facing north.
 /// A lighting scheme (an environment.2da row, Aurora's Area Properties ›
 /// Visual): the area's sun, moon, fog, shadows, day and night and weather,
 /// and colours its tiles' lights are picked from.
@@ -405,6 +401,9 @@ impl Scheme {
     }
 }
 
+/// Adds a new area to a module, as Aurora's Area Wizard makes it, and
+/// returns its resref. The module's first area becomes its starting area,
+/// entered at the centre facing north.
 pub fn add_area(
     module: &mut Module,
     game: &GameData,
@@ -441,7 +440,7 @@ pub fn add_area_of(
     let lattice = mg_tiles::new_area(&index, set, spec.width, spec.height).map_err(tiles_error)?;
     let tiles = mg_tiles::fill(&index, &lattice, rng).map_err(tiles_error)?;
 
-    let defaults = AreaDefaults::for_tileset(game, spec.tileset)?;
+    let defaults = AreaDefaults::for_tileset(game, spec.tileset);
     let scheme = Scheme::read(game, defaults.env_scheme)?;
     let taken = |r: &ResRef| module.contains(&ResKey::new(*r, ResType::ARE));
     let area = resref_for(&spec.name, taken);
@@ -599,7 +598,7 @@ pub struct AreaDefaults {
 }
 
 impl AreaDefaults {
-    pub fn for_tileset(game: &GameData, tileset: ResRef) -> Result<AreaDefaults, NewError> {
+    pub fn for_tileset(game: &GameData, tileset: ResRef) -> AreaDefaults {
         let mut d = AreaDefaults {
             env_scheme: 0,
             flags: 0,
@@ -610,9 +609,9 @@ impl AreaDefaults {
             scripts: [ResRef::EMPTY; 4],
             audio: AreaAudio::default(),
         };
-        let Ok(data) = game.resman.get_named("areag", ResType::INI) else { return Ok(d) };
+        let Ok(data) = game.resman.get_named("areag", ResType::INI) else { return d };
         let ini = Ini::parse(&game.language.codepage().decode(&data));
-        let Some(s) = ini.section(&tileset.to_string()) else { return Ok(d) };
+        let Some(s) = ini.section(&tileset.to_string()) else { return d };
         let int = |k: &str| s.int(k).unwrap_or(0);
         d.env_scheme = usize::try_from(int("EnvScheme")).unwrap_or(0);
         d.flags = u32::from(int("Interior") != 0)
@@ -638,6 +637,6 @@ impl AreaDefaults {
             music_night: int("MusicNight"),
             music_delay: int("MusicDelay"),
         };
-        Ok(d)
+        d
     }
 }

@@ -20,6 +20,7 @@ use mg_resman::ResKey;
 use mg_tiles::paint::step_fit;
 
 use crate::area_view::AreaView;
+use crate::terrain_mode::current_grid;
 use crate::{Action, Moonglow};
 
 /// A cell and the tiles that fit there, each with its model's name.
@@ -179,7 +180,7 @@ pub(crate) fn input(
 
 /// Copies the selected tiles (Aurora: within a tileset).
 fn copy_tiles(app: &mut Moonglow, view: &AreaView) -> Option<TileClip> {
-    let g = grid(app, view)?;
+    let g = current_grid(app, view)?;
     let tools = view.terrain.as_ref()?;
     let are = app.ws.as_mut()?.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
     let list = are.root.list("Tile_List")?;
@@ -230,7 +231,7 @@ pub(crate) fn paste_input(
     }
     if response.clicked()
         && let Some(at) = response.interact_pointer_pos().and_then(|p| tile_at(view, p))
-        && let Some(mut g) = grid(app, view)
+        && let Some(mut g) = current_grid(app, view)
         && let (Some(clip), Some(tools)) = (app.tile_clip.clone(), view.terrain.as_ref())
     {
         let tiles: Vec<_> = clip.tiles.iter().map(|(o, p, _)| (*o, Some(*p))).collect();
@@ -293,16 +294,10 @@ pub(crate) fn context_menu(
     }
 }
 
-fn grid(app: &mut Moonglow, view: &AreaView) -> Option<mg_tiles::paint::Grid> {
-    let tools = view.terrain.as_ref()?;
-    let are = app.ws.as_mut()?.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
-    mg_area::terrain::grid(&are.root, &tools.index)
-}
-
 /// The tile's next variant among those that fit, in Aurora's order; with
 /// `back`, the one before.
 fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32), back: bool) {
-    let Some(g) = grid(app, view) else { return };
+    let Some(g) = current_grid(app, view) else { return };
     let Some(tools) = view.terrain.as_ref() else { return };
     let Some(next) = step_fit(&tools.index, &g.lattice.cell(x, y), g.tile(x, y), back) else {
         view.notice = Some("No other tile fits there".into());
@@ -313,7 +308,7 @@ fn next_variant(app: &mut Moonglow, view: &mut AreaView, (x, y): (u32, u32), bac
 
 /// Delete on the selected tiles.
 fn delete(app: &mut Moonglow, view: &mut AreaView) {
-    let Some(mut g) = grid(app, view) else { return };
+    let Some(mut g) = current_grid(app, view) else { return };
     let Some(tools) = view.terrain.as_ref() else { return };
     let cells = view.tile_selection.clone();
     let before = g.clone();
@@ -357,7 +352,7 @@ fn open_properties(app: &mut Moonglow, view: &AreaView) {
     });
     // One tile: the others that fit there, to choose among by picture.
     let variants = match view.tile_selection.as_slice() {
-        &[(x, y)] => grid(app, view).map(|g| {
+        &[(x, y)] => current_grid(app, view).map(|g| {
             let fits = mg_tiles::paint::fits_in_order(&tools.index, &g.lattice.cell(x, y));
             let named = fits
                 .into_iter()
@@ -605,7 +600,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         && props.variant != Some(p)
         && let Some(mut view) = app.area_views.remove(&props.area)
     {
-        if let Some(g) = grid(app, &view) {
+        if let Some(g) = current_grid(app, &view) {
             view.tile_selection = vec![(*x, *y)];
             crate::terrain_mode::tile_command(app, &view, &g, &[((*x, *y), p)], "Tile variant");
             props.variant = Some(p);

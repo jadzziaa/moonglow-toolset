@@ -93,11 +93,14 @@ pub fn name(node_flags: u32, id: u32) -> String {
 /// Whether an ASCII keyword (lower case, without `key`) is a controller of
 /// this node type, and its number of values.
 pub fn columns(node_flags: u32, name: &str) -> Option<usize> {
-    let name = match name {
-        "setfillumcolor" => "selfillumcolor",
-        n => n,
-    };
+    let name = canonical(name);
     tables(node_flags).find(|t| t.1 == name).map(|t| t.2)
+}
+
+/// A controller's name under its one spelling: old models write
+/// `setfillumcolor` for `selfillumcolor`.
+pub(crate) fn canonical(name: &str) -> &str {
+    if name == "setfillumcolor" { "selfillumcolor" } else { name }
 }
 
 #[cfg(test)]

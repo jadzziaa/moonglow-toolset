@@ -847,12 +847,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     if let Some(i) = remove {
         f.app.actions.push(Action::Apply(Command::new(
             "Remove property",
-            vec![Edit::RemoveItem {
-                key,
-                path: here.clone(),
-                list: "PropertiesList".into(),
-                index: i,
-            }],
+            vec![Edit::RemoveItem { key, path: here, list: "PropertiesList".into(), index: i }],
         )));
         selected = None;
     }
@@ -884,7 +879,7 @@ fn property_editor(
 ) {
     let here = f.path.clone();
     let Some(t) = game.property_type(p.property) else { return };
-    let path = here.clone().item("PropertiesList", index);
+    let path = here.item("PropertiesList", index);
     let mut changes: Vec<(&str, Value)> = Vec::new();
     egui::Grid::new(("uti-prop", f.key, index)).num_columns(2).spacing([12.0, 6.0]).show(
         ui,
