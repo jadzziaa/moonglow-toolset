@@ -856,9 +856,6 @@ fn all_under(node: &PaletteNode, kind: BlueprintKind, out: &mut Vec<ResKey>) {
     }
 }
 
-/// A palette search: words, each found in a blueprint's name, resref or
-/// tag; or, when nothing has every word, letters in order (`lngswd` finds
-/// Longsword).
 /// A palette name as its row shows it: its text, or, where it is a
 /// talk-table string that isn't there (a custom talk table that wasn't
 /// found, a line the table lacks), which string it is, so that a row
@@ -903,6 +900,9 @@ fn new_blueprint(app: &mut Moonglow, kind: BlueprintKind) {
     }
 }
 
+/// A palette search: words, each found in a blueprint's name, resref or
+/// tag; or, when nothing has every word, letters in order (`lngswd` finds
+/// Longsword).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Find {
     words: Vec<String>,

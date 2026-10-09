@@ -1683,6 +1683,8 @@ impl Moonglow {
             Action::HakReport => self.hak_report(),
             Action::OptionsDialog => {
                 let mut draft = OptionsDraft::from_settings(&self.settings);
+                // (Looked for once: it reads Steam's library files.)
+                draft.detected = GameInstall::detect();
                 // The plugins' commands take keys like the rest.
                 let commands = self.plugin_commands();
                 plugins::register_keys(&mut draft.keymap, &commands);

@@ -134,7 +134,6 @@ pub struct DialogClip {
     pub target: (Kind, u32),
 }
 
-/// The GFF path of a link.
 /// A line's own text: in the language edited (Options › Language), else,
 /// where it has none in it, in another (English first).
 fn text(n: &Struct) -> String {
@@ -156,6 +155,7 @@ fn line_text(game: Option<&mg_rules::GameData>, n: &Struct) -> String {
         .unwrap_or_default()
 }
 
+/// The GFF path of a link.
 fn link_path(row: Row) -> GffPath {
     match row.parent {
         Parent::Root => GffPath::root().item("StartingList", row.pos),
@@ -947,20 +947,20 @@ fn text_panel(
     let width = ui.available_width();
     ui.set_max_width(width);
     if kind == Kind::Entry {
-        let tags = creature_tags(app);
         ui.horizontal_wrapped(|ui| {
             ui.label("Speaker Tag");
             let speaker = decode(n.string("Speaker").unwrap_or_default());
             let id = egui::Id::new(("dlg-speaker", key, index));
             let mut chosen = commit_text(app, ui, id, &speaker, false, 160.0);
-            // The tags of the creatures placed in the module's areas.
+            // The tags of the creatures placed in the module's areas (read
+            // only while the list is open: it takes every area's objects).
             egui::ComboBox::from_id_salt(("dlg-speaker-tags", key, index))
                 .selected_text("")
                 .width(24.0)
                 .show_ui(ui, |ui| {
-                    for t in &tags {
-                        if ui.selectable_label(*t == speaker, t).clicked() {
-                            chosen = Some(t.clone());
+                    for t in creature_tags(app) {
+                        if ui.selectable_label(t == speaker, &t).clicked() {
+                            chosen = Some(t);
                         }
                     }
                 })
@@ -1504,8 +1504,6 @@ fn search_pane(
     }
 }
 
-/// Test mode: click through the conversation from a greeting, as a player
-/// would, without evaluating conditions.
 impl Moonglow {
     /// Reads a Twine or Ink story as a new conversation of the module,
     /// named after the file (made unique), and opens it; its name.

@@ -47,7 +47,6 @@ pub(crate) struct LaidOut {
     galley: std::sync::Arc<egui::Galley>,
 }
 
-/// Underlines (wavy red, as editors mark errors) what is on a 0-based line.
 /// The room a side list's row takes beside its name: the scroll bar and
 /// the panel's and the row's margins.
 const SIDE_MARGINS: f32 = 44.0;
@@ -55,6 +54,7 @@ const SIDE_MARGINS: f32 = 44.0;
 /// The longest name the side lists open wide enough for, characters.
 const LONG_NAME: usize = 44;
 
+/// Underlines (as editors mark errors) what is on a 0-based line.
 fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) {
     let start = if line == 0 {
         0
@@ -1217,8 +1217,8 @@ impl Moonglow {
     }
 }
 
-/// Compiles one script (its text as in the editor) and stores the bytecode.
-/// Compiles one script into the module; whether it compiled.
+/// Compiles one script (its text as in the editor) into the module;
+/// whether it compiled.
 fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
     if app.ws.is_none() {
         return false;
