@@ -278,8 +278,10 @@ pub fn replace(
 ) -> (usize, Vec<String>) {
     let mut total = 0;
     let mut errors = Vec::new();
-    let mut keys: Vec<ResKey> = hits.iter().map(|h| h.key).collect();
-    keys.dedup();
+    // Each resource once, in the order of its first hit (the hits of one
+    // need not be together).
+    let mut seen = std::collections::HashSet::new();
+    let keys: Vec<ResKey> = hits.iter().map(|h| h.key).filter(|k| seen.insert(*k)).collect();
     for key in keys {
         let Some(Ok(mut gff)) = module.gff(&key) else { continue };
         for hit in hits.iter().filter(|h| h.key == key) {
@@ -376,5 +378,38 @@ mod tests {
         // Text a language's codepage can't hold is refused.
         let ls = LocString::from_text(Language::ENGLISH, Gender::Male, "orc");
         assert!(replace_locstring(&ls, "orc", "орк", o(false, false)).is_err());
+    }
+
+    #[test]
+    fn hits_in_any_order_are_each_replaced_once() {
+        let mut m = Module::new();
+        let named = |name: &str| {
+            let mut g = Gff::new(*b"UTC ");
+            let name = LocString::from_text(Language::ENGLISH, Gender::Male, name);
+            g.root.set("FirstName", Value::LocString(name.clone()));
+            g.root.set("LastName", Value::LocString(name));
+            g
+        };
+        let (a, b) = (
+            ResKey::parse("a", ResType::UTC).unwrap(),
+            ResKey::parse("b", ResType::UTC).unwrap(),
+        );
+        m.set_gff(a, &named("cat")).unwrap();
+        m.set_gff(b, &named("cat")).unwrap();
+        // One resource's hits apart (a list sorted by name or place), and a
+        // new text that holds the old.
+        let mut hits = find(&m, "cat", o(false, false), &[TextKind::Name]);
+        assert_eq!(hits.len(), 4);
+        hits.swap(1, 2);
+        assert_ne!(hits[0].key, hits[1].key);
+        let (n, errors) = replace(&mut m, &hits, "cat", "wildcat", o(false, false));
+        assert_eq!((n, errors.len()), (4, 0));
+        for key in [a, b] {
+            let g = m.gff(&key).unwrap().unwrap();
+            for label in ["FirstName", "LastName"] {
+                let name = g.root.locstring(label).unwrap();
+                assert_eq!(name.text(Language::ENGLISH, Gender::Male).unwrap(), "wildcat");
+            }
+        }
     }
 }
