@@ -34,8 +34,6 @@ pub const IDENTITY: Quat = [0.0, 0.0, 0.0, 1.0];
 pub enum MdlError {
     #[error("truncated or corrupt binary model: {0}")]
     Binary(String),
-    #[error("line {line}: {message}")]
-    Ascii { line: usize, message: String },
     #[error("empty model")]
     Empty,
 }
