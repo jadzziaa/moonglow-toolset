@@ -338,7 +338,7 @@ fn signed(v: i32) -> String {
 }
 
 /// Body parts: (label, field, capart.2da model name).
-const BODY_PARTS: [(&str, &str, &str); 18] = [
+const BODY_PARTS: [(&str, &str, &str); 19] = [
     ("Head", "Appearance_Head", "head"),
     ("Neck", "BodyPart_Neck", "neck"),
     ("Torso", "BodyPart_Torso", "chest"),
@@ -358,6 +358,7 @@ const BODY_PARTS: [(&str, &str, &str); 18] = [
     ("Left Shin", "BodyPart_LShin", "shinl"),
     // The creature's right foot really is `ArmorPart_RFoot`.
     ("Right Foot", "ArmorPart_RFoot", "footr"),
+    ("Left Foot", "BodyPart_LFoot", "footl"),
 ];
 
 /// The part numbers with a model for a body's prefix (`pmh0_chest`), cached.
@@ -940,4 +941,22 @@ fn sound_set_sample(app: &crate::Moonglow, set: i64) -> Option<ResRef> {
         ResRef::from_str(&s).ok().filter(|r| !r.is_empty())
     };
     ssf.entries.get(21).and_then(sound).or_else(|| ssf.entries.iter().find_map(sound))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_right_body_part_has_its_left() {
+        // (Aurora's Appearance page: `cbFootRight` and `cbFootLeft`.)
+        for (name, ..) in BODY_PARTS {
+            if let Some(part) = name.strip_prefix("Right ") {
+                let left = format!("Left {part}");
+                assert!(BODY_PARTS.iter().any(|(n, ..)| *n == left), "{name} without {left}");
+            }
+        }
+        let fields: Vec<&str> = BODY_PARTS.iter().map(|(_, field, _)| *field).collect();
+        assert!(fields.contains(&"BodyPart_LFoot"));
+    }
 }
