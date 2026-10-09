@@ -2854,21 +2854,8 @@ impl Moonglow {
     /// refreshes what was shown from them. Asked for (Tools › Reload
     /// Resources), it says when nothing changed.
     pub fn reload_resources(&mut self, asked: bool) {
-        use mg_resman::priority as p;
         let Some(game) = exclusive(&mut self.game) else { return };
-        // The user's content; the install's own folders don't change.
-        let user = |l: &mg_resman::Layer| {
-            matches!(
-                l.priority,
-                p::HAK
-                    | p::HAK_USER
-                    | p::OVERRIDE
-                    | p::DEVELOPMENT
-                    | p::DEVELOPMENT_USER
-                    | p::PORTRAITS_USER
-            )
-        };
-        let mut changed = match game.resman.reload_changed(user) {
+        let mut changed = match game.resman.reload_changed(user_content) {
             Ok(c) => c,
             Err(e) => {
                 self.log.error(format!("Reload Resources: {e}"));
@@ -3095,7 +3082,7 @@ impl Moonglow {
             return;
         }
         self.reload_checked = Some(now);
-        self.reload_resources(false);
+        self.reload_changed_content();
         self.reload_changed_files();
         ui.ctx().request_repaint_after(every);
     }
@@ -3317,6 +3304,21 @@ impl Moonglow {
 
 /// The game data to change (its layers, its talk table): only while no job
 /// is reading it, which is whenever the window takes input.
+/// A layer of the user's content, which may change on disk (the
+/// install's own folders don't).
+pub(crate) fn user_content(l: &mg_resman::Layer) -> bool {
+    use mg_resman::priority as p;
+    matches!(
+        l.priority,
+        p::HAK
+            | p::HAK_USER
+            | p::OVERRIDE
+            | p::DEVELOPMENT
+            | p::DEVELOPMENT_USER
+            | p::PORTRAITS_USER
+    )
+}
+
 pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
     game.as_mut().and_then(Arc::get_mut)
 }

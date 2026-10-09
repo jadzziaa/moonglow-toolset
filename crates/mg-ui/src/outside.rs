@@ -23,6 +23,8 @@ pub(crate) struct OutsideState {
     later: Vec<PathBuf>,
     /// Looks at the module's files off the UI's thread.
     watch: Option<Watch>,
+    /// And at the haks and folders the game data reads.
+    content: Option<Watch>,
 }
 
 /// A thread that looks at a module folder's (or a nasher project's) files
@@ -32,7 +34,9 @@ pub(crate) struct OutsideState {
 /// every few seconds: a builder saw it.)
 #[derive(Debug)]
 struct Watch {
-    root: PathBuf,
+    /// The folders (with what is under them, where `deep`) and files
+    /// looked at.
+    paths: Vec<PathBuf>,
     changed: std::sync::Arc<std::sync::atomic::AtomicBool>,
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
@@ -43,12 +47,20 @@ impl Drop for Watch {
     }
 }
 
-/// The files under `root` as one number: their names, times and sizes.
-/// (Not what a version control or a build keeps there: `.git`, `.nasher`
-/// and other hidden folders.)
-fn signature(root: &std::path::Path) -> u64 {
+/// The files `paths` name, and those in the folders they name, as one
+/// number: their names, times and sizes. With `deep`, the folders under
+/// a folder too (not what a version control or a build keeps there:
+/// `.git`, `.nasher` and other hidden folders).
+fn signature(paths: &[PathBuf], deep: bool) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    let mut dirs = vec![root.to_path_buf()];
+    let mut dirs = Vec::new();
+    for path in paths {
+        match std::fs::metadata(path) {
+            Ok(meta) if meta.is_dir() => dirs.push(path.clone()),
+            Ok(meta) => (path, meta.modified().ok(), meta.len()).hash(&mut h),
+            Err(_) => path.hash(&mut h),
+        }
+    }
     while let Some(dir) = dirs.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         let mut seen: Vec<(std::ffi::OsString, Option<std::time::SystemTime>, u64)> = Vec::new();
@@ -56,7 +68,7 @@ fn signature(root: &std::path::Path) -> u64 {
             let name = e.file_name();
             let Ok(meta) = e.metadata() else { continue };
             if meta.is_dir() {
-                if !name.to_string_lossy().starts_with('.') {
+                if deep && !name.to_string_lossy().starts_with('.') {
                     dirs.push(e.path());
                 }
             } else {
@@ -70,21 +82,23 @@ fn signature(root: &std::path::Path) -> u64 {
 }
 
 impl Watch {
-    fn start(root: PathBuf, every: std::time::Duration) -> Watch {
+    fn start(paths: Vec<PathBuf>, deep: bool, every: std::time::Duration) -> Watch {
         use std::sync::atomic::{AtomicBool, Ordering};
-        // (Looked at once at the start: what changed before the watch began.)
-        let changed = std::sync::Arc::new(AtomicBool::new(true));
+        let changed = std::sync::Arc::new(AtomicBool::new(false));
         let stop = std::sync::Arc::new(AtomicBool::new(false));
-        let (dir, flag, done) = (root.clone(), changed.clone(), stop.clone());
+        let (dirs, flag, done) = (paths.clone(), changed.clone(), stop.clone());
         let work = move || {
-            let mut last = signature(&dir);
+            let mut last = signature(&dirs, deep);
+            // (Looked at once at the start, and only now: what changed
+            // before this first look is in it, and would never be said.)
+            flag.store(true, Ordering::Relaxed);
             while !done.load(Ordering::Relaxed) {
                 // (In short naps, to end soon after the module closes.)
                 let until = std::time::Instant::now() + every;
                 while std::time::Instant::now() < until && !done.load(Ordering::Relaxed) {
                     std::thread::sleep(std::time::Duration::from_millis(100));
                 }
-                let now = signature(&dir);
+                let now = signature(&dirs, deep);
                 if now != last {
                     last = now;
                     flag.store(true, Ordering::Relaxed);
@@ -94,8 +108,9 @@ impl Watch {
         if std::thread::Builder::new().name("moonglow files".into()).spawn(work).is_err() {
             // (No thread: looked at every time, as before.)
             stop.store(true, Ordering::Relaxed);
+            changed.store(true, Ordering::Relaxed);
         }
-        Watch { root, changed, stop }
+        Watch { paths, changed, stop }
     }
 }
 
@@ -134,14 +149,48 @@ impl Moonglow {
             self.outside.watch = None;
             return;
         };
-        if self.outside.watch.as_ref().is_none_or(|w| w.root != root) {
-            self.outside.watch = Some(Watch::start(root, std::time::Duration::from_secs(3)));
+        if self.outside.watch.as_ref().is_none_or(|w| w.paths[..] != [root.clone()]) {
+            let every = std::time::Duration::from_secs(3);
+            self.outside.watch = Some(Watch::start(vec![root], true, every));
         }
         let watch = self.outside.watch.as_ref().expect("just made");
         // (A watch without its thread says nothing: looked at each time.)
         let dead = watch.stop.load(Ordering::Relaxed);
         if watch.changed.swap(false, Ordering::Relaxed) || dead {
             self.reload_project_files();
+        }
+    }
+
+    /// Every few seconds: the haks and folders the game data reads (and the
+    /// custom talk table) are looked at again
+    /// ([`Moonglow::reload_resources`]) if a watch of theirs saw a change:
+    /// a large `override` looked at on the window's thread every time is
+    /// what a module's files were.
+    pub fn reload_changed_content(&mut self) {
+        use std::sync::atomic::Ordering;
+        let Some(game) = self.game.as_ref() else {
+            self.outside.content = None;
+            return;
+        };
+        let mut paths: Vec<PathBuf> = (game.resman.layers().iter())
+            .filter(|l| crate::user_content(l))
+            .filter_map(|l| l.container.watched().map(PathBuf::from))
+            .collect();
+        paths.extend(self.tlk_stamp.as_ref().map(|(path, _)| path.clone()));
+        if self.outside.content.as_ref().is_none_or(|w| w.paths != paths) {
+            let every = std::time::Duration::from_secs(3);
+            self.outside.content = Some(Watch::start(paths, false, every));
+        }
+        // (Held by something else, a job: looked at once it is free.)
+        if crate::exclusive(&mut self.game).is_none() {
+            crate::trace::changed("content", || "the game data is held: not looked at".into());
+            return;
+        }
+        crate::trace::changed("content", || "the game data is free".into());
+        let watch = self.outside.content.as_ref().expect("just made");
+        let dead = watch.stop.load(Ordering::Relaxed);
+        if watch.changed.swap(false, Ordering::Relaxed) || dead {
+            self.reload_resources(false);
         }
     }
 
@@ -243,6 +292,54 @@ impl Moonglow {
             named(changes),
             if dropped { "; the undo history, which had changes to them, was cleared" } else { "" }
         ));
+        self.compile_outside(changes);
+    }
+
+    /// Options › Script Editor › Automatically Compile Scripts on Save: a
+    /// script another program saved is compiled as one saved here is, so
+    /// that its compiled script is not the older one. (Not the scripts
+    /// that include it; and not a great many at once, a checkout's, which
+    /// would hold the window: Compile All is for those.)
+    fn compile_outside(&mut self, changes: &[Outside]) {
+        const AT_ONCE: usize = 24;
+        if !self.settings.auto_compile {
+            return;
+        }
+        let scripts: Vec<_> = changes
+            .iter()
+            .filter(|c| c.resource.is_some() && c.key.restype == mg_core::ResType::NSS)
+            .map(|c| c.key)
+            .collect();
+        if scripts.is_empty() {
+            return;
+        }
+        if self.game.is_none() || scripts.len() > AT_ONCE {
+            self.log.info(format!(
+                "{} scripts read again were not compiled ({}): Compile All Scripts does",
+                scripts.len(),
+                if self.game.is_none() { "no game data" } else { "too many at once" }
+            ));
+            return;
+        }
+        let (compiled, _) = crate::script_view::compile_stale(self, &scripts);
+        if !compiled.is_empty() {
+            self.log.info(format!(
+                "Compiled (changed outside Moonglow): {}",
+                crate::transfer::listed(&compiled)
+            ));
+        }
+        let failed: Vec<String> = scripts
+            .iter()
+            .filter(|k| !compiled.contains(&k.resref.to_string()))
+            .filter(|k| self.script_fails(**k))
+            .map(|k| k.resref.to_string())
+            .collect();
+        if !failed.is_empty() {
+            self.log.error(format!(
+                "Did not compile (Compile in the script's editor says why): {}",
+                crate::transfer::listed(&failed)
+            ));
+        }
     }
 }
 
@@ -340,21 +437,21 @@ mod tests {
         std::fs::write(dir.join("src/a.nss"), "void main() {}").unwrap();
         // The files as one number: other when one is longer, added or
         // removed; the same for what a hidden folder holds.
-        let first = signature(&dir);
-        assert_eq!(signature(&dir), first);
+        let first = signature(std::slice::from_ref(&dir), true);
+        assert_eq!(signature(std::slice::from_ref(&dir), true), first);
         std::fs::write(dir.join(".git/index"), "x").unwrap();
-        assert_eq!(signature(&dir), first);
+        assert_eq!(signature(std::slice::from_ref(&dir), true), first);
         std::fs::write(dir.join("src/a.nss"), "void main() { int a; }").unwrap();
-        let longer = signature(&dir);
+        let longer = signature(std::slice::from_ref(&dir), true);
         assert_ne!(longer, first);
         std::fs::write(dir.join("src/b.nss"), "").unwrap();
-        let added = signature(&dir);
+        let added = signature(std::slice::from_ref(&dir), true);
         assert_ne!(added, longer);
         std::fs::remove_file(dir.join("src/b.nss")).unwrap();
-        assert_eq!(signature(&dir), longer);
+        assert_eq!(signature(std::slice::from_ref(&dir), true), longer);
 
         // The watch: once at the start, then only after a change.
-        let watch = Watch::start(dir.clone(), Duration::from_millis(40));
+        let watch = Watch::start(vec![dir.clone()], true, Duration::from_millis(40));
         let seen = |watch: &Watch| {
             for _ in 0..100 {
                 if watch.changed.swap(false, Ordering::Relaxed) {
@@ -364,7 +461,7 @@ mod tests {
             }
             false
         };
-        assert!(watch.changed.swap(false, Ordering::Relaxed), "looked at once, at the start");
+        assert!(seen(&watch), "looked at once, at the start");
         std::thread::sleep(Duration::from_millis(300));
         assert!(!watch.changed.load(Ordering::Relaxed), "nothing changed: nothing said");
         std::fs::write(dir.join("src/c.nss"), "void main() {}").unwrap();

@@ -1195,7 +1195,7 @@ pub(crate) fn compile_stale(app: &mut Moonglow, scripts: &[ResKey]) -> (Vec<Stri
         }
     }
     if !edits.is_empty()
-        && let Err(e) = app.apply(Command::new("Compile for export", edits))
+        && let Err(e) = app.apply(Command::new("Compile", edits))
     {
         app.log.error(e.to_string());
     }

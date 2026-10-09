@@ -471,6 +471,37 @@ fn reload_resources_picks_up_new_files_in_override() {
     assert!(app.log.entries.iter().any(|(_, m)| m == "Reload Resources: nothing changed"));
 }
 
+/// The override folder is watched off the window's thread: a file new to
+/// it is the game data's within a few seconds, without being asked for,
+/// and nothing is read again while nothing changed.
+#[test]
+fn a_file_new_to_the_override_is_seen_by_the_watch() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-reload-watch");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let key = ResKey::parse("mg_watch_test", ResType::TWODA).unwrap();
+    // (The watch begins; what it says at its start finds nothing changed.)
+    app.reload_changed_content();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    app.reload_changed_content();
+    assert!(!app.log.entries.iter().any(|(_, m)| m.starts_with("Reloaded")));
+    std::fs::write(user.join("override/mg_watch_test.2da"), "2DA V2.0\n\n   Label\n0  x\n")
+        .unwrap();
+    let had = |app: &Moonglow| app.game.as_deref().unwrap().resman.contains(&key);
+    for _ in 0..80 {
+        if had(&app) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        app.reload_changed_content();
+    }
+    assert!(had(&app), "{:?}", app.log.entries);
+    assert!(app.log.entries.iter().any(|(_, m)| m == "Reloaded override"));
+}
+
 /// Saving a module that was never saved asks where first, and then does
 /// what a save does once: the build before saving is not run for the
 /// question and again for the answer, and not at all if it is called off.
@@ -14183,6 +14214,68 @@ fn saving_the_module_compiles_edited_scripts_when_asked() {
     edit_and_save(&mut h);
     assert!(has(&mut h, &ncs), "compiled on save");
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Compiled on save: hello")));
+}
+
+/// A script another program saved in the module's folder is compiled
+/// when it is read again, with Automatically Compile Scripts on Save: the
+/// folder's compiled script was the older one until Compile All.
+#[test]
+fn a_script_saved_outside_is_compiled_when_asked() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "Outside", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let (nss, ncs) = (
+        ResKey::parse("hello", ResType::NSS).unwrap(),
+        ResKey::parse("hello", ResType::NCS).unwrap(),
+    );
+    m.set(nss, b"void main()\n{\n}\n".to_vec());
+    let dir = mg_testkit::scratch_dir("ui-folder-compile").join("module");
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.settings.no_mod_beside_folder = true;
+    app.settings.auto_compile = false;
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let compiled = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        ws.module.get(&ncs).map(<[u8]>::to_vec)
+    };
+    let save_outside = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        std::fs::write(dir.join("hello.nss"), text).unwrap();
+        h.state_mut().reload_project_files();
+        h.run_steps(3);
+    };
+    // Not asked: read again, not compiled.
+    save_outside(&mut h, "void main()\n{\n    int n = 1;\n}\n");
+    let text = h.state().ws.as_ref().unwrap().module.get(&nss).unwrap().to_vec();
+    assert!(String::from_utf8_lossy(&text).contains("int n = 1;"));
+    assert!(compiled(&mut h).is_none());
+    // Asked: compiled, and again when its text changes.
+    h.state_mut().settings.auto_compile = true;
+    save_outside(&mut h, "void main()\n{\n    int n = 2;\n}\n");
+    let first = compiled(&mut h).expect("compiled when read again");
+    save_outside(&mut h, "void main()\n{\n    int n = 2;\n    n += GetHitDice(OBJECT_SELF);\n}\n");
+    assert_ne!(compiled(&mut h).unwrap(), first);
+    // One that does not compile keeps its compiled script, and is named.
+    save_outside(&mut h, "void main()\n{\n    nothing();\n}\n");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Did not compile")));
+    // The save writes the compiled script beside its source.
+    save_outside(&mut h, "void main()\n{\n    int n = 3;\n}\n");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    assert_eq!(std::fs::read(dir.join("hello.ncs")).ok(), compiled(&mut h));
+    assert_eq!(
+        std::fs::read(dir.join("hello.nss")).unwrap(),
+        b"void main()\n{\n    int n = 3;\n}\n"
+    );
 }
 
 /// In a nasher project the external editor gets the project's own script

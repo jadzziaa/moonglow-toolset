@@ -39,8 +39,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
         ui.label("No module is open.");
         return;
     };
+    // (The area's fields without its tiles, which no page shows: copied
+    // each frame, a large area's thousand tiles were most of the copy.)
     let root = match ws.doc(&are) {
-        Ok(g) => g.root.clone(),
+        Ok(g) => mg_gff::Struct {
+            id: g.root.id,
+            fields: (g.root.fields.iter())
+                .filter(|f| f.label.as_bytes() != b"Tile_List")
+                .cloned()
+                .collect(),
+        },
         Err(e) => {
             ui.colored_label(ui.visuals().error_fg_color, e.to_string());
             return;

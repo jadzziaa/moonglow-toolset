@@ -38,6 +38,11 @@ pub trait Container: Send + Sync + fmt::Debug {
     fn fingerprint(&self) -> u64 {
         0
     }
+    /// The file or folder on disk the container reads, where it is one
+    /// that may change ([`Container::fingerprint`] looks at it).
+    fn watched(&self) -> Option<&Path> {
+        None
+    }
     /// Resources the container lists but the game can't read (an
     /// archive's past [`ERF_READ_LIMIT`]); reading them fails.
     fn unreadable(&self) -> Vec<ResKey> {
@@ -245,6 +250,10 @@ impl Container for ErfContainer {
         keys
     }
 
+    fn watched(&self) -> Option<&Path> {
+        Some(&self.path)
+    }
+
     fn fingerprint(&self) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         if let Ok(meta) = std::fs::metadata(&self.path) {
@@ -313,6 +322,10 @@ impl Container for DirContainer {
     fn rescan(&mut self) -> Result<(), ResError> {
         DirContainer::rescan(self);
         Ok(())
+    }
+
+    fn watched(&self) -> Option<&Path> {
+        Some(&self.path)
     }
 
     fn fingerprint(&self) -> u64 {
