@@ -916,7 +916,8 @@ fn item_fields(p: &Placing<'_>, bp: &Struct, depth: u32) -> Struct {
         arrange(property, PROPERTY_ORDER, &[]);
     }
     s.set("PropertiesList", Value::List(properties));
-    arrange_item(&mut s);
+    // (Its fields are put in Aurora's order by who asked, once the fields
+    // of the item's place are in.)
     s
 }
 
