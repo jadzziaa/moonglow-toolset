@@ -114,9 +114,12 @@ pub fn add_to_palette(
     // The items it holds, each a new item blueprint.
     let item_blueprint = |item: &Struct, blueprints: &mut Vec<(ResKey, Gff)>| -> ResRef {
         let template = item.resref("TemplateResRef").map(|r| r.to_string()).unwrap_or_default();
+        // (The object's own new name is taken too: an item may hold one
+        // of its own blueprint.)
+        let own = ResKey::new(resref, restype);
         let used = |name: &str| {
             let key = ResKey::parse(name, ResType::UTI);
-            key.is_some_and(|k| taken(&k) || blueprints.iter().any(|(b, _)| *b == k))
+            key.is_some_and(|k| k == own || taken(&k) || blueprints.iter().any(|(b, _)| *b == k))
         };
         let r = new_resref(&template, &used).unwrap_or(ResRef::EMPTY);
         let from = item

@@ -390,10 +390,8 @@ mod tests {
             g.root.set("LastName", Value::LocString(name));
             g
         };
-        let (a, b) = (
-            ResKey::parse("a", ResType::UTC).unwrap(),
-            ResKey::parse("b", ResType::UTC).unwrap(),
-        );
+        let (a, b) =
+            (ResKey::parse("a", ResType::UTC).unwrap(), ResKey::parse("b", ResType::UTC).unwrap());
         m.set_gff(a, &named("cat")).unwrap();
         m.set_gff(b, &named("cat")).unwrap();
         // One resource's hits apart (a list sorted by name or place), and a
