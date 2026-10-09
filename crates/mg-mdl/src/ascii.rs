@@ -160,7 +160,7 @@ const LISTS: &[&str] = &[
 /// Lists whose lines start with a name, not a number (counts are trusted).
 const NAMED_LISTS: &[&str] = &["weights", "texturenames", "multimaterial"];
 
-/// A list as written: its keyword's line, the count it gives and its rows.
+/// A list as written: its keyword's line and its rows.
 #[derive(Default)]
 struct List<'a> {
     line: usize,
@@ -384,7 +384,7 @@ fn key_controller(name: &str, rows: &[Vec<f32>], bezier: bool) -> Controller {
     c
 }
 
-/// De-indexes a mesh's faces; returns the mesh streams.
+/// De-indexes a mesh's faces into `m`'s streams.
 fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh, notes: &mut Vec<Note>) {
     let verts = vec3s(raw.list("verts"));
     let tangents: Vec<[f32; 4]> = raw

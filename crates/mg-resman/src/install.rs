@@ -140,11 +140,11 @@ impl GameInstall {
     }
 }
 
-/// Where the game may be: in each Steam library (Steam's own folder, and
-/// those it lists on other drives), then where GOG puts it.
 /// The game's number on Steam.
 const STEAM_APP: &str = "704450";
 
+/// Where the game may be: in each Steam library (Steam's own folder, and
+/// those it lists on other drives), then where GOG puts it.
 fn candidate_roots() -> Vec<PathBuf> {
     let home = env::var_os("HOME").map(PathBuf::from);
     let game = Path::new("steamapps").join("common").join("Neverwinter Nights");

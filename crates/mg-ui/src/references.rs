@@ -536,7 +536,6 @@ fn places(n: usize) -> String {
     if n == 1 { "1 place".into() } else { format!("{n} places") }
 }
 
-/// The Rename window.
 /// The module tree's Delete…: asks first (the area's objects go with it).
 pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(key) = app.confirm_delete else { return };
@@ -577,6 +576,7 @@ pub(crate) fn delete_window(app: &mut Moonglow, ctx: &egui::Context) {
     }
 }
 
+/// The Rename window.
 pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     let Some(mut draft) = app.rename.take() else { return };
     let mut open = true;

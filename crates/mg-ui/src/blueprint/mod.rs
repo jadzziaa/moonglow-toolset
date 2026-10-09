@@ -67,7 +67,6 @@ pub fn pages(t: ResType) -> &'static [&'static str] {
     }
 }
 
-/// Each open editor's page.
 /// Each open editor's page, by document and the object's path in it.
 pub type Pages = HashMap<(ResKey, GffPath), &'static str>;
 
@@ -108,7 +107,6 @@ fn picture(ui: &mut Ui, made: Option<Option<egui::TextureId>>) {
     }
 }
 
-/// A blueprint's fields, laid out.
 /// Shows something of a 2DA row (a picture) in a choice's list.
 type Shown = fn(&mut Moonglow, &mut Ui, usize);
 
@@ -138,6 +136,7 @@ fn load_screen_picture(app: &mut Moonglow, ui: &mut Ui, row: usize) {
     }
 }
 
+/// A blueprint's fields, laid out.
 pub(crate) struct Form<'a> {
     pub app: &'a mut Moonglow,
     /// The document: the blueprint, or the area's GIT for a placed object.
@@ -1016,8 +1015,6 @@ impl Form<'_> {
     }
 }
 
-/// After a command: values derived from what it changed (an item's cost, a
-/// creature's maximum hit points), as part of it.
 /// The objects of type `restype` a command changed (other than by setting
 /// `derived`, the field kept from them): blueprints at their root, placed
 /// objects at their GIT entry.
@@ -1074,6 +1071,8 @@ pub(crate) fn derived_of(cmd: &Command) -> Derived {
     }
 }
 
+/// After a command: values derived from what it changed (an item's cost, a
+/// creature's maximum hit points), as part of it.
 pub(crate) fn after_apply(app: &mut Moonglow, derived: Derived) {
     item::refresh_costs(app, derived.items);
     creature::refresh_hit_points(app, derived.creatures);

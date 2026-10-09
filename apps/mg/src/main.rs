@@ -1646,7 +1646,6 @@ fn run(cli: &Cli) -> Result<Output> {
     Ok(out)
 }
 
-/// The resman for a module: the game, the module's haks and the module.
 /// The codepage of a module's text: Windows-1252, or the table of an
 /// `encoding.2da` in its haks (which takes the game install to find them:
 /// without one, Windows-1252).
@@ -1665,6 +1664,7 @@ fn codepage_at(cli: &Cli, module: &Path) -> Codepage {
     Module::open(module).map_or(Codepage::WINDOWS_1252, |m| module_codepage(cli, &m))
 }
 
+/// The resman for a module: the game, the module's haks and the module.
 fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMan> {
     let mut rm = ResMan::for_game(gi)?;
     let haks = m.haks()?;

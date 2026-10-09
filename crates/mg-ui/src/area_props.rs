@@ -115,7 +115,6 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef
     });
 }
 
-/// A tileset's name (read once), else its ResRef.
 /// The fields of a page shared by several areas: in the area (`false`),
 /// or in its GIT's `AreaProperties` (`true`).
 fn page_fields(page: &str) -> (bool, &'static [&'static str]) {
@@ -212,6 +211,7 @@ fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str) {
     }
 }
 
+/// A tileset's name (read once), else its ResRef.
 fn tileset_name(app: &mut Moonglow, tileset: ResRef) -> String {
     if let Some(name) = app.palette.tileset_names.get(&tileset) {
         return name.clone();

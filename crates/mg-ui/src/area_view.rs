@@ -3807,8 +3807,6 @@ fn delete(app: &mut Moonglow, view: &mut AreaView) {
     }
 }
 
-/// Save as Prefab for the selection of `area`'s view (the palette's
-/// Prefabs asks for it): whether there was a selection to save.
 /// The palette's Replace Selected: each selected object of the
 /// blueprint's type becomes one made from blueprint `key`, where it stands
 /// and facing as it faces (one command). Objects of other types, locked
@@ -3862,6 +3860,8 @@ pub(crate) fn replace_selected(app: &mut Moonglow, area: ResRef, key: ResKey) ->
     replaced
 }
 
+/// Save as Prefab for the selection of `area`'s view (the palette's
+/// Prefabs asks for it): whether there was a selection to save.
 pub(crate) fn save_selection_as_prefab(app: &mut Moonglow, area: ResRef) -> bool {
     let Some(view) = app.area_views.remove(&area) else { return false };
     let clip = copy_selection(app, &view);

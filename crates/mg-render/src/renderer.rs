@@ -1770,8 +1770,6 @@ impl Targets {
 
 #[cfg(test)]
 mod tests {
-    /// The client's `lightMaxIntensityInv` and `lightFalloffFactor` with the
-    /// default settings.
     /// What the client draws for tinted white particles (`client_render.rs`
     /// `particles_look`): ambient 0x40 grey and diffuse 0x80 grey give 0xC0;
     /// a red diffuse 0xC0 and green ambient 0x40 give (0xC0, 0x40, 0).
@@ -1790,6 +1788,8 @@ mod tests {
         assert_eq!(super::tint_light(&scene(0xFFFFFF, 0xFFFFFF), Vec3::ZERO), Vec3::ONE);
     }
 
+    /// The client's `lightMaxIntensityInv` and `lightFalloffFactor` with the
+    /// default settings.
     #[test]
     fn attenuation_matches_the_game() {
         let (max_inv, falloff) = super::attenuation_params();

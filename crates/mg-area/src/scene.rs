@@ -223,8 +223,6 @@ impl AreaScene {
         scene
     }
 
-    /// Follows `area` after an edit: loads the models of tiles and objects
-    /// not seen before.
     /// Loads the skybox's day and night models (skyboxes.2da), unless it
     /// is the one loaded.
     fn load_sky(&mut self, gpu: &Gpu, models: &Models<'_>, game: &GameData, area: &AreaModel) {
@@ -267,6 +265,8 @@ impl AreaScene {
         }
     }
 
+    /// Follows `area` after an edit: loads the models of tiles and objects
+    /// not seen before.
     pub fn update(&mut self, gpu: &Gpu, game: &GameData, area: &AreaModel) {
         if self.arrow.is_none() {
             self.arrow = Some(Arc::new(GpuModel::new(gpu, Arc::new(crate::marker::arrow()))));

@@ -161,7 +161,6 @@ pub enum Action {
     /// A tab's own window made to fill the main pane, or put back as it
     /// was.
     ToggleMaximize(Tab),
-    /// Renames a blueprint (and points its editor at the new name).
     /// Build › Test Module, Choose Character: the game's character
     /// selection for the module.
     TestModuleChoose,
@@ -198,6 +197,7 @@ pub enum Action {
     /// Deletes a resource of the module (an area with its objects, a
     /// script with its compiled one).
     DeleteResource(ResKey),
+    /// Renames a blueprint (and points its editor at the new name).
     RenameBlueprint {
         from: ResKey,
         to: mg_core::ResRef,
@@ -337,10 +337,10 @@ pub struct Moonglow {
     /// A tileset whose tab is being closed with unsaved changes.
     pub(crate) tileset_closing: Option<u32>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
-    /// The areas' names as last read (Options › General: Show areas by
-    /// name).
     /// The Palette Categories window, when open.
     pub palette_categories: Option<palette_categories::PaletteCategories>,
+    /// The areas' names as last read (Options › General: Show areas by
+    /// name).
     pub(crate) area_names: tree::AreaNames,
     /// What is placed in the areas opened out in the module tree, each as
     /// read at a revision of the workspace.
@@ -689,8 +689,6 @@ impl Moonglow {
         }
     }
 
-    /// The application with saved settings: their game install (or the
-    /// detected one) and recent modules.
     /// Gives the app the window's GPU, for 3D views.
     pub fn set_render_state(&mut self, render_state: egui_wgpu::RenderState) {
         self.render_info = Some(format!(
@@ -703,6 +701,8 @@ impl Moonglow {
         self.viewport = Some(model_view::Viewport3d::new(render_state));
     }
 
+    /// The application with saved settings: their game install (or the
+    /// detected one) and recent modules.
     pub fn with_settings(settings: Settings, dialogs: Box<dyn Dialogs>) -> Moonglow {
         let mut app = Moonglow::new(settings.install(), dialogs);
         set_edit_language(mg_core::Language(settings.edit_language.unwrap_or(0)));
@@ -733,8 +733,6 @@ impl Moonglow {
                  Troubleshooting)"
             ));
         }
-        // Options › General › Interface size (when chosen; else the size is
-        // egui's own, which Ctrl with + and - change).
         // Options › General › Light theme (dark unless chosen).
         let theme = if self.settings.light_theme { egui::Theme::Light } else { egui::Theme::Dark };
         if ui.ctx().theme() != theme {
@@ -747,6 +745,8 @@ impl Moonglow {
         if ui.ctx().global_style().spacing.scroll != bars {
             ui.ctx().all_styles_mut(|s| s.spacing.scroll = bars);
         }
+        // Options › General › Interface size (when chosen; else the size is
+        // egui's own, which Ctrl with + and - change).
         match self.settings.ui_scale {
             Some(scale) => {
                 let zoom = f32::from(scale) / 100.0;
@@ -1391,15 +1391,15 @@ impl Moonglow {
         self.viewed.clear();
     }
 
-    /// Loads the module's custom talk table (from its haks, the module or
-    /// the user's `tlk/` folder, as the game looks) when the module names
-    /// another one than is loaded.
     /// Reads the module's custom talk table again (after it was saved).
     pub(crate) fn reload_custom_tlk(&mut self) {
         self.custom_tlk = None;
         self.load_custom_tlk();
     }
 
+    /// Loads the module's custom talk table (from its haks, the module or
+    /// the user's `tlk/` folder, as the game looks) when the module names
+    /// another one than is loaded.
     fn load_custom_tlk(&mut self) {
         let (Some(ws), Some(game)) = (&self.ws, exclusive(&mut self.game)) else { return };
         let name = ws.module.custom_tlk().ok().flatten().filter(|n| !n.trim().is_empty());
@@ -2753,8 +2753,6 @@ impl Moonglow {
         );
     }
 
-    /// Uses new game and user folders: closes the module and reloads the
-    /// game data.
     /// Options › Conversation Editor: backs the open conversations up
     /// every so many minutes (Aurora's default: 5).
     fn backup_timer(&mut self, ui: &egui::Ui) {
@@ -2879,13 +2877,13 @@ impl Moonglow {
     }
 }
 
-/// Loads the game data of an install, logging the outcome.
 /// The game data to change (its layers, its talk table): only while no job
 /// is reading it, which is whenever the window takes input.
 pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
     game.as_mut().and_then(Arc::get_mut)
 }
 
+/// Loads the game data of an install, logging the outcome.
 fn load_game(install: Option<&GameInstall>, log: &mut Log) -> Option<Arc<GameData>> {
     match install {
         Some(gi) => match GameData::open(gi) {

@@ -85,7 +85,6 @@ pub struct OptionsDraft {
     pub ambient_music: bool,
     pub music_volume: u8,
     pub keymap: crate::keys::Keymap,
-    /// The command whose next key press is being taken as a new key.
     /// The enabled plugins' commands, listed after the window's: the id
     /// each one's keys are kept under, and its name.
     pub plugin_commands: Vec<(String, String)>,

@@ -708,8 +708,6 @@ pub(crate) fn variables_button(
     }
 }
 
-/// A text field that commits when focus leaves it (one line, or several
-/// with their line-end style kept). Returns the new text then.
 /// Whether the text kept under `id` (a list's filter) is another than at
 /// the frame before: what a filter opens, it opens when it changes, and
 /// leaves to be closed again after.
@@ -843,6 +841,8 @@ pub(crate) fn with_token(ctx: &egui::Context, id: egui::Id, current: &str, token
     from_editor(&out, crlf)
 }
 
+/// A text field that commits when focus leaves it (one line, or several
+/// with their line-end style kept). Returns the new text then.
 pub(crate) fn commit_text(
     app: &mut Moonglow,
     ui: &mut Ui,

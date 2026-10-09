@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use mg_image::Rgba;
 
-/// A device and queue, and whether the device reads BC-compressed textures.
+/// A device and queue.
 #[derive(Debug, Clone)]
 pub struct Gpu {
     pub device: wgpu::Device,
