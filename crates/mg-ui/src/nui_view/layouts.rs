@@ -655,14 +655,19 @@ mod tests {
         h.run();
         let original = read(&h);
         h.get_by_label("Swap layout · content");
+        // What a swap layout holds sits under the contents it belongs to.
+        let rows =
+            |h: &Harness<'_, Moonglow>, labels: [&str; 3]| labels.map(|l| h.get_by_label(l).rect());
+        let [start, initial, first] =
+            rows(&h, ["Initial contents", "Label · Initial", "Variant · details"]);
+        assert!(start.top() < initial.top() && initial.top() < first.top());
+        assert!(initial.left() > start.left());
         h.get_by_label("Variant · details").click();
         h.run();
-        let switch_y = h.get_by_label("Variant · other").rect().top();
-        h.get_by_label("Variant · other").click();
-        h.run();
-        assert_eq!(h.get_by_label("Variant · other").rect().top(), switch_y);
-        h.get_by_label("Variant · details").click();
-        h.run();
+        let [details, left, other] =
+            rows(&h, ["Variant · details", "Label · Left", "Variant · other"]);
+        assert!(details.top() < left.top() && left.top() < other.top());
+        assert!(left.left() > details.left());
         h.get_by_label("Context Label · Header");
         h.get_by_label("Context Label · Footer");
         let host = h.get_by_label("Context Group").rect();

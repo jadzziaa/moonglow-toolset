@@ -175,7 +175,14 @@ pub(super) fn delete_selected(doc: &mut Value, state: &mut State) {
         key(b).cmp(&key(a))
     });
     for mut path in paths {
-        if shortcuts::can_edit(doc, &path, 3) {
+        let in_group = path
+            .rsplit_once("/children/")
+            .and_then(|(group, _)| doc.pointer(group))
+            .is_some_and(|n| n["type"] == "group");
+        if in_group && shortcuts::can_edit(doc, &path, 3) {
+            *doc.pointer_mut(&path).unwrap() = mg_nui::template("col");
+            state.selected = path;
+        } else if shortcuts::can_edit(doc, &path, 3) {
             rearrange(doc, &mut path, 3);
             state.selected = path;
         }
@@ -307,6 +314,22 @@ mod tests {
         let row = d["root"]["children"][0].as_object().unwrap();
         assert_eq!(super::super::fitting_size(row, "height", 30.0), 44.0);
         assert_eq!(super::super::fitting_size(row, "width", 150.0), 150.0);
+    }
+
+    #[test]
+    fn nui_deleting_a_groups_contents_leaves_an_empty_column() {
+        // A group (a swap layout too) holds exactly one child in NUI.
+        let mut d = mg_nui::window();
+        d["root"]["children"] = json!([{"type":"group","id":"swap","children":[
+            {"type":"row","children":[{"type":"check","label":"Option"}]}]}]);
+        let mut state = State::default();
+        let contents = "/root/children/0/children/0";
+        assert!(super::super::shortcuts::can_edit(&d, contents, 3));
+        assert!(!super::super::shortcuts::can_edit(&d, contents, 2), "no second child");
+        select(&mut state, contents, false);
+        delete_selected(&mut d, &mut state);
+        assert_eq!(d.pointer(contents), Some(&mg_nui::template("col")));
+        assert!(!super::super::shortcuts::can_edit(&d, contents, 3), "nothing left to delete");
     }
 
     #[test]

@@ -630,6 +630,13 @@ fn layer(
                     state.selected = format!("{path}/children/0");
                 }
             });
+            // What a swap layout holds sits under the contents it belongs to.
+            if let Some(children) = node["children"].as_array() {
+                for (i, child) in children.iter().enumerate() {
+                    let child_path = format!("{path}/children/{i}");
+                    layer(ui, child, &child_path, s, state, depth + 2, main, active_root);
+                }
+            }
             for name in layouts::variants(s, group) {
                 let active = state.edit_view.as_deref() == Some(name.as_str());
                 ui.horizontal(|ui| {
@@ -639,20 +646,14 @@ fn layer(
                         layouts::edit(state, Some(name.clone()));
                     }
                 });
-            }
-            // Keep all variant selectors together. Expanding A must not push
-            // B out of view each time the user switches the edited contents.
-            if let Some(name) = state.edit_view.clone()
-                && layouts::target_for(s, &name).as_deref() == Some(group)
-            {
-                ui.push_id(("variant-tree", name), |ui| {
-                    layer(ui, active_root, "/root", s, state, depth + 2, false, active_root);
-                });
+                if active && layouts::target_for(s, &name).as_deref() == Some(group) {
+                    ui.push_id(("variant-tree", &name), |ui| {
+                        layer(ui, active_root, "/root", s, state, depth + 2, false, active_root);
+                    });
+                }
             }
         });
-        if main && state.edit_view.is_some() {
-            return;
-        }
+        return;
     }
     if let Some(children) = node["children"].as_array() {
         for (i, child) in children.iter().enumerate() {

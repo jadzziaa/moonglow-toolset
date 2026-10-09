@@ -21,13 +21,17 @@ pub(super) fn has_clipboard(ctx: &egui::Context) -> bool {
 pub(super) fn can_edit(v: &Value, selected: &str, op: usize) -> bool {
     let Some((parent, i, _)) = array_position(selected) else { return false };
     let Some(a) = v.pointer(&parent).and_then(Value::as_array) else { return false };
-    if i >= a.len()
-        || parent
-            .strip_suffix("/children")
-            .and_then(|p| v.pointer(p))
-            .is_some_and(|n| n["type"] == "group")
-    {
+    if i >= a.len() {
         return false;
+    }
+    // A group holds exactly one child: deleting it leaves an empty column
+    // (unless it is one already); it can't move or be duplicated.
+    if parent
+        .strip_suffix("/children")
+        .and_then(|p| v.pointer(p))
+        .is_some_and(|n| n["type"] == "group")
+    {
+        return op == 3 && a[i] != mg_nui::template("col");
     }
     match op {
         0 => i > 0,
