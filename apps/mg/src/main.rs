@@ -339,6 +339,30 @@ enum Cmd {
     /// What a module is: its name, tag, areas, haks, talk table and
     /// resources by type.
     Info { module: PathBuf },
+    /// Write the files the game draws something with into a folder: its
+    /// models, their walkmeshes (.pwk, .dwk), textures, materials (.mtr,
+    /// .txi), the models its emitters throw and the model its animations
+    /// come from, from the haks and wherever else in the load order they
+    /// are. The game's own files are left out, unless all are the game's.
+    ModelFiles {
+        /// A model's name (plc_a08), or a blueprint (chest.utp; also .utd,
+        /// .uti, .utc), in the module if one is given, else in the game.
+        what: String,
+        /// The folder to write into (made if missing).
+        out: PathBuf,
+        /// The module whose haks (and blueprints) to look in.
+        #[arg(long)]
+        module: Option<PathBuf>,
+        /// The game's own files too.
+        #[arg(long)]
+        all: bool,
+        /// Write over files of the same names in the folder.
+        #[arg(long)]
+        force: bool,
+        /// Only list the files; write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Check that Moonglow keeps a module as it is: saves a copy (the
     /// module is not touched), opens it again and compares every resource
     /// byte for byte; then writes every GFF and 2DA anew and compares what
@@ -1593,6 +1617,10 @@ fn run(cli: &Cli) -> Result<Output> {
             out
         }
         Cmd::Roundtrip { module, keep } => roundtrip(module, keep.as_deref())?,
+        Cmd::ModelFiles { what, out, module, all, force, dry_run } => {
+            let gi = install(cli)?;
+            model_files(&gi, what, out, module.as_deref(), *all, *force, *dry_run)?
+        }
         Cmd::Info { module } => {
             let m = Module::open(module)?;
             let mut i = mg_module::query::info(&m)?;
@@ -1754,6 +1782,94 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf])
         out.failed = true;
         out.note(format!("mg: {} has errors", path.display()));
     }
+    Ok(out)
+}
+
+/// `mg model-files`: the files the game draws a model or a blueprint with.
+fn model_files(
+    gi: &GameInstall,
+    what: &str,
+    dir: &Path,
+    module: Option<&Path>,
+    all: bool,
+    force: bool,
+    dry_run: bool,
+) -> Result<Output> {
+    let mut out = Output::default();
+    let m = match module {
+        Some(path) => Module::open(path)?,
+        None => Module::new(),
+    };
+    let game = plugins::game_for(Some(gi), &m, &mut out).context("the game data")?;
+    let preview = match ResKey::from_filename(what) {
+        Some(key) if key.restype == ResType::MDL => {
+            mg_preview::Preview::model(&key.resref.to_string())
+        }
+        Some(key) => {
+            let data = game.resman.get(&key).with_context(|| format!("{key} is found nowhere"))?;
+            let object = Gff::read(&data)?.root;
+            let item = |r: mg_core::ResRef| {
+                let data = game.resman.get(&ResKey::new(r, ResType::UTI)).ok()?;
+                Gff::read(&data).ok()
+            };
+            let preview = match key.restype {
+                ResType::UTP => mg_preview::placeable(&game, &object),
+                ResType::UTD => mg_preview::door(&game, &object),
+                ResType::UTI => mg_preview::item(&game, &object),
+                ResType::UTC => mg_preview::creature(&game, &object, &item),
+                _ => bail!("{key}: give a model's name or a .utp, .utd, .uti or .utc"),
+            };
+            let preview = preview.map_err(|e| anyhow::anyhow!("{key}: {e}"))?;
+            mg_preview::replaced(preview, &object)
+        }
+        None => mg_preview::Preview::model(what),
+    };
+    let files = mg_preview::files::files(&game, &preview);
+    if files.is_empty() {
+        bail!("{what}: no model found");
+    }
+    let stock = files.iter().filter(|f| f.stock).count();
+    let every = all || stock == files.len();
+    let chosen: Vec<_> = files.iter().filter(|f| every || !f.stock).collect();
+    let existing: Vec<String> =
+        chosen.iter().map(|f| f.key.to_string()).filter(|name| dir.join(name).exists()).collect();
+    if !existing.is_empty() && !force && !dry_run {
+        bail!(
+            "{} has {} of these files already ({}): --force writes over them",
+            dir.display(),
+            existing.len(),
+            existing.join(", ")
+        );
+    }
+    if !dry_run {
+        std::fs::create_dir_all(dir)?;
+    }
+    for f in &chosen {
+        if !dry_run {
+            std::fs::write(dir.join(f.key.to_string()), game.resman.get(&f.key)?)?;
+        }
+        out.line(format!("{}\t{}", f.key, f.origin));
+    }
+    let left_out = files.len() - chosen.len();
+    out.json = serde_json::json!({
+        "folder": path_text(dir),
+        "written": !dry_run,
+        "files": chosen
+            .iter()
+            .map(|f| serde_json::json!({
+                "file": f.key.to_string(), "from": f.origin, "stock": f.stock,
+            }))
+            .collect::<Vec<_>>(),
+        "left_out": left_out,
+    });
+    let done = if dry_run { "would be written" } else { "written" };
+    out.note(match left_out {
+        0 => format!("{} files {done}", chosen.len()),
+        n => format!(
+            "{} files {done}; {n} of the game's own left out (--all for them)",
+            chosen.len()
+        ),
+    });
     Ok(out)
 }
 

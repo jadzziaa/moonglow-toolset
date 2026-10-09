@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T23:27:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T00:21:01Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -846,6 +846,32 @@ browser's Save As on a row and Export as Files. Left, or to know:
     setting, which Moonglow does not read.
   - A text field already being typed in when the hak list changes keeps
     what it showed until it is left.
+- **Export Files of a model** (a builder: exporting a bugged placeable
+  to whoever mends it meant digging through the haks for its files).
+  The model viewer, in an editor's page and in its own window, writes
+  what the game loads to draw the thing into a folder
+  (`mg_preview::files`): models, `.pwk` and `.dwk`, textures as the game
+  picks them (and a PLT of the name), MTRs with their textures and
+  shaders, TXIs and the textures they name, emitters' chunk models,
+  light flares, supermodels. The game's own files are left out unless
+  every file is the game's. Not done: the blueprint itself and its
+  `placeables.2da` row are not written; a tile's or an area's files are
+  not offered this way; a texture named and found nowhere is not
+  reported. (S each) It asks before writing over files of the same
+  names in the folder, and `mg model-files` does the same from a
+  terminal (`--force` to write over).
+- **A waterfall's water ran back up the stream** (a builder, in
+  Medieval Rural: "these don't act like falls"). Particles an emitter
+  keeps in its own space (`inherit`) were pulled down along the
+  emitter's own axis, and a waterfall's emitter points out over the
+  edge: the water slowed, turned and went back. Down is the world's now,
+  whatever way the emitter is turned (`waterfalls.rs`: the three
+  waterfall tiles' water reaches the foot of the fall). Seen in the
+  game client (`particles_look`, `MG_PARTICLES=inherit`): two weighted
+  emitters thrown sideways, one keeping its particles and one not, fall
+  in the same arc. The same
+  builder's fog placeable ("Fog: White - Low", custom content) was not
+  to hand: not looked at. (S)
 - **`mg roundtrip`** (a builder asked what keeps work from being
   corrupted): a module saved, read back and each GFF and 2DA written
   anew, compared with what it was. It does not ask the game or Aurora

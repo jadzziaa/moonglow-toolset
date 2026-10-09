@@ -777,8 +777,9 @@ fn white_tga() -> Vec<u8> {
 /// overridden in the scratch user directory) holds probe emitters, under a
 /// red sun and green ambient light; the client's view is written to
 /// `target/test-output/client_particles_<set>/client.png`. `MG_PARTICLES`
-/// picks the set: `stops` (default: colour, alpha and size stops, tinting)
-/// or `motion` (bounce, wind).
+/// picks the set: `stops` (default: colour, alpha and size stops, tinting),
+/// `motion` (bounce, wind), `inherit` (weight on particles an emitter keeps)
+/// and the others below.
 #[test]
 #[ignore]
 fn particles_look() {
@@ -853,6 +854,37 @@ fn particles_look() {
                 v.push(probe_emitter("co05", [0.0, 0.0, 1.5], &format!("{throw}\n  mass 1\n  bounce 1\n  bounce_co 0.5\n  colorStart 1 0 0\n  colorEnd 1 0 0")));
                 v.push(probe_emitter("co1", [0.0, 0.0, 3.0], &format!("{throw}\n  mass 1\n  bounce 1\n  bounce_co 1\n  colorStart 0 0 1\n  colorEnd 0 0 1")));
             }
+            v
+        }
+        "inherit" => {
+            // Thrown sideways with weight, 1.5 m apart in height: the red
+            // one keeps its particles in its own space (`inherit`), the
+            // blue one does not. Both fall the same way: down is the
+            // world's, not the emitter's axis. Green dots mark the plane.
+            let mut v: Vec<String> = [(0.0, 0.0), (-1.0, 0.0), (-2.0, 0.0), (0.0, 1.5), (0.0, 3.0)]
+                .iter()
+                .enumerate()
+                .map(|(i, (x, z))| {
+                    probe_emitter(
+                        &format!("dot{i}"),
+                        [*x, 0.0, *z],
+                        "velocity 0\n  birthrate 4\n  lifeExp 2\n  sizeStart 0.08\n  \
+                         sizeEnd 0.08\n  colorStart 0 1 0\n  colorEnd 0 1 0",
+                    )
+                })
+                .collect();
+            let throw = "orientation 0 1 0 -1.5707964\n  lifeExp 4\n  sizeStart 0.06\n  \
+                         sizeEnd 0.06\n  mass 0.5";
+            v.push(probe_emitter(
+                "kept",
+                [0.0, 0.0, 3.0],
+                &format!("{throw}\n  inherit 1\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
+            ));
+            v.push(probe_emitter(
+                "free",
+                [0.0, 0.0, 1.5],
+                &format!("{throw}\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
+            ));
             v
         }
         "sides" => {

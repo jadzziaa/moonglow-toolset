@@ -141,6 +141,137 @@ fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
     preview.map(|p| mg_preview::replaced(p, &object)).map_err(|e| format!("{source}: {e}"))
 }
 
+/// An Export Files waiting for an answer: the folder has files of some of
+/// its names already.
+#[derive(Debug, Clone)]
+pub struct ModelExport {
+    /// What is exported, for the log.
+    what: String,
+    dir: std::path::PathBuf,
+    /// The files to write, each with where it comes from.
+    files: Vec<(ResKey, String)>,
+    /// Those the folder has already.
+    pub existing: Vec<ResKey>,
+    /// The game's own files left out.
+    left_out: usize,
+}
+
+/// Export Files: what the game loads to draw `source` (its models, their
+/// walkmeshes, textures and materials), written as `name.ext` into a
+/// folder the user chooses. The game's own files are left out, unless
+/// every one of them is the game's. Where the folder has files of those
+/// names already, it asks first ([`export_window`]).
+pub fn export_files(app: &mut Moonglow, source: &Source) {
+    let preview = match preview_of(app, source) {
+        Ok(p) => p,
+        Err(e) => return app.log.error(e),
+    };
+    let Some(game) = app.game.clone() else { return };
+    let files = mg_preview::files::files(&game, &preview);
+    if files.is_empty() {
+        return app.log.warn(format!("{source}: no model found to export"));
+    }
+    let stock = files.iter().filter(|f| f.stock).count();
+    let all = stock == files.len();
+    let Some(dir) = app.dialogs.pick_folder("Export its files into", app.export_dir.as_deref())
+    else {
+        return;
+    };
+    let files: Vec<(ResKey, String)> =
+        files.into_iter().filter(|f| all || !f.stock).map(|f| (f.key, f.origin)).collect();
+    let existing: Vec<ResKey> =
+        files.iter().map(|(k, _)| *k).filter(|k| dir.join(k.to_string()).exists()).collect();
+    let export = ModelExport {
+        what: source.to_string(),
+        dir,
+        files,
+        existing,
+        left_out: if all { 0 } else { stock },
+    };
+    if export.existing.is_empty() {
+        write_export(app, &export, true);
+    } else {
+        app.model_export = Some(export);
+    }
+}
+
+/// Writes an export's files: all of them, or (`replace` off) those the
+/// folder did not have.
+fn write_export(app: &mut Moonglow, export: &ModelExport, replace: bool) {
+    let Some(game) = app.game.clone() else { return };
+    let dir = &export.dir;
+    let mut written = Vec::new();
+    for (key, origin) in &export.files {
+        if !replace && export.existing.contains(key) {
+            continue;
+        }
+        let Ok(data) = game.resman.get(key) else { continue };
+        if let Err(e) = std::fs::write(dir.join(key.to_string()), &data) {
+            return app.log.error(format!("Could not write to {}: {e}", dir.display()));
+        }
+        written.push(format!("{key} ({origin})"));
+    }
+    let mut notes = String::new();
+    if export.left_out > 0 {
+        notes.push_str(&format!("; {} of the game's own left out", export.left_out));
+    }
+    if !replace && !export.existing.is_empty() {
+        notes.push_str(&format!("; {} already there kept", export.existing.len()));
+    }
+    app.log.info(format!(
+        "Exported {} files of {} to {}{notes}: {}",
+        written.len(),
+        export.what,
+        dir.display(),
+        written.join(", ")
+    ));
+    app.export_dir = Some(dir.clone());
+}
+
+/// Asks what to do with the files an Export Files would write over.
+pub(crate) fn export_window(app: &mut Moonglow, ctx: &egui::Context) {
+    let Some(export) = app.model_export.clone() else { return };
+    // Replace all (true), skip those (false).
+    let mut answer = None;
+    let mut cancel = false;
+    egui::Window::new("Files Already in the Folder")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            let (n, all) = (export.existing.len(), export.files.len());
+            ui.label(format!("{} already has {n} of the {all} files:", export.dir.display()));
+            egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
+                for key in &export.existing {
+                    ui.label(egui::RichText::new(key.to_string()).monospace());
+                }
+            });
+            ui.horizontal(|ui| {
+                if ui
+                    .button(format!("Replace {n}"))
+                    .on_hover_text("Write all the files: these take the place of the folder's")
+                    .clicked()
+                {
+                    answer = Some(true);
+                }
+                if ui
+                    .button("Skip Those")
+                    .on_hover_text("Write the other files and leave the folder's as they are")
+                    .clicked()
+                {
+                    answer = Some(false);
+                }
+                cancel = crate::widgets::cancel(ui);
+            });
+        });
+    if cancel {
+        app.model_export = None;
+    }
+    let Some(replace) = answer else { return };
+    app.model_export = None;
+    write_export(app, &export, replace);
+}
+
 /// Has every open viewer read its object again (what it is shown on has
 /// changed: an armor's wearer).
 pub(crate) fn read_again(app: &mut Moonglow) {
@@ -358,6 +489,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     let anims = anim::animations(&model.model, &|n| load_super(app, &view.supermodels, n));
     // Wrapping in a narrow window, so none of it is cut off.
     let mut pop_out = false;
+    let mut export = false;
     ui.horizontal_wrapped(|ui| {
         if !embedded {
             ui.label(format!(
@@ -408,7 +540,18 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
             pop_out =
                 ui.button("Pop Out").on_hover_text("Show it in a window of its own").clicked();
         }
+        export = ui
+            .button("Export Files…")
+            .on_hover_text(
+                "Write the files the game draws this with into a folder: its models, their \
+                 walkmeshes, textures and materials, from the haks and wherever else they are \
+                 (the game's own are left out, unless all of it is the game's)",
+            )
+            .clicked();
     });
+    if export {
+        export_files(app, &source);
+    }
 
     let Some(vp) = app.viewport.as_mut() else {
         ui.label("No GPU.");
