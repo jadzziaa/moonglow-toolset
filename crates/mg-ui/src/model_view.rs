@@ -45,6 +45,39 @@ impl Viewport3d {
         let renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES);
         Viewport3d { render_state, gpu, renderer }
     }
+
+    /// Makes the targets a view of `w` by `h` pixels renders into, and the
+    /// egui texture that shows them, when it has none or its size changed
+    /// (the texture keeps its id).
+    pub(crate) fn size_targets(
+        &self,
+        held: &mut Option<(Targets, egui::TextureId)>,
+        w: u32,
+        h: u32,
+    ) {
+        if held.as_ref().is_some_and(|(t, _)| t.size == (w, h)) {
+            return;
+        }
+        let targets = Targets::new(&self.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, w, h);
+        let mut egui_renderer = self.render_state.renderer.write();
+        let id = match held.take() {
+            Some((_, id)) => {
+                egui_renderer.update_egui_texture_from_wgpu_texture(
+                    &self.gpu.device,
+                    &targets.color_view,
+                    wgpu::FilterMode::Linear,
+                    id,
+                );
+                id
+            }
+            None => egui_renderer.register_native_texture(
+                &self.gpu.device,
+                &targets.color_view,
+                wgpu::FilterMode::Linear,
+            ),
+        };
+        *held = Some((targets, id));
+    }
 }
 
 /// An open model's view.
@@ -489,27 +522,7 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
     }
 
     // Render into our own texture, shown as an image.
-    if view.targets.as_ref().is_none_or(|(t, _)| t.size != (w, h)) {
-        let targets = Targets::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, w, h);
-        let mut egui_renderer = vp.render_state.renderer.write();
-        let id = match view.targets.take() {
-            Some((_, id)) => {
-                egui_renderer.update_egui_texture_from_wgpu_texture(
-                    &vp.gpu.device,
-                    &targets.color_view,
-                    wgpu::FilterMode::Linear,
-                    id,
-                );
-                id
-            }
-            None => egui_renderer.register_native_texture(
-                &vp.gpu.device,
-                &targets.color_view,
-                wgpu::FilterMode::Linear,
-            ),
-        };
-        view.targets = Some((targets, id));
-    }
+    vp.size_targets(&mut view.targets, w, h);
     let (targets, id) = view.targets.as_ref().expect("made above");
     // The base (with the viewer's animated meshes and dangly state), then
     // what hangs from it.

@@ -33,9 +33,6 @@ use mg_set::Tileset;
 
 use crate::{Action, Moonglow};
 
-/// Multisampling for the area view.
-const SAMPLES: u32 = 4;
-
 /// How far from a door hook a click places a door on it, metres.
 const DOOR_REACH: f32 = 4.0;
 
@@ -1915,27 +1912,7 @@ fn viewport(
     {
         *p = at;
     }
-    if view.targets.as_ref().is_none_or(|(t, _)| t.size != (w, h)) {
-        let targets = Targets::new(&vp.gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES, w, h);
-        let mut egui_renderer = vp.render_state.renderer.write();
-        let id = match view.targets.take() {
-            Some((_, id)) => {
-                egui_renderer.update_egui_texture_from_wgpu_texture(
-                    &vp.gpu.device,
-                    &targets.color_view,
-                    wgpu::FilterMode::Linear,
-                    id,
-                );
-                id
-            }
-            None => egui_renderer.register_native_texture(
-                &vp.gpu.device,
-                &targets.color_view,
-                wgpu::FilterMode::Linear,
-            ),
-        };
-        view.targets = Some((targets, id));
-    }
+    vp.size_targets(&mut view.targets, w, h);
     let (targets, id) = view.targets.as_ref().expect("made above");
     if !kept {
         let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
