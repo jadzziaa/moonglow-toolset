@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T12:37:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:28:28Z }
 ---
 
 # The main window
@@ -21,6 +21,7 @@ close it, **Palettes** on the toolbar brings it back.
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Close, Exit |
 | Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Prefabs, Find References… |
+| View | Module Tree, Palettes Panel, Log (each ticked while shown), Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
@@ -58,7 +59,17 @@ changes them; the menus show the current keys.
 | Ctrl+Alt+C | Creature Wizard |
 | Ctrl+Alt+I | Item Wizard |
 | F11 | Full screen |
+| Ctrl+W, Ctrl+F4 | Close the tab in front |
+| Ctrl+Tab, Ctrl+Page Down | Next tab |
+| Ctrl+Shift+Tab, Ctrl+Page Up | Previous tab |
+| Ctrl+Shift+T | Reopen the tab closed last |
+| Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 | Show or fold away the module tree, the palettes, the log |
+| Ctrl+Alt+0 | Hide all three, or show them all |
 | Ctrl+Shift+P | Command Palette |
+
+**Ctrl and a digit** goes to the main pane's tab of that number (Ctrl+9:
+its last), except while you type in a text field (in the script editor
+Ctrl and a digit is a bookmark). These are not in the Options.
 
 The area viewer and the editors have their own keys; their chapters list
 them.
@@ -129,6 +140,25 @@ base item and properties, an object's appearance, a trap's type, a loading
 screen. A creature's skills are named in their list, and a talk-table
 string's text is shown beside its number.
 
+**The panes beside the middle** (the module tree on the left, the
+palettes on the right, the log below) fold away to give the area's view
+the room: **View** has each, ticked while shown, and **Hide All Panels**.
+A pane folded away leaves a narrow strip at its edge with an arrow: a
+click brings it back, as wide as it was. Closing the palettes' pane by
+its ✕ folds it away the same. What is folded stays so the next time
+Moonglow starts. **View › Reset Layout** shows all three at the sizes
+they have at first.
+
+**The keyboard in the tree.** A click on a row gives the tree the arrow
+keys, while the pointer is over it (the same click in the palette gives
+them to the palette; in an area's view they turn the camera again):
+Up and Down go from row to row, Page Up and Page Down by ten, Home and
+End to the first and the last. Right opens a group, then goes to its
+first row; Left goes from a row to its group, then closes it. Enter
+opens the row's area, script, conversation or blueprint, and opens or
+closes a group. Escape hands the keys back. The row the keys are at is
+marked, and brought into view.
+
 ## Tabs and windows
 
 Areas open as tabs in the main pane. Everything else (blueprint and object
@@ -142,10 +172,25 @@ or close button does), then a Properties window (what was changed there
 stays, and Undo takes it back); a model's window while the pointer is over
 it. With something in hand in the area (a blueprint to place, a paste, a
 terrain brush) and the pointer over the area, Escape lets go of that and
-leaves the window open. Right-click a tab for **Eject** and **Close**, and for an area,
+leaves the window open. Right-click a tab for **Eject** and **Close**,
+for **Close Others**, **Close Tabs to the Right** and **Close All** (the
+tabs of its pane), and for an area,
 script, conversation or blueprint of the module, **Rename…**: it is renamed
 everywhere the module names it (an area with its instances and its entry in
 the module's area list), and its tab with it.
+
+**The tab keys** work on the pane with the focus when it has more than
+one tab, else on the main pane's: Ctrl+W (or Ctrl+F4) closes the tab in
+front (File › Close, which closes the module, has no key until you give
+it one in the Options: in Aurora it is Ctrl+F4),
+Ctrl+Tab and Ctrl+Shift+Tab go round them, and Ctrl+Shift+T opens the tab
+closed last again (the last twenty are kept; one whose area or script is
+gone from the module is passed over). A middle click on a tab closes it.
+A hak or a tileset with unsaved changes asks first, as its close button
+does.
+
+**With no area open**, the main pane says so and lists the module's areas
+to open with a click: the panes beside it keep their widths.
 
 A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each

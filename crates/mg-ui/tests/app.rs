@@ -1615,7 +1615,8 @@ fn hak_built_from_a_folder_attached_edited_and_reloaded() {
     assert!(h.query_by_label_contains("a longer one").is_none());
     h.get_by_label("mg_ui_new.2da").click_secondary();
     h.run();
-    h.get_by_label("View").click();
+    // (The row's View: the menu bar has a View too.)
+    h.get_all_by_label("View").last().unwrap().click();
     h.run();
     assert!(h.query_by_label_contains("a longer one").is_some(), "its text is shown");
     h.get_by_label("Close").click();
@@ -2590,7 +2591,8 @@ fn palette_edit_copy_and_delete() {
     // View opens the game's own to look at: a change made there isn't kept
     // and the module doesn't get the blueprint.
     let stock = ResKey::parse("nw_wp_tavern", ResType::UTW).unwrap();
-    h.get_by_label("View").click();
+    // (The palette's View: the menu bar has a View too.)
+    h.get_all_by_label("View").last().unwrap().click();
     h.run();
     assert!(h.state().dock.find_tab(&Tab::Blueprint(stock)).is_some());
     assert!(h.query_by_label_contains("the game's blueprint").is_some());
@@ -3003,6 +3005,282 @@ fn a_placeable_s_model_files_are_exported() {
         assert!(h.state().model_export.is_none());
         assert_eq!(std::fs::read(dir.join(model)).unwrap() != b"mine", replaced, "{button}");
     }
+}
+
+/// GitHub issue 11: with the last tab of the middle closed, the palettes'
+/// pane took the whole window. The middle keeps its place (a pane that
+/// says no area is open), and the palettes' pane its width.
+#[test]
+fn the_middle_keeps_its_place_with_no_area_open() {
+    let Some(mut h) = game_harness("no-area") else { return };
+    h.state_mut().settings.no_last_area = true;
+    h.run();
+    let width = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        let mut leaves = h.state().dock.iter_leaves().map(|(_, l)| l);
+        leaves.find(|l| l.tabs.contains(tab)).map(|l| l.rect.width())
+    };
+    let has = |h: &Harness<'_, Moonglow>, tab: &Tab| h.state().dock.find_tab(tab).is_some();
+    // (The module opened on its first area.)
+    let area = Tab::Area(ResRef::from_str("start").unwrap());
+    assert!(has(&h, &Tab::Palette) && has(&h, &area) && !has(&h, &Tab::NoArea));
+    let palette = width(&h, &Tab::Palette).unwrap();
+
+    // The middle's tabs closed (Module Properties was docked there as
+    // the module opened): its place is kept.
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(area.clone()));
+    h.run();
+    assert!(!has(&h, &Tab::NoArea), "Module Properties is in the middle still");
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::ModuleProperties));
+    h.run();
+    assert!(has(&h, &Tab::NoArea));
+    h.get_by_label("No area open");
+    let now = width(&h, &Tab::Palette).unwrap();
+    assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
+    assert!(width(&h, &Tab::NoArea).unwrap() > 300.0);
+
+    // An area opened takes its place (the pane lists the module's, each
+    // a link, beside the module tree's row); the palettes' pane stays.
+    assert_eq!(h.query_all_by_label("start").count(), 2);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
+    h.run();
+    h.run();
+    assert!(has(&h, &area) && !has(&h, &Tab::NoArea));
+    let now = width(&h, &Tab::Palette).unwrap();
+    assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
+    // And closed again, the same.
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(area));
+    h.run();
+    h.run();
+    assert!(has(&h, &Tab::NoArea));
+    let now = width(&h, &Tab::Palette).unwrap();
+    assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
+}
+
+/// Without the palettes (no game), the middle is not left blank either.
+#[test]
+fn the_middle_says_no_area_is_open_without_the_palettes() {
+    let dir = mg_testkit::scratch_dir("ui-no-area-plain");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::NoArea).is_none());
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::ModuleProperties));
+    h.run();
+    h.run();
+    h.get_by_label("No area open");
+    // Closing the module brings the start page back, not this.
+    h.state_mut().actions.push(mg_ui::Action::Close);
+    h.run();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::NoArea).is_none());
+}
+
+/// GitHub issue 15: the tabs by the keyboard, as in a browser. Ctrl+W
+/// closes the one in front, Ctrl+Tab and Ctrl+Shift+Tab (and Ctrl+Page
+/// Down and Up) go round them, Ctrl and a digit goes to one by its number
+/// (9: the last), Ctrl+Shift+T opens the one closed last again.
+#[test]
+fn tabs_by_the_keyboard() {
+    let dir = mg_testkit::scratch_dir("ui-tab-keys");
+    let path = sample_module(&dir);
+    let mut m = Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    for name in ["second", "third"] {
+        let mut a = ifo::MOD_AREA_LIST.new_item();
+        a.write(&ifo::mod_area_list::AREA_NAME, ResRef::from_str(name).unwrap());
+        info.root.items_mut(&ifo::MOD_AREA_LIST).push(a);
+        m.set(ResKey::parse(name, ResType::ARE).unwrap(), Gff::new(*b"ARE ").to_bytes().unwrap());
+    }
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let area = |name: &str| Tab::Area(ResRef::from_str(name).unwrap());
+    for name in ["start", "second", "third"] {
+        app.actions.push(mg_ui::Action::OpenTab(area(name)));
+    }
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.run();
+    // The middle's tabs, and the one in front.
+    let tabs = |h: &Harness<'_, Moonglow>| -> (Vec<Tab>, Tab) {
+        let leaf = (h.state().dock.iter_leaves())
+            .find(|(p, l)| p.surface.is_main() && l.tabs.iter().any(|t| matches!(t, Tab::Area(_))))
+            .map(|(_, l)| l)
+            .expect("the areas' pane");
+        (leaf.tabs.clone(), leaf.tabs[leaf.active.0].clone())
+    };
+    let front = |h: &Harness<'_, Moonglow>| tabs(h).1;
+    let key = |h: &mut Harness<'_, Moonglow>, modifiers: egui::Modifiers, key: egui::Key| {
+        h.key_press_modifiers(modifiers, key);
+        h.run();
+        h.run();
+    };
+    let (ctrl, shift) = (egui::Modifiers::COMMAND, egui::Modifiers::SHIFT);
+    // (Module Properties is docked there first, as the module opened.)
+    let all = tabs(&h).0;
+    assert_eq!(all[1..], [area("start"), area("second"), area("third")]);
+    assert_eq!(front(&h), area("third"));
+
+    // Round them: on from the last is the first.
+    key(&mut h, ctrl, egui::Key::Tab);
+    assert_eq!(front(&h), Tab::ModuleProperties);
+    key(&mut h, ctrl, egui::Key::PageDown);
+    assert_eq!(front(&h), area("start"));
+    key(&mut h, ctrl | shift, egui::Key::Tab);
+    key(&mut h, ctrl, egui::Key::PageUp);
+    assert_eq!(front(&h), area("third"));
+    // By number: the third tab, and the last.
+    key(&mut h, ctrl, egui::Key::Num3);
+    assert_eq!(front(&h), area("second"));
+    key(&mut h, ctrl, egui::Key::Num9);
+    assert_eq!(front(&h), area("third"));
+    key(&mut h, ctrl, egui::Key::Num2);
+    assert_eq!(front(&h), area("start"));
+
+    // Ctrl+W closes the one in front; Ctrl+Shift+T opens it again.
+    key(&mut h, ctrl, egui::Key::W);
+    assert!(!tabs(&h).0.contains(&area("start")));
+    key(&mut h, ctrl | shift, egui::Key::T);
+    assert_eq!(front(&h), area("start"));
+    // Close Others (a tab's menu), and each of them opened again, the one
+    // closed last first.
+    let others: Vec<Tab> = tabs(&h).0.into_iter().filter(|t| *t != area("start")).collect();
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(others));
+    h.run();
+    assert_eq!(tabs(&h).0, [area("start")]);
+    key(&mut h, ctrl | shift, egui::Key::T);
+    assert_eq!(front(&h), area("third"));
+    key(&mut h, ctrl | shift, egui::Key::T);
+    key(&mut h, ctrl | shift, egui::Key::T);
+    // (Module Properties comes back in a window of its own, as it opens.)
+    assert_eq!(tabs(&h).0.len(), 3);
+    assert!(h.state().dock.find_tab(&Tab::ModuleProperties).is_some());
+    // Nothing more to open: the key does nothing.
+    key(&mut h, ctrl | shift, egui::Key::T);
+    assert_eq!(h.state().dock.iter_all_tabs().count(), 4);
+}
+
+/// GitHub issue 12: the module tree by the keyboard. A click in it gives
+/// it the arrow keys: Up and Down go from row to row, Left and Right
+/// close and open a group, Enter opens the row's resource.
+#[test]
+fn the_module_tree_by_the_keyboard() {
+    use mg_ui::TreeAt;
+    let dir = mg_testkit::scratch_dir("ui-tree-keys");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let start = ResKey::parse("start", ResType::ARE).unwrap();
+    let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run();
+        h.run();
+    };
+    let at = |h: &Harness<'_, Moonglow>| h.state().tree_cursor;
+    // Before a click the keys are not the tree's.
+    h.get_by_label("start").hover();
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), None);
+    h.get_by_label("start").click();
+    h.run();
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)));
+    // Up to its group; Left closes it, Right opens it and goes in.
+    key(&mut h, egui::Key::ArrowUp);
+    assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
+    key(&mut h, egui::Key::ArrowLeft);
+    assert!(h.query_by_label("start").is_none(), "the group is closed");
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some(TreeAt::Group("Conversations")), "past the closed group's rows");
+    key(&mut h, egui::Key::Home);
+    key(&mut h, egui::Key::ArrowRight);
+    assert!(h.query_by_label("start").is_some(), "open again");
+    key(&mut h, egui::Key::ArrowRight);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)));
+    // Enter opens it.
+    let area = Tab::Area(ResRef::from_str("start").unwrap());
+    assert!(h.state().dock.find_tab(&area).is_none());
+    key(&mut h, egui::Key::Enter);
+    assert!(h.state().dock.find_tab(&area).is_some());
+    // End is the last row; Escape hands the keys back.
+    key(&mut h, egui::Key::End);
+    assert!(matches!(at(&h), Some(TreeAt::Group(_))));
+    key(&mut h, egui::Key::Escape);
+    assert_eq!(at(&h), None);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), None);
+}
+
+/// GitHub issue 10: the panes beside the middle fold away and come back
+/// (View, Ctrl+Alt+1, 2, 3 and 0, and the strip a folded pane leaves at
+/// its edge), each as wide as it was.
+#[test]
+fn panels_fold_away_and_come_back() {
+    let Some(mut h) = game_harness("panels") else { return };
+    h.run();
+    h.run();
+    let keys = egui::Modifiers::COMMAND | egui::Modifiers::ALT;
+    let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press_modifiers(keys, key);
+        h.run();
+        h.run();
+    };
+    let palette = |h: &Harness<'_, Moonglow>| {
+        let mut leaves = h.state().dock.iter_leaves().map(|(_, l)| l);
+        leaves.find(|l| l.tabs.contains(&Tab::Palette)).map(|l| l.rect.width())
+    };
+    let tree = |h: &Harness<'_, Moonglow>| h.query_by_label("Filter").is_some();
+    let was = palette(&h).expect("the palettes' pane");
+    assert!(tree(&h));
+
+    // The module tree: folded to a strip, and back by the strip.
+    key(&mut h, egui::Key::Num1);
+    assert!(!tree(&h) && h.state().settings.hide_tree);
+    h.get_by_label("⏵").click();
+    h.run();
+    assert!(tree(&h) && !h.state().settings.hide_tree);
+    // The palettes: their pane goes, and comes back as wide.
+    key(&mut h, egui::Key::Num2);
+    assert!(palette(&h).is_none() && h.state().settings.hide_palettes);
+    h.get_by_label("⏴").click();
+    h.run();
+    h.run();
+    let now = palette(&h).expect("back");
+    assert!((now - was).abs() < 3.0, "{was} wide, then {now}");
+    // The log.
+    key(&mut h, egui::Key::Num3);
+    assert!(h.state().settings.hide_log);
+    h.get_by_label("⏶ Log").click();
+    h.run();
+    assert!(!h.state().settings.hide_log);
+    // All of them, and all back.
+    key(&mut h, egui::Key::Num0);
+    let s = &h.state().settings;
+    assert!(s.hide_tree && s.hide_log && s.hide_palettes && palette(&h).is_none());
+    key(&mut h, egui::Key::Num0);
+    let s = &h.state().settings;
+    assert!(!s.hide_tree && !s.hide_log && !s.hide_palettes);
+    let now = palette(&h).expect("back");
+    assert!((now - was).abs() < 3.0, "{was} wide, then {now}");
+    // The View menu has them, ticked.
+    h.get_by_label("View").click();
+    h.run();
+    h.get_by_label_contains("✔ Module Tree");
+    h.get_by_label("Reset Layout").click();
+    h.run();
+    h.run();
+    assert!(palette(&h).is_some());
 }
 
 #[test]

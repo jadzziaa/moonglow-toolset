@@ -103,6 +103,14 @@ pub enum Cmd {
     DialogFindNext,
     /// File › Close.
     Close,
+    CloseTab,
+    NextTab,
+    PreviousTab,
+    ReopenTab,
+    ToggleTree,
+    TogglePalettes,
+    ToggleLog,
+    HidePanels,
 }
 
 const CTRL: Modifiers = Modifiers::COMMAND;
@@ -110,7 +118,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 49] = [
+    pub const ALL: [Cmd; 57] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -160,6 +168,14 @@ impl Cmd {
         Cmd::DialogFind,
         Cmd::DialogFindNext,
         Cmd::Close,
+        Cmd::CloseTab,
+        Cmd::NextTab,
+        Cmd::PreviousTab,
+        Cmd::ReopenTab,
+        Cmd::ToggleTree,
+        Cmd::TogglePalettes,
+        Cmd::ToggleLog,
+        Cmd::HidePanels,
     ];
 
     /// The id the settings keep it by, its name and where it works.
@@ -215,6 +231,14 @@ impl Cmd {
             Cmd::DialogFind => ("dialog-find", "Find and Replace", Conversation),
             Cmd::DialogFindNext => ("dialog-find-next", "Find Next", Conversation),
             Cmd::Close => ("close", "Close", General),
+            Cmd::CloseTab => ("close-tab", "Close Tab", General),
+            Cmd::NextTab => ("next-tab", "Next Tab", General),
+            Cmd::PreviousTab => ("previous-tab", "Previous Tab", General),
+            Cmd::ReopenTab => ("reopen-tab", "Reopen Closed Tab", General),
+            Cmd::ToggleTree => ("view-tree", "Module Tree", General),
+            Cmd::TogglePalettes => ("view-palettes", "Palettes Panel", General),
+            Cmd::ToggleLog => ("view-log", "Log", General),
+            Cmd::HidePanels => ("hide-panels", "Hide All Panels", General),
         }
     }
 
@@ -286,10 +310,20 @@ impl Cmd {
             Cmd::AddLine => vec![k(CTRL, Key::A)],
             Cmd::DeleteLine => vec![k(NONE, Key::Delete)],
             // Aurora's: Ctrl+F finds, Ctrl+R replaces (one pane here), F3
-            // finds again; Ctrl+F4 closes the module.
+            // finds again (Ctrl+F4, its key for closing the module, closes a tab here).
             Cmd::DialogFind => vec![k(CTRL, Key::F), k(CTRL, Key::R)],
             Cmd::DialogFindNext => vec![k(NONE, Key::F3)],
-            Cmd::Close => vec![k(CTRL, Key::F4)],
+            // (No key at first: Ctrl+F4, Aurora's for it, closes a tab.)
+            Cmd::Close => Vec::new(),
+            // A browser's, both.
+            Cmd::CloseTab => vec![k(CTRL, Key::W), k(CTRL, Key::F4)],
+            Cmd::NextTab => vec![k(CTRL, Key::Tab), k(CTRL, Key::PageDown)],
+            Cmd::PreviousTab => vec![k(CTRL | SHIFT, Key::Tab), k(CTRL, Key::PageUp)],
+            Cmd::ReopenTab => vec![k(CTRL | SHIFT, Key::T)],
+            Cmd::ToggleTree => vec![k(CTRL | Modifiers::ALT, Key::Num1)],
+            Cmd::TogglePalettes => vec![k(CTRL | Modifiers::ALT, Key::Num2)],
+            Cmd::ToggleLog => vec![k(CTRL | Modifiers::ALT, Key::Num3)],
+            Cmd::HidePanels => vec![k(CTRL | Modifiers::ALT, Key::Num0)],
         }
     }
 

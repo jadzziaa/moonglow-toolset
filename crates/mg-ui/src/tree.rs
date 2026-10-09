@@ -378,8 +378,83 @@ fn follow_selection(app: &mut Moonglow) {
     }
 }
 
+/// A row of the module tree the arrow keys can be at: a group's, or a
+/// resource's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeAt {
+    Group(&'static str),
+    Resource(ResKey),
+}
+
+/// Where the tree's keys take the cursor from `at`, among the rows shown
+/// (in order, each group's row before its resources'): the row to go to,
+/// a group to open or close, or the resource to open.
+#[derive(Debug, PartialEq)]
+enum Step {
+    To(TreeAt),
+    Fold(&'static str, bool),
+    Open(ResKey),
+    None,
+}
+
+/// The rows shown: each group, whether it is open, and its resources.
+type Shown = Vec<(&'static str, bool, Vec<ResKey>)>;
+
+fn step(shown: &Shown, at: Option<TreeAt>, key: egui::Key) -> Step {
+    use egui::Key;
+    let rows: Vec<TreeAt> = shown
+        .iter()
+        .flat_map(|(name, open, keys)| {
+            let inside = keys.iter().filter(move |_| *open).map(|k| TreeAt::Resource(*k));
+            std::iter::once(TreeAt::Group(name)).chain(inside)
+        })
+        .collect();
+    let Some(first) = rows.first().copied() else { return Step::None };
+    let last = rows[rows.len() - 1];
+    let index = at.and_then(|a| rows.iter().position(|r| *r == a));
+    let by = |n: isize| match index {
+        Some(i) => Step::To(rows[(i as isize + n).clamp(0, rows.len() as isize - 1) as usize]),
+        // (No row yet, or one that is gone: the first.)
+        None => Step::To(first),
+    };
+    let group_of = |k: &ResKey| shown.iter().find(|(_, _, keys)| keys.contains(k)).map(|g| g.0);
+    match (key, index.map(|i| rows[i])) {
+        (Key::ArrowDown, _) => by(1),
+        (Key::ArrowUp, _) => by(-1),
+        (Key::PageDown, _) => by(10),
+        (Key::PageUp, _) => by(-10),
+        (Key::Home, _) => Step::To(first),
+        (Key::End, _) => Step::To(last),
+        // Right opens a group, then goes into it; Left goes to a row's
+        // group, then closes it.
+        (Key::ArrowRight, Some(TreeAt::Group(name))) => match shown.iter().find(|g| g.0 == name) {
+            Some((_, true, keys)) => {
+                keys.first().map_or(Step::None, |k| Step::To(TreeAt::Resource(*k)))
+            }
+            Some((_, false, _)) => Step::Fold(name, true),
+            None => Step::None,
+        },
+        (Key::ArrowLeft, Some(TreeAt::Group(name))) => Step::Fold(name, false),
+        (Key::ArrowLeft, Some(TreeAt::Resource(k))) => {
+            group_of(&k).map_or(Step::None, |g| Step::To(TreeAt::Group(g)))
+        }
+        (Key::Enter, Some(TreeAt::Resource(k))) => Step::Open(k),
+        (Key::Enter, Some(TreeAt::Group(name))) => {
+            let open = shown.iter().any(|g| g.0 == name && g.1);
+            Step::Fold(name, !open)
+        }
+        _ => Step::None,
+    }
+}
+
 fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) {
     follow_selection(app);
+    // The rows shown, for the keys; a group the keys opened or closed.
+    let mut shown: Shown = Vec::new();
+    let folded = app.tree_fold.take();
+    let cursor = app.tree_cursor;
+    let cursor_moved = std::mem::take(&mut app.tree_cursor_moved);
+    let mut clicked = None;
     let Some(ws) = &app.ws else { return };
     let revision = ws.revision();
     // Areas opened out whose contents are to be read (after the tree is
@@ -457,12 +532,22 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         // window): on the group's and its resources' right-click menus.
         let new = new_command(types);
         let new_label = new.map(|id| new_label(&id.name()));
+        let at_group = cursor == Some(TreeAt::Group(name));
+        let listed_keys = keys.to_vec();
         let header = egui::CollapsingHeader::new(format!("{name} ({})", keys.len()))
             .id_salt(name)
             .default_open(*name == "Areas")
+            // (The keys' cursor on a group shows as its row marked.)
+            .show_background(at_group)
             // An area to bring into view opens the areas' group (a filter
-            // typed opens every group, through `fold`).
-            .open((*name == "Areas" && app.tree_reveal.is_some()).then_some(true).or(fold))
+            // typed opens every group, through `fold`); the keys open and
+            // close the one they are at.
+            .open(
+                (*name == "Areas" && app.tree_reveal.is_some())
+                    .then_some(true)
+                    .or(folded.filter(|(g, _)| g == name).map(|(_, open)| open))
+                    .or(fold),
+            )
             .show(ui, |ui| {
                 for &k in keys {
                     let label = match (names.get(&k), k.restype) {
@@ -492,12 +577,15 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                         }
                     }
                     let in_hand = is_area && app.tree_area == Some(k.resref);
+                    let at_row = cursor == Some(TreeAt::Resource(k));
                     // A row out of sight takes its room only (a module can
                     // list thousands of a kind: laid out every frame, they
                     // slowed everything down while their group was open).
                     let height = ui.spacing().interact_size.y;
                     let room = egui::Rect::from_min_size(ui.cursor().min, egui::vec2(1.0, height));
-                    if !out && reveal.is_none() && !ui.is_rect_visible(room) {
+                    // (The keys' row out of sight is drawn, to scroll to it.)
+                    let sought = at_row && cursor_moved;
+                    if !out && reveal.is_none() && !sought && !ui.is_rect_visible(room) {
                         ui.allocate_space(egui::vec2(1.0, height));
                         continue;
                     }
@@ -512,7 +600,7 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                                 ui.data_mut(|d| d.insert_temp(opened, out));
                             }
                         }
-                        ui.add(egui::Button::selectable(in_hand, label).sense(sense))
+                        ui.add(egui::Button::selectable(in_hand || at_row, label).sense(sense))
                     });
                     // (A row out of sight is given this height.)
                     debug_assert!(
@@ -523,6 +611,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                     let mut r = row.inner;
                     if reveal.is_some() {
                         r.scroll_to_me(Some(egui::Align::Center));
+                    }
+                    if sought {
+                        r.scroll_to_me(None);
+                    }
+                    if r.clicked() {
+                        clicked = Some(TreeAt::Resource(k));
                     }
                     if out {
                         match app.area_contents.get(&k.resref).filter(|c| c.0 == revision) {
@@ -675,6 +769,13 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 app.tree_object_pending = false;
             }
         }
+        if header.header_response.clicked() {
+            clicked = Some(TreeAt::Group(name));
+        }
+        if at_group && cursor_moved {
+            header.header_response.scroll_to_me(None);
+        }
+        shown.push((*name, !header.fully_closed(), listed_keys));
         if let (Some(id), Some(label)) = (new, &new_label) {
             header.header_response.context_menu(|ui| {
                 if ui.button(label).clicked() {
@@ -703,6 +804,53 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     }
     let others = ws.module.len() - listed;
     ui.weak(format!("{others} other resources"));
+    // A click in the tree gives it the arrow keys (as the palette's):
+    // with the pointer over it, Up and Down go from row to row (Page Up
+    // and Down by ten, Home and End to the ends), Right opens a group and
+    // goes into it, Left goes back to the group and closes it, Enter
+    // opens the row's resource, Escape hands the keys back.
+    if let Some(at) = clicked {
+        app.tree_cursor = Some(at);
+        crate::palette_view::give_arrows(ui.ctx(), true);
+    }
+    let here = ui.rect_contains_pointer(ui.clip_rect());
+    if here
+        && crate::palette_view::has_arrows(ui.ctx())
+        && !ui.ctx().egui_wants_keyboard_input()
+        && app.tree_cursor.is_some()
+    {
+        use egui::Key;
+        let keys = [
+            Key::ArrowDown,
+            Key::ArrowUp,
+            Key::PageDown,
+            Key::PageUp,
+            Key::Home,
+            Key::End,
+            Key::ArrowRight,
+            Key::ArrowLeft,
+            Key::Enter,
+        ];
+        let pressed =
+            ui.input_mut(|i| keys.into_iter().find(|k| i.consume_key(egui::Modifiers::NONE, *k)));
+        if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
+            app.tree_cursor = None;
+            crate::palette_view::give_arrows(ui.ctx(), false);
+        }
+        match pressed.map_or(Step::None, |key| step(&shown, app.tree_cursor, key)) {
+            Step::To(at) => {
+                app.tree_cursor = Some(at);
+                app.tree_cursor_moved = true;
+                ui.ctx().request_repaint();
+            }
+            Step::Fold(group, open) => {
+                app.tree_fold = Some((group, open));
+                ui.ctx().request_repaint();
+            }
+            Step::Open(k) => open = Some(k),
+            Step::None => {}
+        }
+    }
     if let Some(k) = open {
         app.actions.push(Action::OpenResource(k));
     }
@@ -805,6 +953,39 @@ fn new_command(types: &[ResType]) -> Option<crate::commands::Id> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_keys_steps() {
+        use egui::Key;
+        let key = |name: &str, t| ResKey::parse(name, t).unwrap();
+        let (a, b, c) = (key("a", ResType::ARE), key("b", ResType::ARE), key("c", ResType::NSS));
+        let shown: Shown = vec![
+            ("Areas", true, vec![a, b]),
+            ("Conversations", false, vec![]),
+            ("Scripts", false, vec![c]),
+        ];
+        let (areas, scripts) = (TreeAt::Group("Areas"), TreeAt::Group("Scripts"));
+        let at = |r| Some(TreeAt::Resource(r));
+        // Down and up, row by row, past a closed group's resources.
+        assert_eq!(step(&shown, Some(areas), Key::ArrowDown), Step::To(TreeAt::Resource(a)));
+        assert_eq!(step(&shown, at(b), Key::ArrowDown), Step::To(TreeAt::Group("Conversations")));
+        assert_eq!(step(&shown, Some(scripts), Key::ArrowDown), Step::To(scripts));
+        assert_eq!(step(&shown, Some(areas), Key::ArrowUp), Step::To(areas));
+        assert_eq!(step(&shown, at(a), Key::End), Step::To(scripts));
+        assert_eq!(step(&shown, at(b), Key::Home), Step::To(areas));
+        assert_eq!(step(&shown, Some(areas), Key::PageDown), Step::To(scripts));
+        // Right opens a group, then goes into it; Left the other way.
+        assert_eq!(step(&shown, Some(scripts), Key::ArrowRight), Step::Fold("Scripts", true));
+        assert_eq!(step(&shown, Some(areas), Key::ArrowRight), Step::To(TreeAt::Resource(a)));
+        assert_eq!(step(&shown, at(b), Key::ArrowLeft), Step::To(areas));
+        assert_eq!(step(&shown, Some(areas), Key::ArrowLeft), Step::Fold("Areas", false));
+        // Enter opens a resource, and opens or closes a group.
+        assert_eq!(step(&shown, at(a), Key::Enter), Step::Open(a));
+        assert_eq!(step(&shown, Some(scripts), Key::Enter), Step::Fold("Scripts", true));
+        // A row that is gone (its group closed, a filter typed): the first.
+        assert_eq!(step(&shown, at(c), Key::ArrowDown), Step::To(areas));
+        assert_eq!(step(&Vec::new(), None, Key::ArrowDown), Step::None);
+    }
 
     #[test]
     fn each_group_of_resources_has_its_new_command() {
