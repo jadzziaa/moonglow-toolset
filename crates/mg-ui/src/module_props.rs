@@ -14,7 +14,7 @@ use crate::widgets::{FieldTarget, LocStringEdit, resref_field, variables_button}
 use crate::{Action, Moonglow};
 
 pub(crate) fn info_key() -> ResKey {
-    ResKey::parse("module", ResType::IFO).expect("valid")
+    mg_module::Module::info_key()
 }
 
 fn target(label: &str) -> FieldTarget {

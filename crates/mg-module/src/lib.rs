@@ -257,7 +257,8 @@ impl Module {
         Ok(())
     }
 
-    fn info_key() -> ResKey {
+    /// `module.ifo`'s key.
+    pub fn info_key() -> ResKey {
         ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO)
     }
 

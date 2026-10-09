@@ -164,7 +164,7 @@ pub(crate) fn active(app: &Moonglow, view: &AreaView) -> Option<TileBrush> {
 }
 
 /// The area's grid as the workspace has it.
-fn current_grid(app: &mut Moonglow, view: &AreaView) -> Option<Grid> {
+pub(crate) fn current_grid(app: &mut Moonglow, view: &AreaView) -> Option<Grid> {
     let tools = view.terrain.as_ref()?;
     let ws = app.ws.as_mut()?;
     let are = ws.doc(&ResKey::new(view.area, ResType::ARE)).ok()?;
@@ -293,7 +293,6 @@ fn changes(
 /// What a click with `brush` at `s` does (Shift held or not; `lower`: the
 /// right button with Raise/Lower; `turns`: a group's): its stroke and
 /// label, and for a click that only steps a tile, the tile it steps to.
-#[allow(clippy::too_many_arguments)]
 fn click(
     tools: &Tools,
     g: &Grid,
@@ -303,28 +302,18 @@ fn click(
     lower: bool,
     turns: u8,
 ) -> (Option<Stroke>, String, Option<Placement>) {
-    match brush.brush {
-        Brush::Crosser(_) => {
-            let (st, label) = stroke(tools, g, brush, s, false, false, 0);
-            (st, label, None)
-        }
-        Brush::Group(_) => {
-            let (st, label) = stroke(tools, g, brush, s, false, false, turns);
-            (st, label, None)
-        }
-        _ => {
-            let refine = brush.brush == Brush::Refine;
-            let cycle = refine || shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
-            let (st, label) = stroke(tools, g, brush, s, lower, cycle, 0);
-            let pick = if cycle && matches!(brush.brush, Brush::Eraser | Brush::Refine) {
-                let (cx, cy) = s.cell;
-                next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
-            } else {
-                None
-            };
-            (st, label, pick)
-        }
-    }
+    // (A brush's stroke reads only what is its own of `lower`, `cycle` and
+    // `turns`.)
+    let refine = brush.brush == Brush::Refine;
+    let cycle = refine || shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
+    let (st, label) = stroke(tools, g, brush, s, lower, cycle, turns);
+    let pick = if cycle && matches!(brush.brush, Brush::Eraser | Brush::Refine) {
+        let (cx, cy) = s.cell;
+        next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
+    } else {
+        None
+    };
+    (st, label, pick)
 }
 
 /// What a click would make of the tiles under the pointer (Shift held or
@@ -855,7 +844,7 @@ fn cursor_shapes(
     let Some(brush) = active(app, view) else { return };
     let (Some(model), Some(tools)) = (view.model.as_ref(), view.terrain.as_ref()) else { return };
     let step = model.height_step;
-    let Some(g) = grid_of(app, view) else { return };
+    let Some(g) = current_grid(app, view) else { return };
     let z = |x: u32, y: u32| g.lattice.corner(x, y).height as f32 * step;
     let point =
         |x: f32, y: f32, z: f32| Vec3::new(x * mg_area::TILE_SIZE, y * mg_area::TILE_SIZE, z);
@@ -976,20 +965,14 @@ fn cursor_shapes(
     }
 }
 
-/// The grid for drawing (without a workspace borrow beyond the read).
-fn grid_of(app: &mut Moonglow, view: &AreaView) -> Option<Grid> {
-    current_grid(app, view)
-}
-
 /// What the status line says about the spot under the pointer.
 pub(crate) fn status(view: &AreaView) -> Option<String> {
     let s = view.spot?;
     let model = view.model.as_ref()?;
-    let tools = view.terrain.as_ref()?;
+    view.terrain.as_ref()?;
     let tile = model.tiles.get((s.cell.1 * model.width + s.cell.0) as usize)?;
     let text =
         format!("Tile ({}, {}) {}", s.cell.0, s.cell.1, tile.model.as_deref().unwrap_or("?"),);
-    let _ = tools;
     Some(match &view.notice {
         Some(n) => format!("{text} · {n}"),
         None => text,

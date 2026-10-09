@@ -71,7 +71,7 @@ use mg_core::ResType;
 use mg_edit::{Command, Workspace};
 use mg_module::new::AreaSpec;
 use mg_module::{Module, ModuleLocation};
-use mg_resman::{GameInstall, LayerClass, ResKey, ResMan, priority};
+use mg_resman::{GameInstall, LayerClass, ResKey, priority};
 use mg_rules::GameData;
 
 pub use browser::Browser;
@@ -178,8 +178,6 @@ pub enum Action {
     PlacePrefab(String),
     /// Edit › Find References: where a resource is used.
     FindReferences(ResKey),
-    /// Where a tag is used.
-    FindTag(String),
     /// The Rename window for a resource.
     RenameDialog(ResKey),
     /// Opens the Placeable Gallery.
@@ -771,8 +769,9 @@ impl Moonglow {
             self.shortcuts(ui);
         }
         egui::Panel::top("menu").show(ui, |ui| {
-            self.menu(ui);
-            self.toolbar(ui);
+            commands::menu_bar(self, ui);
+            // Buttons for the common commands, below the menu as in Aurora.
+            commands::toolbar(self, ui);
         });
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         // The log shrinks to a single line if the user wants it that small.
@@ -1239,15 +1238,6 @@ impl Moonglow {
             return;
         }
         commands::keys_pressed(self, ui);
-    }
-
-    fn menu(&mut self, ui: &mut egui::Ui) {
-        commands::menu_bar(self, ui);
-    }
-
-    /// Buttons for the common commands, below the menu as in Aurora.
-    fn toolbar(&mut self, ui: &mut egui::Ui) {
-        commands::toolbar(self, ui);
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -1851,7 +1841,6 @@ impl Moonglow {
             }
             Action::RenameBlueprint { from, to } => blueprint::rename(self, from, to),
             Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
-            Action::FindTag(t) => self.find_references(references::Query::Tag(t)),
             Action::RenameDialog(k) => self.rename_dialog(k),
             Action::CopyDialog(k) => self.copy_dialog(k, false),
             Action::PlaceableGallery => {
@@ -2604,8 +2593,7 @@ impl Moonglow {
     fn listed_haks(&mut self) -> Vec<String> {
         use mg_schema::StructExt;
         let Some(ws) = &mut self.ws else { return Vec::new() };
-        let key = ResKey::parse("module", ResType::IFO).expect("valid");
-        let Ok(info) = ws.doc(&key) else { return Vec::new() };
+        let Ok(info) = ws.doc(&module_props::info_key()) else { return Vec::new() };
         let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();
         let mut haks: Vec<String> = info
             .root
@@ -2888,11 +2876,6 @@ impl Moonglow {
             .get(&key)
             .map(|b| b.numbered.iter().enumerate().filter_map(|(n, l)| Some((n, (*l)?))).collect())
             .unwrap_or_default()
-    }
-
-    /// A resman view for things that need one without a game install (tests).
-    pub fn resman(&self) -> Option<&ResMan> {
-        self.game.as_deref().map(|g| &g.resman)
     }
 }
 

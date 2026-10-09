@@ -772,7 +772,7 @@ impl AreaView {
         let right = (camera.target - camera.eye).cross(Vec3::Z).try_normalize().unwrap_or(Vec3::X);
         let out = (right + Vec3::Z).normalize();
         self.chosen(model)
-            .filter(|o| o.takes_visual_transform() && !o.locked)
+            .filter(|o| o.takes_visual_transform())
             .map(|o| {
                 let radius = ((camera.eye - o.position).length() * 0.0765).max(0.5);
                 (o.position, o.position + out * radius * 1.25)
@@ -1327,7 +1327,7 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
 /// The module's start location, if it is in this area: position and facing.
 fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
     let ws = app.ws.as_mut()?;
-    let info = ws.doc(&ResKey::parse("module", ResType::IFO)?).ok()?;
+    let info = ws.doc(&crate::module_props::info_key()).ok()?;
     let r = &info.root;
     if r.read(&ifo::MOD_ENTRY_AREA) != area {
         return None;
@@ -2362,28 +2362,8 @@ fn overlays(
                 _ => Color32::from_rgb(230, 70, 70),
             };
             let stroke = if selected { highlight } else { Stroke::new(1.5, color) };
-            let corner = |c: usize| {
-                transform.transform_point3(Vec3::new(
-                    if c & 1 == 0 { min.x } else { max.x },
-                    if c & 2 == 0 { min.y } else { max.y },
-                    if c & 4 == 0 { min.z } else { max.z },
-                ))
-            };
-            for (a, b) in [
-                (0, 1),
-                (1, 3),
-                (3, 2),
-                (2, 0),
-                (4, 5),
-                (5, 7),
-                (7, 6),
-                (6, 4),
-                (0, 4),
-                (1, 5),
-                (2, 6),
-                (3, 7),
-            ] {
-                line(corner(a), corner(b), stroke);
+            for (a, b) in box_edges(transform, min, max) {
+                line(a, b, stroke);
             }
         }
     }
@@ -2395,17 +2375,15 @@ fn overlays(
         for ((o, _, _), p) in
             clip.objects.iter().zip(pasted_positions(view, clip, view.snapped(at)))
         {
-            let (min, max) = match (&view.scene, o.kind.has_outline()) {
-                (_, true) => {
-                    let d = p - o.position;
-                    let n = o.outline.len();
-                    for k in 0..n {
-                        line(o.outline[k] + d, o.outline[(k + 1) % n] + d, stroke);
-                    }
-                    continue;
+            if o.kind.has_outline() {
+                let d = p - o.position;
+                let n = o.outline.len();
+                for k in 0..n {
+                    line(o.outline[k] + d, o.outline[(k + 1) % n] + d, stroke);
                 }
-                _ => mg_area::pick::marker_bounds(o.kind),
-            };
+                continue;
+            }
+            let (min, max) = mg_area::pick::marker_bounds(o.kind);
             let t =
                 glam::Mat4::from_rotation_translation(glam::Quat::from_rotation_z(o.rotation), p);
             for (a, b) in box_edges(t, min, max) {
@@ -2863,9 +2841,7 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         }
         return;
     }
-    if view.redraw.is_none() {
-        view.outline.clear();
-    }
+    view.outline.clear();
 
     // Selection. (A click on a ring or an arrow with nothing under it
     // leaves the selection be; with an object under it, it picks that.)
@@ -4545,7 +4521,7 @@ fn turn_start_location(app: &mut Moonglow, facing: f32) {
 /// An edit of one of the IFO's fields.
 fn start_field(label: &str, value: Value) -> mg_edit::Edit {
     mg_edit::Edit::SetField {
-        key: ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO),
+        key: crate::module_props::info_key(),
         path: mg_edit::GffPath::root(),
         label: label.into(),
         value: Some(value),

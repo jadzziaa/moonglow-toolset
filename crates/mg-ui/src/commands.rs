@@ -352,43 +352,9 @@ impl Id {
         self.text().1.trim_end_matches('…').to_string()
     }
 
-    /// The key command it shares its keys with, where it had keys before
-    /// every command could (its id and its defaults are that one's).
-    fn key(self) -> Option<keys::Cmd> {
-        use keys::Cmd;
-        Some(match self {
-            Id::NewModule => Cmd::NewModule,
-            Id::OpenModule => Cmd::OpenModule,
-            Id::Save => Cmd::Save,
-            Id::Undo => Cmd::Undo,
-            Id::Redo => Cmd::Redo,
-            Id::ReplaceText => Cmd::ReplaceText,
-            Id::AreaWizard => Cmd::AreaWizard,
-            Id::CreatureWizard => Cmd::CreatureWizard,
-            Id::Wizard(BlueprintKind::Item) => Cmd::ItemWizard,
-            Id::NewConversation => Cmd::NewConversation,
-            Id::Factions => Cmd::Factions,
-            Id::Journal => Cmd::Journal,
-            Id::NewScript => Cmd::NewScript,
-            Id::CompileAll => Cmd::CompileAll,
-            Id::TestModule => Cmd::TestModule,
-            Id::TestChoose => Cmd::TestChoose,
-            Id::Manual => Cmd::Manual,
-            Id::CommandPalette => Cmd::CommandPalette,
-            Id::FullScreen => Cmd::FullScreen,
-            Id::Close => Cmd::Close,
-            _ => return None,
-        })
-    }
-
     /// The id its keys are kept under in the settings.
     pub fn id(self) -> String {
         self.text().0.into_owned()
-    }
-
-    /// Moonglow's keys for it.
-    pub fn defaults(self) -> Vec<egui::KeyboardShortcut> {
-        self.key().map(keys::Cmd::defaults).unwrap_or_default()
     }
 
     /// Its name in a menu as things are: Undo names what it would undo, a
@@ -955,12 +921,6 @@ mod tests {
         assert_eq!(Id::Wizard(BlueprintKind::Item).id(), "item-wizard");
         assert_eq!(Id::Save.id(), "save");
         assert_eq!(Id::SaveAsProject.id(), "save-as-project");
-        // A command that had keys before keeps the id they are kept under.
-        for c in &all {
-            if let Some(cmd) = c.key() {
-                assert_eq!(c.id(), cmd.id());
-            }
-        }
         assert_eq!(Id::TestChoose.id(), "test-choose");
     }
 

@@ -275,7 +275,7 @@ fn custom_tlk(d: &mut Doctor, module: &Module) {
         Severity::Error,
         Check::CustomTlk,
         "module",
-        ResKey::new(ResRef::from_str("module").expect("valid"), ResType::IFO),
+        Module::info_key(),
         "Custom Tlk",
         format!(
             "the talk table {name:?} isn't in the module's haks, the module or the tlk folder{hint}: \

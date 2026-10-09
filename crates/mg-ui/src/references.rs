@@ -244,7 +244,7 @@ impl Moonglow {
     /// in stays.
     pub(crate) fn undeletable(&mut self, key: ResKey) -> Option<String> {
         let ws = self.ws.as_mut()?;
-        let info = ws.doc(&ResKey::parse("module", ResType::IFO)?).ok()?;
+        let info = ws.doc(&crate::module_props::info_key()).ok()?;
         let start = info.root.resref("Mod_Entry_Area")?;
         (key.restype == ResType::ARE && start == key.resref).then(|| {
             "The module's start location is in this area: set it in another area first \
@@ -268,8 +268,8 @@ impl Moonglow {
             _ => &[],
         };
         let mut edits = Vec::new();
+        let ifo = crate::module_props::info_key();
         if key.restype == ResType::ARE
-            && let Some(ifo) = ResKey::parse("module", ResType::IFO)
             && let Ok(info) = ws.doc(&ifo)
             && let Some(index) = info
                 .root
