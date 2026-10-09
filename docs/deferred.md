@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:36:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:59:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -863,6 +863,20 @@ browser's Save As on a row and Export as Files. Left, or to know:
   the state is kept in the settings. Not done of the issue: a collapse
   button in each pane's own header (the menu, the keys and the strip do
   it); the strip names the pane only in its tip (the log's says "Log").
+- **The palette's header** (GitHub issue 16, the reporter's design B,
+  the user's choice): the types as one row of icons, named under the
+  pointer and under the row (a dropdown with names in a pane narrower
+  than the row: about 220 points); Standard and Custom beside the
+  type's name; the search the pane's width, saying what it looks in,
+  with a button to clear it; one toolbar over the list (Expand All and
+  Collapse All as arrows, the count of blueprints or of those found,
+  List and Gallery as two buttons, New…, and More for Categories… and
+  All Appearances…). Seen in one rendered picture, with the dropdown
+  (not with the row of icons). Not as drawn in the issue: "More" is a
+  word, and the clear button "×" and the Gallery's "⊞" are the glyphs
+  egui's fonts have (the mock-up's were boxes); the icons are the
+  toolbar's glyphs, not a drawn set; the tile palette and the prefabs
+  keep their own bodies under the same two top rows.
 - **Tool windows where they were last docked** (GitHub issue 14): each
   kind of window (script, conversation, blueprint, Faction Editor…)
   opens where one of its kind was last dragged to: a tab of the main

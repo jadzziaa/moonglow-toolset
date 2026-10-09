@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:36:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:59:26Z }
 ---
 
 # The main window
@@ -231,7 +231,8 @@ field typed into, an object moved, a tile painted, a script compiled.
 
 ## The palette
 
-The right-hand pane is Aurora's palette: choose a blueprint type,
+The right-hand pane is Aurora's palette: choose a blueprint type (the
+row of icons at its top),
 **Standard** (the game's blueprints) or **Custom** (the module's), and a
 blueprint from the categories. Click in an area to place the chosen
 blueprint (see [Areas](04-areas.md)). With an area's terrain mode on, the

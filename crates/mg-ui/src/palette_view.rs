@@ -425,6 +425,18 @@ enum Pick {
     Favorite(ResKey, bool),
 }
 
+/// Expand All and Collapse All as two small buttons, for a list's toolbar.
+fn fold_icons(ui: &mut egui::Ui, what: &str) -> Option<bool> {
+    let mut fold = None;
+    if ui.small_button("⏷").on_hover_text(format!("Expand All: open every {what}")).clicked() {
+        fold = Some(true);
+    }
+    if ui.small_button("⏶").on_hover_text(format!("Collapse All: close every {what}")).clicked() {
+        fold = Some(false);
+    }
+    fold
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if app.game.is_none() {
         ui.label("No game data.");
@@ -450,45 +462,102 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             view.filter
         )
     });
-    ui.horizontal_wrapped(|ui| {
-        use crate::icons::{TILES, blueprint, labelled};
-        let tiles = labelled(TILES, "Tiles");
-        if ui.selectable_label(view.tiles, tiles).on_hover_text("The area's tileset").clicked() {
-            view.tiles = true;
-            view.prefabs = false;
+    // The header (GitHub issue 16), top down by what each row governs:
+    // the type, its name and the source, the search, then the list's own
+    // toolbar right over the list.
+    //
+    // The types: one row of icons, a click each, named under the pointer
+    // (and below, for the one shown); in a pane too narrow for the row, a
+    // dropdown with their names.
+    {
+        use crate::icons::{PREFABS, TILES, blueprint, labelled};
+        #[derive(Clone, Copy, PartialEq)]
+        enum Type {
+            Tiles,
+            Kind(BlueprintKind),
+            Prefabs,
         }
-        for kind in BlueprintKind::ALL {
-            let label = labelled(blueprint(kind), kind.label());
-            let shown = !view.tiles && !view.prefabs && view.kind == kind;
-            if ui.selectable_label(shown, label).clicked() {
+        let now = if view.tiles {
+            Type::Tiles
+        } else if view.prefabs {
+            Type::Prefabs
+        } else {
+            Type::Kind(view.kind)
+        };
+        let mut types = vec![(Type::Tiles, TILES, "Tiles", "The area's tileset")];
+        types.extend(BlueprintKind::ALL.map(|k| (Type::Kind(k), blueprint(k), k.label(), "")));
+        types.push((
+            Type::Prefabs,
+            PREFABS,
+            "Prefabs",
+            "Groups of placed objects saved under a name (a camp, a furnished room), to place \
+             again in any area or module",
+        ));
+        let mut chosen = None;
+        // (Close together: eleven of them, in a pane that is narrow.)
+        let each = 20.0;
+        if ui.available_width() >= each * types.len() as f32 {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 1.0;
+                ui.spacing_mut().button_padding.x = 2.0;
+                for (t, glyph, name, tip) in &types {
+                    let tip =
+                        if tip.is_empty() { name.to_string() } else { format!("{name}: {tip}") };
+                    if ui.selectable_label(now == *t, *glyph).on_hover_text(tip).clicked() {
+                        chosen = Some(*t);
+                    }
+                }
+            });
+        } else {
+            let shown = types.iter().find(|t| t.0 == now).expect("one of them");
+            egui::ComboBox::from_id_salt("palette-type")
+                .selected_text(labelled(shown.1, shown.2))
+                .width(ui.available_width())
+                .show_ui(ui, |ui| {
+                    for (t, glyph, name, _) in &types {
+                        if ui.selectable_label(now == *t, labelled(glyph, name)).clicked() {
+                            chosen = Some(*t);
+                        }
+                    }
+                });
+        }
+        match chosen {
+            Some(Type::Tiles) => {
+                view.tiles = true;
+                view.prefabs = false;
+            }
+            Some(Type::Kind(kind)) => {
                 view.kind = kind;
                 view.tiles = false;
                 view.prefabs = false;
             }
+            Some(Type::Prefabs) => {
+                view.prefabs = true;
+                view.tiles = false;
+                // (No blueprint is about to be placed any more.)
+                view.selected = None;
+                view.chosen.clear();
+            }
+            None => {}
         }
-        if ui
-            .selectable_label(view.prefabs, labelled(crate::icons::PREFABS, "Prefabs"))
-            .on_hover_text(
-                "Groups of placed objects saved under a name (a camp, a furnished room), to \
-                 place again in any area or module",
-            )
-            .clicked()
-        {
-            view.prefabs = true;
-            view.tiles = false;
-            // (No blueprint is about to be placed any more.)
-            view.selected = None;
-            view.chosen.clear();
-        }
-    });
-    view.fold = if view.prefabs { None } else { crate::widgets::fold_buttons(ui, "category") };
-    // A filter typed opens every category with a match, as it is typed.
-    // (So does another palette shown with the filter still there.)
-    let shown = format!("{:?}/{}/{}/{}", view.kind, view.custom, view.tiles, view.filter);
-    let typed = crate::widgets::text_changed(ui, egui::Id::new("palette-filter"), &shown);
-    if typed && !view.filter.trim().is_empty() && !view.prefabs {
-        view.fold = view.fold.or(Some(true));
+        // The type shown, by name; the source beside it (a blueprint
+        // type's: the game's, or the module's).
+        let name = types.iter().find(|t| t.0 == now).map_or("", |t| t.2);
+        ui.horizontal(|ui| {
+            ui.strong(name);
+            if !view.tiles && !view.prefabs {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_enabled_ui(app.ws.is_some(), |ui| {
+                        ui.selectable_value(&mut view.custom, true, "Custom")
+                            .on_hover_text("The module's blueprints");
+                    });
+                    ui.selectable_value(&mut view.custom, false, "Standard")
+                        .on_hover_text("The game's blueprints");
+                });
+            }
+        });
     }
+    view.fold = None;
     if view.prefabs {
         ui.separator();
         app.palette = view;
@@ -496,89 +565,27 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         return;
     }
     if view.tiles {
+        // (The tile palette's groups open and close, too.)
+        ui.horizontal(|ui| view.fold = fold_icons(ui, "group"));
         ui.separator();
         app.palette = view;
         crate::terrain_mode::palette_ui(app, ui);
         return;
     }
-    let mut categories = None;
-    ui.horizontal_wrapped(|ui| {
-        ui.selectable_value(&mut view.custom, false, "Standard");
-        ui.add_enabled_ui(app.ws.is_some(), |ui| {
-            ui.selectable_value(&mut view.custom, true, "Custom");
-        });
-        ui.separator();
-        ui.add(egui::TextEdit::singleline(&mut view.filter).hint_text("Find").desired_width(140.0));
-        let creature = view.kind == BlueprintKind::Creature;
-        let wizard = creature || crate::blueprint_wizard::KINDS.contains(&view.kind);
-        if ui
-            .add_enabled(app.ws.is_some() && wizard, egui::Button::new("New…"))
-            .on_hover_text("A new blueprint (the type's wizard)")
-            .clicked()
-        {
-            new_blueprint(app, view.kind);
-        }
-        if ui
-            .add_enabled(app.ws.is_some(), egui::Button::new("Categories…"))
-            .on_hover_text(
-                "Add, rename and remove the categories this module's blueprints of this kind \
-                 go in",
-            )
-            .clicked()
-        {
-            categories = Some(view.kind);
-        }
-        // List or Gallery: names, or pictures in their place for the types
-        // that have them (the others are lists, whichever is chosen).
-        ui.separator();
-        let pictures = pictured(view.kind);
-        let shown = app.settings.palette_gallery && pictures;
-        if ui
-            .selectable_label(!shown, "List")
-            .on_hover_text("Show the blueprints by name")
-            .clicked()
-        {
-            app.settings.palette_gallery = false;
-        }
-        ui.add_enabled_ui(pictures, |ui| {
-            if ui
-                .selectable_label(shown, "Gallery")
-                .on_hover_text("Show the blueprints as pictures, to choose by eye")
-                .on_disabled_hover_text(
-                    "Creatures, doors, items, placeables and waypoints have pictures",
-                )
-                .clicked()
-            {
-                app.settings.palette_gallery = true;
-            }
-        });
-        if shown {
-            // (A slider doesn't wrap of itself: on a row of its own where
-            // this one has no room for it.)
-            if ui.available_size_before_wrap().x < ui.spacing().slider_width {
-                ui.end_row();
-            }
-            crate::appearance_gallery::size_slider(app, ui);
-        }
-        // Every appearance there is, not only the blueprints'.
-        if view.kind == BlueprintKind::Placeable
-            && ui
-                .button("All Appearances…")
-                .on_hover_text(
-                    "The Placeable Gallery: every placeable appearance as a picture; a click \
-                     gives it to the placeables selected in the area",
-                )
-                .clicked()
-        {
-            app.actions.push(Action::PlaceableGallery);
+    // The search: the pane's width, with what it looks in said, and a
+    // button to clear it.
+    ui.horizontal(|ui| {
+        let clear = !view.filter.is_empty();
+        let room = ui.available_width() - if clear { 26.0 } else { 0.0 };
+        ui.add(
+            egui::TextEdit::singleline(&mut view.filter)
+                .hint_text("🔍 Search name, tag, resref")
+                .desired_width(room.max(60.0)),
+        );
+        if clear && ui.small_button("×").on_hover_text("Clear the search").clicked() {
+            view.filter.clear();
         }
     });
-    if let Some(kind) = categories {
-        app.palette = std::mem::take(&mut view);
-        crate::palette_categories::open(app, kind);
-        view = std::mem::take(&mut app.palette);
-    }
-    ui.separator();
 
     // The palette to show.
     let kind = view.kind;
@@ -603,6 +610,100 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         (None, Find::default())
     };
     let mut view = std::mem::take(&mut app.palette);
+
+    // The list's toolbar, right over the list: every category opened or
+    // closed, how many blueprints the list has (of the search, if any),
+    // names or pictures, a new blueprint, and the rest under "more".
+    let mut categories = None;
+    ui.horizontal_wrapped(|ui| {
+        view.fold = fold_icons(ui, "category");
+        fn count(nodes: &[mg_module::palette::PaletteNode]) -> usize {
+            nodes.iter().map(|n| n.blueprints.len() + count(&n.children)).sum()
+        }
+        let items = found.as_ref().map_or_else(|| count(&palette.nodes), |f| f.len());
+        ui.weak(format!("{items} item{}", if items == 1 { "" } else { "s" })).on_hover_text(
+            if searching { "Blueprints found" } else { "Blueprints in this palette" },
+        );
+        ui.separator();
+        // List or Gallery: names, or pictures in their place for the types
+        // that have them (the others are lists, whichever is chosen).
+        let pictures = pictured(view.kind);
+        let shown = app.settings.palette_gallery && pictures;
+        if ui.selectable_label(!shown, "☰").on_hover_text("List: the blueprints by name").clicked()
+        {
+            app.settings.palette_gallery = false;
+        }
+        ui.add_enabled_ui(pictures, |ui| {
+            if ui
+                .selectable_label(shown, "⊞")
+                .on_hover_text("Gallery: the blueprints as pictures, to choose by eye")
+                .on_disabled_hover_text(
+                    "Gallery: creatures, doors, items, placeables and waypoints have pictures",
+                )
+                .clicked()
+            {
+                app.settings.palette_gallery = true;
+            }
+        });
+        let creature = view.kind == BlueprintKind::Creature;
+        let wizard = creature || crate::blueprint_wizard::KINDS.contains(&view.kind);
+        if ui
+            .add_enabled(app.ws.is_some() && wizard, egui::Button::new("New…"))
+            .on_hover_text("A new blueprint (the type's wizard)")
+            .clicked()
+        {
+            new_blueprint(app, view.kind);
+        }
+        ui.menu_button("More", |ui| {
+            if ui
+                .add_enabled(app.ws.is_some(), egui::Button::new("Categories…"))
+                .on_hover_text(
+                    "Add, rename and remove the categories this module's blueprints of this \
+                     kind go in",
+                )
+                .clicked()
+            {
+                categories = Some(view.kind);
+                ui.close();
+            }
+            // Every appearance there is, not only the blueprints'.
+            if view.kind == BlueprintKind::Placeable
+                && ui
+                    .button("All Appearances…")
+                    .on_hover_text(
+                        "The Placeable Gallery: every placeable appearance as a picture; a \
+                         click gives it to the placeables selected in the area",
+                    )
+                    .clicked()
+            {
+                app.actions.push(Action::PlaceableGallery);
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text("More: the module's categories, every placeable appearance");
+        if shown {
+            // (A slider doesn't wrap of itself: on a row of its own where
+            // this one has no room for it.)
+            if ui.available_size_before_wrap().x < ui.spacing().slider_width {
+                ui.end_row();
+            }
+            crate::appearance_gallery::size_slider(app, ui);
+        }
+    });
+    // A search typed opens every category with a match, as it is typed.
+    // (So does another palette shown with the search still there.)
+    let said = format!("{:?}/{}/{}/{}", view.kind, view.custom, view.tiles, view.filter);
+    let typed = crate::widgets::text_changed(ui, egui::Id::new("palette-filter"), &said);
+    if typed && !view.filter.trim().is_empty() {
+        view.fold = view.fold.or(Some(true));
+    }
+    if let Some(kind) = categories {
+        app.palette = std::mem::take(&mut view);
+        crate::palette_categories::open(app, kind);
+        view = std::mem::take(&mut app.palette);
+    }
+    ui.separator();
     let game = app.game.as_deref().expect("checked");
     let favorites = app.settings.palette_favorites.clone();
     let recent = app.settings.palette_recent.clone();

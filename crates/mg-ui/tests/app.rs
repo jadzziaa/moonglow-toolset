@@ -3296,6 +3296,64 @@ fn menus_by_the_keyboard() {
     assert!(shown(&h, "Module Properties") && !shown(&h, "Save As"));
 }
 
+/// GitHub issue 16: the palette's header. The types are one row of icons
+/// (a dropdown in a pane too narrow for it), the one shown named under
+/// it; the search says what it looks in and has a button to clear it; the
+/// list's toolbar counts its blueprints and keeps the rarer commands
+/// under "more".
+#[test]
+fn the_palette_s_header() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-palette-header");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1800.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    // The row of icons: a click on the door shows the doors, named.
+    // (All of it inside the palettes' pane, at the width it has at first.)
+    let pane = {
+        let mut leaves = h.state().dock.iter_leaves().map(|(_, l)| l);
+        leaves.find(|l| l.tabs.contains(&Tab::Palette)).expect("the palettes' pane").rect
+    };
+    let last = h.get_by_label("🗐").rect();
+    assert!(last.right() <= pane.right() && last.left() > pane.left(), "{last:?} in {pane:?}");
+    h.get_by_label("🚪").click();
+    h.run_steps(2);
+    assert_eq!(h.state().palette.kind, mg_module::palette::BlueprintKind::Door);
+    h.get_by_label("Doors");
+    // How many the list has; a search that finds none, and cleared.
+    let count = |h: &Harness<'_, Moonglow>| -> usize {
+        let counts = h.query_all_by_label_contains(" item").filter_map(|n| {
+            let node = n.accesskit_node();
+            let text = node.value().or(node.label()).unwrap_or_default();
+            text.split(' ').next()?.parse().ok()
+        });
+        { counts }.next().expect("the count")
+    };
+    let all = count(&h);
+    assert!(all > 10, "{all} doors");
+    assert!(h.query_by_label("×").is_none());
+    type_into_hint(&mut h, "Find", "zzzzqq");
+    h.run_steps(2);
+    assert!(count(&h) < 5);
+    h.get_by_label("×").click();
+    h.run_steps(2);
+    assert!(h.state().palette.filter.is_empty());
+    assert_eq!(count(&h), all);
+    // The rarer commands are under "more".
+    assert!(h.query_by_label("Categories…").is_none());
+    h.get_by_label("More").click();
+    h.run();
+    h.get_by_label("Categories…");
+}
+
 #[test]
 fn waypoint_editor_edits_and_renames() {
     let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "waypoint_copy", ResType::UTW)
@@ -3370,8 +3428,39 @@ fn sound_editor_lists_positions_and_times() {
     assert_ne!(s.integer("Hours").unwrap() & (1 << 15), 0);
 }
 
+/// The palette's types' icons, as its dropdown shows the one chosen.
+const PALETTE_TYPES: [&str; 11] = ["🗻", "👤", "🚪", "⚔", "🗡", "⛲", "🔉", "💰", "⚡", "📍", "🗐"];
+
+/// Chooses a type in the palette's header: its icon in the row of them,
+/// or, in a pane too narrow for the row, its name in the dropdown.
+fn palette_type(h: &mut Harness<'_, Moonglow>, glyph: &str, name: &str) {
+    if h.query_by_label(glyph).is_some() {
+        h.get_by_label(glyph).click();
+        return;
+    }
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let is_type = |n: &egui_kittest::Node<'_>| {
+        let value = n.accesskit_node().value().unwrap_or_default();
+        PALETTE_TYPES.iter().any(|glyph| value.starts_with(glyph))
+    };
+    h.query_all(combo).find(is_type).expect("the palette's type dropdown").click();
+    h.run();
+    // (The last of them are below the dropdown's edge until scrolled to.)
+    h.get_by_label(&format!("{glyph} {name}")).scroll_to_me();
+    h.run();
+    h.get_by_label(&format!("{glyph} {name}")).click();
+    h.run();
+}
+
 /// Types into the text field with placeholder `hint` (a live filter).
 fn type_into_hint(h: &mut Harness<'_, Moonglow>, hint: &str, text: &str) {
+    // ("Find" is a list's search: the palette's says what it looks in.)
+    let palette = "🔍 Search name, tag, resref";
+    let has = |h: &Harness<'_, Moonglow>, hint: &str| {
+        let by = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
+        h.query_all(egui_kittest::kittest::by().predicate(by)).next().is_some()
+    };
+    let hint = if hint == "Find" && !has(h, hint) { palette } else { hint };
     let by_hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some(hint);
     h.get(egui_kittest::kittest::by().predicate(by_hint)).click();
     h.run();
@@ -3458,6 +3547,8 @@ fn a_module_gets_palette_categories_of_its_own() {
         app.palette.tiles = false;
         app.palette.custom = true;
     }
+    h.run();
+    h.get_by_label("More").click();
     h.run();
     h.get_by_label("Categories…").click();
     h.run();
@@ -3611,6 +3702,8 @@ fn a_module_gets_palette_categories_of_its_own() {
     assert!(h.query_by_label("Ruins (1)").is_some(), "the custom palette has the category");
 
     // With a blueprint in it, it isn't removed.
+    h.get_by_label("More").click();
+    h.run();
     h.get_by_label("Categories…").click();
     h.run();
     h.get_by_label("This module's own categories, kept in the module.");
@@ -5335,7 +5428,7 @@ fn the_crosser_cursor_lies_on_raised_ground_under_the_pointer() {
     let Some((mut h, area)) = area_harness("crosser-cursor") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: ground well above the tiles'
     // own corners nearby.
@@ -5411,7 +5504,7 @@ fn area_viewer_paints_terrain() {
     // The Tiles palette: the area's tileset, its Terrain branch open.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     h.get_by_label("Water").click();
     h.run_steps(2);
@@ -7099,7 +7192,13 @@ fn speaker_tags_come_from_the_module_s_creatures() {
     h.run();
     h.get_by_label("[OWNER] - Hello there").click();
     h.run();
-    h.get_by_role(egui::accesskit::Role::ComboBox).click();
+    // (The speaker's: not the palette's dropdown of types.)
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let speaker = |n: &egui_kittest::Node<'_>| {
+        let value = n.accesskit_node().value().unwrap_or_default();
+        !PALETTE_TYPES.iter().any(|glyph| value.starts_with(glyph))
+    };
+    h.query_all(combo).find(speaker).expect("the speaker's dropdown").click();
     h.run();
     h.get_by_label("MG_SPEAKER").click();
     h.run();
@@ -9853,7 +9952,7 @@ fn prefabs_are_offered_on_the_toolbar_and_in_the_palette() {
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
     // The palette's Prefabs: none yet, and how to make one.
-    h.get_by_label("🗐 Prefabs").click();
+    palette_type(&mut h, "🗐", "Prefabs");
     h.run_steps(2);
     assert!(h.query_by_label_contains("No prefabs yet").is_some());
     assert!(h.query_by_label_contains("Save 2 as Prefab").is_none());
@@ -9981,6 +10080,8 @@ fn the_wheel_over_a_window_leaves_the_area_s_camera_be() {
         app.palette.tiles = false;
     }
     h.run_steps(3);
+    h.get_by_label("More").click();
+    h.run();
     h.get_by_label("Categories…").click();
     h.run_steps(3);
     let distance = |h: &Harness<'_, Moonglow>| h.state().area_views[&area].orbit.unwrap().distance;
@@ -10399,7 +10500,7 @@ fn a_terrain_brush_paints_every_corner_it_is_dragged_across() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     h.get_by_label("Water").click();
     h.run_steps(2);
@@ -10462,7 +10563,7 @@ fn cursors_that_only_choose_tiles_again_are_blue() {
     let Some((mut h, area)) = area_harness("cycle-cursor") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     let colors = |h: &Harness<'_, Moonglow>| -> Vec<egui::Color32> {
         h.state().area_views[&area].brush_cursor.iter().map(|(_, c)| *c).collect()
@@ -10547,7 +10648,7 @@ fn the_eraser_erases_every_tile_it_is_dragged_across() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     h.get_by_label("Road").click();
     h.run_steps(2);
@@ -10605,7 +10706,7 @@ fn a_right_click_with_a_crosser_on_its_own_tile_erases_it() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     h.get_by_label("Road").click();
     h.run_steps(2);
@@ -10675,7 +10776,7 @@ fn the_eraser_and_raise_lower_head_the_terrain_brushes() {
     let Some((mut h, _)) = area_harness("tools-first") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     // Rural lists them Eraser, Grass, Raise/Lower, Road…
     let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
@@ -10702,7 +10803,7 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     // Among the tools at the top: after the Eraser, before Raise/Lower.
     let top = |h: &Harness<'_, Moonglow>, label: &str| h.get_by_label(label).rect().top();
@@ -10754,7 +10855,7 @@ fn a_terrain_drag_with_shift_fills_its_rectangle() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     h.get_by_label("Water").click();
     h.run_steps(2);
@@ -10806,7 +10907,7 @@ fn a_crosser_drag_with_shift_follows_its_rectangle_s_outline() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     h.get_by_label("Road").click();
     h.run_steps(2);
@@ -10853,7 +10954,7 @@ fn painting_with_shift_held_the_camera_still_zooms_and_turns() {
     let Some((mut h, area)) = area_harness("shift-camera") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     h.get_by_label("Road").click();
     h.run_steps(2);
@@ -10911,7 +11012,7 @@ fn a_tile_brush_previews_the_tiles_its_click_makes() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     // What the preview shows is what the click puts down.
     let check = |h: &mut Harness<'_, Moonglow>, at: Vec3| {
@@ -11026,7 +11127,7 @@ fn a_drag_previews_the_tiles_letting_go_paints() {
     };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     // Dragged along `path` (metres): before it is let go, the preview; let
     // go, those very tiles.
@@ -12444,7 +12545,7 @@ fn a_right_click_with_a_terrain_brush_is_the_brush_s_over_an_object() {
     let Some((mut h, area)) = area_harness("brush-over-object") else { return };
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     h.get_by_label("↕ Raise/Lower").click();
     h.run_steps(2);
@@ -12940,12 +13041,12 @@ fn the_palette_s_gallery_shows_blueprints_as_pictures() {
     let img = h.render().expect("render");
     img.save(mg_testkit::scratch_dir("ui-gallery").join("gallery.png")).unwrap();
     // List goes back to the names, and Gallery to the pictures.
-    h.get_by_label("List").click();
+    h.get_by_label("☰").click();
     h.run_steps(3);
     assert!(!h.state().settings.palette_gallery);
     let row = h.get_all_by_label(&name).next().expect("the chest's row").rect().size();
     assert!(row.y < 30.0, "a row of the list: {row:?}");
-    h.get_by_label("Gallery").click();
+    h.get_by_label("⊞").click();
     h.run_steps(3);
     assert!(h.state().settings.palette_gallery);
 }
@@ -13531,7 +13632,7 @@ fn look_custom_group() {
     h.set_size(egui::vec2(1500.0, 1000.0));
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
     h.run_steps(3);
-    h.get_by_label("🗻 Tiles").click();
+    palette_type(&mut h, "🗻", "Tiles");
     h.run_steps(2);
     // (The palette's own Expand All: the one to the right.)
     let expand = h

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T21:30:22Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:59:26Z }
 ---
 
 # Blueprints
@@ -15,7 +15,21 @@ one in an area makes an **instance**, a copy you can change on its own.
 
 ## Palettes
 
-The palette pane (right) shows the blueprints by type:
+The palette pane (right) shows the blueprints by type. Its header, from
+the top:
+
+- **The types**: a row of icons (tiles, creatures, doors, encounters,
+  items, placeables, sounds, merchants, triggers, waypoints, prefabs),
+  one click each; the pointer over an icon names it, and the type shown
+  is named under the row. In a pane too narrow for the row, the types
+  are a dropdown with their names.
+- **Standard** and **Custom**, beside the type's name: whose blueprints.
+- **The search**, the pane's width; **×** clears it.
+- **The list's toolbar**, right over the list: the two arrows open and
+  close every category, the count says how many blueprints the list has
+  (or the search found), the two view buttons are **List** and
+  **Gallery**, **New…** makes a blueprint, and **More** has
+  **Categories…** and, for placeables, **All Appearances…**.
 
 - **Standard**: the game's blueprints (and those of the module's haks),
   in the game's categories.
@@ -27,7 +41,7 @@ list offers **New Creature…** (or the kind shown): the wizard New… opens.
 A filter typed opens every category with a match; they can be closed
 again while it stands. Home and End go to the list's top and bottom.
 
-**Categories…** (beside New…) edits the categories blueprints of the type
+**Categories…** (under **More**) edits the categories blueprints of the type
 shown go in: **Add Category**, **Add Group** (a branch that holds
 categories), **Rename** and **Remove**, in the group chosen or at the
 top. The game's categories are the starting point; with a change the
@@ -60,7 +74,7 @@ placeables, a picture; for the others, what there is to say of them (a
 sound's sounds, a trigger's kind, an encounter's creatures, a store's
 prices, a waypoint's map note).
 
-**Find** (the box above the palette) shows the blueprints that have every
+**The search** (the box above the list) shows the blueprints that have every
 word you type in their name, resref or tag, in any order (`chest secret`).
 If none has them all, it shows close matches, letters in order (`lngswd`
 finds Longsword).
@@ -89,7 +103,7 @@ W, A, S and D move it all along.
 The palette's buttons:
 
 - **Edit**: open a custom blueprint in its editor (or double-click it).
-- **List** and **Gallery** (beside Categories…): Gallery shows the blueprints as pictures in a grid rather than a
+- **List** and **Gallery** (the two view buttons of the list's toolbar): Gallery shows the blueprints as pictures in a grid rather than a
   list of names, to choose by eye (creatures, doors, items and
   placeables, the types with a model, and waypoints by their flags).
   Whether it is on is kept between sessions. A picture is clicked, dragged and
@@ -101,7 +115,7 @@ The palette's buttons:
   old ones back. With the Gallery, this swaps a placed object for a
   neighbouring one in a click or two.
 - **The Appearance Gallery** (**Tools › Appearance Gallery…**, or **All
-  Appearances…** in the palette's Placeables): **Placeables**, **Creatures**
+  Appearances…** under **More** in the palette's Placeables): **Placeables**, **Creatures**
   and **Doors** at its top choose whose. Every appearance in
   `placeables.2da`, `appearance.2da` (a plain body of each) or
   `genericdoors.2da` as a picture, those that are only an effect (flames,

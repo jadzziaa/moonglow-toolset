@@ -1264,7 +1264,7 @@ fn crosser_cursor() {
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(5);
-    h.get_by_label("🗻 Tiles").click();
+    h.get_by_label("🗻").click();
     h.run_steps(2);
     // Corners (1, 1) and (1, 2) raised twice: tile (1, 1) slopes up to its
     // west.
