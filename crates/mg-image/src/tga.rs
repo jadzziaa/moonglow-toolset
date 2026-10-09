@@ -27,8 +27,12 @@ pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     let map = if map_type == 1 {
         let entry = (map_bits as usize).div_ceil(8);
         let raw = r.bytes(map_len * entry)?;
-        let entries = raw.chunks_exact(entry).map(|c| color(c, map_bits, true));
-        Some((entries.collect::<Vec<_>>(), map_first))
+        // An entry is a true-color pixel. A map of any other depth is
+        // skipped: an image that needs it is refused below.
+        matches!(map_bits, 15 | 16 | 24 | 32).then(|| {
+            let entries = raw.chunks_exact(entry).map(|c| color(c, map_bits, true));
+            (entries.collect::<Vec<_>>(), map_first)
+        })
     } else {
         None
     };
@@ -181,6 +185,22 @@ mod tests {
         f.extend_from_slice(&[10, 200]);
         let img = read(&f).unwrap().to_rgba();
         assert_eq!(img.pixel(1, 0), [200, 200, 200, 255]);
+    }
+
+    #[test]
+    fn a_color_map_of_no_pixel_depth_is_an_error() {
+        // Mapped, with a map of two entries of 8 bits, then of none.
+        for map_bits in [8u8, 0, 12, 20] {
+            let mut f = header(1, 1, 1, 8, 0);
+            (f[1], f[5], f[7]) = (1, 2, map_bits);
+            f.extend_from_slice(&[0; 8]);
+            assert!(matches!(read(&f), Err(ImageError::TgaUnsupported(1, 8))), "{map_bits}");
+        }
+        // A true-color image that carries such a map reads without it.
+        let mut f = header(2, 1, 1, 24, 0);
+        (f[1], f[5], f[7]) = (1, 2, 8);
+        f.extend_from_slice(&[9, 9, 1, 2, 3]);
+        assert_eq!(read(&f).unwrap().to_rgba().data, vec![3, 2, 1, 255]);
     }
 
     #[test]
