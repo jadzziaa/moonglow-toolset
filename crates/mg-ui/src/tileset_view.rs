@@ -90,22 +90,28 @@ impl TilesetDoc {
         }
         self.undo.push(before);
         self.redo.clear();
-        self.set = read(&self.file);
-        self.findings = None;
+        self.reread();
     }
 
     pub fn undo(&mut self) {
         if let Some(prev) = self.undo.pop() {
             self.redo.push(std::mem::replace(&mut self.file, prev));
-            self.set = read(&self.file);
+            self.reread();
         }
     }
 
     pub fn redo(&mut self) {
         if let Some(next) = self.redo.pop() {
             self.undo.push(std::mem::replace(&mut self.file, next));
-            self.set = read(&self.file);
+            self.reread();
         }
+    }
+
+    /// After the file changed: its tileset read again, and what Check found
+    /// of the file as it was forgotten.
+    fn reread(&mut self) {
+        self.set = read(&self.file);
+        self.findings = None;
     }
 
     pub fn save(&mut self) -> Result<(), String> {
@@ -272,7 +278,7 @@ fn draw(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
         Page::General => general(app, ui, d),
         Page::Terrain => terrain(ui, d),
         Page::Tiles => tiles(app, ui, d),
-        Page::Groups => groups(ui, d),
+        Page::Groups => groups(app, ui, d),
     }
 }
 
@@ -590,7 +596,7 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     });
 }
 
-fn groups(ui: &mut Ui, d: &mut TilesetDoc) {
+fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
     let Some(t) = d.tileset().cloned() else { return };
     ui.horizontal(|ui| {
         let tile = d.tile;
@@ -632,12 +638,9 @@ fn groups(ui: &mut Ui, d: &mut TilesetDoc) {
         };
         let g = &t.groups[i];
         let section = format!("GROUP{i}");
-        let mut name = g.name.clone();
         ui.horizontal(|ui| {
             ui.label("Name");
-            if ui.text_edit_singleline(&mut name).lost_focus() && name != g.name {
-                d.change(|f| f.set(&section, "Name", name.trim()));
-            }
+            text_key(app, ui, d, &section, "Name", 220.0);
         });
         let (mut rows, mut columns) = (g.rows, g.columns);
         ui.horizontal(|ui| {
@@ -664,12 +667,8 @@ fn groups(ui: &mut Ui, d: &mut TilesetDoc) {
                 for c in 0..g.columns as usize {
                     let k = r * g.columns as usize + c;
                     let current = g.tiles.get(k).copied().flatten().map_or(-1, |t| t as i64);
-                    let mut v = current;
-                    let resp =
-                        ui.add(egui::DragValue::new(&mut v).range(-1..=t.tiles.len() as i64 - 1));
-                    if resp.changed() && !resp.dragged() && v != current
-                        || resp.drag_stopped() && v != current
-                    {
+                    let last = t.tiles.len() as i64 - 1;
+                    if let Some(v) = crate::widgets::commit_number(ui, current, -1..=last) {
                         d.change(|f| f.set(&section, &format!("Tile{k}"), &v.to_string()));
                     }
                 }

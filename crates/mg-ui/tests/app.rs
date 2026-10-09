@@ -1894,6 +1894,61 @@ fn tileset_made_edited_saved_with_its_palette() {
     assert_eq!(a.lines().zip(b.lines()).filter(|(x, y)| x != y).count(), 1);
 }
 
+/// A tileset group's name is typed like any other field: kept while it is
+/// typed, set when focus leaves.
+#[test]
+fn a_tileset_group_s_name_is_typed() {
+    let dir = mg_testkit::scratch_dir("ui-tileset-group");
+    let set_path = dir.join("zzz02.set");
+    let dialogs = NoDialogs { save: vec![set_path.clone()], ..Default::default() };
+    let mut app = Moonglow::new(None, Box::new(dialogs));
+    app.open_module(&sample_module(&dir));
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1300.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    mg_ui::tileset_view::new_tileset(h.state_mut());
+    h.run();
+    h.get_by_label("Terrains and Crossers").click();
+    h.run();
+    h.state_mut().tilesets[0].new_type = "Grass".into();
+    h.run();
+    h.get_by_label("Add Terrain").click();
+    h.run();
+    h.get_by_label("Tiles").click();
+    h.run();
+    h.get_by_label("Add Tile").click();
+    h.run();
+    h.get_by_label("Groups").click();
+    h.run();
+    h.get_by_label("Add Group").click();
+    h.run();
+    let group =
+        |h: &Harness<'_, Moonglow>| h.state().tilesets[0].tileset().unwrap().groups[0].clone();
+    let before = group(&h).name;
+    let is_input =
+        |n: &egui_kittest::Node<'_>| n.accesskit_node().role() == egui::accesskit::Role::TextInput;
+    h.get_all_by_value(&before).find(is_input).expect("the group's name field").click();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.get_all_by_value(&before).find(is_input).expect("the group's name field").type_text("Bridge");
+    h.run();
+    h.run();
+    assert_eq!(group(&h).name, before, "not before focus leaves");
+    h.key_press(egui::Key::Tab);
+    h.run();
+    assert_eq!(group(&h).name, "Bridge");
+    // What Check found is of the file as it was: an undo or a redo, like
+    // any change, clears it.
+    for step in [mg_ui::tileset_view::TilesetDoc::undo, mg_ui::tileset_view::TilesetDoc::redo] {
+        h.state_mut().tilesets[0].findings = Some(Vec::new());
+        step(&mut h.state_mut().tilesets[0]);
+        assert!(h.state().tilesets[0].findings.is_none());
+    }
+    assert_eq!(group(&h).name, "Bridge");
+}
+
 #[test]
 fn conversation_lines_show_their_talk_table_text() {
     let root = mg_testkit::corpus!();
