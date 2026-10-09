@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:37:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:56:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -863,14 +863,28 @@ browser's Save As on a row and Export as Files. Left, or to know:
   the state is kept in the settings. Not done of the issue: a collapse
   button in each pane's own header (the menu, the keys and the strip do
   it); the strip names the pane only in its tip (the log's says "Log").
-- **Tool windows where they were last docked** (GitHub issue 14): not
-  done, but for Reset Layout and the palettes' pane coming back as wide
-  as it was. A window opens over the area on purpose (so that the area
-  view stays put), whatever pane a window of its kind was last dragged
-  into, and the dock's layout is not kept between runs. Remembering,
-  for each kind of window, the pane it was last in would go against
-  that rule for those who dock a window once and expect the next one
-  floating: the user's to decide. (M)
+- **Tool windows where they were last docked** (GitHub issue 14): each
+  kind of window (script, conversation, blueprint, Faction Editor…)
+  opens where one of its kind was last dragged to: a tab of the main
+  pane, a tab of the palettes' pane, or a window of its own (as all do
+  at first); kept in the settings, forgotten by Reset Layout. A window
+  seen in another place than the frame before is taken as dragged
+  there. Not done of the issue: a pane split off to a side of the main
+  one (left, bottom) is not a place that is kept, nor a tab's position
+  among the tabs; the dock's whole layout is not kept between runs; the
+  resource browser still opens as a window at first. (M)
+- **The menus by the keyboard** (GitHub issue 9), on egui's own menus:
+  Alt alone or F10 opens the first menu and closes them, Left and Right
+  go between menus (round the ends), Up and Down between rows (past
+  separators and rows that can't be chosen), Enter and Space choose,
+  Right and Left open and close a submenu, and the pointer over another
+  menu's name opens it while one is open. The marked row is drawn as
+  selected. Not done: mnemonics (Alt+F, underlined letters); Alt alone
+  was not tried in a test (the harness sends no modifier on its own:
+  F10 was), nor on Windows, where the system may take Alt for its own
+  menu; Escape closes all the menus, not one level; a submenu inside a
+  submenu has no keys (there is none today); the bar itself is never
+  "focused" without a menu open. (S each)
 - **The module tree by the keyboard** (GitHub issue 12): after a click
   in it, with the pointer over it, the arrow keys, Page Up and Down,
   Home and End move a cursor over the groups and their resources, Right

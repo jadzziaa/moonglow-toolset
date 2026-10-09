@@ -3283,6 +3283,146 @@ fn panels_fold_away_and_come_back() {
     assert!(palette(&h).is_some());
 }
 
+/// GitHub issue 14: a tool window opens where one of its kind was last
+/// dragged to (a tab of the main pane, here), not always in a window of
+/// its own; View › Reset Layout forgets that.
+#[test]
+fn a_tool_window_opens_where_its_kind_was_last_docked() {
+    let dir = mg_testkit::scratch_dir("ui-window-places");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let open = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(tab));
+        h.run();
+        h.run();
+    };
+    let close = |h: &mut Harness<'_, Moonglow>, tab: Tab| {
+        h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![tab]));
+        h.run();
+        h.run();
+    };
+    let in_main = |h: &Harness<'_, Moonglow>, tab: &Tab| {
+        h.state().dock.find_tab(tab).map(|p| p.surface.is_main())
+    };
+    // At first: a window of its own, over the area.
+    open(&mut h, Tab::Factions);
+    assert_eq!(in_main(&h, &Tab::Factions), Some(false));
+    // Dragged into the main pane (done here on the dock itself).
+    let dock = &mut h.state_mut().dock;
+    let from = dock.find_tab(&Tab::Factions).unwrap();
+    dock.remove_tab(from);
+    dock.main_surface_mut().push_to_first_leaf(Tab::Factions);
+    h.run();
+    h.run();
+    assert_eq!(h.state().settings.window_places, [("factions".to_string(), "middle".to_string())]);
+    // Closed and opened again: there, and another kind still in a window.
+    close(&mut h, Tab::Factions);
+    assert_eq!(in_main(&h, &Tab::Factions), None);
+    open(&mut h, Tab::Factions);
+    assert_eq!(in_main(&h, &Tab::Factions), Some(true));
+    open(&mut h, Tab::Journal);
+    assert_eq!(in_main(&h, &Tab::Journal), Some(false));
+    // Opened again while open, it stays in the main pane, in front.
+    open(&mut h, Tab::Factions);
+    assert_eq!(in_main(&h, &Tab::Factions), Some(true));
+    // Reset Layout: a window of its own again.
+    close(&mut h, Tab::Factions);
+    h.get_by_label("View").click();
+    h.run();
+    h.get_by_label("Reset Layout").click();
+    h.run();
+    assert!(h.state().settings.window_places.is_empty());
+    open(&mut h, Tab::Factions);
+    assert_eq!(in_main(&h, &Tab::Factions), Some(false));
+}
+
+/// GitHub issue 9: the menus by the keyboard. F10 opens the first (and
+/// closes them), Left and Right go from menu to menu, Up and Down from row
+/// to row past those that can't be chosen, Enter chooses, Right opens a
+/// submenu and Left closes it; and with a menu open, the pointer over
+/// another's name opens that one.
+#[test]
+fn menus_by_the_keyboard() {
+    let dir = mg_testkit::scratch_dir("ui-menu-keys");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let key = |h: &mut Harness<'_, Moonglow>, key: egui::Key| {
+        h.key_press(key);
+        h.run();
+        h.run();
+        h.run();
+    };
+    let shown = |h: &Harness<'_, Moonglow>, label: &str| {
+        h.query_all_by_label_contains(label).next().is_some()
+    };
+    // F10: File, open; F10 again: closed.
+    assert!(!shown(&h, "Save As"));
+    key(&mut h, egui::Key::F10);
+    assert!(shown(&h, "Save As"));
+    key(&mut h, egui::Key::F10);
+    assert!(!shown(&h, "Save As"));
+    // Right twice from File: View (round the ends the other way: Help).
+    key(&mut h, egui::Key::F10);
+    key(&mut h, egui::Key::ArrowLeft);
+    assert!(shown(&h, "About Moonglow") && !shown(&h, "Save As"));
+    key(&mut h, egui::Key::ArrowRight);
+    key(&mut h, egui::Key::ArrowRight);
+    key(&mut h, egui::Key::ArrowRight);
+    assert!(shown(&h, "Hide All Panels"));
+    // Its first row is marked; Down passes the palettes (no game here:
+    // they can't be chosen) to the log, and Enter folds it away.
+    key(&mut h, egui::Key::ArrowDown);
+    assert!(!h.state().settings.hide_log);
+    key(&mut h, egui::Key::Enter);
+    assert!(h.state().settings.hide_log && !h.state().settings.hide_tree);
+    assert!(!shown(&h, "Hide All Panels"), "chosen, the menus close");
+    // Up from the first row is the last: Reset Layout brings the log back.
+    key(&mut h, egui::Key::F10);
+    key(&mut h, egui::Key::ArrowRight);
+    key(&mut h, egui::Key::ArrowRight);
+    key(&mut h, egui::Key::ArrowUp);
+    key(&mut h, egui::Key::Space);
+    assert!(!h.state().settings.hide_log);
+
+    // A submenu: Tools, up to Options and three more to Tilesets; Right
+    // opens it, Left closes it, and the menu stays.
+    key(&mut h, egui::Key::F10);
+    for _ in 0..4 {
+        key(&mut h, egui::Key::ArrowRight);
+    }
+    assert!(shown(&h, "Faction Editor") && !shown(&h, "Open Tileset"));
+    for _ in 0..4 {
+        key(&mut h, egui::Key::ArrowUp);
+    }
+    key(&mut h, egui::Key::ArrowRight);
+    assert!(shown(&h, "Open Tileset"), "the submenu is open");
+    key(&mut h, egui::Key::ArrowLeft);
+    key(&mut h, egui::Key::ArrowLeft);
+    assert!(shown(&h, "Rotate Area") || shown(&h, "Area Wizard"), "Left again: the menu before");
+    key(&mut h, egui::Key::Escape);
+
+    // By the mouse: with File open, the pointer over Edit opens Edit.
+    h.get_by_label("File").click();
+    h.run();
+    assert!(shown(&h, "Save As"));
+    h.get_by_label("Edit").hover();
+    h.run();
+    h.run();
+    h.run();
+    assert!(shown(&h, "Module Properties") && !shown(&h, "Save As"));
+}
+
 #[test]
 fn waypoint_editor_edits_and_renames() {
     let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "waypoint_copy", ResType::UTW)

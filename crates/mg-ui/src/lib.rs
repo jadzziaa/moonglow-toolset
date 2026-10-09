@@ -86,6 +86,16 @@ pub use text::set_edit_language;
 pub use transfer::{ExportDraft, ImportDraft};
 pub use wizards::{AreaWizard, Wizard};
 
+/// Where a tool window is, or opens: a window of its own over the area
+/// (as each does at first), a tab of the main pane beside the areas, or a
+/// tab of the palettes' pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Place {
+    Window,
+    Middle,
+    Palettes,
+}
+
 /// Something the user asked for, run after the frame is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -485,6 +495,15 @@ pub struct Moonglow {
     /// The tabs of windows drawn this frame: each one's button and the
     /// layer its window is on ([`Moonglow::window_bars`]).
     pub(crate) tab_buttons: Vec<(Tab, egui::Rect, egui::LayerId)>,
+    /// The menus by the keyboard: where the keys are, the rows counted as
+    /// they are drawn (a menu's, its submenu's), the menu open, and
+    /// whether Alt was used with something else since it went down.
+    pub(crate) menu_keys: commands::MenuKeys,
+    pub(crate) menu_row: [usize; 2],
+    pub(crate) menu_open: Option<usize>,
+    pub(crate) menu_alt_spoiled: bool,
+    /// Where each open tool window was seen last (see [`Place`]).
+    tab_places: HashMap<Tab, Place>,
     /// Each pane's tabs in their order, as this frame began (the dock is
     /// out of reach while its tabs are drawn).
     pub(crate) panes_tabs: Vec<Vec<Tab>>,
@@ -678,6 +697,11 @@ impl Moonglow {
             outside: Default::default(),
             maximized: HashMap::new(),
             tab_buttons: Vec::new(),
+            menu_keys: Default::default(),
+            menu_row: [0, 0],
+            menu_open: None,
+            menu_alt_spoiled: false,
+            tab_places: HashMap::new(),
             panes_tabs: Vec::new(),
             closed_tabs: Vec::new(),
             windows: HashMap::new(),
@@ -930,6 +954,7 @@ impl Moonglow {
         });
         trace::changed("panes", || self.panes());
         self.remember_window_sizes();
+        self.remember_window_places();
         self.backup_timer(ui);
         self.autosave_timer(ui);
         self.reload_timer(ui);
@@ -1068,6 +1093,56 @@ impl Moonglow {
     /// Where the main panes split for the Palettes pane on the right: the
     /// left side's share, leaving the palette as wide as the module tree.
     /// (egui_dock's split fraction is always the left side's.)
+    /// Where a tool window is: a window of its own, a tab of the main
+    /// pane, or a tab of the palettes' pane.
+    fn place_of(&self, tab: &Tab) -> Option<Place> {
+        let path = self.dock.find_tab(tab)?;
+        if !path.surface.is_main() {
+            return Some(Place::Window);
+        }
+        let leaf = self.dock.leaf(egui_dock::NodePath { surface: path.surface, node: path.node });
+        Some(match leaf {
+            Ok(leaf) if leaf.tabs.contains(&Tab::Palette) => Place::Palettes,
+            _ => Place::Middle,
+        })
+    }
+
+    /// Where the next window of a kind opens: where one of its kind was
+    /// last dragged to (GitHub issue 14), a window of its own otherwise.
+    fn place_for(&self, tab: &Tab) -> Place {
+        let kept = self.settings.window_places.iter().find(|(k, _)| k == tab.kind());
+        match kept.map(|(_, p)| p.as_str()) {
+            Some("middle") => Place::Middle,
+            Some("palettes") => Place::Palettes,
+            _ => Place::Window,
+        }
+    }
+
+    /// Notes where the user dragged a tool window to (a window seen in
+    /// another place than the frame before), for the next of its kind.
+    fn remember_window_places(&mut self) {
+        let open: Vec<Tab> = (self.dock.iter_all_tabs().map(|(_, t)| t))
+            .filter(|t| !t.docks() && **t != Tab::Palette)
+            .cloned()
+            .collect();
+        self.tab_places.retain(|t, _| open.contains(t));
+        // (Not while one is dragged, or made to fill the pane.)
+        for tab in open {
+            let Some(now) = self.place_of(&tab) else { continue };
+            let before = self.tab_places.insert(tab.clone(), now);
+            if before.is_some_and(|b| b != now) && !self.maximized.contains_key(&tab) {
+                let kind = tab.kind();
+                self.settings.window_places.retain(|(k, _)| k != kind);
+                let name = match now {
+                    Place::Middle => "middle",
+                    Place::Palettes => "palettes",
+                    Place::Window => continue,
+                };
+                self.settings.window_places.push((kind.to_string(), name.to_string()));
+            }
+        }
+    }
+
     /// Whether a pane beside the middle is shown (View): the module tree,
     /// the palettes, the log.
     pub(crate) fn panel_shown(&self, panel: commands::Id) -> bool {
@@ -1115,6 +1190,7 @@ impl Moonglow {
         }
         self.settings.hide_tree = false;
         self.settings.hide_log = false;
+        self.settings.window_places.clear();
         self.palette_share = None;
         if let Some(path) = self.dock.find_tab(&Tab::Palette) {
             self.dock.remove_tab(path);
@@ -2107,6 +2183,7 @@ impl Moonglow {
                 // rather than come to the front over the area.
                 if !tab.docks()
                     && tab != Tab::Palette
+                    && self.place_for(&tab) != Place::Middle
                     && let Some(path) = self.dock.find_tab(&tab)
                     && let Ok(leaf) = self
                         .dock
@@ -2136,7 +2213,28 @@ impl Moonglow {
                             );
                         }
                     } else if !tab.docks() {
-                        self.open_window(tab.clone());
+                        // Where one of its kind was last dragged to, if
+                        // that pane is there; a window of its own else.
+                        let palette =
+                            self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
+                        let pane = match self.place_for(&tab) {
+                            Place::Window => None,
+                            Place::Palettes => self
+                                .dock
+                                .find_tab(&Tab::Palette)
+                                .map(|p| egui_dock::NodePath { surface: p.surface, node: p.node }),
+                            Place::Middle => (self.dock.iter_leaves().map(|(p, _)| p)).find(|p| {
+                                p.surface.is_main() && Some((p.surface, p.node)) != palette
+                            }),
+                        };
+                        match pane {
+                            Some(pane) => {
+                                self.dock.set_focused_node_and_surface(pane);
+                                self.dock.push_to_focused_leaf(tab.clone());
+                                self.tab_places.remove(&tab);
+                            }
+                            None => self.open_window(tab.clone()),
+                        }
                     } else {
                         // Into the main window, not the palette's pane: the
                         // focused pane, else the first other one. (Right after

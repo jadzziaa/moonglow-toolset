@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:28:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:36:00Z }
 ---
 
 # The main window
@@ -27,6 +27,14 @@ close it, **Palettes** on the toolbar brings it back.
 | Build | Compile All Scripts, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
 | Help | User Manual, Command Palette…, About Moonglow Toolset |
+
+**The menus by the keyboard.** Alt, pressed and let go on its own, or
+F10 opens the first menu; the same closes the menus. Left and Right go
+from menu to menu, round the ends; Up and Down from row to row, past the
+lines and the rows that can't be chosen now; Enter or Space chooses the
+row marked. Right on a row with a submenu opens it, Left closes it;
+Escape closes the menus. With a menu open, the pointer over another
+menu's name opens that one.
 
 **Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:
 type part of it (or of its menu's name), choose with the arrow keys, and
@@ -188,6 +196,14 @@ closed last again (the last twenty are kept; one whose area or script is
 gone from the module is passed over). A middle click on a tab closes it.
 A hak or a tileset with unsaved changes asks first, as its close button
 does.
+
+**A window opens where one of its kind was last dragged to.** Drag a
+window by its tab into the main pane (beside the areas' tabs) or into
+the palettes' pane, and the next window of that kind (the next script,
+the next conversation, the Faction Editor again) opens there as a tab,
+not as a window over the area. Drag one out to a window of its own and
+the next opens as a window again. This is kept between runs; **View ›
+Reset Layout** forgets it.
 
 **With no area open**, the main pane says so and lists the module's areas
 to open with a click: the panes beside it keep their widths.
