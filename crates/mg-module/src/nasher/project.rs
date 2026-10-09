@@ -64,6 +64,14 @@ pub struct Outside {
     json: bool,
 }
 
+impl Outside {
+    /// A change to a file that is its resource as it is (a module
+    /// folder's).
+    pub(crate) fn plain(key: ResKey, path: PathBuf, resource: Option<Arc<[u8]>>) -> Outside {
+        Outside { key, path, file: resource.clone(), resource, json: false }
+    }
+}
+
 /// What a save wrote.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SaveReport {

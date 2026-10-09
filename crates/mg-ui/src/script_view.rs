@@ -992,13 +992,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
 }
 
-/// The file of a nasher project that holds `key`'s source, where the
-/// external editor can work on it in place: the project's own file, as
+/// The file of a nasher project or a module folder that holds `key`'s
+/// source, where the external editor can work on it in place: its own file, as
 /// long as Moonglow has nothing of the script that the file lacks (text
 /// typed and not saved, or a change not yet written to the project).
 fn project_file(app: &Moonglow, key: ResKey) -> Option<std::path::PathBuf> {
     let ws = app.ws.as_ref()?;
-    let path = ws.module.project.as_ref()?.source_path(&key)?.to_path_buf();
+    let path = ws.module.file_of(&key)?.to_path_buf();
     let buf = app.scripts.get(&key)?;
     let on_disk = std::fs::read(&path).ok()?;
     (!buf.is_dirty() && decode(&on_disk) == buf.text).then_some(path)
@@ -1011,7 +1011,7 @@ fn project_file(app: &Moonglow, key: ResKey) -> Option<std::path::PathBuf> {
 fn open_external(app: &mut Moonglow, key: ResKey, editor: &std::path::Path) {
     let in_place = project_file(app, key);
     let in_project =
-        app.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()) && in_place.is_none();
+        app.ws.as_ref().is_some_and(|ws| ws.module.file_of(&key).is_some()) && in_place.is_none();
     let reloads = !app.settings.no_auto_reload;
     let Some(buf) = app.scripts.get_mut(&key) else { return };
     let path = match in_place {

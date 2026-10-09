@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T00:21:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T04:13:38Z }
 ---
 
 # Modules
@@ -28,6 +28,18 @@ a directory), nasher projects (see below) and the game's campaign files
   (`bread.uti`). A file Aurora named otherwise (`bread.UTI`) is read all
   the same and renamed at the next save; where a folder has both, the
   one changed last is the resource, and the save leaves that one file.
+- **A module folder is worked on in place**, as in Aurora: keep its
+  scripts open in an editor of your own while the module is open here.
+  Every few seconds (Options › General: reloading), files saved, added
+  or deleted in the folder by another program are read again, and the
+  log says which. A save never writes over them: a file changed outside
+  that you did not change here stays as the other program left it, and
+  a file new to the folder is not removed. Where a file was changed
+  outside and here both, yours is kept, Save writes nothing and says
+  which files, and **Changed Outside Moonglow** asks which to keep. A
+  script read again is not compiled by that: **Build › Compile All
+  Scripts** (F7) before testing. The script editor's external editor
+  opens the folder's own file.
 - Saving is safe. A module archive is written to a temporary file, then
   put in place, so a failure never leaves a half-written module. The
   previous version is kept beside it (`mymodule.mod.bak`). With **Create

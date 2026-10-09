@@ -16,6 +16,7 @@ pub mod dialog_io;
 pub mod doctor;
 pub mod external_compiler;
 pub mod factions;
+pub mod folder;
 pub mod hak_edit;
 pub mod haks;
 pub mod instances;
@@ -102,6 +103,8 @@ pub struct Module {
     dirty: bool,
     /// The nasher project the module is kept in, when it is.
     pub project: Option<Box<nasher::Project>>,
+    /// A module folder's files as last read or written, when it is one.
+    pub folder: Option<Box<folder::FolderFiles>>,
 }
 
 impl Default for Module {
@@ -120,6 +123,7 @@ impl Module {
             resources: IndexMap::new(),
             dirty: false,
             project: None,
+            folder: None,
         }
     }
 
@@ -180,16 +184,20 @@ impl Module {
         // Two files of one resource (`x.UTI` as Aurora names a new one,
         // `x.uti` as Moonglow does): the one changed last is the resource.
         let mut changed = std::collections::HashMap::<ResKey, SystemTime>::new();
+        let mut read = folder::FolderFiles::new(path);
         for f in files.iter().filter(|f| f.is_file()) {
             let Some(key) = f.file_name().and_then(|n| n.to_str()).and_then(folder_key) else {
                 continue; // not a resource (notes, editor files, ...)
             };
             let at = f.metadata().and_then(|d| d.modified()).unwrap_or(std::time::UNIX_EPOCH);
             if changed.get(&key).is_none_or(|had| at > *had) {
-                m.resources.insert(key, Arc::from(std::fs::read(f).map_err(io(f))?));
+                let bytes: Arc<[u8]> = Arc::from(std::fs::read(f).map_err(io(f))?);
+                read.note(key, f.clone(), bytes.clone());
+                m.resources.insert(key, bytes);
                 changed.insert(key, at);
             }
         }
+        m.folder = Some(Box::new(read));
         m.location = Some(ModuleLocation::Folder(path.into()));
         Ok(m)
     }
@@ -355,9 +363,10 @@ impl Module {
     /// module's location. Saving into a project the module isn't in makes
     /// one there (or adds the module to a project without one).
     pub fn save_as(&mut self, location: &ModuleLocation) -> Result<(), ModuleError> {
+        let mut folder = None;
         match location {
             ModuleLocation::Archive(path) => self.write_archive(path)?,
-            ModuleLocation::Folder(path) => self.write_folder(path)?,
+            ModuleLocation::Folder(path) => folder = Some(Box::new(self.write_folder(path)?)),
             ModuleLocation::Project { root, target } => {
                 let same = self
                     .project
@@ -391,6 +400,7 @@ impl Module {
             }
         }
         self.project = None;
+        self.folder = folder;
         self.location = Some(location.clone());
         self.dirty = false;
         Ok(())
@@ -468,49 +478,153 @@ impl Module {
         std::fs::rename(&tmp, path).map_err(io(path))
     }
 
-    fn write_folder(&self, dir: &Path) -> Result<(), ModuleError> {
+    /// Writes the module into a folder, a file a resource: those that
+    /// differ are written, and the files of resources no longer in the
+    /// module removed (anything that is not a resource is left alone).
+    ///
+    /// In the folder the module was read from, what changed there since
+    /// (a script saved by another editor, a file copied in) is not
+    /// written over: a file changed outside whose resource is as it was
+    /// read is left for [`Module::outside`] to take, and a new file is
+    /// left. Nothing is written if a file to replace or delete changed
+    /// outside and the module changed its resource too: the error lists
+    /// those files. Returns the files as they now are.
+    fn write_folder(&self, dir: &Path) -> Result<folder::FolderFiles, ModuleError> {
         std::fs::create_dir_all(dir).map_err(io(dir))?;
-        // Remove resource files that are no longer in the module; leave
-        // anything that is not a resource alone.
-        for entry in std::fs::read_dir(dir).map_err(io(dir))?.flatten() {
-            let p = entry.path();
-            if let Some(key) = p.file_name().and_then(|n| n.to_str()).and_then(folder_key)
-                && p.is_file()
-                && !self.resources.contains_key(&key)
-            {
-                std::fs::remove_file(&p).map_err(io(&p))?;
+        let known = self.folder.as_deref().filter(|f| f.dir() == dir);
+        let disk = |p: &Path| std::fs::read(p).ok();
+        let listed = || -> Result<Vec<(String, ResKey)>, ModuleError> {
+            Ok((std::fs::read_dir(dir).map_err(io(dir))?.flatten())
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter_map(|name| folder_key(&name).map(|key| (name, key)))
+                .collect())
+        };
+        // What can't be done without losing something, and what is left
+        // as it is on disk.
+        let mut conflicts: Vec<PathBuf> = Vec::new();
+        let mut left: std::collections::HashSet<ResKey> = std::collections::HashSet::new();
+        if let Some(known) = known {
+            for (k, v) in &self.resources {
+                match (known.as_read(k), known.path(k)) {
+                    (Some(read), Some(path)) => {
+                        let now = disk(path);
+                        if now.as_deref() == Some(read) || now.as_deref() == Some(&v[..]) {
+                        } else if v[..] == read[..] {
+                            left.insert(*k);
+                        } else {
+                            conflicts.push(path.to_path_buf());
+                        }
+                    }
+                    _ => {
+                        // (New in the module: a file of its name put there
+                        // meanwhile is not written over.)
+                        let path = dir.join(k.to_string());
+                        if disk(&path).is_some_and(|now| now[..] != v[..]) {
+                            conflicts.push(path);
+                        }
+                    }
+                }
             }
+        }
+        // Resource files no longer in the module: removed, but for one
+        // that is new to the folder (left), or changed since it was read.
+        let mut remove = Vec::new();
+        for (name, key) in listed()? {
+            if self.resources.contains_key(&key) {
+                continue;
+            }
+            let path = dir.join(&name);
+            match known {
+                None => remove.push(path),
+                Some(known) if !known.knows(&key) => {}
+                Some(known) if disk(&path).as_deref() == known.as_read(&key) => remove.push(path),
+                Some(_) => conflicts.push(path),
+            }
+        }
+        if !conflicts.is_empty() {
+            conflicts.sort();
+            conflicts.dedup();
+            return Err(ModuleError::ChangedOnDisk(conflicts));
+        }
+        for path in remove {
+            std::fs::remove_file(&path).map_err(io(&path))?;
         }
         // A resource's file under another spelling (`x.UTI`, as Aurora
         // names a new one) takes the module's own (`x.uti`), so that a
         // resource is one file; where both are there (a folder that sets
         // capitals apart), the other spelling goes.
-        let named: Vec<String> = (std::fs::read_dir(dir).map_err(io(dir))?.flatten())
-            .filter(|e| e.path().is_file())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .collect();
-        for name in &named {
-            let Some(own) = folder_key(name).map(|k| k.to_string()) else { continue };
-            if *name == own {
+        let named = listed()?;
+        for (name, key) in &named {
+            let own = key.to_string();
+            if *name == own || left.contains(key) || !self.resources.contains_key(key) {
                 continue;
             }
             let (from, to) = (dir.join(name), dir.join(&own));
-            if named.contains(&own) {
+            if named.iter().any(|(n, _)| *n == own) {
                 std::fs::remove_file(&from).map_err(io(&from))?;
             } else {
                 std::fs::rename(&from, &to).map_err(io(&from))?;
             }
         }
+        let mut files = folder::FolderFiles::new(dir);
         for (k, v) in &self.resources {
-            let p = dir.join(k.to_string());
-            if std::fs::read(&p).ok().as_deref() == Some(&v[..]) {
+            if left.contains(k) {
+                // (As it was read: still to be taken.)
+                if let Some((known, path)) = known.and_then(|f| Some((f.as_read(k)?, f.path(k)?))) {
+                    files.note_as(*k, path.to_path_buf(), Arc::from(known));
+                }
                 continue;
             }
-            let tmp = sibling(&p, ".moonglow-tmp");
-            std::fs::write(&tmp, &v[..]).map_err(io(&tmp))?;
-            std::fs::rename(&tmp, &p).map_err(io(&p))?;
+            let p = dir.join(k.to_string());
+            if disk(&p).as_deref() != Some(&v[..]) {
+                let tmp = sibling(&p, ".moonglow-tmp");
+                std::fs::write(&tmp, &v[..]).map_err(io(&tmp))?;
+                std::fs::rename(&tmp, &p).map_err(io(&p))?;
+            }
+            files.note(*k, p, v.clone());
         }
-        Ok(())
+        Ok(files)
+    }
+
+    /// The files of the module's folder or nasher project changed, added
+    /// or deleted outside Moonglow since they were read or written, and
+    /// what could not be read of them. `None`: the module is an archive
+    /// (or was never saved), which nothing else edits in place.
+    pub fn outside(&mut self) -> Option<(Vec<nasher::Outside>, Vec<String>)> {
+        match (&mut self.project, &mut self.folder) {
+            (Some(project), _) => Some(project.outside()),
+            (None, Some(folder)) => Some(folder.outside()),
+            (None, None) => None,
+        }
+    }
+
+    /// What a resource's file held when it was last read or written.
+    pub fn as_read(&self, key: &ResKey) -> Option<&[u8]> {
+        match (&self.project, &self.folder) {
+            (Some(project), _) => project.as_read(key),
+            (None, Some(folder)) => folder.as_read(key),
+            (None, None) => None,
+        }
+    }
+
+    /// Counts a file changed outside as read (see [`nasher::Project::took`]).
+    pub fn took(&mut self, change: &nasher::Outside) {
+        match (&mut self.project, &mut self.folder) {
+            (Some(project), _) => project.took(change),
+            (None, Some(folder)) => folder.took(change),
+            (None, None) => {}
+        }
+    }
+
+    /// The file a resource is kept in, where each has one of its own (a
+    /// nasher project's source, a module folder's file).
+    pub fn file_of(&self, key: &ResKey) -> Option<&Path> {
+        match (&self.project, &self.folder) {
+            (Some(project), _) => project.source_path(key),
+            (None, Some(folder)) => folder.path(key),
+            (None, None) => None,
+        }
     }
 }
 

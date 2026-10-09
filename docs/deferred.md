@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T02:59:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T04:13:38Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -863,6 +863,25 @@ browser's Save As on a row and Export as Files. Left, or to know:
   the state is kept in the settings. Not done of the issue: a collapse
   button in each pane's own header (the menu, the keys and the strip do
   it); the strip names the pane only in its tip (the log's says "Log").
+- **A module folder worked on in place** (a builder keeps the scripts
+  open in Notepad++, as with Aurora, and asked whether Moonglow reads
+  and writes them where they are). It read the folder once, when the
+  module opened: a script saved outside since was written over by the
+  next save here, with what Moonglow had read, and a file added outside
+  was removed (it was no resource of the module). A folder's files are
+  now followed as a nasher project's are (`mg_module::folder`): those
+  changed, added or deleted outside are read again every few seconds;
+  a save leaves a file changed outside whose resource Moonglow did not
+  change, leaves a file new to the folder, and writes nothing (saying
+  which files) where a file was changed outside and here both, for
+  Changed Outside Moonglow to ask. The external editor works on the
+  folder's file. Not done: a script read again is not compiled (its
+  `.ncs` in the folder, and in the `.mod` written beside it, is the
+  older one until Compile All); the reloading needs the game's data
+  open, as the game's own reloading does; a first Save As into a folder
+  that has other files still removes the resource files the module
+  lacks; `mg` commands save over a folder as before (they open, change
+  and save at once). (S each)
 - **The palette's header** (GitHub issue 16, the reporter's design B,
   the user's choice): the types as one row of icons, named under the
   pointer and under the row (a dropdown with names in a pane narrower

@@ -1,5 +1,5 @@
-//! A nasher project's files changed outside Moonglow (an editor, `git
-//! checkout`, `git pull`) while it is open: every few seconds, with
+//! A nasher project's or a module folder's files changed outside Moonglow
+//! (an editor, `git checkout`, `git pull`) while it is open: every few seconds, with
 //! Options › General's reloading on, those the module has no unsaved
 //! change to are read again; where it has one, Moonglow's is kept and the
 //! Changed Outside Moonglow window asks which to keep.
@@ -43,11 +43,11 @@ fn named(changes: &[Outside]) -> String {
 }
 
 impl Moonglow {
-    /// Looks at the project's files (see the module's notes).
+    /// Looks at the project's or the module folder's files (see the
+    /// module's notes).
     pub fn reload_project_files(&mut self) {
         let Some(ws) = self.ws.as_mut() else { return };
-        let Some(project) = ws.module.project.as_mut() else { return };
-        let (changes, problems) = project.outside();
+        let Some((changes, problems)) = ws.module.outside() else { return };
         for p in problems {
             if self.outside.said.insert(hash(&p)) {
                 self.log.warn(format!("Changed outside Moonglow, and not read: {p}"));
@@ -61,7 +61,6 @@ impl Moonglow {
             self.log.error(e.to_string());
             return;
         }
-        let project = ws.module.project.as_ref().expect("checked");
         let (mut take, mut same, mut conflicts) = (Vec::new(), Vec::new(), Vec::new());
         for c in changes {
             let ours = ws.module.get(&c.key);
@@ -71,14 +70,14 @@ impl Moonglow {
                 conflicts.push(c);
             } else if ours == c.resource.as_deref() {
                 same.push(c);
-            } else if ours == project.as_read(&c.key) {
+            } else if ours == ws.module.as_read(&c.key) {
                 take.push(c);
             } else {
                 conflicts.push(c);
             }
         }
         for c in &same {
-            ws.module.project.as_mut().expect("checked").took(c);
+            ws.module.took(c);
         }
         for c in &conflicts {
             let id = hash((&c.path, c.resource.as_deref()));
@@ -113,10 +112,8 @@ impl Moonglow {
                 return;
             }
         };
-        if let Some(project) = ws.module.project.as_mut() {
-            for c in changes {
-                project.took(c);
-            }
+        for c in changes {
+            ws.module.took(c);
         }
         for c in changes {
             // A script's editor reads its text again.
@@ -140,7 +137,7 @@ impl Moonglow {
         self.area_contents.clear();
         self.refresh_module_layer();
         self.log.info(format!(
-            "Read again from the project (changed outside Moonglow): {}{}",
+            "Read again from the module's files (changed outside Moonglow): {}{}",
             named(changes),
             if dropped { "; the undo history, which had changes to them, was cleared" } else { "" }
         ));
@@ -206,9 +203,9 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
     let conflicts = std::mem::take(&mut app.outside.conflicts);
     match answer {
         Some(Answer::Ours) => {
-            if let Some(project) = app.ws.as_mut().and_then(|ws| ws.module.project.as_mut()) {
+            if let Some(ws) = app.ws.as_mut() {
                 for c in &conflicts {
-                    project.took(c);
+                    ws.module.took(c);
                 }
             }
             // (No longer as saved: the files have something else.)

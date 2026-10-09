@@ -12337,6 +12337,81 @@ fn windows_remember_their_size_and_maximize() {
     assert_eq!(h.state().settings.window_sizes, [("area-properties".to_string(), [400, 300])]);
 }
 
+/// A module folder's files changed by another program (a builder keeps
+/// the scripts open in an editor of their own, as with Aurora) are read
+/// again while the module is open, and a save never writes over them:
+/// what Moonglow did not change itself stays the other program's.
+#[test]
+fn a_module_folder_s_files_changed_outside_are_read_again() {
+    use mg_module::ModuleLocation;
+    let dir = mg_testkit::scratch_dir("ui-folder-outside");
+    let folder = dir.join("module");
+    let mut m = Module::open(&sample_module(&dir)).unwrap();
+    m.save_as(&ModuleLocation::Folder(folder.clone())).unwrap();
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.no_mod_beside_folder = true;
+    app.open_module(&folder);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let script = |h: &Harness<'_, Moonglow>, name: &str| {
+        let ws = h.state().ws.as_ref().unwrap();
+        ws.module.get(&ResKey::parse(name, ResType::NSS).unwrap()).map(<[u8]>::to_vec)
+    };
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains(what))
+    };
+    let file = |name: &str| std::fs::read(folder.join(name)).ok();
+    h.state_mut().reload_project_files();
+    assert!(!said(&h, "Read again"));
+
+    // Another editor saves a script and makes a new one. A save in
+    // Moonglow before it has looked leaves both as they are.
+    std::fs::write(folder.join("hello.nss"), "void main() { int outside; }\n").unwrap();
+    std::fs::write(folder.join("fresh.nss"), "void main() {}\n").unwrap();
+    h.state_mut().ws.as_mut().unwrap().mark_modified();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    assert_eq!(file("hello.nss").unwrap(), b"void main() { int outside; }\n");
+    assert!(file("fresh.nss").is_some(), "a file new to the folder is not removed");
+    // Looked at: both are the module's now.
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    assert_eq!(script(&h, "hello").unwrap(), b"void main() { int outside; }\n");
+    assert!(script(&h, "fresh").is_some());
+    assert!(said(&h, "Read again from the module's files"));
+    assert!(h.state().outside_conflicts().is_empty());
+
+    // Changed in Moonglow and outside both: Moonglow's is kept, the save
+    // refuses to write over the file, and the window asks.
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "edit",
+        vec![mg_edit::Edit::SetResource {
+            key,
+            data: Some(b"void main() { int ours; }\n".to_vec()),
+        }],
+    )));
+    h.run_steps(2);
+    std::fs::write(folder.join("hello.nss"), "void main() { int theirs; }\n").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    assert_eq!(file("hello.nss").unwrap(), b"void main() { int theirs; }\n", "not written over");
+    assert!(said(&h, "changed on disk"));
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    assert_eq!(h.state().outside_conflicts(), [folder.join("hello.nss")]);
+    assert_eq!(script(&h, "hello").unwrap(), b"void main() { int ours; }\n");
+
+    // A file deleted outside leaves the module.
+    std::fs::remove_file(folder.join("fresh.nss")).unwrap();
+    h.state_mut().reload_project_files();
+    h.run_steps(2);
+    assert!(script(&h, "fresh").is_none());
+}
+
 /// A nasher project's files changed by another program are read again
 /// while the project is open; where Moonglow has unsaved changes to one,
 /// its own is kept and the window asks.
@@ -12400,7 +12475,7 @@ fn a_project_s_files_changed_outside_are_read_again() {
         assert!(script("fresh").is_some(), "the new file is in the module");
         assert!(!ws.is_modified(), "read again is not unsaved work");
     }
-    assert!(said(&h, "Read again from the project"));
+    assert!(said(&h, "Read again from the module's files"));
     assert!(h.state().outside_conflicts().is_empty());
 
     // Changed here (unsaved) and outside both: Moonglow's is kept, and asked.
