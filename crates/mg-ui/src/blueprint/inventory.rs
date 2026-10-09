@@ -169,14 +169,9 @@ impl Form<'_> {
     pub(super) fn held_item(&mut self, resref: ResRef, id: u32) -> Option<Struct> {
         let bp = self.blueprint(BlueprintKind::Item, resref)?;
         let game = self.app.game.as_deref()?;
-        let ws = self.app.ws.as_ref();
-        let item = |r: ResRef| -> Option<Struct> {
-            let k = ResKey::new(r, mg_core::ResType::UTI);
-            let data = ws
-                .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
-                .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-            mg_gff::Gff::read(&data).ok().map(|g| g.root)
-        };
+        let module = self.app.ws.as_ref().map(|w| &w.module);
+        let item =
+            |r: ResRef| mg_module::gff_root(module, game, &ResKey::new(r, mg_core::ResType::UTI));
         let placing = mg_module::instances::Placing { game, item: &item };
         Some(mg_module::instances::held(&placing, &bp, id))
     }

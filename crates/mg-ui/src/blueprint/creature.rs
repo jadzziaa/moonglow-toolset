@@ -123,14 +123,8 @@ fn choices(f: &Form<'_>, table: &str, name: &str, label: &str) -> Vec<Choice> {
 /// A creature's challenge rating, its gear read from the module's item
 /// blueprints, else the game's.
 fn challenge(game: &GameData, module: &mg_module::Module, creature: &Struct) -> Challenge {
-    let item = |r: mg_core::ResRef| -> Option<Struct> {
-        let k = ResKey::new(r, ResType::UTI);
-        let data = module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        mg_gff::Gff::read(&data).ok().map(|g| g.root)
-    };
+    let item =
+        |r: mg_core::ResRef| mg_module::gff_root(Some(module), game, &ResKey::new(r, ResType::UTI));
     let mut sheet = CreatureSheet::from_gff(creature);
     sheet.gear_value = game.gear_value(creature, &item);
     game.challenge(&sheet)

@@ -530,6 +530,20 @@ pub(crate) fn sibling(path: &Path, suffix: &str) -> PathBuf {
     path.with_file_name(name)
 }
 
+/// A GFF's root from `module` as it is now, else from the game: how a
+/// blueprint is read wherever one is needed.
+pub fn gff_root(
+    module: Option<&Module>,
+    game: &mg_rules::GameData,
+    key: &ResKey,
+) -> Option<mg_gff::Struct> {
+    let root = |data: &[u8]| Gff::read(data).ok().map(|g| g.root);
+    match module.and_then(|m| m.get(key)) {
+        Some(data) => root(data),
+        None => root(&game.resman.get(key).ok()?),
+    }
+}
+
 /// (years since 1900, day of the year) for the ERF header.
 fn build_date() -> (u32, u32) {
     let secs =

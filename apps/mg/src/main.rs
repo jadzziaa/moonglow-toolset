@@ -1219,13 +1219,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 }
                 let key = ResKey::new(a, mg_core::ResType::GIT);
                 let Some(Ok(git)) = m.gff(&key) else { continue };
-                let read = |k: ResKey| -> Option<mg_gff::Struct> {
-                    let data = m
-                        .get(&k)
-                        .map(<[u8]>::to_vec)
-                        .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-                    mg_gff::Gff::read(&data).ok().map(|g| g.root)
-                };
+                let read = |k: ResKey| mg_module::gff_root(Some(&m), &game, &k);
                 let item = |r: mg_core::ResRef| read(ResKey::new(r, mg_core::ResType::UTI));
                 let placing = mg_module::instances::Placing { game: &game, item: &item };
                 let blueprint = |t: mg_core::ResType, r: mg_core::ResRef| {

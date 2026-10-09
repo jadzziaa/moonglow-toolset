@@ -460,15 +460,8 @@ pub(crate) fn tile_command_keeping(
     let git_key = ResKey::new(view.area, ResType::GIT);
     if let Ok(git) = ws.doc(&git_key) {
         let git = git.root.clone();
-        let read = |r: ResRef| -> Option<mg_gff::Struct> {
-            let k = ResKey::new(r, ResType::UTD);
-            let data = ws
-                .module
-                .get(&k)
-                .map(<[u8]>::to_vec)
-                .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-            mg_gff::Gff::read(&data).ok().map(|g| g.root)
-        };
+        let read =
+            |r: ResRef| mg_module::gff_root(Some(&ws.module), game, &ResKey::new(r, ResType::UTD));
         let step = tools.set.general.transition;
         let old = |(x, y): (u32, u32)| before.tile(x, y);
         edits.extend(mg_area::terrain::door_edits(

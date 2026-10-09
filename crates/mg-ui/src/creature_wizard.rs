@@ -186,13 +186,8 @@ impl CreatureWizard {
 /// Reads an item blueprint: the module's, else the game's.
 fn item_reader<'a>(app: &'a Moonglow) -> impl Fn(ResRef) -> Option<mg_gff::Struct> + 'a {
     move |r: ResRef| {
-        let k = ResKey::new(r, ResType::UTI);
-        let data = app
-            .ws
-            .as_ref()
-            .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
-            .or_else(|| app.game.as_deref()?.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        mg_gff::Gff::read(&data).ok().map(|g| g.root)
+        let module = app.ws.as_ref().map(|w| &w.module);
+        mg_module::gff_root(module, app.game.as_deref()?, &ResKey::new(r, ResType::UTI))
     }
 }
 

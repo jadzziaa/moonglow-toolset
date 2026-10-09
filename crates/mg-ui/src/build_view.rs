@@ -325,14 +325,17 @@ fn compile(
             notes.push(format!("Build: compiled {} scripts, {failed} with errors", results.len()));
         }
         if w.compile_cr {
-            let item = |r: ResRef| read_gff(module, game, ResKey::new(r, ResType::UTI));
+            let item =
+                |r: ResRef| mg_module::gff_root(Some(module), game, &ResKey::new(r, ResType::UTI));
             let n = mg_module::build::compile_creature_cr(&mut staged, game, &item);
             notes.push(format!("Build: {n} creature challenge ratings brought up to date"));
         }
         if w.compile_encounters {
             // The creatures as they are now, ratings included.
             let snapshot = staged.clone();
-            let read = |r: ResRef| read_gff(&snapshot, game, ResKey::new(r, ResType::UTC));
+            let read = |r: ResRef| {
+                mg_module::gff_root(Some(&snapshot), game, &ResKey::new(r, ResType::UTC))
+            };
             let n = mg_module::build::compile_encounters(&mut staged, &read);
             notes.push(format!("Build: {n} encounter creature entries brought up to date"));
         }
@@ -390,17 +393,4 @@ fn check(
         }
         notes.push(format!("Build: {} unused resources", unused.len()));
     }
-}
-
-/// A GFF resource from the module, else the game.
-fn read_gff(
-    module: &mg_module::Module,
-    game: &mg_rules::GameData,
-    k: ResKey,
-) -> Option<mg_gff::Struct> {
-    let data = module
-        .get(&k)
-        .map(<[u8]>::to_vec)
-        .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-    mg_gff::Gff::read(&data).ok().map(|g| g.root)
 }

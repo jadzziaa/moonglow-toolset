@@ -3553,14 +3553,7 @@ fn instance_of(
     use mg_module::instances::{Placing, instance};
     let (Some(game), Some(ws)) = (app.game.as_deref(), app.ws.as_mut()) else { return Ok(None) };
     let _ = ws.flush();
-    let read = |k: ResKey| -> Option<mg_gff::Struct> {
-        let data = ws
-            .module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        Gff::read(&data).ok().map(|g| g.root)
-    };
+    let read = |k: ResKey| mg_module::gff_root(Some(&ws.module), game, &k);
     let blueprint = read(key).ok_or_else(|| format!("{key}: not found or not readable"))?;
     let items = |r: ResRef| read(ResKey::new(r, ResType::UTI));
     let placing = Placing { game, item: &items };
@@ -4824,13 +4817,7 @@ fn add_to_palette(app: &mut Moonglow, view: &AreaView, kind: ObjectKind, index: 
         return;
     };
     let module = &ws.module;
-    let original = |k: ResKey| -> Option<mg_gff::Struct> {
-        let data = module
-            .get(&k)
-            .map(<[u8]>::to_vec)
-            .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
-        Gff::read(&data).ok().map(|g| g.root)
-    };
+    let original = |k: ResKey| mg_module::gff_root(Some(module), game, &k);
     let taken = |k: &ResKey| module.contains(k) || game.resman.get(k).is_ok();
     let Some(added) =
         mg_module::palette_add::add_to_palette(game, kind.restype(), &placed, &original, &taken)
