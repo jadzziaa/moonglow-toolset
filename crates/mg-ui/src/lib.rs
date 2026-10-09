@@ -254,8 +254,8 @@ impl Log {
     pub fn warn(&mut self, s: impl Into<String>) {
         self.said(Level::Warning, s.into());
     }
-    /// (The debug log has the messages too.)
-    fn said(&mut self, level: Level, s: String) {
+    /// A message of any level. (The debug log has the messages too.)
+    pub(crate) fn said(&mut self, level: Level, s: String) {
         trace::note(format!("log {level:?}: {s}"));
         self.entries.push((level, s));
     }
