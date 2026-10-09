@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-03T21:08:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T14:21:21Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -266,6 +266,17 @@ reading (a level-3 ranger's companion is read). `Domain1`/`Domain2` and
 - **Checked:** engine, `engine_ee_fields.rs`.
 - **Wiki:** the fields are documented; the class gating is not.
 
+### A special ability's flags are one yes or no
+
+A `SpecAbilityList` entry with any of the flags' three bits set (Ready,
+Spontaneous, Unlimited) is a use the creature has; with none it is spent.
+Unlimited does not make the uses unlimited: each entry is used up.
+
+- **Checked:** engine, `engine_special_abilities.rs`.
+- **Moonglow:** one switch, Ready, on a creature's Special Abilities
+  page (three until 1.19.5).
+- **Wiki:** not compared.
+
 ## Areas and tiles
 
 ### The tile grid
@@ -508,6 +519,95 @@ particle keeps 0.8 of its speed along it and 0.8 × `bounce_co` off it.
 - **Moonglow:** `crates/mg-render/src/particles.rs`.
 - **Wiki:** "MDL ASCII Emitter Nodes" describes `mass`, `bounce_co`,
   `m_isTinted` and `twosidedtex` loosely or differently.
+
+## Drawing, seen in the game client
+
+All checked by screenshots of the game client beside Moonglow's picture,
+by eye (`client_render.rs`, the test named in each; exploration, no
+assertions).
+
+### A body part is drawn in its own texture
+
+A creature's part (`p<g><r><pheno>_<part>NNN`) is drawn with the texture
+of its own name, whatever texture its mesh names: the game's thigh 3
+names thigh 2's texture and chest 32 chest 13's (598 such meshes in the
+base game). A mesh that names something that is no part's texture keeps
+it.
+
+- **Checked:** `creatures_look` with `MG_PARTS`.
+- **Moonglow:** `crates/mg-preview`.
+- **Wiki:** missing.
+
+### A worn part moves at its wearer's animation scale
+
+A cloak or robe playing its wearer's skeleton's animation moves at the
+wearer's `setanimationscale`, not its own model's (a cloak's has none):
+on an elf it sits on the shoulders as on a human, and the wings a
+cloak's row hides are hidden.
+
+- **Checked:** `creatures_look`; Moonglow's own test
+  `a_cloak_sits_on_a_smaller_body_s_shoulders`.
+- **Wiki:** missing.
+
+### A shader that switches the environment map off
+
+With an MTR naming a shader whose source has `#define ENVIRONMENT_MAP 0`
+(`fslit_nm`), the appearance.2da row's environment map is not reflected:
+the texture's alpha is see-through with the MTR's `transparency` and
+drawn solid without it. With no shader named, or no MTR, the map shows
+where the texture is see-through, `transparency` or not.
+
+- **Checked:** `creatures_look` with `MG_OVERRIDE`.
+- **Moonglow:** `crates/mg-render/src/renderer.rs` (`env_switched_off`:
+  the shader's source is read for that one line, and not run).
+- **Wiki:** missing.
+
+### Static placeables stand upright
+
+A placeable turned about all three axes stands as its file says; a
+static one is drawn upright whatever its file says.
+
+- **Checked:** `placeables_look`.
+- **Wiki:** missing.
+
+### A TGA's origin bits are ignored
+
+The game takes a TGA's rows and columns as stored: neither the top-left
+origin bit (5) nor the right-to-left bit (4) changes the picture.
+
+- **Checked:** `placeables_look` with `MG_TGA=16`.
+- **Moonglow:** `crates/mg-image`.
+- **Wiki:** missing.
+
+### Two-sided faces, cut-outs and decals
+
+A face is drawn from its front only, whatever its texture's TXI says
+(`blending punchthrough`, `decal 1`, both or none). An MTR with
+`twosided 1` shows it from behind too, lit as its front is, and the
+texture's `blending punchthrough` still cuts it out. `decal 1` is drawn
+unlit: as bright in an area lit 0x101010 as by day.
+
+A texel is cut out where its alpha is 0.2 or less (`fAlphaDiscardValue`),
+whatever the TXI says and with an MTR or without. What is left of a
+`blending punchthrough` texture is drawn solid; of any other, blended.
+
+- **Checked:** `cutouts_look`; the cut with `MG_DISCARD=1`, which paints
+  each surface with the value through a patched `inc_standard.shd`.
+- **Moonglow:** `crates/mg-render/src/renderer.rs` (`Slots::twosided`).
+- **Wiki:** not compared.
+
+### Particles: kept, flip-books and ribbons
+
+Particles an emitter keeps in its own space (`inherit`) fall the
+world's way down, whatever way the emitter is turned. A flip-book's
+first frame is the picture's top left, and its frames go along a row
+and down the rows. A `Linked` ribbon is twice its particles' size
+across, each piece showing its particle's frame whole.
+
+- **Checked:** `particles_look` with `MG_PARTICLES=inherit`, `linked`,
+  `linked2` (and `MG_GRID`) and `linked4`.
+- **Moonglow:** `crates/mg-render/src/particles.rs`.
+- **Wiki:** not compared.
 
 ## Talk tables and 2DAs
 

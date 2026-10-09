@@ -1,16 +1,18 @@
 ---
 type: Backlog
 title: 'Deferred: what was left out, for a decision later'
-description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
+description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T11:55:20Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T14:25:32Z }
 ---
 
 # Deferred: what was left out, for a decision later
 
-What the post-parity work (`PLAN.md`, "After parity") left undone, in
-one place. Once the map's current items are worked through, each gets a
-verdict: fix, add, or drop. New gaps are added as work finishes.
+What finished work left undone or unchecked, in one place: each entry
+awaits a verdict (fix, add, or drop), and new gaps are added as work
+finishes. What was fixed is in the [log](log.md) and the release notes,
+what was measured in the game or Aurora is in the [findings](findings.md),
+and what stays as it is by decision or by design is in the last section.
 
 Size: S (an hour or two), M (a day or so), L (several days).
 
@@ -96,12 +98,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   chosen (0.7 ms of 2.7) and its values written. Kept from frame to frame
   for what doesn't move, with the camera's part worked out in the shader,
   it would be done once. (M–L)
-- **Seams between tiles:** drawn as instances, a sample on the seam of
-  two tiles may show the other tile's floor (12 of 192 pictures, one to
-  three pixels each): which of two floors that both cover a sample is
-  drawn last was the order of the area's tiles, and is now the order of
-  the draws. A mesh at a time (`Renderer::instancing` off) it is as it
-  was. (—)
 - **Animations step 25 times a second** (`ANIMATION_STEP`, 40 ms) while
   only they move; before, they stepped with every frame the window drew
   (20 a second left alone, 144 with the pointer moving). A setting, or
@@ -175,8 +171,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Edited together, shown as the first:** a field whose value differs
   among the areas, blueprints or placed objects edited together has "≠"
   before it (of up to 65 of them). Not marked: a field in several
-  languages, a slider, an area's flags (one field for several boxes)
-  and its Audio page, and the lists of an editor's own. (S)
+  languages, a memo, a slider, a palette color, the appearance and
+  loading screen choices, the category and the conversation, an area's
+  flags (one field for several boxes) and its Audio page, and the lists
+  of an editor's own (a code review found the first seven never call
+  `Form::mark_mixed`; nothing says which fields are meant to have the
+  mark, and a painted mark is in no test). (S, needs the intent)
 - **Choosing areas by more:** the chooser filters by name, ResRef,
   tileset and the three kinds; not by a property's value (areas with a
   given music or variable), and its choice isn't kept as a named set.
@@ -215,10 +215,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
-- **Pictures for the rest:** waypoints have their flags as pictures;
-  sounds, triggers, encounters and stores say what they are on hover, in
-  a line or two (a store's and a sound's markers are the same for every
-  one, and the others have no model). (—)
 - **Palette categories against Aurora:** a module's own categories
   (Palette › Categories…) are a skeleton kept in the module, with names
   written out (`NAME`, and BioWare's `DELETE_ME`). That Aurora reads a
@@ -236,9 +232,6 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Favorites and Recent** are Moonglow's, not the module's: a custom
   blueprint's favorite shows only in the module that has it. Per-module
   lists could live beside the module. (S)
-- **Standard palette categories** can't be changed (the game's); only
-  custom blueprints move between categories, as in Aurora. (—)
-
 ## Custom content data (2DAs and talk tables)
 
 - **No 2DA editor or merger:** 2DAs are read-only (the view shows which
@@ -278,67 +271,26 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **ERF version:** haks are saved as `V1.0`; EE's compressed `E1.0` is
   read but not written. (S–M)
 
-## Options and lists
-
-- **Areas by name elsewhere:** areas are by name in the module tree, tab
-  titles, Find Instance, the area transition's destinations and the
-  references list; the log has ResRefs. (—)
-- **The Options tab** opens as wide as the window allows, where the
-  other editors leave some of the area showing beside them; Enter is OK
-  only while the pointer is over it. (—)
-- **Column headings** in forms' tables ("Base", "Total", "Sun", "Moon")
-  keep the plain strong style; only section headings were made larger.
-  (—)
-
 ## From a senior builder's review (October 2026)
-
-Done from it: New… in the module tree's menus, the Creature Wizard's
-races and monsters' portraits, Escape closing a model's window, lists by
-name, Interface size, spawn points' markers and facings, areas and
-blueprints by name with ResRefs in parentheses, the palette's ResRefs and
-challenge ratings as options, category filters for feats and spells,
-special abilities as uses, the creature's model in its Appearance page,
-a light theme. Left:
 
 - **Creature Properties' overlapping elements:** reported, not
   reproduced: every page is checked for widgets drawn over each other at
   four window sizes (`blueprint_editor_pages_draw_nothing_over_anything_else`)
   and none are. A screenshot, or the page and the interface size, would
   find it. (S)
-- **Scripts and conversations by name:** they have no names; the tree
-  lists them by ResRef. (—)
 - **The model in other editors' pages:** a placeable's and a door's
   Basic page show it beside their fields where the window is wide enough
   for both; narrower, Preview shows it. An item's Appearance page has it
   beside the fields, or in a narrower window beside the icon (a
   creature's Appearance page stacks them instead). The viewer frames an
   item as any model: a sword lying flat is small in it until turned. (S)
-- **Special abilities' flags against the game:** settled in the engine
-  (`engine_special_abilities.rs`): a use with any of Ready, Spontaneous
-  or Unlimited set is one the creature has, a use with none is spent,
-  and Unlimited doesn't make the uses unlimited (each entry is used up).
-  The editor had the format's three names as switches until 1.19.5; a
-  builder who knows the engine pointed out that it reads the byte as yes
-  or no, which is what the test had found, so there is the one switch,
-  Ready, now. (—)
 - **The light theme's own colors:** it is egui's light theme; the script
   editor's syntax colors follow it, but conversation and faction colors
   are the dark theme's (legible on both), and the area view's overlays
   are drawn for the 3D view. A pass with a builder who uses it would
   settle the rest. (S–M)
 
-
 ## From a second builder's review (October 2026)
-
-Done from it: scroll bars always showing, Escape closing the window in
-front (dialogs, then a Properties window), dialogs kept above the docked
-windows, number fields dragged to a new value (the drag did nothing),
-deleted and unnamed rows left out of the feat and spell lists, a row's
-number, label and innate level in a feat's or spell's hover, portraits
-without pictures left out of Select Portrait, doors' portraits out of
-the Creature Wizard, the Variables window's list scrolling, a read-only
-View of the game's blueprints, Edit Copy… and the wizards asking for the
-ResRef and Tag. Left:
 
 - **A drag on a number field moving objects in the area behind:**
   reported, not reproduced
@@ -363,14 +315,12 @@ ResRef and Tag. Left:
   takes the pointer and the keys until then (so its lists scroll and its
   pages open): what is typed goes when the field is left. (S)
 - **Random item properties** in the Item Wizard, as Aurora's. (M)
-- **"Area transitions can't be selected visually":** not understood;
-  asked. (—)
-- **Done since:** the Creature Wizard's ResRef and Tag, its appearances
+- **Inventories, what is left** (done: the Creature Wizard's ResRef and Tag, its appearances
   as pictures with Find, and every portrait; the inventory's Equip to a
   free slot, To Backpack and Open Blueprint; talk-table text in its own
   color; a Variables window that is sized; drag and drop and right-click
   menus in the inventory, items dragged between inventories and within
-  a list, Copy and Paste. Left of these: an item carried between
+  a list, Copy and Paste): an item carried between
   inventories is made anew from its blueprint where it lands (what a
   placed object's own copy had is lost), one at a time, and the drag
   between two objects' windows is not under test; a moved row keeps its
@@ -384,15 +334,6 @@ ResRef and Tag. Left:
 
 ## From builders' reports after 1.10.1 (October 2026)
 
-Done: an area's missing music looked for once (it was every frame), Edit
-beside a script opening the external editor where Options has scripts
-open there, a conversation's tree in the language edited, a window
-maximized from the bar beside its tab, a folded window showing its whole
-bar, the Faction Editor's columns as wide as their numbers, the journal's
-categories folding, prefabs deleted from the palette, Copy… in the
-module tree (areas with what is placed in them), particles of placed
-objects in the area view, Fade Geometry. Left:
-
 - **Moonglow seeming to start twice on Windows** (a builder's video: a
   blank white window, gone again, then the real one): his window was
   last left maximized. eframe creates its window hidden until the first
@@ -401,17 +342,6 @@ objects in the area view, Fade Geometry. Left:
   unmaximized there and maximized after its first frame. Not tried on
   Windows: nothing here runs it; told by the video, eframe's source and
   the fix's own test of what it asks for. (?)
-- **A body part drawn in another part's texture (GitHub issue 5, its
-  second half):** a part was drawn with the texture its mesh names where
-  that exists, but the game draws the part's own (`p<g><r><pheno>_<part>NNN`)
-  whatever the mesh names. The game's own thigh 3 names thigh 2's
-  texture and chest 32 chest 13's (598 such meshes in the base game
-  alone), so this was wrong without any custom content: the reporter's
-  "shows part 2, should be part 3". Seen in the client (`creatures_look`
-  with `MG_PARTS`: plate thighs, where Moonglow drew thigh 2's cloth),
-  and the same now. A mesh that names something that is no part's keeps
-  it. The reporter's own armor (a CEP robe) was not drawn here: its
-  part models are in CEP haks not on this machine. (—)
 - **Dynamic body parts from custom content (GitHub issue 5):** fixed
   with the reporter's haks over CEP 2.71. Under armor a creature's own
   part shows where the armor's is bare skin (part 1) or none, as the
@@ -424,15 +354,6 @@ objects in the area view, Fade Geometry. Left:
   a helmet whose model (`helm_129`) is in neither download, and is
   drawn headless; what the game draws for a missing helmet model isn't
   known. (needs the file)
-- **A cloak over the face of an elf (or any body smaller than a
-  human's):** a worn part playing a skeleton's animation moved at its
-  own animation scale (a cloak's model has none: 1) rather than its
-  wearer's. It moves at the wearer's now, which puts its bones on the
-  body's (`a_cloak_sits_on_a_smaller_body_s_shoulders`). Seen first with
-  the HD bodies, and the same with the game's own. Compared with the
-  client since (`creatures_look`): a cloak on an elf and on a human sits
-  on the shoulders in both, in the item's colors, with the wings the
-  cloak's row hides hidden. (—)
 - **"The toolset must be restarted for the language to take effect":**
   reported; Options › OK reads the game's text and the names again, and
   text fields are now read again too. What still showed the old
@@ -454,22 +375,12 @@ objects in the area view, Fade Geometry. Left:
   which now leaves the camera alone while the handles show). Aurora
   turns the selection with Shift + right drag; and some desktops take
   Alt + drag to move the window. Not in Options › Keyboard. (S)
-- **A window's bar:** egui_dock gives a folded window the height of its
-  tab bar, frame included, so the dock's windows are drawn without a
-  frame margin and their tabs' contents are given one instead. (—)
-- **Copy… of a script** takes its compiled script along; its debug
-  information (`.ndb`) is made when the copy is next compiled. (—)
 - **The scale handle** scales every way alike, as Adjust Location's
   field does; the file keeps a scale for each axis. It stands where it
   was taken while it is dragged, rather than follow the pointer. (S)
 - **The Gallery:** up to 192 pictures are kept at once (more are made
   again as they come back into sight) and all are made again when a
   blueprint changes. (S)
-- **Ctrl+V refused on Windows** (a builder's debug log: "arboard paste
-  error … the clipboard is empty"): the key reaches Moonglow only as the
-  system's paste, which Windows doesn't send with no text to paste.
-  Copying objects, tiles or a conversation's lines now leaves a line of
-  text there. Not tried on Windows. (—)
 - **A picture of a model that emits** is drawn four seconds in, framed
   with its particles (a flame is small under its smoke). (S)
 - **Appearances as pictures** are placeables', creatures' and doors';
@@ -491,9 +402,6 @@ objects in the area view, Fade Geometry. Left:
   inventory leaves the window on another item (or none). A blueprint's
   items (which are named, not held whole) open the item's blueprint
   instead; a placed store's weren't tried. (S)
-- **Deleting a prefab** isn't Edit › Undo's: the palette's Undo Delete
-  puts back the one deleted last, until Moonglow is closed. (—)
-
 ## Raw fields
 
 - **Rows the fields view doesn't name yet:** an item property's subtype,
@@ -506,9 +414,6 @@ objects in the area view, Fade Geometry. Left:
 
 ## Getting files out
 
-- **Compiling before export** needs the game's data (for nwscript):
-  without it scripts go out with the compiled scripts they have, and the
-  log says so. (—)
 - **One at a time from the tree:** the tree exports one resource at a
   time (the Export window takes several). The area view's To Scratch
   copies the area alone, not the blueprints or scripts it uses. (S)
@@ -527,16 +432,6 @@ objects in the area view, Fade Geometry. Left:
   eighth of that stack). Compiles run on a stack of their own now.
   Whether that was the reporter's crash isn't known: asked for the debug
   log (Options › General) and what was being done. (needs the log)
-- **Include files** aren't compiled on their own by Compile All, the
-  build or Compile in the editor (they were, and one leaning on what its
-  includer brings was reported as an error). Watched in Aurora since
-  (Build › Build Module, Compile): it compiles every script, says
-  nothing of one that only lacks `main`, and reports "Compile Error" for
-  an include that leans on what its includer brings, as Moonglow did
-  before this change. Skipping includes is Moonglow's own, kinder than
-  Aurora and not like it, and kept by decision (2026-10-07). An include
-  is still checked as you type, on its own, so one that leans on its
-  includer shows an error there. (—)
 - **The external compiler** (Options › Script Editor): run as a program
   on the module's scripts written to a scratch folder, with what it made
   read back. Tried with `nwn_script_comp` (its bytecode is the built-in
@@ -581,9 +476,6 @@ objects in the area view, Fade Geometry. Left:
   stray bytes as the project's code page has them. The reporter's file
   wasn't seen; a file broken another way still stops the project from
   opening, where it could be left out and said. (S)
-- **What an area lacks is named in the log** (a tileset, models from a
-  hak that isn't there), once, up to twelve names; the toolbar's count
-  has the rest on hover. (—)
 - **Steam Workshop content** is read (Options › General): each item's
   `override` folder as a layer under the user's own, its `hak` and `tlk`
   folders searched. Which of two items' overrides wins in the game isn't
@@ -629,14 +521,6 @@ objects in the area view, Fade Geometry. Left:
   isn't read); Beamdog's client isn't looked for. The reporter's case (a
   second drive on Linux) is covered by the list, not tried on their
   machine. (S)
-- **The grid seen from the area's edge:** red and plain as the view
-  comes down (Aurora's is red from every side, and mostly lost in the
-  ground from above), and drawn at the area's foot under raised ground.
-  Looked at in Aurora on a raised plateau since, at a low pitch: its
-  red lines show on top of the raised ground, at that ground's height,
-  as Moonglow's do; none could be made out on the low ground in front
-  (lost in the ground, as from above). Whether Aurora also draws lines
-  at the area's foot under raised tiles could not be told. (—)
 - **A press with Ctrl held is the camera's** with a tileset brush chosen
   (it painted when let go). A right drag that turns the view and ends
   where it began is still a right click to the brush (Raise/Lower
@@ -672,17 +556,6 @@ objects in the area view, Fade Geometry. Left:
 
 ## From builders' reports after 1.16.2 (October 2026)
 
-Done: scripts opened from a script editor (Open…, the module's, its
-haks' or all, as Aurora's Resources to Show); Enter finding the next
-match; Find In Currently Open Scripts; a double click on a name bringing
-its Help forward; New on the palettes' right-click menus; filtered
-categories that close again; Maximize over the whole window; the module
-tree showing the object selected in the area; the tree's Filter kept in
-sight; Home and End in the tree and the palettes; a creature's feats
-listed beside the feats to choose from; the module tree's rows out of
-sight not laid out (a huge module slowed everything while a group was
-open). Left, or to know:
-
 - **Items lying in an area** are turned as baseitems.2da's
   `RotateOnGround` says (1: a quarter turn about the model's Y axis, a
   sword or a shield on its flat; 2: about X, a potion stood up; 0: as
@@ -707,72 +580,12 @@ open). Left, or to know:
   needs a 2DA merger first. An object whose model is too small to see
   (under half a metre across, or empty) is now drawn and picked by a
   marker's box, lights and the Invisible Object alike. (M)
-- **Raise/Lower dropped by a right click that found no ground** (a
-  builder lowering terrain past placeables got their menu, or selected
-  them): found from his debug log, which showed an object's Properties
-  opened from the area with the brush thought in hand. A right click
-  where no ground of the area is under the pointer (a cliff face with
-  nothing to stand on, the ray going on past the area's edge) dropped
-  the brush without a word, as it does for the other brushes, though
-  for Raise/Lower a right click is the lowering; the next click was the
-  object's. Raise/Lower stays in hand now (Escape drops it), and a
-  brush dropped by a right click is noted in the debug log. (—)
-- **The tiles that refuse a terrain stroke flash red** (a raise, a
-  lowering, a painting, a crosser, a group, Delete on tiles): each cell
-  that has no tile fitting what the stroke would make of it, or holds a
-  group's tile the stroke would not keep, as Aurora flashes what is in
-  the way. All of them, not the first found. (—)
-- **Palette categories named in `DELETE_ME` alone** (no StrRef, no
-  `NAME`: a Spanish builder's skeletons) keep their names in the Custom
-  palette, which showed them blank; names written out are read in
-  Windows-1252 ("Compañeros"). A name that is a talk-table string the
-  table lacks now says which string, in place of nothing. (—)
-- **Keys in a window over an area view**: no key moves the camera while
-  a text field has the keyboard. The arrows did (letters and digits were
-  already the field's), so moving the text cursor in a conversation or a
-  script over the view slid the area. (—)
-- **A tile's variant in Tile Properties**: with one tile chosen, the
-  tiles that fit there show as pictures (each tile's model seen from the
-  south-west, turned as it would lie, its quarter turns written under
-  it); a click puts that one there, a step of its own, and
-  the window becomes that tile's. Tile Properties is a tab now (a
-  window to resize, maximize or dock), the pictures filling it. (—)
 - **Emitters a builder does not see** (GitHub issue 8: a demon's wings,
   braziers, shafts of light, all without particles in his area): not
   reproduced. The game's own balor, fire elemental, campfire and brazier
   show theirs in the area view here (`look_particles_of`), so it is his
   content, a setting (Animations off shows none) or his machine; asked
   of him. (?)
-- **Text typed in a field in another language than English** was
-  written in Windows-1252 whatever the language: Polish "ł" became "?".
-  It is written in the language's own codepage now, as the String Edit
-  window always did. (—)
-- **Names in UTF-8 in a Custom palette** (a module's blueprints, as
-  Moonglow writes them) were read as Windows-1252 since 1.17.0
-  ("KrysztaÅ‚owa"): UTF-8 where it is that, Windows-1252 otherwise. (—)
-- **Done from the same round**: conversation lines dropped above a line
-  of their kind, and their right-click menu; an encounter's spawn point
-  moved by the foot of its post; Drop to Ground on triggers and
-  encounters; several objects turned about their middle (Together);
-  Resize Area at any two edges (the area turned, resized and turned
-  back: what Aurora does at north and east, at the others); Previous
-  Variant; the area opened marked in the module tree; the chosen
-  appearance's picture on its list's box.
-- **A shader with the environment map switched off reflects nothing**: a
-  creature whose appearance.2da row names an environment map (`default`)
-  showed a pale shiny band where its hair's texture is see-through; the
-  hair's MTR names `fslit_nm`, whose source has `#define ENVIRONMENT_MAP
-  0`. Seen in the client (`creatures_look`, `MG_OVERRIDE`): with that
-  shader the map is not reflected, and the alpha is see-through with the
-  MTR's `transparency` and drawn solid (the texture's own color) without
-  it; with no shader named, or no MTR, the band shows in the game too,
-  `transparency` or not. Moonglow reads the named shader's source for
-  that one line and runs none of it. (—)
-- **The Build Module window with Advanced Controls** grew to the
-  screen's height, its Build button out of reach: the dividers between
-  the three columns took all the height there was. Gaps now. (—)
-- **Edit on every row's menu in the module tree**, as a double click;
-  areas keep View Area. (—)
 - **Find In Currently Open Scripts** searches the scripts whose editors
   hold their text, which includes one closed with text typed and not
   saved. (S)
@@ -782,8 +595,6 @@ open). Left, or to know:
 - **Spells as the Feats page is now** (those known beside those to
   choose from): asked for, and left: the page also has levels, classes
   and memorized counts to lay out. (M)
-- **Undo in the script editor** "doing weird stuff" was reported as
-  seeming fixed; nothing was changed for it and nothing reproduced. (—)
 - **Long lists opened out:** the tree's rows out of sight take their
   room only; its groups' names are still gathered and sorted every
   frame, which a module of tens of thousands of resources may feel. The
@@ -791,14 +602,6 @@ open). Left, or to know:
   reporter's module. (S–M)
 
 ## From builders' reports after 1.19.1 (October 2026)
-
-Done: a trigger or an encounter turns by its outline, alone (about the
-outline's middle) and with others (Together); the Shaft of Light's beam
-stands and its glow lies (`Aligned_to_World_Z` and `Billboard_to_World_Z`
-were the wrong way round: seen in the client); Export adds to an archive
-that is there; the talk table as JSON, its empty lines left out of the
-list, and a `.tlk` file opened or made on its own; the resource
-browser's Save As on a row and Export as Files. Left, or to know:
 
 - **A module's `encoding.2da`** (EE 1.87: a table of the Unicode
   character each of the 256 byte values stands for, shipped with fonts
@@ -871,9 +674,12 @@ browser's Save As on a row and Export as Files. Left, or to know:
   the window's thread reads the files only when that number changed
   (and once when the module opens). Not measured on a large module
   here; the read after a change (another program's save, or Moonglow's
-  own) still looks at every file once on the window's thread, and the
-  game's own content (`override`, `development`, the haks) is still
-  looked at there every three seconds, as before. (S)
+  own) still looks at every file once on the window's thread. The
+  haks and the `override`, `development` and portrait folders (and the
+  custom talk table) are watched the same way since: looked at on the
+  window's thread only after a change. A watch said nothing of a change
+  made before its thread's first look; it says so after that look now.
+  (S)
 - **A fog placeable drawn as bright streaks** (a builder's custom fog:
   `Linked` particles over a 20 m square, an 8 by 8 flip-book that goes
   from nothing to thick). Two faults, both settled in the game client
@@ -904,9 +710,13 @@ browser's Save As on a row and Export as Files. Left, or to know:
   change, leaves a file new to the folder, and writes nothing (saying
   which files) where a file was changed outside and here both, for
   Changed Outside Moonglow to ask. The external editor works on the
-  folder's file. Not done: a script read again is not compiled (its
-  `.ncs` in the folder, and in the `.mod` written beside it, is the
-  older one until Compile All); the reloading needs the game's data
+  folder's file. A script read again is compiled
+  where Automatically Compile Scripts on Save is on (a nasher project's
+  too). Not done: the scripts that include a script read again are not
+  compiled with it, nor are more than 24 read at once (a checkout:
+  Compile All), and the compiling is on the window's thread; a module
+  whose script was compiled so has unsaved changes (the compiled
+  script, written by the next save); the reloading needs the game's data
   open, as the game's own reloading does; a first Save As into a folder
   that has other files still removes the resource files the module
   lacks; `mg` commands save over a folder as before (they open, change
@@ -996,9 +806,7 @@ browser's Save As on a row and Export as Files. Left, or to know:
   waterfall tiles' water reaches the foot of the fall). Seen in the
   game client (`particles_look`, `MG_PARTICLES=inherit`): two weighted
   emitters thrown sideways, one keeping its particles and one not, fall
-  in the same arc. The same
-  builder's fog placeable ("Fog: White - Low", custom content) was not
-  to hand: not looked at. (S)
+  in the same arc. (S)
 - **`mg roundtrip`** (a builder asked what keeps work from being
   corrupted): a module saved, read back and each GFF and 2DA written
   anew, compared with what it was. It does not ask the game or Aurora
@@ -1026,12 +834,6 @@ browser's Save As on a row and Export as Files. Left, or to know:
   The box does not follow the animation as it plays, and a click is
   still tried against the model's triangles at rest (then against the
   box). (S)
-- **A palette's rows are one line** (a builder: names with ResRefs and
-  challenge ratings wrapped onto a second line in a narrow pane), cut
-  short as the module tree's are, whole under the pointer. Not an
-  option. (—)
-- **Update Instances lists what it updated** in the log (a builder: as
-  Aurora's does, which was not captured), up to 200 of them. (—)
 - **The hak list of Module Properties** (GitHub issue 17) is the
   issue's recommended layout: a framed list numbered from the top, rows
   chosen (Ctrl and Shift for more) and moved by a drag, the arrows under
@@ -1081,19 +883,13 @@ browser's Save As on a row and Export as Files. Left, or to know:
   job), and try again later; on Windows a hak Moonglow has open cannot
   be replaced by another program at all, so a hak tool may have failed
   to write it. If it comes back: the log around it, and whether Tools ›
-  Reload Resources cures it. (S–M)
-- **The hak editor asks before replacing** files the hak already has
-  (Replace, Skip Those, Cancel), as a builder said Aurora's does. Update
-  from Folder still replaces, as it says. (—)
+  Reload Resources cures it. While
+  something else holds the game data, the look is put off and the
+  debug log says so ("the game data is held"), which would show this.
+  (S–M)
 - **Arrows after a creature's statistics** (abilities, natural AC, hit
   points, save bonuses), as Aurora's fields have; the other number
   fields have none. (S)
-- **A .mod beside a module folder on save**, as a builder says Aurora
-  writes one for a module directory: on unless Options › General
-  switches it off (the user's decision: a folder opened from elsewhere,
-  a repository's source tree, gets a `.mod` written beside it unless it
-  is off). A nasher project is left to Pack Target. Aurora's own
-  behavior was not captured. (—)
 - **Ctrl + wheel scales the selection** (a builder: Aurora's way to
   resize a placeable, which did nothing here but zoom): the models of
   the objects selected that take a scale, shown as the wheel turns and
@@ -1113,7 +909,8 @@ browser's Save As on a row and Export as Files. Left, or to know:
   Left and Right move a cursor through the blueprint palettes' rows
   after a click in the palette, and the camera leaves the arrows alone
   until the pointer is back in an area's view. Not done: the tileset's
-  palette, the Prefabs list and the module tree have no such keys; in
+  palette and the Prefabs list have no such keys (the module tree has
+  them since 1.20.0); in
   the Gallery Up and Down go a picture at a time, not a row of them;
   the keys repeat only as the system repeats them. With the keys on a
   category the blueprint selected stays in hand; whether Aurora keeps
@@ -1176,24 +973,8 @@ browser's Save As on a row and Export as Files. Left, or to know:
   length's axis from how it lies; which side then faces the viewer isn't
   chosen (a sword shows its edge more than its flat). Items in the
   palette's Gallery and on the ground in an area lie as modelled. (S)
-- **Done:** a conversation's lines move up and down among their parent's;
-  a potion's parts are listed (they were chosen by models, and a potion
-  has icons only); Random Facing.
-
 ## From GitHub issue 6 (October 2026)
 
-Done: linked particles drawn a frame each (a ground mist was a lattice
-of its sprite sheet), Edit Areas Together giving every area a page's
-settings, a test refused while the game of the last one runs, an area's
-sounds coming up over three seconds (those that play now and then not
-all at once), a folded window's size not remembered for the next of its
-kind, any snapping angle, Escape deselecting. Already there: copy and
-paste (and its Windows fix), missing music tried once, custom palette
-categories, the galleries. Water ripples. Left:
-
-- **Linked particles against the game:** each is stretched to reach the
-  next, showing its own frame, as the wiki describes them; not compared
-  with the client. (S)
 - **Water** was flat and still. The game's water textures (every base
   tileset's, Medieval Rural 2's too) say two things in their TXI:
   `proceduretype arturo`, the old game's rippling of the picture, and
@@ -1206,10 +987,6 @@ categories, the galleries. Water ripples. Left:
   displacement), and neither was compared with the client. (M)
 - **A running game** is known only if Moonglow started it for a test:
   one started otherwise still has the test module written under it. (S)
-- **Clicking between tiles and objects:** a click on an object while
-  tiles are selected goes to objects, and a double click on the ground
-  to its tile. So a tile wholly under an object is selected by a box,
-  not a click. (—)
 - **Give Every Area This Page's Settings** copies the fields the page
   shows, not the tiles' lights a lighting scheme sets. (S)
 
@@ -1310,17 +1087,16 @@ categories, the galleries. Water ripples. Left:
   when the main window is resized, and nothing shows that it is
   maximized. That a size dragged by hand is remembered is not under
   test (the tests set the size). (S–M)
-- **A project's files changed outside** are read again by polling (every
-  3 s, the whole source tree listed each time: not measured on a project
-  of thousands of files; no file-system watcher). The files' times and
-  sizes decide what is read, so a change that keeps both within the
-  clock's grain is missed. A reload that touches resources the undo
-  history has changes to clears the whole history. A script open in the
-  editor with typing not yet applied counts as changed here. Compiled
-  scripts aren't made again on reload (the next build does). Only nasher
-  projects: a `.mod` file or a module folder changed outside isn't
-  noticed. The area list isn't settled again for areas added outside.
-  Not tried against a real `git checkout` of many files. (M)
+- **A module's files changed outside** (a nasher project's sources, a
+  module folder's files; a `.mod` file changed outside isn't noticed)
+  are found by a thread of its own since 1.20.2 (their names, times and
+  sizes every 3 s) and read again on the window's thread. The files'
+  times and sizes decide what is read, so a change that keeps both
+  within the clock's grain is missed. A reload that touches resources
+  the undo history has changes to clears the whole history. A script
+  open in the editor with typing not yet applied counts as changed
+  here. The area list isn't settled again for areas added outside. Not
+  tried against a real `git checkout` of many files. (M)
 - **The game's text in the language edited:** the install is read as
   that language when its `lang/<code>/data/dialog.tlk` is there (its
   talk table, and the rest of its `lang` folder); a module's custom
@@ -1355,12 +1131,8 @@ categories, the galleries. Water ripples. Left:
 ## The turning ring
 
 - **Several objects:** each has its ring (and with Shift its tilt rings
-  and arrows), up to 32 of the selection; each turns about itself, as
-  Alt + right drag does. Turning a group about its middle (positions
-  swinging round too) is not done. (S–M)
-- **Behind things:** the rings and arrows are painted over the view, not
-  hidden by what stands in front of them (as 3D editors draw theirs:
-  left so). (—)
+  and arrows), up to 32 of the selection; each turns about itself, or
+  with Together on they turn about their middle. (—)
 - **The ring over another object:** a click on the ring picks the
   object under it, but a drag from there turns the selection: an object
   under the ring's line can't be dragged from there while the selection
@@ -1375,12 +1147,6 @@ categories, the galleries. Water ripples. Left:
 - **The arrows' axes:** east, north and up, the area's; arrows along the
   object's own facing are not offered. The tilt rings, in the same red
   and green, are about the model's own axes. (S)
-- **Tilting against the game:** compared with the client
-  (`placeables_look` in `client_render.rs`, by eye): a placeable turned
-  about all three axes stands the same in both, and the game draws a
-  static placeable upright whatever its file says. Moonglow drew the
-  static one tilted (only its handles left it out); it is upright
-  now. (—)
 - **Escape during a drag** drops it now (it used to put the object down
   where it was); Aurora's behavior was not checked. (S)
 
@@ -1394,10 +1160,6 @@ categories, the galleries. Water ripples. Left:
   key of the whole window would take it from there; Reload Resources
   can be given a key in Options), and the script editor's Save As
   (Ctrl+Alt+S, now New Script's). (S)
-- **Sharing key sets:** Options › Keyboard › Export… and Import… write
-  and take the keys chosen as a file; the dialogs themselves weren't
-  driven. (—)
-
 ## Automation
 
 - **Plugins, beyond API 0.2** (`plugin-proposal.md`; commands and checks
@@ -1504,18 +1266,11 @@ commits, with a test for all but one of the bugs it fixed) is in the
 history; this is what it left, found by reading and not by running
 unless it says so.
 
-- **The "≠" mark on a multi-edit's fields:** the appearance and loading
-  screen choices, localized text, memos, sliders, palette colors, the
-  category and the conversation never call `Form::mark_mixed`, which
-  marks a field whose value differs among the blueprints edited
-  together. Nothing says which fields are meant to have it, and a
-  painted mark is in no test. (S, needs the intent)
-- **A talk table the module names that is not found is looked for every
-  frame** (`talk_view::open`: the folders and the resource stack each
-  time), as one that could not be read was before it was remembered.
-  (S)
-- **Area Properties copies the whole ARE, tile list included, each frame
-  it is open** (`area_props.rs`): its form owns the root it edits. (M)
+- **Area Properties copies the area's fields each frame it is open**
+  (`area_props.rs`: its form owns the root it edits, as every
+  blueprint's does), without the tile list since: a large area's
+  thousand tiles were most of the copy. Not timed (`frame_perf.rs` was
+  not run for it). (S)
 - **Still made every frame, each needing something kept:** a blueprint's
   category list (`Form::category` reads and parses the palette),
   `picker::blueprint_names` and `inventory::entry_icon` (a blueprint
@@ -1613,13 +1368,20 @@ Left:
   ground and on static placeables; an area's shadow settings are only
   edited. (L: the game's stencil shadows, or a shadow map standing in
   for them)
-- **Where a cut-out is cut:** Moonglow discards a `blending
-  punchthrough` texture's texels below alpha 0.5 (the wiki's figure). In
-  the client a disc whose alpha falls from 1 to 0 over four texels keeps
-  a rim about twice as wide as Moonglow's, which fits a cut near 0.2, as
-  for textures with no TXI. Not read from the client's
-  `fAlphaDiscardValue` yet (as `light_uniforms_match_the_client` reads
-  the lights). (S)
+- **Where a cut-out is cut:** done. The client's `fAlphaDiscardValue`
+  is 0.2 for every surface of the cards (`cutouts_look` with
+  `MG_DISCARD=1` paints it): `blending punchthrough` or not, `decal` or
+  not, with an MTR or without; and a `blending punchthrough` texture is
+  solid where it is not cut (a dark rim), where the others are blended.
+  Moonglow cut such a texture at 0.5 and blended what was left; it cuts
+  at 0.2 and draws it solid now. Left: punch-through particles are
+  still cut at 0.5 (not measured); the tiles and the armoires were not
+  painted by the probe (another shader path: their value was not
+  read); a cut-out that is also see-through as a whole (a mesh's alpha
+  under 1, a transparency hint) is still blended, rim and all, which
+  was not compared. Cut-outs are no longer sorted back to front with
+  the see-through meshes: they write their depth as solid meshes do.
+  (S)
 
 ## Proposed by the Moonglow Viewer session (2026-10-07)
 
@@ -1683,10 +1445,6 @@ toolset is as the proposal says it is.
   area is opened again; the object shows no box in its place beyond what
   a missing model has. (S)
 
-- **TGA, right-to-left:** the game ignores a TGA's top-left origin (bit
-  5) and its right-to-left bit (bit 4) alike: rows and columns are taken
-  as stored (both measured in the client; `placeables_look` with
-  `MG_TGA=16`). Moonglow honored bit 4 until this was measured. (—)
 - **A custom creature's animation "off" (GitHub issue 3):** the report's
   Mindwitness also poses differently than in Aurora and the game; not
   reproduced without the model. (needs the files)
@@ -1709,3 +1467,86 @@ toolset is as the proposal says it is.
   list (`manual::fitted`; it was cut off at the page's edge before, and
   the text after it too). Tables with wrapped cells would read better.
   (S–M)
+
+## Settled: as it is, by decision or by design
+
+Nothing is left to do on these; they are kept so that a report of one
+is not taken for a new gap.
+
+- **Seams between tiles:** drawn as instances, a sample on the seam of
+  two tiles may show the other tile's floor (12 of 192 pictures, one to
+  three pixels each): which of two floors that both cover a sample is
+  drawn last was the order of the area's tiles, and is now the order of
+  the draws. A mesh at a time (`Renderer::instancing` off) it is as it
+  was.
+- **Pictures for the rest:** waypoints have their flags as pictures;
+  sounds, triggers, encounters and stores say what they are on hover, in
+  a line or two (a store's and a sound's markers are the same for every
+  one, and the others have no model).
+- **Standard palette categories** can't be changed (the game's); only
+  custom blueprints move between categories, as in Aurora.
+- **Areas by name elsewhere:** areas are by name in the module tree, tab
+  titles, Find Instance, the area transition's destinations and the
+  references list; the log has ResRefs.
+- **The Options tab** opens as wide as the window allows, where the
+  other editors leave some of the area showing beside them; Enter is OK
+  only while the pointer is over it.
+- **Column headings** in forms' tables ("Base", "Total", "Sun", "Moon")
+  keep the plain strong style; only section headings were made larger.
+- **Scripts and conversations by name:** they have no names; the tree
+  lists them by ResRef.
+- **"Area transitions can't be selected visually":** not understood;
+  asked.
+- **A window's bar:** egui_dock gives a folded window the height of its
+  tab bar, frame included, so the dock's windows are drawn without a
+  frame margin and their tabs' contents are given one instead.
+- **Copy… of a script** takes its compiled script along; its debug
+  information (`.ndb`) is made when the copy is next compiled.
+- **Ctrl+V refused on Windows** (a builder's debug log: "arboard paste
+  error … the clipboard is empty"): the key reaches Moonglow only as the
+  system's paste, which Windows doesn't send with no text to paste.
+  Copying objects, tiles or a conversation's lines now leaves a line of
+  text there. Not tried on Windows.
+- **Deleting a prefab** isn't Edit › Undo's: the palette's Undo Delete
+  puts back the one deleted last, until Moonglow is closed.
+- **Compiling before export** needs the game's data (for nwscript):
+  without it scripts go out with the compiled scripts they have, and the
+  log says so.
+- **Include files** aren't compiled on their own by Compile All, the
+  build or Compile in the editor (they were, and one leaning on what its
+  includer brings was reported as an error). Watched in Aurora since
+  (Build › Build Module, Compile): it compiles every script, says
+  nothing of one that only lacks `main`, and reports "Compile Error" for
+  an include that leans on what its includer brings, as Moonglow did
+  before this change. Skipping includes is Moonglow's own, kinder than
+  Aurora and not like it, and kept by decision (2026-10-07). An include
+  is still checked as you type, on its own, so one that leans on its
+  includer shows an error there.
+- **The grid seen from the area's edge:** red and plain as the view
+  comes down (Aurora's is red from every side, and mostly lost in the
+  ground from above), and drawn at the area's foot under raised ground.
+  Looked at in Aurora on a raised plateau since, at a low pitch: its
+  red lines show on top of the raised ground, at that ground's height,
+  as Moonglow's do; none could be made out on the low ground in front
+  (lost in the ground, as from above). Whether Aurora also draws lines
+  at the area's foot under raised tiles could not be told.
+- **A .mod beside a module folder on save**, as a builder says Aurora
+  writes one for a module directory: on unless Options › General
+  switches it off (the user's decision: a folder opened from elsewhere,
+  a repository's source tree, gets a `.mod` written beside it unless it
+  is off). A nasher project is left to Pack Target. Aurora's own
+  behavior was not captured.
+- **Clicking between tiles and objects:** a click on an object while
+  tiles are selected goes to objects, and a double click on the ground
+  to its tile. So a tile wholly under an object is selected by a box,
+  not a click.
+- **Behind things:** the rings and arrows are painted over the view, not
+  hidden by what stands in front of them (as 3D editors draw theirs:
+  left so).
+- **Sharing key sets:** Options › Keyboard › Export… and Import… write
+  and take the keys chosen as a file; the dialogs themselves weren't
+  driven.
+- **A palette's rows are one line** (a builder: names with ResRefs and
+  challenge ratings wrapped onto a second line in a narrow pane), cut
+  short as the module tree's are, whole under the pointer. Not an
+  option.

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T04:13:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T14:21:21Z }
 ---
 
 # Modules
@@ -37,8 +37,10 @@ a directory), nasher projects (see below) and the game's campaign files
   a file new to the folder is not removed. Where a file was changed
   outside and here both, yours is kept, Save writes nothing and says
   which files, and **Changed Outside Moonglow** asks which to keep. A
-  script read again is not compiled by that: **Build › Compile All
-  Scripts** (F7) before testing. The script editor's external editor
+  script read again is compiled if **Automatically Compile Scripts on
+  Save** is on (Options › Script Editor), as one saved here is; the
+  scripts that include it are not, nor more than 24 scripts changed at
+  once: **Build › Compile All Scripts** (F7) for those. The script editor's external editor
   opens the folder's own file.
 - Saving is safe. A module archive is written to a temporary file, then
   put in place, so a failure never leaves a half-written module. The

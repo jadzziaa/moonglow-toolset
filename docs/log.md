@@ -1,6 +1,8 @@
 # Update log
 
 ## 2026-10-09
+* **Update**: [The deferred list](deferred.md), [the findings](findings.md), [modules](manual/03-modules.md) and [options](manual/10-options.md): a cut-out texture is cut at alpha 0.2 and solid above it, as read from the client; a script another program saved is compiled when it is read again; the haks and content folders are watched off the window's thread; a talk table that is not found is looked for every few seconds, not every frame; Area Properties copies the area's fields without its tiles.
+* **Update**: [The deferred list](deferred.md) tidied: entries that had gone stale put right, what was fixed taken out (it is here and in the release notes), what is settled by decision or design gathered in a last section; what was measured in the game client moved to [the findings](findings.md) (a special ability's flags, body parts' textures, a worn part's animation scale, environment maps switched off, static placeables, a TGA's origin bits, two-sided faces and decals, particles).
 * **Update**: [The deferred list](deferred.md): cut-out textures and shadows as the client draws them (`decal` is unlit, only an MTR's `twosided` shows a face from behind, placeables cast shadows); `twosided` followed, shadows left.
 * **Update**: [The deferred list](deferred.md): a module's files are watched for changes off the window's thread.
 * **Update**: [The deferred list](deferred.md): a flip-book begins at the picture's top left and a Linked ribbon is twice its particles' size across, seen in the client (a builder's fog placeable).
