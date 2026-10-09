@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T08:57:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T11:55:20Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1585,6 +1585,41 @@ unless it says so.
   run on a Mac. (S, needs a Mac)
 - **Windows signing:** the installer isn't code-signed, so SmartScreen
   warns. (S, needs a certificate)
+
+## Cut-outs and shadows, checked in the client (2026-10-09)
+
+Asked by the Domains of Dread module session: its library's cut-out
+textures (a TXI of `blending punchthrough` and `decal 1`) stay bright in
+a dark area, and its placeables cast no shadows in the area view. What
+the client draws (`cutouts_look` in `client_render.rs`: single faces, one
+per kind of texture, seen from the front and from behind, by day and in
+the dark; and placeables in pairs, one of each static, with shadows on):
+
+- `decal 1` is drawn unlit: as bright in an area lit 0x101010 as by day.
+  Moonglow does the same.
+- A face is drawn from its front only, whatever its texture's TXI says
+  (`blending punchthrough`, `decal 1`, both, or none). An MTR with
+  `twosided 1` shows it from behind too, lit as its front is, and the
+  texture's `blending punchthrough` still cuts it out.
+
+**Done:** an MTR's `twosided` is followed (it was read and never used:
+such faces were culled from behind).
+
+Left:
+
+- **Shadows:** the area view and the previews draw none. The client
+  draws them for placeables with a shadow caster, static or not (an
+  armoire, and a library cart with a `render 0`, `shadow 1` node), on the
+  ground and on static placeables; an area's shadow settings are only
+  edited. (L: the game's stencil shadows, or a shadow map standing in
+  for them)
+- **Where a cut-out is cut:** Moonglow discards a `blending
+  punchthrough` texture's texels below alpha 0.5 (the wiki's figure). In
+  the client a disc whose alpha falls from 1 to 0 over four texels keeps
+  a rim about twice as wide as Moonglow's, which fits a cut near 0.2, as
+  for textures with no TXI. Not read from the client's
+  `fAlphaDiscardValue` yet (as `light_uniforms_match_the_client` reads
+  the lights). (S)
 
 ## Proposed by the Moonglow Viewer session (2026-10-07)
 

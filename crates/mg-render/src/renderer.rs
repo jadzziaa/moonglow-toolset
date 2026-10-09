@@ -180,6 +180,11 @@ struct Slots {
     no_env: bool,
     /// The MTR's `transparency`: the mesh is blended.
     transparency: bool,
+    /// The MTR's `twosided`: its faces are drawn from behind too. Nothing
+    /// else shows a face's back in the game: not a cut-out texture
+    /// (`blending punchthrough`), not `decal` (seen in the client:
+    /// `cutouts_look` in `client_render.rs`).
+    twosided: bool,
 }
 
 /// Whether a fragment shader's source switches the environment map off.
@@ -243,6 +248,8 @@ const SURFACES_KEPT: usize = 16_384;
 #[derive(Clone, Copy)]
 struct Draw<'a> {
     pass: Pass,
+    /// Drawn from behind too ([`Slots::twosided`]).
+    twosided: bool,
     depth: f32,
     hint: u32,
     /// Its uniforms' place among the frame's.
@@ -281,7 +288,8 @@ pub struct Renderer {
     sample_count: u32,
     frame_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
-    pipelines: HashMap<(Pass, bool), wgpu::RenderPipeline>,
+    /// By pass, whether the mesh is skinned and whether it is two-sided.
+    pipelines: HashMap<(Pass, bool, bool), wgpu::RenderPipeline>,
     /// The frame's uniforms as the particles' and the lines' pipelines bind
     /// them (the one buffer for good: made once).
     particle_frame: wgpu::BindGroup,
@@ -491,7 +499,11 @@ impl Renderer {
         let mut pipelines = HashMap::new();
         let passes =
             [Pass::Sky, Pass::SkyFade, Pass::Opaque, Pass::Blend, Pass::Fringe, Pass::Additive];
-        for (pass, skinned) in passes.into_iter().flat_map(|p| [(p, false), (p, true)]) {
+        for (pass, skinned, twosided) in passes
+            .into_iter()
+            .flat_map(|p| [(p, false), (p, true)])
+            .flat_map(|(p, s)| [(p, s, false), (p, s, true)])
+        {
             let sky = matches!(pass, Pass::Sky | Pass::SkyFade);
             let blend = match pass {
                 Pass::Sky | Pass::Opaque => None,
@@ -522,7 +534,7 @@ impl Renderer {
                 },
                 primitive: wgpu::PrimitiveState {
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: if sky { None } else { Some(wgpu::Face::Back) },
+                    cull_mode: if sky || twosided { None } else { Some(wgpu::Face::Back) },
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
@@ -548,7 +560,7 @@ impl Renderer {
                 multiview_mask: None,
                 cache: None,
             });
-            pipelines.insert((pass, skinned), pipeline);
+            pipelines.insert((pass, skinned, twosided), pipeline);
         }
         // Particles.
         let particle_frame_layout =
@@ -789,6 +801,7 @@ impl Renderer {
             let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
             let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
             out.transparency = mtr.transparency;
+            out.twosided = mtr.twosided;
             out.no_env = !fs.is_empty() && assets.shader(&fs).is_some_and(|s| env_switched_off(&s));
             let mapper = fs.starts_with("mzlm");
             out.effect = known.then(|| Effect {
@@ -1329,6 +1342,7 @@ impl Renderer {
                 };
                 let draw = Draw {
                     pass,
+                    twosided: slots.twosided,
                     depth: -view.transform_point3(centre).z,
                     hint: mat.transparency_hint,
                     uniform: uniforms.len() as u32,
@@ -1598,7 +1612,7 @@ impl Renderer {
             for batch in starts.windows(2) {
                 // (A batch's draws are of one mesh and one material.)
                 let d = &draws[order[batch[0] as usize] as usize];
-                let key = (d.pass, d.mesh.skin.is_some());
+                let key = (d.pass, d.mesh.skin.is_some(), d.twosided);
                 if pipeline != Some(key) {
                     pass.set_pipeline(&self.pipelines[&key]);
                     pipeline = Some(key);

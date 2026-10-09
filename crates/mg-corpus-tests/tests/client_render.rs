@@ -1530,3 +1530,240 @@ fn creatures_look() {
     save_png(&ours, &dir.join("moonglow.png"));
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
+
+/// A 64×64 TGA with an alpha channel: an orange disc, opaque to 26 texels
+/// from the middle, its alpha falling to nothing by 30 over blue (which
+/// shows where the alpha is blended and not cut).
+fn disc_tga() -> Vec<u8> {
+    let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 32, 8];
+    for y in 0..64 {
+        for x in 0..64 {
+            let d = ((x as f32 - 31.5).powi(2) + (y as f32 - 31.5).powi(2)).sqrt();
+            let a = ((30.0 - d) / 4.0).clamp(0.0, 1.0);
+            // (BGRA.)
+            t.extend(if d < 26.0 { [60, 160, 255, 255] } else { [255, 0, 0, (a * 255.0) as u8] });
+        }
+    }
+    t
+}
+
+/// The cut-out variants of [`cutouts_look`], west to east: the texture's
+/// name, its TXI, and its MTR (the mesh then names the material).
+const CUTOUTS: [(&str, &str, Option<&str>); 6] = [
+    ("mg_cut_p", "blending punchthrough\n", None),
+    ("mg_cut_d", "blending punchthrough\ndecal 1\n", None),
+    ("mg_cut_o", "decal 1\n", None),
+    ("mg_cut_t", "blending punchthrough\n", Some("texture0 mg_cut_t\ntwosided 1\n")),
+    ("mg_cut_n", "", None),
+    ("mg_cut_k", "blending punchthrough\n", Some("texture0 mg_cut_k\n")),
+];
+
+/// The cards' model: for each variant a 1 m square standing on the ground
+/// that faces the model's −Y (south, as placed) and above it one that faces
+/// +Y, each a single face seen from one side.
+fn cards_mdl() -> String {
+    let mut s = String::from(
+        "newmodel mg_cards\nsetsupermodel mg_cards NULL\nclassification character\n\
+         setanimationscale 1\nbeginmodelgeom mg_cards\nnode dummy mg_cards\n  parent NULL\nendnode\n",
+    );
+    for (i, (texture, _, mtr)) in CUTOUTS.iter().enumerate() {
+        for (row, faces) in
+            [("0 1 2 1 0 1 2 0\n    0 2 3 1 0 2 3 0", "0 2 1 1 0 2 1 0\n    0 3 2 1 0 3 2 0")]
+                .iter()
+                .flat_map(|(f, b)| [(0, *f), (1, *b)])
+        {
+            let x = i as f32 * 1.2 - 3.5;
+            let z = row as f32 * 1.2 + 0.1;
+            let material = mtr.map_or(String::new(), |_| format!("  materialname {texture}\n"));
+            s += &format!(
+                "node trimesh c{i}_{row}\n  parent mg_cards\n  position {x} 0 {z}\n  \
+                 orientation 0 0 0 0\n  ambient 1 1 1\n  diffuse 1 1 1\n  specular 0 0 0\n  \
+                 shininess 1\n  bitmap {texture}\n{material}  render 1\n  shadow 0\n  verts 4\n    \
+                 0 0 0\n    1 0 0\n    1 0 1\n    0 0 1\n  tverts 4\n    0 0 0\n    1 0 0\n    \
+                 1 1 0\n    0 1 0\n  faces 2\n    {faces}\nendnode\n"
+            );
+        }
+    }
+    s + "endmodelgeom mg_cards\ndonemodel mg_cards\n"
+}
+
+/// Exploration: what the client does with cut-out textures and with
+/// placeables' shadows, beside Moonglow's drawing of the same area. North
+/// of the player stand the cards of [`cards_mdl`] (each variant of
+/// [`CUTOUTS`] seen from the front, below, and from behind, above), and
+/// behind them placeables in pairs, the east one of each static: armoires,
+/// and with `MG_HAK` (a hak) and `MG_MODEL` (a placeable model in it) that
+/// model, its files copied to the scratch `override`. `MG_STRIP_DECAL=1`
+/// drops `decal` from that model's TXIs. `MG_LIGHT`: `day` (the default),
+/// `night` (ambient and diffuse 0x101010) or `shadow` (day, with the area's
+/// and the client's shadows on); `MG_MAINLIGHT` a lightcolor.2da row for
+/// the tiles' main lights; `MG_TILESET` another tileset;
+/// `MG_TURN=1` turns the cards about (their fronts north, away from the
+/// camera);
+/// `MG_CLIENT_CAMERA` the client's camera as nwscript. Both views go to
+/// `target/test-output/client_cutouts/`.
+#[test]
+#[ignore]
+fn cutouts_look() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let dir = scratch_dir("client_cutouts");
+    let over = dir.join("user/override");
+    std::fs::create_dir_all(&over).unwrap();
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+
+    std::fs::write(over.join("mg_cards.mdl"), cards_mdl()).unwrap();
+    for (texture, txi, mtr) in CUTOUTS {
+        std::fs::write(over.join(format!("{texture}.tga")), disc_tga()).unwrap();
+        if !txi.is_empty() {
+            std::fs::write(over.join(format!("{texture}.txi")), txi).unwrap();
+        }
+        if let Some(mtr) = mtr {
+            std::fs::write(over.join(format!("{texture}.mtr")), mtr).unwrap();
+        }
+    }
+    // A hak's model, as loose files.
+    let extra = std::env::var("MG_MODEL").ok();
+    if let (Some(model), Ok(hak)) = (&extra, std::env::var("MG_HAK")) {
+        let data = std::fs::read(hak).unwrap();
+        let erf = mg_erf::Erf::read(&data).unwrap();
+        for e in &erf.entries {
+            let name = e.resref.to_string().to_ascii_lowercase();
+            let Some(ext) = e.restype.extension() else { continue };
+            if !name.starts_with(model.as_str()) {
+                continue;
+            }
+            let mut bytes = erf.data(e).unwrap().into_owned();
+            if ext == "txi" && std::env::var_os("MG_STRIP_DECAL").is_some() {
+                let text = String::from_utf8_lossy(&bytes);
+                bytes = text
+                    .lines()
+                    .filter(|l| !l.trim_start().starts_with("decal"))
+                    .flat_map(|l| [l, "\n"])
+                    .collect::<String>()
+                    .into_bytes();
+            }
+            std::fs::write(over.join(format!("{name}.{ext}")), bytes).unwrap();
+        }
+    }
+    // placeables.2da with rows for the models: the armoire's row (it casts
+    // a shadow: ShadowSize 1), not static and static.
+    let table = base.resman.get_named("placeables", ResType::TWODA).unwrap();
+    let mut table = String::from_utf8_lossy(&table).into_owned();
+    let header: Vec<&str> = table.lines().nth(2).unwrap().split_whitespace().collect();
+    let column = |name: &str| header.iter().position(|c| *c == name).unwrap() + 1;
+    let (model_col, static_col) = (column("ModelName"), column("Static"));
+    let first = table.lines().count() - 3;
+    let armoire: Vec<String> =
+        table.lines().nth(3).unwrap().split_whitespace().map(str::to_owned).collect();
+    let mut models = vec!["mg_cards", "plc_a01"];
+    models.extend(extra.as_deref());
+    let mut rows = Vec::new();
+    for model in &models {
+        for is_static in [0, 1] {
+            let mut row = armoire.clone();
+            row[0] = (first + rows.len()).to_string();
+            row[model_col] = (*model).to_owned();
+            row[static_col] = is_static.to_string();
+            rows.push(row.join(" "));
+        }
+    }
+    if !table.ends_with('\n') {
+        table.push('\n');
+    }
+    table += &(rows.join("\n") + "\n");
+    std::fs::write(over.join("placeables.2da"), table).unwrap();
+
+    let game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
+    let mode = std::env::var("MG_LIGHT").unwrap_or_else(|_| "day".into());
+    let main_light = std::env::var("MG_MAINLIGHT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let light = match mode.as_str() {
+        "night" => Lighting { ambient: 0x101010, diffuse: 0x101010, main_light, only_tile: None },
+        _ => Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light, only_tile: None },
+    };
+    let tileset = std::env::var("MG_TILESET").unwrap_or_else(|_| "tic01".into());
+    let (mut m, mut are) = build_module_on(&game, &dir, light, &tileset, 0);
+    let mut settings = SETTINGS.to_owned();
+    if mode == "shadow" {
+        settings = settings
+            .replace(
+                "[graphics.shadows.creatures]\n\t\t\tmode = 0",
+                "[graphics.shadows.creatures]\n\t\t\tmode = 2",
+            )
+            .replace(
+                "[graphics.shadows.environment]\n\t\t\tenabled = false",
+                "[graphics.shadows.environment]\n\t\t\tenabled = true",
+            );
+        assert!(
+            settings.contains("mode = 2")
+                && !settings.contains("enabled = false\n\t[graphics.skyboxes]")
+        );
+        let are_key = *m.keys_of(ResType::ARE).next().unwrap();
+        for label in ["SunShadows", "MoonShadows"] {
+            are.root.set(label, Value::Byte(1));
+        }
+        are.root.set("ShadowOpacity", Value::Byte(100));
+        m.set_gff(are_key, &are).unwrap();
+    }
+    std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
+    let enter: String =
+        ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+    let enter = match std::env::var("MG_CLIENT_CAMERA") {
+        Ok(code) => enter.replace(
+            "AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));",
+            &code,
+        ),
+        Err(_) => enter,
+    };
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let bp = Gff::read(&game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let mut placed = Vec::new();
+    // (Row of `rows`, where.)
+    let mut spots = vec![(0, [20.0, 22.5]), (2, [13.0, 23.0]), (3, [27.0, 23.0])];
+    if extra.is_some() {
+        spots.extend([(4, [16.5, 28.0]), (5, [23.5, 28.0])]);
+    }
+    let turned = std::env::var_os("MG_TURN").is_some();
+    for (row, [x, y]) in spots {
+        let rotation = if row == 0 && turned { std::f32::consts::PI } else { 0.0 };
+        let at = Placement { position: [x, y, 0.0], rotation };
+        let mut p = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+        p.set("Appearance", Value::Dword((first + row) as u32));
+        p.set("Static", Value::Byte((row % 2) as u8));
+        placed.push(p);
+    }
+    git.root.set("Placeable List", Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+    if let Some(c) = &client {
+        save_png(c, &dir.join(format!("client_{mode}.png")));
+    }
+
+    let model = mg_area::AreaModel::read(
+        &game,
+        &are.root,
+        &git.root,
+        mg_area::tileset(&game, ResRef::from_str(&tileset).unwrap()).ok().as_ref(),
+    );
+    let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let scene =
+        area_scene.scene(&model, &mg_area::View { fog: false, ..mg_area::View::of(&model) });
+    let camera =
+        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+    save_png(&ours, &dir.join(format!("moonglow_{mode}.png")));
+    eprintln!("{}: client {}", dir.display(), client.is_some());
+}

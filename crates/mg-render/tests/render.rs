@@ -1227,3 +1227,57 @@ fn instances_are_drawn_in_the_order_of_the_meshes_they_meet() {
     let over = instanced.pixel(48, 52);
     assert!(over[1] > over[0], "green over red: {over:?}");
 }
+
+/// A face is seen from its front only, unless its material (MTR) says
+/// `twosided 1`: then from behind too, lit as its front is. A cut-out
+/// texture (`blending punchthrough`) or `decal 1` does not show a face's
+/// back (all as the client draws them: `cutouts_look` in
+/// `mg-corpus-tests/tests/client_render.rs`).
+#[test]
+fn only_a_twosided_material_shows_a_face_from_behind() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    assets.solid("cloth", [200, 200, 200, 255]);
+    assets.solid("leaf", [200, 200, 200, 255]);
+    assets.solid("glow", [200, 200, 200, 255]);
+    let txi = |text: &str| mg_image::txi::Txi::parse(text.as_bytes());
+    assets.txis.insert("leaf".into(), txi("blending punchthrough\n"));
+    assets.txis.insert("glow".into(), txi("blending punchthrough\ndecal 1\n"));
+    let mtr = |text: &str| mg_image::mtr::Mtr::parse(text.as_bytes());
+    assets.materials.insert("sided".into(), mtr("texture0 cloth\ntwosided 1\n"));
+    assets.materials.insert("plain".into(), mtr("texture0 cloth\n"));
+    let area = AreaLight { ambient: Vec3::splat(0.5), diffuse: Vec3::ZERO, ..Default::default() };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    // (The quad faces up: from above its front, from below its back.)
+    let mut shot = |texture: &str, material: Option<&str>, eye_z: f32| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = Some(texture.into());
+        mesh.material = material.map(str::to_owned);
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+        let camera = Camera {
+            eye: Vec3::new(0.0, -0.5, eye_z),
+            target: Vec3::ZERO,
+            fov_y: 0.8,
+            near: 0.1,
+            far: 100.0,
+        };
+        let scene = Scene {
+            instances: vec![Instance::new(model, Mat4::IDENTITY)],
+            area,
+            ..Default::default()
+        };
+        r.render_image(&gpu, &assets, &scene, &camera, 32, 32).pixel(16, 16)
+    };
+    let background = shot("cloth", None, -4.0);
+    for (texture, material) in
+        [("cloth", None), ("leaf", None), ("glow", None), ("cloth", Some("plain"))]
+    {
+        let front = shot(texture, material, 4.0);
+        assert_ne!(front, background, "{texture} {material:?} from the front");
+        assert_eq!(shot(texture, material, -4.0), background, "{texture} {material:?} from behind");
+    }
+    let (front, back) = (shot("cloth", Some("sided"), 4.0), shot("cloth", Some("sided"), -4.0));
+    assert_ne!(front, background);
+    assert_eq!(front, back, "two-sided: the same from both sides");
+}

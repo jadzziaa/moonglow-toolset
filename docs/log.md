@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-09
+* **Update**: [The deferred list](deferred.md): cut-out textures and shadows as the client draws them (`decal` is unlit, only an MTR's `twosided` shows a face from behind, placeables cast shadows); `twosided` followed, shadows left.
 * **Update**: [The deferred list](deferred.md): a module's files are watched for changes off the window's thread.
 * **Update**: [The deferred list](deferred.md): a flip-book begins at the picture's top left and a Linked ribbon is twice its particles' size across, seen in the client (a builder's fog placeable).
 * **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): a module folder's files changed outside are read again, and never written over by a save.
