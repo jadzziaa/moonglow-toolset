@@ -1006,6 +1006,42 @@ fn a_talk_table_file_is_made_and_opened_on_its_own() {
     assert!(h.query_by_label_contains("The table has 120 lines").is_some());
 }
 
+/// A talk table the module names that is there but cannot be read is tried
+/// once and said once, not every frame the editor is drawn.
+#[test]
+fn a_talk_table_that_cannot_be_read_is_tried_once() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-talk-bad");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("tlk")).unwrap();
+    std::fs::write(user.join("tlk/mg_bad.tlk"), b"not a talk table").unwrap();
+    let path = sample_module(&dir);
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let mut info = m.info().unwrap();
+    info.root.set("Mod_CustomTlk", mg_gff::Value::String(b"mg_bad".to_vec()));
+    m.set_info(&info).unwrap();
+    m.save().unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1000.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::TalkTable));
+    h.run_steps(8);
+    let said: Vec<&String> = h
+        .state()
+        .log
+        .entries
+        .iter()
+        .map(|(_, m)| m)
+        .filter(|m| m.starts_with("Talk table mg_bad"))
+        .collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+}
+
 #[test]
 fn talk_table_made_edited_saved_and_used_by_strings() {
     let root = mg_testkit::corpus!();

@@ -44,6 +44,9 @@ pub struct TalkView {
     /// nowhere.
     pub go_to: String,
     go_to_problem: Option<String>,
+    /// The module's table that was found and could not be read (its name):
+    /// said once and not tried again while the module names it.
+    unreadable: Option<String>,
 }
 
 impl TalkView {
@@ -67,6 +70,9 @@ pub(crate) fn load(app: &mut Moonglow) {
     if app.talk.as_ref().is_some_and(|t| t.name == name || t.is_dirty()) {
         return;
     }
+    if app.talk_view.unreadable.as_ref() == Some(&name) {
+        return;
+    }
     let (Some(game), Some(install)) = (&app.game, &app.install) else { return };
     let dirs = install.tlk_dirs();
     let Some(found) = talk::find(&game.resman, &dirs, &name) else {
@@ -79,7 +85,10 @@ pub(crate) fn load(app: &mut Moonglow) {
             app.talk = Some(t);
             app.talk_view = TalkView::default();
         }
-        Err(e) => app.log.error(format!("Talk table {name}: {e}")),
+        Err(e) => {
+            app.log.error(format!("Talk table {name}: {e}"));
+            app.talk_view.unreadable = Some(name);
+        }
     }
 }
 
