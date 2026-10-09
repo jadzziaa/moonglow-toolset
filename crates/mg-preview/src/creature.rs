@@ -392,7 +392,9 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
     // chest 3). A mesh naming something that is no part's (a head's hair,
     // a gem) keeps that.
     let own = named(&model).into_iter().take(3).find(|c| lk.has_texture(c));
-    for b in lk.bitmaps(&model) {
+    // (The model read once, for its textures and for a mesh without one.)
+    let parsed = lk.model(&model);
+    for b in parsed.as_deref().map_or_else(Vec::new, crate::bitmaps) {
         if let Some(own) = own.as_ref().filter(|own| **own != b && !named(&b).is_empty()) {
             out.insert(b, own.clone());
             continue;
@@ -408,7 +410,7 @@ fn plt_fallbacks(lk: &Lookup<'_>, model: &str) -> std::collections::BTreeMap<Str
     // A mesh that names no texture takes the part's own too (several of
     // CEP's heads: `bitmap NULL`, with a PLT of the head's name). Under the
     // empty name (`mg_render::Instance::textures`).
-    if lk.unnamed_mesh(&model)
+    if parsed.as_deref().is_some_and(crate::unnamed_mesh)
         && let Some(c) = named(&model).into_iter().find(|c| lk.has_texture(c))
     {
         out.insert(String::new(), c);
