@@ -58,6 +58,7 @@ pub mod tileset_view;
 pub mod trace;
 mod transfer;
 mod tree;
+pub use tree::TreeAt;
 pub mod var_sets;
 pub mod widgets;
 pub mod wizards;
@@ -158,6 +159,9 @@ pub enum Action {
     OpenTab(Tab),
     /// Closes a tab's window (Escape over a model's window).
     CloseTab(Tab),
+    /// Closes tabs as their close buttons would: one with unsaved work of
+    /// its own (a hak, a tileset) asks first and stays.
+    CloseTabs(Vec<Tab>),
     /// A tab's own window made to fill the main pane, or put back as it
     /// was.
     ToggleMaximize(Tab),
@@ -453,6 +457,12 @@ pub struct Moonglow {
     /// and whether the tree has still to go to it.
     pub tree_object: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     pub tree_object_pending: bool,
+    /// The module tree's row the arrow keys are at (a click puts them
+    /// there), whether it is to be brought into view, and a group to open
+    /// or close at the next frame.
+    pub tree_cursor: Option<tree::TreeAt>,
+    pub(crate) tree_cursor_moved: bool,
+    pub(crate) tree_fold: Option<(&'static str, bool)>,
     pub import: Option<ImportDraft>,
     /// An action waiting for the answer to "save changes?".
     pub confirm_discard: Option<Action>,
@@ -466,6 +476,11 @@ pub struct Moonglow {
     /// The tabs of windows drawn this frame: each one's button and the
     /// layer its window is on ([`Moonglow::window_bars`]).
     pub(crate) tab_buttons: Vec<(Tab, egui::Rect, egui::LayerId)>,
+    /// Each pane's tabs in their order, as this frame began (the dock is
+    /// out of reach while its tabs are drawn).
+    pub(crate) panes_tabs: Vec<Vec<Tab>>,
+    /// The tabs closed, the last one last: Reopen Closed Tab's.
+    pub(crate) closed_tabs: Vec<Tab>,
     /// Where each window (by its first tab) is.
     windows: HashMap<Tab, WindowTrack>,
     /// Where the panes are drawn (under the toolbar, beside the tree).
@@ -500,6 +515,8 @@ pub struct Moonglow {
     /// frame (the Palettes pane opens as wide as the tree).
     tree_width: Option<f32>,
     dock_width: Option<f32>,
+    /// The palettes' pane's share of the middle's width, as last drawn.
+    palette_share: Option<f32>,
     /// A module was opened: the Palettes pane opens once the module tree
     /// shows (and has a width to match). Tests of other windows turn it
     /// off.
@@ -643,12 +660,17 @@ impl Moonglow {
             tree_area: None,
             tree_object: None,
             tree_object_pending: false,
+            tree_cursor: None,
+            tree_cursor_moved: false,
+            tree_fold: None,
             import: None,
             confirm_discard: None,
             render_info: None,
             outside: Default::default(),
             maximized: HashMap::new(),
             tab_buttons: Vec::new(),
+            panes_tabs: Vec::new(),
+            closed_tabs: Vec::new(),
             windows: HashMap::new(),
             dock_rect: None,
             confirm_delete: None,
@@ -666,6 +688,7 @@ impl Moonglow {
             screen: None,
             tree_width: None,
             dock_width: None,
+            palette_share: None,
             open_palette: false,
             plugins: Default::default(),
             plugin_dir: None,
@@ -785,21 +808,63 @@ impl Moonglow {
         // them: the log at most half the window's height, the module tree
         // at most two fifths of its width.
         let window = ui.ctx().content_rect().size();
-        egui::Panel::bottom("log")
-            .resizable(true)
-            .default_size(120.0)
-            .size_range((line + 6.0)..=(window.y * 0.5).max(line + 6.0))
-            .show(ui, |ui| self.log_ui(ui));
-        if self.ws.is_some() {
-            let tree = egui::Panel::left("tree")
+        // A pane folded away (View) leaves a strip at its edge, to bring
+        // it back with a click.
+        let key = |app: &Moonglow, id: commands::Id, ctx: &egui::Context| {
+            let key = app.keymap.label_of(&id.id(), ctx);
+            if key.is_empty() { String::new() } else { format!(" ({key})") }
+        };
+        if self.settings.hide_log {
+            egui::Panel::bottom("log-strip").exact_size(line + 6.0).show(ui, |ui| {
+                let tip = format!("Show the log{}", key(self, commands::Id::ViewLog, ui.ctx()));
+                if ui.small_button("⏶ Log").on_hover_text(tip).clicked() {
+                    self.show_panel(commands::Id::ViewLog, true);
+                }
+            });
+        } else {
+            egui::Panel::bottom("log")
                 .resizable(true)
-                .default_size(240.0)
-                .size_range(150.0..=(window.x * 0.4).max(150.0))
-                .show(ui, |ui| tree::module_tree(self, ui));
-            self.tree_width = Some(tree.response.rect.width());
-            // The palette beside a newly opened module, as in Aurora.
-            if std::mem::take(&mut self.open_palette) && self.game.is_some() {
+                .default_size(120.0)
+                .size_range((line + 6.0)..=(window.y * 0.5).max(line + 6.0))
+                .show(ui, |ui| self.log_ui(ui));
+        }
+        if self.ws.is_some() {
+            if self.settings.hide_tree {
+                egui::Panel::left("tree-strip").exact_size(22.0).show(ui, |ui| {
+                    let id = commands::Id::ViewTree;
+                    let tip = format!("Show the module tree{}", key(self, id, ui.ctx()));
+                    if ui.small_button("⏵").on_hover_text(tip).clicked() {
+                        self.show_panel(id, true);
+                    }
+                });
+                // (As wide as it was, for where the palettes' pane goes.)
+            } else {
+                let tree = egui::Panel::left("tree")
+                    .resizable(true)
+                    .default_size(240.0)
+                    .size_range(150.0..=(window.x * 0.4).max(150.0))
+                    .show(ui, |ui| tree::module_tree(self, ui));
+                self.tree_width = Some(tree.response.rect.width());
+            }
+            // The palette beside a newly opened module, as in Aurora (not
+            // when it was folded away).
+            if std::mem::take(&mut self.open_palette)
+                && self.game.is_some()
+                && !self.settings.hide_palettes
+            {
                 self.actions.push(Action::OpenTab(Tab::Palette));
+            }
+            if self.settings.hide_palettes
+                && self.game.is_some()
+                && self.dock.find_tab(&Tab::Palette).is_none()
+            {
+                egui::Panel::right("palettes-strip").exact_size(22.0).show(ui, |ui| {
+                    let id = commands::Id::ViewPalettes;
+                    let tip = format!("Show the palettes{}", key(self, id, ui.ctx()));
+                    if ui.small_button("⏴").on_hover_text(tip).clicked() {
+                        self.show_panel(id, true);
+                    }
+                });
             }
         }
         self.heard = None;
@@ -813,6 +878,8 @@ impl Moonglow {
             (false, true) => self.run_now(Action::CloseTab(Tab::TileProperties)),
             _ => {}
         }
+        self.keep_middle();
+        self.tab_number_keys(ui.ctx());
         egui::CentralPanel::default().show(ui, |ui| {
             self.dock_width = Some(ui.available_width());
             self.dock_rect = Some(ui.max_rect());
@@ -838,6 +905,7 @@ impl Moonglow {
                 .filter(|t| matches!(t, Tab::Model(_) | Tab::InstanceModel { .. }))
                 .cloned()
                 .collect();
+            self.panes_tabs = self.dock.iter_leaves().map(|(_, l)| l.tabs.clone()).collect();
             let mut dock = std::mem::replace(&mut self.dock, DockState::new(Vec::new()));
             // A window's frame without a margin: egui_dock makes a collapsed
             // window as tall as its tab bar, margin included, which left
@@ -990,6 +1058,241 @@ impl Moonglow {
     /// Where the main panes split for the Palettes pane on the right: the
     /// left side's share, leaving the palette as wide as the module tree.
     /// (egui_dock's split fraction is always the left side's.)
+    /// Whether a pane beside the middle is shown (View): the module tree,
+    /// the palettes, the log.
+    pub(crate) fn panel_shown(&self, panel: commands::Id) -> bool {
+        match panel {
+            commands::Id::ViewTree => !self.settings.hide_tree,
+            commands::Id::ViewLog => !self.settings.hide_log,
+            _ => self.dock.find_tab(&Tab::Palette).is_some(),
+        }
+    }
+
+    /// Whether every one of them is folded away.
+    pub(crate) fn panels_hidden(&self) -> bool {
+        use commands::Id::{ViewLog, ViewPalettes, ViewTree};
+        ![ViewTree, ViewPalettes, ViewLog].into_iter().any(|p| self.panel_shown(p))
+    }
+
+    /// Shows a pane beside the middle, or folds it away (it leaves a
+    /// strip at its edge, and is as wide when it comes back).
+    pub(crate) fn show_panel(&mut self, panel: commands::Id, show: bool) {
+        match panel {
+            commands::Id::ViewTree => self.settings.hide_tree = !show,
+            commands::Id::ViewLog => self.settings.hide_log = !show,
+            _ => {
+                self.settings.hide_palettes = !show;
+                let open = self.dock.find_tab(&Tab::Palette);
+                match (show, open) {
+                    (true, None) if self.game.is_some() && self.ws.is_some() => {
+                        self.actions.push(Action::OpenTab(Tab::Palette));
+                    }
+                    (false, Some(path)) => {
+                        self.dock.remove_tab(path);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// View › Reset Layout: the tree, the palettes and the log shown, at
+    /// the sizes they have at first; the palettes in their pane on the
+    /// right.
+    pub(crate) fn reset_layout(&mut self, ctx: &egui::Context) {
+        for id in ["tree", "log"] {
+            ctx.data_mut(|d| d.remove::<egui::containers::panel::PanelState>(egui::Id::new(id)));
+        }
+        self.settings.hide_tree = false;
+        self.settings.hide_log = false;
+        self.palette_share = None;
+        if let Some(path) = self.dock.find_tab(&Tab::Palette) {
+            self.dock.remove_tab(path);
+        }
+        self.show_panel(commands::Id::ViewPalettes, true);
+    }
+
+    /// Whether a tab may close now, letting go of what it held: a hak or a
+    /// tileset with unsaved changes asks first, and stays for the answer.
+    pub(crate) fn may_close(&mut self, tab: &Tab) -> bool {
+        // (Closed, its draft goes: Cancel.)
+        if *tab == Tab::Options {
+            self.options = None;
+        }
+        if *tab == Tab::TileProperties {
+            self.tile_props = None;
+        }
+        if let Tab::Hak(id) = *tab {
+            if self.haks.iter().any(|d| d.id == id && d.hak.is_dirty()) {
+                self.hak_closing = Some(id);
+                return false;
+            }
+            self.haks.retain(|d| d.id != id);
+        }
+        if let Tab::Tileset(id) = *tab {
+            if self.tilesets.iter().any(|d| d.id == id && d.is_dirty()) {
+                self.tileset_closing = Some(id);
+                return false;
+            }
+            self.tilesets.retain(|d| d.id != id);
+        }
+        true
+    }
+
+    /// Notes a tab closed, for Reopen Closed Tab: those that show a
+    /// resource or a tool of the module, not a hak's or a tileset's own
+    /// editor (closed, it has let its file go).
+    pub(crate) fn closed(&mut self, tab: &Tab) {
+        if matches!(tab, Tab::Hak(_) | Tab::Tileset(_) | Tab::Options | Tab::TileProperties) {
+            return;
+        }
+        // (The palettes' pane closed is the palettes folded away: View
+        // and the strip at the edge bring them back.)
+        if *tab == Tab::Palette {
+            self.settings.hide_palettes = true;
+            return;
+        }
+        self.closed_tabs.retain(|t| t != tab);
+        self.closed_tabs.push(tab.clone());
+        let extra = self.closed_tabs.len().saturating_sub(20);
+        self.closed_tabs.drain(..extra);
+    }
+
+    /// Reopen Closed Tab: the tab closed last that can still be shown (its
+    /// resource is in the module still).
+    pub(crate) fn reopen_tab(&mut self) {
+        while let Some(tab) = self.closed_tabs.pop() {
+            let there = match tab.renamable() {
+                Some(key) => self.ws.as_ref().is_some_and(|ws| ws.module.contains(&key)),
+                None => true,
+            };
+            if there && self.dock.find_tab(&tab).is_none() {
+                self.actions.push(Action::OpenTab(tab));
+                return;
+            }
+        }
+    }
+
+    /// The pane the tab keys work in: the one with the focus, if it has
+    /// tabs to go between, else the middle's (the areas').
+    fn tab_pane(&self) -> Option<egui_dock::NodePath> {
+        let tabs = |p: &egui_dock::NodePath| self.dock.leaf(*p).map_or(0, |l| l.tabs.len());
+        let focused = self.dock.focused_leaf().filter(|p| tabs(p) > 1);
+        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
+        focused.or_else(|| {
+            (self.dock.iter_leaves().map(|(p, _)| p))
+                .find(|p| p.surface.is_main() && Some((p.surface, p.node)) != palette)
+        })
+    }
+
+    /// The tab Close Tab closes: the one in front of the pane with the
+    /// focus (a window's, or the middle's), if it can be closed.
+    pub(crate) fn front_tab(&self) -> Option<Tab> {
+        let pane = self.dock.focused_leaf().or_else(|| self.tab_pane())?;
+        let leaf = self.dock.leaf(pane).ok()?;
+        leaf.tabs.get(leaf.active.0).filter(|t| t.closeable()).cloned()
+    }
+
+    /// Next Tab and Previous Tab: the pane's next tab brought to the
+    /// front, round from the last to the first.
+    pub(crate) fn step_tab(&mut self, by: isize) {
+        let Some(pane) = self.tab_pane() else { return };
+        let Ok(leaf) = self.dock.leaf(pane) else { return };
+        let n = leaf.tabs.len() as isize;
+        if n < 2 {
+            return;
+        }
+        let next = (leaf.active.0 as isize + by).rem_euclid(n) as usize;
+        self.show_tab(leaf.tabs[next].clone());
+    }
+
+    /// The middle's tab of a number (from 1; 9: its last), brought to the
+    /// front.
+    fn number_tab(&mut self, number: usize) {
+        let palette = self.dock.find_tab(&Tab::Palette).map(|p| (p.surface, p.node));
+        let Some((_, leaf)) = (self.dock.iter_leaves())
+            .find(|(p, _)| p.surface.is_main() && Some((p.surface, p.node)) != palette)
+        else {
+            return;
+        };
+        let tab = if number == 9 { leaf.tabs.last() } else { leaf.tabs.get(number - 1) };
+        if let Some(tab) = tab.cloned() {
+            self.show_tab(tab);
+        }
+    }
+
+    /// Brings a tab that is open to the front of its pane, as a click on
+    /// it would.
+    fn show_tab(&mut self, tab: Tab) {
+        if let Some(path) = self.dock.find_tab(&tab) {
+            let _ = self.dock.set_active_tab(path);
+            self.dock.set_focused_node_and_surface(egui_dock::NodePath {
+                surface: path.surface,
+                node: path.node,
+            });
+            if let Tab::Area(area) = tab {
+                self.tree_reveal = Some((area, false));
+            }
+        }
+    }
+
+    /// Ctrl and a digit: the middle's tab of that number (9: the last), as
+    /// in a browser. Not while text is typed in (the script editor's
+    /// numbered bookmarks are Ctrl and a digit there).
+    fn tab_number_keys(&mut self, ctx: &egui::Context) {
+        if ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        use egui::Key::{Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9};
+        let keys = [Num1, Num2, Num3, Num4, Num5, Num6, Num7, Num8, Num9];
+        let pressed = ctx
+            .input_mut(|i| keys.iter().position(|k| i.consume_key(egui::Modifiers::COMMAND, *k)));
+        if let Some(i) = pressed {
+            self.number_tab(i + 1);
+        }
+    }
+
+    /// With a module open, the middle of the window keeps its place when
+    /// its last tab is closed: a pane that says no area is open takes it,
+    /// and goes when something opens there. (Without it the palettes'
+    /// pane, the only one left, took the whole middle.)
+    fn keep_middle(&mut self) {
+        if self.ws.is_none() {
+            return;
+        }
+        let main: Vec<Tab> = (self.dock.iter_all_tabs())
+            .filter(|(p, _)| p.surface.is_main())
+            .map(|(_, t)| t.clone())
+            .collect();
+        let others = main.iter().any(|t| !matches!(t, Tab::Palette | Tab::NoArea));
+        let placeholder = main.contains(&Tab::NoArea);
+        // (Where the palettes' pane begins, kept for when the pane beside
+        // it is made anew.)
+        if let Some(palette) = self.dock.find_tab(&Tab::Palette).filter(|p| p.surface.is_main())
+            && let Some(parent) = palette.node.parent()
+            && let egui_dock::Node::Horizontal(split) = &self.dock.main_surface()[parent]
+            && palette.node == parent.right()
+        {
+            self.palette_share = Some(1.0 - split.fraction);
+        }
+        if others && placeholder {
+            if let Some(path) = self.dock.find_tab(&Tab::NoArea) {
+                self.dock.remove_tab(path);
+            }
+        } else if !others && !placeholder {
+            match self.dock.find_tab(&Tab::Palette).filter(|p| p.surface.is_main()) {
+                Some(palette) => {
+                    let left = match self.palette_share {
+                        Some(share) if share < 0.95 => (1.0 - share).clamp(0.12, 0.88),
+                        _ => self.palette_split(),
+                    };
+                    self.dock.main_surface_mut().split_left(palette.node, left, vec![Tab::NoArea]);
+                }
+                None => self.dock.main_surface_mut().push_to_first_leaf(Tab::NoArea),
+            }
+        }
+    }
+
     fn palette_split(&self) -> f32 {
         match (self.tree_width, self.dock_width) {
             (Some(tree), Some(dock)) if dock > 0.0 => (1.0 - tree / dock).clamp(0.5, 0.9),
@@ -1008,7 +1311,13 @@ impl Moonglow {
         let main = self
             .dock
             .iter_leaves()
-            .find(|(p, _)| p.surface.is_main() && Some((p.surface, p.node)) != palette)
+            // (The pane that says no area is open is as no pane: windows
+            // open where they did with the middle empty.)
+            .find(|(p, leaf)| {
+                p.surface.is_main()
+                    && Some((p.surface, p.node)) != palette
+                    && !leaf.tabs.contains(&Tab::NoArea)
+            })
             .map(|(_, leaf)| leaf.rect)
             .filter(|r| r.is_positive())
             .unwrap_or(screen);
@@ -1574,6 +1883,8 @@ impl Moonglow {
         for a in actions {
             self.run(a);
         }
+        // (A tab of the middle closed just now: its place is kept at once.)
+        self.keep_middle();
     }
 
     /// Runs one action now. Actions that would discard unsaved work ask
@@ -1772,6 +2083,16 @@ impl Moonglow {
                     self.dock.remove_tab(path);
                 }
             }
+            Action::CloseTabs(tabs) => {
+                for tab in tabs {
+                    if tab.closeable() && self.may_close(&tab) {
+                        self.closed(&tab);
+                        if let Some(path) = self.dock.find_tab(&tab) {
+                            self.dock.remove_tab(path);
+                        }
+                    }
+                }
+            }
             Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
             Action::OpenTab(tab) => {
                 // The area opened last is opened again with the module.
@@ -1800,7 +2121,12 @@ impl Moonglow {
                     if tab == Tab::Palette {
                         // Its own pane on the right, as in Aurora (the only
                         // one when every other tab was closed).
-                        let fraction = self.palette_split();
+                        // (As wide as it was when it was folded away.)
+                        let fraction = match self.palette_share {
+                            Some(share) if share < 0.95 => (1.0 - share).clamp(0.12, 0.88),
+                            _ => self.palette_split(),
+                        };
+                        self.settings.hide_palettes = false;
                         let main = self.dock.main_surface_mut();
                         if main.root_node().is_none_or(|n| n.is_empty()) {
                             *main = egui_dock::Tree::new(vec![tab.clone()]);

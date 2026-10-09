@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T00:21:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:28:28Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -846,6 +846,57 @@ browser's Save As on a row and Export as Files. Left, or to know:
     setting, which Moonglow does not read.
   - A text field already being typed in when the hak list changes keeps
     what it showed until it is left.
+- **The middle with no area open** (GitHub issue 11): closing the last
+  tab of the main pane let the palettes' pane take the whole window (the
+  dock drops a pane left empty). A pane that says no area is open, with
+  the module's areas to click, keeps the middle's place while a module
+  is open, and the palettes' pane its width (the split is remembered
+  from the frame before). It is a tab like another ("No Area Open"),
+  without a close button; windows open where they did with the middle
+  empty. Not done of the issue: recent areas in it (it lists the
+  module's first twelve).
+- **Panes folded away** (GitHub issue 10): a View menu (Module Tree,
+  Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
+  Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
+  pane folded away leaves a strip at its edge that brings it back, as
+  wide as it was; the palettes' pane closed by its ✕ counts as folded;
+  the state is kept in the settings. Not done of the issue: a collapse
+  button in each pane's own header (the menu, the keys and the strip do
+  it); the strip names the pane only in its tip (the log's says "Log").
+- **Tool windows where they were last docked** (GitHub issue 14): not
+  done, but for Reset Layout and the palettes' pane coming back as wide
+  as it was. A window opens over the area on purpose (so that the area
+  view stays put), whatever pane a window of its kind was last dragged
+  into, and the dock's layout is not kept between runs. Remembering,
+  for each kind of window, the pane it was last in would go against
+  that rule for those who dock a window once and expect the next one
+  floating: the user's to decide. (M)
+- **The module tree by the keyboard** (GitHub issue 12): after a click
+  in it, with the pointer over it, the arrow keys, Page Up and Down,
+  Home and End move a cursor over the groups and their resources, Right
+  and Left open and close a group (and go in and out), Enter opens the
+  resource, Escape hands the keys back; the keys do not reach the area
+  view meanwhile (the palette had this since 1.19.4, and the tree
+  follows its rule: the keys belong to the list clicked last, and work
+  with the pointer over it). Not done of the issue: a focus outline
+  around the pane (the cursor's row is marked instead); the rows of
+  what is placed in an area opened out (the cursor passes them);
+  Ctrl+F to the pane's filter and Down from the filter into the list;
+  Enter in the palette; F6 between panes, type-ahead, F2 and Delete at
+  the cursor (Delete works on the row under the pointer). (S each)
+- **Tabs by the keyboard** (GitHub issue 15): Close Tab (Ctrl+W), Next
+  and Previous Tab (Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+Page Down and Up),
+  Reopen Closed Tab (Ctrl+Shift+T), all in Options › Keyboard and the
+  command palette; Ctrl and a digit for the main pane's tab of that
+  number (fixed keys, off while text is typed in: the script editor's
+  bookmarks are Ctrl and a digit); a middle click closes a tab; Close
+  Others, Close Tabs to the Right and Close All on a tab's menu. Ctrl+F4
+  closes the tab too, as the issue asks, and no longer the module as in
+  Aurora (the user's choice): File › Close has no key at first. Not done: Ctrl+Tab in most-recently-used order; one question
+  listing every tab with unsaved work (only a hak's and a tileset's
+  editors have work of their own to lose, and each asks for itself);
+  the keys work on the focused pane or the main one, not across
+  windows. (S each)
 - **Export Files of a model** (a builder: exporting a bugged placeable
   to whoever mends it meant digging through the haks for its files).
   The model viewer, in an editor's page and in its own window, writes

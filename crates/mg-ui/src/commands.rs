@@ -74,6 +74,18 @@ pub enum Id {
     /// The toolbar's Preview: the window showing the palette's blueprint.
     PreviewWindow,
     FullScreen,
+    /// The tab in front: closed, the next or the one before brought to the
+    /// front, the one closed last opened again.
+    CloseTab,
+    NextTab,
+    PreviousTab,
+    ReopenTab,
+    /// View: the panes beside the middle shown or folded away.
+    ViewTree,
+    ViewPalettes,
+    ViewLog,
+    HidePanels,
+    ResetLayout,
 }
 
 /// What a menu holds, in order.
@@ -95,7 +107,7 @@ pub enum Item {
 use Item::{Do, Separator, Sub};
 
 /// The menu bar.
-pub const MENUS: [(&str, &[Item]); 7] = [
+pub const MENUS: [(&str, &[Item]); 8] = [
     (
         "File",
         &[
@@ -132,6 +144,17 @@ pub const MENUS: [(&str, &[Item]); 7] = [
             Do(Id::EditAreasTogether),
             Do(Id::ReplaceText),
             Do(Id::FindReferences),
+        ],
+    ),
+    (
+        "View",
+        &[
+            Do(Id::ViewTree),
+            Do(Id::ViewPalettes),
+            Do(Id::ViewLog),
+            Separator,
+            Do(Id::HidePanels),
+            Do(Id::ResetLayout),
         ],
     ),
     ("Wizards", &[Do(Id::AreaWizard), Separator, Do(Id::CreatureWizard), Item::Wizards]),
@@ -215,6 +238,7 @@ impl Id {
             walk(items, &mut out);
         }
         out.extend([Id::PreviewWindow, Id::FullScreen]);
+        out.extend([Id::CloseTab, Id::NextTab, Id::PreviousTab, Id::ReopenTab]);
         out
     }
 
@@ -343,6 +367,25 @@ impl Id {
             Id::About => ("about", "About Moonglow Toolset", ""),
             Id::PreviewWindow => ("preview-window", "Preview Window", ""),
             Id::FullScreen => ("full-screen", "Full Screen", ""),
+            Id::CloseTab => ("close-tab", "Close Tab", "The tab in front"),
+            Id::NextTab => ("next-tab", "Next Tab", ""),
+            Id::PreviousTab => ("previous-tab", "Previous Tab", ""),
+            Id::ReopenTab => ("reopen-tab", "Reopen Closed Tab", "The tab closed last"),
+            Id::ViewTree => ("view-tree", "Module Tree", "Show the module tree, or fold it away"),
+            Id::ViewPalettes => {
+                ("view-palettes", "Palettes Panel", "Show the palettes, or fold them away")
+            }
+            Id::ViewLog => ("view-log", "Log", "Show the log, or fold it away"),
+            Id::HidePanels => (
+                "hide-panels",
+                "Hide All Panels",
+                "Fold the tree, the palettes and the log away, or bring them back",
+            ),
+            Id::ResetLayout => (
+                "reset-layout",
+                "Reset Layout",
+                "The tree, the palettes and the log shown where they are at first",
+            ),
         };
         (id.into(), label.into(), hint)
     }
@@ -377,6 +420,14 @@ impl Id {
             Id::CommandPalette => Cmd::CommandPalette,
             Id::FullScreen => Cmd::FullScreen,
             Id::Close => Cmd::Close,
+            Id::CloseTab => Cmd::CloseTab,
+            Id::NextTab => Cmd::NextTab,
+            Id::PreviousTab => Cmd::PreviousTab,
+            Id::ReopenTab => Cmd::ReopenTab,
+            Id::ViewTree => Cmd::ToggleTree,
+            Id::ViewPalettes => Cmd::TogglePalettes,
+            Id::ViewLog => Cmd::ToggleLog,
+            Id::HidePanels => Cmd::HidePanels,
             _ => return None,
         })
     }
@@ -408,6 +459,12 @@ impl Id {
                 Some(p) => format!("Pack {}", p.target().file),
                 None => self.text().1.into_owned(),
             },
+            // (Shown: ticked.)
+            Id::ViewTree | Id::ViewPalettes | Id::ViewLog => {
+                let tick = if app.panel_shown(self) { "✔ " } else { "    " };
+                format!("{tick}{}", self.text().1)
+            }
+            Id::HidePanels if app.panels_hidden() => "Show All Panels".into(),
             _ => self.text().1.into_owned(),
         }
     }
@@ -445,7 +502,14 @@ impl Id {
             | Id::CommandPalette
             | Id::About
             | Id::PreviewWindow
-            | Id::FullScreen => true,
+            | Id::FullScreen
+            | Id::NextTab
+            | Id::PreviousTab => true,
+            Id::ViewLog | Id::ResetLayout => true,
+            Id::ViewTree | Id::HidePanels => open,
+            Id::ViewPalettes => open && app.game.is_some(),
+            Id::CloseTab => app.front_tab().is_some(),
+            Id::ReopenTab => !app.closed_tabs.is_empty(),
             Id::InstallPlugin => app.plugin_dir.is_some(),
             // (The talk table's own, with the pointer over its editor.)
             Id::Undo => {
@@ -601,6 +665,25 @@ impl Id {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
                 return;
             }
+            Id::CloseTab => match app.front_tab() {
+                Some(tab) => Action::CloseTabs(vec![tab]),
+                None => return,
+            },
+            Id::NextTab => return app.step_tab(1),
+            Id::PreviousTab => return app.step_tab(-1),
+            Id::ReopenTab => return app.reopen_tab(),
+            Id::ViewTree | Id::ViewPalettes | Id::ViewLog => {
+                let shown = app.panel_shown(self);
+                return app.show_panel(self, !shown);
+            }
+            Id::HidePanels => {
+                let show = app.panels_hidden();
+                for panel in [Id::ViewTree, Id::ViewPalettes, Id::ViewLog] {
+                    app.show_panel(panel, show);
+                }
+                return;
+            }
+            Id::ResetLayout => return app.reset_layout(ctx),
         };
         app.actions.push(action);
     }

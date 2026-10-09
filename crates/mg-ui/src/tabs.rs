@@ -17,6 +17,9 @@ pub enum Tab {
     Welcome,
     /// Module Properties (module.ifo).
     ModuleProperties,
+    /// The middle of the window with a module open and no area: it keeps
+    /// the middle's place, so that the panes beside it keep theirs.
+    NoArea,
     /// A script source.
     Script(ResKey),
     /// Any GFF resource, as an editable field tree.
@@ -76,7 +79,7 @@ impl Tab {
     /// the rest open over in windows of their own, so a window never takes
     /// the area view's place.
     pub fn docks(&self) -> bool {
-        matches!(self, Tab::Area(_) | Tab::Welcome)
+        matches!(self, Tab::Area(_) | Tab::Welcome | Tab::NoArea)
     }
 
     /// The kind of tab, whatever it shows: what its window's size is
@@ -84,6 +87,7 @@ impl Tab {
     pub(crate) fn kind(&self) -> &'static str {
         match self {
             Tab::Welcome => "welcome",
+            Tab::NoArea => "no-area",
             Tab::ModuleProperties => "module-properties",
             Tab::Script(_) => "script",
             Tab::Gff(_) => "gff",
@@ -155,6 +159,11 @@ impl Tab {
     /// The resource the tab shows that can be renamed (a script, an area, a
     /// conversation, a blueprint, a GFF file), whether or not the module
     /// has it.
+    /// Whether it has a close button (and Close in its menu).
+    pub fn closeable(&self) -> bool {
+        !matches!(self, Tab::Welcome | Tab::NoArea)
+    }
+
     pub fn renamable(&self) -> Option<ResKey> {
         match self {
             Tab::Script(k) | Tab::Dialog(k) | Tab::Blueprint(k) | Tab::Gff(k) => Some(*k),
@@ -219,6 +228,7 @@ impl Viewer<'_> {
         }
         match tab {
             Tab::Welcome => welcome(self.app, ui),
+            Tab::NoArea => no_area(self.app, ui),
             Tab::ModuleProperties => module_props::ui(self.app, ui),
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
@@ -282,6 +292,7 @@ impl TabViewer for Viewer<'_> {
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
         match tab {
             Tab::Welcome => "Welcome".into(),
+            Tab::NoArea => "No Area Open".into(),
             Tab::ModuleProperties => "Module Properties".into(),
             Tab::Script(k) => {
                 let dirty = self.app.scripts.get(k).is_some_and(|b| b.is_dirty());
@@ -378,6 +389,36 @@ impl TabViewer for Viewer<'_> {
                 ui.close();
             }
         }
+        // Closing those of its pane (its own Close is the dock's, below).
+        if tab.closeable() {
+            let pane: Vec<Tab> = (self.app.panes_tabs.iter())
+                .find(|tabs| tabs.contains(tab))
+                .cloned()
+                .unwrap_or_else(|| vec![tab.clone()]);
+            let at = pane.iter().position(|t| t == tab).unwrap_or(0);
+            let closing = |tabs: &[Tab]| -> Vec<Tab> {
+                tabs.iter().filter(|t| t.closeable()).cloned().collect()
+            };
+            let others: Vec<Tab> = closing(&pane).into_iter().filter(|t| t != tab).collect();
+            let right = closing(&pane[at + 1..]);
+            let mut close = None;
+            if ui.add_enabled(!others.is_empty(), egui::Button::new("Close Others")).clicked() {
+                close = Some(others);
+            }
+            if ui
+                .add_enabled(!right.is_empty(), egui::Button::new("Close Tabs to the Right"))
+                .clicked()
+            {
+                close = Some(right);
+            }
+            if ui.button("Close All").on_hover_text("Every tab of this pane").clicked() {
+                close = Some(closing(&pane));
+            }
+            if let Some(tabs) = close {
+                self.app.actions.push(crate::Action::CloseTabs(tabs));
+                ui.close();
+            }
+        }
     }
 
     /// A double click on a window's tab maximizes it, and restores it.
@@ -389,6 +430,9 @@ impl TabViewer for Viewer<'_> {
         {
             self.app.tree_reveal = Some((*area, false));
         }
+        if response.middle_clicked() && tab.closeable() {
+            self.app.actions.push(crate::Action::CloseTabs(vec![tab.clone()]));
+        }
         if response.double_clicked() && !tab.docks() && *tab != Tab::Palette {
             self.app.actions.push(crate::Action::ToggleMaximize(tab.clone()));
         }
@@ -397,34 +441,17 @@ impl TabViewer for Viewer<'_> {
     /// A hak with unsaved changes asks first; a closed hak is let go.
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
         use egui_dock::tab_viewer::OnCloseResponse;
-        // (Closed, its draft goes: Cancel.)
-        if *tab == Tab::Options {
-            self.app.options = None;
+        if self.app.may_close(tab) {
+            self.app.closed(tab);
+            OnCloseResponse::Close
+        } else {
+            OnCloseResponse::Focus
         }
-        if *tab == Tab::TileProperties {
-            self.app.tile_props = None;
-        }
-        if let Tab::Hak(id) = *tab {
-            if self.app.haks.iter().any(|d| d.id == id && d.hak.is_dirty()) {
-                self.app.hak_closing = Some(id);
-                return OnCloseResponse::Focus;
-            }
-            self.app.haks.retain(|d| d.id != id);
-        }
-        if let Tab::Tileset(id) = *tab {
-            if self.app.tilesets.iter().any(|d| d.id == id && d.is_dirty()) {
-                self.app.tileset_closing = Some(id);
-                return OnCloseResponse::Focus;
-            }
-            self.app.tilesets.retain(|d| d.id != id);
-        }
-        OnCloseResponse::Close
     }
 
     fn is_closeable(&self, tab: &Tab) -> bool {
-        *tab != Tab::Welcome
+        tab.closeable()
     }
-
     /// The script editor scrolls its own text, lists and messages, and fits
     /// its pane (in a pane that scrolled, its side lists ran past the pane's
     /// edge and were cut off); so does the manual, whose text wraps at the
@@ -455,6 +482,33 @@ fn instance_title(app: &mut Moonglow, area: mg_core::ResRef, path: &mg_edit::Gff
         .map(|t| String::from_utf8_lossy(t).into_owned())
         .unwrap_or_default();
     format!("{tag} ({area})")
+}
+
+/// The middle of the window while no area is open: how to open one, and
+/// the module's areas to open with a click.
+fn no_area(app: &mut Moonglow, ui: &mut Ui) {
+    let areas = app.ws.as_ref().and_then(|ws| ws.module.areas().ok()).unwrap_or_default();
+    ui.vertical_centered(|ui| {
+        ui.add_space(40.0);
+        ui.heading("No area open");
+        ui.label("Double-click an area in the module tree to open it here.");
+        ui.add_space(12.0);
+        if ui.button("Area Wizard…").on_hover_text("Make a new area").clicked() {
+            app.actions.push(Action::AreaWizard);
+        }
+        if !areas.is_empty() {
+            ui.add_space(16.0);
+            ui.strong("Areas");
+            for area in areas.iter().take(12) {
+                if ui.link(area.to_string()).clicked() {
+                    app.actions.push(Action::OpenTab(Tab::Area(*area)));
+                }
+            }
+            if areas.len() > 12 {
+                ui.weak(format!("and {} more in the module tree", areas.len() - 12));
+            }
+        }
+    });
 }
 
 fn welcome(app: &mut Moonglow, ui: &mut Ui) {
