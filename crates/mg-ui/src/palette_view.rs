@@ -624,6 +624,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             })
         })
         .flatten();
+    let gallery = app.settings.palette_gallery && pictured(kind);
     let mut tree = Tree {
         game,
         kind,
@@ -637,9 +638,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .filter_map(|f| ResRef::from_str(f.strip_prefix(&format!("{ext}:"))?).ok())
             .collect(),
         thumb: view.thumb,
-        gallery: app.settings.palette_gallery && pictured(kind),
+        gallery,
         side: crate::appearance_gallery::tile_side(app),
-        ready: app.thumbnails.all(),
+        // (The pictures made so far: of use in the Gallery alone.)
+        ready: if gallery { app.thumbnails.all() } else { HashMap::new() },
         shown: Vec::new(),
         about: view.about.as_ref().map(|(k, lines)| (*k, lines.as_slice())),
         sel: Selection { selected: view.selected, chosen: std::mem::take(&mut view.chosen) },

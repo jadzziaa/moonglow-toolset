@@ -89,7 +89,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             return;
         }
     };
-    let mut view = app.journal_view.clone();
+    let mut view = std::mem::take(&mut app.journal_view);
     // A selection the journal no longer has (undo) is dropped.
     let valid = |n: &Node| match *n {
         Node::Category(c) => c < cats.len(),

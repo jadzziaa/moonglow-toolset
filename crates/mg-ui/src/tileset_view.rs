@@ -4,6 +4,7 @@
 //! palette beside it and checks it with the content doctor.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use egui::Ui;
 use mg_core::{Codepage, ResType};
@@ -31,7 +32,7 @@ pub struct TilesetDoc {
     pub path: PathBuf,
     pub file: SetFile,
     /// The file as read, after each change.
-    set: Result<Tileset, String>,
+    set: Result<Arc<Tileset>, String>,
     undo: Vec<SetFile>,
     redo: Vec<SetFile>,
     saved: Option<usize>,
@@ -75,7 +76,7 @@ impl TilesetDoc {
     }
 
     pub fn tileset(&self) -> Option<&Tileset> {
-        self.set.as_ref().ok()
+        self.set.as_deref().ok()
     }
 
     /// Changes the file, as one undo step.
@@ -124,8 +125,12 @@ impl TilesetDoc {
     }
 }
 
-fn read(file: &SetFile) -> Result<Tileset, String> {
-    Tileset::parse(file.text().as_bytes(), Codepage::default()).map_err(|e| e.to_string())
+/// The file as a tileset (shared: a page holds it while it changes the
+/// file, without a copy of every tile each frame).
+fn read(file: &SetFile) -> Result<Arc<Tileset>, String> {
+    Tileset::parse(file.text().as_bytes(), Codepage::default())
+        .map(Arc::new)
+        .map_err(|e| e.to_string())
 }
 
 /// Tools › Tilesets › New Tileset…: a new `.set` with its general
@@ -398,7 +403,7 @@ fn general(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
 }
 
 fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
-    let Some(t) = d.tileset().cloned() else { return };
+    let Ok(t) = d.set.clone() else { return };
     ui.columns(2, |cols| {
         for (col, crosser) in [(0, false), (1, true)] {
             let ui = &mut cols[col];
@@ -445,7 +450,7 @@ fn terrain(ui: &mut Ui, d: &mut TilesetDoc) {
 }
 
 fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
-    let Some(t) = d.tileset().cloned() else { return };
+    let Ok(t) = d.set.clone() else { return };
     ui.horizontal(|ui| {
         ui.label("Find");
         ui.add(egui::TextEdit::singleline(&mut d.filter).desired_width(160.0).hint_text("model or terrain"));
@@ -597,7 +602,7 @@ fn tiles(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
 }
 
 fn groups(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
-    let Some(t) = d.tileset().cloned() else { return };
+    let Ok(t) = d.set.clone() else { return };
     ui.horizontal(|ui| {
         let tile = d.tile;
         if ui
@@ -700,7 +705,7 @@ fn make_palette(app: &mut Moonglow, d: &mut TilesetDoc) {
 /// models found there or in the game data. Tiles without a picture's name
 /// get `mi_<model>` (one undoable change).
 pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc, size: u32) {
-    let Some(t) = d.tileset().cloned() else { return };
+    let Ok(t) = d.set.clone() else { return };
     let dir = d.path.parent().map(PathBuf::from).unwrap_or_default();
     // Unnamed pictures named after their models.
     let unnamed: Vec<usize> = (0..t.tiles.len())
@@ -722,7 +727,7 @@ pub fn render_minimaps(app: &mut Moonglow, d: &mut TilesetDoc, size: u32) {
             }
         });
     }
-    let Some(t) = d.tileset().cloned() else { return };
+    let Ok(t) = d.set.clone() else { return };
     // The folder's models and textures, over the game data while rendering.
     const LAYER: &str = "tileset folder";
     if let Some(game) = crate::exclusive(&mut app.game) {

@@ -99,7 +99,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         ui.label("No module is open.");
         return;
     };
-    let mut view = app.faction_view.clone();
+    let mut view = std::mem::take(&mut app.faction_view);
     let n = f.factions.len() as u32;
     view.selected = view.selected.min(n.saturating_sub(1));
     let mut changed: Option<String> = None;

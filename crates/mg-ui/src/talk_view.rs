@@ -62,32 +62,42 @@ fn named(app: &Moonglow) -> Option<String> {
 
 /// Opens the module's talk table for editing, if it names one the game
 /// finds and another isn't open. Unsaved changes to an open one stay.
-pub(crate) fn load(app: &mut Moonglow) {
-    if app.talk_view.outside && app.talk.is_some() {
-        return;
+/// The name the module gives its table, if any (read from `module.ifo`
+/// here, once for those who ask after).
+pub(crate) fn load(app: &mut Moonglow) -> Option<String> {
+    let name = named(app);
+    if let Some(name) = &name
+        && !(app.talk_view.outside && app.talk.is_some())
+    {
+        open(app, name);
     }
-    let Some(name) = named(app) else { return };
+    name
+}
+
+/// Opens the module's talk table `name`, unless it is the one open, the
+/// open one has unsaved changes, or it was tried and could not be read.
+fn open(app: &mut Moonglow, name: &str) {
     if app.talk.as_ref().is_some_and(|t| t.name == name || t.is_dirty()) {
         return;
     }
-    if app.talk_view.unreadable.as_ref() == Some(&name) {
+    if app.talk_view.unreadable.as_deref() == Some(name) {
         return;
     }
     let (Some(game), Some(install)) = (&app.game, &app.install) else { return };
     let dirs = install.tlk_dirs();
-    let Some(found) = talk::find(&game.resman, &dirs, &name) else {
+    let Some(found) = talk::find(&game.resman, &dirs, name) else {
         app.talk = None;
         return;
     };
-    let feminine = talk::find(&game.resman, &dirs, &talk::feminine(&name));
-    match Table::open(&name, found, feminine) {
+    let feminine = talk::find(&game.resman, &dirs, &talk::feminine(name));
+    match Table::open(name, found, feminine) {
         Ok(t) => {
             app.talk = Some(t);
             app.talk_view = TalkView::default();
         }
         Err(e) => {
             app.log.error(format!("Talk table {name}: {e}"));
-            app.talk_view.unreadable = Some(name);
+            app.talk_view.unreadable = Some(name.to_string());
         }
     }
 }
@@ -126,9 +136,9 @@ pub(crate) fn add_line(app: &mut Moonglow, line: &Line) -> Result<StrRef, String
 /// Whether String Edit can move text into the talk table, and the table's
 /// language if so.
 pub(crate) fn can_add(app: &mut Moonglow) -> Option<(mg_core::Language, bool)> {
-    load(app);
+    let name = load(app);
     let t = app.talk.as_ref().filter(|t| t.editable() && !app.talk_view.outside)?;
-    (Some(&t.name) == named(app).as_ref()).then(|| (t.tlk.language, t.feminine.is_some()))
+    (Some(&t.name) == name.as_ref()).then(|| (t.tlk.language, t.feminine.is_some()))
 }
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
@@ -138,8 +148,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         files(&mut app.actions, ui);
         return;
     }
-    load(app);
-    let name = named(app);
+    let name = load(app);
     let open = app.talk.as_ref().is_some_and(|t| outside || Some(&t.name) == name.as_ref());
     if !open {
         no_table(app, ui, name);

@@ -201,7 +201,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             return;
         }
     };
-    let mut view = app.dialog_views.get(&key).cloned().unwrap_or_default();
+    // (Taken for the frame and put back at its end, not copied.)
+    let mut view = app.dialog_views.remove(&key).unwrap_or_default();
     // A selection the conversation no longer has (undo) is dropped.
     view.selected = view.selected.filter(|r| r.pos < links(&g, r.parent).len());
     let mut actions: Vec<Action> = Vec::new();
@@ -313,12 +314,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             delete = true;
         }
         let paste_parent = add_parent;
-        let clip = app.dialog_clip.clone();
-        let fits = |p: Parent| clip.as_ref().is_some_and(|c| c.branch.kind == p.child_kind());
+        let clip = app.dialog_clip.as_ref();
+        let fits = |p: Parent| clip.is_some_and(|c| c.branch.kind == p.child_kind());
         let can_paste = paste_parent.is_some_and(fits);
         if (ui.add_enabled(can_paste, egui::Button::new("Paste")).clicked() || key_paste)
             && can_paste
-            && let (Some(p), Some(c)) = (paste_parent, &clip)
+            && let (Some(p), Some(c)) = (paste_parent, clip)
         {
             let mut ng = g.clone();
             if paste_branch(&mut ng, p, &c.branch, c.from == key) {
@@ -330,7 +331,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // copied one (Link Destination To Source); the other way round,
         // the copied line gets a link to the selected one.
         let selected_line = sel.filter(|r| !is_link(&links(&g, r.parent)[r.pos])).map(target_of);
-        let pair = match (selected_line, clip.as_ref().filter(|c| c.from == key)) {
+        let pair = match (selected_line, clip.filter(|c| c.from == key)) {
             (Some(dest), Some(c)) => {
                 let (from, to) =
                     if paste_source_first { (c.target, dest) } else { (dest, c.target) };
