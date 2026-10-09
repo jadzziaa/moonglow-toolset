@@ -615,19 +615,17 @@ impl AreaScene {
             if failed(key) {
                 continue;
             }
-            let (mut drawn, mut lit) = (Vec::new(), Vec::new());
+            // (Into the scene's own lists, not a pair of new ones for each
+            // tile each frame: what a tile added before it failed goes.)
+            let (drawn, lit) = (instances.len(), lights.len());
             let name = tile.model.as_deref().unwrap_or("a tile");
             let posed = mg_render::guard::guarded(name, || {
-                self.tile(tile, loaded, view, &mut shared, &mut drawn, &mut lit);
+                self.tile(tile, loaded, view, &mut shared, &mut instances, &mut lights);
             });
-            match posed {
-                Some(()) => {
-                    instances.extend(drawn);
-                    lights.extend(lit);
-                }
-                None => {
-                    self.failed.borrow_mut().insert(key);
-                }
+            if posed.is_none() {
+                instances.truncate(drawn);
+                lights.truncate(lit);
+                self.failed.borrow_mut().insert(key);
             }
         }
         for (o, shown) in area.objects.iter().zip(&self.objects) {
