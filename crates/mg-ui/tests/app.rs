@@ -471,6 +471,42 @@ fn reload_resources_picks_up_new_files_in_override() {
     assert!(app.log.entries.iter().any(|(_, m)| m == "Reload Resources: nothing changed"));
 }
 
+/// Saving a module that was never saved asks where first, and then does
+/// what a save does once: the build before saving is not run for the
+/// question and again for the answer, and not at all if it is called off.
+#[test]
+fn a_first_save_builds_once_and_not_when_called_off() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-first-save");
+    let path = dir.join("fresh.mod");
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    // The first Save As is called off, the second answered.
+    let app = Moonglow::new(
+        Some(install),
+        Box::new(NoDialogs { save: vec![path.clone()], ..Default::default() }),
+    );
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::NewModule("Fresh".into()));
+    h.run();
+    h.state_mut().wizard = None;
+    h.state_mut().settings.build_on_save = true;
+    h.run();
+    let builds = |h: &Harness<'_, Moonglow>| {
+        h.state().log.entries.iter().filter(|(_, m)| m == "Building Module...").count()
+    };
+    let dialogs = std::mem::replace(&mut h.state_mut().dialogs, Box::new(NoDialogs::default()));
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert_eq!(h.state().module_path(), None);
+    assert_eq!(builds(&h), 0, "called off: nothing was done");
+    h.state_mut().dialogs = dialogs;
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert_eq!(h.state().module_path().as_deref(), Some(path.as_path()));
+    assert_eq!(builds(&h), 1, "{:?}", h.state().log.entries);
+}
+
 #[test]
 fn new_module_and_area_through_the_wizards() {
     let root = mg_testkit::corpus!();

@@ -2030,6 +2030,12 @@ impl Moonglow {
     }
 
     fn save(&mut self, to: Option<ModuleLocation>) {
+        // A module never saved is asked a place first: Save As comes back
+        // here with it, and a save called off there does nothing.
+        if to.is_none() && self.ws.as_ref().is_some_and(|ws| ws.module.location.is_none()) {
+            self.run_now(Action::SaveAsDialog);
+            return;
+        }
         // (A Ctrl + wheel scaling still under way is part of what is saved.)
         area_view::commit_wheel_scales(self);
         // Options > General: Build module on save.
@@ -2096,10 +2102,6 @@ impl Moonglow {
         }
         let result = match to {
             Some(loc) => ws.save_as(&loc).map_err(|e| e.to_string()),
-            None if ws.module.location.is_none() => {
-                self.run_now(Action::SaveAsDialog);
-                return;
-            }
             None => ws.save().map_err(|e| e.to_string()),
         };
         match result {
