@@ -1352,8 +1352,8 @@ pub(crate) fn open_script_window(app: &mut Moonglow) {
 }
 
 /// The Open Script window: a name to find, which scripts to show (as
-/// Aurora's Resources to Show), and the list; a double click, or Enter for
-/// the first listed, opens one (the game's and a hak's to read only).
+/// Aurora's Resources to Show), and the list; a click, or Enter for the
+/// first listed, opens one (the game's and a hak's to read only).
 fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
     use crate::script_tools::{ScriptFrom, ScriptsShown};
     let Some(mut w) = app.script_tools.open_script.take() else { return };
@@ -1411,7 +1411,7 @@ fn open_script_ui(app: &mut Moonglow, ctx: &egui::Context) {
                                 ScriptFrom::Hak => _ = ui.weak("hak"),
                                 ScriptFrom::Game => _ = ui.weak("game"),
                             }
-                            if r.double_clicked() || r.clicked() {
+                            if r.clicked() {
                                 chosen = Some((*key, *from));
                             }
                         });
