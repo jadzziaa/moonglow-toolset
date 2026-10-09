@@ -787,16 +787,6 @@ impl Form<'_> {
         }
     }
 
-    /// A resource name with a picker.
-    #[allow(dead_code)] // for the editors that follow
-    pub(crate) fn resref(&mut self, ui: &mut Ui, what: &str, label: &str, types: &[ResType]) {
-        self.mark_mixed(ui, label);
-        let current = self.root.resref(label).unwrap_or(ResRef::EMPTY);
-        if let Some(v) = resref_field(self.app, ui, self.id(label), current, what, types) {
-            self.set(what, label, Value::resref(v));
-        }
-    }
-
     /// A script field: name, picker and Edit.
     pub(crate) fn script(&mut self, ui: &mut Ui, what: &str, label: &str) {
         self.mark_mixed(ui, label);

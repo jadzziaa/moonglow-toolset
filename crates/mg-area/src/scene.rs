@@ -799,11 +799,6 @@ impl AreaScene {
         });
     }
 
-    /// Whether the area has a skybox model loaded.
-    pub fn has_sky(&self) -> bool {
-        self.sky.iter().any(Option::is_some)
-    }
-
     /// What the loaded models use (Area Statistics): distinct tile and
     /// object models, their meshes and triangles, the GPU memory of their
     /// vertex and index buffers, and the distinct textures they name.

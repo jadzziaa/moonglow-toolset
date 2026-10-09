@@ -8,20 +8,6 @@ use mg_core::bin::Reader;
 
 use crate::{ImageError, Rgba, check_size};
 
-/// The ten layers, in PLT order.
-pub const LAYERS: [&str; 10] = [
-    "Skin",
-    "Hair",
-    "Metal 1",
-    "Metal 2",
-    "Cloth 1",
-    "Cloth 2",
-    "Leather 1",
-    "Leather 2",
-    "Tattoo 1",
-    "Tattoo 2",
-];
-
 /// Each layer's palette (`pal_*.tga`).
 pub const PALETTES: [&str; 10] = [
     "pal_skin01",

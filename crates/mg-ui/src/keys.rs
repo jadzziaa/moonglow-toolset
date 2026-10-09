@@ -293,23 +293,6 @@ impl Cmd {
         }
     }
 
-    /// Held down rather than pressed (the camera's moves and turns).
-    pub fn is_held(self) -> bool {
-        matches!(
-            self,
-            Cmd::CameraForward
-                | Cmd::CameraBack
-                | Cmd::CameraLeft
-                | Cmd::CameraRight
-                | Cmd::CameraTurnLeft
-                | Cmd::CameraTurnRight
-                | Cmd::CameraTiltUp
-                | Cmd::CameraTiltDown
-                | Cmd::CameraUp
-                | Cmd::CameraDown
-        )
-    }
-
     pub fn from_id(id: &str) -> Option<Cmd> {
         Cmd::ALL.into_iter().find(|c| c.id() == id)
     }

@@ -23,8 +23,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use mg_core::sha1::{Sha1, hex};
-use mg_core::{ResType, sha1::sha1};
+use mg_core::ResType;
+use mg_core::sha1::{hex, sha1};
 use mg_erf::compressedbuf::{MAGIC_NSYC, compress};
 use mg_resman::{Container, ErfContainer, GameInstall, ResKey, ResMan};
 
@@ -324,21 +324,6 @@ pub fn read_manifest(data: &[u8]) -> Result<Vec<(ResKey, [u8; 20], u32)>, String
         out.push((name(&mut r)?, sha, size));
     }
     Ok(out)
-}
-
-/// A whole file's SHA-1, read in pieces.
-pub fn sha1_of_file(path: &Path) -> std::io::Result<[u8; 20]> {
-    use std::io::Read;
-    let mut f = std::fs::File::open(path)?;
-    let mut h = Sha1::new();
-    let mut buf = vec![0u8; 1 << 16];
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            return Ok(h.finish());
-        }
-        h.update(&buf[..n]);
-    }
 }
 
 #[cfg(test)]

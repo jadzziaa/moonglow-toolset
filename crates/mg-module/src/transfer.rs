@@ -311,11 +311,6 @@ pub fn import_erf(
     Ok(summary)
 }
 
-/// A standard faction id's name, for reports.
-pub fn standard_faction_name(id: u32) -> Option<&'static str> {
-    ["PC", "Hostile", "Commoner", "Merchant", "Defender"].get(id as usize).copied()
-}
-
 #[cfg(test)]
 mod tests {
     use mg_resman::{LayerClass, MemContainer, priority};

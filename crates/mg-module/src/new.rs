@@ -148,14 +148,13 @@ fn module_info(game: &GameData, name: &str, rng: &mut fastrand::Rng) -> Result<G
 /// The factions of a new module (PC, Hostile, Commoner, Merchant, Defender)
 /// and how each regards the others. How factions regard PCs is not stored.
 pub fn default_factions() -> Gff {
-    const NAMES: [&str; 5] = ["PC", "Hostile", "Commoner", "Merchant", "Defender"];
     // REPUTATION[t][p - 1]: how faction p (1..=4) regards faction t; how
     // the PC faction regards others is not stored.
     const REPUTATION: [[u32; 4]; 5] =
         [[0, 50, 50, 50], [100, 0, 0, 0], [0, 100, 50, 100], [0, 50, 100, 100], [0, 50, 100, 100]];
     let mut g = Gff::new(*b"FAC ");
     let factions = g.root.items_mut(&fac::FACTION_LIST);
-    for (i, name) in NAMES.iter().enumerate() {
+    for (i, name) in crate::factions::STANDARD.iter().enumerate() {
         let mut s = Struct::new(i as u32);
         s.write(&fac::faction_list::FACTION_PARENT_ID, u32::MAX);
         s.write(&fac::faction_list::FACTION_NAME, ExoString::from(*name));
