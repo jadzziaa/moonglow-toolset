@@ -62,6 +62,10 @@ pub struct Settings {
     /// The size each kind of editor window was last left at (its
     /// `Tab::kind`, width and height in points): the next one opens so.
     pub window_sizes: Vec<(String, [u32; 2])>,
+    /// Where each kind of window was last dragged to, when not a window
+    /// of its own: `middle` (a tab of the main pane) or `palettes` (a tab
+    /// of the palettes' pane). The next of its kind opens there.
+    pub window_places: Vec<(String, String)>,
     /// The plugins enabled, by id (one installed is off until it is here).
     pub plugins_enabled: Vec<String>,
     /// The game install, when not the detected one.

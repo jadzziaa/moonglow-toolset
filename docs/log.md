@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-09
+* **Update**: [The main window](manual/02-main-window.md) and [the deferred list](deferred.md): the menus by the keyboard (GitHub issue 9), tool windows open where their kind was last docked (issue 14), Ctrl+F4 closes a tab.
 * **Update**: [The main window](manual/02-main-window.md) and [the deferred list](deferred.md): a View menu, and the panes beside the middle folded away and brought back (GitHub issue 10).
 * **Update**: [The main window](manual/02-main-window.md) and [the deferred list](deferred.md): the module tree by the keyboard (GitHub issue 12).
 * **Update**: [The main window](manual/02-main-window.md) and [the deferred list](deferred.md): the main pane keeps its place with no area open (GitHub issue 11), and the tabs by the keyboard, a middle click and Close Others (issue 15).
