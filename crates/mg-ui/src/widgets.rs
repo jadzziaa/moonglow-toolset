@@ -323,7 +323,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.game.as_deref()?.string(StrRef(n))
     };
 
-    if let Some(edit) = app.loc_edit.clone() {
+    if let Some(edit) = app.loc_edit.take() {
         let mut edit = edit;
         let mut close = false;
         let tlk = tlk_text(app, &edit.strref);
@@ -466,7 +466,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.loc_edit = if close { None } else { Some(edit) };
     }
 
-    if let Some(mut edit) = app.var_edit.clone() {
+    if let Some(mut edit) = app.var_edit.take() {
         let mut close = false;
         // A window to size as the list needs: its edges are dragged, and the
         // name and value fields take the width there is.
@@ -619,7 +619,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         app.var_edit = if close { None } else { Some(edit) };
     }
 
-    if let Some(mut p) = app.picker.clone() {
+    if let Some(mut p) = app.picker.take() {
         let mut close = false;
         window(&p.title).show(&ctx, |ui| {
             ui.horizontal(|ui| {

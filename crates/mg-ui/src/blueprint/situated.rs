@@ -429,19 +429,22 @@ pub(super) fn transition(f: &mut Form<'_>, ui: &mut Ui) {
         });
         ui.end_row();
         crate::widgets::field_label(ui, "");
-        // Aurora's Setup Area Transition: a door or waypoint in an area.
-        let dests = destinations(f);
-        // (Areas by name, when the module tree lists them so.)
-        let mut areas: std::collections::HashMap<_, String> = Default::default();
-        for (area, _, _) in &dests {
-            let named = area.parse().map(|r| crate::tabs::area_label(f.app, r));
-            areas.entry(area.clone()).or_insert_with(|| named.unwrap_or_else(|_| area.clone()));
-        }
+        // Aurora's Setup Area Transition: a door or waypoint in an area
+        // (gathered while the list is open: from every area's objects).
         let mut pick = None;
         egui::ComboBox::from_id_salt(("utt-setup", f.key))
             .selected_text("Setup Area Transition…")
             .width(260.0)
             .show_ui(ui, |ui| {
+                let dests = destinations(f);
+                // (Areas by name, when the module tree lists them so.)
+                let mut areas: std::collections::HashMap<_, String> = Default::default();
+                for (area, _, _) in &dests {
+                    let named = area.parse().map(|r| crate::tabs::area_label(f.app, r));
+                    areas
+                        .entry(area.clone())
+                        .or_insert_with(|| named.unwrap_or_else(|_| area.clone()));
+                }
                 if dests.is_empty() {
                     ui.weak("No doors or waypoints with tags in the module's areas");
                 }

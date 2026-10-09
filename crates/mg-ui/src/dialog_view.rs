@@ -226,7 +226,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     // Keys, with the pointer over the editor and no text being typed:
     // Options › Keyboard's, and the platform's Copy, Cut and Paste.
     let here = ui.ui_contains_pointer() && ui.memory(|m| m.focused().is_none());
-    let keymap = app.keymap.clone();
+    let keymap = &app.keymap;
     let pressed = |c: crate::keys::Cmd| here && ui.input(|i| keymap.pressed(i, c));
     let asked = view.menu.take();
     let (key_add, key_delete) = (

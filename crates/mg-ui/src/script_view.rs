@@ -300,7 +300,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
     // The symbols the script can use (its own, its includes', nwscript's).
     let symbols = {
-        let text = app.scripts[&key].text.clone();
+        let text = &app.scripts[&key].text;
         let (game, ws) = (&app.game, &app.ws);
         let mut source = |name: &str| -> Option<String> {
             let k = tools::nss(name)?;
@@ -313,7 +313,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         };
         app.script_tools.symbols_for(
             key,
-            &text,
+            text,
             || {
                 let g = game.as_ref()?;
                 let data = g.resman.get_named("nwscript", ResType::NSS).ok()?;
@@ -338,7 +338,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         use egui::{Key, KeyboardShortcut, Modifiers};
         let pressed = |m, k| ui.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, k)));
         // The keys of Options › Keyboard.
-        let keys = app.keymap.clone();
+        let keys = &app.keymap;
         let cmd = |c: Cmd| ui.input_mut(|i| keys.consume(i, c));
         rename = cmd(Cmd::RenameSymbol);
         open_find = cmd(Cmd::Find);
@@ -423,7 +423,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         to_scratch = ui.button("To Scratch").on_hover_text(tip).clicked();
         ui.separator();
         use crate::keys::Cmd;
-        let keymap = app.keymap.clone();
+        let keymap = &app.keymap;
         let ctx = ui.ctx().clone();
         let tip = |text: &str, cmd: Cmd| keymap.titled(text, cmd, &ctx);
         let find_tip = format!("{}; {}", tip("Find", Cmd::Find), tip("Find Next", Cmd::FindNext));

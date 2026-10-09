@@ -3185,14 +3185,16 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
     // (While placing, they turn what is being placed instead.)
     if hovered && !typing && !placing && !view.selection.is_empty() {
         use crate::keys::Cmd;
-        let keys = app.keymap.clone();
-        let pressed = |c: Cmd| ui.input(|i| keys.pressed(i, c));
-        for (cmd, by) in turn_keys(view) {
-            if pressed(cmd) {
-                rotate_selection(app, view, by);
-            }
+        // (Which were pressed first: what they do changes the app, not
+        // the keys.)
+        let pressed = |c: Cmd| ui.input(|i| app.keymap.pressed(i, c));
+        let turns: Vec<f32> =
+            turn_keys(view).into_iter().filter(|(cmd, _)| pressed(*cmd)).map(|t| t.1).collect();
+        let drop = pressed(Cmd::DropToGround);
+        for by in turns {
+            rotate_selection(app, view, by);
         }
-        if pressed(Cmd::DropToGround) {
+        if drop {
             drop_to_ground(app, view);
         }
     }

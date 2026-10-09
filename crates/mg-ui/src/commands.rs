@@ -591,11 +591,10 @@ pub fn name_of(id: &str) -> String {
 /// The commands whose key was pressed, run (a key pressed for a command
 /// that cannot be chosen now is still used up).
 pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
-    let keymap = app.keymap.clone();
     // (A letter given to a command stays a letter in a text field.)
     let typing = ui.memory(|m| m.focused().is_some());
     for id in Id::all() {
-        let pressed = ui.input_mut(|i| keymap.consume_outside_text(i, &id.id(), typing));
+        let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing));
         if pressed && id.enabled(app) {
             id.run(app, ui.ctx());
         }
@@ -603,7 +602,7 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // The plugins' commands, after the window's own: a key both have is
     // the window's.
     for c in app.plugin_commands() {
-        let pressed = ui.input_mut(|i| keymap.consume_outside_text(i, &c.key_id, typing));
+        let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &c.key_id, typing));
         if pressed && app.ws.is_some() {
             app.run_plugin_command(&c.plugin, &c.command);
         }
