@@ -12,7 +12,6 @@ eframe.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
 mg-audio.workspace = true
-mg-resman.workspace = true
 mg-ui.workspace = true
 rfd.workspace = true
 rodio.workspace = true

@@ -14,9 +14,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-mg-testkit.workspace = true
 proptest.workspace = true
-rayon.workspace = true
 
 [lints]
 workspace = true
