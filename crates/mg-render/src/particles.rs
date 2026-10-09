@@ -490,7 +490,9 @@ impl Particles {
                         let k = if q.life > 0.0 { (q.age / q.life).clamp(0.0, 1.0) } else { 0.0 };
                         let pos = if inherit { world.transform_point3(q.pos) } else { q.pos };
                         let c = c0.lerp(c1, k);
-                        (pos, s0 + (s1 - s0) * k, [c.x, c.y, c.z, a0 + (a1 - a0) * k])
+                        // (A ribbon is twice its particles' size across:
+                        // their size to either side. Seen in the client.)
+                        (pos, 2.0 * (s0 + (s1 - s0) * k), [c.x, c.y, c.z, a0 + (a1 - a0) * k])
                     })
                     .collect();
                 // Each particle's frame of the flip-book, as a quad's.
@@ -499,9 +501,7 @@ impl Particles {
                     .map(|q| {
                         let frame =
                             (f0 + (q.frame0 + q.age * fps).floor() % frames).min(f1.max(f0)) as u32;
-                        let (fx, fy) = (frame % gx, frame / gx % gy);
-                        let uv0 = Vec2::new(fx as f32 / gx as f32, fy as f32 / gy as f32);
-                        (uv0, uv0 + Vec2::new(1.0 / gx as f32, 1.0 / gy as f32))
+                        cell(frame, gx, gy)
                     })
                     .collect();
                 out.push(ParticleBatch {
@@ -522,9 +522,7 @@ impl Particles {
                 let sx = s0 + (s1 - s0) * k;
                 let sy = if sy0 > 0.0 || sy1 > 0.0 { sy0 + (sy1 - sy0) * k } else { sx };
                 let frame = (f0 + (q.frame0 + q.age * fps).floor() % frames).min(f1.max(f0)) as u32;
-                let (fx, fy) = (frame % gx, frame / gx % gy);
-                let uv0 = Vec2::new(fx as f32 / gx as f32, fy as f32 / gy as f32);
-                let uv1 = uv0 + Vec2::new(1.0 / gx as f32, 1.0 / gy as f32);
+                let (uv0, uv1) = cell(frame, gx, gy);
                 let angle = q.rot + rot_speed * q.age;
                 let (right, up) = match render.as_str() {
                     // Upright, turned about the world's Z to the eye (a
@@ -627,6 +625,18 @@ impl Particles {
     }
 }
 
+/// A flip-book's frame as the corners of its cell in the texture: the
+/// first frame is the picture's top left, and they go along each row and
+/// down the rows, as the game plays them. (v is 0 at the picture's bottom:
+/// the top row is the last. A fog whose frames go from nothing at the top
+/// to thick at the bottom fades in; begun at the bottom, each puff was
+/// born at its thickest. Seen in the client: `particles_look`.)
+fn cell(frame: u32, gx: u32, gy: u32) -> (Vec2, Vec2) {
+    let (fx, fy) = (frame % gx, gy - 1 - frame / gx % gy);
+    let uv0 = Vec2::new(fx as f32 / gx as f32, fy as f32 / gy as f32);
+    (uv0, uv0 + Vec2::new(1.0 / gx as f32, 1.0 / gy as f32))
+}
+
 /// Camera-facing quads joining points (position, width, colour). Without
 /// `cells`, the texture's v runs along the whole strip (a bolt of
 /// lightning). With them (one a point: the corners of its frame in the
@@ -721,6 +731,19 @@ mod tests {
             let highest = b[0].vertices.iter().map(|v| v.pos[2]).fold(f32::MIN, f32::max);
             assert!(lowest < -1.0 && highest < 1.0, "{flags:#x} {turned}: {lowest} to {highest}");
         }
+    }
+
+    /// A flip-book's first frame is the picture's top left (the last row
+    /// of v), and its frames go along a row, then down.
+    #[test]
+    fn a_flip_book_begins_at_the_picture_s_top_left() {
+        let at = |frame| cell(frame, 4, 2).0;
+        assert_eq!(at(0), Vec2::new(0.0, 0.5));
+        assert_eq!(at(3), Vec2::new(0.75, 0.5));
+        assert_eq!(at(4), Vec2::new(0.0, 0.0));
+        assert_eq!(cell(7, 4, 2), (Vec2::new(0.75, 0.0), Vec2::new(1.0, 0.5)));
+        // (One cell: the whole picture.)
+        assert_eq!(cell(0, 1, 1), (Vec2::ZERO, Vec2::ONE));
     }
 
     #[test]

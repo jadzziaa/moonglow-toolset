@@ -21,6 +21,82 @@ pub(crate) struct OutsideState {
     said: std::collections::HashSet<u64>,
     /// The conflicts "Later" was chosen for.
     later: Vec<PathBuf>,
+    /// Looks at the module's files off the UI's thread.
+    watch: Option<Watch>,
+}
+
+/// A thread that looks at a module folder's (or a nasher project's) files
+/// every few seconds and says when any was changed, added or removed, so
+/// that the window's thread reads them only then. (Looked at there, a
+/// large module's thousands of files stalled the window for a moment
+/// every few seconds: a builder saw it.)
+#[derive(Debug)]
+struct Watch {
+    root: PathBuf,
+    changed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// The files under `root` as one number: their names, times and sizes.
+/// (Not what a version control or a build keeps there: `.git`, `.nasher`
+/// and other hidden folders.)
+fn signature(root: &std::path::Path) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut dirs = vec![root.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let mut seen: Vec<(std::ffi::OsString, Option<std::time::SystemTime>, u64)> = Vec::new();
+        for e in entries.flatten() {
+            let name = e.file_name();
+            let Ok(meta) = e.metadata() else { continue };
+            if meta.is_dir() {
+                if !name.to_string_lossy().starts_with('.') {
+                    dirs.push(e.path());
+                }
+            } else {
+                seen.push((name, meta.modified().ok(), meta.len()));
+            }
+        }
+        seen.sort();
+        (dir, seen).hash(&mut h);
+    }
+    h.finish()
+}
+
+impl Watch {
+    fn start(root: PathBuf, every: std::time::Duration) -> Watch {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        // (Looked at once at the start: what changed before the watch began.)
+        let changed = std::sync::Arc::new(AtomicBool::new(true));
+        let stop = std::sync::Arc::new(AtomicBool::new(false));
+        let (dir, flag, done) = (root.clone(), changed.clone(), stop.clone());
+        let work = move || {
+            let mut last = signature(&dir);
+            while !done.load(Ordering::Relaxed) {
+                // (In short naps, to end soon after the module closes.)
+                let until = std::time::Instant::now() + every;
+                while std::time::Instant::now() < until && !done.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                let now = signature(&dir);
+                if now != last {
+                    last = now;
+                    flag.store(true, Ordering::Relaxed);
+                }
+            }
+        };
+        if std::thread::Builder::new().name("moonglow files".into()).spawn(work).is_err() {
+            // (No thread: looked at every time, as before.)
+            stop.store(true, Ordering::Relaxed);
+        }
+        Watch { root, changed, stop }
+    }
 }
 
 fn hash(parts: impl Hash) -> u64 {
@@ -43,6 +119,32 @@ fn named(changes: &[Outside]) -> String {
 }
 
 impl Moonglow {
+    /// Every few seconds: the module's files are read again
+    /// ([`Moonglow::reload_project_files`]) if the watch saw any change
+    /// among them. The watch is the module's place's: begun with it, ended
+    /// when the module is closed or kept elsewhere.
+    pub(crate) fn reload_changed_files(&mut self) {
+        use std::sync::atomic::Ordering;
+        let root = self.ws.as_ref().and_then(|ws| {
+            let m = &ws.module;
+            (m.project.as_ref().map(|p| p.root().to_path_buf()))
+                .or_else(|| m.folder.as_ref().map(|f| f.dir().to_path_buf()))
+        });
+        let Some(root) = root else {
+            self.outside.watch = None;
+            return;
+        };
+        if self.outside.watch.as_ref().is_none_or(|w| w.root != root) {
+            self.outside.watch = Some(Watch::start(root, std::time::Duration::from_secs(3)));
+        }
+        let watch = self.outside.watch.as_ref().expect("just made");
+        // (A watch without its thread says nothing: looked at each time.)
+        let dead = watch.stop.load(Ordering::Relaxed);
+        if watch.changed.swap(false, Ordering::Relaxed) || dead {
+            self.reload_project_files();
+        }
+    }
+
     /// Looks at the project's or the module folder's files (see the
     /// module's notes).
     pub fn reload_project_files(&mut self) {
@@ -220,5 +322,54 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             app.outside.conflicts = conflicts;
         }
         None => app.outside.conflicts = conflicts,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn the_watch_says_when_a_file_changes_and_only_then() {
+        let dir = mg_testkit::scratch_dir("ui-outside-watch");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(dir.join("src/a.nss"), "void main() {}").unwrap();
+        // The files as one number: other when one is longer, added or
+        // removed; the same for what a hidden folder holds.
+        let first = signature(&dir);
+        assert_eq!(signature(&dir), first);
+        std::fs::write(dir.join(".git/index"), "x").unwrap();
+        assert_eq!(signature(&dir), first);
+        std::fs::write(dir.join("src/a.nss"), "void main() { int a; }").unwrap();
+        let longer = signature(&dir);
+        assert_ne!(longer, first);
+        std::fs::write(dir.join("src/b.nss"), "").unwrap();
+        let added = signature(&dir);
+        assert_ne!(added, longer);
+        std::fs::remove_file(dir.join("src/b.nss")).unwrap();
+        assert_eq!(signature(&dir), longer);
+
+        // The watch: once at the start, then only after a change.
+        let watch = Watch::start(dir.clone(), Duration::from_millis(40));
+        let seen = |watch: &Watch| {
+            for _ in 0..100 {
+                if watch.changed.swap(false, Ordering::Relaxed) {
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            false
+        };
+        assert!(watch.changed.swap(false, Ordering::Relaxed), "looked at once, at the start");
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!watch.changed.load(Ordering::Relaxed), "nothing changed: nothing said");
+        std::fs::write(dir.join("src/c.nss"), "void main() {}").unwrap();
+        assert!(seen(&watch), "a file added is seen");
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!watch.changed.load(Ordering::Relaxed));
     }
 }

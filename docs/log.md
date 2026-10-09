@@ -1,6 +1,8 @@
 # Update log
 
 ## 2026-10-09
+* **Update**: [The deferred list](deferred.md): a module's files are watched for changes off the window's thread.
+* **Update**: [The deferred list](deferred.md): a flip-book begins at the picture's top left and a Linked ribbon is twice its particles' size across, seen in the client (a builder's fog placeable).
 * **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): a module folder's files changed outside are read again, and never written over by a save.
 * **Update**: [Blueprints](manual/05-blueprints.md), [the main window](manual/02-main-window.md) and [the deferred list](deferred.md): the palette's header regrouped (GitHub issue 16).
 * **Update**: [The main window](manual/02-main-window.md) and [the deferred list](deferred.md): the menus by the keyboard (GitHub issue 9), tool windows open where their kind was last docked (issue 14), Ctrl+F4 closes a tab.

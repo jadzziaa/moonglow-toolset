@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T04:13:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T08:57:50Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -863,6 +863,35 @@ browser's Save As on a row and Export as Files. Left, or to know:
   the state is kept in the settings. Not done of the issue: a collapse
   button in each pane's own header (the menu, the keys and the strip do
   it); the strip names the pane only in its tip (the log's says "Log").
+- **The window stalled every few seconds with a large module folder or
+  nasher project** (a builder, after 1.20.1): every three seconds the
+  window's own thread looked at each of the module's files for a change
+  made outside. A thread of its own now does the looking (the files'
+  names, times and sizes as one number, hidden folders left out), and
+  the window's thread reads the files only when that number changed
+  (and once when the module opens). Not measured on a large module
+  here; the read after a change (another program's save, or Moonglow's
+  own) still looks at every file once on the window's thread, and the
+  game's own content (`override`, `development`, the haks) is still
+  looked at there every three seconds, as before. (S)
+- **A fog placeable drawn as bright streaks** (a builder's custom fog:
+  `Linked` particles over a 20 m square, an 8 by 8 flip-book that goes
+  from nothing to thick). Two faults, both settled in the game client
+  (`particles_look`: `MG_PARTICLES=linked`, `linked2` with `MG_GRID`,
+  `linked4`, and `MG_MODEL` to put a model in the probe's place):
+  - A flip-book's first frame is the picture's top left, and its frames
+    go along a row and down the rows. Moonglow began at the bottom row,
+    so the fog's puffs were born at their thickest instead of fading in
+    (every flip-book played its rows in the wrong order: flames too,
+    where it did not show).
+  - A `Linked` ribbon is twice its particles' size across (their size
+    to either side of the line through them); Moonglow drew it half as
+    wide. Each piece shows its particle's frame whole, as before.
+  The fog now shows as an even haze, as in the game. Not looked at: the
+  turn of the picture within a ribbon's piece (the client's looked
+  mirrored beside a plain particle's), and how the client orders a
+  ribbon's pieces among other see-through things. A model with no mesh
+  to draw (this fog) has no bounds of its own to frame a view by. (S)
 - **A module folder worked on in place** (a builder keeps the scripts
   open in Notepad++, as with Aurora, and asked whether Moonglow reads
   and writes them where they are). It read the folder once, when the

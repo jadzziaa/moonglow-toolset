@@ -887,6 +887,57 @@ fn particles_look() {
             ));
             v
         }
+        "linked" => {
+            // A few large particles born still, anywhere in a 1.5 m
+            // square: red `Linked`, blue `Normal`. What joins the red ones
+            // (and how wide) is what `Linked` draws.
+            let few = "xsize 150\n  ysize 150\n  birthrate 2\n  lifeExp 3\n  velocity 0\n  \
+                       sizeStart 0.3\n  sizeEnd 0.3";
+            vec![
+                probe_emitter(
+                    "linked",
+                    [column(1), 0.0, 1.0],
+                    &format!("{few}\n  render Linked\n  colorStart 1 0 0\n  colorEnd 1 0 0"),
+                ),
+                probe_emitter(
+                    "normal",
+                    [column(6), 0.0, 1.0],
+                    &format!("{few}\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
+                ),
+            ]
+        }
+        "linked2" => {
+            // As `linked`, fading out over their lives and showing a
+            // texture of four colors (red and green on its first row,
+            // blue and white on its last): how a ribbon's pieces fade, and
+            // what of the texture each shows.
+            let few = "xsize 200\n  ysize 200\n  birthrate 3\n  lifeExp 4\n  velocity 0\n  \
+                       sizeStart 0.6\n  sizeEnd 0.6\n  alphaStart 1\n  alphaEnd 0\n  \
+                       texture mgquad";
+            // (`MG_GRID`: the texture as a flip-book of its four colors,
+            // one a second.)
+            let grid = std::env::var_os("MG_GRID")
+                .map_or("", |_| "\n  xgrid 2\n  ygrid 2\n  frameStart 0\n  frameEnd 3\n  fps 1");
+            let few = format!("{few}{grid}");
+            vec![
+                probe_emitter("linked", [column(1), 0.0, 1.0], &format!("{few}\n  render Linked")),
+                probe_emitter("normal", [column(6), 0.0, 1.0], &few),
+            ]
+        }
+        "linked4" => {
+            // A column of particles rising half a metre apart, each 0.6 m
+            // and showing the four-color texture: what joins them when
+            // they are `Linked` (left of the plain ones).
+            let column_of = "birthrate 2\n  sizeStart 0.6\n  sizeEnd 0.6\n  texture mgquad";
+            vec![
+                probe_emitter(
+                    "linked",
+                    [column(1), 0.0, 0.0],
+                    &format!("{column_of}\n  render Linked"),
+                ),
+                probe_emitter("normal", [column(6), 0.0, 0.0], column_of),
+            ]
+        }
         "sides" => {
             // Upright quads (`worldz` shows they are), seen from above (low)
             // and below (high).
@@ -1012,16 +1063,33 @@ fn particles_look() {
             probe_emitter("plain", [column(7), 0.0, 0.0], ""),
         ],
     };
-    let model = format!(
+    let mut model = format!(
         "newmodel plc_a01\nsetsupermodel plc_a01 NULL\nclassification Character\n\
          setanimationscale 1\nbeginmodelgeom plc_a01\nnode dummy plc_a01\n  parent NULL\n\
          endnode\n{}endmodelgeom plc_a01\ndonemodel plc_a01\n",
         emitters.concat()
     );
+    // `MG_MODEL`: a model's ASCII file to look at in the armoire's place
+    // (a builder's placeable), with the files beside it (its textures).
+    let beside = std::env::var_os("MG_MODEL").map(std::path::PathBuf::from);
+    if let Some(path) = &beside {
+        let text = std::fs::read_to_string(path).unwrap();
+        let name = path.file_stem().unwrap().to_string_lossy().to_string();
+        model = text.replace(&name, "plc_a01");
+    }
     let user = dir.join("user");
     std::fs::create_dir_all(user.join("override")).unwrap();
     std::fs::write(user.join("override/plc_a01.mdl"), &model).unwrap();
     std::fs::write(user.join("override/mgwhite.tga"), white_tga()).unwrap();
+    std::fs::write(user.join("override/mgquad.tga"), quadrant_tga(0)).unwrap();
+    if let Some(dir) = beside.as_deref().and_then(|p| p.parent()) {
+        for file in std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()) {
+            if file.is_file() && file.extension().is_some_and(|e| e != "mdl") {
+                std::fs::copy(&file, user.join("override").join(file.file_name().unwrap()))
+                    .unwrap();
+            }
+        }
+    }
     std::fs::write(user.join("settings.tml"), SETTINGS).unwrap();
     // From the side, closer and lower than the reference scenes.
     let enter =

@@ -3096,7 +3096,7 @@ impl Moonglow {
         }
         self.reload_checked = Some(now);
         self.reload_resources(false);
-        self.reload_project_files();
+        self.reload_changed_files();
         ui.ctx().request_repaint_after(every);
     }
 
