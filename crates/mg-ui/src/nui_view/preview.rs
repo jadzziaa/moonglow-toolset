@@ -465,7 +465,8 @@ fn natural(node: &Value, s: &Settings, row: Option<usize>, depth: usize) -> Vec2
         // beside two 150 tabs, 150 under a lone button); it doesn't widen it.
         size = vec2(150.0, 100.0);
     } else if ty == "chart" {
-        size = vec2(220.0, 100.0);
+        // It stretches like a label (np_chartin): a row beside it keeps its room.
+        size = vec2(150.0, 100.0);
     } else if ty == "color_picker" {
         size = vec2(300.0, 100.0);
     } else if matches!(ty, "options" | "tabbar") {
@@ -551,7 +552,9 @@ fn choice_rects(body: Rect, count: usize, vertical: bool, tabs: bool, scale: f32
     } else {
         (body.height() - 5.0 * scale).clamp(0.0, 35.0 * scale)
     };
-    let step = if vertical { height + gap } else { (body.width() + gap) / count.max(1) as f32 };
+    // Entries are 150 wide side by side whatever the control's width: in a
+    // 200-wide Options the second starts 154 in (NWN EE 8193.37, np_opts).
+    let step = if vertical { height + gap } else { 150.0 * scale + gap };
     (0..count)
         .map(|i| {
             let offset = i as f32 * step;
@@ -599,7 +602,18 @@ fn fills_width(node: &Value, s: &Settings, row: Option<usize>) -> bool {
         && !(num(&node["aspect"], s, row, 0.0) > 0.0 && num(&node["height"], s, row, -1.0) >= 0.0)
         && matches!(
             node["type"].as_str(),
-            Some("label" | "image" | "spacer" | "col" | "row" | "group" | "list" | "color_picker")
+            Some(
+                "label"
+                    | "image"
+                    | "spacer"
+                    | "col"
+                    | "row"
+                    | "group"
+                    | "list"
+                    | "color_picker"
+                    | "chart"
+                    | "progress"
+            )
         )
 }
 
@@ -1391,6 +1405,9 @@ impl Renderer<'_> {
         if interactive && response.clicked() {
             match ty {
                 "button" | "button_image" => changed = Some(None),
+                // A Toggle button with a literal value stays as it is in the
+                // client, on or off (NWN EE 8193.37, np_bsel); a bound one flips.
+                "button_select" if node["value"].get("bind").is_none() => {}
                 "check" | "button_select" => {
                     changed = Some(Some(json!(!flag(&node["value"], s, row, false))))
                 }
@@ -1788,7 +1805,11 @@ impl Renderer<'_> {
                                     * scale,
                             );
                         let name = localized_string(&node["label"], s, row, a);
-                        if !draw_image(&p, a, &name, content, node, s, row, scale, tint) {
+                        // A missing picture becomes the client's gui_error, drawn
+                        // across the button like any (NWN EE 8193.37, np_bimg).
+                        if !draw_image(&p, a, &name, content, node, s, row, scale, tint)
+                            && !draw_image(&p, a, "gui_error", content, node, s, row, scale, tint)
+                        {
                             label(
                                 content,
                                 &format!("Missing image: {name}"),
@@ -2085,16 +2106,24 @@ impl Renderer<'_> {
                                 native_advances(ui.ctx(), e, &font_id, spacing).iter().sum::<f32>()
                             })
                             .fold(0.0, f32::max);
-                        let size = vec2(
-                            widest + 67.0 * scale,
-                            (23.0 * entries.len() as f32 + 5.0) * scale,
-                        );
+                        // At most 297 high; the rest scrolls (np_combo3: 30 entries).
+                        let full = (23.0 * entries.len() as f32 + 5.0) * scale;
+                        let size = vec2(widest + 67.0 * scale, full.min(297.0 * scale));
                         egui::Popup::menu(&response)
                             .frame(egui::Frame::NONE)
                             .at_position(pos2(body.left(), body.bottom() - 5.0 * scale))
                             .gap(0.0)
                             .show(|ui| {
-                                let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+                                let (rect, area) = ui.allocate_exact_size(size, Sense::hover());
+                                let scroll_id = ui.id().with("combo-scroll");
+                                let max = full - size.y;
+                                let mut offset =
+                                    ui.data(|d| d.get_temp::<f32>(scroll_id)).unwrap_or(0.0);
+                                if ui.rect_contains_pointer(area.rect) {
+                                    offset -= ui.input(|i| i.smooth_scroll_delta.y);
+                                }
+                                let offset = offset.clamp(0.0, max);
+                                ui.data_mut(|d| d.insert_temp(scroll_id, offset));
                                 let p = ui.painter();
                                 p.rect_filled(
                                     rect,
@@ -2102,14 +2131,25 @@ impl Renderer<'_> {
                                     a.color("window.background", Color32::BLACK),
                                 );
                                 a.paint(p, "window.border_image", rect, scale, true, tint);
-                                self.scrollbar(p, rect, 0.78, 0.0, false);
+                                self.scrollbar(
+                                    p,
+                                    rect,
+                                    (0.78 * size.y / full).min(0.78),
+                                    offset / max.max(1.0),
+                                    false,
+                                );
+                                let list = p.with_clip_rect(rect.shrink(2.0 * scale));
                                 for (i, entry) in entries.iter().enumerate() {
                                     let item = Rect::from_min_size(
-                                        rect.min + vec2(8.0, 5.0 + 23.0 * i as f32) * scale,
+                                        rect.min + vec2(8.0, 5.0 + 23.0 * i as f32) * scale
+                                            - vec2(0.0, offset),
                                         vec2(rect.width() - 30.0 * scale, 23.0 * scale),
                                     );
+                                    if !rect.intersects(item) {
+                                        continue;
+                                    }
                                     text(
-                                        p,
+                                        &list,
                                         a,
                                         item,
                                         entry,
@@ -2120,7 +2160,7 @@ impl Renderer<'_> {
                                         false,
                                     );
                                     let pick = ui.interact(
-                                        item,
+                                        item.intersect(rect),
                                         ui.id().with(("combo-entry", i)),
                                         Sense::click(),
                                     );
@@ -2239,14 +2279,20 @@ impl Renderer<'_> {
                     if ty == "progress" {
                         frame("progress", body);
                         let inner = body.shrink(4.0 * scale);
+                        // Over 1 the client draws past the frame, up to what
+                        // the window or a group cuts (NWN EE 8193.37, np_prog: 1.5).
+                        let over = ((num(&node["value"], s, row, 0.0) - min)
+                            / (max - min).max(f32::EPSILON))
+                        .max(0.0);
                         let filled = Rect::from_min_size(
                             inner.min,
-                            vec2(inner.width() * ratio, inner.height()),
+                            vec2(inner.width() * over, inner.height()),
                         );
+                        let p = ui.painter();
                         if node.get("foreground_color").is_some() {
                             p.rect_filled(filled, 0, fg);
                         } else {
-                            a.paint(&p, "progress.cursor_normal", filled, scale, true, tint);
+                            a.paint(p, "progress.cursor_normal", filled, scale, true, tint);
                         }
                     } else {
                         p.rect_filled(bar, 0, Color32::from_gray(55));
@@ -2398,6 +2444,7 @@ impl Renderer<'_> {
                     }
                 }
                 "chart" => {
+                    let mut hover = None;
                     if let Some(slots) = val(&node["value"], s, row).as_array() {
                         // Measured in the client (nui_chart_s, np_chart3): each series
                         // scales between its own minimum and maximum; a line's points
@@ -2443,6 +2490,8 @@ impl Renderer<'_> {
                                 // when negative. With all values above zero they hang
                                 // from the top; nothing keeps them inside the chart.
                                 let (h, range) = (f64::from(chart.height()), max - min);
+                                // Only the window or a group cuts them, not the chart.
+                                let p = ui.painter();
                                 for (i, v) in data.iter().enumerate() {
                                     let Some(v) = v.as_f64().filter(|n| n.is_finite()) else {
                                         continue;
@@ -2455,14 +2504,26 @@ impl Renderer<'_> {
                                         f64::from(chart.top()) + h * ((v - max) / range).abs()
                                             - height
                                     };
-                                    let x = chart.left() + i as f32 * step;
+                                    // Nuklear moves each column right by its index: a
+                                    // one-point gap between them.
+                                    let x = chart.left() + i as f32 * (step + scale);
+                                    let column = Rect::from_min_size(
+                                        pos2(x, top as f32),
+                                        vec2(step, height as f32),
+                                    );
+                                    // The client lights the column under the pointer and
+                                    // shows its value (NWN EE 8193.37, np_chart2: "2.00").
+                                    let hovered =
+                                        ui.input(|i| i.pointer.hover_pos()).is_some_and(|at| {
+                                            column.intersect(ui.clip_rect()).contains(at)
+                                        });
+                                    if hovered {
+                                        hover = Some(v);
+                                    }
                                     p.rect_filled(
-                                        Rect::from_min_size(
-                                            pos2(x, top as f32),
-                                            vec2(step, height as f32),
-                                        ),
+                                        column,
                                         0,
-                                        color,
+                                        if hovered { Color32::WHITE } else { color },
                                     );
                                 }
                             } else {
@@ -2491,6 +2552,9 @@ impl Renderer<'_> {
                                 false,
                             );
                         }
+                    }
+                    if let Some(v) = hover {
+                        response.clone().on_hover_text_at_pointer(format!("{v:.2}"));
                     }
                 }
                 "spacer" => {}

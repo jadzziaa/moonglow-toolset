@@ -80,7 +80,8 @@ fn nui_native_multiline_edit_text_starts_at_top_even_without_wordwrap() {
 #[test]
 fn nui_native_chart_uses_per_series_extents_and_zero_baseline() {
     // nui_chart_s, MOD d9f13b28…: line [-10,0,10], columns [5,-5].
-    // Native line uses x=i/count; bars touch and extend from zero, not the bottom.
+    // Native line uses x=i/count; bars extend from zero, not the bottom, a point
+    // apart (Nuklear moves each by its index: 14..308 then 310..604 in NWN EE 8193.37).
     let mut h = harness(
         json!([{"type":"chart","width":600.0,"height":180.0,"value":[
             {"type":0,"legend":"Lines","color":{"r":100,"g":160,"b":255,"a":255},"data":[-10.0,0.0,10.0]},
@@ -103,7 +104,7 @@ fn nui_native_chart_uses_per_series_extents_and_zero_baseline() {
         .collect();
     assert_eq!(bars.len(), 2);
     assert!((bars[0].left() - plot.left()).abs() < 0.1);
-    assert!((bars[0].right() - bars[1].left()).abs() < 0.1);
+    assert!((bars[1].left() - bars[0].right() - 1.0).abs() < 0.1);
     assert!((bars[0].bottom() - plot.center().y).abs() < 0.1);
     assert!((bars[1].top() - plot.center().y).abs() < 0.1);
     let line = h

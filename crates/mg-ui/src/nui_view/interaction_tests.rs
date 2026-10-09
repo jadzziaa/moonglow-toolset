@@ -272,7 +272,11 @@ fn nui_interact_changes_bind_values_and_inputs_without_editing_the_document() {
     assert_eq!(h.state().state.runtime.as_ref().unwrap().settings.bindings["checked"].value, true);
     h.get_by_label("Canvas Toggle button · Toggle").click();
     h.run();
-    assert_eq!(h.state().state.runtime.as_ref().unwrap().doc["root"]["children"][1]["value"], true);
+    // A literal value stays: the client doesn't toggle it (np_bsel).
+    assert_eq!(
+        h.state().state.runtime.as_ref().unwrap().doc["root"]["children"][1]["value"],
+        false
+    );
     let slider = h.get_by_label("Canvas Integer slider").rect();
     click_at(&mut h, slider.left_center() + egui::vec2(slider.width() * 0.75, 0.0));
     assert_eq!(h.state().state.runtime.as_ref().unwrap().doc["root"]["children"][2]["value"], 75);
@@ -1254,6 +1258,114 @@ fn nui_missing_images_show_the_clients_gui_error_in_the_middle() {
         .expect("gui_error drawn");
     assert_eq!(drawn.size(), egui::vec2(4.0, 2.0));
     assert_eq!(drawn.center(), image.center());
+}
+
+#[test]
+fn nui_charts_and_progress_bars_stretch_like_labels() {
+    // NWN EE 8193.37, np_chartin and np_prog: with no width they take the
+    // column's, and a chart in a row takes the room its neighbours leave.
+    let series = json!([{"type":1,"legend":"C","color":{"r":240,"g":180,"b":80,"a":255},
+        "data":[1.0,2.0,3.0]}]);
+    let mut h = harness(
+        json!([{"type":"button","label":"w300","width":300,"height":30},
+            {"type":"chart","value":series,"height":120},
+            {"type":"progress","value":0.5,"height":30},
+            {"type":"row","height":130,"children":[{"type":"chart","value":series},
+                {"type":"button","label":"b","width":100,"height":30}]}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.run();
+    let width = h.get_by_label("Canvas Button · w300").rect().width();
+    let charts: Vec<_> = h.get_all_by_label("Canvas Chart").map(|c| c.rect()).collect();
+    assert_eq!(charts[0].width(), width);
+    assert_eq!(h.get_by_label("Canvas Progress bar").rect().width(), width);
+    // In the client its two columns span 16..199: a chart 192 wide.
+    assert_eq!(charts[1].width(), 192.0);
+    // The client lights the column under the pointer and shows its value.
+    h.hover_at(charts[0].center());
+    h.run();
+    assert!(h.query_by_label("2.00").is_some());
+}
+
+#[test]
+fn nui_image_buttons_without_their_picture_show_gui_error() {
+    // NWN EE 8193.37, np_bimg: drawn across the button like any picture.
+    let mut tga = vec![0u8; 18];
+    (tga[2], tga[12], tga[14], tga[16]) = (2, 1, 1, 24);
+    tga.extend([255u8; 3]);
+    let mut module = mg_module::Module::new();
+    module.set(ResKey::parse("gui_error", ResType::TGA).unwrap(), tga);
+    let mut h = harness(
+        json!([{"type":"button_image","label":"no_such_image","width":64,"height":64}]),
+        Settings::default(),
+    );
+    let ctx = h.ctx.clone();
+    let case = h.state_mut();
+    case.assets.prepare(&ctx, None, &module, 0, &case.doc, &case.settings);
+    let error = case.assets.picture("gui_error").unwrap().texture.id();
+    h.run();
+    assert!(h.output().shapes.iter().any(|s| matches!(&s.shape,
+        egui::Shape::Mesh(m) if m.texture_id == error)));
+}
+
+#[test]
+fn nui_choice_entries_keep_their_150_whatever_the_width() {
+    // NWN EE 8193.37, np_opts: in a 200-wide Options the second entry still
+    // starts 154 in, and clicking 3/4 across picks the first.
+    let mut h = harness(
+        json!([{"type":"options","elements":["Narrow","Two"],"value":0,"direction":0,
+            "width":200,"height":30}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.state_mut().state.preview_interactive = true;
+    h.run();
+    let options = h.get_by_label("Canvas Options").rect();
+    click_at(&mut h, options.left_center() + egui::vec2(150.0, 0.0));
+    assert_eq!(h.state().state.runtime.as_ref().unwrap().doc["root"]["children"][0]["value"], 0);
+    click_at(&mut h, options.left_center() + egui::vec2(160.0, 0.0));
+    assert_eq!(h.state().state.runtime.as_ref().unwrap().doc["root"]["children"][0]["value"], 1);
+}
+
+#[test]
+fn nui_progress_over_one_draws_past_its_frame_and_long_combo_lists_scroll() {
+    // NWN EE 8193.37, np_prog (1.5) and np_combo3 (30 entries, 297 high).
+    let entries: Vec<_> = (0..30).map(|i| json!([format!("Entry {i}"), i])).collect();
+    let mut h = harness(
+        json!([{"type":"progress","value":1.5,"width":300,"height":30,
+                "foreground_color":{"r":240,"g":40,"b":40,"a":255}},
+            {"type":"combo","value":0,"height":30,"width":200,"elements":entries}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.state_mut().state.preview_interactive = true;
+    h.run();
+    let bar = h.get_by_label("Canvas Progress bar").rect();
+    let fill = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if r.fill == egui::Color32::from_rgb(240, 40, 40) => Some(r.rect),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(fill.width(), (bar.width() - 8.0) * 1.5);
+    h.get_by_label("Canvas Dropdown").click();
+    h.run();
+    let first = h.get_by_label("Entry 0").rect();
+    assert!(h.query_by_label("Entry 12").is_some());
+    assert!(h.query_by_label("Entry 13").is_none(), "past the 297 the client shows");
+    h.hover_at(first.center());
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -1000.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run();
+    assert!(h.query_by_label("Entry 29").is_some());
 }
 
 #[test]

@@ -599,6 +599,20 @@ fn a_close_button_without_its_event_is_flagged() {
     assert!(!close(&s));
 }
 
+/// NWN EE 8193.37, np_bsel: a Toggle button with a fixed value doesn't switch.
+#[test]
+fn toggle_buttons_with_a_fixed_value_are_flagged() {
+    let fixed = |value: Value| {
+        let mut w = mg_nui::window();
+        w["root"]["children"] = json!([{"type":"button_select","label":"t","value":value}]);
+        mg_nui::validate(&w, &Settings::default())
+            .iter()
+            .any(|d| d.message.contains("can't be switched"))
+    };
+    assert!(fixed(json!(false)));
+    assert!(!fixed(json!({"bind":"on"})));
+}
+
 /// max counts UTF-8 bytes; below 4 the client can keep part of a character
 /// (NWN EE 8193.37, max 1: "Ż" stores U+0005).
 #[test]

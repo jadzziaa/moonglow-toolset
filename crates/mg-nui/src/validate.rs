@@ -466,6 +466,16 @@ impl Check<'_> {
                 );
             }
         }
+        // A Toggle button with a fixed value stays as it is when clicked in
+        // NWN EE 8193.37 (np_bsel): only a bound one switches.
+        if ty == "button_select"
+            && v.get("value").is_some_and(|x| !x.is_null() && x.get("bind").is_none())
+        {
+            self.warn(
+                &format!("{path}/value"),
+                "A Toggle button with a fixed value can't be switched in NWN: bind its value",
+            );
+        }
         // NWN EE 8193.37: a disabled slider still takes a click or a drag,
         // and sets its bind to its minimum (seen with integer and decimal
         // sliders, dragged either way); enabled ones behave.

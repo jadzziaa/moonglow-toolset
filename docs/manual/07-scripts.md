@@ -498,7 +498,17 @@ and the preview follow them.
 - **Charts.** Each series scales between its own lowest and highest value; equal
   values draw nothing. Columns follow the game's formula, quirks included: when
   every value is above zero they hang from the top of the chart, and a column
-  can reach past the chart.
+  can reach past the chart, up to what the window or a group cuts. Columns
+  stand a point apart. The column under the pointer turns white and shows its
+  value (2.00). With no width, a chart stretches like a label.
+- **Progress bars** stretch like a label when they have no width. A value over 1
+  draws past the bar's frame.
+- **Options and tabs** place their entries 150 apart whatever the control's
+  width: in a 200-wide Options the second entry starts 154 in.
+- **Image buttons** whose picture is missing show the game's `gui_error`
+  across the button. A button with a literal value of its own (Toggle button)
+  doesn't change when clicked in the game; only a bound one does.
+- **A combo's list** is at most 297 high; past that it scrolls.
 - **Draw layers with array binds** (`arrayBinds`) take one value per list row,
   as other binds in a list do: outside a list the first values are drawn, once.
 - **The window.** `title` set to false, with collapsing and closing off, hides
