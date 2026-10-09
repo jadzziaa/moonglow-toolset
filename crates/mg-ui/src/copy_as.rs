@@ -25,7 +25,7 @@ pub struct CopyDraft {
 }
 
 /// The resources that go with one: an area's objects and comments.
-fn family(t: ResType) -> Vec<ResType> {
+pub(crate) fn family(t: ResType) -> Vec<ResType> {
     match t {
         ResType::ARE => vec![ResType::ARE, ResType::GIT, ResType::GIC],
         // (Its compiled script is the same under any name; its debug

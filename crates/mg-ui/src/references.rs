@@ -582,11 +582,7 @@ pub(crate) fn rename_window(app: &mut Moonglow, ctx: &egui::Context) {
     let mut open = true;
     let mut cancel = false;
     let mut done = false;
-    let family = match draft.from.restype {
-        ResType::NSS => vec![ResType::NSS, ResType::NCS],
-        ResType::ARE => vec![ResType::ARE, ResType::GIT, ResType::GIC],
-        t => vec![t],
-    };
+    let family = crate::copy_as::family(draft.from.restype);
     let exists = |to: &ResRef| {
         app.ws
             .as_ref()

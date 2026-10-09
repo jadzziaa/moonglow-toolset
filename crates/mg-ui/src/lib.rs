@@ -230,6 +230,17 @@ pub enum Level {
     Error,
 }
 
+impl Level {
+    /// The color its messages are written in.
+    pub(crate) fn color(self, ui: &egui::Ui) -> egui::Color32 {
+        match self {
+            Level::Info => ui.visuals().text_color(),
+            Level::Warning => ui.visuals().warn_fg_color,
+            Level::Error => ui.visuals().error_fg_color,
+        }
+    }
+}
+
 /// The message log (Aurora's output pane).
 #[derive(Debug, Clone, Default)]
 pub struct Log {
@@ -1275,12 +1286,7 @@ impl Moonglow {
             .min_scrolled_height(0.0)
             .show(ui, |ui| {
                 for (level, msg) in &self.log.entries {
-                    let color = match level {
-                        Level::Info => ui.visuals().text_color(),
-                        Level::Warning => ui.visuals().warn_fg_color,
-                        Level::Error => ui.visuals().error_fg_color,
-                    };
-                    ui.label(egui::RichText::new(msg).color(color).monospace());
+                    ui.label(egui::RichText::new(msg).color(level.color(ui)).monospace());
                 }
             });
     }

@@ -57,20 +57,13 @@ impl AreaWizard {
     }
 }
 
-fn window(title: &str) -> egui::Window<'_> {
-    egui::Window::new(title)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-}
-
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     let mut close = false;
     match &mut app.wizard {
         None => {}
         Some(Wizard::NewModule { name }) => {
-            window("New Module").show(&ctx, |ui| {
+            crate::widgets::window("New Module").show(&ctx, |ui| {
                 ui.label("Module name");
                 let field = ui.text_edit_singleline(name);
                 crate::widgets::autofocus(ui, &field);
@@ -89,7 +82,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             });
         }
         Some(Wizard::NewArea(w)) => {
-            window("Area Wizard").show(&ctx, |ui| {
+            crate::widgets::window("Area Wizard").show(&ctx, |ui| {
                 ui.label("Name");
                 let field = ui.text_edit_singleline(&mut w.name);
                 crate::widgets::autofocus(ui, &field);
@@ -154,7 +147,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             .module_path()
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "the new module".into());
-        window("Unsaved Changes").show(&ctx, |ui| {
+        crate::widgets::window("Unsaved Changes").show(&ctx, |ui| {
             ui.label(format!("Save changes to {what}?"));
             ui.horizontal(|ui| {
                 if ui.button("Save").clicked() {

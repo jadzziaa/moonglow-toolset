@@ -80,8 +80,8 @@ type Finish = Box<dyn FnOnce(&mut Moonglow, Made)>;
 pub struct Job {
     pub title: String,
     progress: Arc<Progress>,
-    thread: Option<JoinHandle<Made>>,
-    finish: Option<Finish>,
+    thread: JoinHandle<Made>,
+    finish: Finish,
     started: Instant,
 }
 
@@ -155,12 +155,12 @@ impl Moonglow {
         self.job = Some(Job {
             title,
             progress,
-            thread: Some(thread),
-            finish: Some(Box::new(move |app, made| {
+            thread,
+            finish: Box::new(move |app, made| {
                 if let Ok(made) = made.downcast::<T>() {
                     finish(app, *made);
                 }
-            })),
+            }),
             started: Instant::now(),
         });
         if !self.background_jobs {
@@ -172,7 +172,7 @@ impl Moonglow {
     /// again soon.
     pub(crate) fn poll_job(&mut self, ctx: &egui::Context) {
         let Some(job) = &self.job else { return };
-        if job.thread.as_ref().is_some_and(|t| t.is_finished()) {
+        if job.thread.is_finished() {
             self.finish_job();
             ctx.request_repaint();
         } else {
@@ -183,16 +183,11 @@ impl Moonglow {
     /// Waits for the job's thread and hands its work over (or says that it
     /// was called off, or failed).
     fn finish_job(&mut self) {
-        let Some(mut job) = self.job.take() else { return };
-        let Some(thread) = job.thread.take() else { return };
+        let Some(job) = self.job.take() else { return };
         crate::trace::note(format!("job ends: {} ({:.0?})", job.title, job.started.elapsed()));
-        match thread.join() {
+        match job.thread.join() {
             Ok(_) if job.progress.cancelled() => self.log.info(format!("{}: canceled", job.title)),
-            Ok(made) => {
-                if let Some(finish) = job.finish.take() {
-                    finish(self, made);
-                }
-            }
+            Ok(made) => (job.finish)(self, made),
             Err(panic) => {
                 self.log.error(format!("{} failed: {}", job.title, panic_text(&panic)));
             }

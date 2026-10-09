@@ -37,18 +37,7 @@ mod waypoint;
 
 /// Whether a blueprint type has its own editor.
 pub(crate) fn has_editor(t: ResType) -> bool {
-    matches!(
-        t,
-        ResType::UTW
-            | ResType::UTC
-            | ResType::UTI
-            | ResType::UTS
-            | ResType::UTT
-            | ResType::UTE
-            | ResType::UTM
-            | ResType::UTD
-            | ResType::UTP
-    )
+    BlueprintKind::from_restype(t).is_some()
 }
 
 /// The pages of a blueprint type's editor.
@@ -1256,7 +1245,7 @@ pub(crate) fn edit_many(
         let mut i = pending;
         while i < app.actions.len() {
             let changes = matches!(&app.actions[i], Action::Apply(cmd)
-                if cmd.edits.iter().any(|e| edit_key(e) == key));
+                if cmd.edits.iter().any(|e| *e.key() == key));
             if changes {
                 app.actions.remove(i);
                 tried = true;
@@ -1280,7 +1269,7 @@ pub(crate) fn edit_many(
         while i < app.actions.len() {
             let partial = match &app.actions[i] {
                 Action::Apply(cmd) => {
-                    let edited: Vec<ResKey> = cmd.edits.iter().map(edit_key).collect();
+                    let edited: Vec<ResKey> = cmd.edits.iter().map(|e| *e.key()).collect();
                     keys.iter().any(|k| edited.contains(k))
                         && !keys.iter().all(|k| edited.contains(k))
                 }
@@ -1339,13 +1328,3 @@ const LIST_PAGES: [&str; 9] = [
     "Creature List",
     "Restrictions",
 ];
-
-/// The document an edit changes.
-fn edit_key(e: &Edit) -> ResKey {
-    match e {
-        Edit::SetField { key, .. }
-        | Edit::InsertItem { key, .. }
-        | Edit::RemoveItem { key, .. }
-        | Edit::SetResource { key, .. } => *key,
-    }
-}

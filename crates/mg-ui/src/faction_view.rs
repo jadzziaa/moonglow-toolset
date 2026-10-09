@@ -140,13 +140,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 d.range(0..=100).custom_formatter(|v, _| format!("{v:.0}"))
                             });
                             ui.painter().rect_stroke(r.rect, 2.0, egui::Stroke::new(2.0, color(rep)), egui::StrokeKind::Outside);
-                            let r = r.on_hover_text(format!(
+                            r.on_hover_text(format!(
                                 "{} is {} toward {}",
                                 f.factions[p as usize].name,
                                 attitude(rep),
                                 f.factions[t as usize].name
                             ));
-                            let _ = r;
                             if let Some(rep) = set {
                                 f.set_reputation(p, t, rep);
                                 changed = Some("Change reputation".into());

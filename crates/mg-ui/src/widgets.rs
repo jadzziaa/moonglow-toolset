@@ -306,7 +306,8 @@ const VAR_VALUE_WIDTH: f32 = 220.0;
 /// The room under the Variables list for its buttons and notes.
 const VAR_FOOT: f32 = 96.0;
 
-fn window(title: &str) -> egui::Window<'_> {
+/// A window in the middle of the app's, of a size its content gives it.
+pub(crate) fn window(title: &str) -> egui::Window<'_> {
     egui::Window::new(title)
         .collapsible(false)
         .resizable(false)

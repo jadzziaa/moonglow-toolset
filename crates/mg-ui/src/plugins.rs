@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use mg_edit::{Command, Edit};
+use mg_edit::Command;
 use mg_module::doctor::{Finding, Severity};
 use mg_plugin::{
     Answer, Existing, FieldKind, Host, Input, Outcome, Package, Plugin, PluginError, Question,
@@ -490,7 +490,7 @@ impl Moonglow {
                             self,
                             Level::Info,
                             format!(
-                                "{name}: {title} put {} resources into {} ({replaced} replaced;                                  Undo doesn't take a hak back)",
+                                "{name}: {title} put {} resources into {} ({replaced} replaced; Undo doesn't take a hak back)",
                                 added + replaced,
                                 dir.join(format!("{}.hak", hak.name)).display()
                             ),
@@ -519,12 +519,8 @@ impl Moonglow {
             Ok(outcome) => {
                 let mut resources = Vec::new();
                 for e in &outcome.edits {
-                    let (Edit::SetField { key, .. }
-                    | Edit::InsertItem { key, .. }
-                    | Edit::RemoveItem { key, .. }
-                    | Edit::SetResource { key, .. }) = e;
-                    if !resources.contains(key) {
-                        resources.push(*key);
+                    if !resources.contains(e.key()) {
+                        resources.push(*e.key());
                     }
                 }
                 let n = resources.len();
@@ -764,12 +760,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 }
             });
             if let Some((l, note)) = &app.plugins.install_note {
-                let color = match l {
-                    Level::Error => ui.visuals().error_fg_color,
-                    Level::Warning => ui.visuals().warn_fg_color,
-                    Level::Info => ui.visuals().text_color(),
-                };
-                ui.colored_label(color, note);
+                ui.colored_label(l.color(ui), note);
             }
             if app.no_plugins {
                 ui.colored_label(
@@ -865,12 +856,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
                 );
                 run_console = ui.add_enabled(app.ws.is_some(), egui::Button::new("Run")).clicked();
                 for (l, line) in &app.plugins.console_output {
-                    let color = match l {
-                        Level::Info => ui.visuals().text_color(),
-                        Level::Warning => ui.visuals().warn_fg_color,
-                        Level::Error => ui.visuals().error_fg_color,
-                    };
-                    ui.label(egui::RichText::new(line).monospace().color(color));
+                    ui.label(egui::RichText::new(line).monospace().color(l.color(ui)));
                 }
             });
         });

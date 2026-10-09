@@ -188,12 +188,8 @@ pub(crate) fn run(
 ) -> Result<Output> {
     let mut resources: Vec<ResKey> = Vec::new();
     for e in &cmd.edits {
-        let (Edit::SetField { key, .. }
-        | Edit::InsertItem { key, .. }
-        | Edit::RemoveItem { key, .. }
-        | Edit::SetResource { key, .. }) = e;
-        if !resources.contains(key) {
-            resources.push(*key);
+        if !resources.contains(e.key()) {
+            resources.push(*e.key());
         }
     }
     let written = command_to_json(&cmd, codepage()).map_err(|e| anyhow!("{e}"))?;

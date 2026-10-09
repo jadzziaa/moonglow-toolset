@@ -220,18 +220,7 @@ pub(crate) fn build_on_save(app: &mut Moonglow) {
 
 /// A blueprint type (the Unused › Blueprints check).
 fn is_blueprint(t: ResType) -> bool {
-    matches!(
-        t,
-        ResType::UTC
-            | ResType::UTD
-            | ResType::UTE
-            | ResType::UTI
-            | ResType::UTP
-            | ResType::UTS
-            | ResType::UTM
-            | ResType::UTT
-            | ResType::UTW
-    )
+    mg_module::palette::BlueprintKind::from_restype(t).is_some()
 }
 
 /// Runs the build and waits for it (the build before saving): the compile
