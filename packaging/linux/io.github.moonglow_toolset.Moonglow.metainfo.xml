@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.20.1" date="2026-10-09">
+      <description>
+        <p>A module folder is worked on in place, as in Aurora: files
+        saved, added or deleted in it by another program (scripts kept
+        open in an editor of your own) are read again, and a save in
+        Moonglow never writes over them.</p>
+      </description>
+    </release>
     <release version="1.20.0" date="2026-10-09">
       <description>
         <p>The window by the keyboard: the menus (Alt or F10, the arrows,
