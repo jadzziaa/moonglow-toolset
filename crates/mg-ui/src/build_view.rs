@@ -190,7 +190,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             |app, built| {
                 let results = match built {
                     Some(built) => finish(app, built),
-                    None => vec![Finding { text: "No module open".into(), about: None }],
+                    None => vec![Finding { text: NO_GAME.into(), about: None }],
                 };
                 if let Some(w) = &mut app.build {
                     w.results = results;
@@ -223,14 +223,19 @@ fn is_blueprint(t: ResType) -> bool {
     mg_module::palette::BlueprintKind::from_restype(t).is_some()
 }
 
+/// What a build says without the game's data (as an editor's tab does).
+const NO_GAME: &str =
+    "No game data: choose your Neverwinter Nights installation in Tools > Options.";
+
 /// Runs the build and waits for it (the build before saving): the compile
 /// passes, as one undoable command, then the checks. The results are the
 /// problems found ("No errors found" if none, as in Aurora); what each pass
 /// did goes to the log.
 fn run(app: &mut Moonglow, w: &BuildWindow) -> Vec<Finding> {
     app.refresh_module_layer();
-    let none = || vec![Finding { text: "No module open".into(), about: None }];
-    let (Some(ws), Some(game)) = (app.ws.as_mut(), app.game.as_deref()) else { return none() };
+    let none = |text: &str| vec![Finding { text: text.into(), about: None }];
+    let Some(game) = app.game.as_deref() else { return none(NO_GAME) };
+    let Some(ws) = app.ws.as_mut() else { return none("No module open") };
     let built = match ws.snapshot() {
         Ok(module) => work(&module, game, w),
         Err(e) => return vec![Finding { text: e.to_string(), about: None }],

@@ -10788,6 +10788,29 @@ fn the_tree_s_filter_ignores_the_case_of_any_letter() {
     }
 }
 
+/// Build Module without the game's data says that it is the game's data
+/// that is missing (there is a module).
+#[test]
+fn a_build_without_game_data_says_so() {
+    let dir = mg_testkit::scratch_dir("ui-build-no-game");
+    let mut app = app_with(Vec::new());
+    app.open_module(&sample_module(&dir));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Build").click();
+    h.run_steps(2);
+    h.get_by_label("Build Module…").click();
+    h.run_steps(2);
+    h.get_all_by_label("Build").last().unwrap().click();
+    h.run_steps(3);
+    let results: Vec<String> =
+        h.state().build.as_ref().unwrap().results.iter().map(|f| f.text.clone()).collect();
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert!(results[0].starts_with("No game data"), "{results:?}");
+}
+
 /// The plugin host's fixture plugins, as an installed plugins folder.
 fn plugin_fixtures() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../mg-plugin/tests/fixtures")
