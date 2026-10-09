@@ -74,7 +74,7 @@ pub(crate) fn item_colors(item: &Struct) -> [u8; 10] {
 
 /// A model or part number: the EE twin (`xModelPart1`) where there is one.
 fn part(item: &Struct, label: &str) -> i64 {
-    item.integer(&format!("x{label}")).or_else(|| item.integer(label)).unwrap_or(0)
+    mg_rules::items::part_number(item, label).unwrap_or(0)
 }
 
 /// The names of an item's inventory icon layers, bottom first (nwn.wiki,
@@ -466,4 +466,26 @@ pub(crate) fn icon_box(
     }
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, alt));
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use mg_gff::Value;
+
+    use super::*;
+
+    #[test]
+    fn a_part_past_255_is_read_from_its_ee_twin_whose_label_is_cut() {
+        // `ArmorPart_Pelvis` has 16 characters: its twin is `xArmorPart_Pelvi`.
+        let mut item = Struct::new(0);
+        item.set("ArmorPart_Pelvis", Value::Byte(255));
+        item.set("xArmorPart_Pelvi", Value::Word(300));
+        item.set("ArmorPart_Torso", Value::Byte(255));
+        item.set("xArmorPart_Torso", Value::Word(301));
+        item.set("ArmorPart_Belt", Value::Byte(7));
+        assert_eq!(part(&item, "ArmorPart_Pelvis"), 300);
+        assert_eq!(part(&item, "ArmorPart_Torso"), 301);
+        assert_eq!(part(&item, "ArmorPart_Belt"), 7);
+        assert_eq!(part(&item, "ArmorPart_Robe"), 0);
+    }
 }
