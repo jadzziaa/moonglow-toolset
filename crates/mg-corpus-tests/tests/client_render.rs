@@ -1599,7 +1599,8 @@ fn cards_mdl() -> String {
 /// and the client's shadows on); `MG_MAINLIGHT` a lightcolor.2da row for
 /// the tiles' main lights; `MG_TILESET` another tileset;
 /// `MG_TURN=1` turns the cards about (their fronts north, away from the
-/// camera);
+/// camera); `MG_DISCARD=1` paints every surface with the alpha the client
+/// cuts it at;
 /// `MG_CLIENT_CAMERA` the client's camera as nwscript. Both views go to
 /// `target/test-output/client_cutouts/`.
 #[test]
@@ -1619,6 +1620,21 @@ fn cutouts_look() {
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
 
     std::fs::write(over.join("mg_cards.mdl"), cards_mdl()).unwrap();
+    // `MG_DISCARD=1`: every surface painted with the alpha it is cut at
+    // (red: `fAlphaDiscardValue`; green: it is below 0, nothing is cut).
+    if std::env::var_os("MG_DISCARD").is_some() {
+        let src = base.resman.get_named("inc_standard", ResType::SHD).unwrap();
+        let mut src = String::from_utf8_lossy(&src).replace("\r\n", "\n");
+        let end = "\tApplyDebugModeOutput(FragmentColor);\n}";
+        let at = src.rfind(end).expect("ApplyDebugModeOutput");
+        src.insert_str(
+            at + end.len() - 1,
+            "#if SHADER_TYPE == 2 && NO_DISCARD != 1\n\tFragmentColor = \
+             vec4(clamp(ALPHA_DISCARD_VALUE, 0.0, 1.0), ALPHA_DISCARD_VALUE < 0.0 ? 1.0 : 0.0, \
+             0.25, 1.0);\n#endif\n",
+        );
+        std::fs::write(over.join("inc_standard.shd"), src).unwrap();
+    }
     for (texture, txi, mtr) in CUTOUTS {
         std::fs::write(over.join(format!("{texture}.tga")), disc_tga()).unwrap();
         if !txi.is_empty() {
