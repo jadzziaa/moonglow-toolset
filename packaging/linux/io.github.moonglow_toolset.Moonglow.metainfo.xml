@@ -45,6 +45,15 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.20.4" date="2026-10-09">
+      <description>
+        <p>Cut-out textures (leaves, fences, grass) keep the edges the
+        game gives them: cut at the game's own threshold and solid above
+        it. A script saved in another editor is compiled when Moonglow
+        reads it again, and the haks and content folders are watched for
+        changes without holding the window.</p>
+      </description>
+    </release>
     <release version="1.20.3" date="2026-10-09">
       <description>
         <p>A material that says twosided is drawn from behind too, as the
