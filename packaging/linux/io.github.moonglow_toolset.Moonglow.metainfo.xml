@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.20.0" date="2026-10-09">
+      <description>
+        <p>The window by the keyboard: the menus (Alt or F10, the arrows,
+        Enter), the tabs (Ctrl+W, Ctrl+Tab, Ctrl+Shift+T) and the module
+        tree. A View menu folds the module tree, the palettes and the log
+        away and brings them back. The palette's header is regrouped: the
+        types as a row of icons, one toolbar over the list. A window opens
+        where one of its kind was last docked. A code review's fixes: less
+        work every frame, and a dozen small faults.</p>
+      </description>
+    </release>
     <release version="1.19.6" date="2026-10-09">
       <description>
         <p>A waterfall's water falls (in Medieval Rural it ran back up the
