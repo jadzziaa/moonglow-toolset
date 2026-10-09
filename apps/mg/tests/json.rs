@@ -59,6 +59,24 @@ fn every_command_answers_in_json() {
     // Modules.
     assert_eq!(ok(&["verify", c])["errors"], 0);
     assert_eq!(ok(&["roundtrip", c])["differences"], serde_json::json!([]));
+    // A model's files (an armoire's: all the game's own, so all written),
+    // and not written over unasked.
+    let files = ok(&["model-files", "plc_a01", &at("files")]);
+    let names: Vec<&str> =
+        files["files"].as_array().unwrap().iter().map(|f| f["file"].as_str().unwrap()).collect();
+    assert!(names.contains(&"plc_a01.mdl") && names.contains(&"plc_a01.pwk"), "{names:?}");
+    assert!(names.iter().all(|n| std::path::Path::new(&at("files")).join(n).is_file()));
+    assert_eq!(files["left_out"], 0);
+    let listed = ok(&["model-files", "plc_a01", &at("files"), "--dry-run"]);
+    assert_eq!(listed["files"], files["files"]);
+    ok(&["model-files", "plc_a01", &at("files"), "--force"]);
+    let refused = Command::new(env!("CARGO_BIN_EXE_mg"))
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir"])
+        .args(["model-files", "plc_a01", &at("files")])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--force"));
     // Plugins: the plugin host's own fixture, listed, checked, run and
     // its checks counted.
     let plugins = concat!(env!("CARGO_MANIFEST_DIR"), "/../../crates/mg-plugin/tests/fixtures");

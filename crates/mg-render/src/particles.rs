@@ -256,7 +256,11 @@ impl Particles {
             let inherit = em.flags & (0x40 | 0x100) != 0;
             let bounce = (em.flags & 0x10 != 0 && !inherit).then(|| p("bounce_co", 0.0));
             let life = p("lifeexp", 1.0);
-            let gravity = Vec3::new(0.0, 0.0, -9.8 * p("mass", 0.0));
+            // (Down is the world's: particles kept in the emitter's own
+            // space fall its way, not along the emitter's axis. A waterfall's
+            // emitter points down the fall, and its water rose.)
+            let down = Vec3::new(0.0, 0.0, -9.8 * p("mass", 0.0));
+            let gravity = if inherit { world.inverse().transform_vector3(down) } else { down };
             let update = em.update.to_ascii_lowercase();
             let target_world = e.target.map(|t| {
                 transform.transform_point3(pose.get(t).map_or(Vec3::ZERO, |m| m.w_axis.truncate()))
@@ -689,6 +693,34 @@ mod tests {
             e.controllers.push(Controller::constant(name, &[v]));
         }
         Model { name: "m".into(), nodes: vec![root, e], ..Default::default() }
+    }
+
+    /// A waterfall of Medieval Rural: a heavy fountain turned to point
+    /// down, its particles kept in its own space. They fall.
+    #[test]
+    fn particles_kept_with_a_turned_emitter_fall_the_world_s_way() {
+        for (flags, turned) in [(0x40, true), (0x40, false), (0, true), (0, false)] {
+            let mut m = fountain();
+            let NodeKind::Emitter(em) = &mut m.nodes[1].kind else { unreachable!() };
+            em.flags = flags;
+            m.nodes[1].controllers.push(Controller::constant("mass", &[1.0]));
+            m.nodes[1].controllers.retain(|c| c.name != "velocity");
+            m.nodes[1].controllers.push(Controller::constant("velocity", &[0.0]));
+            if turned {
+                // Upside down, about X.
+                m.nodes[1].orientation = [1.0, 0.0, 0.0, 0.0];
+            }
+            let pose = crate::rest_pose(&m);
+            let mut p = Particles::new(&m);
+            for _ in 0..10 {
+                p.update(&m, None, 0.0, 0.1, &pose, Mat4::IDENTITY);
+            }
+            let eye = Mat4::look_at_rh(Vec3::new(0.0, -5.0, 1.0), Vec3::ZERO, Vec3::Z);
+            let b = p.batches(&m, None, 0.0, &pose, Mat4::IDENTITY, eye);
+            let lowest = b[0].vertices.iter().map(|v| v.pos[2]).fold(f32::MAX, f32::min);
+            let highest = b[0].vertices.iter().map(|v| v.pos[2]).fold(f32::MIN, f32::max);
+            assert!(lowest < -1.0 && highest < 1.0, "{flags:#x} {turned}: {lowest} to {highest}");
+        }
     }
 
     #[test]

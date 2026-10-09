@@ -2821,6 +2821,63 @@ fn text_without_an_encoding_table_is_windows_1252() {
     assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"\xc9p\xe9e ?");
 }
 
+/// Export Files, on a placeable's picture: the files the game draws it
+/// with, written into a folder (a chest of the game's own: all of them).
+#[test]
+fn a_placeable_s_model_files_are_exported() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_files", ResType::UTP) else {
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-export-model-files");
+    h.state_mut().dialogs =
+        Box::new(NoDialogs { folders: vec![dir.clone()], ..Default::default() });
+    h.run();
+    // (The button of the model's picture: there is none without a GPU.)
+    let source = mg_ui::model_view::Source::Resource(key);
+    mg_ui::model_view::export_files(h.state_mut(), &source);
+    let mut names: Vec<String> = (std::fs::read_dir(&dir).unwrap().flatten())
+        .map(|e| e.file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    let has = |ext: &str| names.iter().any(|n| n.ends_with(ext));
+    assert!(has(".mdl") && has(".pwk"), "{names:?}");
+    assert!(has(".dds") || has(".tga"), "{names:?}");
+    let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
+    let said = log.iter().find(|m| m.starts_with("Exported ")).expect("said in the log");
+    assert!(said.contains(&format!("{} files", names.len())) && said.contains(".mdl ("), "{said}");
+    // (Every file is the game's own here: none left out.)
+    assert!(!said.contains("left out"), "{said}");
+
+    // Again into the same folder: it asks first. One file changed and one
+    // gone: Skip Those writes the one gone and keeps the other.
+    let model = names.iter().find(|n| n.ends_with(".mdl")).unwrap();
+    let walk = names.iter().find(|n| n.ends_with(".pwk")).unwrap();
+    std::fs::write(dir.join(model), b"mine").unwrap();
+    std::fs::remove_file(dir.join(walk)).unwrap();
+    h.state_mut().dialogs =
+        Box::new(NoDialogs { folders: vec![dir.clone()], ..Default::default() });
+    mg_ui::model_view::export_files(h.state_mut(), &source);
+    h.run();
+    assert_eq!(h.state().model_export.as_ref().unwrap().existing.len(), names.len() - 1);
+    assert_eq!(std::fs::read(dir.join(model)).unwrap(), b"mine", "nothing written yet");
+    h.get_by_label("Skip Those").click();
+    h.run();
+    assert!(h.state().model_export.is_none());
+    assert_eq!(std::fs::read(dir.join(model)).unwrap(), b"mine");
+    assert!(dir.join(walk).is_file());
+    // Replace writes them all; Cancel none.
+    for (button, replaced) in [("Cancel", false), ("Replace", true)] {
+        let again = NoDialogs { folders: vec![dir.clone()], ..Default::default() };
+        h.state_mut().dialogs = Box::new(again);
+        mg_ui::model_view::export_files(h.state_mut(), &source);
+        h.run();
+        h.get_by_label_contains(button).click();
+        h.run();
+        assert!(h.state().model_export.is_none());
+        assert_eq!(std::fs::read(dir.join(model)).unwrap() != b"mine", replaced, "{button}");
+    }
+}
+
 #[test]
 fn waypoint_editor_edits_and_renames() {
     let Some((mut h, key)) = blueprint_harness("nw_waypoint001", "waypoint_copy", ResType::UTW)

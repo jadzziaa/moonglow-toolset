@@ -412,6 +412,8 @@ pub struct Moonglow {
     pub(crate) open_models: Vec<Tab>,
     /// The folder Export as Files last wrote to (offered again).
     pub(crate) export_dir: Option<PathBuf>,
+    /// An Export Files (of a model) asking about files already there.
+    pub model_export: Option<model_view::ModelExport>,
     /// The Update Instances window.
     pub update_draft: Option<bulk::UpdateDraft>,
     /// The Edit Areas Together window: the areas being chosen.
@@ -613,6 +615,7 @@ impl Moonglow {
             prefab_save: None,
             update_draft: None,
             export_dir: None,
+            model_export: None,
             open_models: Vec::new(),
             scaled: false,
             area_chooser: None,
@@ -895,6 +898,7 @@ impl Moonglow {
         area_props::chooser_window(self, ui.ctx());
         hak_view::closing_window(self, ui.ctx());
         hak_view::adding_window(self, ui.ctx());
+        model_view::export_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());
         tileset_view::closing_window(self, ui.ctx());

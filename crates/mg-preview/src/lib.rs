@@ -19,6 +19,7 @@ use mg_rules::GameData;
 
 pub mod compose;
 mod creature;
+pub mod files;
 mod item;
 mod object;
 

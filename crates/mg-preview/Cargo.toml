@@ -12,6 +12,7 @@ glam.workspace = true
 mg-2da.workspace = true
 mg-core.workspace = true
 mg-gff.workspace = true
+mg-image.workspace = true
 mg-mdl.workspace = true
 mg-render.workspace = true
 mg-resman.workspace = true
@@ -20,6 +21,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 mg-testkit.workspace = true
+mg-tlk.workspace = true
 png.workspace = true
 wgpu.workspace = true
 

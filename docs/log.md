@@ -1,6 +1,9 @@
 # Update log
 
 ## 2026-10-08
+* **Update**: [The command line](manual/11-command-line.md), [modules](manual/03-modules.md) and [the deferred list](deferred.md): `mg model-files`, and Export Files asks before writing over files.
+* **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): Export Files on a model's picture writes the files the game draws it with (models, walkmeshes, textures, materials) from the haks into a folder.
+* **Update**: [The deferred list](deferred.md): a waterfall's particles fall the world's way, whatever way their emitter is turned.
 * **Update**: [The command line](manual/11-command-line.md) and [the deferred list](deferred.md): `mg roundtrip`, a module saved, read back and written anew, compared with what it was.
 * **Update**: [Modules](manual/03-modules.md) and [the deferred list](deferred.md): `mg` goes by a module's `encoding.2da` where it is given a module.
 * **Update**: [Modules](manual/03-modules.md), [writing plugins](manual/16-writing-plugins.md) and [the deferred list](deferred.md): plugins, the Store Wizard and a conversation's export and import go by a module's `encoding.2da` too; a module folder's resource under two spellings (`x.UTI` and `x.uti`) becomes one file.

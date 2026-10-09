@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-08T23:09:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T00:21:01Z }
 ---
 
 # Modules
@@ -348,6 +348,18 @@ Closing a hak with unsaved changes asks first.
   saved or not. A script goes with its compiled script (`.ncs`, and
   `.ndb` if it has one), an area with its `.git` and `.gic`. From the
   window, **Include the resources they use** applies too.
+- **Export Files…** (over the picture of a placeable, door, item or
+  creature in its editor, and in the model viewer) writes the files the
+  game draws it with into a folder you choose: its models, their
+  walkmeshes (`.pwk`, `.dwk`), textures, materials and their settings
+  (`.mtr`, `.txi`), the models its emitters throw and the model its
+  animations come from, taken from the haks and wherever else in the
+  load order they are. No digging through haks to hand a broken
+  placeable to whoever mends it. The game's own files are left out,
+  unless all of it is the game's; the log lists each file and the hak
+  it came from. Where the folder has files of those names already, it
+  asks first: replace them, skip those, or cancel. `mg model-files` does
+  the same from a terminal.
 - **Copy to Scratch Folder** (the same right-click menu; **To Scratch** in
   the script editor and the area view) writes them into the scratch
   folder: one you choose the first time, kept from then on (Tools ›
