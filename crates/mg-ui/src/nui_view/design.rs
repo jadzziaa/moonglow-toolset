@@ -781,7 +781,6 @@ fn inspector(
         fields::chart(ui, node, s);
         draw::editor(ui, node, s, assets);
     }
-    workflow::presets(ui, v, s, state);
     if !state.selected.is_empty() {
         ui.add_space(12.0);
         ui.separator();

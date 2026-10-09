@@ -53,7 +53,6 @@ struct State {
     new_swap_slot: Option<String>,
     layout_groups: std::collections::BTreeSet<String>,
     main_doc: Option<Value>,
-    preset_name: String,
     binding_selected: String,
     event_code: Option<events::CodePreview>,
     binding_property: String,
@@ -1418,6 +1417,38 @@ mod tests {
             drop(h);
             assert_eq!(node, before);
         }
+    }
+
+    #[test]
+    fn nui_event_code_preview_opens_again_after_closing() {
+        let mut h = keyboard_harness();
+        h.run();
+        h.get_by_label("Canvas Button · Close").click();
+        h.run();
+        for close in ["Close preview", "×"] {
+            h.get_by_label("Preview code").click();
+            h.run();
+            assert!(
+                h.query_by_label("Clicked · Control: mg_close · selected event only").is_some(),
+                "reopened after {close}"
+            );
+            if close == "×" {
+                let window = h.get_by_label_contains("Event script — ").rect();
+                h.hover_at(window.right_top() + egui::vec2(-12.0, 12.0));
+                h.run();
+                h.get_all_by_role(egui::accesskit::Role::Button)
+                    .find(|b| b.rect().contains(window.right_top() + egui::vec2(-12.0, 12.0)))
+                    .expect("close button")
+                    .click();
+            } else {
+                h.get_by_label(close).click();
+            }
+            h.run();
+            assert!(h.query_by_label("Close preview").is_none(), "{close} closes it");
+        }
+        h.get_by_label("Preview code").click();
+        h.run();
+        assert!(h.query_by_label("Close preview").is_some(), "opens a third time");
     }
 
     #[test]

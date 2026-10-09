@@ -224,52 +224,6 @@ pub(super) fn ui(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &mut Sta
     });
 }
 
-pub(super) fn presets(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &mut State) {
-    ui.collapsing("Component presets", |ui| {
-        ui.text_edit_singleline(&mut state.preset_name);
-        let selected = doc.pointer(&state.selected).filter(|n| n["type"].is_string()).cloned();
-        if ui
-            .add_enabled(
-                selected.is_some() && !state.preset_name.trim().is_empty(),
-                egui::Button::new("Save selected as preset"),
-            )
-            .clicked()
-        {
-            let presets = s.extra.entry("presets".into()).or_insert_with(|| json!({}));
-            if let Some(obj) = presets.as_object_mut() {
-                obj.insert(state.preset_name.clone(), selected.unwrap());
-                state.preset_name.clear();
-            }
-        }
-        let presets =
-            s.extra.get("presets").and_then(Value::as_object).cloned().unwrap_or_default();
-        for (name, mut node) in presets {
-            ui.horizontal(|ui| {
-                if ui.button(format!("Insert {name}")).clicked()
-                    && let Some(parent) = design::insertion_parent(doc, &state.selected)
-                {
-                    assign_ids(&mut node, doc);
-                    let target = doc.pointer_mut(&parent).unwrap();
-                    design::fit_into(target, &mut node);
-                    if target["type"] == "list" {
-                        if let Some(a) = target["row_template"].as_array_mut() {
-                            a.push(json!([node, 150.0, true]));
-                        }
-                    } else if let Some(a) = target["children"].as_array_mut() {
-                        a.push(node);
-                    }
-                }
-                if ui.small_button("Remove").clicked() {
-                    s.extra
-                        .get_mut("presets")
-                        .and_then(Value::as_object_mut)
-                        .map(|o| o.remove(&name));
-                }
-            });
-        }
-    });
-}
-
 pub(super) fn images(
     ui: &mut Ui,
     node: &mut Value,

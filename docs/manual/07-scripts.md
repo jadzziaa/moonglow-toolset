@@ -254,8 +254,7 @@ restrictions. Verify exact spacing, drawing, scrolling and events in the game.
 
 **Choose game image** searches the current resource stack and displays up to 24
 matching thumbnails. Cropping uses the native image region. Individual list-row
-images are edited in Row data. **Component presets** saves and inserts presets
-within this window, assigning fresh element IDs. **Screen** previews common
+images are edited in Row data. **Screen** previews common
 resolutions and enables title dragging to author window position. A geometry
 bind remains a bind. Position and resize gestures commit on release; Esc cancels.
 The layout selector offers the full editor, preview alone, or preview beside
