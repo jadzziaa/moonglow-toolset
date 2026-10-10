@@ -581,6 +581,24 @@ impl AreaView {
         Some(self.rect.min + egui::vec2(at.x * self.rect.width(), at.y * self.rect.height()))
     }
 
+    /// A flat polygon as it shows on screen: the part of it `least` or
+    /// further from the eye along the view (the camera's near plane, if
+    /// none is given), as corners in order. Empty: none of it shows.
+    pub(crate) fn screen_polygon(&self, corners: &[Vec3], least: Option<f32>) -> Vec<Pos2> {
+        let Some(camera) = self.camera() else { return Vec::new() };
+        let least = least.unwrap_or(camera.near);
+        let cut = mg_area::pick::clip_polygon(&camera, corners, least);
+        cut.iter().filter_map(|c| self.screen_pos(*c)).collect()
+    }
+
+    /// The part of a line that shows on screen (cut at the camera's near
+    /// plane), if any does.
+    pub(crate) fn screen_segment(&self, a: Vec3, b: Vec3) -> Option<[Pos2; 2]> {
+        let camera = self.camera()?;
+        let (a, b) = mg_area::pick::clip_segment(&camera, a, b, camera.near)?;
+        Some([self.screen_pos(a)?, self.screen_pos(b)?])
+    }
+
     fn aspect(&self) -> f32 {
         (self.rect.width() / self.rect.height().max(1.0)).max(1e-3)
     }
@@ -2038,18 +2056,20 @@ fn walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     );
     for (corners, material) in ground.faces() {
         let lifted = corners.map(|c| c + Vec3::Z * 0.03);
-        let Some(points) =
-            lifted.iter().map(|c| view.screen_pos(*c)).collect::<Option<Vec<Pos2>>>()
-        else {
+        // (Cut where it passes behind the eye: not left out whole.)
+        let points = view.screen_polygon(&lifted, None);
+        if points.len() < 3 {
             continue;
-        };
+        }
         let color =
             if walkable.get(material as usize).copied().unwrap_or(false) { walk } else { wall };
         let first = mesh.vertices.len() as u32;
-        for p in points {
-            mesh.colored_vertex(p, color);
+        for p in &points {
+            mesh.colored_vertex(*p, color);
         }
-        mesh.add_triangle(first, first + 1, first + 2);
+        for k in 1..points.len() as u32 - 1 {
+            mesh.add_triangle(first, first + k, first + k + 1);
+        }
     }
     ui.painter_at(view.rect).add(egui::Shape::mesh(mesh));
 }
@@ -2079,12 +2099,11 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
         // east and north of where it stands.
         if let Some(reach) = list.get(o.index).and_then(random_reach) {
             let stroke = Stroke::new(1.0, Color32::from_rgba_unmultiplied(240, 150, 60, alpha));
-            let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(x, y)| {
-                view.screen_pos(o.position + Vec3::new(x * reach.x, y * reach.y, 0.0))
-            });
+            let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                .map(|(x, y)| o.position + Vec3::new(x * reach.x, y * reach.y, 0.0));
             for k in 0..4 {
-                if let (Some(a), Some(b)) = (corners[k], corners[(k + 1) % 4]) {
-                    painter.line_segment([a, b], stroke);
+                if let Some(line) = view.screen_segment(corners[k], corners[(k + 1) % 4]) {
+                    painter.line_segment(line, stroke);
                 }
             }
         }
@@ -2093,11 +2112,10 @@ fn sound_range_overlay(app: &mut Moonglow, ui: &egui::Ui, view: &AreaView, shown
                 continue;
             }
             let stroke = Stroke::new(width, Color32::from_rgba_unmultiplied(240, 220, 80, alpha));
-            let points: Vec<Option<Pos2>> =
-                sound_circle(o.position, radius).into_iter().map(|p| view.screen_pos(p)).collect();
+            let points = sound_circle(o.position, radius);
             for k in 0..points.len() {
-                if let (Some(a), Some(b)) = (points[k], points[(k + 1) % points.len()]) {
-                    painter.line_segment([a, b], stroke);
+                if let Some(line) = view.screen_segment(points[k], points[(k + 1) % points.len()]) {
+                    painter.line_segment(line, stroke);
                 }
             }
         }
@@ -2137,6 +2155,7 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         view.object_faces = Some(view.object_walks.faces(game, model));
     }
     let Some(faces) = view.object_faces.as_ref() else { return };
+    let camera = view.camera();
     let mut mesh = egui::Mesh::default();
     let mut edges = Vec::new();
     for (corners, object) in faces {
@@ -2145,11 +2164,18 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             continue;
         }
         let lifted = corners.map(|c| c + Vec3::Z * 0.05);
-        let Some(points) =
-            lifted.iter().map(|c| view.screen_pos(*c)).collect::<Option<Vec<Pos2>>>()
-        else {
+        // (Not a face that runs from beside the eye into the view: it
+        // would be a streak across it. And of the others, what is nearer
+        // the eye than a tenth of its distance to what it looks at is cut
+        // off.)
+        let Some(camera) = camera.as_ref() else { continue };
+        if mg_area::pick::beside_the_eye(camera, &lifted) {
             continue;
-        };
+        }
+        let points = view.screen_polygon(&lifted, Some(mg_area::pick::overlay_depth(camera)));
+        if points.len() < 3 {
+            continue;
+        }
         let (r, g, b) = if o.kind == ObjectKind::Door { (70, 140, 255) } else { (255, 150, 40) };
         let alpha = if view.selected(*object) { 150 } else { 80 };
         let color = egui::Color32::from_rgba_unmultiplied(r, g, b, alpha);
@@ -2157,7 +2183,9 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         for p in &points {
             mesh.colored_vertex(*p, color);
         }
-        mesh.add_triangle(first, first + 1, first + 2);
+        for k in 1..points.len() as u32 - 1 {
+            mesh.add_triangle(first, first + k, first + k + 1);
+        }
         edges.push((points, egui::Color32::from_rgba_unmultiplied(r, g, b, 200)));
     }
     let painter = ui.painter_at(view.rect);
@@ -2199,9 +2227,10 @@ fn overlays(
         let font = egui::FontId::proportional(13.0);
         painter.text(at, egui::Align2::LEFT_BOTTOM, text, font, Color32::WHITE);
     };
+    // (A line is cut where it passes behind the eye.)
     let line = |a: Vec3, b: Vec3, stroke: Stroke| {
-        if let (Some(a), Some(b)) = (at(a), at(b)) {
-            painter.line_segment([a, b], stroke);
+        if let Some(points) = view.screen_segment(a, b) {
+            painter.line_segment(points, stroke);
         }
     };
     let scene = view.scene.as_ref();
