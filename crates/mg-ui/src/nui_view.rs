@@ -364,7 +364,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                         ui.close();
                     }
                     ui.separator();
-                    for (suffix, label) in [("_o", "Open script"), ("_e", "Event script")] {
+                    for (suffix, label) in [("_o", "Opener script")] {
                         if let Some(k) = ResKey::parse(&format!("{name}{suffix}"), ResType::NSS)
                             && ui
                                 .add_enabled(ws.module.contains(&k), egui::Button::new(label))
@@ -461,7 +461,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             if let (Ok(mut v), Ok(mut s)) = (parsed, settings) {
                 let before = v.clone();
                 let config_before = s.clone();
-                workflow::ui(ui, &mut v, &mut s, &mut state);
+                let script = ResKey::parse(&format!("{name}_e"), ResType::NSS).and_then(|k| {
+                    app.scripts
+                        .get(&k)
+                        .map(|b| b.text.clone())
+                        .or_else(|| app.ws.as_ref()?.module.get(&k).map(crate::text::decode))
+                });
+                workflow::ui(ui, &mut v, &mut s, &mut state, &name, script.as_deref());
                 if v != before {
                     raw = serde_json::to_string_pretty(&v).unwrap();
                 }
@@ -853,6 +859,9 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                     if let Some(value) = obj.get_mut(*key)
                         && (!value.is_null() || property_default(&ty, key).is_some())
                         && !(*key == "title" && *value == json!(false))
+                        // Optional window settings show once added.
+                        && !(value.is_null()
+                            && matches!(*key, "size_constraint" | "edge_constraint" | "collapsed"))
                     {
                         let field = ui.push_id(*key, |ui| {
                             property(ui, key, &ty, value, s, &mut remove);
@@ -901,9 +910,17 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
             ("encouraged", "Encouraged", json!(false)),
             ("foreground_color", "Foreground color", json!({"r":255,"g":255,"b":255,"a":255})),
             ("size_constraint", "Window size limits", json!({"x":0.0,"y":0.0,"w":0.0,"h":0.0})),
+            (
+                "edge_constraint",
+                "Distance from screen edges",
+                json!({"x":0.0,"y":0.0,"w":0.0,"h":0.0}),
+            ),
+            ("collapsed", "Collapsed", json!(false)),
+            ("aspect", "Aspect ratio", json!(1.0)),
+            ("font", "Font", json!("")),
         ] {
             let applicable = match k {
-                "size_constraint" => ty == "window",
+                "size_constraint" | "edge_constraint" | "collapsed" => ty == "window",
                 // Window size is edited through geometry; element modifiers are not window options.
                 _ => ty != "window",
             };
@@ -1044,7 +1061,7 @@ fn bindable(ty: &str, key: &str) -> bool {
                 | "disabled_tooltip"
                 | "encouraged"
         )
-        || (key == "border" && ty == "window")
+        || (matches!(key, "border" | "transparent" | "accepts_input") && ty == "window")
         || (key == "max" && ty != "textedit"))
         && !matches!(key, "type" | "order" | "render" | "arrayBinds")
         && !(key == "value" && ty == "chart")
@@ -1053,6 +1070,24 @@ fn bindable(ty: &str, key: &str) -> bool {
 
 /// What a property is called wherever the Creator names it.
 fn display_label(key: &str, ty: &str) -> String {
+    if ty == "draw" {
+        let name = match key {
+            "rect" => Some("Position and size"),
+            "points" => Some("Points (x, y, x, y, …)"),
+            "a" => Some("Start"),
+            "b" => Some("End"),
+            "ctrl0" => Some("Control point 1"),
+            "ctrl1" => Some("Control point 2"),
+            "c" => Some("Center"),
+            "amin" => Some("Start angle (radians)"),
+            "amax" => Some("End angle (radians)"),
+            "line_thickness" => Some("Line width"),
+            _ => None,
+        };
+        if let Some(name) = name {
+            return name.into();
+        }
+    }
     match key {
         "id" => "Element ID".into(),
         "disabled_tooltip" => "Tooltip when disabled".into(),
@@ -1298,6 +1333,19 @@ fn scalar(ui: &mut Ui, v: &mut Value) {
                 && ui.add(egui::DragValue::new(&mut f).speed(0.1)).changed()
             {
                 *v = json!(f);
+            }
+        }
+        // A colour as the rest of Moonglow shows one: a swatch that opens a picker.
+        Value::Object(o)
+            if o.len() == 4
+                && ["r", "g", "b", "a"].iter().all(|k| o.get(*k).is_some_and(Value::is_number)) =>
+        {
+            let channel = |k: &str| o[k].as_u64().unwrap_or(255).min(255) as u8;
+            let mut rgba = [channel("r"), channel("g"), channel("b"), channel("a")];
+            if ui.color_edit_button_srgba_unmultiplied(&mut rgba).changed() {
+                for (k, c) in ["r", "g", "b", "a"].iter().zip(rgba) {
+                    o.insert((*k).into(), json!(c));
+                }
             }
         }
         Value::Object(o) if o.len() <= 4 && o.values().all(Value::is_number) => {
@@ -1696,6 +1744,54 @@ mod tests {
         h.get_by_label("Text input · Name › Max").click();
         h.run();
         assert!(h.query_by_label("Placeholder").is_some(), "the text input's properties show");
+    }
+
+    #[test]
+    fn nui_properties_read_as_choices_and_hide_what_is_unset() {
+        // Named NUI_* choices instead of bare numbers.
+        let mut image = mg_nui::template("image");
+        image["image_aspect"] = json!(5);
+        let mut h =
+            Harness::builder().build_ui(|ui| properties(ui, &mut image, &mut Settings::default()));
+        h.run();
+        h.get_by_label("Appearance").click();
+        h.run();
+        assert!(h.query_by_label("Stretch").is_some() || h.query_by_value("Stretch").is_some());
+        drop(h);
+        // A window's optional settings wait in Add property until wanted.
+        let mut window = mg_nui::window();
+        window["size_constraint"] = Value::Null;
+        window["edge_constraint"] = Value::Null;
+        let mut h =
+            Harness::builder().build_ui(|ui| properties(ui, &mut window, &mut Settings::default()));
+        h.run();
+        assert!(h.query_by_label("Window size limits").is_none());
+        h.get_by_label("+ Add property").click();
+        h.run();
+        h.get_by_label("Distance from screen edges").click();
+        h.run();
+        drop(h);
+        assert!(window["edge_constraint"].is_object());
+        // Draw layers: what it draws first, by its name.
+        let mut spacer = mg_nui::template("spacer");
+        spacer["draw_list"] = json!([{"type":1,"enabled":true,"color":{"r":1,"g":2,"b":3,"a":255},
+            "fill":false,"line_thickness":2.0,"order":1,"render":0,"arrayBinds":false,
+            "a":{"x":0.0,"y":0.0},"b":{"x":10.0,"y":10.0},"ctrl0":{"x":0.0,"y":5.0},"ctrl1":{"x":5.0,"y":10.0}}]);
+        let assets = skin::Assets::default();
+        let mut h = Harness::builder()
+            .build_ui(|ui| draw::editor(ui, &mut spacer, &mut Settings::default(), &assets));
+        h.run();
+        h.get_by_label("Draw layers").click();
+        h.run();
+        if let Some(header) = h.query_by_label_contains("1 · Curve") {
+            header.click();
+            h.run();
+        }
+        let start = h.get_by_label("Start").rect();
+        let color = h.get_by_label("Color").rect();
+        assert!(start.top() < color.top(), "geometry before colour");
+        assert!(h.get_by_label("Control point 1").rect().top() < color.top());
+        assert!(h.query_by_label("Per-row values (in a list)").is_some());
     }
 
     #[test]

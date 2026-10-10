@@ -393,7 +393,9 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &
                 state.layout_target = group.clone();
                 edit(state, Some(name));
             }
-            ui.weak("To switch: add a Clicked event on a Button with Replace group layout. Choose this area and a variant.");
+            ui.weak(
+                "To show a variant: add a handler (a button's Clicked) and Insert… › Show variant.",
+            );
         });
         ui.separator();
     }

@@ -98,6 +98,12 @@ pub(super) fn value(ui: &mut Ui, v: &mut Value, depth: usize) {
                 values.push(values.last().cloned().unwrap_or(json!("")));
             }
         }
+        Value::Object(o)
+            if o.len() == 4
+                && ["r", "g", "b", "a"].iter().all(|k| o.get(*k).is_some_and(Value::is_number)) =>
+        {
+            scalar(ui, v);
+        }
         Value::Object(o) => {
             for (key, item) in o.iter_mut() {
                 ui.push_id(key, |ui| {
@@ -256,18 +262,24 @@ pub(super) fn binding_options(ui: &mut Ui, v: &mut Value) {
         return;
     }
     egui::CollapsingHeader::new("Bind formatting").show(ui, |ui| {
-        for (key, label) in [
-            ("number_flags", "Number flags"),
-            ("number_precision", "Decimal precision"),
-            ("text_flags", "Text flags"),
+        // The NUI_NUMBER_FLAG_* and NUI_TEXT_FLAG_* bits of nw_inc_nui.
+        for (key, bit, label) in [
+            ("number_flags", 1, "Numbers in hexadecimal"),
+            ("text_flags", 1, "Text in lowercase"),
+            ("text_flags", 2, "Text in uppercase"),
         ] {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(label);
-                let mut n = v[key].as_i64().unwrap_or(0);
-                if ui.add(egui::DragValue::new(&mut n).range(0..=i32::MAX)).changed() {
-                    v[key] = n.into();
-                }
-            });
+            let flags = v[key].as_i64().unwrap_or(0);
+            let mut on = flags & bit != 0;
+            if ui.checkbox(&mut on, label).changed() {
+                v[key] = json!(if on { flags | bit } else { flags & !bit });
+            }
         }
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Decimal places");
+            let mut n = v["number_precision"].as_i64().unwrap_or(0);
+            if ui.add(egui::DragValue::new(&mut n).range(0..=i32::MAX)).changed() {
+                v["number_precision"] = n.into();
+            }
+        });
     });
 }

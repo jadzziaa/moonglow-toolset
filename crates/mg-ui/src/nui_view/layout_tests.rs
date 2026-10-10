@@ -62,7 +62,7 @@ fn assert_inspector_fits(h: &Harness<'_, Fixture>) {
         content.x <= rect.width() + 1.0,
         "Properties content grew beyond its allocated panel: content={content:?}, panel={rect:?}"
     );
-    let heading = h.get_by_label("PROPERTIES").rect();
+    let heading = h.get_by_label("Content").rect();
     let canvas = h.state().state.preview_rect.unwrap();
     assert!(
         heading.left() >= canvas.right(),

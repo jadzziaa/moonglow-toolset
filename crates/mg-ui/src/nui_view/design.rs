@@ -758,19 +758,21 @@ fn inspector(
     keymap: &crate::keys::Keymap,
     assets: &mut skin::Assets,
 ) {
-    ui.weak("PROPERTIES");
     let Some(node) = v.pointer(&state.selected) else { return };
+    let swap = layouts::is_swap(s, node);
     ui.heading(if state.selected.is_empty() {
         "Window".into()
-    } else if layouts::is_swap(s, node) {
+    } else if swap {
         format!("Swap layout · {}", node["id"].as_str().unwrap_or_default())
     } else {
         node_name(node)
     });
     ui.add_space(8.0);
-    ui.add_enabled_ui(state.resize.is_none(), |ui| layouts::inspector(ui, v, s, state));
-    ui.add_enabled_ui(state.resize.is_none(), |ui| events::inspector(ui, v, s, state));
-    ui.add_enabled_ui(state.resize.is_none(), |ui| bindings::inspector(ui, v, s, state));
+    // What the selection is first: a swap layout's variants, any control's
+    // own properties; then how it changes (binds, events, drawing).
+    if swap {
+        ui.add_enabled_ui(state.resize.is_none(), |ui| layouts::inspector(ui, v, s, state));
+    }
     let Some(node) = v.pointer_mut(&state.selected) else { return };
     ui.add_enabled_ui(state.resize.is_none(), |ui| properties(ui, node, s));
     fields::list(ui, v, &state.selected, s);
@@ -779,7 +781,16 @@ fn inspector(
     {
         workflow::images(ui, node, s, state, assets);
         fields::chart(ui, node, s);
+    }
+    ui.add_enabled_ui(state.resize.is_none(), |ui| bindings::inspector(ui, v, s, state));
+    ui.add_enabled_ui(state.resize.is_none(), |ui| events::inspector(ui, v, s, state));
+    if !state.selected.is_empty()
+        && let Some(node) = v.pointer_mut(&state.selected)
+    {
         draw::editor(ui, node, s, assets);
+    }
+    if !swap {
+        ui.add_enabled_ui(state.resize.is_none(), |ui| layouts::inspector(ui, v, s, state));
     }
     if !state.selected.is_empty() {
         ui.add_space(12.0);

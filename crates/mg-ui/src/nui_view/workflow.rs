@@ -129,7 +129,14 @@ pub(super) fn create_bind(
     created
 }
 
-pub(super) fn ui(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &mut State) {
+pub(super) fn ui(
+    ui: &mut Ui,
+    doc: &mut Value,
+    s: &mut Settings,
+    state: &mut State,
+    window: &str,
+    script: Option<&str>,
+) {
     egui::ScrollArea::vertical().id_salt("nui-workflow").show(ui, |ui| {
         ui.heading("Swap layout variants");
         ui.label("Add a Swap layout in Design, then create and edit its variants in Properties or Layers.");
@@ -143,12 +150,16 @@ pub(super) fn ui(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &mut Sta
                     Some(id) => format!("Swap layout · {id}"),
                     None => "No target assigned".into(),
                 });
-                if ui.button("Edit layout").clicked() {
+                if ui.button("Edit variant").clicked() {
                     state.layout_target = target.unwrap_or_default();
                     layouts::edit(state, Some(name.clone()));
                 }
-                let used = s.actions.iter().any(|r| matches!(&r.action, mg_nui::Action::View{view,..} if view==name));
-                if ui.add_enabled(!used, egui::Button::new("Remove")).on_hover_text("Remove referencing actions first").clicked() { remove=Some(name.clone()); }
+                // A handler that shows it calls its function: removing it would break the build.
+                let shown = script.is_some_and(|t| t.contains(&format!("{}(", mg_nui::variant_function(window, name))))
+                    || s.actions.iter().any(|r| matches!(&r.action, mg_nui::Action::View{view,..} if view==name));
+                if ui.add_enabled(!shown, egui::Button::new("Remove"))
+                    .on_disabled_hover_text("A handler shows it: take that call out of the event script first")
+                    .clicked() { remove=Some(name.clone()); }
             });
         }
         if let Some(name) = remove { s.views.remove(&name); }

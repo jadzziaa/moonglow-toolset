@@ -357,6 +357,7 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
         let Some(items) = node.get_mut("draw_list").and_then(Value::as_array_mut) else { return };
         let mut remove = None;
         let mut move_item = None;
+        let total = items.len();
         for (i, item) in items.iter_mut().enumerate() {
             let name =
                 KINDS.get(item["type"].as_u64().unwrap_or(99) as usize).unwrap_or(&"Unknown");
@@ -381,7 +382,8 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                         (if g.size { "h" } else { "y" }, delta.y),
                     ] {
                         g.draft[&g.field][key] = json!(
-                            g.source[&g.field][key].as_f64().unwrap_or(0.0) + f64::from(delta)
+                            (g.source[&g.field][key].as_f64().unwrap_or(0.0) + f64::from(delta))
+                                .round()
                         );
                     }
                 }
@@ -467,16 +469,42 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                 });
                 let mut remove_field = None;
                 if let Some(obj) = item.as_object_mut() {
-                    for (key, value) in obj.iter_mut() {
+                    const ORDER: [&str; 23] = [
+                        "rect",
+                        "points",
+                        "a",
+                        "b",
+                        "ctrl0",
+                        "ctrl1",
+                        "c",
+                        "radius",
+                        "amin",
+                        "amax",
+                        "text",
+                        "font",
+                        "image",
+                        "image_aspect",
+                        "image_halign",
+                        "image_valign",
+                        "color",
+                        "fill",
+                        "line_thickness",
+                        "enabled",
+                        "order",
+                        "render",
+                        "arrayBinds",
+                    ];
+                    let rank = |k: &str| ORDER.iter().position(|o| *o == k).unwrap_or(ORDER.len());
+                    let mut fields: Vec<_> = obj.iter_mut().collect();
+                    fields.sort_by_key(|(k, _)| rank(k));
+                    for (key, value) in fields {
                         if *name == "Image"
                             && matches!(key.as_str(), "color" | "fill" | "line_thickness")
                         {
                             continue;
                         }
                         ui.push_id(key, |ui| match key.as_str() {
-                            "type" => {
-                                ui.weak(*name);
-                            }
+                            "type" => {}
                             "order" => {
                                 let mut n = value.as_i64().unwrap_or(1);
                                 egui::ComboBox::from_label("Paint order")
@@ -510,9 +538,42 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                                     });
                                 *value = json!(n);
                             }
+                            "image" if value.is_string() => {
+                                ui.label("Image");
+                                let Value::String(picture) = value else { return };
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        egui::TextEdit::singleline(picture)
+                                            .desired_width(140.0)
+                                            .hint_text("Picture name"),
+                                    );
+                                    // The pictures of the module and the game, by what is typed.
+                                    ui.menu_button("Choose…", |ui| {
+                                        egui::ScrollArea::vertical().max_height(240.0).show(
+                                            ui,
+                                            |ui| {
+                                                let typed = picture.to_lowercase();
+                                                for name in assets
+                                                    .catalog
+                                                    .iter()
+                                                    .filter(|n| n.contains(&typed))
+                                                    .take(40)
+                                                {
+                                                    if ui.button(name).clicked() {
+                                                        *picture = name.clone();
+                                                        ui.close();
+                                                    }
+                                                }
+                                            },
+                                        );
+                                    });
+                                });
+                            }
                             "arrayBinds" => {
-                                ui.label("Repeat bound arrays");
-                                scalar(ui, value);
+                                // A bound array gives each list row its own value.
+                                if let Value::Bool(b) = value {
+                                    ui.checkbox(b, "Per-row values (in a list)");
+                                }
                             }
                             _ => property(ui, key, "draw", value, s, &mut remove_field),
                         });
@@ -522,10 +583,10 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                     }
                 }
                 ui.horizontal(|ui| {
-                    if ui.small_button("Up").clicked() && i > 0 {
+                    if ui.add_enabled(i > 0, egui::Button::new("Up").small()).clicked() {
                         move_item = Some((i, i - 1));
                     }
-                    if ui.small_button("Down").clicked() {
+                    if ui.add_enabled(i + 1 < total, egui::Button::new("Down").small()).clicked() {
                         move_item = Some((i, i + 1));
                     }
                     if ui.small_button("Remove drawing").clicked() {
