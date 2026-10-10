@@ -143,12 +143,21 @@ struct Read {
     tags: Vec<(String, Vec<u8>)>,
     /// A script's string literals: where each begins (inside the quotes).
     strings: Vec<(usize, usize)>,
+    /// The talk-table lines it names: a GFF's localized strings that have
+    /// a StrRef, and a 2DA's cells in the columns known to hold one
+    /// (`doctor::STRREF_COLUMNS`); where, and the StrRef.
+    strrefs: Vec<(String, u32)>,
 }
 
 impl Read {
     fn of(key: ResKey, data: &std::sync::Arc<[u8]>) -> Read {
-        let mut read =
-            Read { data: data.clone(), refs: Vec::new(), tags: Vec::new(), strings: Vec::new() };
+        let mut read = Read {
+            data: data.clone(),
+            refs: Vec::new(),
+            tags: Vec::new(),
+            strings: Vec::new(),
+            strrefs: Vec::new(),
+        };
         if key.restype == ResType::NSS {
             read.refs = crate::refs::script_includes(key, data);
             read.strings = tokenize(data)
@@ -161,8 +170,40 @@ impl Read {
         {
             read.refs = crate::refs::gff_references(key, &gff);
             tag_fields(&gff.root, "", &mut read.tags);
+            strref_fields(&gff.root, "", &mut read.strrefs);
+        } else if key.restype == ResType::TWODA
+            && let Ok(table) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default())
+        {
+            let name = key.resref.to_lowercase().to_string();
+            for (_, column) in crate::doctor::STRREF_COLUMNS.iter().filter(|(t, _)| *t == name) {
+                for row in 0..table.len() {
+                    let cell = table.get(row, column).and_then(mg_2da::parse_int);
+                    if let Some(n) = cell.and_then(|n| u32::try_from(n).ok()) {
+                        read.strrefs.push((format!("row {row}, {column}"), n));
+                    }
+                }
+            }
         }
         read
+    }
+}
+
+/// The localized strings of `s` that name a talk-table line, with their
+/// paths.
+fn strref_fields(s: &Struct, path: &str, out: &mut Vec<(String, u32)>) {
+    for f in &s.fields {
+        let label = f.label.to_string_lossy();
+        let p = format!("{path}/{label}");
+        match &f.value {
+            Value::LocString(v) if !v.strref.is_none() => out.push((p, v.strref.0)),
+            Value::Struct(c) => strref_fields(c, &p, out),
+            Value::List(items) => {
+                for (i, c) in items.iter().enumerate() {
+                    strref_fields(c, &format!("{p}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
@@ -249,6 +290,34 @@ impl UsageIndex {
             let gff = Gff::read(&read.data).ok();
             for (path, _) in read.tags.iter().filter(hit) {
                 let place = describe(*key, gff.as_ref(), path);
+                out.push(Usage { from: *key, path: path.clone(), place });
+            }
+        }
+        out
+    }
+
+    /// Where the module names the talk-table line `strref` (the number as
+    /// the files have it: a custom table's lines from 16777216): in a
+    /// localized string of a GFF resource, or in a 2DA of the module in a
+    /// column known to hold StrRefs. From what
+    /// [`refresh`](Self::refresh) read; the haks' 2DAs are not the
+    /// module's, and not looked in.
+    pub fn strref_usages(&self, strref: u32) -> Vec<Usage> {
+        let hit = |t: &&(String, u32)| t.1 == strref;
+        let mut keys: Vec<&ResKey> = (self.seen.iter())
+            .filter(|(_, r)| r.strrefs.iter().any(|t| hit(&t)))
+            .map(|(k, _)| k)
+            .collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let read = &self.seen[key];
+            let gff = if key.restype.is_gff() { Gff::read(&read.data).ok() } else { None };
+            for (path, _) in read.strrefs.iter().filter(hit) {
+                let place = match &gff {
+                    Some(_) => describe(*key, gff.as_ref(), path),
+                    None => format!("{key} › {path}"),
+                };
                 out.push(Usage { from: *key, path: path.clone(), place });
             }
         }
@@ -789,6 +858,24 @@ mod tests {
         m.remove(&key("fresh", ResType::NSS));
         index.refresh(&m);
         assert_eq!(index.read, 0);
+        // Talk-table lines: a blueprint's name by StrRef, and a 2DA's
+        // cell in a column that holds one; a text of its own is no line.
+        let mut item = Gff::new(*b"UTI ");
+        let named = mg_core::LocString { strref: mg_core::StrRef(16_777_220), strings: Vec::new() };
+        item.root.set("LocalizedName", Value::LocString(named));
+        let own = mg_core::LocString { strref: mg_core::StrRef::NONE, strings: Vec::new() };
+        item.root.set("Description", Value::LocString(own));
+        m.set_gff(key("sword", ResType::UTI), &item).unwrap();
+        let table = b"2DA V2.0\n\n   Label StrRef ModelName\n0  Chair 16777220 plc_chair\n1  Stool 5 plc_stool\n";
+        m.set(key("placeables", ResType::TWODA), table.to_vec());
+        index.refresh(&m);
+        let places: Vec<String> =
+            index.strref_usages(16_777_220).into_iter().map(|u| u.place).collect();
+        assert_eq!(places.len(), 2, "{places:?}");
+        assert!(places[0].contains("placeables.2da") && places[0].contains("row 0, StrRef"));
+        assert!(places[1].starts_with("sword"), "{places:?}");
+        assert_eq!(index.strref_usages(5).len(), 1);
+        assert!(index.strref_usages(u32::MAX).is_empty());
         // Set again with the bytes it had: not read again.
         let again = m.get(&key("inc_guard", ResType::NSS)).unwrap().to_vec();
         m.set(key("inc_guard", ResType::NSS), again);

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T02:57:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
 ---
 
 # The main window
@@ -24,7 +24,7 @@ close it, **Palettes** on the toolbar brings it back.
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
-| Build | Compile All Scripts, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
+| Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
 | Help | User Manual, Command Palette…, About Moonglow Toolset |
 
@@ -154,6 +154,8 @@ string's text is shown beside its number.
 **The panes beside the middle** (the module tree on the left, the
 palettes on the right, the log below) fold away to give the area's view
 the room: **View** has each, ticked while shown, and **Hide All Panels**.
+The module tree («, beside its Filter) and the log (–, in its corner)
+have a button of their own for it.
 A pane folded away leaves a narrow strip at its edge with an arrow: a
 click brings it back, as wide as it was. Closing the palettes' pane by
 its ✕ folds it away the same. What is folded stays so the next time
@@ -161,13 +163,15 @@ Moonglow starts. **View › Reset Layout** shows all three at the sizes
 they have at first.
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
-keys, while the pointer is over it (the same click in the palette gives
-them to the palette; in an area's view they turn the camera again):
+keys, wherever the pointer goes after, until it is in an area's view,
+where they move the camera again (the same click in the palette gives
+them to the palette); a thin outline shows which pane has them:
 Up and Down go from row to row, Page Up and Page Down by ten, Home and
 End to the first and the last. Right opens a group, then goes to its
 first row; Left goes from a row to its group, then closes it. Enter
 opens the row's area, script, conversation or blueprint, and opens or
-closes a group. F2 renames and Delete deletes the resource of the row
+closes a group. A letter or a digit goes to the next row that begins
+with it (a group's name, or a resource's ResRef). F2 renames and Delete deletes the resource of the row
 under the pointer, or else of the row the keys are at (both ask first,
 as the row's menu does). Ctrl+F goes to the Filter,
 and Down from the Filter goes back into the rows. Escape hands the keys

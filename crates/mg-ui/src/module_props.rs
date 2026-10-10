@@ -443,7 +443,7 @@ fn custom_content(app: &mut Moonglow, ui: &mut Ui, root: &Struct) {
                         }
                         state.cursor = Some(i);
                         // (The arrow keys are the list's now, not a camera's.)
-                        crate::palette_view::give_arrows(ui.ctx(), true);
+                        crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::List);
                     }
                     if name.drag_started() || handle.drag_started() {
                         // A row not among those chosen is dragged alone.

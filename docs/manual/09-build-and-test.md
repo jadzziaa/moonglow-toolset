@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:09:13Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:28:14Z }
 ---
 
 # Build, verify and test
@@ -126,6 +126,13 @@ a second node of a name whose children hang from the first, more than
 four bones on a vertex; the first five of a model). Keywords the game
 skips are not named: old content is full of them.
 Each names the line. Compiled models are not read so.
+
+**Build › Compile Models** compiles the module's own models kept as
+text, each against its supermodel from the module, its haks or the
+game, in the background and as one step to undo. A model with errors,
+with no nodes, or whose supermodel isn't found stays as text, and the
+log says why. (The hak editor's Compile Models does the same for a
+hak, `mg pack --compile-models` for a folder.)
 
 ## Test Module
 

@@ -1,6 +1,9 @@
 # Update log
 
 ## 2026-10-10
+* **Update**: [The main window](manual/02-main-window.md) (the keys are the list's clicked last wherever the pointer is; a pane's own button to fold it away), [blueprints](manual/05-blueprints.md) (search in an item's Available Properties; a store's selling prices), [options](manual/10-options.md) (String Edit with Polish) and [the deferred list](deferred.md): GitHub issues 10 to 18 after 1.20.0, among them Undo in a text field being the field's.
+* **Update**: [Scripts](manual/07-scripts.md) (what Compile All remembers is kept between sessions), [the main window](manual/02-main-window.md) (a letter typed in the module tree; Build › Compile Models), [modules](manual/03-modules.md) (Find References for a talk-table line), [build, verify and test](manual/09-build-and-test.md) (Compile Models) and [the deferred list](deferred.md): those, a picture test for punch-through particles, and saves with an external compiler compiled as a job.
+* **Update**: [The deferred list](deferred.md): the spikes across the view with Object Walkmeshes on were the mitered corners of each face's outline, found by rendering the user's area; outlines are drawn edge by edge.
 * **Update**: [Scripts](manual/07-scripts.md) (Compile All passes over what is unchanged; many includers compiled in the background), [modules](manual/03-modules.md), [the main window](manual/02-main-window.md) (Models as text in Export as Files) and [the deferred list](deferred.md): those, Compile Models on every core, tags and script strings from the references index, punch-through particles cut at 0.2 as seen in the client, and the overlays cut where they pass behind the eye.
 * **Update**: [The deferred list](deferred.md): the streak across the view with Object Walkmeshes on was a face the eye passes beside (reproduced on the user's area), not a point behind the near plane; such faces are left out.
 

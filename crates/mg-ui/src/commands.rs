@@ -57,6 +57,7 @@ pub enum Id {
     ReloadResources,
     Options,
     CompileAll,
+    CompileModels,
     BuildModule,
     PublishNwsync,
     Verify,
@@ -180,6 +181,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
         "Build",
         &[
             Do(Id::CompileAll),
+            Do(Id::CompileModels),
             Do(Id::BuildModule),
             Do(Id::PublishNwsync),
             Do(Id::Verify),
@@ -331,6 +333,12 @@ impl Id {
             ),
             Id::Options => ("options", "Options…", ""),
             Id::CompileAll => ("compile-all", "Compile All Scripts", ""),
+            Id::CompileModels => (
+                "compile-models",
+                "Compile Models",
+                "Compile the module's own models kept as text (ASCII), each against its \
+                 supermodel from the module, its haks or the game",
+            ),
             Id::BuildModule => ("build-module", "Build Module…", ""),
             Id::PublishNwsync => (
                 "publish-nwsync",
@@ -542,6 +550,7 @@ impl Id {
             | Id::Journal
             | Id::NewScript
             | Id::CompileAll
+            | Id::CompileModels
             | Id::BuildModule
             | Id::PublishNwsync
             | Id::Verify
@@ -577,6 +586,7 @@ impl Id {
             Id::ReloadResources => Action::ReloadResources,
             Id::Options => Action::OptionsDialog,
             Id::CompileAll => Action::CompileScripts,
+            Id::CompileModels => Action::CompileModels,
             Id::Verify => Action::Verify,
             Id::TestModule => Action::SaveThen(Box::new(Action::TestModule)),
             Id::TestChoose => Action::SaveThen(Box::new(Action::TestModuleChoose)),
@@ -710,7 +720,33 @@ pub fn name_of(id: &str) -> String {
 pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // (A letter given to a command stays a letter in a text field.)
     let typing = ui.memory(|m| m.focused().is_some());
+    // (And Undo and Redo are the text field's that has been typed in since
+    // it got the keyboard: its own typing is taken back, not the module's
+    // last change, which may be in an area nobody is looking at. GitHub
+    // issue 18. A field only stepped into, or left, has nothing of its
+    // own to take back: there they are the module's.)
+    let focused = ui.memory(|m| m.focused());
+    if app.text_typed.is_some() && app.text_typed != focused {
+        app.text_typed = None;
+    }
+    let edits = ui.ctx().egui_wants_keyboard_input()
+        && ui.input(|i| {
+            i.events.iter().any(|e| match e {
+                egui::Event::Text(_) | egui::Event::Paste(_) | egui::Event::Cut => true,
+                egui::Event::Key { key, pressed: true, .. } => {
+                    matches!(key, egui::Key::Backspace | egui::Key::Delete)
+                }
+                _ => false,
+            })
+        });
+    if edits {
+        app.text_typed = focused;
+    }
+    let in_text = app.text_typed.is_some() && ui.ctx().egui_wants_keyboard_input();
     for id in Id::all() {
+        if in_text && matches!(id, Id::Undo | Id::Redo) {
+            continue;
+        }
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing));
         if pressed && id.enabled(app) {
             id.run(app, ui.ctx());

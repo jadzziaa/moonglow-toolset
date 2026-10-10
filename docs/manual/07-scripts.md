@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T02:57:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:28:14Z }
 ---
 
 # Scripts
@@ -97,8 +97,11 @@ The buttons:
   (more than 24 at once in the background): an include file changed
   leaves none of them with an older compiled script. **Compile All
   Scripts** passes over the scripts that, with what they include, are
-  as they were when it last compiled them in this session, and says how
-  many it left alone; the first one of a session compiles them all.
+  as they were when it last compiled them, and says how many it left
+  alone. It remembers from one session to the next (in Moonglow's own
+  data folder, not in the module), and compiles them all again when the
+  haks, the content folders, the compiler or its settings change, or
+  where a compiled script is no longer the one it made.
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.

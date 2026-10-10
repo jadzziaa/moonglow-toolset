@@ -749,11 +749,42 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
     crate::widgets::two_columns(ui, 340.0, |ui, col| {
         if col == 0 {
             crate::widgets::section_heading(ui, "Available Properties");
+            // Search: the properties and their choices (a spell of Cast
+            // Spell, a skill of Skill Bonus) that have every word typed,
+            // their kinds opened out.
+            let search_id = egui::Id::new(("uti-search", key));
+            let mut search: String = ui.data(|d| d.get_temp(search_id)).unwrap_or_default();
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::TextEdit::singleline(&mut search)
+                        .hint_text("🔍 Search properties")
+                        .desired_width(ui.available_width() - 28.0),
+                );
+                if !search.is_empty() && ui.small_button("×").on_hover_text("Clear").clicked() {
+                    search.clear();
+                }
+            });
+            ui.data_mut(|d| d.insert_temp(search_id, search.clone()));
+            let words: Vec<String> = search.split_whitespace().map(str::to_lowercase).collect();
+            let has = |text: &str| {
+                let text = text.to_lowercase();
+                words.iter().all(|w| text.contains(w.as_str()))
+            };
             egui::ScrollArea::vertical().id_salt(("uti-available", key)).max_height(380.0).show(
                 ui,
                 |ui| {
+                    let mut found = 0;
                     for t in &available {
-                        let subtypes = game.property_subtypes(t, base);
+                        let mut subtypes = game.property_subtypes(t, base);
+                        // (A kind found by its own name shows all of its
+                        // choices; else those found.)
+                        if !words.is_empty() && !has(&t.name) {
+                            subtypes.retain(|s| has(&format!("{} {}", t.name, s.text)));
+                            if subtypes.is_empty() {
+                                continue;
+                            }
+                        }
+                        found += 1;
                         if subtypes.is_empty() {
                             let r = ui.selectable_label(
                                 chosen == Some(t.row) && chosen_sub.is_none(),
@@ -768,6 +799,7 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                         } else {
                             egui::CollapsingHeader::new(&t.name)
                                 .id_salt(("uti-type", key, t.row))
+                                .open((!words.is_empty()).then_some(true))
                                 .show(ui, |ui| {
                                     for s in &subtypes {
                                         let sub = s.row as u16;
@@ -782,6 +814,9 @@ fn properties(f: &mut Form<'_>, ui: &mut Ui, game: &GameData) {
                                     }
                                 });
                         }
+                    }
+                    if found == 0 {
+                        ui.weak("No property has that.");
                     }
                 },
             );

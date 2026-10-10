@@ -1214,8 +1214,9 @@ impl Moonglow {
     /// `scripts` and the module's scripts that include any of them,
     /// however indirectly: what a change to `scripts` leaves with an
     /// older compiled script. `None` where that is more than
-    /// [`COMPILED_AT_ONCE`]: those are compiled as a job instead, off the
-    /// window's thread (the log says so).
+    /// [`COMPILED_AT_ONCE`], or more than one for an external compiler:
+    /// those are compiled as a job instead, off the window's thread (the
+    /// log says so).
     pub(crate) fn with_includers(&mut self, scripts: &[ResKey]) -> Option<Vec<ResKey>> {
         let ws = self.ws.as_mut()?;
         if let Err(e) = ws.flush() {
@@ -1224,7 +1225,11 @@ impl Moonglow {
         }
         let mut all = scripts.to_vec();
         all.extend(mg_module::refs::includers(&ws.module, scripts));
-        if all.len() > COMPILED_AT_ONCE {
+        // (An external compiler is run once for each script compiled
+        // here, with the module's scripts written out for it each time:
+        // more than one go to the job, which runs it once for them all.)
+        let slow = self.settings.external_compiler.is_some() && all.len() > 1;
+        if all.len() > COMPILED_AT_ONCE || slow {
             self.log.info(format!(
                 "{} scripts (those changed and those that include them) are compiled in the \
                  background",

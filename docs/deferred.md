@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T02:57:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -28,10 +28,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Incremental compiles:** Compile All Scripts passes over a script
   that, with what it includes, is as it was when this window last
   compiled it (`mg_module::build::script_stamps`), as Arelith's
-  ARE_Compile does. Not done: the stamps last a session (the first
-  Compile All compiles every script), and are forgotten when the haks
-  or folders change; they are not written beside a module, where `mg
-  compile` and the next session could use them; a script compiled by
+  ARE_Compile does. What it remembers
+  (`build::Remembered`: each script's stamp and its compiled script's)
+  is kept from one session to the next in Moonglow's data folder, a
+  file a module (not beside the module: nothing is written into a
+  builder's repository or module folder), and holds only for the same
+  compiler, settings, haks and content folders, and while a compiled
+  script is the one that was made. Not done: `mg compile` does not
+  read or write it (`mg` has no data folder of its own); a script
+  compiled by
   its own Compile or by a save is compiled once more by the next
   Compile All (to the same bytes). (S each)
 - **Scripts in the external editor only:** Open scripts in the external
@@ -259,8 +264,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **One language:** the editor edits the table in its own language;
   translated tables (the same name in other languages' folders) aren't
   shown side by side. (M)
-- **Where a StrRef is used:** Find References doesn't find the 2DA cells,
-  blueprints and conversations that name a talk-table line. (M)
+- **Where a StrRef is used:** Find References takes a talk-table line
+  (a number typed in its field, or Find References in the talk table's
+  editor) and lists the module's localized strings that name it
+  (blueprints, areas, conversations, the journal) and its 2DAs' cells
+  in the columns known to hold StrRefs. Not done: the haks' 2DAs are
+  not looked in (they are not the module's), nor fields that hold a
+  StrRef as a plain number, nor scripts (`GetStringByStrRef`). (S each)
 - **Inserting or removing lines in the middle** isn't offered: it
   renumbers every later line, and renumbering their users too would
   need where a StrRef is used first (below). (M)
@@ -732,8 +742,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   these only the reading of a file changed outside is under test). More than 24 at once (a checkout, or an include that many scripts
   use) are compiled as a job, off the window's thread: a save that
   starts one is written before the job's compiled scripts are in, and
-  the module has unsaved changes after. Not done: up to 24 are compiled
-  on the window's thread; a module
+  the module has unsaved changes after. With an external compiler, which is run
+  once for each script compiled on the window's thread, more than one
+  go to the job too. Not done: up to 24 are compiled on the window's
+  thread by the built-in compiler (a few milliseconds each; a job
+  would leave every such save with unsaved changes after it); a module
   whose script was compiled so has unsaved changes (the compiled
   script, written by the next save); the reloading needs the game's data
   open, as the game's own reloading does; a first Save As into a folder
@@ -792,7 +805,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   with the pointer over it). Not done of the issue: a focus outline
   around the pane (the cursor's row is marked instead); the rows of
   what is placed in an area opened out (the cursor passes them);
-  F6 between panes, type-ahead. Since 1.20.5: Ctrl+F to the Filter
+  F6 between panes (the keys are the pane's the pointer is over: F6
+  would have to override that until a click). A letter typed goes to
+  the next row that begins with it (a group's name or a resource's
+  ResRef, not an area's name where areas are shown by name). Since
+  1.20.5: Ctrl+F to the Filter
   and Down from it into the rows, F2 and Delete (the row under the pointer's,
   else the cursor's), and Enter in the palette (the blueprint's editor; a
   category opens or closes). Ctrl+F is the tree's only with the keys
@@ -888,9 +905,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   every save, and categories left in UTF-8 are written in the game's
   bytes there and in the module's own category lists (a test spoils a
   saved palette as 1.19.3 wrote it, opens the module and saves it). Not seen in the game's DM client here (the bytes are
-  tested; the client was not run as a DM). Issue 13's other half, a
-  name's English field decoded as Windows-1252 where the tree shows it
-  in the language's codepage, was not looked at. (S)
+  tested; the client was not run as a DM). Issue 13's other half: with
+  Polish the editing language, String Edit read and wrote a string's
+  English text as Windows-1252 (mojibake, and Polish letters typed
+  could not be saved, under an error that named the String Ref). It
+  reads and writes the Windows-1252 languages' text as Windows-1250
+  then, as the lists did already and as a Polish game shows it, and
+  says which letters a text cannot hold. Not seen on the reporter's
+  module; with another editing language a Polish name kept in the
+  English text is still read as Windows-1252. (S)
 - **Update Instances and held items** (a builder): an item's blueprint
   now reaches the items that placed objects hold (chests, creatures'
   packs and equipment, stores' pages, bags in them), in the window and
@@ -982,6 +1005,48 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The feminine table as JSON:** Export JSON writes the main table
   only, as `nwn_tlk` would of that file. (S)
 
+## From GitHub issues 10 to 18, after 1.20.0 (October 2026)
+
+The reporter's answers to what 1.20.0 built, and two builders' asks.
+
+- **Undo in a text field** (issue 18): Ctrl+Z and Ctrl+Y with a text
+  field in hand were the module's Undo and Redo, and took back an
+  earlier change somewhere else, unseen. They are the field's own once
+  it has been typed in (until it is left); a field only stepped into
+  has nothing of its own to take back, and there they are the module's
+  still (a tag typed, Tab, Ctrl+Z takes the tag back). Not done: the
+  script editor and the other text fields were not tried one by one
+  (the rule is the window's, for every field). (S)
+- **The middle with a tab beside the palettes** (issue 11): the middle
+  was let go where another tab (the resource browser) shared the
+  palettes' pane; the pane's tabs no longer count as the middle's. A
+  side pane without the palettes in it is not known as one. (S)
+- **The keys after a click** (issue 12): the arrow keys are the list's
+  clicked last (the module tree, a palette, Module Properties' haks)
+  wherever the pointer is, until it is in an area's view; a thin
+  outline shows the pane. They were the list's only with the pointer
+  over it. A letter typed still goes to the tree only with the pointer
+  over it (letters are commands elsewhere). Not done: Right on an
+  area's row does not open the area out to what is placed in it;
+  Escape in the Filter does not clear it. (S each)
+- **A pane's own button to fold it away** (issue 10): the module tree
+  («) and the log (–) have one; the palettes' pane has its ✕. Not
+  done: a folded pane's strip shows an arrow, and its name only for
+  the log and in the tip; whether this is what the reporter found
+  unresolved is not known (the answer said only that it was not). (S)
+- **Tool windows where they were** (issue 14), said unresolved in
+  1.20.0: not looked into again. What is known to be missing is in
+  "Tool windows where they were last docked": a pane split off to a
+  side is not a place that is kept, nor a tab's position, nor the
+  layout between runs. (M)
+- **Search in an item's Available Properties** (a builder: Cast Spell
+  alone has hundreds): a field over the list finds the kinds and the
+  choices that have every word typed, opened out. (—)
+- **What a store sells an item for** (a builder: Aurora lists it): each
+  item of a store's pages is listed with its cost at the store's sell
+  mark up. Not compared with Aurora's list (its rounding, whether it
+  counts a stack); the buy price (mark down) is not shown. (S)
+
 ## From GitHub issue 7 (October 2026)
 
 - **Arrow keys on lists of choices:** the blueprint editors' 2DA lists
@@ -1020,30 +1085,24 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Area visibility
 
-- **A streak across the view with Object Walkmeshes on** (the user,
-  moving the camera over an area of many placeables: an orange spike
-  from the ground to the picture's edge). The eye was passing beside a
-  tall or hanging placeable's walkmesh (a chandelier, a wall torch): a
-  corner a hand's width from the eye lands many screens off, and the
-  face is drawn as a streak. 1.20.5 only stopped projecting points
-  nearer than the near plane, which was not it (the spike stayed).
-  Reproduced since on the user's area with 20,000 camera places: 304
-  faces over a screen and a half long. A placeable's or a door's
-  walkmesh face is now left out where a corner is nearer, along the
-  view, than a tenth of the camera's distance to its target, or than a
-  quarter with another corner three times as far
-  (`mg_area::pick::beside_the_eye`): 428 of 11.8 million faces on
-  screen. What is left over a screen and a half (143) has its corners at
-  like depths: the eye close before a large face, a sheet and not a
-  spike. Since, the overlays are cut where they pass behind the eye
-  (`clip_polygon`, `clip_segment`: the ground's walkmesh, sound ranges
-  and the lines of outlines and markers lost a face or a line whole),
-  and a placeable's or door's walkmesh face is cut at a tenth of the
-  camera's distance rather than left out; only one that runs from
-  under a quarter of that distance to three times as far is left out
-  whole. Not done: the rule is by the camera's distance, not by how the
-  face would look; none of this was looked at in the running window
-  (the simulation and the tests of the cutting are what there is). (S)
+- **Spikes across the view with Object Walkmeshes on** (the user, three
+  times: orange lines from placeables to the picture's edge as the
+  camera turned, worst in a flat view zoomed in). The cause was the
+  outline, not the face: each face's edges were drawn as one closed
+  line, whose corners egui joins with miters, and a triangle seen nearly
+  edge-on has corners so sharp that the join shot across the screen.
+  Found by rendering the user's area in the window (`screens.rs`, by
+  hand); 1.20.5 (points nearer than the near plane) and 1.20.6 (faces
+  near the eye cut or left out) answered what a simulation of the
+  projection showed, which was real but was not this. Every closed
+  outline over an area's view is drawn edge by edge now
+  (`area_view::outline`: walkmeshes, a light's reach, tile selections,
+  the terrain cursor, the tiles that refuse a stroke), and a test holds
+  the overlays to have no closed line or stroked polygon. 1.20.6's rule
+  that left faces out near the eye is gone again (it hid what is
+  there); the overlays are still cut where they pass behind the eye.
+  Not done: a face right beside the eye shows as large as it is (a
+  sheet across the view), as its model does. (—)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
@@ -1428,7 +1487,7 @@ Left:
   Moonglow cut such a texture at 0.5 and blended what was left; it cuts
   at 0.2 and draws it solid now. Punch-through particles are cut at 0.2 too
   since (a ramp of alpha on one is there from a fifth of its width on:
-  `particles_look`, `MG_PARTICLES=punch`; no picture test holds it).
+  `particles_look`, `MG_PARTICLES=punch`; a picture test holds it since).
   Left: the tiles and the armoires were not
   painted by the probe (another shader path: their value was not
   read); a cut-out that is also see-through as a whole (a mesh's alpha
@@ -1471,8 +1530,9 @@ toolset is as the proposal says it is.
   thread, on every core, with its progress and Cancel, which leaves
   the hak as it was; one step, named in Undo); a compiled model is not
   compared with the game's own compiler's here (the viewer's `engine.rs`
-  does that); nothing compiles a module's own models, or a nasher
-  project's on Pack Target; the linter's notes (Info) are not shown;
+  does that); Build › Compile Models compiles a module's own
+  (a job, one step to undo); nothing compiles a nasher project's on
+  Pack Target, whose sources stay text; the linter's notes (Info) are not shown;
   the viewer keeps its copy until its pin
   moves past the release that has these, and keeps the tests that need
   its `nwnmdlcomp` wrapper, the game's compiler and the client

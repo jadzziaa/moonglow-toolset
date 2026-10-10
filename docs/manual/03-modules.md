@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T02:57:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:28:14Z }
 ---
 
 # Modules
@@ -59,7 +59,9 @@ as it was.
 **Find References** shows everywhere the module names a script, area,
 conversation or blueprint (the first question in a large module reads
 all of it; the next ones, for a resource or a tag, only what changed
-since). It's in the right-click menus of the module
+since). A number typed there that is no resource's name is a talk-table
+line's StrRef: the module's names, descriptions, conversation lines and
+2DAs that name that line are listed. It's in the right-click menus of the module
 tree and palettes, the script editor's toolbar and **Edit › Find
 References…**.
 - **Places are readable**, such as `keep › creature GUARD › OnSpawn` or
@@ -259,7 +261,9 @@ module's talk table:
   (16777216 and up), with the feminine text beside them when there's a
   feminine table. **Find** finds lines by words or by StrRef. **Go to**
   takes a StrRef or a line's number: press Enter and the list goes to
-  that line, among all the others, and it is chosen.
+  that line, among all the others, and it is chosen. **Find References**
+  lists where the module names the chosen line (a hak's 2DAs are not
+  looked in).
 - **A line**: choose it to edit its text, its feminine text, and the
   sound spoken with it and its length. **Copy** copies its StrRef, to put
   in a 2DA or a script. The text boxes take the room under the list; a

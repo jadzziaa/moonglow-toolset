@@ -509,6 +509,19 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         if let Some(problem) = &v.go_to_problem {
             ui.colored_label(ui.visuals().warn_fg_color, problem);
         }
+        // Where the module names the selected line.
+        let line = v.selected.filter(|_| ws.is_some());
+        if ui
+            .add_enabled(line.is_some(), egui::Button::new("Find References"))
+            .on_hover_text(
+                "Where the module's blueprints, areas, conversations and 2DAs name the \
+                 selected line",
+            )
+            .clicked()
+            && let Some(row) = line
+        {
+            actions.push(Action::FindStrRef(Table::strref(row).0));
+        }
         if ui
             .checkbox(&mut v.only_text, "Only lines with text")
             .on_hover_text(

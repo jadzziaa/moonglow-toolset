@@ -340,19 +340,23 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
     // Ctrl+F, with the keys the tree's and the pointer over its pane,
     // goes to the Filter; Down from the Filter goes into the rows.
-    let here = ui.rect_contains_pointer(ui.max_rect());
-    let find = here
-        && crate::palette_view::has_arrows(ui.ctx())
+    let find = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
         && app.tree_cursor.is_some()
         && !ui.ctx().egui_wants_keyboard_input()
         && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+    let mut fold_away = false;
     let field = ui
         .horizontal(|ui| {
+            // (The pane's own button to fold it away: GitHub issue 10.)
+            fold_away = ui.small_button("«").on_hover_text("Fold the module tree away").clicked();
             crate::widgets::field_label(ui, "Filter");
             // (As wide as the pane has room for, not wider.)
             ui.add(egui::TextEdit::singleline(&mut filter).desired_width(f32::INFINITY))
         })
         .inner;
+    if fold_away {
+        app.show_panel(crate::commands::Id::ViewTree, false);
+    }
     if find {
         field.request_focus();
     }
@@ -362,7 +366,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         field.surrender_focus();
         app.tree_cursor = Some(TreeAt::Group(GROUPS[0].0));
         app.tree_cursor_moved = true;
-        crate::palette_view::give_arrows(ui.ctx(), true);
+        crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::Tree);
     }
     app.buffers.insert(filter_id, filter.clone());
     // (As the names it is looked for in are lowered: every letter.)
@@ -379,6 +383,7 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
         tree_rows(app, ui, &filter, fold);
     });
     crate::widgets::home_and_end(ui, &mut rows);
+    crate::palette_view::keys_outline(ui, rows.inner_rect, crate::palette_view::Keys::Tree);
 }
 
 /// The one object selected in the area in front, if it is another than
@@ -420,6 +425,28 @@ enum Step {
 
 /// The rows shown: each group, whether it is open, and its resources.
 type Shown = Vec<(&'static str, bool, Vec<ResKey>)>;
+
+/// The next row after `at` (round the end) whose name begins with
+/// `letter`: a group's name, or a resource's ResRef. A letter typed in
+/// the tree goes there.
+fn seek(shown: &Shown, at: Option<TreeAt>, letter: char) -> Option<TreeAt> {
+    let rows: Vec<(TreeAt, String)> = shown
+        .iter()
+        .flat_map(|(name, open, keys)| {
+            let inside = keys
+                .iter()
+                .filter(move |_| *open)
+                .map(|k| (TreeAt::Resource(*k), k.resref.to_string()));
+            std::iter::once((TreeAt::Group(name), name.to_string())).chain(inside)
+        })
+        .collect();
+    let from = at.and_then(|at| rows.iter().position(|r| r.0 == at));
+    let n = rows.len();
+    (1..=n)
+        .map(|by| from.map_or(by - 1, |from| (from + by) % n))
+        .find(|i| rows[*i].1.chars().next().is_some_and(|c| c.eq_ignore_ascii_case(&letter)))
+        .map(|i| rows[i].0)
+}
 
 fn step(shown: &Shown, at: Option<TreeAt>, key: egui::Key) -> Step {
     use egui::Key;
@@ -839,11 +866,9 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     // opens the row's resource, Escape hands the keys back.
     if let Some(at) = clicked {
         app.tree_cursor = Some(at);
-        crate::palette_view::give_arrows(ui.ctx(), true);
+        crate::palette_view::give_keys(ui.ctx(), crate::palette_view::Keys::Tree);
     }
-    let here = ui.rect_contains_pointer(ui.clip_rect());
-    if here
-        && crate::palette_view::has_arrows(ui.ctx())
+    if crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Tree)
         && !ui.ctx().egui_wants_keyboard_input()
         && app.tree_cursor.is_some()
     {
@@ -864,6 +889,34 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
             app.tree_cursor = None;
             crate::palette_view::give_arrows(ui.ctx(), false);
+        }
+        // A letter or a digit typed, with the pointer over the tree (a
+        // letter is a command elsewhere: W, A, S, D, Q and E in an area's
+        // view): the next row that begins with it.
+        let over = ui.rect_contains_pointer(ui.clip_rect());
+        let typed = ui.input_mut(|i| {
+            if !over || !i.modifiers.is_none() {
+                return None;
+            }
+            let found = i.events.iter().find_map(|e| match e {
+                egui::Event::Key { key, pressed: true, .. } => {
+                    let name = key.name();
+                    let c = name.chars().next().filter(|_| name.len() == 1)?;
+                    c.is_ascii_alphanumeric().then_some((*key, c))
+                }
+                _ => None,
+            })?;
+            i.events.retain(|e| match e {
+                egui::Event::Key { key, .. } => *key != found.0,
+                egui::Event::Text(t) => !t.eq_ignore_ascii_case(&found.1.to_string()),
+                _ => true,
+            });
+            Some(found.1)
+        });
+        if let Some(at) = typed.and_then(|c| seek(&shown, app.tree_cursor, c)) {
+            app.tree_cursor = Some(at);
+            app.tree_cursor_moved = true;
+            ui.ctx().request_repaint();
         }
         // F2 and Delete on the row under the pointer, else at the
         // cursor's resource, as its menu's Rename… and Delete… (both ask).
@@ -1023,6 +1076,11 @@ mod tests {
         assert_eq!(step(&shown, Some(areas), Key::ArrowLeft), Step::Fold("Areas", false));
         // Enter opens a resource, and opens or closes a group.
         assert_eq!(step(&shown, at(a), Key::Enter), Step::Open(a));
+        // A letter: the next row that begins with it, round the end.
+        assert_eq!(seek(&shown, Some(areas), 's'), Some(scripts));
+        assert_eq!(seek(&shown, Some(scripts), 'A'), Some(areas));
+        assert_eq!(seek(&shown, None, 'c'), Some(TreeAt::Group("Conversations")));
+        assert_eq!(seek(&shown, Some(areas), 'z'), None);
         assert_eq!(step(&shown, Some(scripts), Key::Enter), Step::Fold("Scripts", true));
         // A row that is gone (its group closed, a filter typed): the first.
         assert_eq!(step(&shown, at(c), Key::ArrowDown), Step::To(areas));

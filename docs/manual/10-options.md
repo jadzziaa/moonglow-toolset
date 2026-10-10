@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T14:21:21Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
 ---
 
 # Options
@@ -146,7 +146,10 @@ the module is opened again from its file.
 
 The language that text is shown and edited in, for modules made for
 players of another language. Names, descriptions and conversation lines
-show and edit that language's text, and String Edit opens on it.
+show and edit that language's text, and String Edit opens on it. With
+Polish chosen, String Edit also reads and writes a text's English (and
+other western) entries as a Polish game shows them, in the Polish
+codepage: Polish modules keep Polish names there.
 Where a text has none in that language, its text in another is shown
 instead, English if it has any (as Aurora shows a name written in
 English alone): in the palette, the module tree, a conversation's lines

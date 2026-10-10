@@ -47,6 +47,18 @@ impl Form<'_> {
         }
     }
 
+    /// An entry's cost in gold (`GameData::item_cost`): a whole item's
+    /// own, else its blueprint's; nothing without the game or the
+    /// blueprint.
+    pub(super) fn entry_cost(&mut self, entry: &Struct) -> Option<u32> {
+        let item = match entry.integer("BaseItem") {
+            Some(_) => entry.clone(),
+            None => self.blueprint(BlueprintKind::Item, entry_resref(entry))?,
+        };
+        let game = self.app.game.as_deref()?;
+        Some(game.item_cost(&mg_rules::ItemValue::from_gff(&item)))
+    }
+
     /// An entry's name: a whole item's own, else its blueprint's.
     pub(super) fn entry_name(&self, entry: &Struct, names: &HashMap<ResRef, String>) -> String {
         let own = entry

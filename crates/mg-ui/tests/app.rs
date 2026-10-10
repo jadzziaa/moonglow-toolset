@@ -3140,7 +3140,7 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     let now = width(&h, &Tab::Palette).unwrap();
     assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
     // And closed again, the same.
-    h.state_mut().actions.push(mg_ui::Action::CloseTab(area));
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(area.clone()));
     h.run();
     h.run();
     assert!(has(&h, &Tab::NoArea));
@@ -3149,6 +3149,20 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     // The area just opened is offered first, among those opened lately.
     h.get_by_label("Opened lately");
     assert_eq!(h.query_all_by_label("start").count(), 3);
+    // With the resource browser docked beside the palettes (the side
+    // pane's tab, not the middle's), the middle keeps its place too.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
+    h.run();
+    h.run();
+    let side = h.state().dock.find_tab(&Tab::Palette).unwrap();
+    h.state_mut().dock[side.surface][side.node].append_tab(Tab::Resources);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(area));
+    h.run();
+    h.run();
+    assert!(has(&h, &Tab::NoArea), "the middle is kept with Resources in the side pane");
+    let now = width(&h, &Tab::Palette).unwrap();
+    assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
 }
 
 /// Without the palettes (no game), the middle is not left blank either.
@@ -3262,6 +3276,87 @@ fn tabs_by_the_keyboard() {
     assert_eq!(h.state().dock.iter_all_tabs().count(), 4);
 }
 
+/// Find References for a talk-table line: the module's localized strings
+/// that name its StrRef, from the talk-table editor's button's action and
+/// from a number typed in the References window's field.
+#[test]
+fn find_references_finds_where_a_talk_table_line_is_named() {
+    let dir = mg_testkit::scratch_dir("ui-strref-refs");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let mut item = mg_gff::Gff::new(*b"UTI ");
+    let named = mg_core::LocString { strref: mg_core::StrRef(16_777_220), strings: Vec::new() };
+    item.root.set("LocalizedName", mg_gff::Value::LocString(named));
+    let key = ResKey::parse("sword", ResType::UTI).unwrap();
+    let edit = mg_edit::Edit::SetResource { key, data: Some(item.to_bytes().unwrap()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Item", vec![edit])));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::FindStrRef(16_777_220));
+    h.run_steps(3);
+    h.get_by_label("Talk-table line 16777220");
+    let found = h.state().references.usages.clone();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].from, key);
+    // Another line: nothing names it.
+    h.state_mut().actions.push(mg_ui::Action::FindStrRef(16_777_221));
+    h.run_steps(3);
+    assert!(h.state().references.usages.is_empty());
+}
+
+/// GitHub issue 18: Ctrl+Z while a text field has the keyboard is the
+/// field's (its typing is taken back), not the module's Undo, which undid
+/// an earlier change somewhere else; with no field in hand it is the
+/// module's again.
+#[test]
+fn undo_in_a_text_field_is_the_field_s() {
+    let dir = mg_testkit::scratch_dir("ui-undo-in-text");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let key = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
+    h.run();
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+    // Typing in a field (the module tree's Filter), then Ctrl+Z and
+    // Ctrl+Y: the module's history is as it was.
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().focus();
+    h.run();
+    filter_type(&mut h, "ab");
+    assert!(h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+    // With no field in hand, Ctrl+Z is the module's.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(undoable(&h), None, "the module's Undo");
+}
+
+fn filter_type(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.event(egui::Event::Text(text.into()));
+    h.run_steps(2);
+}
+
 /// GitHub issue 12: the module tree by the keyboard. A click in it gives
 /// it the arrow keys: Up and Down go from row to row, Left and Right
 /// close and open a group, Enter opens the row's resource.
@@ -3308,6 +3403,14 @@ fn the_module_tree_by_the_keyboard() {
     assert!(h.state().dock.find_tab(&area).is_none());
     key(&mut h, egui::Key::Enter);
     assert!(h.state().dock.find_tab(&area).is_some());
+    // A letter goes to the next row that begins with it.
+    key(&mut h, egui::Key::C);
+    assert_eq!(at(&h), Some(TreeAt::Group("Conversations")));
+    key(&mut h, egui::Key::S);
+    assert_eq!(at(&h), Some(TreeAt::Group("Scripts")));
+    key(&mut h, egui::Key::A);
+    key(&mut h, egui::Key::S);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)), "the area named start, after Areas");
     // F2 and Delete at the cursor ask, as the row's menu does.
     h.get_by_label("start").hover();
     key(&mut h, egui::Key::F2);
@@ -3326,6 +3429,13 @@ fn the_module_tree_by_the_keyboard() {
     key(&mut h, egui::Key::ArrowDown);
     assert!(!h.ctx.egui_wants_keyboard_input());
     assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
+    // The keys are the tree's with the pointer off it too (over the
+    // middle, where no area is open).
+    h.hover_at(egui::pos2(700.0, 400.0));
+    h.run();
+    key(&mut h, egui::Key::Home);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)), "Down, with the pointer elsewhere");
     // End is the last row; Escape hands the keys back.
     key(&mut h, egui::Key::End);
     assert!(matches!(at(&h), Some(TreeAt::Group(_))));
@@ -3363,6 +3473,18 @@ fn panels_fold_away_and_come_back() {
     h.get_by_label("⏵").click();
     h.run();
     assert!(tree(&h) && !h.state().settings.hide_tree);
+    // Each pane's own button folds it away too (the tree's, the log's).
+    h.get_by_label("«").click();
+    h.run();
+    assert!(!tree(&h) && h.state().settings.hide_tree);
+    h.get_by_label("⏵").click();
+    h.run();
+    h.get_by_label("–").click();
+    h.run();
+    assert!(h.state().settings.hide_log);
+    h.get_by_label("⏶ Log").click();
+    h.run();
+    assert!(!h.state().settings.hide_log && tree(&h));
     // The palettes: their pane goes, and comes back as wide.
     key(&mut h, egui::Key::Num2);
     assert!(palette(&h).is_none() && h.state().settings.hide_palettes);
@@ -4123,6 +4245,18 @@ fn store_editor_stocks_prices_and_restricts() {
         .map(|i| (i.integer("Repos_PosX").unwrap(), i.integer("Repos_Posy").unwrap()))
         .collect();
     assert!(!at_before.contains(&at), "{at:?} is taken");
+    // Each item is listed with what the store sells it for: its cost at
+    // the store's mark up, as Aurora lists it.
+    let price = {
+        let mark_up = field(&mut h, &key).integer("MarkUp").unwrap() as u64;
+        let game = h.state().game.as_deref().unwrap();
+        let uti = game.resman.get_named("nw_wswls001", ResType::UTI).unwrap();
+        let item = mg_gff::Gff::read(&uti).unwrap();
+        u64::from(game.item_cost(&mg_rules::ItemValue::from_gff(&item.root))) * mark_up / 100
+    };
+    assert!(price > 0);
+    let listed = format!("Longsword  ·  {price} gp");
+    assert!(h.query_all_by_label_contains(&listed).next().is_some(), "{listed}");
     // The store will not buy torches, then will only buy them.
     h.get_by_label("Restrictions").click();
     h.run();
@@ -4482,6 +4616,20 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(cost_of(&mut h).0, plus_one);
+    // Search: the kinds and choices that have every word typed, opened
+    // out (a builder: Cast Spell alone has hundreds).
+    let count = |h: &Harness<'_, Moonglow>, label: &str| h.query_all_by_label(label).count();
+    let before = count(&h, "Enhancement Bonus");
+    assert!(before >= 1);
+    type_into_hint(&mut h, "🔍 Search properties", "cast fireball");
+    h.run_steps(2);
+    assert_eq!(count(&h, "Cast Spell"), 1);
+    assert_eq!(count(&h, "Enhancement Bonus"), before - 1, "not among those found");
+    assert!(h.query_all_by_label_contains("Fireball").next().is_some(), "its choices show");
+    assert!(h.query_all_by_label_contains("Magic Missile").next().is_none());
+    h.get_all_by_value("cast fireball").next().unwrap().type_text(" zzz");
+    h.run_steps(2);
+    h.get_by_label("No property has that.");
 }
 
 #[test]
@@ -9045,13 +9193,16 @@ fn the_arrow_keys_move_through_the_palette_after_a_click_in_it() {
     press(&mut h, egui::Key::ArrowLeft);
     assert!(h.state().palette.at_category());
     assert_eq!(selected(&h), tavern_key, "still in hand");
-    // With the pointer elsewhere (the log, under the area), the keys
-    // leave the palette alone.
+    // With the pointer elsewhere (the log, under the area), the keys are
+    // the palette's still: they are until the pointer is in an area's
+    // view (GitHub issue 12).
     let palette_at = h.get_by_label(&tavern).rect().center();
     h.hover_at(egui::pos2(300.0, 700.0));
     h.run_steps(2);
     press(&mut h, egui::Key::ArrowDown);
-    assert!(h.state().palette.at_category(), "the pointer is not over the palette");
+    assert!(!h.state().palette.at_category(), "the keys are the palette's off it too");
+    press(&mut h, egui::Key::ArrowLeft);
+    assert!(h.state().palette.at_category());
     h.hover_at(palette_at);
     h.run_steps(2);
     // None of that moved the camera, nor does an arrow held down.
@@ -14457,6 +14608,38 @@ fn a_script_saved_outside_is_compiled_when_asked() {
     );
 }
 
+/// Build › Compile Models compiles the module's own models kept as text,
+/// as one step to undo; one whose supermodel is nowhere stays as text.
+#[test]
+fn the_module_s_text_models_are_compiled() {
+    let Some((mut h, _)) = area_harness("module-models") else { return };
+    let base = "newmodel mg_base\nsetsupermodel mg_base NULL\nclassification character\n\
+setanimationscale 1\nbeginmodelgeom mg_base\nnode dummy mg_base\n  parent NULL\nendnode\n\
+node dummy arm\n  parent mg_base\nendnode\nendmodelgeom mg_base\ndonemodel mg_base\n";
+    let orphan =
+        base.replace("mg_base", "mg_orphan").replace("mg_orphan NULL", "mg_orphan mg_nowhere_zz");
+    let key = |n: &str| ResKey::parse(n, ResType::MDL).unwrap();
+    let edits = vec![
+        mg_edit::Edit::SetResource { key: key("mg_base"), data: Some(base.into()) },
+        mg_edit::Edit::SetResource { key: key("mg_orphan"), data: Some(orphan.clone().into()) },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Models", edits)));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::CompileModels);
+    h.run_steps(3);
+    let model = |h: &mut Harness<'_, Moonglow>, n: &str| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        ws.module.get(&key(n)).unwrap().to_vec()
+    };
+    assert!(mg_mdl::is_binary(&model(&mut h, "mg_base")), "{:?}", h.state().log.entries);
+    assert_eq!(model(&mut h, "mg_orphan"), orphan.as_bytes());
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.contains("Compile Models: 1 compiled")), "{log:?}");
+    assert!(log.iter().any(|(_, m)| m.contains("Left as text: mg_orphan.mdl")), "{log:?}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Compile Models"));
+}
+
 /// Compile All Scripts passes over the scripts that are as they were when
 /// it last compiled them: after an include changes, only the scripts that
 /// include it are compiled again.
@@ -14495,6 +14678,19 @@ fn compile_all_compiles_only_what_changed() {
     h.run_steps(2);
     let back = compile(&mut h);
     assert!(back.starts_with("Compiled 1 scripts: 0 failed, 1 changed"), "{back}");
+    // Kept from one session to the next, in a folder of Moonglow's own:
+    // the next session's first Compile All passes over them too.
+    h.state_mut().forget_compiled();
+    let all = compile(&mut h);
+    assert!(!all.contains("left alone"), "nothing is kept without a folder: {all}");
+    let kept = mg_testkit::scratch_dir("ui-compiled-kept");
+    h.state_mut().compiled_dir = Some(kept.clone());
+    h.state_mut().forget_compiled();
+    compile(&mut h);
+    assert_eq!(std::fs::read_dir(&kept).unwrap().count(), 1, "a file for the module");
+    h.state_mut().forget_compiled();
+    let next = compile(&mut h);
+    assert!(next.starts_with("Compiled 0 scripts") && next.contains("left alone"), "{next}");
 }
 
 /// In a nasher project the external editor gets the project's own script

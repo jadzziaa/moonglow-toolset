@@ -598,7 +598,7 @@ fn material(d: &mut Doctor, source: &str, key: ResKey) {
 }
 
 /// Columns that hold a talk-table string, by table.
-const STRREF_COLUMNS: [(&str, &str); 10] = [
+pub(crate) const STRREF_COLUMNS: [(&str, &str); 10] = [
     ("appearance", "STRING_REF"),
     ("baseitems", "Name"),
     ("classes", "Name"),
