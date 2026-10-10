@@ -25,6 +25,8 @@ pub enum Group {
     Script,
     /// In the conversation editor, with the pointer over it.
     Conversation,
+    /// In the NUI designer, outside text fields and menus.
+    Nui,
     /// The enabled plugins' commands (anywhere in the window).
     Plugins,
 }
@@ -36,6 +38,7 @@ impl Group {
             Group::Area => "Area",
             Group::Script => "Script Editor",
             Group::Conversation => "Conversation Editor",
+            Group::Nui => "NUI Creator",
             Group::Plugins => "Plugins",
         }
     }
@@ -111,6 +114,12 @@ pub enum Cmd {
     TogglePalettes,
     ToggleLog,
     HidePanels,
+    NuiDelete,
+    NuiDuplicate,
+    NuiMoveUp,
+    NuiMoveDown,
+    NuiPrevious,
+    NuiNext,
 }
 
 const CTRL: Modifiers = Modifiers::COMMAND;
@@ -118,7 +127,7 @@ const SHIFT: Modifiers = Modifiers::SHIFT;
 const NONE: Modifiers = Modifiers::NONE;
 
 impl Cmd {
-    pub const ALL: [Cmd; 57] = [
+    pub const ALL: [Cmd; 63] = [
         Cmd::NewModule,
         Cmd::OpenModule,
         Cmd::Save,
@@ -176,6 +185,12 @@ impl Cmd {
         Cmd::TogglePalettes,
         Cmd::ToggleLog,
         Cmd::HidePanels,
+        Cmd::NuiDelete,
+        Cmd::NuiDuplicate,
+        Cmd::NuiMoveUp,
+        Cmd::NuiMoveDown,
+        Cmd::NuiPrevious,
+        Cmd::NuiNext,
     ];
 
     /// The id the settings keep it by, its name and where it works.
@@ -239,6 +254,12 @@ impl Cmd {
             Cmd::TogglePalettes => ("view-palettes", "Palettes Panel", General),
             Cmd::ToggleLog => ("view-log", "Log", General),
             Cmd::HidePanels => ("hide-panels", "Hide All Panels", General),
+            Cmd::NuiDelete => ("nui-delete", "Delete Element", Nui),
+            Cmd::NuiDuplicate => ("nui-duplicate", "Duplicate Element", Nui),
+            Cmd::NuiMoveUp => ("nui-move-up", "Move Element Up", Nui),
+            Cmd::NuiMoveDown => ("nui-move-down", "Move Element Down", Nui),
+            Cmd::NuiPrevious => ("nui-previous", "Select Previous Element", Nui),
+            Cmd::NuiNext => ("nui-next", "Select Next Element", Nui),
         }
     }
 
@@ -262,6 +283,12 @@ impl Cmd {
             Cmd::OpenModule => vec![k(CTRL, Key::O)],
             Cmd::Save => vec![k(CTRL, Key::S)],
             Cmd::Undo => vec![k(CTRL, Key::Z)],
+            Cmd::NuiDelete => vec![k(NONE, Key::Delete)],
+            Cmd::NuiDuplicate => vec![k(CTRL, Key::D)],
+            Cmd::NuiMoveUp => vec![k(Modifiers::ALT, Key::ArrowUp)],
+            Cmd::NuiMoveDown => vec![k(Modifiers::ALT, Key::ArrowDown)],
+            Cmd::NuiPrevious => vec![k(NONE, Key::ArrowUp)],
+            Cmd::NuiNext => vec![k(NONE, Key::ArrowDown)],
             Cmd::Redo => vec![k(CTRL | SHIFT, Key::Z), k(CTRL, Key::Y)],
             Cmd::ReplaceText => vec![k(CTRL, Key::H)],
             Cmd::AreaWizard => vec![k(CTRL | Modifiers::ALT, Key::A)],

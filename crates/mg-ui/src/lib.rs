@@ -33,6 +33,7 @@ pub mod levelup_view;
 mod manual;
 pub mod model_view;
 pub mod module_props;
+mod nui_view;
 pub mod nwsync_view;
 mod options;
 mod outside;
@@ -99,6 +100,8 @@ enum Place {
 /// Something the user asked for, run after the frame is drawn.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
+    NewNui(String),
+    GenerateNui(String, bool),
     NewModuleDialog,
     /// Creates a module with this name (then opens the Area Wizard).
     NewModule(String),
@@ -304,6 +307,7 @@ pub struct Moonglow {
     pub speaker: Box<dyn audio::Speaker>,
     /// Game images decoded for the UI, by lowercase name.
     pictures: images::Pictures,
+    pub(crate) nui_assets: nui_view::skin::Assets,
     palettes: images::Palettes,
     /// The area's sounds (Options › Sounds), and the area view heard this
     /// frame.
@@ -334,6 +338,8 @@ pub struct Moonglow {
     /// The New Conversation window's name.
     pub new_dialog: Option<String>,
     pub script_tools: script_tools::ScriptTools,
+    /// The NUI window whose last Build failed, and why: shown by its Build button.
+    pub(crate) nui_build_error: Option<(String, String)>,
     /// The Save Script As window: the script and the new name.
     pub(crate) script_save_as: Option<(ResKey, String)>,
     /// The New Script window's name.
@@ -613,6 +619,7 @@ impl Moonglow {
             dialogs,
             speaker: Box::new(audio::Silence::default()),
             pictures: HashMap::new(),
+            nui_assets: Default::default(),
             palettes: HashMap::new(),
             area_audio: Default::default(),
             heard: None,
@@ -634,6 +641,7 @@ impl Moonglow {
             dialog_clip: None,
             new_dialog: None,
             script_tools: script_tools::ScriptTools::default(),
+            nui_build_error: None,
             script_save_as: None,
             new_script: None,
             script_wizard: None,
@@ -1819,6 +1827,7 @@ impl Moonglow {
     /// The game data's layers changed: the browser and the read-only
     /// viewers show them anew.
     fn load_order_changed(&mut self) {
+        self.nui_assets.invalidate();
         self.browser.stale = true;
         self.viewed.clear();
     }
@@ -2183,6 +2192,8 @@ impl Moonglow {
                     self.log.error(e.to_string());
                 }
             }
+            Action::NewNui(name) => nui_view::create(self, &name),
+            Action::GenerateNui(name, export) => nui_view::generate(self, &name, export),
             Action::CloseTab(tab) => {
                 if tab == Tab::Options {
                     self.options = None;
@@ -2206,6 +2217,7 @@ impl Moonglow {
             }
             Action::ToggleMaximize(tab) => self.toggle_maximize(&tab),
             Action::OpenTab(tab) => {
+                nui_view::route_tab(&mut self.dock, &tab);
                 // The area opened last is opened again with the module.
                 if let (Tab::Area(area), Some(module)) = (&tab, self.module_path()) {
                     self.settings.remember_area(&module, &area.to_string());
@@ -2923,6 +2935,26 @@ impl Moonglow {
 
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
+        // NUI windows changed since their last build are built first, so the
+        // game opens what the Creator shows; one that can't be is named.
+        let stale =
+            self.ws.as_ref().map(|ws| nui_view::stale_windows(&ws.module)).unwrap_or_default();
+        for name in &stale {
+            nui_view::generate(self, name, false);
+        }
+        // The game loads the saved module: what was built is saved too.
+        if !stale.is_empty() {
+            self.save(None);
+        }
+        if let Some(ws) = &self.ws {
+            let left = nui_view::stale_windows(&ws.module);
+            if !left.is_empty() {
+                self.log.warn(format!(
+                    "NUI windows not built (fix their problems in the NUI Creator): {}; the game runs what was last built",
+                    left.join(", ")
+                ));
+            }
+        }
         if test_module::game_running() {
             self.log.warn(
                 "The game started for the last test is still running: close it, then test \

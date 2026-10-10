@@ -27,6 +27,8 @@ pub enum FileKind {
     HakFiles,
     /// A picture: `.png`.
     Png,
+    /// Pictures to add to a module or a hak: the types the game reads.
+    Images,
     /// A tileset: `.set`.
     Tileset,
     /// A plugin's archive: `.zip`.
@@ -54,6 +56,7 @@ impl FileKind {
             (FileKind::Content, _) => "Add Haks and Talk Table",
             (FileKind::HakFiles, _) => "Add Files to the Hak",
             (FileKind::Png, _) => "Save Picture",
+            (FileKind::Images, _) => "Add Images",
             (FileKind::Tileset, false) => "Open Tileset",
             (FileKind::Tileset, true) => "New Tileset",
             (FileKind::Plugin, _) => "Install Plugin from File",
@@ -76,6 +79,7 @@ impl FileKind {
             (FileKind::Content, _) => Some(("Haks and talk tables", &["hak", "tlk"])),
             (FileKind::HakFiles, _) => None,
             (FileKind::Png, _) => Some(("PNG picture", &["png"])),
+            (FileKind::Images, _) => Some(("Pictures", &["png", "tga", "dds", "jpg", "bmp"])),
             (FileKind::Tileset, _) => Some(("Tileset", &["set"])),
             (FileKind::Plugin, _) => Some(("Plugin archives", &["zip"])),
         }

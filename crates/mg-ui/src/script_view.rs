@@ -75,6 +75,19 @@ impl ScriptBuffer {
     pub(crate) fn is_dirty(&self) -> bool {
         self.text != self.saved
     }
+
+    /// A buffer as an editor would hold it: `text` typed over `saved`.
+    #[cfg(test)]
+    pub(crate) fn for_tests(text: String, saved: String) -> ScriptBuffer {
+        ScriptBuffer {
+            text,
+            saved,
+            source: (0, 0),
+            bookmarks: Default::default(),
+            numbered: [None; 10],
+            external: None,
+        }
+    }
 }
 
 /// The script editor's colours (one per [`SCRIPT_ELEMENTS`](crate::settings::SCRIPT_ELEMENTS))

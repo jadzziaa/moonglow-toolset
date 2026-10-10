@@ -1564,6 +1564,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -1881,6 +1883,7 @@ dependencies = [
  "mg-gff",
  "mg-mdl",
  "mg-module",
+ "mg-nui",
  "mg-plugin",
  "mg-preview",
  "mg-resman",
@@ -2063,6 +2066,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mg-nui"
+version = "1.20.7"
+dependencies = [
+ "mg-core",
+ "mg-edit",
+ "mg-module",
+ "mg-resman",
+ "mg-script",
+ "mg-testkit",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mg-plugin"
 version = "1.20.7"
 dependencies = [
@@ -2212,6 +2229,7 @@ dependencies = [
  "egui_kittest",
  "fastrand",
  "glam",
+ "image",
  "log",
  "mg-2da",
  "mg-area",
@@ -2223,6 +2241,7 @@ dependencies = [
  "mg-image",
  "mg-mdl",
  "mg-module",
+ "mg-nui",
  "mg-plugin",
  "mg-preview",
  "mg-render",
@@ -2237,6 +2256,8 @@ dependencies = [
  "mg-tlk",
  "serde",
  "serde_json",
+ "skrifa",
+ "toml",
  "wgpu",
 ]
 

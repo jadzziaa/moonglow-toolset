@@ -22,6 +22,8 @@ pub enum Tab {
     NoArea,
     /// A script source.
     Script(ResKey),
+    /// A native NUI document, or the new-window form.
+    Nui(Option<ResKey>),
     /// Any GFF resource, as an editable field tree.
     Gff(ResKey),
     /// The resource browser.
@@ -90,6 +92,7 @@ impl Tab {
             Tab::NoArea => "no-area",
             Tab::ModuleProperties => "module-properties",
             Tab::Script(_) => "script",
+            Tab::Nui(_) => "nui",
             Tab::Gff(_) => "gff",
             Tab::Resources => "resources",
             Tab::Factions => "factions",
@@ -127,6 +130,7 @@ impl Tab {
             // (Room for the text beside the lists, which open as wide as
             // their longest name.)
             Tab::Script(_) => (1120.0, 720.0),
+            Tab::Nui(_) => (1140.0, 760.0),
             Tab::Manual | Tab::Resources | Tab::Resource(_) => (920.0, 700.0),
             Tab::Dialog(_) => (920.0, 660.0),
             Tab::Tileset(_) | Tab::Hak(_) => (920.0, 720.0),
@@ -144,6 +148,7 @@ impl Tab {
     pub fn for_resource(key: ResKey) -> Option<Tab> {
         match key.restype {
             ResType::NSS => Some(Tab::Script(key)),
+            ResType::JUI => Some(Tab::Nui(Some(key))),
             ResType::ARE => Some(Tab::Area(key.resref)),
             ResType::IFO => Some(Tab::ModuleProperties),
             ResType::FAC => Some(Tab::Factions),
@@ -231,6 +236,7 @@ impl Viewer<'_> {
             Tab::NoArea => no_area(self.app, ui),
             Tab::ModuleProperties => module_props::ui(self.app, ui),
             Tab::Script(k) => script_view::ui(self.app, ui, *k),
+            Tab::Nui(k) => crate::nui_view::ui(self.app, ui, *k),
             Tab::Gff(k) => gff_view::ui(self.app, ui, *k),
             Tab::Resources => browser::ui(self.app, ui),
             Tab::Palette => crate::palette_view::ui(self.app, ui),
@@ -293,6 +299,7 @@ impl TabViewer for Viewer<'_> {
         match tab {
             Tab::Welcome => "Welcome".into(),
             Tab::NoArea => "No Area Open".into(),
+            Tab::Nui(k) => k.map_or_else(|| "NUI Creator".into(), |k| format!("NUI: {k}").into()),
             Tab::ModuleProperties => "Module Properties".into(),
             Tab::Script(k) => {
                 let dirty = self.app.scripts.get(k).is_some_and(|b| b.is_dirty());
@@ -458,7 +465,7 @@ impl TabViewer for Viewer<'_> {
     /// pane's width, and the Options, whose page scrolls between its panels.
     /// The others scroll when wider or taller.
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
-        let fits = matches!(tab, Tab::Script(_) | Tab::Manual | Tab::Options);
+        let fits = matches!(tab, Tab::Script(_) | Tab::Nui(_) | Tab::Manual | Tab::Options);
         [!fits, !fits]
     }
 }

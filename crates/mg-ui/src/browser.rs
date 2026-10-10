@@ -267,6 +267,10 @@ impl Viewed {
             }
         } else if key.restype == ResType::NSS {
             Content::Script(codepage.decode(&data).into_owned())
+        } else if key.restype == ResType::JUI
+            || (key.restype == ResType::TXT && mg_nui::Settings::parse(&data).is_ok())
+        {
+            Content::Text(String::from_utf8_lossy(&data).into_owned())
         } else if is_text(key.restype, &data) {
             Content::Text(codepage.decode(&data).into_owned())
         } else if let Some(text) = model_text(key, &data) {
@@ -396,6 +400,7 @@ fn is_text(t: ResType, data: &[u8]) -> bool {
     matches!(
         t,
         ResType::NSS
+            | ResType::JUI
             | ResType::TXT
             | ResType::INI
             | ResType::SET

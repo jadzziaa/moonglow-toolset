@@ -17,6 +17,7 @@ mg-erf.workspace = true
 mg-gff.workspace = true
 mg-mdl.workspace = true
 mg-module.workspace = true
+mg-nui.workspace = true
 mg-plugin.workspace = true
 mg-preview.workspace = true
 mg-resman.workspace = true
