@@ -528,6 +528,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         }
     }
     let mut edits = Vec::new();
+    if (raw != original || config_raw != config_original)
+        && let Some(edit) =
+            events::follow_controls(app, &name, &original, &raw, &config_original, &mut config_raw)
+    {
+        edits.push(edit);
+    }
     if let Some(ask) = state.event_script.take()
         && let Some(edit) = events::open_script(app, &name, ask)
     {
@@ -713,6 +719,38 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
             false,
         ),
     ];
+    // NWN EE 8193.37 draws no title bar for a window whose title is false and
+    // that has neither a close nor a collapse button. Hiding it keeps all
+    // three, to bring them back.
+    if ty == "window" {
+        let mut shown = obj.get("title") != Some(&json!(false));
+        if ui
+            .checkbox(&mut shown, "Title bar")
+            .on_hover_text("Without it the window has no title, close or collapse button")
+            .changed()
+        {
+            const BAR: [&str; 3] = ["title", "closable", "collapsed"];
+            if shown {
+                let kept = s.extra.remove("title_bar").unwrap_or_default();
+                for key in BAR {
+                    obj.insert(key.into(), kept.get(key).cloned().unwrap_or(json!("")));
+                }
+                if !kept.is_object() {
+                    obj.insert("closable".into(), json!(true));
+                    obj.insert("collapsed".into(), Value::Null);
+                }
+            } else {
+                let kept: serde_json::Map<_, _> = BAR
+                    .iter()
+                    .map(|k| ((*k).into(), obj.get(*k).cloned().unwrap_or_default()))
+                    .collect();
+                s.extra.insert("title_bar".into(), Value::Object(kept));
+                obj.insert("title".into(), json!(false));
+                obj.insert("closable".into(), json!(false));
+                obj.insert("collapsed".into(), json!(false));
+            }
+        }
+    }
     let reveal_id = ui.id().with("reveal-nui-property");
     let reveal = ui.ctx().data_mut(|d| d.remove_temp::<String>(reveal_id));
     let mut remove = None;
@@ -734,6 +772,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                 for key in *keys {
                     if let Some(value) = obj.get_mut(*key)
                         && (!value.is_null() || property_default(&ty, key).is_some())
+                        && !(*key == "title" && *value == json!(false))
                     {
                         let field = ui.push_id(*key, |ui| {
                             property(ui, key, &ty, value, s, &mut remove);
@@ -1079,9 +1118,38 @@ fn property(
         } else {
             ui.weak("Unset/custom value. Edit in Advanced > JUI source.");
         }
+    } else if let Some(names) = named_choices(key)
+        && let Some(n) = value.as_i64()
+    {
+        // The NUI_* constants of nw_inc_nui, by name.
+        let mut n = n;
+        egui::ComboBox::from_id_salt(key)
+            .selected_text(names.get(n as usize).copied().unwrap_or("Other"))
+            .show_ui(ui, |ui| {
+                for (i, name) in names.iter().enumerate() {
+                    ui.selectable_value(&mut n, i as i64, *name);
+                }
+            })
+            .response
+            .labelled_by(heading.id);
+        *value = json!(n);
     } else if !value.is_boolean() {
         scalar(ui, value);
     }
+}
+
+/// Names of the values of a property the stock API gives constants for.
+fn named_choices(key: &str) -> Option<&'static [&'static str]> {
+    Some(match key {
+        "image_aspect" => {
+            &["Fit", "Fill", "Fit, at most 100%", "Exact size", "Exact size, scaled", "Stretch"]
+        }
+        "image_halign" | "text_halign" => &["Center", "Left", "Right"],
+        "image_valign" | "text_valign" => &["Middle", "Top", "Bottom"],
+        "scrollbars" => &["None", "Horizontal", "Vertical", "Both", "When needed"],
+        "direction" => &["Horizontal", "Vertical"],
+        _ => return None,
+    })
 }
 
 fn scalar(ui: &mut Ui, v: &mut Value) {
@@ -1354,6 +1422,86 @@ mod tests {
         assert!(!read(&h).bindings.contains_key("label_value"));
         h.get_by_label("Property binding");
         h.get_by_label("Canvas Label · Label");
+    }
+
+    #[test]
+    fn nui_handlers_follow_their_control_when_renamed_and_go_with_it() {
+        let mut h = keyboard_harness();
+        h.run();
+        let script_key = mg_nui::key("nui_test_e", ResType::NSS);
+        let routes = |h: &Harness<'_, Moonglow>| {
+            Settings::parse(
+                h.state()
+                    .ws
+                    .as_ref()
+                    .unwrap()
+                    .module
+                    .get(&mg_nui::key("nui_test", ResType::TXT))
+                    .unwrap(),
+            )
+            .unwrap()
+            .actions
+        };
+        let script = |h: &Harness<'_, Moonglow>| {
+            crate::text::decode(h.state().ws.as_ref().unwrap().module.get(&script_key).unwrap())
+        };
+        h.get_by_label("Canvas Button · Close").click();
+        h.run();
+        h.get_by_label("Edit code").click();
+        h.run();
+        h.get_by_label("Element ID").click();
+        h.run();
+        h.get_by_label("Element ID").type_text("_x");
+        h.run();
+        assert!(routes(&h).iter().any(|r| r.event == "click" && r.element == "mg_close_x"));
+        assert!(script(&h).contains("// mg:begin click mg_close_x\n"));
+        assert!(!script(&h).contains("// mg:begin click mg_close\n"));
+        // Deleting the control takes its handler away; its code stays.
+        h.get_all_by_label("Button · Close").next().unwrap().click();
+        h.run();
+        h.hover_at(h.get_by_label("Layers").rect().center());
+        h.run();
+        h.key_press(egui::Key::Delete);
+        h.run();
+        assert!(!routes(&h).iter().any(|r| r.event == "click"));
+        assert!(
+            mg_nui::validate(
+                &keyboard_document(&h),
+                &Settings { actions: routes(&h), ..Default::default() }
+            )
+            .iter()
+            .all(|d| !d.message.contains("Unknown element ID"))
+        );
+    }
+
+    #[test]
+    fn nui_title_bar_hides_and_comes_back_with_its_title() {
+        let mut window = mg_nui::window();
+        window["title"] = json!("Character");
+        let mut s = Settings::default();
+        let mut h = Harness::builder().build_ui_state(
+            |ui, (w, s): &mut (Value, Settings)| properties(ui, w, s),
+            (window, s.clone()),
+        );
+        h.run();
+        h.get_by_label("Title bar").click();
+        h.run();
+        let (hidden, kept) = h.state().clone();
+        // What NWN EE 8193.37 needs to draw no title bar.
+        assert_eq!(hidden["title"], json!(false));
+        assert_eq!(hidden["closable"], json!(false));
+        assert_eq!(hidden["collapsed"], json!(false));
+        assert!(
+            mg_nui::validate(&hidden, &kept).iter().all(|d| d.severity != Severity::Error),
+            "{:?}",
+            mg_nui::validate(&hidden, &kept)
+        );
+        h.get_by_label("Title bar").click();
+        h.run();
+        let (shown, _) = h.state().clone();
+        assert_eq!(shown["title"], json!("Character"));
+        assert_eq!(shown["closable"], mg_nui::window()["closable"]);
+        s.extra.clear();
     }
 
     #[test]
@@ -1922,7 +2070,7 @@ mod tests {
         let mut h = keyboard_harness();
         h.state_mut().settings.key_bindings.insert("nui-delete".into(), vec!["F6".into()]);
         h.run();
-        h.get_by_label("Button · Close").click();
+        h.get_all_by_label("Button · Close").next().unwrap().click();
         h.run();
         h.key_press(egui::Key::Delete);
         h.run();

@@ -427,6 +427,65 @@ fn installed_include_has_the_supported_widget_constructors() {
     assert!(source.contains("\"row_template\""));
 }
 
+/// A handler shows a swap layout variant by calling the opener include's
+/// function for it, so a variant edited after the code was written still
+/// reaches the game on the next Build.
+#[test]
+fn shown_variants_come_from_the_opener_rebuilt_on_every_build() {
+    use mg_nui::{Action, Route};
+    let rm = ResMan::for_game(&GameInstall::new(mg_testkit::corpus!(), None, "en")).unwrap();
+    let mut ws = project();
+    let mut w = mg_nui::window();
+    w["root"] = json!({"type":"col","children":[
+        {"type":"button","id":"next","label":"Next"},
+        {"type":"group","id":"pages","children":[{"type":"col","children":[{"type":"label","value":"First"}]}]}
+    ]});
+    let mut s = Settings::default();
+    s.views.insert(
+        "details page".into(),
+        json!({"type":"col","children":[{"type":"label","value":"Old text"}]}),
+    );
+    s.extra.insert("view_targets".into(), json!({"details page":"pages"}));
+    s.actions.push(Route { event: "click".into(), element: "next".into(), action: Action::Code });
+    ws.module.set(key("test_nui", ResType::JUI), serde_json::to_vec(&w).unwrap());
+    ws.module.set(key("test_nui", ResType::TXT), s.bytes());
+    let compile = |ws: &Workspace| {
+        mg_nui::generate(&ws.module, "test_nui", |n, t| {
+            rm.get_named(n, t).ok().map(|b| b.into_owned())
+        })
+    };
+    ws.apply(compile(&ws).unwrap()).unwrap();
+    let function = mg_nui::variant_function("test_nui", "details page");
+    let initial = mg_nui::initial_function("test_nui", "pages");
+    let script =
+        String::from_utf8(ws.module.get(&key("test_nui_e", ResType::NSS)).unwrap().to_vec())
+            .unwrap();
+    let call = format!(
+        "        NuiSetGroupLayout(oPlayer, nToken, \"pages\", {function}());\n        NuiSetGroupLayout(oPlayer, nToken, \"pages\", {initial}());\n"
+    );
+    let written = mg_nui::insert_code(&script, "click next", &call).unwrap();
+    ws.module.set(key("test_nui_e", ResType::NSS), written.clone().into_bytes());
+    ws.apply(compile(&ws).unwrap()).unwrap();
+    assert!(ws.module.get(&key("test_nui_e", ResType::NCS)).unwrap().starts_with(b"NCS "));
+    let opener = |ws: &Workspace| {
+        String::from_utf8(ws.module.get(&key("test_nui_o", ResType::NSS)).unwrap().to_vec())
+            .unwrap()
+    };
+    assert!(opener(&ws).contains(&format!("json {function}()")));
+    assert!(opener(&ws).contains(&format!("json {initial}()")));
+    assert!(opener(&ws).contains("Old text"));
+    // Edit the variant and build: the opener has it, the handler is unchanged.
+    s = Settings::parse(ws.module.get(&key("test_nui", ResType::TXT)).unwrap()).unwrap();
+    s.views.insert(
+        "details page".into(),
+        json!({"type":"col","children":[{"type":"label","value":"New text"}]}),
+    );
+    ws.module.set(key("test_nui", ResType::TXT), s.bytes());
+    ws.apply(compile(&ws).unwrap()).unwrap();
+    assert!(opener(&ws).contains("New text") && !opener(&ws).contains("Old text"));
+    assert_eq!(ws.module.get(&key("test_nui_e", ResType::NSS)).unwrap(), written.as_bytes());
+}
+
 #[test]
 fn installed_compiler_accepts_view_actions_unicode_and_row_bind_toggles() {
     use mg_nui::{Action, Route};
@@ -640,7 +699,7 @@ fn event_scripts_keep_the_code_written_in_their_handlers() {
         actions: vec![route("click", "ok"), route("watch", "volume")],
         ..Default::default()
     };
-    let fresh = mg_nui::event_source(&s).unwrap();
+    let fresh = mg_nui::event_source("test", &s).unwrap();
     assert_eq!(fresh.matches("// Your code here.").count(), 2);
     let ok = mg_nui::handler_offset(&fresh, "click ok").unwrap();
     assert!(fresh[..ok].ends_with("// mg:begin click ok\n"));
@@ -650,14 +709,41 @@ fn event_scripts_keep_the_code_written_in_their_handlers() {
     assert_eq!(written.matches("// Your code here.").count(), 1, "the note gives way to code");
     // Removing the handler keeps its code commented out; adding it back restores it.
     s.actions.remove(0);
-    let without = mg_nui::merge_events(&s, Some(&written)).unwrap();
+    let without = mg_nui::merge_events("test", &s, Some(&written)).unwrap();
     assert!(without.contains("// mg:removed click ok\n//         SendMessageToPC"));
     assert!(!without.lines().any(|l| l.trim_start().starts_with("SendMessageToPC")));
     s.actions.insert(0, route("click", "ok"));
-    assert_eq!(mg_nui::merge_events(&s, Some(&without)).unwrap(), written);
+    assert_eq!(mg_nui::merge_events("test", &s, Some(&without)).unwrap(), written);
     // An action is the code a handler starts with.
     let close = mg_nui::Route { action: mg_nui::Action::Close, ..route("click", "mg_close") };
     assert!(mg_nui::handler_code(&close, &s).unwrap().contains("NuiDestroy(oPlayer, nToken);"));
+}
+
+/// A section's key is read as written, so an ID ending in a space keeps its
+/// code; the checks still refuse such IDs and names with line breaks.
+#[test]
+fn handler_keys_keep_their_spaces_and_unplain_names_are_errors() {
+    let route = mg_nui::Route {
+        event: "click".into(),
+        element: "ok ".into(),
+        action: mg_nui::Action::Code,
+    };
+    let s = Settings { actions: vec![route], ..Default::default() };
+    let fresh = mg_nui::event_source("test", &s).unwrap();
+    let written = mg_nui::insert_code(&fresh, "click ok ", "        int nKept = 1;\n").unwrap();
+    assert_eq!(mg_nui::merge_events("test", &s, Some(&written)).unwrap(), written);
+    assert!(!mg_nui::edited_outside("test", &written));
+    for id in ["ok ", " ok", "o\nk"] {
+        let mut w = mg_nui::window();
+        w["root"]["children"] = json!([{"type":"button","id":id,"label":"b"}]);
+        assert!(
+            mg_nui::validate(&w, &Settings::default())
+                .iter()
+                .any(|d| d.severity == mg_nui::Severity::Error
+                    && d.message.contains("can't name it")),
+            "{id:?}"
+        );
+    }
 }
 
 /// max counts UTF-8 bytes; below 4 the client can keep part of a character
@@ -906,7 +992,7 @@ fn close_requires_explicit_route_and_legacy_template_upgrades_safely() {
     assert_eq!(source(&ws).matches("NuiDestroy").count(), 1);
     assert_eq!(
         source(&ws),
-        mg_nui::event_source(&settings).unwrap(),
+        mg_nui::event_source("test_nui", &settings).unwrap(),
         "preview and compiled handler use the same emitter"
     );
     settings = Settings::parse(ws.module.get(&key("test_nui", ResType::TXT)).unwrap()).unwrap();

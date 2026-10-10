@@ -117,6 +117,12 @@ fn sections(script: &str) -> (BTreeMap<String, String>, BTreeMap<String, String>
     let mut open: Option<(bool, String, String)> = None;
     for line in script.split_inclusive('\n') {
         let trimmed = line.trim();
+        // The key is the rest of the line as written: an ID may end in a space.
+        let rest = |marker: &str| {
+            line.trim_start()
+                .strip_prefix(marker)
+                .map(|k| k.trim_end_matches(['\n', '\r']).to_owned())
+        };
         match open.as_mut() {
             Some(_) if trimmed == END => {
                 let (gone, key, body) = open.take().unwrap();
@@ -128,10 +134,10 @@ fn sections(script: &str) -> (BTreeMap<String, String>, BTreeMap<String, String>
                 line
             }),
             None => {
-                if let Some(key) = trimmed.strip_prefix(BEGIN.trim_end()) {
-                    open = Some((false, key.trim().into(), String::new()));
-                } else if let Some(key) = trimmed.strip_prefix(REMOVED.trim_end()) {
-                    open = Some((true, key.trim().into(), String::new()));
+                if let Some(key) = rest(BEGIN) {
+                    open = Some((false, key, String::new()));
+                } else if let Some(key) = rest(REMOVED) {
+                    open = Some((true, key, String::new()));
                 }
             }
         }
@@ -144,18 +150,49 @@ fn sections(script: &str) -> (BTreeMap<String, String>, BTreeMap<String, String>
 }
 
 /// The event script for these handlers, before anything is written in it.
-pub fn event_source(settings: &Settings) -> Result<String, String> {
-    merge_events(settings, None)
+pub fn event_source(name: &str, settings: &Settings) -> Result<String, String> {
+    merge_events(name, settings, None)
+}
+
+/// The NWScript name for `text`: letters and digits as they are, anything
+/// else spelled by its code, so two names never meet.
+fn identifier(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() { c.to_string() } else { format!("_{:x}_", u32::from(c)) }
+        })
+        .collect()
+}
+
+/// The function in `<name>_o` that returns a swap layout variant, rebuilt
+/// with the window on every Build.
+pub fn variant_function(name: &str, view: &str) -> String {
+    format!("{name}_Variant_{}", identifier(view))
+}
+
+/// The function in `<name>_o` that returns a swap layout's initial contents.
+pub fn initial_function(name: &str, group: &str) -> String {
+    format!("{name}_Initial_{}", identifier(group))
+}
+
+/// The line of the event script that brings in the layout functions.
+fn include_line(name: &str) -> String {
+    format!("#include \"{name}_o\"\n")
 }
 
 /// The event script for these handlers, keeping what is written between the
 /// markers of `existing`: each handler's code, the code of handlers removed
 /// since (commented out, back when the handler is), and the top section.
-pub fn merge_events(settings: &Settings, existing: Option<&str>) -> Result<String, String> {
+pub fn merge_events(
+    name: &str,
+    settings: &Settings,
+    existing: Option<&str>,
+) -> Result<String, String> {
     let (mut kept, removed) = existing.map(sections).unwrap_or_default();
     let top = kept.remove("top").unwrap_or_else(|| "// Includes and helper functions.\n".into());
+    let include = include_line(name);
     let mut out = format!(
-        "// NUI events. Build & compile rebuilds this script: write your code\n// between the mg:begin and mg:end lines, where it is kept.\n{BEGIN}top\n{top}{END}\nvoid main()\n{{\n    object oPlayer = NuiGetEventPlayer();\n    int nToken = NuiGetEventWindow();\n    string sType = NuiGetEventType();\n    string sElement = NuiGetEventElement();\n    int nRow = NuiGetEventArrayIndex();\n"
+        "// NUI events. Build & compile rebuilds this script: write your code\n// between the mg:begin and mg:end lines, where it is kept.\n{include}{BEGIN}top\n{top}{END}\nvoid main()\n{{\n    object oPlayer = NuiGetEventPlayer();\n    int nToken = NuiGetEventWindow();\n    string sType = NuiGetEventType();\n    string sElement = NuiGetEventElement();\n    int nRow = NuiGetEventArrayIndex();\n"
     );
     let mut seen = BTreeSet::new();
     for route in &settings.actions {
@@ -203,11 +240,11 @@ pub fn merge_events(settings: &Settings, existing: Option<&str>) -> Result<Strin
 
 /// Whether anything outside the markers differs from what Moonglow writes
 /// for the handlers the script has: rebuilding would lose it.
-pub(crate) fn edited_outside(script: &str) -> bool {
+pub fn edited_outside(name: &str, script: &str) -> bool {
     let actions = script
         .lines()
-        .filter_map(|l| l.trim().strip_prefix(BEGIN.trim_end()))
-        .map(|key| key.trim().trim_end_matches('+'))
+        .filter_map(|l| l.trim_start().strip_prefix(BEGIN))
+        .map(|key| key.trim_end_matches(['\n', '\r']).trim_end_matches('+'))
         .filter(|key| *key != "top")
         .map(|key| {
             let (event, element) = key.split_once(' ').unwrap_or((key, ""));
@@ -215,7 +252,10 @@ pub(crate) fn edited_outside(script: &str) -> bool {
         })
         .collect();
     let settings = Settings { actions, ..Default::default() };
-    merge_events(&settings, Some(script)).is_ok_and(|s| s != script)
+    // Scripts from before the layout functions have no include line.
+    let include = include_line(name);
+    merge_events(name, &settings, Some(script))
+        .is_ok_and(|s| s.replacen(&include, "", 1) != script.replacen(&include, "", 1))
 }
 
 /// The script with `code` added to a handler's section, in place of its note.

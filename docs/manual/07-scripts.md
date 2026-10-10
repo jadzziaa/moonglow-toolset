@@ -228,9 +228,13 @@ visible. The breadcrumb returns to that area's properties. Existing controls or
 Groups can be converted with **Convert to Swap layout**.
 
 A variant shows when a script sets it: add a handler (a button's **Clicked**,
-say) and **Insert… › Show layout** with the variant. That adds the
-`NuiSetGroupLayout` call to the handler's code. **Views & events** lists the
-variants with their targets.
+say) and **Insert… › Show variant** with the variant, or with **Initial
+contents** to switch back. That adds a `NuiSetGroupLayout` call to the
+handler's code. The layout itself comes from a function Build writes into the
+opener include (`<name>_Variant_<variant>()`, `<name>_Initial_<group>()`), so
+a variant you change later reaches the game with the next Build. The event
+script includes the opener for them. **Views & events** lists the variants
+with their targets.
 The custom window ID is independent of the resource name.
 
 **Resources** shows where the skin, images and fonts came from and reports
@@ -320,7 +324,7 @@ The JUI itself contains only game UI data. Both resources use UTF-8.
 
 **Whole window** as a layout's target replaces the root content while keeping
 the window's title and geometry. The **Group layouts (NuiSetGroupLayout)**
-section stores replacement layouts; **Insert… › Show layout** adds the call
+section stores replacement layouts; **Insert… › Show variant** adds the call
 that applies one to a Group ID or **Whole window**.
 In **Design**, a selected Group has a **Swap layouts** section. Use **+ Add
 layout** for an empty vertical or horizontal variant, or **Copy current
@@ -369,7 +373,7 @@ selector for whose event to add.
 
 **Edit code** opens the event script in the script editor at the handler's
 code. **Insert…** adds ready-made code to it: **Close window**, **Set bind**
-(to its current value), **Toggle bind** and **Show layout**. After that it is
+(to its current value), **Toggle bind** and **Show variant**. After that it is
 ordinary code to change. **Event script…** on the toolbar opens the whole
 script. **Remove** takes the handler away; what you wrote in it stays in the
 script, commented out after `main`, and comes back if you add the handler again.
@@ -501,7 +505,8 @@ and the preview follow them.
 - **Draw layers with array binds** (`arrayBinds`) take one value per list row,
   as other binds in a list do: outside a list the first values are drawn, once.
 - **The window.** `title` set to false, with collapsing and closing off, hides
-  the title bar. With `accepts_input` false, clicks go through the window. An
+  the title bar: the window's **Title bar** switch does this, and brings back
+  the title and buttons it had. With `accepts_input` false, clicks go through the window. An
   edge constraint keeps the window inside its margins without changing a bound
   geometry's value. A placeholder is drawn greyed. A missing image shows the
   game's `gui_error` picture at its own size in the middle of the image,

@@ -87,7 +87,66 @@ pub fn opener_source(name: &str, window: &Value, settings: &Settings) -> Result<
         }
     }
     out.push_str("}\n");
+    // What a script switches a swap layout to: each variant, and each swap
+    // layout's initial contents, rebuilt here on every Build.
+    for (view, layout) in &settings.views {
+        writeln!(
+            out,
+            "\n// Swap layout variant {}.\njson {}()\n{{",
+            literal(view),
+            crate::actions::variant_function(name, view)
+        )
+        .unwrap();
+        json_string(&mut out, "sLayout", layout);
+        out.push_str("    return JsonParse(sLayout);\n}\n");
+    }
+    for group in swap_groups(settings) {
+        let initial = if group == "_window_" {
+            Some(&window["root"])
+        } else {
+            find_group(window, &group)
+                .or_else(|| settings.views.values().find_map(|v| find_group(v, &group)))
+        };
+        if let Some(initial) = initial {
+            writeln!(
+                out,
+                "\n// Initial contents of swap layout {}.\njson {}()\n{{",
+                literal(&group),
+                crate::actions::initial_function(name, &group)
+            )
+            .unwrap();
+            json_string(&mut out, "sLayout", initial);
+            out.push_str("    return JsonParse(sLayout);\n}\n");
+        }
+    }
     Ok(out)
+}
+
+/// The groups variants are shown in: their remembered targets and swap hosts.
+fn swap_groups(settings: &Settings) -> std::collections::BTreeSet<String> {
+    let mut groups = std::collections::BTreeSet::new();
+    if let Some(targets) = settings.extra.get("view_targets").and_then(Value::as_object) {
+        groups.extend(targets.values().filter_map(Value::as_str).map(str::to_owned));
+    }
+    if let Some(hosts) = settings.extra.get("swap_hosts").and_then(Value::as_array) {
+        groups.extend(hosts.iter().filter_map(Value::as_str).map(str::to_owned));
+    }
+    for route in &settings.actions {
+        if let crate::Action::View { group, .. } = &route.action {
+            groups.insert(group.clone());
+        }
+    }
+    groups
+}
+
+/// The child of the group with this ID: what it shows first.
+fn find_group<'a>(v: &'a Value, id: &str) -> Option<&'a Value> {
+    match v {
+        Value::Object(o) if v["type"] == "group" && v["id"] == id => o.get("children")?.get(0),
+        Value::Object(o) => o.values().find_map(|v| find_group(v, id)),
+        Value::Array(a) => a.iter().find_map(|v| find_group(v, id)),
+        _ => None,
+    }
 }
 
 pub(crate) const EVENTS: &str =
@@ -116,21 +175,21 @@ fn events_over(
     name: &str,
 ) -> Result<Vec<u8>, String> {
     let Some(b) = existing else {
-        return crate::actions::event_source(settings).map(String::into_bytes);
+        return crate::actions::event_source(name, settings).map(String::into_bytes);
     };
     let text = bytes_text(b).replace("\r\n", "\n");
     if text.contains(crate::actions::BEGIN.trim_end()) {
-        if crate::actions::edited_outside(&text) {
+        if crate::actions::edited_outside(name, &text) {
             return Err(format!(
                 "{name}_e.nss was changed outside its mg:begin and mg:end lines, where Build would lose it. Move that code into a handler's section, or the top one for includes and helper functions."
             ));
         }
-        Ok(text_bytes(&crate::actions::merge_events(settings, Some(&text))?))
+        Ok(text_bytes(&crate::actions::merge_events(name, settings, Some(&text))?))
     } else if b == EVENTS.as_bytes()
         || b == LEGACY_EVENTS.as_bytes()
         || settings.event_hash.as_deref() == Some(&fingerprint(b))
     {
-        crate::actions::event_source(settings).map(String::into_bytes)
+        crate::actions::event_source(name, settings).map(String::into_bytes)
     } else if settings.actions.is_empty() {
         Ok(b.to_vec())
     } else {

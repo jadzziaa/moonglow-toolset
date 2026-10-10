@@ -15,8 +15,9 @@ pub use validate::{Diagnostic, Severity, validate};
 mod actions;
 mod script;
 pub use actions::{
-    Action, BEGIN, END, EVENT_TYPES, Route, element_ids, event_source, group_ids, handler_code,
-    handler_key, handler_offset, insert_code, merge_events,
+    Action, BEGIN, END, EVENT_TYPES, Route, edited_outside, element_ids, event_source, group_ids,
+    handler_code, handler_key, handler_offset, initial_function, insert_code, merge_events,
+    variant_function,
 };
 pub use script::{generate, is_current, opener_source};
 
