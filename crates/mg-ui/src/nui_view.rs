@@ -1954,7 +1954,7 @@ mod tests {
             (back["image"].clone(), back["image_aspect"].clone(), back["order"].clone()),
             (json!("my_bg"), json!(5), json!(-1))
         );
-        h.get_by_label("Move module images into the hak").click();
+        h.get_by_label("Move module images into a new hak").click();
         h.run();
         let ws = h.state_mut().ws.as_mut().unwrap();
         assert!(!ws.module.contains(&key), "the picture left the module");

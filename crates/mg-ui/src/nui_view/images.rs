@@ -181,7 +181,7 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
         Some(hak) => {
             let path = folder.join(format!("{hak}.hak"));
             if !path.is_file() {
-                app.log.error(format!("{hak}.hak isn't in the game's hak folder, so it can't take pictures: choose New hak"));
+                app.log.error(format!("{hak}.hak isn't in the game's hak folder, so it can't take pictures: choose a new hak"));
                 return None;
             }
             Some(path)
@@ -304,25 +304,37 @@ pub(super) fn page(
             }
         }
         ui.separator();
+        // A hak no longer listed isn't a choice.
+        if state.images_hak.as_ref().is_some_and(|h| !haks.contains(h)) {
+            state.images_hak = None;
+        }
+        let target = state.images_hak.as_ref().map_or("a new hak".to_owned(), |h| format!("{h}.hak"));
         ui.horizontal_wrapped(|ui| {
-            let label = ui.label("Hak");
-            egui::ComboBox::from_id_salt("nui-images-hak")
-                .selected_text(state.images_hak.as_deref().unwrap_or("New hak"))
-                .show_ui(ui, |ui| {
-                    for hak in &haks {
-                        ui.selectable_value(&mut state.images_hak, Some(hak.clone()), hak);
-                    }
-                    ui.selectable_value(&mut state.images_hak, None, "New hak");
-                })
-                .response
-                .labelled_by(label.id);
-            if ui.button("Add images to the hak…").clicked() {
+            // Only a module with haks has a choice to make.
+            if !haks.is_empty() {
+                let label = ui.label("Into");
+                egui::ComboBox::from_id_salt("nui-images-hak")
+                    .selected_text(&target)
+                    .show_ui(ui, |ui| {
+                        for hak in &haks {
+                            ui.selectable_value(&mut state.images_hak, Some(hak.clone()), format!("{hak}.hak"));
+                        }
+                        ui.selectable_value(&mut state.images_hak, None, "a new hak");
+                    })
+                    .response
+                    .labelled_by(label.id);
+            }
+            if ui.button(format!("Add images to {target}…")).clicked() {
                 let files = app.dialogs.open_files(FileKind::Images, None);
                 if !files.is_empty()
                     && let Some(path) = chosen_hak(app, name, &state.images_hak)
+                    && let Some(ws) = &app.ws
                 {
-                    let resources: Result<Vec<_>, _> =
-                        files.iter().map(|f| resource(f).map(|k| (k, Source::File(f.clone())))).collect();
+                    // Named as in the module: one the game can't read is shortened.
+                    let resources: Result<Vec<_>, _> = files
+                        .iter()
+                        .map(|f| from_file(f, &ws.module).map(|(k, b, _)| (k, Source::Bytes(b.into()))))
+                        .collect();
                     match resources.and_then(|r| write_into(&path, r)) {
                         Ok(_) => {
                             use_hak(app, &path, &mut edits);
@@ -332,7 +344,7 @@ pub(super) fn page(
                 }
             }
             if ui
-                .add_enabled(!module_images.is_empty(), egui::Button::new("Move module images into the hak"))
+                .add_enabled(!module_images.is_empty(), egui::Button::new(format!("Move module images into {target}")))
                 .on_hover_text("This window's pictures leave the module for the hak; Undo brings them back, the hak keeps them")
                 .on_disabled_hover_text("None of this window's pictures is in the module")
                 .clicked()

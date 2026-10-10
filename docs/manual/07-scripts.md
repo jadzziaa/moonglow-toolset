@@ -263,16 +263,17 @@ precision to 16 digits, an editor limit, not the engine's. Verify exact spacing,
 buttons and draw layers', its variants' too) and where the game finds each:
 the module, a hak, the game, or nowhere (the game then shows its `gui_error`
 picture). **Add images from disk…** puts pictures (PNG, TGA, DDS, JPG, BMP;
-the file's name, at most 16 letters, digits, `_` or `-`, is the picture's)
+the file's name is the picture's, shortened to at most 16 letters, digits, `_`
+or `-` when it is longer or has other symbols)
 into the module, to use while you work. Players get custom pictures from a
-hak: choose one of the module's haks, or **New hak**, and **Add images to
-the hak…** writes them into it, or **Move module images into the hak** moves
-this window's pictures there from the module. A new hak is made in the
+hak: **Add images to a new hak…** writes them into one, or **Move module
+images into a new hak** moves this window's pictures there from the module.
+A module that has haks offers them too, in **Into**. A new hak is made in the
 game's hak folder (one saved elsewhere is copied there) and added at the
 top of the module's haks; Undo takes it off the list and brings the pictures
 back into the module, while the hak file keeps them. A listed hak the game
-finds elsewhere (its data or the Workshop) can't take pictures: choose New
-hak. Pictures added to the module that the window doesn't show yet are listed
+finds elsewhere (its data or the Workshop) can't take pictures: choose a
+new hak. Pictures added to the module that the window doesn't show yet are listed
 too, ready to be the background. **Use as background**
 puts a picture under the window's controls, stretched over it: a draw layer
 of the root column, painted before it, whose rectangle and fit you can
