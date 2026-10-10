@@ -45,6 +45,17 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.20.7" date="2026-10-10">
+      <description>
+        <p>The spikes across the area view with Object Walkmeshes on are
+        gone: they were the corners of each outline, not the walkmesh
+        (1.20.5 and 1.20.6 did not fix them). An item's Available
+        Properties can be searched, a store's inventory shows each
+        item's selling price, the talk table editor finds where a string
+        is used, and Build has Compile Models. Undo stays in a text
+        field you typed in, and the module tree takes type-ahead.</p>
+      </description>
+    </release>
     <release version="1.20.6" date="2026-10-10">
       <description>
         <p>Object Walkmeshes no longer throws a spike across the area
