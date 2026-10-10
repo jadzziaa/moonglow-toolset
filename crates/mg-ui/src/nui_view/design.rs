@@ -792,15 +792,20 @@ fn inspector(
     }
 }
 
-pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&Value>, state: &mut State) {
+pub(super) fn bindings(
+    ui: &mut Ui,
+    s: &mut Settings,
+    mut v: Option<&mut Value>,
+    state: &mut State,
+) {
     egui::ScrollArea::vertical().id_salt("nui-bindings").show(ui, |ui| {
         ui.add_space(10.0);
         ui.heading("Dynamic values");
         ui.label("Bind a property to a value your event script can change.");
         ui.weak("Create a named value here, then choose it for a control property in Design.");
-        workflow::bind_select(ui, "Select bind", &mut state.binding_selected, &mut s.bindings, false, None);
+        workflow::create_bind(ui, &mut s.bindings);
         ui.add_space(16.0);
-        let mut used = v.map(mg_nui::bind_names).unwrap_or_default();
+        let mut used = v.as_deref().map(mg_nui::bind_names).unwrap_or_default();
         for view in s.views.values() { used.extend(mg_nui::bind_names(view)); }
         for name in &used {
             if !s.bindings.contains_key(name) {
@@ -819,16 +824,38 @@ pub(super) fn bindings(ui: &mut Ui, s: &mut Settings, v: Option<&Value>, state: 
         let names: Vec<_> = s.bindings.keys().cloned().collect();
         for name in names {
             egui::CollapsingHeader::new(&name).id_salt(("bind", &name)).default_open(true).show(ui, |ui| {
-                let watched = s.actions.iter().any(|r| r.event == "watch" && r.element == name);
                 let binding = s.bindings.get_mut(&name).unwrap();
                 ui.label("Initial value");
                 fields::value(ui, &mut binding.value, 0);
-                let mut watches = watched || binding.watch;
-                if ui.add_enabled(!watched, egui::Checkbox::new(&mut watches, "Send watch events when this value changes")).changed() {
-                    binding.watch = watches;
-                }
-                if !used.contains(&name) { ui.weak("Not referenced by a layout. Choose this bind on a property to connect it."); }
-                bindings::watch(ui, &name, &v.cloned().unwrap_or_else(mg_nui::window), s, state);
+                if !used.contains(&name) { ui.weak("Not used by any property yet: choose it on a property in Design."); }
+                let doc = v.as_deref().cloned().unwrap_or_else(mg_nui::window);
+                bindings::watch(ui, &name, &doc, s, state);
+                ui.horizontal(|ui| {
+                    let draft_id = ui.make_persistent_id(("rename-bind", &name));
+                    let mut to: String = ui.ctx().data_mut(|d| d.get_temp(draft_id)).unwrap_or_else(|| name.clone());
+                    let label = ui.label("Name");
+                    ui.add(egui::TextEdit::singleline(&mut to).desired_width(160.0))
+                        .labelled_by(label.id)
+                        .on_hover_text("A new name for this bind");
+                    let taken = to != name && s.bindings.contains_key(&to);
+                    let plain = !to.is_empty() && to.trim() == to && !to.chars().any(char::is_control);
+                    if ui.add_enabled(to != name && plain && !taken, egui::Button::new("Rename")).on_disabled_hover_text(if taken { "Another bind has that name" } else { "Type a new name: no spaces at either end" }).clicked() {
+                        // Every property, variant and handler using it follows.
+                        let names = std::collections::BTreeMap::from([(name.clone(), to.clone())]);
+                        if let Some(doc) = v.as_deref_mut() { shortcuts::rename_binds(doc, &names); }
+                        for view in s.views.values_mut() { shortcuts::rename_binds(view, &names); }
+                        if let Some(b) = s.bindings.remove(&name) { s.bindings.insert(to.clone(), b); }
+                        for route in s.actions.iter_mut().filter(|r| r.event == "watch" && r.element == name) {
+                            route.element = to.clone();
+                        }
+                    }
+                    ui.ctx().data_mut(|d| d.insert_temp(draft_id, to));
+                    let use_count = used.contains(&name);
+                    if ui.add_enabled(!use_count, egui::Button::new("Delete")).on_disabled_hover_text("Properties use it: give them a constant value first").on_hover_text("Its handlers go too; their code stays in the event script, commented out").clicked() {
+                        s.bindings.remove(&name);
+                        s.actions.retain(|r| !(r.event == "watch" && r.element == name));
+                    }
+                });
             });
             ui.add_space(8.0);
         }

@@ -42,7 +42,7 @@ fn nui_bindings_page_adds_a_value_changed_handler_and_undoes_it() {
     h.run();
     h.get_by_label("Bind name").type_text("volume");
     h.run();
-    h.get_by_label("Create & select").click();
+    h.get_by_label("Create").click();
     h.run();
     let before = settings(&h);
     h.get_by_label("+ Add handler").click();
@@ -56,6 +56,37 @@ fn nui_bindings_page_adds_a_value_changed_handler_and_undoes_it() {
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run();
     assert_eq!(settings(&h), before);
+}
+
+#[test]
+fn nui_binds_are_renamed_and_deleted_with_their_handlers() {
+    let mut h = harness(mg_nui::Action::Close);
+    h.get_by_label("Bindings").click();
+    h.run();
+    h.get_by_label("+ Create bind").click();
+    h.run();
+    h.get_by_label("Bind name").click();
+    h.run();
+    h.get_by_label("Bind name").type_text("volume");
+    h.run();
+    h.get_by_label("Create").click();
+    h.run();
+    h.get_by_label("+ Add handler").click();
+    h.run();
+    h.get_by_label("Name").click();
+    h.run();
+    h.get_by_label("Name").type_text("_2");
+    h.run();
+    h.get_by_label("Rename").click();
+    h.run();
+    let renamed = settings(&h);
+    assert!(renamed.bindings.contains_key("volume_2") && !renamed.bindings.contains_key("volume"));
+    assert!(renamed.actions.iter().any(|r| r.event == "watch" && r.element == "volume_2"));
+    h.get_by_label("Delete").click();
+    h.run();
+    let deleted = settings(&h);
+    assert!(deleted.bindings.is_empty());
+    assert!(!deleted.actions.iter().any(|r| r.event == "watch"));
 }
 
 #[test]
@@ -93,10 +124,10 @@ fn nui_body_drag_does_not_move_floating_window() {
 }
 
 #[test]
-fn nui_binding_draft_rejects_duplicates_and_toggle_filters_values() {
+fn nui_binding_draft_rejects_duplicates() {
     let mut bindings = std::collections::BTreeMap::new();
     bindings.insert("taken".into(), Binding { value: json!(true), ..Default::default() });
-    let mut draft = BindDraft::new(false);
+    let mut draft = BindDraft::new();
     assert!(draft.error(&bindings).is_some());
     draft.name = "  taken  ".into();
     assert!(draft.error(&bindings).is_some());
@@ -104,11 +135,6 @@ fn nui_binding_draft_rejects_duplicates_and_toggle_filters_values() {
     assert!(draft.error(&bindings).is_some());
     draft.name = "fresh".into();
     assert!(draft.error(&bindings).is_none());
-    assert!(boolean_binding(&bindings["taken"]));
-    for value in [json!("false"), json!(0), json!([true, "false"]), Value::Null] {
-        assert!(!boolean_binding(&Binding { value, ..Default::default() }));
-    }
-    assert!(boolean_binding(&Binding { value: json!([true, false]), ..Default::default() }));
 }
 
 #[test]

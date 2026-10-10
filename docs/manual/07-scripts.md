@@ -308,7 +308,7 @@ property, **Set value…** initializes the appropriate type instead of offering
 arbitrary JSON types. Custom data remains available in **Advanced › JUI source**.
 **Advanced properties** appears only when the selected element has additional
 editable fields; it does not show an empty section for type/version metadata.
-**Tooltip when control is disabled** explains an unavailable control on hover
+**Tooltip when disabled** explains an unavailable control on hover
 (for example, insufficient gold). It is optional text, not a switch that turns
 the regular tooltip off; remove the tooltip property when no tooltip is wanted.
 

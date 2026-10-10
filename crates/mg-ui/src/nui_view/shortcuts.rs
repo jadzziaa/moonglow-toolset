@@ -101,7 +101,7 @@ pub(super) fn clipboard(
     }
 }
 
-fn rename_binds(v: &mut Value, names: &BTreeMap<String, String>) {
+pub(super) fn rename_binds(v: &mut Value, names: &BTreeMap<String, String>) {
     match v {
         Value::Object(o) => {
             if let Some(name) =

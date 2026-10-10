@@ -5,34 +5,6 @@ use super::*;
 #[path = "workflow_tests.rs"]
 mod tests;
 
-fn choose(ui: &mut Ui, label: &str, value: &mut String, choices: &[String]) -> bool {
-    let before = value.clone();
-    ui.vertical(|ui| {
-        ui.label(label);
-        let selected = if value.is_empty() {
-            "Choose…"
-        } else if label == "Target group" && value == "_window_" {
-            "Whole window"
-        } else {
-            value.as_str()
-        }
-        .to_owned();
-        ui.add_enabled_ui(!choices.is_empty(), |ui| {
-            egui::ComboBox::from_id_salt(label).selected_text(selected).show_ui(ui, |ui| {
-                for item in choices {
-                    let text = if label == "Target group" && item == "_window_" {
-                        "Whole window"
-                    } else {
-                        item.as_str()
-                    };
-                    ui.selectable_value(value, item.clone(), text);
-                }
-            });
-        });
-    });
-    before != *value
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BindType {
     Text,
@@ -87,8 +59,8 @@ struct BindDraft {
 }
 
 impl BindDraft {
-    fn new(boolean: bool) -> Self {
-        let kind = if boolean { BindType::Boolean } else { BindType::Text };
+    fn new() -> Self {
+        let kind = BindType::Text;
         Self { name: String::new(), kind, value: kind.value(), rows: false }
     }
     fn error(
@@ -108,55 +80,22 @@ impl BindDraft {
     }
 }
 
-fn boolean_binding(binding: &Binding) -> bool {
-    binding.value.is_boolean()
-        || binding.value.as_array().is_some_and(|a| a.iter().all(Value::is_boolean))
-}
-
-/// Draft edits remain in egui state. Creating and selecting the binding happen
-/// in one frame, so the containing editor records one workspace Undo command.
-pub(super) fn bind_select(
+/// A new named, typed value: its draft stays in egui state until **Create**,
+/// so one Undo takes it back.
+pub(super) fn create_bind(
     ui: &mut Ui,
-    label: &str,
-    selected: &mut String,
     bindings: &mut std::collections::BTreeMap<String, Binding>,
-    boolean: bool,
-    excluded: Option<&str>,
-) -> bool {
-    let before = selected.clone();
-    let choices: Vec<_> = bindings
-        .iter()
-        .filter(|(name, binding)| {
-            excluded != Some(name.as_str()) && (!boolean || boolean_binding(binding))
-        })
-        .map(|(name, _)| name.clone())
-        .collect();
-    choose(ui, label, selected, &choices);
-    if choices.is_empty() {
-        ui.weak(if bindings.is_empty() {
-            "No binds yet. Create a named value for this action."
-        } else if boolean {
-            "No available boolean binds. Toggle needs a boolean value."
-        } else {
-            "Choose another bind: a watch action cannot write its own trigger."
-        });
-    } else if !selected.is_empty() && !choices.contains(selected) {
-        ui.colored_label(
-            egui::Color32::LIGHT_RED,
-            "Choose an available bind to replace this missing or incompatible target.",
-        );
-    }
-    ui.push_id(label, |ui| {
+) -> Option<String> {
+    let mut created = None;
+    ui.push_id("create-bind", |ui| {
         let id = ui.make_persistent_id("create-bind-draft");
         let mut draft = ui.ctx().data_mut(|d| d.get_temp::<BindDraft>(id));
-        let opened = draft.is_none() && ui.small_button("+ Create bind").clicked();
+        let opened = draft.is_none() && ui.button("+ Create bind").clicked();
         if opened {
-            draft = Some(BindDraft::new(boolean));
+            draft = Some(BindDraft::new());
         }
         let mut finish = false;
         if let Some(draft) = draft.as_mut() {
-            // Changing the action from Set to Toggle must not reuse a text draft.
-            if boolean && draft.kind != BindType::Boolean { *draft = BindDraft::new(true); }
             egui::Frame::group(ui.style()).show(ui, |ui| {
                 ui.strong("New bind");
                 let name = ui.label("Bind name");
@@ -165,7 +104,7 @@ pub(super) fn bind_select(
                 let before = draft.kind;
                 egui::ComboBox::from_label("Type").selected_text(draft.kind.label()).show_ui(ui, |ui| {
                     for kind in BindType::ALL {
-                        if !boolean || kind == BindType::Boolean { ui.selectable_value(&mut draft.kind, kind, kind.label()); }
+                        ui.selectable_value(&mut draft.kind, kind, kind.label());
                     }
                 });
                 if before != draft.kind { draft.value = draft.kind.value(); }
@@ -174,11 +113,11 @@ pub(super) fn bind_select(
                 ui.checkbox(&mut draft.rows, "List row array").on_hover_text("Create a value per list row, starting with one row. Edit more rows in Bindings or Row data.");
                 if let Some(error) = draft.error(bindings) { ui.weak(error); }
                 ui.horizontal(|ui| {
-                    if ui.add_enabled(draft.error(bindings).is_none(), egui::Button::new("Create & select")).clicked() {
+                    if ui.add_enabled(draft.error(bindings).is_none(), egui::Button::new("Create")).clicked() {
                         let name = draft.name.trim().to_owned();
                         let value = if draft.rows { json!([draft.value.clone()]) } else { draft.value.clone() };
                         bindings.insert(name.clone(), Binding { value, ..Default::default() });
-                        *selected = name;
+                        created = Some(name);
                         finish = true;
                     }
                     if ui.button("Cancel").clicked() { finish = true; }
@@ -187,7 +126,7 @@ pub(super) fn bind_select(
         }
         ui.ctx().data_mut(|d| if finish { d.remove::<BindDraft>(id); } else if let Some(draft) = draft { d.insert_temp(id, draft); });
     });
-    before != *selected
+    created
 }
 
 pub(super) fn ui(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &mut State) {

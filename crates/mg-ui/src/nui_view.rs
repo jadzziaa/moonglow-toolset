@@ -54,7 +54,6 @@ struct State {
     new_swap_slot: Option<String>,
     layout_groups: std::collections::BTreeSet<String>,
     main_doc: Option<Value>,
-    binding_selected: String,
     event_script: Option<events::EventScript>,
     binding_property: String,
     asset_search: String,
@@ -62,6 +61,8 @@ struct State {
     screen_size: egui::Vec2,
     window_move: Option<interaction::WindowMove>,
     issues: bool,
+    /// The errors there were last frame, to open the list when more come.
+    issues_seen: usize,
     page: usize,
     /// The hak Images adds pictures to: one the module uses, or None for a new one.
     images_hak: Option<String>,
@@ -121,10 +122,31 @@ pub(crate) fn create(app: &mut Moonglow, name: &str) {
 }
 
 pub(crate) fn generate(app: &mut Moonglow, name: &str, export: bool) {
-    // The compiler must see the same source the user is looking at. Do not
-    // silently compile older saved includes or overwrite an unsaved opener.
-    if app.scripts.values().any(|b| b.is_dirty()) {
-        app.log.error("Save edited scripts before generating NUI (includes may have changed)");
+    // The compiler must see the same source the user is looking at. The
+    // window's own scripts are what you edit while building it: they are
+    // saved first. Other unsaved scripts may be included: they are not
+    // compiled in their older saved state.
+    for suffix in ["_e", "_o"] {
+        if let Some(key) = ResKey::parse(&format!("{name}{suffix}"), ResType::NSS)
+            && let Some(buf) = app.scripts.get_mut(&key).filter(|b| b.is_dirty())
+        {
+            buf.saved = buf.text.clone();
+            let data = Some(crate::text::encode(&buf.text));
+            if let Err(e) = app
+                .apply(Command::new(format!("Edit {key}"), vec![Edit::SetResource { key, data }]))
+            {
+                app.log.error(e.to_string());
+                return;
+            }
+        }
+    }
+    let unsaved: Vec<String> =
+        app.scripts.iter().filter(|(_, b)| b.is_dirty()).map(|(k, _)| k.to_string()).collect();
+    if !unsaved.is_empty() {
+        app.log.error(format!(
+            "Save {} before building: a window's scripts may include them",
+            unsaved.join(", ")
+        ));
         return;
     }
     let (Some(ws), Some(game)) = (&app.ws, &app.game) else {
@@ -284,6 +306,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 .on_hover_text(
                     "Validate the opener include and compile the event script. Connect the opener manually in your own script.",
                 )
+                .on_disabled_hover_text(format!(
+                    "Fix the {} first: the list under the tabs shows them",
+                    count(errors, "error")
+                ))
                 .clicked()
             {
                 app.actions.push(Action::GenerateNui(name.clone(), false));
@@ -353,7 +379,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 let label = if errors + warnings == 0 {
                     "Checks passed".to_owned()
                 } else {
-                    format!("{errors} errors · {warnings} warnings")
+                    format!("{} · {}", count(errors, "error"), count(warnings, "warning"))
                 };
                 ui.toggle_value(&mut state.issues, label)
                     .on_hover_text("API checks; native NWN testing is still required");
@@ -361,16 +387,46 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         },
     );
     ui.separator();
-    if state.issues || errors > 0 {
-        egui::ScrollArea::vertical().id_salt("nui-diagnostics").max_height(90.0).show(ui, |ui| {
+    // New errors open the list; the toggle closes it again.
+    if errors > state.issues_seen {
+        state.issues = true;
+    }
+    state.issues_seen = errors;
+    if state.issues {
+        egui::ScrollArea::vertical().id_salt("nui-diagnostics").max_height(160.0).show(ui, |ui| {
             if let Err(e) = &parsed {
                 ui.colored_label(egui::Color32::LIGHT_RED, format!("JUI: {e}"));
             }
             if let Err(e) = &settings {
                 ui.colored_label(egui::Color32::LIGHT_RED, format!("Settings: {e}"));
             }
-            for d in &findings {
-                ui.label(format!("{:?} {}: {}", d.severity, d.path, d.message));
+            for (i, d) in findings.iter().enumerate() {
+                let (target, place) = parsed
+                    .as_ref()
+                    .map_or((None, String::new()), |doc| describe_path(doc, &d.path));
+                ui.push_id(i, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        let (mark, color) = if d.severity == Severity::Error {
+                            ("Error", egui::Color32::LIGHT_RED)
+                        } else {
+                            ("Warning", egui::Color32::from_rgb(230, 180, 80))
+                        };
+                        ui.colored_label(color, mark);
+                        let place = egui::RichText::new(&place).strong();
+                        match &target {
+                            Some(path) => {
+                                if ui.link(place).on_hover_text("Select it").clicked() {
+                                    state.selected = path.clone();
+                                    state.page = 0;
+                                }
+                            }
+                            None => {
+                                ui.label(place);
+                            }
+                        }
+                        ui.label(&d.message);
+                    })
+                });
                 if d.message.starts_with("The mg_close button has no Clicked handler")
                     && let Ok(s) = &settings
                     && ui.small_button("Add Close handler").clicked()
@@ -430,9 +486,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         1 => {
             if let Ok(mut s) = settings {
                 let before = s.clone();
-                design::bindings(ui, &mut s, parsed.as_ref().ok(), &mut state);
+                let mut doc = parsed.as_ref().ok().cloned();
+                let doc_before = doc.clone();
+                design::bindings(ui, &mut s, doc.as_mut(), &mut state);
                 if s != before {
                     config_raw = String::from_utf8(s.bytes()).unwrap();
+                }
+                if doc != doc_before
+                    && let Some(doc) = doc
+                {
+                    raw = serde_json::to_string_pretty(&doc).unwrap();
                 }
             } else {
                 ui.label("Settings need repair before editing bindings.");
@@ -834,7 +897,7 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
             ("enabled", "Enabled", json!(true)),
             ("visible", "Visible", json!(true)),
             ("tooltip", "Tooltip", json!("")),
-            ("disabled_tooltip", "Tooltip when control is disabled", json!("")),
+            ("disabled_tooltip", "Tooltip when disabled", json!("")),
             ("encouraged", "Encouraged", json!(false)),
             ("foreground_color", "Foreground color", json!({"r":255,"g":255,"b":255,"a":255})),
             ("size_constraint", "Window size limits", json!({"x":0.0,"y":0.0,"w":0.0,"h":0.0})),
@@ -988,6 +1051,69 @@ fn bindable(ty: &str, key: &str) -> bool {
         && !(key == "elements" && matches!(ty, "options" | "tabbar"))
 }
 
+/// What a property is called wherever the Creator names it.
+fn display_label(key: &str, ty: &str) -> String {
+    match key {
+        "id" => "Element ID".into(),
+        "disabled_tooltip" => "Tooltip when disabled".into(),
+        "value" if matches!(ty, "label" | "text" | "textedit") => "Text".into(),
+        "value" if ty == "image" => "Image".into(),
+        "label" if ty == "button_image" => "Image".into(),
+        "label" if ty == "textedit" => "Placeholder".into(),
+        "geometry" => "Window bounds".into(),
+        "size_constraint" => "Window size limits".into(),
+        "edge_constraint" => "Distance from screen edges".into(),
+        "draw_list_scissor" => "Clip to control".into(),
+        "draw_list" => "Draw layers".into(),
+        _ => {
+            let mut label = key.replace('_', " ");
+            if let Some(c) = label.get_mut(..1) {
+                c.make_ascii_uppercase();
+            }
+            label
+        }
+    }
+}
+
+/// Where a check's path points, for people: the control (and its JSON
+/// path, to select it) and the property.
+fn describe_path(doc: &Value, path: &str) -> (Option<String>, String) {
+    let mut at = path.to_owned();
+    loop {
+        let first = path.trim_start_matches('/').split('/').next().unwrap_or_default();
+        let window = at.is_empty() && doc.get(first).is_some();
+        if let Some(node) = doc.pointer(&at).filter(|n| n.get("type").is_some() || window) {
+            let rest = path[at.len()..].trim_start_matches('/');
+            let key = rest.split('/').next().unwrap_or_default();
+            let ty = node["type"].as_str().unwrap_or("window");
+            let name = if at.is_empty() { "Window".into() } else { design::node_name(node) };
+            let text = if key.is_empty() {
+                name
+            } else {
+                format!("{name} › {}", display_label(key, ty))
+            };
+            return (Some(at), text);
+        }
+        match at.rsplit_once('/') {
+            Some((up, _)) => at = up.to_owned(),
+            None => break,
+        }
+    }
+    let what = match path.trim_start_matches('/').split('/').next().unwrap_or_default() {
+        "actions" => "Events",
+        "bindings" => "Binds",
+        "settings" => "Window identity",
+        "views" => "Swap layout variants",
+        _ => "Window",
+    };
+    (None, what.into())
+}
+
+/// "1 error", "2 errors".
+fn count(n: usize, what: &str) -> String {
+    format!("{n} {what}{}", if n == 1 { "" } else { "s" })
+}
+
 fn property(
     ui: &mut Ui,
     key: &str,
@@ -996,21 +1122,7 @@ fn property(
     s: &mut Settings,
     remove: &mut Option<String>,
 ) {
-    let label = match key {
-        "id" => "Element ID".into(),
-        "disabled_tooltip" => "Tooltip when control is disabled".into(),
-        "value" if matches!(ty, "label" | "text" | "textedit") => "Text".into(),
-        "label" if matches!(ty, "button" | "button_select" | "check") => "Label".into(),
-        "geometry" => "Window bounds".into(),
-        "size_constraint" => "Window size limits".into(),
-        _ => {
-            let mut label = key.replace('_', " ");
-            if let Some(c) = label.get_mut(..1) {
-                c.make_ascii_uppercase();
-            }
-            label
-        }
-    };
+    let label = display_label(key, ty);
     let can_bind = bindable(ty, key);
     let mut bind = value.get("bind").and_then(Value::as_str).map(str::to_owned);
     let heading = ui
@@ -1561,6 +1673,32 @@ mod tests {
     }
 
     #[test]
+    fn nui_problems_name_the_control_and_select_it() {
+        let doc = json!({"root":{"type":"col","children":[
+            {"type":"label","value":"Header"},
+            {"type":"textedit","label":"Name","max":0}]}});
+        assert_eq!(
+            describe_path(&doc, "/root/children/1/max"),
+            (Some("/root/children/1".into()), "Text input · Name › Max".into())
+        );
+        assert_eq!(describe_path(&doc, "/actions"), (None, "Events".into()));
+        let mut h = keyboard_harness();
+        h.run();
+        let mut window = keyboard_document(&h);
+        window["root"]["children"][0] = json!({"type":"textedit","label":"Name","max":0});
+        h.state_mut()
+            .ws
+            .as_mut()
+            .unwrap()
+            .module
+            .set(mg_nui::key("nui_test", ResType::JUI), serde_json::to_vec(&window).unwrap());
+        h.run();
+        h.get_by_label("Text input · Name › Max").click();
+        h.run();
+        assert!(h.query_by_label("Placeholder").is_some(), "the text input's properties show");
+    }
+
+    #[test]
     fn nui_title_bar_hides_and_comes_back_with_its_title() {
         let mut window = mg_nui::window();
         window["title"] = json!("Character");
@@ -1797,7 +1935,7 @@ mod tests {
     #[test]
     fn nui_inspector_authors_hover_states_with_undo() {
         for (label, key, expected) in [
-            ("Tooltip when control is disabled", "disabled_tooltip", json!("")),
+            ("Tooltip when disabled", "disabled_tooltip", json!("")),
             ("Encouraged", "encouraged", json!(false)),
         ] {
             let mut h = keyboard_harness();
@@ -2387,6 +2525,45 @@ mod tests {
         h.run();
     }
 
+    /// Code typed into the window's event script is built without saving it
+    /// first; another unsaved script still stops the build.
+    #[test]
+    fn nui_build_saves_the_windows_own_scripts_first() {
+        let root = mg_testkit::corpus!();
+        let mut app = Moonglow::new(
+            Some(mg_resman::GameInstall::new(root, None, "en")),
+            Box::new(crate::NoDialogs::default()),
+        );
+        let mut m = mg_module::Module::new();
+        m.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        app.ws = Some(mg_edit::Workspace::new(m));
+        app.run(Action::NewNui("typed".into()));
+        app.actions.clear();
+        app.run(Action::GenerateNui("typed".into(), false));
+        let script = mg_nui::key("typed_e", ResType::NSS);
+        let saved = crate::text::decode(app.ws.as_ref().unwrap().module.get(&script).unwrap());
+        let typed =
+            mg_nui::insert_code(&saved, "click mg_close", "        int nTyped = 1;\n").unwrap();
+        app.scripts
+            .insert(script, crate::script_view::ScriptBuffer::for_tests(typed.clone(), saved));
+        app.run(Action::GenerateNui("typed".into(), false));
+        assert_eq!(
+            crate::text::decode(app.ws.as_ref().unwrap().module.get(&script).unwrap()),
+            typed
+        );
+        assert!(!app.scripts[&script].is_dirty());
+        let other = mg_nui::key("other", ResType::NSS);
+        app.scripts
+            .insert(other, crate::script_view::ScriptBuffer::for_tests("x".into(), String::new()));
+        app.log.entries.clear();
+        app.run(Action::GenerateNui("typed".into(), false));
+        assert!(
+            app.log.entries.iter().any(|(_, m)| m.contains("Save other.nss")),
+            "{:?}",
+            app.log.entries
+        );
+    }
+
     #[test]
     fn nui_export_compiles_the_whole_bundle_without_changing_module_events() {
         let root = mg_testkit::corpus!();
@@ -2638,7 +2815,7 @@ mod tests {
             app,
         );
         h.run();
-        h.get_by_label_contains("warnings").click();
+        h.get_by_label_contains("warning").click();
         h.run();
         h.get_by_label("Add Close handler").click();
         h.run();

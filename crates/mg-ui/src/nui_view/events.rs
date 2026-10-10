@@ -112,11 +112,22 @@ pub(super) fn follow_controls(
     } else {
         s.actions.retain(|r| !(controls(r) && gone.contains(&r.element)));
     }
-    let bytes = String::from_utf8(s.bytes()).ok()?;
-    if Settings::parse(config.as_bytes()).ok()? == s {
-        return None;
+    let current = Settings::parse(config.as_bytes()).ok()?;
+    if current != s {
+        *config = String::from_utf8(s.bytes()).ok()?;
     }
-    *config = bytes;
+    // A handler renamed in place, by this frame's edit (a bind renamed) or
+    // just above (a control's ID), takes its section along.
+    if let Ok(old) = Settings::parse(old_config.as_bytes())
+        && old.actions.len() == s.actions.len()
+    {
+        for (a, b) in old.actions.iter().zip(&s.actions) {
+            let (from, to) = (mg_nui::handler_key(a), mg_nui::handler_key(b));
+            if a.event == b.event && from != to && !renamed.contains(&(from.clone(), to.clone())) {
+                renamed.push((from, to));
+            }
+        }
+    }
     if renamed.is_empty() {
         return None;
     }
@@ -395,9 +406,11 @@ pub(super) fn editor(
         }
         // Adding a handler: who sends the event, and which one.
         let add_id = ui.make_persistent_id("add");
-        let (mut target, mut event) = ui
+        // The events offered last frame: when they change (a value just
+        // bound offers its change first), the first is chosen again.
+        let (mut target, mut event, mut offered) = ui
             .ctx()
-            .data_mut(|d| d.get_temp::<(Option<Target>, String)>(add_id))
+            .data_mut(|d| d.get_temp::<(Option<Target>, String, Vec<String>)>(add_id))
             .unwrap_or_default();
         if scope.is_some() {
             target = scope.clone();
@@ -445,9 +458,11 @@ pub(super) fn editor(
                 ui.weak("Every event it sends is handled.");
                 return;
             }
-            if !free.contains(&event.as_str()) {
+            let now: Vec<String> = free.iter().map(|e| (*e).to_owned()).collect();
+            if !free.contains(&event.as_str()) || now != offered {
                 event = free[0].into();
             }
+            offered = now;
             egui::ComboBox::from_id_salt("event-type")
                 .selected_text(label(&event))
                 .show_ui(ui, |ui| {
@@ -465,7 +480,7 @@ pub(super) fn editor(
         {
             ui.weak("Bind its value to react when it changes.");
         }
-        ui.ctx().data_mut(|d| d.insert_temp(add_id, (target, event)));
+        ui.ctx().data_mut(|d| d.insert_temp(add_id, (target, event, offered)));
     });
 }
 

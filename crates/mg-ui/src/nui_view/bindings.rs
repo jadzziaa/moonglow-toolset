@@ -8,18 +8,7 @@ struct Draft {
 }
 
 fn label(key: &str, ty: &str) -> String {
-    match (key, ty) {
-        ("value", "label" | "text" | "textedit") => "Text".into(),
-        ("label", "textedit") => "Placeholder".into(),
-        ("disabled_tooltip", _) => "Tooltip when disabled".into(),
-        _ => {
-            let mut text = key.replace('_', " ");
-            if let Some(first) = text.get_mut(..1) {
-                first.make_ascii_uppercase();
-            }
-            text
-        }
-    }
+    super::display_label(key, ty)
 }
 
 fn row_count(doc: &Value, path: &str, settings: &Settings) -> Option<usize> {
@@ -223,7 +212,6 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                         "Missing bind. Create or choose a value above.",
                     );
                 }
-                watch(ui, &name, doc, settings, state);
             }
         });
     });
