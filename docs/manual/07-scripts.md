@@ -231,11 +231,15 @@ A variant shows when a script sets it: add a handler (a button's **Clicked**,
 say) and **Insert… › Show variant** with the variant, or with **Initial
 contents** to switch back. That adds a `NuiSetGroupLayout` call to the
 handler's code. The layout itself comes from a function Build writes into the
-opener include (`<name>_Variant_<variant>()`, `<name>_Initial_<group>()`), so
+opener include (`Variant_<name>_<variant>()`, `Initial_<name>_<group>()`), so
 a variant you change later reaches the game with the next Build. The event
-script includes the opener for them. **Views & events** lists the variants
-with their targets.
-The custom window ID is independent of the resource name.
+script includes the opener for them, and Build compiles again every script of
+yours that includes it, so the layout it opens is the current one. **Events &
+variants** lists the variants with their targets; **Rename…** renames one, its
+handlers and the calls to its function following. A variant a handler shows
+can't be removed until that call is gone.
+**Bindings › Window identity** sets a custom window ID, independent of the
+resource name.
 
 **Resources** shows where the skin, images and fonts came from and reports
 missing or invalid resources. HAKs take precedence over the current module,
@@ -261,12 +265,15 @@ the module, a hak, the game, or nowhere (the game then shows its `gui_error`
 picture). **Add images from disk…** puts pictures (PNG, TGA, DDS, JPG, BMP;
 the file's name, at most 16 letters, digits, `_` or `-`, is the picture's)
 into the module, to use while you work. Players get custom pictures from a
-hak: choose one of the module's haks, or **New hak…**, and **Add images to
+hak: choose one of the module's haks, or **New hak**, and **Add images to
 the hak…** writes them into it, or **Move module images into the hak** moves
 this window's pictures there from the module. A new hak is made in the
 game's hak folder (one saved elsewhere is copied there) and added at the
 top of the module's haks; Undo takes it off the list and brings the pictures
-back into the module, while the hak file keeps them. **Use as background**
+back into the module, while the hak file keeps them. A listed hak the game
+finds elsewhere (its data or the Workshop) can't take pictures: choose New
+hak. Pictures added to the module that the window doesn't show yet are listed
+too, ready to be the background. **Use as background**
 puts a picture under the window's controls, stretched over it: a draw layer
 of the root column, painted before it, whose rectangle and fit you can
 change in Draw layers.
@@ -340,30 +347,22 @@ requires explicit defaults and sets every value before enabling watches.
 These authoring settings live in `<name>.txt`, marked `moonglow.nui/1`.
 The JUI itself contains only game UI data. Both resources use UTF-8.
 
-**Whole window** as a layout's target replaces the root content while keeping
-the window's title and geometry. The **Group layouts (NuiSetGroupLayout)**
-section stores replacement layouts; **Insert… › Show variant** adds the call
-that applies one to a Group ID or **Whole window**.
-In **Design**, a selected Group has a **Swap layouts** section. Use **+ Add
-layout** for an empty vertical or horizontal variant, or **Copy current
-contents** to preserve its current content as a reusable layout. Creating a
-variant assigns a missing Group ID and opens the variant on the canvas. It
-copies the contents, not the outer Group frame.
+**Whole window** as a variant's target replaces the root content while keeping
+the window's title and geometry; **Insert… › Show variant** adds the call
+that shows one in its Swap layout or the whole window.
 
-To replace a fragment anywhere in the layout tree, select it and choose
-**Make swappable group**. This wraps it in an unbordered Group with a unique
-ID, retaining existing child IDs and explicit dimensions. A leaf is placed
-inside a Column so more controls can be added. Check the Group's size: native
-Groups do not determine their size from their children. The wrapper and each
-new variant are undoable; neither creates an event automatically.
+To make a fragment anywhere in the layout swappable, select it and choose
+**Convert to Swap layout**. This wraps it in an unbordered Group with a unique
+ID, keeping existing child IDs and explicit dimensions. Check the Group's
+size: native Groups do not take their size from their children. Converting
+and each new variant are undoable; neither creates an event.
 
-The **Swap layout** component adds a native Group slot. **Layers** names it
-**Swap layout · ID** and lists **Initial contents** and its named variants under
-the slot. Choose a variant there to edit its contents in place, inside the
-surrounding window. The slot keeps its size, border and position; surrounding
-controls are read-only. **Edit swap slot** returns to the Group's properties.
-Nested targets inside another variant are resolved through their declared
-parent target. This is a local preview; verify the generated result in NWN.
+**Layers** names a Swap layout **Swap layout · ID** and lists **Initial
+contents** and its variants under it. Choose a variant there to edit its
+contents in place, inside the surrounding window, whose other controls are
+read-only meanwhile. Nested targets inside another variant are resolved
+through their declared parent target. This is a local preview; verify the
+result in NWN.
 
 #### Events
 
@@ -386,22 +385,25 @@ control sends in the game are offered: **Clicked** for buttons, **Focus
 gained** and **lost** for text inputs, **Visible range changed** for lists,
 **Value changed** for a control whose value is bound, and the mouse for any
 control; the window has **Window opened** and **Window closed**. A control
-without an ID gets one. **Views & events** lists every handler, with a
-selector for whose event to add.
+without an ID gets one. **Events & variants** lists every handler, with a
+selector for whose event to add. Renaming a control's ID, a bind or a variant
+renames its handlers' sections, and the name where your code quotes it.
 
 **Edit code** opens the event script in the script editor at the handler's
 code. **Insert…** adds ready-made code to it: **Close window**, **Set bind**
-(to its current value), **Toggle bind** and **Show variant**. After that it is
+(to its current value, written as NWScript reads it: `JsonString("…")`,
+`JsonInt(…)`, `JsonBool(…)`), **Toggle bind** and **Show variant**; a menu
+with nothing to offer is off. After that it is
 ordinary code to change. **Event script…** on the toolbar opens the whole
 script. **Remove** takes the handler away; what you wrote in it stays in the
 script, commented out after `main`, and comes back if you add the handler again.
 Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
 place for `#include` lines and helper functions.
 
-**Back to main window** returns from a variant to the original. The layout tabs and **Layouts…** menu remain
-available above the Design workspace. Switching the edited layout does not
-change the initial in-game content or trigger an event. Use **Interact** on the
-main window to try the configured button locally, then Build and test in NWN.
+Choosing **Initial contents** in Layers returns from a variant to the
+original. Switching the edited variant does not change the initial in-game
+content or trigger an event. Use **Interact** on the main window to try it
+locally, then Build and test in NWN.
 
 **Build & compile** prepares `<name>_o.nss` (an include with `Open_<name>`),
 `<name>_e.nss` (events) and the event handler's NCS bytecode using the installed
@@ -413,8 +415,10 @@ handlers, keeping everything written between their markers. A script changed
 outside the markers is not overwritten: Build says so, and you move that code
 into a section. A script written by hand (with no markers) stays as it is.
 The build status includes both scripts, actions and view layouts.
-A manually changed opener is reported as a conflict, not replaced. Save any
-open script edits before generation, including changed includes.
+A manually changed opener is reported as a conflict, not replaced. Build
+saves the window's own scripts first; save any other open script edits,
+including changed includes, before building. A failed Build says so beside
+its button (the reason on hover) until the next one.
 
 The opener has **no `main` and no automatic player selection**. Include it in
 your own script, choose the player for that script's event and call
@@ -501,7 +505,7 @@ and the preview follow them.
   setting a watched bind runs its *Value changed* handler at once, inside that
   script: a handler that sets its own bind back would never end.
 - **Loading the JUI from the client** (`NuiCreateFromResRef`) works with the
-  same events and actions, Group layouts included.
+  same events and actions, swap layout variants included.
 - **Lists.** A list with no width is as wide as its column. It scrolls by whole
   rows: at its end, as many rows stay on top as fit with 36 points to spare.
   Its horizontal bar is drawn but has nothing to move; cells past its width

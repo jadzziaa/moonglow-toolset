@@ -44,7 +44,7 @@ pub enum Action {
 }
 
 /// Use JSON Unicode escapes rather than depend on an NWScript source codepage.
-pub(crate) fn string_expr(s: &str) -> String {
+pub fn string_expr(s: &str) -> String {
     format!("JsonGetString(JsonParse({}))", script::literal(&script::ascii_json(&json!(s))))
 }
 
@@ -65,7 +65,7 @@ pub fn handler_key(route: &Route) -> String {
 }
 
 /// Code for one handler: a note for your own, or what an action does.
-pub fn handler_code(route: &Route, settings: &Settings) -> Result<String, String> {
+pub fn handler_code(name: &str, route: &Route, settings: &Settings) -> Result<String, String> {
     let mut out = String::new();
     // A block of its own, so a second insert can declare its variable again.
     let block = |out: &mut String, variable: &str, value: &Value, call: String| {
@@ -88,26 +88,60 @@ pub fn handler_code(route: &Route, settings: &Settings) -> Result<String, String
                 writeln!(out, "        NuiSetBind(oPlayer, nToken, {name}, JsonBool(!JsonGetInt(NuiGetBind(oPlayer, nToken, {name}))));").unwrap();
             }
         }
-        Action::Set { bind, value } => block(
-            &mut out,
-            "sValue",
-            value,
-            format!("NuiSetBind(oPlayer, nToken, {}, JsonParse(sValue));", string_expr(bind)),
-        ),
-        Action::View { group, view } => {
-            let layout = settings.views.get(view).ok_or_else(|| format!("Missing view: {view}"))?;
-            block(
+        Action::Set { bind, value } => match literal(value) {
+            // A value written as NWScript reads it, to change by hand.
+            Some(json) => {
+                writeln!(out, "        NuiSetBind(oPlayer, nToken, {}, {json});", string_expr(bind))
+                    .unwrap()
+            }
+            None => block(
                 &mut out,
-                "sLayout",
-                layout,
-                format!(
-                    "NuiSetGroupLayout(oPlayer, nToken, {}, JsonParse(sLayout));",
-                    string_expr(group)
-                ),
-            );
+                "sValue",
+                value,
+                format!("NuiSetBind(oPlayer, nToken, {}, JsonParse(sValue));", string_expr(bind)),
+            ),
+        },
+        // The layout comes from the opener's function, rebuilt on every Build.
+        Action::View { group, view } => {
+            if !settings.views.contains_key(view) {
+                return Err(format!("Missing view: {view}"));
+            }
+            writeln!(
+                out,
+                "        NuiSetGroupLayout(oPlayer, nToken, {}, {}());",
+                string_expr(group),
+                variant_function(name, view)
+            )
+            .unwrap();
         }
     }
     Ok(out)
+}
+
+/// A JSON value as an NWScript expression one reads and edits: a string,
+/// a whole number, a decimal or a flag; None for the rest (and for text or
+/// numbers a literal can't spell).
+fn literal(value: &Value) -> Option<String> {
+    Some(match value {
+        Value::String(s) if s.chars().all(|c| c.is_ascii() && !c.is_ascii_control()) => {
+            format!("JsonString(\"{}\")", s.replace('\\', "\\\\").replace('"', "\\\""))
+        }
+        Value::String(s) => format!("JsonString({})", string_expr(s)),
+        Value::Bool(b) => format!("JsonBool({})", if *b { "TRUE" } else { "FALSE" }),
+        Value::Number(n) => match n.as_i64() {
+            Some(i) if i32::try_from(i).is_ok() => format!("JsonInt({i})"),
+            Some(_) => return None,
+            None => {
+                let f = n.as_f64()?;
+                // Debug keeps the ".0" NWScript needs; tiny or huge ones print exponents.
+                if !(f == 0.0 || (1e-6..1e15).contains(&f.abs())) {
+                    return None;
+                }
+                format!("JsonFloat({f:?})")
+            }
+        },
+        _ => return None,
+    })
 }
 
 /// The sections of an event script: those in use, and those kept from
@@ -167,12 +201,13 @@ fn identifier(text: &str) -> String {
 /// The function in `<name>_o` that returns a swap layout variant, rebuilt
 /// with the window on every Build.
 pub fn variant_function(name: &str, view: &str) -> String {
-    format!("{name}_Variant_{}", identifier(view))
+    // A letter first, as NWScript names need, whatever the window is called.
+    format!("Variant_{name}_{}", identifier(view))
 }
 
 /// The function in `<name>_o` that returns a swap layout's initial contents.
 pub fn initial_function(name: &str, group: &str) -> String {
-    format!("{name}_Initial_{}", identifier(group))
+    format!("Initial_{name}_{}", identifier(group))
 }
 
 /// The line of the event script that brings in the layout functions.
@@ -212,7 +247,7 @@ pub fn merge_events(
         };
         let mut body = match kept.remove(&key).or_else(|| removed.get(&key).cloned()) {
             Some(body) => body,
-            None => handler_code(route, settings)?,
+            None => handler_code(name, route, settings)?,
         };
         if !body.ends_with('\n') {
             body.push('\n');
@@ -231,7 +266,11 @@ pub fn merge_events(
         }
         writeln!(out, "{REMOVED}{key}").unwrap();
         for line in body.lines() {
-            writeln!(out, "// {line}").unwrap();
+            if line.is_empty() {
+                out.push_str("//\n");
+            } else {
+                writeln!(out, "// {line}").unwrap();
+            }
         }
         writeln!(out, "{END}").unwrap();
     }
@@ -260,11 +299,18 @@ pub fn edited_outside(name: &str, script: &str) -> bool {
 
 /// The script with `code` added to a handler's section, in place of its note.
 pub fn insert_code(script: &str, key: &str, code: &str) -> Option<String> {
-    let begin = format!("{BEGIN}{key}\n");
-    let start = script.find(&begin)?;
-    let body = start + begin.len();
-    let end = body + script[body..].find(END)?;
-    let line = script[..end].rfind('\n').map_or(end, |i| i + 1);
+    let body = handler_body_start(script, key)?;
+    // The section ends at the first line that is the end marker alone.
+    let mut line = body;
+    for l in script[body..].split_inclusive('\n') {
+        if l.trim() == END {
+            break;
+        }
+        line += l.len();
+    }
+    if line >= script.len() {
+        return None;
+    }
     let current = &script[body..line];
     let mut out = script[..body].to_owned();
     if current != STUB {
@@ -277,9 +323,22 @@ pub fn insert_code(script: &str, key: &str, code: &str) -> Option<String> {
 
 /// Where a handler's code starts (a character offset), to open it there.
 pub fn handler_offset(script: &str, key: &str) -> Option<usize> {
-    let begin = format!("{BEGIN}{key}\n");
-    let line = script.find(&begin)? + begin.len();
+    let line = handler_body_start(script, key)?;
     Some(script[..line].chars().count())
+}
+
+/// Where the line after a handler's begin marker starts: the marker read as
+/// a whole line, as sections() reads it.
+fn handler_body_start(script: &str, key: &str) -> Option<usize> {
+    let mut at = 0;
+    for l in script.split_inclusive('\n') {
+        at += l.len();
+        if l.trim_start().strip_prefix(BEGIN).map(|k| k.trim_end_matches(['\n', '\r'])) == Some(key)
+        {
+            return Some(at);
+        }
+    }
+    None
 }
 
 pub fn element_ids(v: &Value) -> BTreeSet<String> {

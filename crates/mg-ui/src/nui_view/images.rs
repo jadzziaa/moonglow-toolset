@@ -51,9 +51,30 @@ fn resource(path: &Path) -> Result<ResKey, String> {
     key_for(&file).map_err(|e| format!("{file}: {e}"))
 }
 
+/// Where a picture comes from, as a builder names it.
+fn origin_name(layer: &str) -> String {
+    if let Some(hak) = layer.strip_prefix("hak:") {
+        format!("Hak: {hak}")
+    } else if let Some(key) = layer.strip_prefix("key:") {
+        format!("Game data ({key})")
+    } else if layer.starts_with("module") {
+        "Module".into()
+    } else if layer == "override" {
+        "Override folder".into()
+    } else {
+        layer.into()
+    }
+}
+
+/// The picture the root's first draw layer stretches under the controls.
+fn current_background(doc: &Value) -> Option<&str> {
+    let first = doc["root"]["draw_list"].get(0)?;
+    (first["type"] == 5 && first["order"] == -1).then(|| first["image"].as_str()).flatten()
+}
+
 /// A stretched picture under the window's controls: a draw layer of the
 /// root column, painted before it.
-fn background(doc: &mut Value, s: &Settings, name: &str) {
+pub(super) fn background(doc: &mut Value, s: &Settings, name: &str) {
     let geometry = resolved(&doc["geometry"], s);
     let title = doc["title"] != json!(false);
     let w = geometry["w"].as_f64().unwrap_or(400.0) - 16.0;
@@ -61,7 +82,7 @@ fn background(doc: &mut Value, s: &Settings, name: &str) {
     let item = json!({"type":5,"enabled":true,"order":-1,"render":0,"arrayBinds":false,
         "rect":{"x":0.0,"y":0.0,"w":w.max(1.0),"h":h.max(1.0)},
         "image":name,"image_aspect":5,"image_halign":0,"image_valign":0});
-    let root = &mut doc["root"];
+    let Some(root) = doc.get_mut("root").filter(|r| r.is_object()) else { return };
     if !root["draw_list"].is_array() {
         root["draw_list"] = json!([]);
     }
@@ -76,7 +97,16 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
         return None;
     };
     match choice {
-        Some(hak) => Some(folder.join(format!("{hak}.hak"))),
+        // A listed hak the game finds elsewhere (its data, the Workshop) isn't
+        // ours to write: one made in the hak folder would hide it.
+        Some(hak) => {
+            let path = folder.join(format!("{hak}.hak"));
+            if !path.is_file() {
+                app.log.error(format!("{hak}.hak isn't in the game's hak folder, so it can't take pictures: choose New hak"));
+                return None;
+            }
+            Some(path)
+        }
         None => {
             app.dialogs.save_file(FileKind::Hak, Some(&folder.join(format!("{name}_images.hak"))))
         }
@@ -85,9 +115,9 @@ fn chosen_hak(app: &mut Moonglow, name: &str, choice: &Option<String>) -> Option
 
 /// After writing a hak: one outside the hak folder is copied there; one the
 /// module doesn't list yet is added at the top of its list (Undo takes it
-/// off), one it lists is read again.
-fn use_hak(app: &mut Moonglow, path: &Path, edits: &mut Vec<Edit>) {
-    let Some(folder) = hak_folder(app) else { return };
+/// off), one it lists is read again. False when the hak can't be used.
+fn use_hak(app: &mut Moonglow, path: &Path, edits: &mut Vec<Edit>) -> bool {
+    let Some(folder) = hak_folder(app) else { return false };
     let hak = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     if path.parent() != Some(folder.as_path()) {
         let user = folder.parent().unwrap_or(&folder).to_owned();
@@ -95,20 +125,20 @@ fn use_hak(app: &mut Moonglow, path: &Path, edits: &mut Vec<Edit>) {
             Ok(places) => {
                 if places.iter().any(|p| p.there == mg_module::attach::There::Different) {
                     app.log.error(format!("Another {hak}.hak is in the hak folder: not replaced"));
-                    return;
+                    return false;
                 }
                 if let Err(e) = mg_module::attach::copy(&places, false) {
                     app.log.error(e);
-                    return;
+                    return false;
                 }
             }
             Err(e) => {
                 app.log.error(e);
-                return;
+                return false;
             }
         }
     }
-    let Some(ws) = &mut app.ws else { return };
+    let Some(ws) = &mut app.ws else { return false };
     if listed_haks(ws).iter().any(|h| h.eq_ignore_ascii_case(&hak)) {
         app.actions.push(Action::ReloadResources);
     } else if let Ok(info) = ws.doc(&crate::module_props::info_key()) {
@@ -119,6 +149,7 @@ fn use_hak(app: &mut Moonglow, path: &Path, edits: &mut Vec<Edit>) {
             value: Some(mg_module::attach::hak_list(&info.root, &[hak])),
         });
     }
+    true
 }
 
 /// The Images page. Returns the module's changes to make with the window's.
@@ -135,15 +166,31 @@ pub(super) fn page(
     let names = used(doc, s);
     let module_images: Vec<ResKey> = names.iter().flat_map(|n| in_module(&ws.module, n)).collect();
     let haks = listed_haks(ws);
+    // Pictures added to the module that no control shows yet.
+    let unused: BTreeSet<String> = TYPES
+        .iter()
+        .flat_map(|ty| ws.module.keys_of(*ty))
+        .map(|k| k.resref.to_string().to_lowercase())
+        .filter(|n| !names.contains(n))
+        .collect();
     egui::ScrollArea::vertical().id_salt("nui-images-page").show(ui, |ui| {
         ui.heading("Images");
         ui.label("The pictures this window shows and where the game finds each. Add your own from disk into the module while you work; players get them from a hak the module uses.");
         ui.add_space(6.0);
-        if names.is_empty() {
+        if names.is_empty() && unused.is_empty() {
             ui.weak("No pictures yet: an Image, an Image button or a draw layer's Image names one.");
         }
+        let background_now = current_background(doc).map(str::to_owned);
+        let module_names: BTreeSet<String> =
+            module_images.iter().map(|k| k.resref.to_string().to_lowercase()).collect();
         egui::Grid::new("nui-images").striped(true).num_columns(3).spacing([12.0, 6.0]).show(ui, |ui| {
-            for picture in &names {
+            if !names.is_empty() || !unused.is_empty() {
+                ui.strong("Picture");
+                ui.strong("Found in");
+                ui.label("");
+                ui.end_row();
+            }
+            for picture in names.iter().chain(&unused) {
                 ui.label(picture);
                 let origin = app
                     .nui_assets
@@ -151,11 +198,21 @@ pub(super) fn page(
                     .iter()
                     .find(|(k, _)| k.rsplit_once('.').is_some_and(|(n, _)| n == picture))
                     .map(|(_, o)| o.clone());
+                let in_module = module_names.contains(picture);
+                let missing = origin.is_none() && !in_module && !unused.contains(picture);
                 match origin {
-                    Some(origin) => ui.label(origin),
-                    None => ui.colored_label(egui::Color32::LIGHT_RED, "Missing: the game shows its gui_error picture"),
+                    Some(origin) => ui.label(origin_name(&origin)).on_hover_text(origin),
+                    None if unused.contains(picture) => ui.label("Module (not shown yet)"),
+                    None if in_module => ui.label("Module"),
+                    None => ui.colored_label(ui.visuals().error_fg_color, "Missing: the game shows its gui_error picture"),
                 };
-                if ui.small_button("Use as background").on_hover_text("Stretched under the window's controls").clicked() {
+                let is_background = background_now.as_deref() == Some(picture.as_str());
+                if ui
+                    .add_enabled(!missing && !is_background, egui::Button::new("Use as background").small())
+                    .on_hover_text("Stretched under the window's controls")
+                    .on_disabled_hover_text(if is_background { "It is the background" } else { "The picture is missing" })
+                    .clicked()
+                {
                     background(doc, s, picture);
                 }
                 ui.end_row();
@@ -171,16 +228,18 @@ pub(super) fn page(
             }
         }
         ui.separator();
-        ui.strong("Hak");
         ui.horizontal_wrapped(|ui| {
+            let label = ui.label("Hak");
             egui::ComboBox::from_id_salt("nui-images-hak")
-                .selected_text(state.images_hak.as_deref().unwrap_or("New hak…"))
+                .selected_text(state.images_hak.as_deref().unwrap_or("New hak"))
                 .show_ui(ui, |ui| {
                     for hak in &haks {
                         ui.selectable_value(&mut state.images_hak, Some(hak.clone()), hak);
                     }
-                    ui.selectable_value(&mut state.images_hak, None, "New hak…");
-                });
+                    ui.selectable_value(&mut state.images_hak, None, "New hak");
+                })
+                .response
+                .labelled_by(label.id);
             if ui.button("Add images to the hak…").clicked() {
                 let files = app.dialogs.open_files(FileKind::Images, None);
                 if !files.is_empty()
@@ -189,7 +248,9 @@ pub(super) fn page(
                     let resources: Result<Vec<_>, _> =
                         files.iter().map(|f| resource(f).map(|k| (k, Source::File(f.clone())))).collect();
                     match resources.and_then(|r| write_into(&path, r)) {
-                        Ok(_) => use_hak(app, &path, &mut edits),
+                        Ok(_) => {
+                            use_hak(app, &path, &mut edits);
+                        }
                         Err(e) => app.log.error(e),
                     }
                 }
@@ -207,10 +268,11 @@ pub(super) fn page(
                     .filter_map(|k| Some((*k, Source::Bytes(ws.module.get(k)?.to_vec().into()))))
                     .collect();
                 match write_into(&path, resources) {
-                    Ok(_) => {
+                    // The module keeps its pictures unless the hak is in use.
+                    Ok(_) if use_hak(app, &path, &mut edits) => {
                         edits.extend(module_images.iter().map(|k| Edit::SetResource { key: *k, data: None }));
-                        use_hak(app, &path, &mut edits);
                     }
+                    Ok(_) => {}
                     Err(e) => app.log.error(e),
                 }
             }

@@ -170,9 +170,11 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
         && let Some(cell) = doc.pointer_mut(&parent).and_then(|v| v.get_mut(i))
     {
         egui::CollapsingHeader::new("List cell").default_open(true).show(ui, |ui| {
-            ui.label("Cell width");
-            scalar(ui, &mut cell[1]);
-            if let Some(variable) = cell[2].as_bool() {
+            if let Some(width) = cell.get_mut(1) {
+                ui.label("Cell width");
+                scalar(ui, width);
+            }
+            if let Some(variable) = cell.get(2).and_then(Value::as_bool) {
                 let mut variable = variable;
                 if ui.checkbox(&mut variable, "Variable width").changed() {
                     cell[2] = variable.into();

@@ -23,6 +23,41 @@ pub(super) struct EventScript {
     pub(super) code: Option<String>,
 }
 
+/// The event script as it is now: an editor's unsaved text, else the
+/// module's. (An editor's text without changes may be older than the module:
+/// it is read again only while its tab shows.)
+pub(super) fn current_script(app: &Moonglow, key: &ResKey) -> Option<String> {
+    app.scripts
+        .get(key)
+        .filter(|b| b.is_dirty())
+        .map(|b| b.text.clone())
+        .or_else(|| app.ws.as_ref()?.module.get(key).map(crate::text::decode))
+}
+
+/// The script's new text as an edit, or into an editor holding unsaved work.
+fn write_script(app: &mut Moonglow, key: ResKey, text: String) -> Option<Edit> {
+    if let Some(buf) = app.scripts.get_mut(&key).filter(|b| b.is_dirty()) {
+        buf.text = text;
+        return None;
+    }
+    Some(Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
+}
+
+/// The script rebuilt around `settings`' handlers, if it is Moonglow's and
+/// untouched outside its sections; else why not (logged by the caller).
+fn rebuilt(name: &str, settings: &Settings, current: Option<&str>) -> Result<String, String> {
+    match current.map(|t| t.replace("\r\n", "\n")) {
+        None => mg_nui::merge_events(name, settings, None),
+        Some(t) if !t.contains(mg_nui::BEGIN.trim_end()) => {
+            Err(format!("{name}_e.nss was written by hand, so it is left as it is"))
+        }
+        Some(t) if mg_nui::edited_outside(name, &t) => Err(format!(
+            "{name}_e.nss was changed outside its mg:begin and mg:end lines, so it is left as it is: move that code into a section before building"
+        )),
+        Some(t) => mg_nui::merge_events(name, settings, Some(&t)),
+    }
+}
+
 /// Brings the event script up to date with the handlers (keeping what is
 /// written in them) and adds any code asked for, staying in the Creator;
 /// without code, opens it in the script editor at the handler. A script
@@ -30,25 +65,12 @@ pub(super) struct EventScript {
 /// rebuild would lose what is outside them.
 pub(super) fn open_script(app: &mut Moonglow, name: &str, ask: EventScript) -> Option<Edit> {
     let key = ResKey::parse(&format!("{name}_e"), ResType::NSS)?;
-    let current = app
-        .scripts
-        .get(&key)
-        .map(|b| b.text.clone())
-        .or_else(|| app.ws.as_ref()?.module.get(&key).map(crate::text::decode));
-    let normal = current.as_deref().map(|t| t.replace("\r\n", "\n"));
-    let marked = normal.as_deref().is_some_and(|t| t.contains(mg_nui::BEGIN.trim_end()));
-    let mut text = match normal.as_deref() {
-        None => mg_nui::merge_events(name, &ask.settings, None).ok()?,
-        Some(t) if marked && !mg_nui::edited_outside(name, t) => {
-            mg_nui::merge_events(name, &ask.settings, Some(t)).ok()?
-        }
-        Some(t) => {
-            app.log.error(if marked {
-                format!("{name}_e.nss was changed outside its mg:begin and mg:end lines, so it is left as it is: move that code into a section before building")
-            } else {
-                format!("{name}_e.nss was written by hand, so it is left as it is")
-            });
-            t.to_owned()
+    let current = current_script(app, &key);
+    let mut text = match rebuilt(name, &ask.settings, current.as_deref()) {
+        Ok(text) => text,
+        Err(why) => {
+            app.log.error(why);
+            current.clone()?
         }
     };
     if let (Some(handler), Some(code)) = (&ask.handler, &ask.code) {
@@ -67,18 +89,15 @@ pub(super) fn open_script(app: &mut Moonglow, name: &str, ask: EventScript) -> O
     if current.as_deref() == Some(text.as_str()) {
         return None;
     }
-    // Unsaved work in an open editor stays there; otherwise the module changes.
-    if let Some(buf) = app.scripts.get_mut(&key).filter(|b| b.is_dirty()) {
-        buf.text = text;
-        return None;
-    }
-    Some(Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
+    write_script(app, key, text)
 }
 
 /// Handlers follow their controls: when an ID is renamed (one goes, one
-/// comes) its handlers and their sections in the event script take the new
-/// one; when a control is deleted its handlers go, their code staying in
-/// the script, commented out. Returns the script's edit, if it changed.
+/// comes) its handlers take the new one; when a control is deleted (fewer
+/// controls have IDs) its handlers go, their code staying in the script,
+/// commented out. A renamed handler's section, a renamed ID's or bind's
+/// name quoted in the code written in sections, and a renamed variant's
+/// function, follow too. Returns the script's edit.
 pub(super) fn follow_controls(
     app: &mut Moonglow,
     name: &str,
@@ -87,73 +106,107 @@ pub(super) fn follow_controls(
     old_config: &str,
     config: &mut String,
 ) -> Option<Edit> {
-    let ids = |doc: &str, config: &str| {
-        let mut ids =
-            mg_nui::parse(doc.as_bytes()).map(|d| mg_nui::element_ids(&d)).unwrap_or_default();
-        if let Ok(s) = Settings::parse(config.as_bytes()) {
-            for v in s.views.values() {
-                ids.extend(mg_nui::element_ids(v));
-            }
+    // Nothing follows a document that doesn't read (a JSON edit half done).
+    let (old_window, new_window) =
+        (mg_nui::parse(old_doc.as_bytes()).ok()?, mg_nui::parse(new_doc.as_bytes()).ok()?);
+    let (old, mut s) =
+        (Settings::parse(old_config.as_bytes()).ok()?, Settings::parse(config.as_bytes()).ok()?);
+    let ids = |doc: &Value, s: &Settings| {
+        let mut ids = Vec::new();
+        id_list(doc, &mut ids);
+        for v in s.views.values() {
+            id_list(v, &mut ids);
         }
         ids
     };
-    let (before, after) = (ids(old_doc, old_config), ids(new_doc, config));
-    let gone: Vec<_> = before.difference(&after).cloned().collect();
-    let came: Vec<_> = after.difference(&before).cloned().collect();
-    let mut s = Settings::parse(config.as_bytes()).ok()?;
+    let (before, after) = (ids(&old_window, &old), ids(&new_window, &s));
+    let gone: Vec<_> = before.iter().filter(|i| !after.contains(i)).cloned().collect();
+    let came: Vec<_> = after.iter().filter(|i| !before.contains(i)).cloned().collect();
     let controls = |r: &mg_nui::Route| !matches!(r.event.as_str(), "open" | "close" | "watch");
-    let mut renamed = Vec::new();
-    if let ([old], [new]) = (gone.as_slice(), came.as_slice()) {
-        for route in s.actions.iter_mut().filter(|r| controls(r) && r.element == *old) {
-            let from = mg_nui::handler_key(route);
-            route.element = new.clone();
-            renamed.push((from, mg_nui::handler_key(route)));
+    // Names code spells, renamed: an ID, a bind.
+    let mut names = Vec::new();
+    if let ([from], [to]) = (gone.as_slice(), came.as_slice()) {
+        names.push((from.clone(), to.clone()));
+        for route in s.actions.iter_mut().filter(|r| controls(r) && r.element == *from) {
+            route.element = to.clone();
         }
-    } else {
+    } else if after.len() < before.len() {
         s.actions.retain(|r| !(controls(r) && gone.contains(&r.element)));
     }
-    let current = Settings::parse(config.as_bytes()).ok()?;
-    if current != s {
+    if s != Settings::parse(config.as_bytes()).ok()? {
         *config = String::from_utf8(s.bytes()).ok()?;
     }
-    // A handler renamed in place, by this frame's edit (a bind renamed) or
-    // just above (a control's ID), takes its section along.
-    if let Ok(old) = Settings::parse(old_config.as_bytes())
-        && old.actions.len() == s.actions.len()
-    {
+    let one_renamed = |a: Vec<&String>, b: Vec<&String>| {
+        let from: Vec<_> = a.iter().filter(|k| !b.contains(k)).collect();
+        let to: Vec<_> = b.iter().filter(|k| !a.contains(k)).collect();
+        match (from.as_slice(), to.as_slice()) {
+            ([f], [t]) => Some(((**f).clone(), (**t).clone())),
+            _ => None,
+        }
+    };
+    names.extend(one_renamed(old.bindings.keys().collect(), s.bindings.keys().collect()));
+    let calls: Vec<_> = one_renamed(old.views.keys().collect(), s.views.keys().collect())
+        .map(|(f, t)| (mg_nui::variant_function(name, &f), mg_nui::variant_function(name, &t)))
+        .into_iter()
+        .collect();
+    // Handlers renamed in place: by this frame's edit (a bind renamed) or
+    // just above (a control's ID).
+    let mut renamed = Vec::new();
+    if old.actions.len() == s.actions.len() {
         for (a, b) in old.actions.iter().zip(&s.actions) {
-            let (from, to) = (mg_nui::handler_key(a), mg_nui::handler_key(b));
-            if a.event == b.event && from != to && !renamed.contains(&(from.clone(), to.clone())) {
-                renamed.push((from, to));
+            if a.event == b.event && a.element != b.element {
+                renamed.push((a, b));
             }
         }
     }
-    if renamed.is_empty() {
+    if renamed.is_empty() && names.is_empty() && calls.is_empty() {
         return None;
     }
     let key = ResKey::parse(&format!("{name}_e"), ResType::NSS)?;
-    let current = app
-        .scripts
-        .get(&key)
-        .map(|b| b.text.clone())
-        .or_else(|| app.ws.as_ref()?.module.get(&key).map(crate::text::decode))?;
-    let mut text = current.clone();
-    for (from, to) in renamed {
-        let (from, to) = (format!("{}{from}\n", mg_nui::BEGIN), format!("{}{to}\n", mg_nui::BEGIN));
-        text = text.replacen(&from, &to, 1).replacen(
-            &from.replace('\n', "\r\n"),
-            &to.replace('\n', "\r\n"),
+    let current = current_script(app, &key)?;
+    let mut text = current.replace("\r\n", "\n");
+    if !text.contains(mg_nui::BEGIN.trim_end()) || mg_nui::edited_outside(name, &text) {
+        return None;
+    }
+    for (a, b) in &renamed {
+        let (from, to) = (mg_nui::handler_key(a), mg_nui::handler_key(b));
+        text = text.replacen(
+            &format!("{}{from}\n", mg_nui::BEGIN),
+            &format!("{}{to}\n", mg_nui::BEGIN),
             1,
         );
     }
+    for (old_name, new_name) in &names {
+        // The name as code spells it: plain, or inside a JSON string.
+        text = text
+            .replace(&format!("\"{old_name}\""), &format!("\"{new_name}\""))
+            .replace(&format!("\\\"{old_name}\\\""), &format!("\\\"{new_name}\\\""));
+    }
+    for (from, to) in &calls {
+        text = text.replace(&format!("{from}("), &format!("{to}("));
+    }
+    // The guards are rebuilt for the new names.
+    let text = mg_nui::merge_events(name, &s, Some(&text)).ok()?;
     if text == current {
         return None;
     }
-    if let Some(buf) = app.scripts.get_mut(&key).filter(|b| b.is_dirty()) {
-        buf.text = text;
-        return None;
+    write_script(app, key, text)
+}
+
+/// Every element ID, as often as it occurs.
+fn id_list(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::Object(o) => {
+            if let Some(id) = o.get("id").and_then(Value::as_str) {
+                out.push(id.to_owned());
+            }
+            for v in o.values() {
+                id_list(v, out);
+            }
+        }
+        Value::Array(a) => a.iter().for_each(|v| id_list(v, out)),
+        _ => {}
     }
-    Some(Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
 }
 
 fn label(event: &str) -> &str {
@@ -285,54 +338,82 @@ fn target_name(target: &Target, doc: &Value) -> String {
     }
 }
 
-/// Ready-made code to add to a handler: what the old actions did.
+/// Ready-made code to add to a handler: what the old actions did. A menu
+/// with nothing to offer is off, saying why.
 fn insert_menu(ui: &mut Ui, route: &mg_nui::Route, s: &Settings) -> Option<String> {
-    let with = |action| mg_nui::handler_code(&mg_nui::Route { action, ..route.clone() }, s).ok();
+    let with =
+        |action| mg_nui::handler_code(WINDOW, &mg_nui::Route { action, ..route.clone() }, s).ok();
+    let flags: Vec<_> = s
+        .bindings
+        .iter()
+        .filter(|(_, b)| {
+            b.value.is_boolean()
+                || b.value.as_array().is_some_and(|a| a.iter().all(Value::is_boolean))
+        })
+        .map(|(n, _)| n.clone())
+        .collect();
+    let groups: std::collections::BTreeSet<_> =
+        s.views.keys().filter_map(|v| layouts::target_for(s, v)).collect();
     let mut code = None;
     ui.menu_button("Insert…", |ui| {
         if ui.button("Close window").clicked() {
             code = with(mg_nui::Action::Close);
         }
-        ui.menu_button("Set bind", |ui| {
-            for (bind, b) in &s.bindings {
-                if ui.button(bind).clicked() {
-                    code = with(mg_nui::Action::Set { bind: bind.clone(), value: b.value.clone() });
+        let submenu =
+            |ui: &mut Ui, label: &str, empty: bool, why: &str, add: &mut dyn FnMut(&mut Ui)| {
+                ui.add_enabled_ui(!empty, |ui| {
+                    ui.menu_button(label, |ui| add(ui));
+                })
+                .response
+                .on_disabled_hover_text(why);
+            };
+        submenu(
+            ui,
+            "Set bind",
+            s.bindings.is_empty(),
+            "No binds yet: create one in Bindings",
+            &mut |ui| {
+                for (bind, b) in &s.bindings {
+                    if ui.button(bind).clicked() {
+                        code = with(mg_nui::Action::Set {
+                            bind: bind.clone(),
+                            value: b.value.clone(),
+                        });
+                    }
                 }
-            }
-        });
-        ui.menu_button("Toggle bind", |ui| {
-            for (bind, b) in &s.bindings {
-                let flag = b.value.is_boolean()
-                    || b.value.as_array().is_some_and(|a| a.iter().all(Value::is_boolean));
-                if flag && ui.button(bind).clicked() {
+            },
+        );
+        submenu(ui, "Toggle bind", flags.is_empty(), "No true/false binds yet", &mut |ui| {
+            for bind in &flags {
+                if ui.button(bind).clicked() {
                     code = with(mg_nui::Action::Toggle { bind: bind.clone() });
                 }
             }
         });
-        // The layout comes from a function the opener include rebuilds on
-        // every Build, so later edits to the variant reach the game.
-        let show = |group: &str, function: String| {
-            let group = serde_json::to_string(group).unwrap();
-            format!(
-                "        NuiSetGroupLayout(oPlayer, nToken, {group}, {function}());
-"
-            )
-        };
-        ui.menu_button("Show variant", |ui| {
-            for view in s.views.keys() {
-                if ui.button(view).clicked() {
-                    let group = layouts::target_for(s, view).unwrap_or_else(|| "_window_".into());
-                    code = Some(show(&group, mg_nui::variant_function(WINDOW, view)));
+        submenu(
+            ui,
+            "Show variant",
+            s.views.is_empty(),
+            "No swap layout variants yet: add one in Design",
+            &mut |ui| {
+                for view in s.views.keys() {
+                    if ui.button(view).clicked() {
+                        let group =
+                            layouts::target_for(s, view).unwrap_or_else(|| "_window_".into());
+                        code = with(mg_nui::Action::View { group, view: view.clone() });
+                    }
                 }
-            }
-            let groups: std::collections::BTreeSet<_> =
-                s.views.keys().filter_map(|v| layouts::target_for(s, v)).collect();
-            for group in groups {
-                if ui.button(format!("Initial contents · {group}")).clicked() {
-                    code = Some(show(&group, mg_nui::initial_function(WINDOW, &group)));
+                for group in &groups {
+                    if ui.button(format!("Initial contents · {group}")).clicked() {
+                        let function = mg_nui::initial_function(WINDOW, group);
+                        code = Some(format!(
+                            "        NuiSetGroupLayout(oPlayer, nToken, {}, {function}());\n",
+                            mg_nui::string_expr(group)
+                        ));
+                    }
                 }
-            }
-        });
+            },
+        );
     });
     code
 }
@@ -381,8 +462,6 @@ pub(super) fn editor(
                     if scope.is_none() || route.event == "watch" {
                         ui.weak(target_name(&route_target(route), doc));
                     }
-                });
-                ui.horizontal_wrapped(|ui| {
                     let handler = mg_nui::handler_key(route);
                     if ui.button("Edit code").on_hover_text("Open the event script here").clicked() {
                         state.event_script = Some(EventScript {
@@ -395,7 +474,7 @@ pub(super) fn editor(
                         state.event_script =
                             Some(EventScript { settings: s.clone(), handler: Some(handler), code: Some(code) });
                     }
-                    if ui.button("Remove").on_hover_text("What you wrote for it stays in the script, commented out").clicked() {
+                    if ui.small_button("Remove").on_hover_text("What you wrote for it stays in the script, commented out").clicked() {
                         remove = Some(i);
                     }
                 });
@@ -416,8 +495,8 @@ pub(super) fn editor(
             target = scope.clone();
         }
         ui.horizontal_wrapped(|ui| {
+            ui.label("Add:");
             if scope.is_none() {
-                ui.label("Events of");
                 egui::ComboBox::from_id_salt("event-target")
                     .selected_text(target.as_ref().map_or("Choose…".into(), |t| target_name(t, doc)))
                     .show_ui(ui, |ui| {

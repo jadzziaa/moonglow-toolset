@@ -253,7 +253,14 @@ pub fn generate(
         return Err(format!("{opener}.ncs exists without its source"));
     }
     let existing = module.get(&key(&events, ResType::NSS));
-    if existing.is_some() && settings.opener_hash.is_none() {
+    // A script with Moonglow's sections is this window's even before its
+    // first Build (Edit code writes it); one without them is someone else's.
+    let ours = existing.is_some_and(|b| {
+        let text = bytes_text(b).replace("\r\n", "\n");
+        text.contains(crate::actions::BEGIN.trim_end())
+            && !crate::actions::edited_outside(name, &text)
+    });
+    if existing.is_some() && settings.opener_hash.is_none() && !ours {
         return Err(format!(
             "{events}.nss already exists and is not associated with this NUI project"
         ));
@@ -302,6 +309,42 @@ pub fn generate(
         // An old debug map no longer describes this bytecode.
         if module.contains(&key(n, ResType::NDB)) {
             edits.push(Edit::SetResource { key: key(n, ResType::NDB), data: None });
+        }
+    }
+    // Scripts of yours that include the opener carry its layout in their
+    // bytecode: they are compiled again, or the game would open the old one.
+    let include = format!("#include \"{opener}\"").to_ascii_lowercase();
+    let callers: Vec<mg_resman::ResKey> = module
+        .keys()
+        .filter(|k| k.restype == ResType::NSS)
+        .filter(|k| {
+            let n = k.resref.to_string();
+            !n.eq_ignore_ascii_case(&opener) && !n.eq_ignore_ascii_case(&events)
+        })
+        .filter(|k| {
+            module.get(k).is_some_and(|b| bytes_text(b).to_ascii_lowercase().contains(&include))
+        })
+        .copied()
+        .collect();
+    for k in callers {
+        let caller = k.resref.to_string();
+        let mut compiler = mg_script::Compiler::new(|asked, ty| {
+            if ty == ResType::NSS && asked.eq_ignore_ascii_case(&opener) {
+                return Some(source.as_bytes().to_vec());
+            }
+            mg_resman::ResKey::parse(asked, ty)
+                .and_then(|k| module.get(&k))
+                .map(<[u8]>::to_vec)
+                .or_else(|| resolve(asked, ty))
+        });
+        // One that doesn't compile by itself (an include of yours) is left as it is.
+        if let Ok(compiled) = compiler.compile(&caller)
+            && !compiled.ncs.is_empty()
+        {
+            edits.push(Edit::SetResource {
+                key: key(&caller, ResType::NCS),
+                data: Some(compiled.ncs),
+            });
         }
     }
     settings.opener_hash = Some(fingerprint(source.as_bytes()));

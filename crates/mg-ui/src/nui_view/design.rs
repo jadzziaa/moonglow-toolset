@@ -62,6 +62,24 @@ fn title(ty: &str) -> &str {
         .map_or(ty, |(_, name, _)| name)
 }
 
+/// Where a document binds a property to `name`: the bound properties' paths.
+fn bind_uses(v: &Value, name: &str, at: String, out: &mut Vec<String>) {
+    match v {
+        Value::Object(o) if o.get("bind").and_then(Value::as_str) == Some(name) => out.push(at),
+        Value::Object(o) => {
+            for (k, v) in o {
+                bind_uses(v, name, format!("{at}/{k}"), out);
+            }
+        }
+        Value::Array(a) => {
+            for (i, v) in a.iter().enumerate() {
+                bind_uses(v, name, format!("{at}/{i}"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(super) fn node_name(node: &Value) -> String {
     let kind = title(node["type"].as_str().unwrap_or("Window"));
     let text = node["label"].as_str().or_else(|| node["value"].as_str()).filter(|s| !s.is_empty());
@@ -144,6 +162,7 @@ pub(super) fn document_actions(
 pub(super) fn landing(
     ui: &mut Ui,
     state: &mut State,
+    module: &mg_module::Module,
     existing: &[ResKey],
     actions: &mut Vec<Action>,
 ) {
@@ -169,14 +188,24 @@ pub(super) fn landing(
                             .desired_width(f32::INFINITY),
                     );
                     ui.weak("Use 1–14 lowercase letters, numbers or underscores.");
+                    // The same checks as New NUI…: a name in use is said here.
+                    let validation = mg_nui::create(module, &state.name);
+                    if !state.name.is_empty()
+                        && let Err(error) = &validation
+                    {
+                        ui.colored_label(ui.visuals().error_fg_color, error);
+                    }
                     ui.add_space(14.0);
-                    let valid = mg_nui::check_name(&state.name).is_ok();
-                    let create = ui.add_enabled(
-                        valid,
-                        egui::Button::new("Create window")
-                            .fill(ui.visuals().selection.bg_fill)
-                            .min_size(vec2(ui.available_width(), 36.0)),
-                    );
+                    let valid = validation.is_ok();
+                    let create = ui
+                        .add_enabled_ui(valid, |ui| {
+                            ui.add_sized(
+                                vec2(ui.available_width(), 36.0),
+                                egui::Button::new("Create NUI")
+                                    .fill(ui.visuals().selection.bg_fill),
+                            )
+                        })
+                        .inner;
                     if create.clicked()
                         || (valid
                             && input.lost_focus()
@@ -313,7 +342,10 @@ pub(super) fn editor(
             });
             ui.menu_button("Properties", |ui| {
                 ui.set_width(260.0);
-                inspector(ui, v, s, state, keymap, assets);
+                let height = ui.ctx().content_rect().height() * 0.8;
+                egui::ScrollArea::vertical().max_height(height).show(ui, |ui| {
+                    inspector(ui, v, s, state, keymap, assets);
+                });
             });
         });
         preview::canvas(ui, v, s, state, assets);
@@ -582,15 +614,15 @@ fn layer(
             } else {
                 ui.add_space(18.0);
             }
+            // The selected control gets the fill; the variant being edited only its colour.
             let response = ui.add(
-                egui::Button::new(&name)
-                    .selected(
-                        (!main || state.edit_view.is_none())
-                            && (state.selected == path || state.selected_many.contains(path)),
-                    )
-                    .frame(false)
-                    .truncate()
-                    .sense(Sense::click_and_drag()),
+                egui::Button::selectable(
+                    (!main || state.edit_view.is_none())
+                        && (state.selected == path || state.selected_many.contains(path)),
+                    &name,
+                )
+                .truncate()
+                .sense(Sense::click_and_drag()),
             );
             if !path.is_empty() && (!main || state.edit_view.is_none()) {
                 response.dnd_set_drag_payload(structure::Drag {
@@ -625,7 +657,14 @@ fn layer(
         ui.push_id(("swap-variants", main, path), |ui| {
             ui.horizontal(|ui| {
                 ui.add_space((depth + 1) as f32 * 14.0 + 18.0);
-                if ui.selectable_label(state.edit_view.is_none(), "Initial contents").clicked() {
+                if ui
+                    .add(
+                        egui::Button::new("Initial contents")
+                            .selected(state.edit_view.is_none())
+                            .frame(false),
+                    )
+                    .clicked()
+                {
                     layouts::edit(state, None);
                     state.selected = format!("{path}/children/0");
                 }
@@ -641,7 +680,14 @@ fn layer(
                 let active = state.edit_view.as_deref() == Some(name.as_str());
                 ui.horizontal(|ui| {
                     ui.add_space((depth + 1) as f32 * 14.0 + 18.0);
-                    if ui.selectable_label(active, format!("Variant · {name}")).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(format!("Variant · {name}"))
+                                .selected(active)
+                                .frame(false),
+                        )
+                        .clicked()
+                    {
                         state.layout_target = group.into();
                         layouts::edit(state, Some(name.clone()));
                     }
@@ -811,7 +857,7 @@ pub(super) fn bindings(
 ) {
     egui::ScrollArea::vertical().id_salt("nui-bindings").show(ui, |ui| {
         ui.add_space(10.0);
-        ui.heading("Dynamic values");
+        ui.heading("Bindings");
         ui.label("Bind a property to a value your event script can change.");
         ui.weak("Create a named value here, then choose it for a control property in Design.");
         workflow::create_bind(ui, &mut s.bindings);
@@ -833,13 +879,13 @@ pub(super) fn bindings(
             });
         }
         let names: Vec<_> = s.bindings.keys().cloned().collect();
+        let doc = v.as_deref().cloned().unwrap_or_else(mg_nui::window);
         for name in names {
             egui::CollapsingHeader::new(&name).id_salt(("bind", &name)).default_open(true).show(ui, |ui| {
                 let binding = s.bindings.get_mut(&name).unwrap();
                 ui.label("Initial value");
                 fields::value(ui, &mut binding.value, 0);
                 if !used.contains(&name) { ui.weak("Not used by any property yet: choose it on a property in Design."); }
-                let doc = v.as_deref().cloned().unwrap_or_else(mg_nui::window);
                 bindings::watch(ui, &name, &doc, s, state);
                 ui.horizontal(|ui| {
                     let draft_id = ui.make_persistent_id(("rename-bind", &name));
@@ -849,8 +895,8 @@ pub(super) fn bindings(
                         .labelled_by(label.id)
                         .on_hover_text("A new name for this bind");
                     let taken = to != name && s.bindings.contains_key(&to);
-                    let plain = !to.is_empty() && to.trim() == to && !to.chars().any(char::is_control);
-                    if ui.add_enabled(to != name && plain && !taken, egui::Button::new("Rename")).on_disabled_hover_text(if taken { "Another bind has that name" } else { "Type a new name: no spaces at either end" }).clicked() {
+                    let plain = !to.is_empty() && mg_nui::plain_name(&to);
+                    if ui.add_enabled(to != name && plain && !taken, egui::Button::new("Rename")).on_disabled_hover_text(if taken { "Another bind has that name" } else { "Type a new name: no spaces at either end, no + at the end" }).clicked() {
                         // Every property, variant and handler using it follows.
                         let names = std::collections::BTreeMap::from([(name.clone(), to.clone())]);
                         if let Some(doc) = v.as_deref_mut() { shortcuts::rename_binds(doc, &names); }
@@ -862,11 +908,28 @@ pub(super) fn bindings(
                     }
                     ui.ctx().data_mut(|d| d.insert_temp(draft_id, to));
                     let use_count = used.contains(&name);
-                    if ui.add_enabled(!use_count, egui::Button::new("Delete")).on_disabled_hover_text("Properties use it: give them a constant value first").on_hover_text("Its handlers go too; their code stays in the event script, commented out").clicked() {
+                    if ui.add_enabled(!use_count, egui::Button::new("Delete")).on_disabled_hover_text("Properties use it (listed below): give them a constant value first").on_hover_text("Its handlers go too; their code stays in the event script, commented out").clicked() {
                         s.bindings.remove(&name);
                         s.actions.retain(|r| !(r.event == "watch" && r.element == name));
                     }
                 });
+                if used.contains(&name) {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.weak("Used by");
+                        let mut paths = Vec::new();
+                        bind_uses(&doc, &name, String::new(), &mut paths);
+                        for path in paths {
+                            let (target, place) = super::describe_path(&doc, &path);
+                            if ui.link(place).on_hover_text("Select it").clicked() && let Some(target) = target {
+                                state.selected = target;
+                                state.page = 0;
+                            }
+                        }
+                        if s.views.values().any(|view| mg_nui::bind_names(view).contains(&name)) {
+                            ui.weak("a swap layout variant");
+                        }
+                    });
+                }
             });
             ui.add_space(8.0);
         }
@@ -874,6 +937,16 @@ pub(super) fn bindings(
         egui::CollapsingHeader::new("Client delivery").show(ui, |ui| {
             ui.checkbox(&mut s.from_resref, "Load JUI from the client by resource name");
             ui.weak("Requires distributing the JUI to clients. Leave off to send the layout from the opener script.");
+        });
+        egui::CollapsingHeader::new("Window identity").show(ui, |ui| {
+            let mut custom = s.window_id.is_some();
+            if ui.checkbox(&mut custom, "Custom window ID").changed() {
+                s.window_id = custom.then(|| "my_window".into());
+            }
+            if let Some(id) = &mut s.window_id {
+                ui.text_edit_singleline(id);
+            }
+            ui.weak("The resource name remains unchanged. A custom ID controls NuiFindWindow/NuiCreate identity.");
         });
     });
 }

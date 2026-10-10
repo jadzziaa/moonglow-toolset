@@ -19,7 +19,7 @@ fn harness(action: mg_nui::Action) -> Harness<'static, Moonglow> {
         app,
     );
     h.run();
-    h.get_by_label("Views & events").click();
+    h.get_by_label("Events & variants").click();
     h.run();
     h
 }

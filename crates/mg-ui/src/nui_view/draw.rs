@@ -330,6 +330,10 @@ struct Gesture {
 }
 
 pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &skin::Assets) {
+    // A control written as something else (by hand, in the JSON) has no layers.
+    if !node.is_object() {
+        return;
+    }
     egui::CollapsingHeader::new("Draw layers").show(ui, |ui| {
         ui.menu_button("+ Draw primitive", |ui| {
             for (kind, name) in KINDS.iter().enumerate() {
@@ -349,10 +353,17 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
             }
         });
         if node["draw_list"].is_array() {
-            ui.horizontal(|ui| {
-                ui.label("Clip to control");
-                scalar(ui, &mut node["draw_list_scissor"]);
-            });
+            match &mut node["draw_list_scissor"] {
+                Value::Bool(clip) => {
+                    ui.checkbox(clip, "Clip to control");
+                }
+                other => {
+                    ui.horizontal(|ui| {
+                        ui.label("Clip to control");
+                        scalar(ui, other);
+                    });
+                }
+            }
         }
         let Some(items) = node.get_mut("draw_list").and_then(Value::as_array_mut) else { return };
         let mut remove = None;

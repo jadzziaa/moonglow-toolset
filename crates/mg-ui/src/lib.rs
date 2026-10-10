@@ -329,6 +329,8 @@ pub struct Moonglow {
     /// The New Conversation window's name.
     pub new_dialog: Option<String>,
     pub script_tools: script_tools::ScriptTools,
+    /// The NUI window whose last Build failed, and why: shown by its Build button.
+    pub(crate) nui_build_error: Option<(String, String)>,
     /// The Save Script As window: the script and the new name.
     pub(crate) script_save_as: Option<(ResKey, String)>,
     /// The New Script window's name.
@@ -620,6 +622,7 @@ impl Moonglow {
             dialog_clip: None,
             new_dialog: None,
             script_tools: script_tools::ScriptTools::default(),
+            nui_build_error: None,
             script_save_as: None,
             new_script: None,
             script_wizard: None,
@@ -2741,12 +2744,23 @@ impl Moonglow {
 
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
+        // NUI windows changed since their last build are built first, so the
+        // game opens what the Creator shows; one that can't be is named.
+        let stale =
+            self.ws.as_ref().map(|ws| nui_view::stale_windows(&ws.module)).unwrap_or_default();
+        for name in &stale {
+            nui_view::generate(self, name, false);
+        }
+        // The game loads the saved module: what was built is saved too.
+        if !stale.is_empty() {
+            self.save(None);
+        }
         if let Some(ws) = &self.ws {
-            let stale = nui_view::stale_windows(&ws.module);
-            if !stale.is_empty() {
+            let left = nui_view::stale_windows(&ws.module);
+            if !left.is_empty() {
                 self.log.warn(format!(
-                    "NUI windows changed since they were built: {} (the game runs what was last built; Build & compile in the NUI Creator)",
-                    stale.join(", ")
+                    "NUI windows not built (fix their problems in the NUI Creator): {}; the game runs what was last built",
+                    left.join(", ")
                 ));
             }
         }

@@ -810,7 +810,7 @@ pub(super) fn canvas(
             state.text_scroll_x.clear();
             state.text_scroll_y.clear();
         }
-        ui.menu_button(format!("Scale {:.0}%", state.preview_scale * 100.0), |ui| {
+        ui.menu_button(format!("UI scale {:.0}%", state.preview_scale * 100.0), |ui| {
             for (label, scale) in [("100%", 1.0), ("125%", 1.25), ("150%", 1.5), ("200%", 2.0)] {
                 if ui.selectable_value(&mut state.preview_scale, scale, label).clicked() {
                     ui.close();
@@ -828,6 +828,7 @@ pub(super) fn canvas(
                 }
             }
         });
+        ui.weak("Zoom");
         for (label, zoom) in [("Fit", 0.0), ("100%", 1.0)] {
             ui.selectable_value(&mut state.zoom, zoom, label);
         }
@@ -850,13 +851,16 @@ pub(super) fn canvas(
     if state.preview_info {
         egui::ScrollArea::vertical().id_salt("nui-resource-info").max_height(120.0).show(ui,|ui| {
             for (name,origin) in &assets.origins {ui.small(format!("{name} — {origin}"));}
-            for issue in &assets.issues {ui.colored_label(Color32::LIGHT_RED,issue);}
+            for issue in &assets.issues {ui.colored_label(ui.visuals().error_fg_color,issue);}
             ui.small("Stock bevel: 4 source pixels. Font rasterization and layout are local; compare final output in NWN.");
         });
     } else if !assets.issues.is_empty() {
         ui.colored_label(
-            Color32::LIGHT_RED,
-            format!("{} resource issue(s) · see Resources", assets.issues.len()),
+            ui.visuals().error_fg_color,
+            match assets.issues.len() {
+                1 => "1 resource issue · see Resources".to_owned(),
+                n => format!("{n} resource issues · see Resources"),
+            },
         );
     }
     ui.small(if state.preview_interactive {
@@ -1181,7 +1185,7 @@ pub(super) fn canvas(
     ));
     if !unsupported.is_empty() {
         ui.colored_label(
-            Color32::YELLOW,
+            ui.visuals().warn_fg_color,
             format!(
                 "NWN preview required: {}",
                 unsupported.into_iter().collect::<Vec<_>>().join(", ")

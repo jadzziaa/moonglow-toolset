@@ -70,8 +70,10 @@ impl BindDraft {
         let name = self.name.trim();
         if name.is_empty() {
             Some("Enter a bind name.")
-        } else if name.contains('\0') {
-            Some("The name cannot contain NUL characters.")
+        } else if !mg_nui::plain_name(name) {
+            Some(
+                "The name can't end with + or hold a line break or tab: the event script couldn't name it.",
+            )
         } else if bindings.contains_key(name) {
             Some("This bind already exists. Choose it above or use another name.")
         } else {
@@ -140,7 +142,7 @@ pub(super) fn ui(
     egui::ScrollArea::vertical().id_salt("nui-workflow").show(ui, |ui| {
         ui.heading("Swap layout variants");
         ui.label("Add a Swap layout in Design, then create and edit its variants in Properties or Layers.");
-        let mut remove = None;
+        let (mut remove, mut rename) = (None, None);
         for name in s.views.keys() {
             ui.horizontal(|ui| {
                 ui.strong(name);
@@ -154,23 +156,61 @@ pub(super) fn ui(
                     state.layout_target = target.unwrap_or_default();
                     layouts::edit(state, Some(name.clone()));
                 }
+                // The handlers showing it, and its function's calls, follow.
+                ui.menu_button("Rename…", |ui| {
+                    let id = ui.make_persistent_id(("rename-variant", name));
+                    let mut to: String = ui.ctx().data_mut(|d| d.get_temp(id)).unwrap_or_else(|| name.clone());
+                    let label = ui.label("Name");
+                    ui.text_edit_singleline(&mut to).labelled_by(label.id);
+                    let taken = to != *name && s.views.contains_key(&to);
+                    let ok = to != *name && !to.is_empty() && mg_nui::plain_name(&to) && !taken;
+                    if ui
+                        .add_enabled(ok, egui::Button::new("Rename"))
+                        .on_disabled_hover_text(if taken { "Another variant has that name" } else { "Type a new name: no spaces at either end" })
+                        .clicked()
+                    {
+                        rename = Some((name.clone(), to.clone()));
+                        ui.close();
+                    }
+                    ui.ctx().data_mut(|d| d.insert_temp(id, to));
+                });
                 // A handler that shows it calls its function: removing it would break the build.
-                let shown = script.is_some_and(|t| t.contains(&format!("{}(", mg_nui::variant_function(window, name))))
+                let call = format!("{}(", mg_nui::variant_function(window, name));
+                let shown = script.is_some_and(|t| t.lines().any(|l| !l.trim_start().starts_with("//") && l.contains(&call)))
                     || s.actions.iter().any(|r| matches!(&r.action, mg_nui::Action::View{view,..} if view==name));
                 if ui.add_enabled(!shown, egui::Button::new("Remove"))
                     .on_disabled_hover_text("A handler shows it: take that call out of the event script first")
                     .clicked() { remove=Some(name.clone()); }
             });
         }
-        if let Some(name) = remove { s.views.remove(&name); }
+        if let Some(name) = remove {
+            s.views.remove(&name);
+            if let Some(targets) = s.extra.get_mut("view_targets").and_then(Value::as_object_mut) {
+                targets.remove(&name);
+            }
+        }
+        if let Some((from, to)) = rename
+            && let Some(view) = s.views.remove(&from)
+        {
+            s.views.insert(to.clone(), view);
+            if let Some(targets) = s.extra.get_mut("view_targets").and_then(Value::as_object_mut)
+                && let Some(target) = targets.remove(&from)
+            {
+                targets.insert(to.clone(), target);
+            }
+            for route in &mut s.actions {
+                if let mg_nui::Action::View { view, .. } = &mut route.action
+                    && *view == from
+                {
+                    *view = to.clone();
+                }
+            }
+            if state.edit_view.as_ref() == Some(&from) {
+                state.edit_view = Some(to);
+            }
+        }
         ui.separator();
         events::editor(ui, doc, s, state, None);
-        ui.separator();
-        ui.heading("Window identity");
-        let mut custom=s.window_id.is_some();
-        if ui.checkbox(&mut custom,"Custom window ID").changed(){s.window_id=custom.then(||"my_window".into());}
-        if let Some(id)=&mut s.window_id{ui.text_edit_singleline(id);}
-        ui.weak("The resource name remains unchanged. A custom ID controls NuiFindWindow/NuiCreate identity.");
     });
 }
 

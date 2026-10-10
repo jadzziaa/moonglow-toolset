@@ -83,7 +83,7 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
         } else if !plain_name(name) {
             c.error(
                 "/bindings",
-                &format!("Bind name {name:?} starts or ends with a space or holds a line break or tab: the event script can't name it"),
+                &format!("Bind name {name:?} starts or ends with a space, ends with +, or holds a line break or tab: the event script can't name it"),
             );
         }
     }
@@ -220,6 +220,15 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
             }
         }
     }
+    // One cause, one finding: an error says what a warning on the same
+    // property would.
+    let errors: BTreeSet<String> = c
+        .findings
+        .iter()
+        .filter(|d| d.severity == Severity::Error)
+        .map(|d| d.path.clone())
+        .collect();
+    c.findings.retain(|d| d.severity == Severity::Error || !errors.contains(&d.path));
     c.findings
 }
 
@@ -452,7 +461,7 @@ impl Check<'_> {
                 if !plain_name(id) {
                     self.error(
                         path,
-                        &format!("Element ID {id:?} starts or ends with a space or holds a line break or tab: the event script can't name it"),
+                        &format!("Element ID {id:?} starts or ends with a space, ends with +, or holds a line break or tab: the event script can't name it"),
                     );
                 }
                 if !self.ids.insert(id.into()) {
@@ -516,7 +525,7 @@ impl Check<'_> {
         {
             self.warn(
                 path,
-                "Static input value: bind value to retain edits and read them in a server event",
+                "What the player enters here is lost: bind its value to keep it and read it in the event script",
             );
         }
         for k in ["text_halign", "text_valign", "image_aspect", "image_halign", "image_valign"] {
@@ -768,6 +777,7 @@ impl Check<'_> {
 
 /// A name the event script's section lines can carry: no space at either
 /// end, no line break or other control character.
-fn plain_name(name: &str) -> bool {
-    name.trim() == name && !name.chars().any(char::is_control)
+pub fn plain_name(name: &str) -> bool {
+    // A trailing + is how the script tells two sections for one event apart.
+    name.trim() == name && !name.chars().any(char::is_control) && !name.ends_with('+')
 }

@@ -60,6 +60,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
     }
     egui::CollapsingHeader::new("Property binding").default_open(true).show(ui, |ui| {
         ui.weak("Connect this property to a value that can change in game.");
+        ui.label("Property");
         egui::ComboBox::from_id_salt("bind-property")
             .selected_text(label(&state.binding_property, &ty))
             .width(ui.available_width().max(0.0))
@@ -76,6 +77,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
             let draft_id = ui.make_persistent_id("property-bind-draft");
             let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
             let mut chosen = bound.clone().unwrap_or_default();
+            ui.label("Value from");
             egui::ComboBox::from_id_salt("property-bind-source")
                 .selected_text(bound.as_deref().unwrap_or("Constant (no bind)"))
                 .width(ui.available_width().max(0.0))
@@ -208,7 +210,7 @@ pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, settings: &mut Settings, s
                     fields::value(ui, &mut binding.value, 0);
                 } else {
                     ui.colored_label(
-                        egui::Color32::LIGHT_RED,
+                        ui.visuals().error_fg_color,
                         "Missing bind. Create or choose a value above.",
                     );
                 }

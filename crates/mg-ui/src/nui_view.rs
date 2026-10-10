@@ -122,6 +122,21 @@ pub(crate) fn create(app: &mut Moonglow, name: &str) {
 }
 
 pub(crate) fn generate(app: &mut Moonglow, name: &str, export: bool) {
+    let before = app.log.entries.len();
+    build(app, name, export);
+    // A failure stays by the Build button until the next Build.
+    app.nui_build_error = app
+        .log
+        .entries
+        .get(before..)
+        .unwrap_or_default()
+        .iter()
+        .rev()
+        .find(|(level, _)| *level == crate::Level::Error)
+        .map(|(_, why)| (name.to_owned(), why.clone()));
+}
+
+fn build(app: &mut Moonglow, name: &str, export: bool) {
     // The compiler must see the same source the user is looking at. The
     // window's own scripts are what you edit while building it: they are
     // saved first. Other unsaved scripts may be included: they are not
@@ -218,7 +233,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     let Some(key) = key else {
         let existing: Vec<_> =
             ws.module.keys().filter(|k| k.restype == ResType::JUI).copied().collect();
-        design::landing(ui, &mut state, &existing, &mut app.actions);
+        design::landing(ui, &mut state, &ws.module, &existing, &mut app.actions);
         ui.ctx().data_mut(|d| d.insert_temp(id, state));
         return;
     };
@@ -285,12 +300,21 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         + usize::from(settings.is_err());
     let warnings = findings.iter().filter(|d| d.severity == Severity::Warning).count();
     ui.spacing_mut().button_padding = egui::vec2(10.0, 5.0);
+    // Narrow, the build controls take a row of their own: right-aligned they
+    // would be drawn over the ones on the left.
+    let wide = ui.available_width() >= 900.0;
     ui.horizontal_wrapped(|ui| {
         ui.heading("NUI Creator");
         ui.weak("/");
         ui.strong(&name);
         design::document_actions(ui, &mut state, &ws.module, &mut app.actions);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let layout = if wide {
+            egui::Layout::right_to_left(egui::Align::Center)
+        } else {
+            ui.end_row();
+            egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true)
+        };
+        ui.with_layout(layout, |ui| {
             if ui
                 .button("Export…")
                 .on_hover_text("Validate and export the window, bind settings, opener include and compiled event script")
@@ -314,7 +338,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             {
                 app.actions.push(Action::GenerateNui(name.clone(), false));
             }
-            if needs_build {
+            if let Some((_, why)) = app.nui_build_error.as_ref().filter(|(n, _)| *n == name) {
+                ui.colored_label(ui.visuals().error_fg_color, "Build failed").on_hover_text(why);
+            } else if needs_build {
                 ui.weak("Not built")
                     .on_hover_text("Build before testing this layout or these bind values in NWN");
             }
@@ -342,7 +368,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 ui.spacing_mut().interact_size.y = 28.0;
                 ui.selectable_value(&mut state.page, 0, "Design");
                 ui.selectable_value(&mut state.page, 1, "Bindings");
-                ui.selectable_value(&mut state.page, 4, "Views & events");
+                ui.selectable_value(&mut state.page, 4, "Events & variants");
                 if ui.add_enabled(settings.is_ok(), egui::Button::new("Event script…")).clicked()
                     && let Ok(s) = &settings
                 {
@@ -408,21 +434,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     if state.issues {
         egui::ScrollArea::vertical().id_salt("nui-diagnostics").max_height(160.0).show(ui, |ui| {
             if let Err(e) = &parsed {
-                ui.colored_label(egui::Color32::LIGHT_RED, format!("JUI: {e}"));
+                ui.colored_label(ui.visuals().error_fg_color, format!("JUI: {e}"));
             }
             if let Err(e) = &settings {
-                ui.colored_label(egui::Color32::LIGHT_RED, format!("Settings: {e}"));
+                ui.colored_label(ui.visuals().error_fg_color, format!("Settings: {e}"));
             }
-            for (i, d) in findings.iter().enumerate() {
+            // Errors first: they stop a Build.
+            let mut sorted: Vec<_> = findings.iter().enumerate().collect();
+            sorted.sort_by_key(|(_, d)| d.severity != Severity::Error);
+            for (i, d) in sorted {
                 let (target, place) = parsed
                     .as_ref()
                     .map_or((None, String::new()), |doc| describe_path(doc, &d.path));
                 ui.push_id(i, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         let (mark, color) = if d.severity == Severity::Error {
-                            ("Error", egui::Color32::LIGHT_RED)
+                            ("Error", ui.visuals().error_fg_color)
                         } else {
-                            ("Warning", egui::Color32::from_rgb(230, 180, 80))
+                            ("Warning", ui.visuals().warn_fg_color)
                         };
                         ui.colored_label(color, mark);
                         let place = egui::RichText::new(&place).strong();
@@ -438,20 +467,42 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                             }
                         }
                         ui.label(&d.message);
+                        if d.message.starts_with("What the player enters here is lost")
+                            && let (Some(path), Ok(doc), Ok(s)) = (&target, &parsed, &settings)
+                            && ui
+                                .small_button("Bind it")
+                                .on_hover_text("Its value becomes a new bind")
+                                .clicked()
+                        {
+                            let (mut doc, mut s) = (doc.clone(), s.clone());
+                            if let Some(node) = doc.pointer_mut(path) {
+                                let mut i = 1;
+                                while s.bindings.contains_key(&format!("value_{i}")) {
+                                    i += 1;
+                                }
+                                let bind = format!("value_{i}");
+                                let value = node["value"].take();
+                                s.bindings
+                                    .insert(bind.clone(), Binding { value, ..Default::default() });
+                                node["value"] = json!({"bind": bind});
+                                raw = serde_json::to_string_pretty(&doc).unwrap();
+                                config_raw = String::from_utf8(s.bytes()).unwrap();
+                            }
+                        }
+                        if d.message.starts_with("The mg_close button has no Clicked handler")
+                            && let Ok(s) = &settings
+                            && ui.small_button("Add Close handler").clicked()
+                        {
+                            let mut s = s.clone();
+                            s.actions.push(mg_nui::Route {
+                                event: "click".into(),
+                                element: "mg_close".into(),
+                                action: mg_nui::Action::Close,
+                            });
+                            config_raw = String::from_utf8(s.bytes()).unwrap();
+                        }
                     })
                 });
-                if d.message.starts_with("The mg_close button has no Clicked handler")
-                    && let Ok(s) = &settings
-                    && ui.small_button("Add Close handler").clicked()
-                {
-                    let mut s = s.clone();
-                    s.actions.push(mg_nui::Route {
-                        event: "click".into(),
-                        element: "mg_close".into(),
-                        action: mg_nui::Action::Close,
-                    });
-                    config_raw = String::from_utf8(s.bytes()).unwrap();
-                }
             }
             if errors + warnings == 0 {
                 ui.weak("No API issues found. Verify the final appearance and events in NWN.");
@@ -468,18 +519,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 if v != before {
                     raw = serde_json::to_string_pretty(&v).unwrap();
                 }
+            } else {
+                repair(ui, &mut state);
             }
         }
         4 => {
             if let (Ok(mut v), Ok(mut s)) = (parsed, settings) {
                 let before = v.clone();
                 let config_before = s.clone();
-                let script = ResKey::parse(&format!("{name}_e"), ResType::NSS).and_then(|k| {
-                    app.scripts
-                        .get(&k)
-                        .map(|b| b.text.clone())
-                        .or_else(|| app.ws.as_ref()?.module.get(&k).map(crate::text::decode))
-                });
+                let script = ResKey::parse(&format!("{name}_e"), ResType::NSS)
+                    .and_then(|k| events::current_script(app, &k));
                 workflow::ui(ui, &mut v, &mut s, &mut state, &name, script.as_deref());
                 if v != before {
                     raw = serde_json::to_string_pretty(&v).unwrap();
@@ -487,6 +536,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 if s != config_before {
                     config_raw = String::from_utf8(s.bytes()).unwrap();
                 }
+            } else {
+                repair(ui, &mut state);
             }
         }
         2 | 3 => {
@@ -610,19 +661,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                     }
                 }
             } else {
-                ui.add_space(24.0);
-                ui.heading("Let's repair the source first");
-                ui.label(
-                    "Use the source/settings tabs to repair JSON. Original contents are retained.",
-                );
-                ui.horizontal(|ui| {
-                    if ui.button("Open JUI source").clicked() {
-                        state.page = 2;
-                    }
-                    if ui.button("Open binding JSON").clicked() {
-                        state.page = 3;
-                    }
-                });
+                repair(ui, &mut state);
             }
         }
     }
@@ -708,6 +747,23 @@ fn rearrange(v: &mut Value, selected: &mut String, op: usize) {
     *selected = format!("{parent}/{at}{}", if cell { "/0" } else { "" });
 }
 
+/// A page that needs the window's JSON when it doesn't read.
+fn repair(ui: &mut Ui, state: &mut State) {
+    ui.add_space(24.0);
+    ui.heading("Let's repair the source first");
+    ui.label("Use the source/settings tabs to repair JSON. Original contents are retained.");
+    ui.horizontal(|ui| {
+        if ui.button("Open JUI source").clicked() {
+            state.page = 2;
+        }
+        if ui.button("Open binding JSON").clicked() {
+            state.page = 3;
+        }
+    });
+}
+
+/// IDs for a copy going into `document`: one it already has is kept unless
+/// the document uses it (a paste into another window keeps its handlers' names).
 fn assign_ids(node: &mut Value, document: &Value) {
     fn ids(v: &Value, set: &mut std::collections::BTreeSet<String>) {
         match v {
@@ -730,7 +786,10 @@ fn assign_ids(node: &mut Value, document: &Value) {
     fn assign(v: &mut Value, set: &mut std::collections::BTreeSet<String>) {
         match v {
             Value::Object(o) => {
-                if let Some(ty) = o.get("type").and_then(Value::as_str) {
+                let own = o.get("id").and_then(Value::as_str).filter(|id| !set.contains(*id));
+                if let Some(id) = own {
+                    set.insert(id.to_owned());
+                } else if let Some(ty) = o.get("type").and_then(Value::as_str) {
                     let mut i = 1;
                     while set.contains(&format!("{ty}_{i}")) {
                         i += 1;
@@ -758,7 +817,7 @@ fn assign_ids(node: &mut Value, document: &Value) {
 
 fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
     let Some(obj) = node.as_object_mut() else {
-        ui.weak("Edit this value in Advanced > JUI source.");
+        ui.weak("Edit this value in Advanced › JUI source.");
         return;
     };
     let ty = obj.get("type").and_then(Value::as_str).unwrap_or("window").to_owned();
@@ -869,6 +928,25 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
             .default_open(*open)
             .show(ui, |ui| {
                 for key in *keys {
+                    if layout_sizes && matches!(*key, "width" | "height") && !obj.contains_key(*key)
+                    {
+                        let (label, fixed) =
+                            if *key == "width" { ("Width", 150.0) } else { ("Height", 30.0) };
+                        ui.horizontal(|ui| {
+                            ui.label(label);
+                            // It has none: the layout decides; the button gives it one.
+                            ui.weak("Automatic");
+                            if ui
+                                .small_button("Set size")
+                                .on_hover_text("Give it a fixed size instead")
+                                .clicked()
+                            {
+                                obj.insert((*key).into(), json!(fitting_size(obj, key, fixed)));
+                            }
+                        });
+                        ui.add_space(8.0);
+                        continue;
+                    }
                     if let Some(value) = obj.get_mut(*key)
                         && (!value.is_null() || property_default(&ty, key).is_some())
                         && !(*key == "title" && *value == json!(false))
@@ -882,26 +960,6 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                         });
                         if reveal.as_deref() == Some(*key) {
                             field.response.scroll_to_me(Some(egui::Align::Center));
-                        }
-                    }
-                }
-                if layout_sizes {
-                    for (key, label, fixed) in
-                        [("width", "Width", 150.0), ("height", "Height", 30.0)]
-                    {
-                        if !obj.contains_key(key) {
-                            ui.horizontal(|ui| {
-                                ui.label(label);
-                                // It has none: the layout decides; the button gives it one.
-                                ui.weak("Automatic");
-                                if ui
-                                    .small_button("Set size")
-                                    .on_hover_text("Give it a fixed size instead")
-                                    .clicked()
-                                {
-                                    obj.insert(key.into(), json!(fitting_size(obj, key, fixed)));
-                                }
-                            });
                         }
                     }
                 }
@@ -1310,7 +1368,7 @@ fn property(
                 *value = default;
             }
         } else {
-            ui.weak("Unset/custom value. Edit in Advanced > JUI source.");
+            ui.weak("Unset/custom value. Edit in Advanced › JUI source.");
         }
     } else if let Some(names) = named_choices(key)
         && let Some(n) = value.as_i64()
@@ -1378,9 +1436,10 @@ fn scalar(ui: &mut Ui, v: &mut Value) {
                 }
             }
         }
+        // Lined up in a grid, so the values start at one edge.
         Value::Object(o) if o.len() <= 4 && o.values().all(Value::is_number) => {
-            for (k, v) in o {
-                ui.horizontal(|ui| {
+            egui::Grid::new(ui.id().with("numbers")).num_columns(2).show(ui, |ui| {
+                for (k, v) in o {
                     ui.label(match k.as_str() {
                         "w" => "Width",
                         "h" => "Height",
@@ -1393,8 +1452,9 @@ fn scalar(ui: &mut Ui, v: &mut Value) {
                         _ => k,
                     });
                     scalar(ui, v);
-                });
-            }
+                    ui.end_row();
+                }
+            });
         }
         Value::Null | Value::Array(_) | Value::Object(_) => fields::value(ui, v, 0),
     }
@@ -1513,7 +1573,7 @@ mod tests {
             h.set_size(egui::vec2(width, 850.0));
             h.run();
             let first = h.get_by_label("Design").rect();
-            for label in ["Bindings", "Views & events", "Event script…", "Advanced"] {
+            for label in ["Bindings", "Events & variants", "Event script…", "Advanced"] {
                 // Some controls are outside the horizontal viewport at 640px;
                 // their layout must still stay on the same row.
                 let rect = h.get_by_label(label).rect();
@@ -1663,6 +1723,10 @@ mod tests {
         assert!(routes(&h).iter().any(|r| r.event == "click" && r.element == "mg_close_x"));
         assert!(script(&h).contains("// mg:begin click mg_close_x\n"));
         assert!(!script(&h).contains("// mg:begin click mg_close\n"));
+        // The guard follows too, so the script still builds.
+        assert!(script(&h).contains(r#"\"mg_close_x\""#));
+        assert!(!script(&h).contains(r#"\"mg_close\""#));
+        assert!(!mg_nui::edited_outside("nui_test", &script(&h)));
         // Deleting the control takes its handler away; its code stays.
         h.get_all_by_label("Button · Close").next().unwrap().click();
         h.run();
@@ -2019,9 +2083,9 @@ mod tests {
         let node = &keyboard_document(&h)["root"]["children"][1];
         assert_eq!(node["draw_list_scissor"], false);
         assert_eq!(node["draw_list"][0]["type"], 7);
-        h.get_by_label("On").scroll_to_me();
+        h.get_by_label("Clip to control").scroll_to_me();
         h.run();
-        h.get_by_label("On").click();
+        h.get_by_label("Clip to control").click();
         h.run();
         assert_eq!(keyboard_document(&h)["root"]["children"][1]["draw_list_scissor"], true);
         h.get_by_label("+ Draw primitive").scroll_to_me();
@@ -2259,7 +2323,7 @@ mod tests {
         for live in [false, true] {
             let mut h = keyboard_harness();
             h.run();
-            h.get_by_label_contains("Scale ").click();
+            h.get_by_label("UI scale 100%").click();
             h.run();
             h.get_by_label("150%").click();
             h.run();
@@ -2797,7 +2861,7 @@ mod tests {
         h.run();
         h.get_by_label("Hover").click();
         h.run();
-        h.get_by_label_contains("Scale ").click();
+        h.get_by_label("UI scale 100%").click();
         h.run();
         h.get_by_label("150%").click();
         h.run();
@@ -2842,7 +2906,7 @@ mod tests {
             .unwrap()
             .module
             .set(mg_nui::key("nui_test", ResType::TXT), settings.bytes());
-        h.get_by_label_contains("Scale ").click();
+        h.get_by_label("UI scale 100%").click();
         h.run();
         h.get_all_by_label("100%").last().unwrap().click();
         h.run();
@@ -2902,7 +2966,7 @@ mod tests {
         h.get_by_label("Canvas Button · Show details").click();
         h.run();
         h.render().unwrap().save(dir.join("expanded-controls.png")).unwrap();
-        h.get_by_label("Views & events").click();
+        h.get_by_label("Events & variants").click();
         h.run();
         h.render().unwrap().save(dir.join("views-events.png")).unwrap();
         let mut landing = Harness::builder()
@@ -3050,10 +3114,36 @@ mod tests {
                 interact.click();
                 h.run();
             }
-            for page in ["Bindings", "Views & events", "Design"] {
+            for page in ["Bindings", "Events & variants", "Design"] {
                 h.get_by_label(page).click();
                 h.run();
             }
         }
+    }
+
+    /// A list cell or root that isn't what the editors expect is left alone.
+    #[test]
+    fn odd_cells_and_roots_are_left_alone() {
+        let s = Settings::default();
+        for cell in [json!([1]), json!("x"), json!(null), json!([{"type":"label"}])] {
+            let mut doc = json!({"root":{"type":"list","row_template":[cell.clone()]}});
+            let before = doc.clone();
+            egui::__run_test_ui(|ui| {
+                fields::list(ui, &mut doc, "/root/row_template/0/0", &mut s.clone());
+            });
+            assert_eq!(doc, before);
+        }
+        for root in [json!(5), json!("x"), json!([1])] {
+            let mut doc = json!({"root": root});
+            let before = doc.clone();
+            images::background(&mut doc, &s, "my_bg");
+            assert_eq!(doc, before);
+        }
+        let mut doc = json!(5);
+        images::background(&mut doc, &s, "my_bg");
+        let mut node = json!("label");
+        egui::__run_test_ui(|ui| {
+            draw::editor(ui, &mut node, &mut s.clone(), &skin::Assets::default());
+        });
     }
 }

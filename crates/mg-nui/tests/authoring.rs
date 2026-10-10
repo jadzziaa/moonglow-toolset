@@ -427,6 +427,43 @@ fn installed_include_has_the_supported_widget_constructors() {
     assert!(source.contains("\"row_template\""));
 }
 
+/// Edit code before the first Build writes the event script: Build takes it
+/// as the window's. A script of yours that includes the opener is compiled
+/// again by every Build, so the layout it opens is the current one.
+#[test]
+fn builds_take_an_early_event_script_and_recompile_the_callers() {
+    use mg_nui::{Action, Route};
+    let rm = ResMan::for_game(&GameInstall::new(mg_testkit::corpus!(), None, "en")).unwrap();
+    let mut ws = project();
+    let mut w = mg_nui::window();
+    w["root"]["children"] = json!([{"type":"label","value":"First"}]);
+    let mut s = Settings::default();
+    s.actions.push(Route { event: "open".into(), element: String::new(), action: Action::Code });
+    ws.module.set(key("test_nui", ResType::JUI), serde_json::to_vec(&w).unwrap());
+    ws.module.set(key("test_nui", ResType::TXT), s.bytes());
+    // Written before any Build, as Edit code does.
+    ws.module.set(
+        key("test_nui_e", ResType::NSS),
+        mg_nui::event_source("test_nui", &s).unwrap().into_bytes(),
+    );
+    ws.module.set(
+        key("my_enter", ResType::NSS),
+        b"#include \"test_nui_o\"\nvoid main() { Open_test_nui(GetEnteringObject()); }\n".to_vec(),
+    );
+    let compile = |ws: &Workspace| {
+        mg_nui::generate(&ws.module, "test_nui", |n, t| {
+            rm.get_named(n, t).ok().map(|b| b.into_owned())
+        })
+    };
+    ws.apply(compile(&ws).unwrap()).unwrap();
+    let first = ws.module.get(&key("my_enter", ResType::NCS)).unwrap().to_vec();
+    assert!(first.starts_with(b"NCS "));
+    w["root"]["children"] = json!([{"type":"label","value":"Second, longer text"}]);
+    ws.module.set(key("test_nui", ResType::JUI), serde_json::to_vec(&w).unwrap());
+    ws.apply(compile(&ws).unwrap()).unwrap();
+    assert_ne!(ws.module.get(&key("my_enter", ResType::NCS)).unwrap(), first.as_slice());
+}
+
 /// A handler shows a swap layout variant by calling the opener include's
 /// function for it, so a variant edited after the code was written still
 /// reaches the game on the next Build.
@@ -716,7 +753,9 @@ fn event_scripts_keep_the_code_written_in_their_handlers() {
     assert_eq!(mg_nui::merge_events("test", &s, Some(&without)).unwrap(), written);
     // An action is the code a handler starts with.
     let close = mg_nui::Route { action: mg_nui::Action::Close, ..route("click", "mg_close") };
-    assert!(mg_nui::handler_code(&close, &s).unwrap().contains("NuiDestroy(oPlayer, nToken);"));
+    assert!(
+        mg_nui::handler_code("w", &close, &s).unwrap().contains("NuiDestroy(oPlayer, nToken);")
+    );
 }
 
 /// A section's key is read as written, so an ID ending in a space keeps its
