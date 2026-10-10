@@ -107,7 +107,7 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
             c.error("/actions", &format!("Unknown element ID: {}", route.element));
         }
         match &route.action {
-            crate::Action::Close => {}
+            crate::Action::Code | crate::Action::Close => {}
             crate::Action::View { group, view } => {
                 if group != "_window_" && !groups.contains(group) {
                     c.error("/actions", "View target must name a Group ID");
@@ -141,7 +141,7 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
     {
         c.warn(
             "/actions",
-            "The mg_close button has no Clicked event: in game it does nothing. Add Clicked → Close window.",
+            "The mg_close button has no Clicked handler: in game it does nothing. Add one that closes the window.",
         );
     }
     if settings.window_id.as_ref().is_some_and(|id| id.is_empty() || id.contains('\0')) {

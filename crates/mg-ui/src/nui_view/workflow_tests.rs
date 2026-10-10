@@ -2,10 +2,6 @@ use super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 
 fn harness(action: mg_nui::Action) -> Harness<'static, Moonglow> {
-    harness_with_renderer(action, false)
-}
-
-fn harness_with_renderer(action: mg_nui::Action, gpu: bool) -> Harness<'static, Moonglow> {
     let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
     app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
     super::super::create(&mut app, "workflow");
@@ -15,9 +11,7 @@ fn harness_with_renderer(action: mg_nui::Action, gpu: bool) -> Harness<'static, 
         ..Default::default()
     };
     app.ws.as_mut().unwrap().module.set(mg_nui::key("workflow", ResType::TXT), settings.bytes());
-    let builder = Harness::builder().with_size(egui::vec2(1100.0, 1100.0));
-    let builder = if gpu { builder.wgpu() } else { builder };
-    let mut h = builder.build_ui_state(
+    let mut h = Harness::builder().with_size(egui::vec2(1100.0, 1100.0)).build_ui_state(
         |ui, app: &mut Moonglow| {
             super::super::ui(app, ui, Some(mg_nui::key("workflow", ResType::JUI)));
             app.run_actions();
@@ -26,8 +20,6 @@ fn harness_with_renderer(action: mg_nui::Action, gpu: bool) -> Harness<'static, 
     );
     h.run();
     h.get_by_label("Views & events").click();
-    h.run();
-    h.get_by_label("Edit event").click();
     h.run();
     h
 }
@@ -40,7 +32,7 @@ fn settings(h: &Harness<'_, Moonglow>) -> Settings {
 }
 
 #[test]
-fn nui_bindings_page_creates_watch_action_and_undoes_it() {
+fn nui_bindings_page_adds_a_value_changed_handler_and_undoes_it() {
     let mut h = harness(mg_nui::Action::Close);
     h.get_by_label("Bindings").click();
     h.run();
@@ -48,24 +40,19 @@ fn nui_bindings_page_creates_watch_action_and_undoes_it() {
     h.run();
     h.get_by_label("Bind name").click();
     h.run();
-    h.get_by_label("Bind name").type_text("close_when_changed");
+    h.get_by_label("Bind name").type_text("volume");
     h.run();
     h.get_by_label("Create & select").click();
     h.run();
-    assert_eq!(settings(&h).bindings["close_when_changed"].value, json!(""));
     let before = settings(&h);
-    h.get_by_label("+ Add event").click();
-    h.run();
-    h.get_by_value("Choose action…").click();
-    h.run();
-    h.get_by_label("Close window").click();
-    h.run();
-    h.get_by_label("Save event").click();
+    h.get_by_label("+ Add handler").click();
     h.run();
     let after = settings(&h);
-    assert!(after.actions.iter().any(|r| r.event == "watch"
-        && r.element == "close_when_changed"
-        && r.action == mg_nui::Action::Close));
+    assert!(
+        after.actions.iter().any(|r| r.event == "watch"
+            && r.element == "volume"
+            && r.action == mg_nui::Action::Code)
+    );
     h.state_mut().ws.as_mut().unwrap().undo().unwrap();
     h.run();
     assert_eq!(settings(&h), before);
@@ -106,68 +93,6 @@ fn nui_body_drag_does_not_move_floating_window() {
 }
 
 #[test]
-fn nui_action_creates_and_selects_binding_in_one_undo() {
-    let mut h = harness(mg_nui::Action::Set { bind: String::new(), value: Value::Null });
-    let before = settings(&h);
-    h.get_by_label("No binds yet. Create a named value for this action.");
-    h.get_by_label("+ Create bind").click();
-    h.run();
-    h.get_by_label("Bind name").click();
-    h.run();
-    h.get_by_label("Bind name").type_text("  message  ");
-    h.run();
-    // Typing a draft does not add resources or incomplete bindings to Undo.
-    assert_eq!(settings(&h), before);
-    h.get_by_label("Create & select").click();
-    h.run();
-    assert_eq!(settings(&h), before);
-    h.get_by_label("Save event").click();
-    h.run();
-    let after = settings(&h);
-    assert_eq!(after.bindings["message"].value, json!(""));
-    assert_eq!(
-        after.actions[0].action,
-        mg_nui::Action::Set { bind: "message".into(), value: json!("") }
-    );
-    h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-    assert_eq!(settings(&h), before);
-    h.state_mut().ws.as_mut().unwrap().redo().unwrap();
-    assert_eq!(settings(&h), after);
-}
-
-#[test]
-fn nui_toggle_creates_boolean_bind_and_cancel_keeps_document() {
-    let mut h = harness(mg_nui::Action::Toggle { bind: String::new() });
-    let before = settings(&h);
-    h.get_by_label("+ Create bind").click();
-    h.run();
-    h.get_by_label("Bind name").click();
-    h.run();
-    h.get_by_label("Bind name").type_text("is_open");
-    h.run();
-    h.get_by_label("Cancel").click();
-    h.run();
-    assert_eq!(settings(&h), before);
-    h.get_by_label("+ Create bind").click();
-    h.run();
-    h.get_by_label("Bind name").click();
-    h.run();
-    h.get_by_label("Bind name").type_text("is_open");
-    h.run();
-    h.get_by_label("Create & select").click();
-    h.run();
-    h.get_by_label("Save event").click();
-    h.run();
-    assert_eq!(settings(&h).bindings["is_open"].value, json!(false));
-    assert_eq!(settings(&h).actions[0].action, mg_nui::Action::Toggle { bind: "is_open".into() });
-    assert!(
-        !mg_nui::validate(&mg_nui::window(), &settings(&h))
-            .iter()
-            .any(|d| d.severity == Severity::Error)
-    );
-}
-
-#[test]
 fn nui_binding_draft_rejects_duplicates_and_toggle_filters_values() {
     let mut bindings = std::collections::BTreeMap::new();
     bindings.insert("taken".into(), Binding { value: json!(true), ..Default::default() });
@@ -184,51 +109,6 @@ fn nui_binding_draft_rejects_duplicates_and_toggle_filters_values() {
         assert!(!boolean_binding(&Binding { value, ..Default::default() }));
     }
     assert!(boolean_binding(&Binding { value: json!([true, false]), ..Default::default() }));
-}
-
-#[test]
-fn nui_cancel_event_discards_its_new_binding() {
-    let mut h = harness(mg_nui::Action::Set { bind: String::new(), value: Value::Null });
-    let before = settings(&h);
-    h.get_by_label("+ Create bind").click();
-    h.run();
-    h.get_by_label("Bind name").click();
-    h.run();
-    h.get_by_label("Bind name").type_text("temporary");
-    h.run();
-    h.get_by_label("Create & select").click();
-    h.run();
-    assert_eq!(settings(&h), before);
-    h.get_by_label("Cancel event").click();
-    h.run();
-    assert_eq!(settings(&h), before);
-    h.get_by_label("Edit event").click();
-    h.run();
-    h.get_by_label("No binds yet. Create a named value for this action.");
-}
-
-/// Local editor rendering; this does not establish NWN runtime parity.
-#[test]
-#[ignore]
-fn nui_action_binding_screenshots() {
-    mg_testkit::gpu::hold();
-    let mut h = harness_with_renderer(
-        mg_nui::Action::Set { bind: String::new(), value: Value::Null },
-        true,
-    );
-    h.set_size(egui::vec2(1100.0, 860.0));
-    h.run();
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-output/nui-editor-preview");
-    std::fs::create_dir_all(&dir).unwrap();
-    h.render().unwrap().save(dir.join("action-bind-empty.png")).unwrap();
-    h.get_by_label("+ Create bind").click();
-    h.run();
-    h.get_by_label("Bind name").click();
-    h.run();
-    h.get_by_label("Bind name").type_text("message");
-    h.run();
-    h.render().unwrap().save(dir.join("action-bind-create.png")).unwrap();
 }
 
 #[test]

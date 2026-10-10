@@ -188,9 +188,9 @@ collapse button. A static `collapsed: false` hides that button; Reset restores
 the initial preview state. Font sizes use the installed font's vertical metrics.
 
 Turn on **Interact** to try checkboxes, toggle buttons, sliders, text fields,
-dropdowns, options, tabs and the color picker. Buttons run declarative actions
-configured in **Views & events** locally; they do not execute arbitrary event
-scripts. Preview values and list-row values are temporary and leave the
+dropdowns, options, tabs and the color picker. Event handlers are NWScript and
+run only in the game; Interact closes the window for a handler that starts with
+closing it (the Close button's). Preview values and list-row values are temporary and leave the
 JUI, initial bindings, module dirty state and Undo history unchanged. **Reset**
 restores the initial values; leaving Interact discards them. Editing the source
 also resets the simulation. List contents scroll with the wheel or scrollbar.
@@ -200,7 +200,7 @@ to the updated document. Select controls in Layers while their preview handles
 input. Element shortcuts work over the editor panels; over the interactive
 canvas, keys belong to the simulated controls.
 Disabled and hidden controls cannot change values. This mode simulates local
-input and authored action routes; NWN event timing and the native layout solver
+input; NWN event timing and the native layout solver
 still require a game test.
 
 Drag palette components into Layers to add them: the middle of a container
@@ -227,13 +227,10 @@ that Swap layout in Layers and are edited in place, with the rest of the window
 visible. The breadcrumb returns to that area's properties. Existing controls or
 Groups can be converted with **Convert to Swap layout**.
 
-Switching requires an explicit event: select a Button, **Add event**, **Clicked**,
-**Replace group layout**, then choose the target area and variant. Build generates
-`NuiSetGroupLayout` only for saved actions. **Views & events** lists existing
-variants with their targets and the same event editor. Other actions close
-the window, toggle a boolean bind (including a clicked list row), or set a bind.
-Watch routes enable the corresponding watch after initial values are assigned.
-Recursive watch cycles, missing targets and incompatible Set values are errors.
+A variant shows when a script sets it: add a handler (a button's **Clicked**,
+say) and **Insert… › Show layout** with the variant. That adds the
+`NuiSetGroupLayout` call to the handler's code. **Views & events** lists the
+variants with their targets.
 The custom window ID is independent of the resource name.
 
 **Resources** shows where the skin, images and fonts came from and reports
@@ -302,21 +299,18 @@ unchanged. The source dropdown offers compatible existing binds, or **Constant
 Other controls using the same bind are unaffected by detaching.
 
 List-template properties create an array with one value per existing row.
-Ordinary properties do not offer row arrays. **When this value changes** configures
-a watch action beside the property: close the window, set/toggle another bind,
-or replace a group layout. The layout, preview, initial value and action remain
-visible in Design. **Bindings** still lists all values for document-wide editing.
+Ordinary properties do not offer row arrays. A control whose value is bound
+offers **Value changed** in its **Events**: a handler that runs when the value
+changes. **Bindings** still lists all values for document-wide editing.
 
 The property's **… › Make dynamic (bind)** menu remains a shortcut.
 The menu is available for dynamic arguments in the stock NUI API. Layout
 arguments such as list row height and group borders remain constants; replace
 the layout to change them while the window is open.
 **Bindings › + Create bind** creates a named, typed value with an explicit
-initial value. Under **When this value changes**, use **+ Add event**, choose
-the action in **Then**, and **Save event**. These actions enable a `watch`
-automatically at build time; **Edit event** reopens the saved route.
-A watch reacts to a value change. The window's `close`
-event and the **Close window** action are separate concepts.
+initial value. Each bind's **+ Add handler** adds a **Value changed** handler;
+the window watches the bind for it. The window's `close` event (the player
+closing it) and code that closes the window are separate things.
 **Bindings** also edits structured initial values and optional watches;
 **Advanced › Binding JSON** exposes the underlying settings. List-template binds need arrays;
 ordinary binds use the property's scalar, rectangle or color. The generator
@@ -324,15 +318,10 @@ requires explicit defaults and sets every value before enabling watches.
 These authoring settings live in `<name>.txt`, marked `moonglow.nui/1`.
 The JUI itself contains only game UI data. Both resources use UTF-8.
 
-In an event form, **Target bind › + Create bind** prepares a named value and
-selects it for the action. Choose its type and initial value, then **Create &
-select**. The new bind is saved together with **Save event**; one Undo reverses
-the whole change. **Cancel event** also discards its new binds and layouts. Toggle
-actions offer boolean binds. To display or edit the same value in a control,
-assign that bind to the control's property as well. **Whole window** as a view
-target replaces the root content while keeping the window's title and geometry.
-The **Group layouts (NuiSetGroupLayout)** section stores replacement layouts;
-the **Replace group layout** action applies one to a Group ID or **Whole window**.
+**Whole window** as a layout's target replaces the root content while keeping
+the window's title and geometry. The **Group layouts (NuiSetGroupLayout)**
+section stores replacement layouts; **Insert… › Show layout** adds the call
+that applies one to a Group ID or **Whole window**.
 In **Design**, a selected Group has a **Swap layouts** section. Use **+ Add
 layout** for an empty vertical or horizontal variant, or **Copy current
 contents** to preserve its current content as a reusable layout. Creating a
@@ -353,50 +342,54 @@ surrounding window. The slot keeps its size, border and position; surrounding
 controls are read-only. **Edit swap slot** returns to the Group's properties.
 Nested targets inside another variant are resolved through their declared
 parent target. This is a local preview; verify the generated result in NWN.
-The event form requires an explicit target;
-**Whole window** is available but is never chosen by default.
 
-The selected control's **Events** section is available directly in **Design**.
-Use **+ Add event**, choose **When** it runs and **Then** what it does. Nothing
-is saved until **Save event**. Controls without an ID receive a unique ID on
-save. Existing event cards show their trigger and action, with **Edit event**
-and **Remove event**. Selecting Window offers window-open/window-close events;
-bind reactions offer value-changed events. **Views & events** uses the same form
-with an explicit **For** target selector for document-wide editing.
+#### Events
 
-For a button that switches layouts, choose **When: Clicked**, then **Replace
-group layout**, the target Group (or **Whole window**) and the layout. You can
-create the missing layout here. **Save event** commits the route and layout
-together. To change an existing click action, use its **Edit event**; duplicate
-routes and recursive watch actions are rejected before saving.
+What a window does is NWScript you write, in its event script
+(`<name>_e.nss`). Each event you handle is a section of that script:
 
-**Edit layout on canvas** opens the variant for authoring; **Back to main
-window** returns to the original. The layout tabs and **Layouts…** menu remain
+```c
+    if (sType == "watch" && sElement == "volume")
+    {
+        // mg:begin watch volume
+        // Your code here.
+        // mg:end
+        return;
+    }
+```
+
+Select a control in **Design** and use its **Events** (the window's, with
+nothing selected): pick an event and **+ Add handler**. Only the events that
+control sends in the game are offered: **Clicked** for buttons, **Focus
+gained** and **lost** for text inputs, **Visible range changed** for lists,
+**Value changed** for a control whose value is bound, and the mouse for any
+control; the window has **Window opened** and **Window closed**. A control
+without an ID gets one. **Views & events** lists every handler, with a
+selector for whose event to add.
+
+**Edit code** opens the event script in the script editor at the handler's
+code. **Insert…** adds ready-made code to it: **Close window**, **Set bind**
+(to its current value), **Toggle bind** and **Show layout**. After that it is
+ordinary code to change. **Event script…** on the toolbar opens the whole
+script. **Remove** takes the handler away; what you wrote in it stays in the
+script, commented out after `main`, and comes back if you add the handler again.
+Code at the top section (between `// mg:begin top` and its `// mg:end`) is the
+place for `#include` lines and helper functions.
+
+**Back to main window** returns from a variant to the original. The layout tabs and **Layouts…** menu remain
 available above the Design workspace. Switching the edited layout does not
 change the initial in-game content or trigger an event. Use **Interact** on the
 main window to try the configured button locally, then Build and test in NWN.
-The event selector supports `click`, `watch`, `open`, `close`, `mousedown`,
-`mouseup`, `mousescroll`, `focus`, `blur` and `range`. The local Interact preview
-does not simulate every native event; verify the generated behavior in NWN.
-
-Use **Preview code** on an event card or a valid event draft to inspect that
-event's generated NWScript without saving it. **Event script…** on the main
-toolbar previews all configured events. The preview is read-only, uses the same
-generator as Build, and supports syntax highlighting and **Copy code**.
-**Generated code** is a snapshot taken when the preview opens, not compiled
-output. **Module script** shows the actual full handler, including manual code;
-unsaved changes in an open script editor take priority and are clearly marked.
-**Open in script editor** opens that handler for editing. A missing handler is
-reported explicitly; previewing does not build or add resources to the module.
 
 **Build & compile** prepares `<name>_o.nss` (an include with `Open_<name>`),
 `<name>_e.nss` (events) and the event handler's NCS bytecode using the installed
 game's API and Moonglow's built-in Beamdog compiler. The opener is validated by
 compiling a temporary caller; that caller is never stored in the module.
 It changes the module only if validation and event compilation succeed;
-one Undo reverses the generated set. Generated event routes are refreshed while
-the generated source is intact. Manual changes are preserved; changing the
-generated routes then reports a conflict instead of overwriting that source.
+one Undo reverses the generated set. The event script is rebuilt around its
+handlers, keeping everything written between their markers. A script changed
+outside the markers is not overwritten: Build says so, and you move that code
+into a section. A script written by hand (with no markers) stays as it is.
 The build status includes both scripts, actions and view layouts.
 A manually changed opener is reported as a conflict, not replaced. Save any
 open script edits before generation, including changed includes.
@@ -418,13 +411,11 @@ opener removes its obsolete NCS in the same undoable operation. Manually edited
 openers are still protected. Recompile your calling scripts after regeneration
 so they include the current layout; Build does not rewrite those callers.
 The event handler receives the window's events directly; generating does not
-change the module's OnNuiEvent binding. A newly created window stores an explicit
-**Clicked → Close window** event for its Close button. Select the button in Design
-to edit or remove this event. The `mg_close` ID has no built-in behavior: deleting
-the route stops closing in both the preview and regenerated scripts. Existing
-projects without this route need it added explicitly if closing is desired.
-Rebuild older generated scripts to remove the former implicit fallback; manually
-edited event scripts remain protected and must be reviewed separately.
+change the module's OnNuiEvent binding. A new window has a **Clicked**
+handler for its Close button whose code closes the window. The `mg_close` ID
+has no built-in behavior: without that handler the button does nothing, and
+the checks say so (**Add Close handler** adds it). Scripts an older Moonglow
+generated are rebuilt into sections on the next Build.
 
 The default opener sends the layout with `NuiCreate`. **Bindings › Client
 delivery › Load JUI from the client by resource name** instead uses
@@ -474,8 +465,8 @@ and the preview follow them.
   value in your event script.
 - **A color picker** has no alpha: the game writes 255 to its bind as soon as
   the window opens, and with every pick. Interact does the same.
-- **A Close button** with the ID `mg_close` but no **Clicked → Close window**
-  event does nothing in the game. A warning says so.
+- **A Close button** with the ID `mg_close` but no **Clicked** handler does
+  nothing in the game. A warning says so.
 - **Clip to control** (a control's draw layers) clips nothing in the game: the
   layers draw past the control either way. On the last draw layers of a window
   it blanks the whole window, so that is an error; the preview doesn't clip.
@@ -484,10 +475,9 @@ and the preview follow them.
   in the control as payload). A text input sends *Focus gained* and *lost*; a
   list sends *Visible range changed* with the rows in view (`a` to `z`) on
   opening and when scrolled. *Window closed* comes only when the player closes
-  the window with its X, never when a script does (the **Close window**
-  action). A script setting a watched bind runs its *Value changed* event at
-  once, inside that script: a watch action that sets its own bind back would
-  never end, so such cycles are errors.
+  the window with its X, never when a script does (`NuiDestroy`). A script
+  setting a watched bind runs its *Value changed* handler at once, inside that
+  script: a handler that sets its own bind back would never end.
 - **Loading the JUI from the client** (`NuiCreateFromResRef`) works with the
   same events and actions, Group layouts included.
 - **Lists.** A list with no width is as wide as its column. It scrolls by whole

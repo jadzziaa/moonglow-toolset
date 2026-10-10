@@ -14,7 +14,10 @@ mod validate;
 pub use validate::{Diagnostic, Severity, validate};
 mod actions;
 mod script;
-pub use actions::{Action, EVENT_TYPES, Route, element_ids, event_source, group_ids};
+pub use actions::{
+    Action, BEGIN, END, EVENT_TYPES, Route, element_ids, event_source, group_ids, handler_code,
+    handler_key, handler_offset, insert_code, merge_events,
+};
 pub use script::{generate, is_current, opener_source};
 
 pub const FORMAT: &str = "moonglow.nui/1";

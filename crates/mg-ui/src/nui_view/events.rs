@@ -1,4 +1,6 @@
-//! Contextual, transactional event authoring; all routes use stock NUI events.
+//! Event handlers. Each one is a section of the window's event script
+//! (`<name>_e.nss`), where you write what happens; the stock NUI event
+//! types decide when it runs.
 use super::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -9,227 +11,47 @@ pub(super) enum Target {
     Bind(String),
 }
 
+/// Opens the event script, at a handler, after adding code to it.
 #[derive(Clone)]
-pub(super) struct CodePreview {
-    generated: Result<String, String>,
-    scope: String,
-    module_source: bool,
+pub(super) struct EventScript {
+    /// The handlers, as they are this frame.
+    pub(super) settings: Settings,
+    pub(super) handler: Option<String>,
+    pub(super) code: Option<String>,
 }
 
-impl CodePreview {
-    pub(super) fn new(settings: &Settings, route: Option<usize>, scope: &str) -> Self {
-        let mut settings = settings.clone();
-        if let Some(i) = route {
-            settings.actions = settings.actions.get(i).cloned().into_iter().collect();
-        }
-        Self {
-            generated: mg_nui::event_source(&settings),
-            scope: scope.into(),
-            module_source: false,
-        }
-    }
-}
-
-/// Read-only inspection. Neither preview nor Copy builds or saves a resource.
-pub(super) fn code_preview(
-    ctx: &egui::Context,
-    app: &mut Moonglow,
-    name: &str,
-    preview: &mut Option<CodePreview>,
-) {
-    let Some(code) = preview.as_mut() else { return };
-    let key = ResKey::parse(&format!("{name}_e"), ResType::NSS);
-    let dirty = key.as_ref().and_then(|key| app.scripts.get(key)).filter(|b| b.is_dirty());
-    let actual = dirty
+/// Brings the event script up to date with the handlers (keeping what is
+/// written in them), adds any code asked for, and opens it in the script
+/// editor at the handler. A script written by hand opens as it is.
+pub(super) fn open_script(app: &mut Moonglow, name: &str, ask: EventScript) -> Option<Edit> {
+    let key = ResKey::parse(&format!("{name}_e"), ResType::NSS)?;
+    let current = app
+        .scripts
+        .get(&key)
         .map(|b| b.text.clone())
-        .or_else(|| app.ws.as_ref()?.module.get(key.as_ref()?).map(crate::text::decode));
-    let mut open = true;
-    let mut dismiss = false;
-    egui::Window::new(format!("Event script — {name}_e.nss"))
-        .id(egui::Id::new(("nui-event-code", name)))
-        .open(&mut open)
-        .default_size(egui::vec2(780.0, 480.0))
-        .show(ctx, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.selectable_value(&mut code.module_source, false, "Generated code");
-                ui.selectable_value(&mut code.module_source, true, "Module script");
-            });
-            let source = if code.module_source {
-                ui.label(if dirty.is_some() {
-                    "Full handler · unsaved changes from the script editor"
-                } else {
-                    "Full handler · current source in the module"
-                });
-                actual.as_deref().ok_or("No event script yet. Use Build & compile to create it.")
-            } else {
-                ui.label(&code.scope);
-                ui.label("Generated preview at the time of opening. Not saved or compiled.");
-                ui.weak("Module script shows the actual handler, including manual edits. Unsaved event drafts are included only when previewed from their form.");
-                code.generated.as_deref().map_err(String::as_str)
-            };
-            ui.horizontal_wrapped(|ui| {
-                if ui.add_enabled(source.is_ok(), egui::Button::new("Copy code")).clicked()
-                    && let Ok(text) = source
-                {
-                    ui.ctx().copy_text(text.to_owned());
-                }
-                if ui.add_enabled(actual.is_some(), egui::Button::new("Open in script editor")).clicked()
-                    && let Some(key) = key
-                {
-                    app.actions.push(Action::OpenTab(Tab::Script(key)));
-                    dismiss = true;
-                }
-                dismiss |= ui.button("Close preview").clicked();
-            });
-            ui.separator();
-            match source {
-                Ok(mut text) => {
-                    let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
-                    let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, _: f32| {
-                        let job = crate::script_view::highlight(text.as_str(), &palette);
-                        ui.fonts_mut(|fonts| fonts.layout_job(job))
-                    };
-                    egui::ScrollArea::both().id_salt(("event-code", code.module_source)).show(ui, |ui| {
-                        ui.add(egui::TextEdit::multiline(&mut text)
-                            .code_editor()
-                            .layouter(&mut layouter)
-                            .desired_width(f32::INFINITY)
-                            .desired_rows(22));
-                    });
-                }
-                Err(error) => { ui.label(error); }
-            }
-        });
-    if !open || dismiss {
-        *preview = None;
+        .or_else(|| app.ws.as_ref()?.module.get(&key).map(crate::text::decode));
+    let ours = current.as_deref().is_none_or(|t| t.contains(mg_nui::BEGIN.trim_end()));
+    let mut text = match &current {
+        Some(text) if !ours => text.clone(),
+        _ => mg_nui::merge_events(&ask.settings, current.as_deref()).ok()?,
+    };
+    if let (Some(handler), Some(code)) = (&ask.handler, &ask.code)
+        && let Some(with) = mg_nui::insert_code(&text, handler, code)
+    {
+        text = with;
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn draft(doc: &Value, s: &Settings, target: Target) -> Draft {
-        Draft {
-            event: choices(&target)[0].into(),
-            target: Some(target),
-            action: Some(mg_nui::Action::Close),
-            index: None,
-            base: s.clone(),
-            staged: s.clone(),
-            doc: doc.clone(),
-        }
+    let jump = ask.handler.as_deref().and_then(|h| mg_nui::handler_offset(&text, h));
+    app.script_tools.jump = Some((key, jump.unwrap_or(0)));
+    app.actions.push(Action::OpenTab(Tab::Script(key)));
+    if current.as_deref() == Some(text.as_str()) {
+        return None;
     }
-
-    #[test]
-    fn event_code_preview_selects_one_route_without_changing_settings() {
-        let s = Settings {
-            actions: vec![
-                mg_nui::Route {
-                    event: "click".into(),
-                    element: "close_button".into(),
-                    action: mg_nui::Action::Close,
-                },
-                mg_nui::Route {
-                    event: "click".into(),
-                    element: "toggle_button".into(),
-                    action: mg_nui::Action::Toggle { bind: "checked".into() },
-                },
-            ],
-            ..Default::default()
-        };
-        let before = s.clone();
-        let code = CodePreview::new(&s, Some(1), "Selected").generated.unwrap();
-        assert!(code.contains("NuiSetBind"));
-        assert!(!code.contains("NuiDestroy"));
-        assert_eq!(
-            CodePreview::new(&s, None, "All").generated.unwrap(),
-            mg_nui::event_source(&s).unwrap()
-        );
-        assert_eq!(s, before);
+    // Unsaved work in an open editor stays there; otherwise the module changes.
+    if let Some(buf) = app.scripts.get_mut(&key).filter(|b| b.is_dirty()) {
+        buf.text = text;
+        return None;
     }
-
-    #[test]
-    fn event_targets_expose_ten_native_events_without_mixing_watch_and_window() {
-        assert_eq!(choices(&Target::Window), ["open", "close"]);
-        assert_eq!(choices(&Target::Bind("value".into())), ["watch"]);
-        let control = choices(&Target::Id("button".into()));
-        assert_eq!(control.len(), 7);
-        for e in
-            control.iter().chain(choices(&Target::Window)).chain(choices(&Target::Bind("v".into())))
-        {
-            assert_ne!(label(e), *e);
-        }
-    }
-
-    #[test]
-    fn event_candidate_assigns_unique_id_only_on_save_and_rejects_stale_or_duplicate() {
-        let doc = json!({"root":{"type":"col", "children":[
-            {"type":"button", "label":"Run"},
-            {"type":"button", "label":"Other", "id":"button_event"}
-        ]}});
-        let s = Settings::default();
-        let mut d = draft(&doc, &s, Target::Control("/root/children/0".into()));
-        let state = State::default();
-        let (saved, settings) = candidate(&d, &doc, &s, &state).unwrap();
-        assert!(doc["root"]["children"][0].get("id").is_none());
-        assert_eq!(saved["root"]["children"][0]["id"], "button_event_2");
-        assert_eq!(settings.actions[0].element, "button_event_2");
-        assert!(candidate(&d, &saved, &s, &state).unwrap_err().contains("document changed"));
-        d = draft(&saved, &settings, Target::Control("/root/children/0".into()));
-        assert!(candidate(&d, &saved, &settings, &state).unwrap_err().contains("Duplicate"));
-        d.index = Some(0);
-        assert!(candidate(&d, &saved, &settings, &state).is_ok());
-        d.action = None;
-        assert!(candidate(&d, &saved, &settings, &state).is_err());
-    }
-
-    #[test]
-    fn event_candidate_validates_watch_cycles_and_alternate_layout_ids() {
-        let doc = mg_nui::window();
-        let mut s = Settings::default();
-        s.bindings.insert(
-            "checked".into(),
-            mg_nui::Binding { value: json!(false), ..Default::default() },
-        );
-        let mut d = draft(&doc, &s, Target::Bind("checked".into()));
-        d.action = Some(mg_nui::Action::Toggle { bind: "checked".into() });
-        assert!(candidate(&d, &doc, &s, &State::default()).is_err());
-        let alt = json!({"root":{"type":"button", "label":"Alternate"}});
-        s.views.insert("alternate".into(), alt["root"].clone());
-        let state = State {
-            main_doc: Some(doc),
-            edit_view: Some("alternate".into()),
-            ..Default::default()
-        };
-        let d = draft(&alt, &s, Target::Control("/root".into()));
-        let (saved, result) = candidate(&d, &alt, &s, &state).unwrap();
-        assert_eq!(result.views["alternate"], saved["root"]);
-        assert_eq!(result.actions[0].element, saved["root"]["id"].as_str().unwrap());
-    }
-
-    #[test]
-    fn layout_event_requires_explicit_existing_group_or_whole_window() {
-        let doc = mg_nui::window();
-        let mut s = Settings::default();
-        s.views.insert("details".into(), mg_nui::template("col"));
-        let mut d = draft(&doc, &s, Target::Window);
-        d.action = Some(mg_nui::Action::View { group: String::new(), view: "details".into() });
-        assert!(candidate(&d, &doc, &s, &State::default()).is_err());
-        d.action = Some(mg_nui::Action::View { group: "_window_".into(), view: "details".into() });
-        assert!(candidate(&d, &doc, &s, &State::default()).is_ok());
-    }
-}
-
-#[derive(Clone)]
-struct Draft {
-    target: Option<Target>,
-    event: String,
-    action: Option<mg_nui::Action>,
-    index: Option<usize>,
-    base: Settings,
-    staged: Settings,
-    doc: Value,
+    Some(Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
 }
 
 fn label(event: &str) -> &str {
@@ -250,29 +72,63 @@ fn label(event: &str) -> &str {
 
 fn explanation(event: &str) -> &str {
     match event {
-        "click" => {
-            "Runs when this button is clicked. A label or list cell sends only Mouse pressed and released."
-        }
-        "open" => "Runs when the window opens. No control ID is needed.",
+        "click" => "Runs when the button is clicked.",
+        "open" => "Runs when the window opens.",
         "close" => {
-            "Runs when the player closes the window with its X. Closing it from a script (the Close window action) does not send it."
+            "Runs when the player closes the window with its X. Closing it from a script does not send it."
         }
         "watch" => {
-            "Runs when the bind value changes, from the player or a script setting it (at once, inside that script). Watching is enabled automatically on build."
+            "Runs when the value changes, from the player or from a script setting it (at once, inside that script). sElement is the bind's name."
         }
-        "focus" | "blur" => "A text input sends these when it gains or loses the keyboard.",
-        "range" => {
-            "A list sends the rows in view (payload a to z) when they change by scrolling, and when the window opens."
-        }
-        _ => "Native mouse event. Availability depends on the control and game client.",
+        "focus" | "blur" => "Runs when the text input gains or loses the keyboard.",
+        "range" => "Runs when the rows in view change (scrolling, and when the window opens).",
+        _ => "Runs on the mouse over this control; NuiGetEventPayload has the button and position.",
     }
 }
 
-fn choices(target: &Target) -> &'static [&'static str] {
+/// The node an element ID names, in the window or one of its layouts.
+fn node_by_id<'a>(doc: &'a Value, s: &'a Settings, id: &str) -> Option<&'a Value> {
+    fn find<'a>(v: &'a Value, id: &str) -> Option<&'a Value> {
+        match v {
+            Value::Object(o) if o.get("id").and_then(Value::as_str) == Some(id) => Some(v),
+            Value::Object(o) => o.values().find_map(|v| find(v, id)),
+            Value::Array(a) => a.iter().find_map(|v| find(v, id)),
+            _ => None,
+        }
+    }
+    find(doc, id).or_else(|| s.views.values().find_map(|v| find(v, id)))
+}
+
+fn node<'a>(target: &Target, doc: &'a Value, s: &'a Settings) -> Option<&'a Value> {
     match target {
-        Target::Window => &["open", "close"],
-        Target::Bind(_) => &["watch"],
-        _ => &["click", "mousedown", "mouseup", "mousescroll", "focus", "blur", "range"],
+        Target::Control(path) => doc.pointer(path),
+        Target::Id(id) => node_by_id(doc, s, id),
+        _ => None,
+    }
+}
+
+/// The events a target sends in NWN EE 8193.37: a button's click, a text
+/// input's focus, a list's range, the mouse over any control, and a value's
+/// change for a control whose value is bound.
+fn choices(target: &Target, doc: &Value, s: &Settings) -> Vec<&'static str> {
+    match target {
+        Target::Window => vec!["open", "close"],
+        Target::Bind(_) => vec!["watch"],
+        _ => {
+            let node = node(target, doc, s);
+            let mut events = Vec::new();
+            if node.is_some_and(|n| n["value"]["bind"].is_string()) {
+                events.push("watch");
+            }
+            match node.and_then(|n| n["type"].as_str()) {
+                Some("button" | "button_image" | "button_select") => events.push("click"),
+                Some("textedit") => events.extend(["focus", "blur"]),
+                Some("list") => events.push("range"),
+                _ => {}
+            }
+            events.extend(["mousedown", "mouseup", "mousescroll"]);
+            events
+        }
     }
 }
 
@@ -284,12 +140,36 @@ fn route_target(route: &mg_nui::Route) -> Target {
     }
 }
 
-fn element(target: &Target, doc: &Value) -> String {
+/// The element a new handler of this target names: the bind for a value's
+/// change, else the control's ID (one made up for it if it has none).
+fn element(target: &Target, event: &str, doc: &mut Value, s: &Settings, state: &State) -> String {
+    if event == "watch"
+        && let Some(bind) = node(target, doc, s).and_then(|n| n["value"]["bind"].as_str())
+    {
+        return bind.into();
+    }
     match target {
         Target::Window => String::new(),
         Target::Id(n) | Target::Bind(n) => n.clone(),
         Target::Control(path) => {
-            doc.pointer(path).and_then(|n| n["id"].as_str()).unwrap_or_default().into()
+            let Some(node) = doc.pointer(path) else { return String::new() };
+            if let Some(id) = node["id"].as_str() {
+                return id.into();
+            }
+            let base = format!("{}_event", node["type"].as_str().unwrap_or("control"));
+            let mut ids = mg_nui::element_ids(state.main_doc.as_ref().unwrap_or(doc));
+            ids.extend(mg_nui::element_ids(doc));
+            for v in s.views.values() {
+                ids.extend(mg_nui::element_ids(v));
+            }
+            let mut id = base.clone();
+            let mut n = 2;
+            while ids.contains(&id) {
+                id = format!("{base}_{n}");
+                n += 1;
+            }
+            doc.pointer_mut(path).unwrap()["id"] = json!(id);
+            id
         }
     }
 }
@@ -303,141 +183,40 @@ fn target_name(target: &Target, doc: &Value) -> String {
     }
 }
 
-fn action_name(action: &mg_nui::Action) -> String {
-    match action {
-        mg_nui::Action::Close => "Close window".into(),
-        mg_nui::Action::Toggle { bind } => format!("Toggle {bind}"),
-        mg_nui::Action::Set { bind, .. } => format!("Set {bind}"),
-        mg_nui::Action::View { group, view } => {
-            format!("Show {view} in {}", if group == "_window_" { "whole window" } else { group })
+/// Ready-made code to add to a handler: what the old actions did.
+fn insert_menu(ui: &mut Ui, route: &mg_nui::Route, s: &Settings) -> Option<String> {
+    let with = |action| mg_nui::handler_code(&mg_nui::Route { action, ..route.clone() }, s).ok();
+    let mut code = None;
+    ui.menu_button("Insert…", |ui| {
+        if ui.button("Close window").clicked() {
+            code = with(mg_nui::Action::Close);
         }
-    }
-}
-
-fn action_editor(ui: &mut Ui, draft: &mut Draft, doc: &Value, state: &mut State) {
-    ui.strong("Then");
-    let mut kind = match draft.action {
-        None => 0,
-        Some(mg_nui::Action::Close) => 1,
-        Some(mg_nui::Action::Set { .. }) => 2,
-        Some(mg_nui::Action::Toggle { .. }) => 3,
-        Some(mg_nui::Action::View { .. }) => 4,
-    };
-    let old = kind;
-    let names =
-        ["Choose action…", "Close window", "Set bind value", "Toggle bind", "Replace group layout"];
-    egui::ComboBox::from_id_salt("event-action")
-        .selected_text(names[kind])
-        .width(ui.available_width().clamp(0.0, 320.0))
-        .show_ui(ui, |ui| {
-            for (i, name) in names.iter().enumerate().skip(1) {
-                ui.selectable_value(&mut kind, i, *name);
+        ui.menu_button("Set bind", |ui| {
+            for (bind, b) in &s.bindings {
+                if ui.button(bind).clicked() {
+                    code = with(mg_nui::Action::Set { bind: bind.clone(), value: b.value.clone() });
+                }
             }
         });
-    if kind != old {
-        draft.action = Some(match kind {
-            2 => mg_nui::Action::Set { bind: String::new(), value: Value::Null },
-            3 => mg_nui::Action::Toggle { bind: String::new() },
-            4 => mg_nui::Action::View { group: String::new(), view: String::new() },
-            _ => mg_nui::Action::Close,
+        ui.menu_button("Toggle bind", |ui| {
+            for (bind, b) in &s.bindings {
+                let flag = b.value.is_boolean()
+                    || b.value.as_array().is_some_and(|a| a.iter().all(Value::is_boolean));
+                if flag && ui.button(bind).clicked() {
+                    code = with(mg_nui::Action::Toggle { bind: bind.clone() });
+                }
+            }
         });
-    }
-    let excluded =
-        if let Some(Target::Bind(name)) = &draft.target { Some(name.as_str()) } else { None };
-    match &mut draft.action {
-        Some(mg_nui::Action::Set { bind, value }) => {
-            if workflow::bind_select(
-                ui,
-                "Target bind",
-                bind,
-                &mut draft.staged.bindings,
-                false,
-                excluded,
-            ) && let Some(b) = draft.staged.bindings.get(bind)
-            {
-                *value = b.value.clone();
+        ui.menu_button("Show layout", |ui| {
+            for view in s.views.keys() {
+                if ui.button(view).clicked() {
+                    let group = layouts::target_for(s, view).unwrap_or_else(|| "_window_".into());
+                    code = with(mg_nui::Action::View { group, view: view.clone() });
+                }
             }
-            if draft.staged.bindings.contains_key(bind) {
-                ui.label("Set to");
-                fields::value(ui, value, 0);
-            }
-        }
-        Some(mg_nui::Action::Toggle { bind }) => {
-            workflow::bind_select(
-                ui,
-                "Target bind",
-                bind,
-                &mut draft.staged.bindings,
-                true,
-                excluded,
-            );
-        }
-        Some(mg_nui::Action::View { group, view }) => {
-            layouts::target_editor_draft(ui, doc, &mut draft.staged, state, group, view);
-        }
-        Some(mg_nui::Action::Close) => {
-            ui.weak("Closes this NUI window.");
-        }
-        None => {}
-    }
-}
-
-fn candidate(
-    draft: &Draft,
-    doc: &Value,
-    s: &Settings,
-    state: &State,
-) -> Result<(Value, Settings), String> {
-    if &draft.base != s || &draft.doc != doc {
-        return Err(
-            "The document changed. Cancel and reopen this event to keep those changes.".into()
-        );
-    }
-    let target = draft.target.as_ref().ok_or("Choose who receives this event.")?;
-    let action = draft.action.clone().ok_or("Choose what this event should do.")?;
-    if !choices(target).contains(&draft.event.as_str()) {
-        return Err("Choose an event for this target.".into());
-    }
-    let mut doc = doc.clone();
-    let mut element = element(target, &doc);
-    if let Target::Control(path) = target {
-        let node = doc.pointer(path).ok_or("This control no longer exists.")?;
-        if element.is_empty() {
-            let base = format!("{}_event", node["type"].as_str().unwrap_or("control"));
-            let mut ids = mg_nui::element_ids(state.main_doc.as_ref().unwrap_or(&doc));
-            ids.extend(mg_nui::element_ids(&doc));
-            for v in draft.staged.views.values() {
-                ids.extend(mg_nui::element_ids(v));
-            }
-            element = base.clone();
-            let mut n = 2;
-            while ids.contains(&element) {
-                element = format!("{base}_{n}");
-                n += 1;
-            }
-            doc.pointer_mut(path).unwrap()["id"] = json!(element);
-        }
-    }
-    let route = mg_nui::Route { event: draft.event.clone(), element, action };
-    let mut result = draft.staged.clone();
-    if let Some(i) = draft.index {
-        result.actions[i] = route;
-    } else {
-        result.actions.push(route);
-    }
-    let validation_doc = if let Some(view) = &state.edit_view {
-        result.views.insert(view.clone(), doc["root"].clone());
-        state.main_doc.as_ref().unwrap_or(&doc)
-    } else {
-        &doc
-    };
-    if let Some(error) = mg_nui::validate(validation_doc, &result)
-        .into_iter()
-        .find(|d| d.severity == Severity::Error && d.path == "/actions")
-    {
-        return Err(error.message);
-    }
-    Ok((doc, result))
+        });
+    });
+    code
 }
 
 pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &mut State) {
@@ -460,190 +239,168 @@ pub(super) fn editor(
     scope: Option<Target>,
 ) {
     ui.push_id(("events", format!("{:?}", scope), &state.edit_view.clone()), |ui| {
-        let draft_id = ui.make_persistent_id("draft");
-        let mut draft = ui.ctx().data_mut(|d| d.get_temp::<Draft>(draft_id));
-        let indices: Vec<_> = s
-            .actions
-            .iter()
-            .enumerate()
-            .filter(|(_, r)| {
-                scope.as_ref().is_none_or(|t| match t {
-                    Target::Control(_) => {
-                        !element(t, doc).is_empty()
-                            && !matches!(r.event.as_str(), "open" | "close" | "watch")
-                            && r.element == element(t, doc)
-                    }
-                    _ => route_target(r) == *t,
-                })
-            })
-            .map(|(i, _)| i)
-            .collect();
         if scope.is_none() {
-            ui.heading("Events & actions");
+            ui.heading("Events");
+            ui.weak("Each event you handle is a section of the event script, where you write what it does.");
         }
-        if draft.is_none() {
-            if indices.is_empty() {
-                ui.weak("No events yet.");
+        let shown = |r: &mg_nui::Route, doc: &Value| match &scope {
+            None => true,
+            Some(Target::Control(path)) => {
+                let node = doc.pointer(path);
+                let id = node.and_then(|n| n["id"].as_str());
+                let bind = node.and_then(|n| n["value"]["bind"].as_str());
+                (r.event == "watch" && bind == Some(r.element.as_str()))
+                    || (!matches!(r.event.as_str(), "open" | "close" | "watch")
+                        && id == Some(r.element.as_str()))
             }
-            for i in indices {
-                let route = s.actions[i].clone();
-                ui.push_id(i, |ui| {
-                    egui::Frame::group(ui.style()).show(ui, |ui| {
-                        ui.strong(label(&route.event));
-                        if scope.is_none() {
-                            ui.label(target_name(&route_target(&route), doc));
-                        }
-                        ui.label(action_name(&route.action));
-                        ui.horizontal_wrapped(|ui| {
-                            if ui.button("Preview code").clicked() {
-                                state.event_code = Some(CodePreview::new(
-                                    s,
-                                    Some(i),
-                                    &format!(
-                                        "{} · {} · selected event only",
-                                        label(&route.event),
-                                        target_name(&route_target(&route), doc)
-                                    ),
-                                ));
-                            }
-                            if ui.button("Edit event").clicked() {
-                                draft = Some(Draft {
-                                    target: Some(
-                                        scope.clone().unwrap_or_else(|| route_target(&route)),
-                                    ),
-                                    event: route.event.clone(),
-                                    action: Some(route.action.clone()),
-                                    index: Some(i),
-                                    base: s.clone(),
-                                    staged: s.clone(),
-                                    doc: doc.clone(),
-                                });
-                            }
-                            if ui.button("Remove event").clicked() {
-                                // Defer deletion so the other row indices remain valid this frame.
-                                ui.ctx().data_mut(|d| d.insert_temp(draft_id.with("remove"), i));
-                            }
-                        });
-                        if let mg_nui::Action::View { group, view } = &route.action
-                            && s.views.contains_key(view)
-                            && ui.button("Edit layout on canvas").clicked()
-                        {
-                            state.layout_target = group.clone();
-                            layouts::edit(state, Some(view.clone()));
-                        }
-                    })
-                });
-            }
-            if ui.button("+ Add event").clicked() {
-                draft = Some(Draft {
-                    event: scope.as_ref().map_or("click", |t| choices(t)[0]).into(),
-                    target: scope.clone(),
-                    action: None,
-                    index: None,
-                    base: s.clone(),
-                    staged: s.clone(),
-                    doc: doc.clone(),
-                });
-            }
-        }
-        let mut finish = false;
-        if let Some(draft) = draft.as_mut() {
-            egui::Frame::group(ui.style()).show(ui, |ui| {
-                ui.strong(if draft.index.is_some() { "Edit event" } else { "New event" });
-                if scope.is_none() {
-                    ui.label("For");
-                    let mut target = draft.target.clone();
-                    egui::ComboBox::from_id_salt("event-target")
-                        .selected_text(
-                            target
-                                .as_ref()
-                                .map_or("Choose target…".into(), |t| target_name(t, doc)),
-                        )
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut target, Some(Target::Window), "Window");
-                            let mut ids = mg_nui::element_ids(doc);
-                            for v in s.views.values() {
-                                ids.extend(mg_nui::element_ids(v));
-                            }
-                            for id in ids {
-                                ui.selectable_value(
-                                    &mut target,
-                                    Some(Target::Id(id.clone())),
-                                    format!("Control: {id}"),
-                                );
-                            }
-                            for name in s.bindings.keys() {
-                                ui.selectable_value(
-                                    &mut target,
-                                    Some(Target::Bind(name.clone())),
-                                    format!("Bind: {name}"),
-                                );
-                            }
-                        });
-                    if target != draft.target {
-                        draft.event = target.as_ref().map_or("click", |t| choices(t)[0]).into();
-                        draft.target = target;
-                    }
-                    ui.weak("You can also select a control in Design to add its event directly.");
-                } else if let Some(scope) = &scope {
-                    ui.label(target_name(scope, doc));
-                }
-                if let Some(target) = &draft.target {
-                    ui.strong("When");
-                    egui::ComboBox::from_id_salt("event-trigger")
-                        .selected_text(label(&draft.event))
-                        .width(ui.available_width().clamp(0.0, 320.0))
-                        .show_ui(ui, |ui| {
-                            for name in choices(target) {
-                                ui.selectable_value(&mut draft.event, (*name).into(), label(name));
-                            }
-                        });
-                    ui.weak(explanation(&draft.event));
-                    action_editor(ui, draft, doc, state);
-                }
-                let result = candidate(draft, doc, s, state);
-                if let Err(error) = &result {
-                    ui.weak(error);
-                }
+            Some(t) => route_target(r) == *t,
+        };
+        let mut remove = None;
+        for (i, route) in s.actions.clone().iter().enumerate().filter(|(_, r)| shown(r, doc)) {
+            ui.push_id(i, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    if ui.add_enabled(result.is_ok(), egui::Button::new("Preview code")).clicked()
-                        && let Ok((_, settings)) = &result
-                    {
-                        let index = draft.index.unwrap_or(settings.actions.len() - 1);
-                        state.event_code = Some(CodePreview::new(
-                            settings,
-                            Some(index),
-                            "Unsaved event draft · selected event only",
-                        ));
-                    }
-                    if ui.add_enabled(result.is_ok(), egui::Button::new("Save event")).clicked()
-                        && let Ok((new_doc, settings)) = result
-                    {
-                        *doc = new_doc;
-                        *s = settings;
-                        finish = true;
-                    }
-                    if ui.button("Cancel event").clicked() {
-                        finish = true;
+                    ui.strong(label(&route.event));
+                    if scope.is_none() || route.event == "watch" {
+                        ui.weak(target_name(&route_target(route), doc));
                     }
                 });
-                ui.weak("New binds and layouts are saved together with this event.");
+                ui.horizontal_wrapped(|ui| {
+                    let handler = mg_nui::handler_key(route);
+                    if ui.button("Edit code").on_hover_text("Open the event script here").clicked() {
+                        state.event_script = Some(EventScript {
+                            settings: s.clone(),
+                            handler: Some(handler.clone()),
+                            code: None,
+                        });
+                    }
+                    if let Some(code) = insert_menu(ui, route, s) {
+                        state.event_script =
+                            Some(EventScript { settings: s.clone(), handler: Some(handler), code: Some(code) });
+                    }
+                    if ui.button("Remove").on_hover_text("What you wrote for it stays in the script, commented out").clicked() {
+                        remove = Some(i);
+                    }
+                });
             });
         }
-        if let Some(i) = ui.ctx().data_mut(|d| d.remove_temp::<usize>(draft_id.with("remove")))
-            && i < s.actions.len()
-        {
+        if let Some(i) = remove {
             s.actions.remove(i);
         }
-        ui.ctx().data_mut(|d| {
-            if finish {
-                d.remove::<Draft>(draft_id);
-            } else if let Some(draft) = draft {
-                d.insert_temp(draft_id, draft);
+        // Adding a handler: who sends the event, and which one.
+        let add_id = ui.make_persistent_id("add");
+        let (mut target, mut event) = ui
+            .ctx()
+            .data_mut(|d| d.get_temp::<(Option<Target>, String)>(add_id))
+            .unwrap_or_default();
+        if scope.is_some() {
+            target = scope.clone();
+        }
+        ui.horizontal_wrapped(|ui| {
+            if scope.is_none() {
+                egui::ComboBox::from_id_salt("event-target")
+                    .selected_text(target.as_ref().map_or("Choose…".into(), |t| target_name(t, doc)))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut target, Some(Target::Window), "Window");
+                        let mut ids = mg_nui::element_ids(doc);
+                        for v in s.views.values() {
+                            ids.extend(mg_nui::element_ids(v));
+                        }
+                        for id in ids {
+                            ui.selectable_value(&mut target, Some(Target::Id(id.clone())), format!("Control: {id}"));
+                        }
+                        for name in s.bindings.keys() {
+                            ui.selectable_value(&mut target, Some(Target::Bind(name.clone())), format!("Bind: {name}"));
+                        }
+                    });
+            }
+            let Some(t) = &target else { return };
+            // Only events not handled yet.
+            let free: Vec<_> = choices(t, doc, s)
+                .into_iter()
+                .filter(|e| {
+                    let element = match (t, *e) {
+                        (Target::Window, _) => String::new(),
+                        (_, "watch") => node(t, doc, s)
+                            .and_then(|n| n["value"]["bind"].as_str())
+                            .map_or_else(|| if let Target::Bind(b) = t { b.clone() } else { String::new() }, Into::into),
+                        (Target::Control(p), _) => doc.pointer(p).and_then(|n| n["id"].as_str()).unwrap_or_default().into(),
+                        (Target::Id(id) | Target::Bind(id), _) => id.clone(),
+                    };
+                    let key = mg_nui::handler_key(&mg_nui::Route {
+                        event: (*e).into(),
+                        element,
+                        action: mg_nui::Action::Code,
+                    });
+                    !s.actions.iter().any(|r| mg_nui::handler_key(r) == key)
+                })
+                .collect();
+            if free.is_empty() {
+                ui.weak("Every event it sends is handled.");
+                return;
+            }
+            if !free.contains(&event.as_str()) {
+                event = free[0].into();
+            }
+            egui::ComboBox::from_id_salt("event-type")
+                .selected_text(label(&event))
+                .show_ui(ui, |ui| {
+                    for e in &free {
+                        ui.selectable_value(&mut event, (*e).into(), label(e)).on_hover_text(explanation(e));
+                    }
+                });
+            if ui.button("+ Add handler").on_hover_text(explanation(&event)).clicked() {
+                let element = element(t, &event, doc, s, state);
+                s.actions.push(mg_nui::Route { event: event.clone(), element, action: mg_nui::Action::Code });
             }
         });
-        if finish {
-            ui.ctx().request_repaint();
+        if scope.as_ref().is_some_and(|t| matches!(t, Target::Control(_)))
+            && node(scope.as_ref().unwrap(), doc, s).is_some_and(|n| !n["value"]["bind"].is_string() && n.get("value").is_some_and(|v| !v.is_null()))
+        {
+            ui.weak("Bind its value to react when it changes.");
         }
+        ui.ctx().data_mut(|d| d.insert_temp(add_id, (target, event)));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn controls_offer_the_events_the_client_sends() {
+        let doc = json!({"root":{"type":"col","children":[
+            {"type":"button","id":"b"},
+            {"type":"check","id":"c","value":{"bind":"on"}},
+            {"type":"check","id":"fixed","value":false},
+            {"type":"textedit","id":"t"},
+            {"type":"list","id":"l"}]}});
+        let s = Settings::default();
+        let of = |id: &str| choices(&Target::Id(id.into()), &doc, &s);
+        assert_eq!(of("b")[0], "click");
+        assert_eq!(of("c")[0], "watch");
+        assert!(!of("c").contains(&"click"), "a check box sends no click");
+        assert!(!of("fixed").contains(&"watch"), "nothing to watch without a bind");
+        assert!(of("t").contains(&"focus") && of("t").contains(&"blur"));
+        assert!(of("l").contains(&"range"));
+        assert!(!of("b").contains(&"range"));
+        assert_eq!(choices(&Target::Window, &doc, &s), ["open", "close"]);
+        for e in mg_nui::EVENT_TYPES {
+            assert_ne!(label(e), *e);
+        }
+    }
+
+    #[test]
+    fn a_value_change_watches_the_controls_bind_and_ids_are_made_when_needed() {
+        let mut doc = json!({"root":{"type":"col","children":[
+            {"type":"slider","value":{"bind":"volume"}},
+            {"type":"button","label":"Run"},
+            {"type":"button","id":"button_event"}]}});
+        let s = Settings::default();
+        let state = State::default();
+        let slider = Target::Control("/root/children/0".into());
+        assert_eq!(element(&slider, "watch", &mut doc, &s, &state), "volume");
+        let button = Target::Control("/root/children/1".into());
+        assert_eq!(element(&button, "click", &mut doc, &s, &state), "button_event_2");
+        assert_eq!(doc["root"]["children"][1]["id"], "button_event_2");
+    }
 }

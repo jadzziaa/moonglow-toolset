@@ -54,7 +54,7 @@ struct State {
     layout_groups: std::collections::BTreeSet<String>,
     main_doc: Option<Value>,
     binding_selected: String,
-    event_code: Option<events::CodePreview>,
+    event_script: Option<events::EventScript>,
     binding_property: String,
     asset_search: String,
     screen_preview: bool,
@@ -304,8 +304,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 if ui.add_enabled(settings.is_ok(), egui::Button::new("Event script…")).clicked()
                     && let Ok(s) = &settings
                 {
-                    state.event_code =
-                        Some(events::CodePreview::new(s, None, "All configured events"));
+                    state.event_script = Some(events::EventScript {
+                        settings: s.clone(),
+                        handler: None,
+                        code: None,
+                    });
                 }
                 if state.page == 0 {
                     egui::ComboBox::from_id_salt("nui-layout-mode")
@@ -361,9 +364,9 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             }
             for d in &findings {
                 ui.label(format!("{:?} {}: {}", d.severity, d.path, d.message));
-                if d.message.starts_with("The mg_close button has no Clicked event")
+                if d.message.starts_with("The mg_close button has no Clicked handler")
                     && let Ok(s) = &settings
-                    && ui.small_button("Add Clicked → Close window").clicked()
+                    && ui.small_button("Add Close handler").clicked()
                 {
                     let mut s = s.clone();
                     s.actions.push(mg_nui::Route {
@@ -524,8 +527,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             }
         }
     }
-    events::code_preview(ui.ctx(), app, &name, &mut state.event_code);
     let mut edits = Vec::new();
+    if let Some(ask) = state.event_script.take()
+        && let Some(edit) = events::open_script(app, &name, ask)
+    {
+        edits.push(edit);
+    }
     if raw != original {
         edits.push(Edit::SetResource { key, data: Some(raw.into_bytes()) });
     }
@@ -1319,13 +1326,8 @@ mod tests {
             keyboard_document(&h)["root"]["children"][0]["value"],
             json!({"bind":"label_value"})
         );
-        h.get_all_by_label("+ Add event").last().unwrap().click();
-        h.run();
-        h.get_by_value("Choose action…").click();
-        h.run();
-        h.get_by_label("Close window").click();
-        h.run();
-        h.get_by_label("Save event").click();
+        // A bound value offers its change first.
+        h.get_all_by_label("+ Add handler").last().unwrap().click();
         h.run();
         let read = |h: &Harness<'_, Moonglow>| {
             Settings::parse(
@@ -1342,7 +1344,7 @@ mod tests {
         assert_eq!(read(&h).bindings["label_value"].value, json!("Label"));
         assert!(read(&h).actions.iter().any(|r| r.event == "watch"
             && r.element == "label_value"
-            && r.action == mg_nui::Action::Close));
+            && r.action == mg_nui::Action::Code));
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         h.run();
         assert!(!read(&h).actions.iter().any(|r| r.event == "watch"));
@@ -1420,107 +1422,44 @@ mod tests {
     }
 
     #[test]
-    fn nui_event_code_preview_opens_again_after_closing() {
+    fn nui_handlers_are_sections_of_the_event_script_opened_at_their_code() {
         let mut h = keyboard_harness();
         h.run();
-        h.get_by_label("Canvas Button · Close").click();
-        h.run();
-        for close in ["Close preview", "×"] {
-            h.get_by_label("Preview code").click();
-            h.run();
-            assert!(
-                h.query_by_label("Clicked · Control: mg_close · selected event only").is_some(),
-                "reopened after {close}"
-            );
-            if close == "×" {
-                let window = h.get_by_label_contains("Event script — ").rect();
-                h.hover_at(window.right_top() + egui::vec2(-12.0, 12.0));
-                h.run();
-                h.get_all_by_role(egui::accesskit::Role::Button)
-                    .find(|b| b.rect().contains(window.right_top() + egui::vec2(-12.0, 12.0)))
-                    .expect("close button")
-                    .click();
-            } else {
-                h.get_by_label(close).click();
-            }
-            h.run();
-            assert!(h.query_by_label("Close preview").is_none(), "{close} closes it");
-        }
-        h.get_by_label("Preview code").click();
-        h.run();
-        assert!(h.query_by_label("Close preview").is_some(), "opens a third time");
-    }
-
-    #[test]
-    fn nui_event_code_preview_is_read_only_and_distinguishes_module_source() {
-        let mut h = keyboard_harness();
-        h.run();
-        let before = keyboard_document(&h);
-        let settings_key = mg_nui::key("nui_test", ResType::TXT);
-        let before_settings =
-            h.state().ws.as_ref().unwrap().module.get(&settings_key).unwrap().to_vec();
-        h.get_by_label("Canvas Button · Close").click();
-        h.run();
-        h.get_by_label("Preview code").click();
-        h.run();
-        assert!(h.query_by_label("Clicked · Control: mg_close · selected event only").is_some());
-        let generated = mg_nui::event_source(&Settings::parse(&before_settings).unwrap()).unwrap();
-        assert!(h.query_by_value(&generated).is_some());
-        h.get_by_label("Module script").click();
-        h.run();
-        assert!(
-            h.query_by_label("No event script yet. Use Build & compile to create it.").is_some()
-        );
         let script_key = mg_nui::key("nui_test_e", ResType::NSS);
-        assert!(!h.state().ws.as_ref().unwrap().module.contains(&script_key));
-        h.get_by_label("Close preview").click();
+        let script = |h: &Harness<'_, Moonglow>| {
+            crate::text::decode(h.state().ws.as_ref().unwrap().module.get(&script_key).unwrap())
+        };
+        h.get_by_label("Canvas Button · Close").click();
         h.run();
-        h.get_by_label("Edit event").click();
+        // Edit code writes the handlers' sections and opens the script at this one.
+        h.get_by_label("Edit code").click();
         h.run();
-        h.get_by_label("Preview code").click();
+        let text = script(&h);
+        assert!(text.contains("// mg:begin click mg_close"));
+        assert!(h.state().dock.find_tab(&Tab::Script(script_key)).is_some());
+        let at = mg_nui::handler_offset(&text, "click mg_close").unwrap();
+        assert!(h.state().script_tools.jump.is_none_or(|(k, i)| k == script_key && i == at));
+        // Insert adds ready-made code to the handler, after what is there.
+        h.get_by_label("Insert…").click();
         h.run();
-        assert!(h.query_by_label("Unsaved event draft · selected event only").is_some());
-        h.get_by_label("Close preview").click();
+        h.get_by_label("Close window").click();
         h.run();
-        h.get_by_label("Cancel event").click();
+        assert_eq!(script(&h).matches("NuiDestroy(oPlayer, nToken);").count(), 2);
+        // Event script… opens the whole script; Undo takes the insert back.
+        h.get_by_label("Event script…").click();
         h.run();
+        assert_eq!(script(&h).matches("NuiDestroy(oPlayer, nToken);").count(), 2);
+        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
+        h.run();
+        assert_eq!(script(&h).matches("NuiDestroy(oPlayer, nToken);").count(), 1);
+        // A script written by hand opens as it is.
         let manual = "// Manually authored handler\nvoid main() {}";
         h.state_mut().ws.as_mut().unwrap().module.set(script_key, manual.as_bytes().to_vec());
-        h.get_by_label("Event script…").click();
+        h.state_mut().scripts.remove(&script_key);
+        h.get_by_label("Edit code").click();
         h.run();
-        assert!(h.query_by_label("All configured events").is_some());
-        h.get_by_label("Module script").click();
-        h.run();
-        assert!(h.query_by_value(manual).is_some());
-        assert_eq!(keyboard_document(&h), before);
-        assert_eq!(
-            h.state().ws.as_ref().unwrap().module.get(&settings_key).unwrap(),
-            before_settings
-        );
-        h.get_by_label("Open in script editor").click();
-        h.run();
-        assert!(h.state().dock.find_tab(&Tab::Script(script_key)).is_some());
-        let ctx = egui::Context::default();
-        let mut output = ctx.run_ui(Default::default(), |ui| {
-            crate::script_view::ui(h.state_mut(), ui, script_key);
-        });
-        output.textures_delta.clear();
-        let unsaved = "// Unsaved manual edit\nvoid main() {}";
-        h.state_mut().scripts.get_mut(&script_key).unwrap().text = unsaved.into();
-        h.get_by_label("Event script…").click();
-        h.run();
-        h.get_by_label("Module script").click();
-        h.run();
-        assert!(
-            h.query_by_label("Full handler · unsaved changes from the script editor").is_some()
-        );
-        assert!(h.query_by_value(unsaved).is_some());
-        assert_eq!(
-            h.state().ws.as_ref().unwrap().module.get(&script_key).unwrap(),
-            manual.as_bytes()
-        );
+        assert_eq!(script(&h), manual);
     }
-
     #[test]
     fn nui_inspector_adds_color_and_window_limits_with_undo() {
         let mut h = keyboard_harness();
@@ -2467,7 +2406,7 @@ mod tests {
         h.run();
         h.get_by_label_contains("warnings").click();
         h.run();
-        h.get_by_label("Add Clicked → Close window").click();
+        h.get_by_label("Add Close handler").click();
         h.run();
         let ws = h.state().ws.as_ref().unwrap();
         let s = Settings::parse(ws.module.get(&mg_nui::key("nui_test", ResType::TXT)).unwrap())
@@ -2475,7 +2414,7 @@ mod tests {
         assert!(s.actions.iter().any(|r| r.element == "mg_close"
             && r.event == "click"
             && r.action == mg_nui::Action::Close));
-        assert!(h.query_by_label("Add Clicked → Close window").is_none());
+        assert!(h.query_by_label("Add Close handler").is_none());
     }
 
     /// Hand-written or foreign JUI reaches every page and Interact: wrong

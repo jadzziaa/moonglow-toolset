@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-10
+* **Update**: [NUI Creator](manual/07-scripts.md#events): events are handlers, each a section of the event script where you write the code (Build keeps it); a control offers only the events it sends, a bound value its change; **Edit code** opens the script there, **Insert…** adds ready-made code (close, set or toggle a bind, show a layout) in place of the old When/Then actions.
 * **Update**: [NUI Creator](manual/07-scripts.md#what-the-game-refuses-and-what-it-does-on-its-own), the least tested controls checked in the game client: charts and progress bars stretch like labels, chart columns a point apart and lit under the pointer, a progress value over 1, Options' entries 150 apart, image buttons without their picture, and a combo list's height limit as the game draws them; Toggle buttons with a literal value don't toggle.
 * **Update**: [NUI Creator](manual/07-scripts.md#what-the-game-refuses-and-what-it-does-on-its-own): a missing image shows the game's `gui_error` picture, as the game does (found in the client's image loader); a short scrollbar's end buttons overlap as the game draws them; the UI scale's cap measured at two more window heights; a column's width-less controls checked in eleven windows, one case the game sizes differently recorded.
 

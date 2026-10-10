@@ -155,6 +155,10 @@ impl Session {
         let Some(action) = action else { return };
         let mut changed = None;
         match action {
+            // Your code runs in the game; the preview can't run NWScript.
+            mg_nui::Action::Code => {
+                self.last_event = format!("{} {element}: your handler runs in the game", event);
+            }
             mg_nui::Action::Close => self.closed = true,
             mg_nui::Action::Toggle { bind } => {
                 if let Some(binding) = self.settings.bindings.get_mut(&bind) {

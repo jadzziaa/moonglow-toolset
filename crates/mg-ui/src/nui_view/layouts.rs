@@ -335,73 +335,6 @@ pub(super) fn bar(ui: &mut Ui, s: &Settings, state: &mut State) {
     }
 }
 
-/// Shared by click actions, watch actions and the full event editor.
-pub(super) fn target_editor_draft(
-    ui: &mut Ui,
-    doc: &Value,
-    s: &mut Settings,
-    state: &mut State,
-    group: &mut String,
-    view: &mut String,
-) {
-    let mut groups = state.layout_groups.clone();
-    groups.extend(mg_nui::group_ids(doc));
-    for layout in s.views.values() {
-        groups.extend(mg_nui::group_ids(layout));
-    }
-    groups.insert("_window_".into());
-    ui.label("Replace contents of");
-    egui::ComboBox::from_id_salt("swap-target")
-        .width(ui.available_width().clamp(0.0, 280.0))
-        .selected_text(if group == "_window_" {
-            "Whole window"
-        } else if group.is_empty() {
-            "Choose group…"
-        } else {
-            group.as_str()
-        })
-        .show_ui(ui, |ui| {
-            for name in &groups {
-                ui.selectable_value(
-                    group,
-                    name.clone(),
-                    if name == "_window_" { "Whole window" } else { name },
-                );
-            }
-        });
-    if group == "_window_" {
-        ui.weak("Changes all content. The title and window size stay the same.");
-    }
-    if groups.len() == 1 {
-        ui.weak("Add a Group in Design to replace only part of the window.");
-    }
-    ui.label("Show variant");
-    egui::ComboBox::from_id_salt("swap-layout")
-        .width(ui.available_width().clamp(0.0, 280.0))
-        .selected_text(if view.is_empty() { "Choose variant…" } else { view.as_str() })
-        .show_ui(ui, |ui| {
-            for name in s.views.keys() {
-                ui.selectable_value(view, name.clone(), name);
-            }
-        });
-    if let Some(layout) = s.views.get(view) {
-        ui.weak(format!(
-            "{} · {} direct children",
-            design::node_name(layout),
-            layout["children"].as_array().map_or(0, Vec::len)
-        ));
-    } else {
-        ui.weak("Choose a variant, or create one for the selected target.");
-    }
-    let new_variant = ui.add_enabled_ui(!group.is_empty(), |ui| create(ui, s, None)).inner;
-    if let Some(name) = new_variant {
-        if !group.is_empty() {
-            remember_target(s, &name, group);
-        }
-        *view = name;
-    }
-}
-
 pub(super) fn inspector(ui: &mut Ui, doc: &mut Value, s: &mut Settings, state: &mut State) {
     let path = state.selected.clone();
     if path == "/root"
@@ -831,60 +764,6 @@ mod tests {
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         h.run();
         assert_eq!(read(&h), converted);
-        h.state_mut().ws.as_mut().unwrap().undo().unwrap();
-        h.run();
-        assert_eq!(read(&h), before);
-    }
-
-    #[test]
-    fn swap_click_creates_horizontal_variant_applies_and_undoes_route_on_design() {
-        let mut h = harness(Settings::default());
-        h.run();
-        let before = read(&h);
-        h.get_by_label("Canvas Button · Close").click();
-        h.run();
-        h.get_by_label("+ Add event").click();
-        h.run();
-        h.get_by_value("Choose action…").click();
-        h.run();
-        h.get_by_label("Replace group layout").click();
-        h.run();
-        h.get_by_label("Cancel event").click();
-        h.run();
-        assert_eq!(read(&h), before);
-        h.get_by_label("+ Add event").click();
-        h.run();
-        h.get_by_value("Choose action…").click();
-        h.run();
-        h.get_by_label("Replace group layout").click();
-        h.run();
-        h.get_by_value("Choose group…").click();
-        h.run();
-        h.get_by_label("Whole window").click();
-        h.run();
-        h.get_by_label("+ Add variant").click();
-        h.run();
-        h.get_by_label("Horizontal").click();
-        h.run();
-        h.get_by_label("Create variant").click();
-        h.run();
-        assert_eq!(read(&h), before);
-        h.get_by_label("Save event").click();
-        h.run();
-        let applied = read(&h);
-        assert_eq!(applied.1.views["variant"]["type"], "row");
-        assert_eq!(
-            applied.1.actions[0].action,
-            mg_nui::Action::View { group: "_window_".into(), view: "variant".into() }
-        );
-        assert!(
-            mg_nui::validate(&applied.0, &applied.1).iter().all(|d| d.severity != Severity::Error)
-        );
-        h.get_by_label("Edit layout on canvas").click();
-        h.run();
-        assert_eq!(read(&h), applied, "Navigation must not copy the main window into the variant");
-        h.get_by_label("Back to main window").click();
-        h.run();
         h.state_mut().ws.as_mut().unwrap().undo().unwrap();
         h.run();
         assert_eq!(read(&h), before);

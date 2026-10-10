@@ -476,23 +476,37 @@ fn installed_compiler_accepts_view_actions_unicode_and_row_bind_toggles() {
     assert!(ws.module.get(&key("test_nui_e", ResType::NCS)).unwrap().starts_with(b"NCS "));
     let built = Settings::parse(ws.module.get(&key("test_nui", ResType::TXT)).unwrap()).unwrap();
     assert!(mg_nui::is_current(&ws.module, "test_nui", &w, &built));
+    // A new handler makes the built script stale; a handler's action is only
+    // the code it starts with, so changing it doesn't.
     let mut stale = built.clone();
-    stale.actions[0].action = Action::Close;
+    stale.actions.push(Route {
+        event: "open".into(),
+        element: String::new(),
+        action: Action::Code,
+    });
     assert!(!mg_nui::is_current(&ws.module, "test_nui", &w, &stale));
     assert!(compile(&ws).unwrap().edits.is_empty());
     let bytes = ws.module.get(&key("test_nui_e", ResType::NSS)).unwrap();
     assert!(bytes.is_ascii());
-    let mut custom = bytes.to_vec();
-    custom.extend_from_slice(b"\n// User annotation\n");
-    ws.module.set(key("test_nui_e", ResType::NSS), custom.clone());
+    // Code between the markers is kept; anything outside them refuses to build.
+    let source = String::from_utf8(bytes.to_vec()).unwrap();
+    let custom = source.replace(
+        "// Includes and helper functions.\n",
+        "// Includes and helper functions.\n// User annotation\n",
+    );
+    ws.module.set(key("test_nui_e", ResType::NSS), custom.clone().into_bytes());
     ws.apply(compile(&ws).unwrap()).unwrap();
-    assert_eq!(ws.module.get(&key("test_nui_e", ResType::NSS)).unwrap(), custom);
+    assert_eq!(ws.module.get(&key("test_nui_e", ResType::NSS)).unwrap(), custom.as_bytes());
+    let outside = format!("{custom}\n// After main\n");
+    ws.module.set(key("test_nui_e", ResType::NSS), outside.into_bytes());
+    assert!(compile(&ws).unwrap_err().contains("outside its mg:begin and mg:end lines"));
+    ws.module.set(key("test_nui_e", ResType::NSS), custom.clone().into_bytes());
     let mut settings =
         Settings::parse(ws.module.get(&key("test_nui", ResType::TXT)).unwrap()).unwrap();
     settings.actions[0].action = Action::Close;
     ws.module.set(key("test_nui", ResType::TXT), settings.bytes());
-    assert!(compile(&ws).unwrap_err().contains("edited"));
-    assert_eq!(ws.module.get(&key("test_nui_e", ResType::NSS)).unwrap(), custom);
+    ws.apply(compile(&ws).unwrap()).unwrap();
+    assert_eq!(ws.module.get(&key("test_nui_e", ResType::NSS)).unwrap(), custom.as_bytes());
 }
 
 #[test]
@@ -611,6 +625,39 @@ fn toggle_buttons_with_a_fixed_value_are_flagged() {
     };
     assert!(fixed(json!(false)));
     assert!(!fixed(json!({"bind":"on"})));
+}
+
+/// Each handler is a section of the event script; what is written in it
+/// survives Build, also while its handler is removed and when it comes back.
+#[test]
+fn event_scripts_keep_the_code_written_in_their_handlers() {
+    let route = |event: &str, element: &str| mg_nui::Route {
+        event: event.into(),
+        element: element.into(),
+        action: mg_nui::Action::Code,
+    };
+    let mut s = Settings {
+        actions: vec![route("click", "ok"), route("watch", "volume")],
+        ..Default::default()
+    };
+    let fresh = mg_nui::event_source(&s).unwrap();
+    assert_eq!(fresh.matches("// Your code here.").count(), 2);
+    let ok = mg_nui::handler_offset(&fresh, "click ok").unwrap();
+    assert!(fresh[..ok].ends_with("// mg:begin click ok\n"));
+    let written =
+        mg_nui::insert_code(&fresh, "click ok", "        SendMessageToPC(oPlayer, \"ok\");\n")
+            .unwrap();
+    assert_eq!(written.matches("// Your code here.").count(), 1, "the note gives way to code");
+    // Removing the handler keeps its code commented out; adding it back restores it.
+    s.actions.remove(0);
+    let without = mg_nui::merge_events(&s, Some(&written)).unwrap();
+    assert!(without.contains("// mg:removed click ok\n//         SendMessageToPC"));
+    assert!(!without.lines().any(|l| l.trim_start().starts_with("SendMessageToPC")));
+    s.actions.insert(0, route("click", "ok"));
+    assert_eq!(mg_nui::merge_events(&s, Some(&without)).unwrap(), written);
+    // An action is the code a handler starts with.
+    let close = mg_nui::Route { action: mg_nui::Action::Close, ..route("click", "mg_close") };
+    assert!(mg_nui::handler_code(&close, &s).unwrap().contains("NuiDestroy(oPlayer, nToken);"));
 }
 
 /// max counts UTF-8 bytes; below 4 the client can keep part of a character
@@ -866,7 +913,10 @@ fn close_requires_explicit_route_and_legacy_template_upgrades_safely() {
     settings.actions.clear();
     ws.module.set(key("test_nui", ResType::TXT), settings.bytes());
     build(&mut ws);
-    assert!(!source(&ws).contains("NuiDestroy"));
+    // A removed handler's code stays, commented out after main.
+    let calls = |s: String| s.lines().filter(|l| l.trim_start().starts_with("NuiDestroy")).count();
+    assert_eq!(calls(source(&ws)), 0);
+    assert!(source(&ws).contains("// mg:removed click mg_close"));
     let legacy = r#"// Moonglow NUI event script: preserved on regeneration; edit this file.
 void main()
 {

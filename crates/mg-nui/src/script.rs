@@ -96,15 +96,59 @@ pub(crate) const EVENTS: &str =
 // Recognize only the exact old generated template when upgrading an owned script.
 const LEGACY_EVENTS: &str = "// Moonglow NUI event script: preserved on regeneration; edit this file.\nvoid main()\n{\n    object oPlayer = NuiGetEventPlayer();\n    int nToken = NuiGetEventWindow();\n    string sType = NuiGetEventType();\n    string sElement = NuiGetEventElement();\n    if (sType == \"click\" && sElement == \"mg_close\")\n        NuiDestroy(oPlayer, nToken);\n    // Add click/watch handling here. List events expose NuiGetEventArrayIndex().\n}\n";
 
+/// Script bytes as text and back, one character a byte: what a builder
+/// writes between the markers comes back as it was, whatever its codepage.
+fn bytes_text(b: &[u8]) -> String {
+    b.iter().map(|&c| char::from(c)).collect()
+}
+
+fn text_bytes(s: &str) -> Vec<u8> {
+    s.chars().map(|c| u8::try_from(u32::from(c)).unwrap_or(b'?')).collect()
+}
+
+/// The event script Build would write over `existing`: handlers rebuilt
+/// around the code between their markers; a script without markers that
+/// Moonglow wrote (an older version) rebuilt from the handlers; one written
+/// by hand kept as it is while there are no handlers, refused otherwise.
+fn events_over(
+    existing: Option<&[u8]>,
+    settings: &Settings,
+    name: &str,
+) -> Result<Vec<u8>, String> {
+    let Some(b) = existing else {
+        return crate::actions::event_source(settings).map(String::into_bytes);
+    };
+    let text = bytes_text(b).replace("\r\n", "\n");
+    if text.contains(crate::actions::BEGIN.trim_end()) {
+        if crate::actions::edited_outside(&text) {
+            return Err(format!(
+                "{name}_e.nss was changed outside its mg:begin and mg:end lines, where Build would lose it. Move that code into a handler's section, or the top one for includes and helper functions."
+            ));
+        }
+        Ok(text_bytes(&crate::actions::merge_events(settings, Some(&text))?))
+    } else if b == EVENTS.as_bytes()
+        || b == LEGACY_EVENTS.as_bytes()
+        || settings.event_hash.as_deref() == Some(&fingerprint(b))
+    {
+        crate::actions::event_source(settings).map(String::into_bytes)
+    } else if settings.actions.is_empty() {
+        Ok(b.to_vec())
+    } else {
+        Err(format!(
+            "{name}_e.nss was written by hand. Rename it to keep it, or move its code between the markers of the handlers Moonglow writes."
+        ))
+    }
+}
+
 /// Includes event metadata and manual event edits in the editor's build status.
 pub fn is_current(module: &Module, name: &str, window: &Value, settings: &Settings) -> bool {
     let Ok(opener) = opener_source(name, window, settings) else { return false };
-    let Ok(events) = crate::actions::event_source(settings) else { return false };
+    let script = module.get(&key(&format!("{name}_e"), ResType::NSS));
     module.get(&key(&format!("{name}_o"), ResType::NSS)) == Some(opener.as_bytes())
-        && settings.event_hash.as_deref() == Some(&fingerprint(events.as_bytes()))
-        && module
-            .get(&key(&format!("{name}_e"), ResType::NSS))
-            .is_some_and(|b| settings.compiled_event_hash.as_deref() == Some(&fingerprint(b)))
+        && script.is_some_and(|b| {
+            events_over(Some(b), settings, name).is_ok_and(|e| e == b)
+                && settings.compiled_event_hash.as_deref() == Some(&fingerprint(b))
+        })
         && !module.contains(&key(&format!("{name}_o"), ResType::NCS))
         && module.contains(&key(&format!("{name}_e"), ResType::NCS))
 }
@@ -149,36 +193,16 @@ pub fn generate(
     } else if module.contains(&key(&opener, ResType::NCS)) {
         return Err(format!("{opener}.ncs exists without its source"));
     }
-    let generated_events = crate::actions::event_source(&settings)?;
-    let event_source = match module.get(&key(&events, ResType::NSS)) {
-        Some(b) => {
-            if settings.opener_hash.is_none() {
-                return Err(format!(
-                    "{events}.nss already exists and is not associated with this NUI project"
-                ));
-            }
-            if b == EVENTS.as_bytes()
-                || b == LEGACY_EVENTS.as_bytes()
-                || settings.event_hash.as_deref() == Some(&fingerprint(b))
-            {
-                generated_events.as_bytes().to_vec()
-            } else if settings.actions.is_empty()
-                || settings.event_hash.as_deref() == Some(&fingerprint(generated_events.as_bytes()))
-            {
-                b.to_vec()
-            } else {
-                return Err(format!(
-                    "{events}.nss was edited. Preserve your event code before changing generated actions."
-                ));
-            }
-        }
-        None => {
-            if module.contains(&key(&events, ResType::NCS)) {
-                return Err(format!("{events}.ncs exists without its source"));
-            }
-            generated_events.as_bytes().to_vec()
-        }
-    };
+    let existing = module.get(&key(&events, ResType::NSS));
+    if existing.is_some() && settings.opener_hash.is_none() {
+        return Err(format!(
+            "{events}.nss already exists and is not associated with this NUI project"
+        ));
+    }
+    if existing.is_none() && module.contains(&key(&events, ResType::NCS)) {
+        return Err(format!("{events}.ncs exists without its source"));
+    }
+    let event_source = events_over(existing, &settings, name)?;
     let mut edits = Vec::new();
     for (n, src) in [(&opener, source.as_bytes()), (&events, event_source.as_slice())] {
         // Validate the include's callable function with the installed compiler.
@@ -222,7 +246,7 @@ pub fn generate(
         }
     }
     settings.opener_hash = Some(fingerprint(source.as_bytes()));
-    settings.event_hash = Some(fingerprint(generated_events.as_bytes()));
+    settings.event_hash = Some(fingerprint(&event_source));
     settings.compiled_event_hash = Some(fingerprint(&event_source));
     edits.push(Edit::SetResource { key: txt, data: Some(settings.bytes()) });
     edits.retain(|e| match e {
