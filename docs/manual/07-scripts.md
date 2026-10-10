@@ -279,7 +279,12 @@ of the root column, painted before it, whose rectangle and fit you can
 change in Draw layers.
 
 **From disk…** beside an Image's, an Image button's or a draw layer's picture
-puts a picture file into the module (named as the file) and uses it there.
+puts a picture file into the module (named as the file; a name the game can't
+read, over 16 characters or with other symbols, is shortened, and the log says
+to what) and uses it there. **Layers** lists each control's draw layers under
+it: choose one to see its outline on the canvas, drag inside it to move it,
+its corner to size it, or its points (a line's ends, a curve's, an arc's
+centre); the change lands on release, one Undo step.
 **Choose image** searches the current resource stack and displays up to 24
 matching thumbnails. Cropping uses the native image region. Individual list-row
 images are edited in Row data. **Screen** previews common

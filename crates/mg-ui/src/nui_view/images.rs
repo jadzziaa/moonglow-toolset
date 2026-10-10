@@ -51,11 +51,55 @@ fn resource(path: &Path) -> Result<ResKey, String> {
     key_for(&file).map_err(|e| format!("{file}: {e}"))
 }
 
-/// A picture file as the module resource it becomes.
-fn from_file(path: &Path) -> Result<(ResKey, Vec<u8>), String> {
-    let key = resource(path)?;
+/// A picture file as the module resource it becomes, and the name it takes
+/// when the file's own is one the game can't read (over 16 characters, other
+/// symbols): its letters and digits, shortened, one the module doesn't use.
+fn from_file(
+    path: &Path,
+    module: &mg_module::Module,
+) -> Result<(ResKey, Vec<u8>, Option<String>), String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok((key, bytes))
+    let why = match resource(path) {
+        Ok(key) => return Ok((key, bytes, None)),
+        Err(why) => why,
+    };
+    let ext = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+    let restype = ResType::from_extension(&ext).ok_or(why)?;
+    let stem: String = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' })
+        .collect();
+    let stem = if stem.trim_matches('_').is_empty() { "picture".to_owned() } else { stem };
+    for n in 1.. {
+        let suffix = if n == 1 { String::new() } else { format!("_{n}") };
+        let name = format!("{}{suffix}", &stem[..stem.len().min(16 - suffix.len())]);
+        let key = ResKey::parse(&name, restype).ok_or_else(|| format!("{name}: not a name"))?;
+        if module.get(&key).is_none_or(|b| b == bytes.as_slice()) {
+            return Ok((key, bytes, Some(name)));
+        }
+    }
+    unreachable!()
+}
+
+/// One file into the module: its edit, or why not (logged).
+fn add_file(app: &mut Moonglow, path: &Path) -> Option<(ResKey, Edit)> {
+    let module = &app.ws.as_ref()?.module;
+    match from_file(path, module) {
+        Ok((key, bytes, renamed)) => {
+            if let Some(name) = renamed {
+                let file = path.file_name().unwrap_or_default().to_string_lossy();
+                app.log.info(format!("{file} is added as {name}: the game reads names of up to 16 letters, digits, _ and -"));
+            }
+            Some((key, Edit::SetResource { key, data: Some(bytes) }))
+        }
+        Err(e) => {
+            app.log.error(e);
+            None
+        }
+    }
 }
 
 fn asked() -> egui::Id {
@@ -81,16 +125,9 @@ pub(super) fn from_disk(ui: &mut Ui) -> Option<String> {
 pub(super) fn answer_from_disk(ctx: &egui::Context, app: &mut Moonglow) -> Option<Edit> {
     let field = ctx.data_mut(|d| d.remove_temp::<Option<egui::Id>>(asked()))??;
     let path = app.dialogs.open_file(FileKind::Images, None)?;
-    match from_file(&path) {
-        Ok((key, bytes)) => {
-            ctx.data_mut(|d| d.insert_temp(field, key.resref.to_string()));
-            Some(Edit::SetResource { key, data: Some(bytes) })
-        }
-        Err(e) => {
-            app.log.error(e);
-            None
-        }
-    }
+    let (key, edit) = add_file(app, &path)?;
+    ctx.data_mut(|d| d.insert_temp(field, key.resref.to_string()));
+    Some(edit)
 }
 
 /// Where a picture comes from, as a builder names it.
@@ -263,10 +300,7 @@ pub(super) fn page(
         ui.add_space(8.0);
         if ui.button("Add images from disk…").on_hover_text("Into the module, named as their files").clicked() {
             for path in app.dialogs.open_files(FileKind::Images, None) {
-                match from_file(&path) {
-                    Ok((key, bytes)) => edits.push(Edit::SetResource { key, data: Some(bytes) }),
-                    Err(e) => app.log.error(e),
-                }
+                edits.extend(add_file(app, &path).map(|(_, edit)| edit));
             }
         }
         ui.separator();

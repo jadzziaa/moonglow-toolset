@@ -911,6 +911,9 @@ pub(super) fn canvas(
     if let Some(resize) = &state.resize {
         resize.apply(&mut shown);
     }
+    if let Some(drag) = &state.draw_drag {
+        drag.apply(&mut shown);
+    }
     if let Some(m) = &state.window_move {
         m.apply(&mut shown);
     }
@@ -1176,6 +1179,13 @@ pub(super) fn canvas(
                 selected_bounds = (!flag(&v["collapsed"], s, None, false)).then_some(rect);
             }
             interaction::resize_handles(ui, authored, state, selected_bounds, scale, space.min);
+            if context_prefix.is_none() {
+                // Where the selected control draws: inside its padding.
+                let body = selected_bounds
+                    .zip(authored.pointer(&state.selected))
+                    .map(|(r, n)| r.shrink(layout_padding(n, s, None) * scale));
+                draw::canvas_handles(ui, authored, state, body, scale, s);
+            }
         });
     ui.small(format!(
         "{} × {} · UI scale {}% · Game resources; local layout preview",

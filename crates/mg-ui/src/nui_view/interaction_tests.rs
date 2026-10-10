@@ -34,6 +34,54 @@ fn click_at(h: &mut Harness<'_, Case>, pos: egui::Pos2) {
     }
 }
 
+fn drag(h: &mut Harness<'_, Case>, from: egui::Pos2, by: egui::Vec2) {
+    h.hover_at(from);
+    h.run();
+    h.event(egui::Event::PointerButton {
+        pos: from,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run();
+    for step in 1..=4 {
+        h.hover_at(from + by * step as f32 / 4.0);
+        h.run();
+    }
+    h.event(egui::Event::PointerButton {
+        pos: from + by,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run();
+}
+
+/// A draw layer chosen in Layers is sized by its corner and moved from
+/// inside on the canvas, and lands in the document on release.
+#[test]
+fn nui_draw_layer_is_sized_and_moved_on_the_canvas() {
+    let mut h = harness(
+        json!([{"type":"spacer","height":200.0,"draw_list_scissor":false,"draw_list":[
+            {"type":7,"enabled":true,"order":1,"render":0,"arrayBinds":false,"fill":false,
+             "line_thickness":2.0,"color":{"r":220,"g":180,"b":80,"a":255},
+             "rect":{"x":10.0,"y":10.0,"w":100.0,"h":50.0}}]}]),
+        Settings::default(),
+    );
+    h.state_mut().state.zoom = 1.0;
+    h.state_mut().state.selected = "/root/children/0".into();
+    h.state_mut().state.draw_item = Some(("/root/children/0".into(), 0));
+    h.run();
+    let corner = h.get_by_label("Size the draw layer").rect().center();
+    drag(&mut h, corner, egui::vec2(20.0, 10.0));
+    let r = h.state().doc["root"]["children"][0]["draw_list"][0]["rect"].clone();
+    assert_eq!(r, json!({"x":10.0,"y":10.0,"w":120.0,"h":60.0}));
+    // From inside, it moves; a click elsewhere is not a drag.
+    drag(&mut h, corner - egui::vec2(40.0, 15.0), egui::vec2(15.0, 5.0));
+    let r = h.state().doc["root"]["children"][0]["draw_list"][0]["rect"].clone();
+    assert_eq!(r, json!({"x":25.0,"y":15.0,"w":120.0,"h":60.0}));
+}
+
 #[test]
 fn nui_column_preserves_native_control_widths_when_window_grows() {
     // Native Controls demo: an omitted width is 150, not the window's width.

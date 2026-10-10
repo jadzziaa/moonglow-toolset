@@ -320,6 +320,130 @@ pub(super) fn paint(
     }
 }
 
+/// A draw layer dragged on the canvas: only the shown copy changes until
+/// release, one Undo step, as a control's resize.
+#[derive(Clone)]
+pub(super) struct CanvasDrag {
+    path: String,
+    gesture: Gesture,
+}
+
+impl CanvasDrag {
+    /// The dragged layer as it is now, in the copy the canvas shows.
+    pub(super) fn apply(&self, doc: &mut Value) {
+        if let Some(item) = doc.pointer_mut(&self.path) {
+            *item = self.gesture.draft.clone();
+        }
+    }
+}
+
+/// The draw layer chosen in Layers, on the canvas: its outline, a handle on
+/// each point (a rectangle by its corner, or anywhere inside it) and one to
+/// size a rectangle. `body` is where its control draws.
+pub(super) fn canvas_handles(
+    ui: &mut Ui,
+    doc: &mut Value,
+    state: &mut State,
+    body: Option<Rect>,
+    scale: f32,
+    s: &Settings,
+) {
+    let chosen = state.draw_item.clone().filter(|(path, _)| *path == state.selected);
+    let (Some((control, index)), Some(body)) = (chosen, body) else {
+        state.draw_drag = None;
+        return;
+    };
+    let path = format!("{control}/draw_list/{index}");
+    let Some(item) = doc.pointer(&path).cloned() else { return };
+    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        state.draw_drag = None;
+    }
+    if let Some(d) = &mut state.draw_drag
+        && let Some(p) = ui.input(|i| i.pointer.latest_pos())
+    {
+        let g = &mut d.gesture;
+        let delta = (p - g.origin) / scale;
+        for (key, delta) in
+            [(if g.size { "w" } else { "x" }, delta.x), (if g.size { "h" } else { "y" }, delta.y)]
+        {
+            g.draft[&g.field][key] =
+                json!((g.source[&g.field][key].as_f64().unwrap_or(0.0) + f64::from(delta)).round());
+        }
+    }
+    let shown = state.draw_drag.as_ref().map_or(&item, |d| &d.gesture.draft).clone();
+    let id = ui.id().with(("nui-canvas-draw", &path));
+    let colour = ui.visuals().selection.bg_fill;
+    let mut start = |field: &str, size: bool, origin: Pos2| {
+        state.draw_drag = Some(CanvasDrag {
+            path: path.clone(),
+            gesture: Gesture {
+                source: item.clone(),
+                draft: item.clone(),
+                origin,
+                field: field.into(),
+                size,
+            },
+        });
+    };
+    let sized = shown["rect"]["w"].is_number() && shown["rect"]["h"].is_number();
+    if sized {
+        let r = rect(&shown["rect"], s, None, body.min, scale);
+        ui.painter().rect_stroke(r, 0, Stroke::new(1.5, colour), egui::StrokeKind::Outside);
+        // Inside it moves it; the corner sizes it.
+        let inside = ui
+            .interact(r, id.with("move"), egui::Sense::drag())
+            .on_hover_cursor(egui::CursorIcon::Grab);
+        if inside.drag_started()
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+        {
+            start("rect", false, origin);
+        }
+        let corner = ui
+            .interact(
+                Rect::from_center_size(r.max, Vec2::splat(12.0)),
+                id.with("size"),
+                egui::Sense::drag(),
+            )
+            .on_hover_cursor(egui::CursorIcon::ResizeNwSe);
+        corner.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Size the draw layer")
+        });
+        ui.painter().rect_filled(corner.rect.shrink(2.0), 0, colour);
+        if corner.drag_started()
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+        {
+            start("rect", true, origin);
+        }
+    }
+    for field in ["a", "b", "ctrl0", "ctrl1", "c"] {
+        let v = &shown[field];
+        if !v["x"].is_number() || !v["y"].is_number() {
+            continue;
+        }
+        let p = body.min + coord(v, s, None) * scale;
+        let r = ui
+            .interact(
+                Rect::from_center_size(p, Vec2::splat(12.0)),
+                id.with(field),
+                egui::Sense::drag(),
+            )
+            .on_hover_cursor(egui::CursorIcon::Grab);
+        ui.painter().circle_filled(p, 4.0, colour);
+        if r.drag_started()
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+        {
+            start(field, false, origin);
+        }
+    }
+    if ui.input(|i| i.pointer.any_released())
+        && let Some(d) = state.draw_drag.take()
+        && d.gesture.draft != d.gesture.source
+        && let Some(item) = doc.pointer_mut(&d.path)
+    {
+        *item = d.gesture.draft;
+    }
+}
+
 #[derive(Clone)]
 struct Gesture {
     source: Value,
@@ -334,7 +458,9 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
     if !node.is_object() {
         return;
     }
-    egui::CollapsingHeader::new("Draw layers").show(ui, |ui| {
+    let revealing =
+        ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::new("nui-reveal-draw")).is_some());
+    egui::CollapsingHeader::new("Draw layers").open(revealing.then_some(true)).show(ui, |ui| {
         ui.menu_button("+ Draw primitive", |ui| {
             for (kind, name) in KINDS.iter().enumerate() {
                 if ui.button(*name).clicked() {
@@ -359,7 +485,17 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
         for (i, item) in items.iter_mut().enumerate() {
             let name =
                 KINDS.get(item["type"].as_u64().unwrap_or(99) as usize).unwrap_or(&"Unknown");
-            egui::CollapsingHeader::new(format!("{} · {name}", i + 1)).id_salt(i).show(ui, |ui| {
+            // Chosen in Layers: shown open.
+            let reveal =
+                ui.ctx().data_mut(|d| d.remove_temp::<usize>(egui::Id::new("nui-reveal-draw")));
+            let header = egui::CollapsingHeader::new(format!("{} · {name}", i + 1))
+                .id_salt(i)
+                .open((reveal == Some(i)).then_some(true));
+            if reveal.is_some() && reveal != Some(i) {
+                ui.ctx()
+                    .data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), reveal.unwrap()));
+            }
+            header.show(ui, |ui| {
                 let id = ui.id().with("draw-gesture");
                 let mut drag = ui.ctx().data_mut(|d| d.get_temp::<Gesture>(id));
                 if drag.as_ref().is_some_and(|g| g.source != *item)

@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-10
+* **Update**: [NUI Creator](manual/07-scripts.md#images): draw layers in Layers, moved and sized on the canvas; a picture file whose name the game can't read is added under a shortened one.
 * **Update**: [NUI Creator](manual/07-scripts.md#images): **From disk…** beside a picture field (an Image, an Image button, a draw layer) adds the file to the module and uses it.
 * **Update**: [NUI Creator](manual/07-scripts.md#what-the-game-refuses-and-what-it-does-on-its-own): Clip to control is no longer offered (it clips nothing in the game and blanks a window on its last draw layers); one written by hand is flagged with **Turn it off**.
 * **Update**: [NUI Creator](manual/07-scripts.md#events), after a second round of engine, code, UX and UI reviews: an event script written before the first Build is the window's; Build compiles again the scripts that include the opener and says beside its button when it failed; variant functions are named `Variant_<name>_<variant>`; renamed IDs, binds and variants reach the code that quotes them; variants rename; Set bind writes NWScript literals; a listed hak outside the hak folder isn't written; the Images page lists module pictures not shown yet; a bind's Delete names who uses it; the tab is **Events & variants**; theme colours, one-row handlers, errors first.

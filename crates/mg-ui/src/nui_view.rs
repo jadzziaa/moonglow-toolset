@@ -46,6 +46,10 @@ struct State {
     text_scroll_x: std::collections::BTreeMap<String, f32>,
     text_scroll_y: std::collections::BTreeMap<String, f32>,
     selected_many: std::collections::BTreeSet<String>,
+    /// A draw layer chosen in Layers: its control's path and its index.
+    draw_item: Option<(String, usize)>,
+    /// A draw layer being moved or sized on the canvas, until release.
+    draw_drag: Option<draw::CanvasDrag>,
     layer_search: String,
     move_pending: Option<(structure::Drag, String, structure::Position)>,
     insert_pending: Option<(&'static str, String, structure::Position)>,
@@ -1775,7 +1779,9 @@ mod tests {
         let mut tga = vec![0u8; 18];
         (tga[2], tga[12], tga[14], tga[16]) = (2, 1, 1, 24);
         tga.extend([255u8; 3]);
-        let (photo, layer) = (dir.join("my_photo.tga"), dir.join("my_layer.tga"));
+        // A name the game can't read (36 characters) is shortened.
+        let (photo, layer) =
+            (dir.join("c40e2b2-1610-41b0-8e43-bd4c4cf56464.tga"), dir.join("my_layer.tga"));
         std::fs::write(&photo, &tga).unwrap();
         std::fs::write(&layer, &tga).unwrap();
         let dialogs = crate::NoDialogs { open: vec![layer, photo], ..Default::default() };
@@ -1808,11 +1814,11 @@ mod tests {
         h.run();
         h.run();
         let module = &h.state().ws.as_ref().unwrap().module;
-        assert!(module.contains(&ResKey::parse("my_photo", ResType::TGA).unwrap()));
-        assert_eq!(doc(h.state())["root"]["children"][0]["value"], "my_photo");
-        h.get_by_label("Draw layers").click();
+        assert!(module.contains(&ResKey::parse("c40e2b2-1610-41b", ResType::TGA).unwrap()));
+        assert_eq!(doc(h.state())["root"]["children"][0]["value"], "c40e2b2-1610-41b");
+        // Chosen in Layers, it opens in the inspector.
+        h.get_by_label("Draw layer 1 · Image").click();
         h.run();
-        h.get_by_label("1 · Image").click();
         h.run();
         h.get_all_by_label("From disk…").last().unwrap().click();
         h.run();

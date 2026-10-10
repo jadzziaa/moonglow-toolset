@@ -649,6 +649,37 @@ fn layer(
     if state.collapsed.contains(path) && search.is_empty() {
         return;
     }
+    // Its draw layers, each one to choose and then move or size on the canvas.
+    if let Some(items) = node["draw_list"].as_array() {
+        for (i, item) in items.iter().enumerate() {
+            let kind =
+                draw::KINDS.get(item["type"].as_u64().unwrap_or(99) as usize).unwrap_or(&"Unknown");
+            let chosen = state.selected == path && state.draw_item == Some((path.to_owned(), i));
+            ui.horizontal(|ui| {
+                ui.add_space(
+                    ((depth + 1) as f32 * 14.0 + 18.0).min((ui.available_width() - 90.0).max(0.0)),
+                );
+                let row = ui.add(
+                    egui::Button::selectable(chosen, format!("◇ {kind} {}", i + 1)).truncate(),
+                );
+                row.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        true,
+                        format!("Draw layer {} · {kind}", i + 1),
+                    )
+                });
+                if row.clicked() {
+                    if main && state.edit_view.is_some() {
+                        layouts::edit(state, None);
+                    }
+                    structure::select(state, path, false);
+                    state.draw_item = Some((path.to_owned(), i));
+                    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("nui-reveal-draw"), i));
+                }
+            });
+        }
+    }
     if path.is_empty() {
         layer(ui, &node["root"], "/root", s, state, depth + 1, main, active_root);
     }
