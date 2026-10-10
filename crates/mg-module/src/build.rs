@@ -62,11 +62,66 @@ pub fn compile_scripts_with(
         .filter(|k| !skipped(k))
         .copied()
         .collect();
+    compile_named_scripts(module, resman, &names, external)
+}
+
+/// What a script compiles from, as one number: its source and the sources
+/// it includes, however indirectly (those of the module: an include found
+/// only in the haks or the game counts by its name). The same number, the
+/// same compiled script, with the same compiler and game data.
+pub fn script_stamps(module: &Module) -> std::collections::HashMap<ResKey, u64> {
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+    fn stamp(
+        key: ResKey,
+        module: &Module,
+        done: &mut HashMap<ResKey, u64>,
+        under: &mut Vec<ResKey>,
+    ) -> u64 {
+        if let Some(s) = done.get(&key) {
+            return *s;
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let source = module.get(&key).unwrap_or_default();
+        source.hash(&mut h);
+        // (A script that includes itself, at whatever remove, ends here.)
+        if !under.contains(&key) {
+            under.push(key);
+            for r in crate::refs::script_includes(key, source) {
+                let name = r.target.to_lowercase();
+                name.to_string().hash(&mut h);
+                let include = ResKey::new(name, ResType::NSS);
+                if module.contains(&include) {
+                    stamp(include, module, done, under).hash(&mut h);
+                }
+            }
+            under.pop();
+        }
+        let s = h.finish();
+        if under.is_empty() {
+            done.insert(key, s);
+        }
+        s
+    }
+    let mut done = HashMap::new();
+    for key in module.keys_of(ResType::NSS) {
+        stamp(*key, module, &mut done, &mut Vec::new());
+    }
+    done
+}
+
+/// [`compile_scripts_with`] for the scripts named.
+pub fn compile_named_scripts(
+    module: &mut Module,
+    resman: &ResMan,
+    names: &[ResKey],
+    external: Option<&ExternalCompiler>,
+) -> Vec<ScriptResult> {
     if names.is_empty() {
         return Vec::new();
     }
     if let Some(external) = external {
-        return compile_externally(module, external, &names);
+        return compile_externally(module, external, names);
     }
     let outputs: Mutex<Vec<Compiled>> = Mutex::new(Vec::new());
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(names.len());
@@ -274,6 +329,32 @@ mod tests {
 
     fn key(s: &str, t: ResType) -> ResKey {
         ResKey::new(ResRef::from_str(s).unwrap(), t)
+    }
+
+    /// A script's stamp changes with its own text and with the text of
+    /// what it includes, however indirectly; another script's does not.
+    /// Scripts that include each other have stamps all the same.
+    #[test]
+    fn a_script_s_stamp_follows_what_it_includes() {
+        let mut m = Module::new();
+        let nss = |n: &str| key(n, ResType::NSS);
+        m.set(nss("inc_a"), b"int A() { return 1; }\n".to_vec());
+        m.set(nss("inc_b"), b"#include \"inc_a\"\nint B() { return A(); }\n".to_vec());
+        m.set(nss("uses"), b"#include \"inc_b\"\nvoid main() { B(); }\n".to_vec());
+        m.set(nss("alone"), b"#include \"nw_i0_generic\"\nvoid main() {}\n".to_vec());
+        m.set(nss("loop_a"), b"#include \"loop_b\"\n".to_vec());
+        m.set(nss("loop_b"), b"#include \"loop_a\"\n".to_vec());
+        let before = script_stamps(&m);
+        assert_eq!(before.len(), 6);
+        assert_eq!(script_stamps(&m), before, "the same module, the same stamps");
+        m.set(nss("inc_a"), b"int A() { return 2; }\n".to_vec());
+        let after = script_stamps(&m);
+        for changed in ["inc_a", "inc_b", "uses"] {
+            assert_ne!(after[&nss(changed)], before[&nss(changed)], "{changed}");
+        }
+        for same in ["alone", "loop_a", "loop_b"] {
+            assert_eq!(after[&nss(same)], before[&nss(same)], "{same}");
+        }
     }
 
     #[test]

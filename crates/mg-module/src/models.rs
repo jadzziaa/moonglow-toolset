@@ -29,19 +29,21 @@ pub struct Compiled {
 /// creature would stand still in the game.
 pub fn compile_models(
     files: &[(ResKey, &[u8])],
-    lookup: &dyn Fn(&str) -> Option<Vec<u8>>,
+    lookup: &(dyn Fn(&str) -> Option<Vec<u8>> + Sync),
 ) -> Vec<Compiled> {
-    compile_models_each(files, lookup, &mut |_, _| true)
+    compile_models_each(files, lookup, &|_, _| true)
 }
 
-/// [`compile_models`], telling `each` before every model how many are
-/// behind and how many there are; it stops (with what is compiled so far)
-/// when `each` says no.
+/// [`compile_models`] on every core, telling `each` before every model
+/// how many are behind and how many there are; it stops (with what is
+/// compiled so far) once `each` says no. The models come back in the
+/// files' order.
 pub fn compile_models_each(
     files: &[(ResKey, &[u8])],
-    lookup: &dyn Fn(&str) -> Option<Vec<u8>>,
-    each: &mut dyn FnMut(usize, usize) -> bool,
+    lookup: &(dyn Fn(&str) -> Option<Vec<u8>> + Sync),
+    each: &(dyn Fn(usize, usize) -> bool + Sync),
 ) -> Vec<Compiled> {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     let own = |name: &str| {
         files
             .iter()
@@ -51,48 +53,64 @@ pub fn compile_models_each(
             .map(|(_, d)| d.to_vec())
     };
     let find = |name: &str| own(name).or_else(|| lookup(name));
-    let text =
-        |(key, data): &&(ResKey, &[u8])| key.restype == ResType::MDL && !mg_mdl::is_binary(data);
-    let total = files.iter().filter(text).count();
-    let mut out = Vec::new();
-    for (key, data) in files.iter().filter(text) {
-        if !each(out.len(), total) {
-            break;
-        }
+    let texts: Vec<&(ResKey, &[u8])> = (files.iter())
+        .filter(|(key, data)| key.restype == ResType::MDL && !mg_mdl::is_binary(data))
+        .collect();
+    let (done, stop) = (AtomicUsize::new(0), AtomicBool::new(false));
+    let one = |key: &ResKey, data: &[u8]| -> Result<(Vec<u8>, Notes), String> {
         let name = key.resref.to_string();
-        let result = (|| {
-            // (The reader takes nearly any text: what the game would
-            // refuse or crash on, and what holds no model, is not
-            // compiled into something that looks sound.)
-            let text = String::from_utf8_lossy(data);
-            let errors = mg_mdl::lint::check(&text)
-                .into_iter()
-                .filter(|d| d.severity == mg_mdl::lint::Severity::Error)
-                .map(|d| format!("line {}: {}", d.line + 1, d.message))
-                .collect::<Vec<_>>();
-            if let Some(first) = errors.first() {
-                let more = errors.len() - 1;
-                let rest = if more > 0 { format!(" (and {more} more)") } else { String::new() };
-                return Err(format!("{first}{rest}"));
-            }
-            let model = mg_mdl::Model::read(data).map_err(|e| e.to_string())?;
-            if model.nodes.is_empty() {
-                return Err("its text holds no model".into());
-            }
-            if let Some(s) = model.supermodel.as_deref().filter(|s| !s.eq_ignore_ascii_case(&name))
-                && find(s).is_none()
-            {
-                return Err(format!("its supermodel {s} was not found"));
-            }
-            // (The compiled model under it: not the text itself.)
-            let before = |n: &str| lookup(n).filter(|d| mg_mdl::is_binary(d));
-            let c = mg_mdl::compile::compile_named(data, &name, &find, &before)
-                .map_err(|e| e.to_string())?;
-            Ok((c.binary, c.notes))
-        })();
-        out.push(Compiled { model: *key, result });
+        // (The reader takes nearly any text: what the game would refuse or
+        // crash on, and what holds no model, is not compiled into
+        // something that looks sound.)
+        let text = String::from_utf8_lossy(data);
+        let errors = mg_mdl::lint::check(&text)
+            .into_iter()
+            .filter(|d| d.severity == mg_mdl::lint::Severity::Error)
+            .map(|d| format!("line {}: {}", d.line + 1, d.message))
+            .collect::<Vec<_>>();
+        if let Some(first) = errors.first() {
+            let more = errors.len() - 1;
+            let rest = if more > 0 { format!(" (and {more} more)") } else { String::new() };
+            return Err(format!("{first}{rest}"));
+        }
+        let model = mg_mdl::Model::read(data).map_err(|e| e.to_string())?;
+        if model.nodes.is_empty() {
+            return Err("its text holds no model".into());
+        }
+        if let Some(s) = model.supermodel.as_deref().filter(|s| !s.eq_ignore_ascii_case(&name))
+            && find(s).is_none()
+        {
+            return Err(format!("its supermodel {s} was not found"));
+        }
+        // (The compiled model under it: not the text itself.)
+        let before = |n: &str| lookup(n).filter(|d| mg_mdl::is_binary(d));
+        let c = mg_mdl::compile::compile_named(data, &name, &find, &before)
+            .map_err(|e| e.to_string())?;
+        Ok((c.binary, c.notes))
+    };
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(texts.len());
+    let mut out: Vec<Option<Compiled>> = vec![None; texts.len()];
+    if threads == 0 {
+        return Vec::new();
     }
-    out
+    let chunk = texts.len().div_ceil(threads);
+    std::thread::scope(|s| {
+        for (part, into) in texts.chunks(chunk).zip(out.chunks_mut(chunk)) {
+            let (done, stop, one) = (&done, &stop, &one);
+            let total = texts.len();
+            s.spawn(move || {
+                for ((key, data), slot) in part.iter().zip(into) {
+                    if stop.load(Ordering::Relaxed) || !each(done.load(Ordering::Relaxed), total) {
+                        stop.store(true, Ordering::Relaxed);
+                        return;
+                    }
+                    *slot = Some(Compiled { model: *key, result: one(key, data) });
+                    done.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+        }
+    });
+    out.into_iter().flatten().collect()
 }
 
 #[cfg(test)]

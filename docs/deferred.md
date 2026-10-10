@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:33:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T02:57:03Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -25,10 +25,15 @@ Size: S (an hour or two), M (a day or so), L (several days).
 
 - **Struct members:** go to definition, references and rename don't
   follow `p.nX` to the struct's declaration. (M)
-- **Incremental compiles:** Compile All recompiles everything. It could
-  compile only what changed and the scripts that include it, as Arelith's
-  ARE_Compile does. A full compile of 4,000 scripts takes 1.4 s, so this
-  matters less than expected. (M)
+- **Incremental compiles:** Compile All Scripts passes over a script
+  that, with what it includes, is as it was when this window last
+  compiled it (`mg_module::build::script_stamps`), as Arelith's
+  ARE_Compile does. Not done: the stamps last a session (the first
+  Compile All compiles every script), and are forgotten when the haks
+  or folders change; they are not written beside a module, where `mg
+  compile` and the next session could use them; a script compiled by
+  its own Compile or by a save is compiled once more by the next
+  Compile All (to the same bytes). (S each)
 - **Scripts in the external editor only:** Open scripts in the external
   editor opens Moonglow's editor too (it holds the script and takes the
   external editor's saves back); opening the external one alone isn't
@@ -81,9 +86,8 @@ Size: S (an hour or two), M (a day or so), L (several days).
   module's references between questions (`rename::UsageIndex`): the
   first Find References in the persistent world reads the module as
   before (0.8 s), the next ones only the resources changed since
-  (7 ms). Not done: the first read is on the window's thread; tags and
-  the strings in scripts are still looked for by reading every
-  resource each time; `mg refs` reads the module each time, as a
+  (7 ms). Tags and the strings in scripts are answered from it too.
+  Not done: the first read is on the window's thread; `mg refs` reads the module each time, as a
   command run once must. (S each)
 
 ## Frames (a steady 144 a second)
@@ -725,10 +729,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   where Automatically Compile Scripts on Save is on (a nasher project's
   too), and so are the scripts that include it (a script's own Save
   and Compile, and saving the module, compile the includers too; of
-  these only the reading of a file changed outside is under test). Not
-  done: more than 24 at once are left to Compile All (a checkout, or
-  an include that many scripts use), and the compiling is on the
-  window's thread; a module
+  these only the reading of a file changed outside is under test). More than 24 at once (a checkout, or an include that many scripts
+  use) are compiled as a job, off the window's thread: a save that
+  starts one is written before the job's compiled scripts are in, and
+  the module has unsaved changes after. Not done: up to 24 are compiled
+  on the window's thread; a module
   whose script was compiled so has unsaved changes (the compiled
   script, written by the next save); the reloading needs the game's data
   open, as the game's own reloading does; a first Save As into a folder
@@ -959,8 +964,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   misses. Needs the item. (S)
 - **Models as text from the resource browser:** a compiled model
   shows as its text there, and Save As Text… writes it so (`mg cat
-  --text` too). Export N as Files… still writes models as they are.
-  (S)
+  --text` too); Export N as Files… writes compiled models as text
+  with Models as text ticked. (—)
 - **Export into an archive** is a checkbox, off unless ticked; a builder
   says Aurora adds to an existing archive itself. Aurora's own behavior
   (whether it asks) was not captured. (S)
@@ -1016,15 +1021,29 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## Area visibility
 
 - **A streak across the view with Object Walkmeshes on** (the user,
-  moving the camera low over an area of many placeables: an orange
-  spike from the ground to the sky): a face of an overlay with a corner
-  a hair in front of the camera's plane was projected thousands of
-  pixels off the screen. A point nearer than the near plane is not
-  projected now (`mg_area::pick::project`), so such a face is left
-  out. Found from the picture and the geometry, not reproduced on the
-  area. A face that straddles the near plane vanishes whole rather
-  than being cut at it, in every overlay drawn so (walkmeshes, sound
-  ranges, outlines). (S)
+  moving the camera over an area of many placeables: an orange spike
+  from the ground to the picture's edge). The eye was passing beside a
+  tall or hanging placeable's walkmesh (a chandelier, a wall torch): a
+  corner a hand's width from the eye lands many screens off, and the
+  face is drawn as a streak. 1.20.5 only stopped projecting points
+  nearer than the near plane, which was not it (the spike stayed).
+  Reproduced since on the user's area with 20,000 camera places: 304
+  faces over a screen and a half long. A placeable's or a door's
+  walkmesh face is now left out where a corner is nearer, along the
+  view, than a tenth of the camera's distance to its target, or than a
+  quarter with another corner three times as far
+  (`mg_area::pick::beside_the_eye`): 428 of 11.8 million faces on
+  screen. What is left over a screen and a half (143) has its corners at
+  like depths: the eye close before a large face, a sheet and not a
+  spike. Since, the overlays are cut where they pass behind the eye
+  (`clip_polygon`, `clip_segment`: the ground's walkmesh, sound ranges
+  and the lines of outlines and markers lost a face or a line whole),
+  and a placeable's or door's walkmesh face is cut at a tenth of the
+  camera's distance rather than left out; only one that runs from
+  under a quarter of that distance to three times as far is left out
+  whole. Not done: the rule is by the camera's distance, not by how the
+  face would look; none of this was looked at in the running window
+  (the simulation and the tests of the cutting are what there is). (S)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
@@ -1407,8 +1426,10 @@ Left:
   not, with an MTR or without; and a `blending punchthrough` texture is
   solid where it is not cut (a dark rim), where the others are blended.
   Moonglow cut such a texture at 0.5 and blended what was left; it cuts
-  at 0.2 and draws it solid now. Left: punch-through particles are
-  still cut at 0.5 (not measured); the tiles and the armoires were not
+  at 0.2 and draws it solid now. Punch-through particles are cut at 0.2 too
+  since (a ramp of alpha on one is there from a fifth of its width on:
+  `particles_look`, `MG_PARTICLES=punch`; no picture test holds it).
+  Left: the tiles and the armoires were not
   painted by the probe (another shader path: their value was not
   read); a cut-out that is also see-through as a whole (a mesh's alpha
   under 1, a transparency hint) is still blended, rim and all, which
@@ -1447,9 +1468,8 @@ toolset is as the proposal says it is.
   supermodel is not found. Not done: `mg pack` compiles only when
   asked (the game reads text, and a pack's bytes should not change
   unasked: on by default later?); Compile Models is a job (off the window's
-  thread, with its progress and Cancel, which leaves the hak as it
-  was) but compiles one model at a time, not on every core, and its
-  step is named "Add resources" in Undo; a compiled model is not
+  thread, on every core, with its progress and Cancel, which leaves
+  the hak as it was; one step, named in Undo); a compiled model is not
   compared with the game's own compiler's here (the viewer's `engine.rs`
   does that); nothing compiles a module's own models, or a nasher
   project's on Pack Target; the linter's notes (Info) are not shown;

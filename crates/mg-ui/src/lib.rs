@@ -415,6 +415,10 @@ pub struct Moonglow {
     pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     /// The References tab.
     pub references: references::References,
+    /// What each script was compiled from when Compile All last compiled
+    /// it (its stamp), and what those stamps were made with: a script
+    /// whose stamp is the same is not compiled again.
+    pub(crate) script_stamps: (u64, HashMap<ResKey, u64>),
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
     /// The Placeable Gallery, while it is open.
@@ -649,6 +653,7 @@ impl Moonglow {
             find_instance: None,
             area_focus: None,
             references: Default::default(),
+            script_stamps: Default::default(),
             rename: None,
             copy_as: None,
             placeable_gallery: None,
@@ -2690,22 +2695,65 @@ impl Moonglow {
     }
 
     /// Compile All Scripts, as a job: the bytecode that changed is stored
-    /// through one undoable command when it is done.
+    /// through one undoable command when it is done. A script is passed
+    /// over where it, and what it includes, is as it was when this window
+    /// last compiled it (its stamp: `mg_module::build::script_stamps`).
     fn compile_scripts(&mut self) {
+        self.compile_job(None);
+    }
+
+    /// Compiles scripts as a job: all of them (`None`: those changed
+    /// since they were last compiled here), or those named.
+    pub(crate) fn compile_job(&mut self, only: Option<Vec<ResKey>>) {
         if self.ws.is_none() || self.game.is_none() {
             self.log.error("Compiling needs an open module and the game data");
             return;
         }
         let external = self.external_compiler();
+        // What the stamps were made with: another module, compiler or
+        // setting, and every script is compiled again.
+        let made_with = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            self.module_path().hash(&mut h);
+            (self.settings.debug_info, format!("{external:?}")).hash(&mut h);
+            h.finish()
+        };
+        if self.script_stamps.0 != made_with {
+            self.script_stamps = (made_with, Default::default());
+        }
+        let known = self.script_stamps.1.clone();
+        let all = only.is_none();
+        let title = if all { "Compile All Scripts" } else { "Compile Scripts" };
         self.start_job(
-            "Compile All Scripts",
+            title,
             move |job| {
                 let game = job.game.as_deref()?;
                 let mut staged = job.module.clone();
-                let results = mg_module::build::compile_scripts_with(
+                let stamps = mg_module::build::script_stamps(&job.module);
+                let skipped = |k: &ResKey| {
+                    let target = job.module.project.as_ref().map(|p| p.target());
+                    target.is_some_and(|t| t.skips_compiling(&k.to_string()))
+                };
+                // (One with no compiled script is compiled unless it is
+                // an include, which has none.)
+                let stale = |k: &ResKey| {
+                    known.get(k) != stamps.get(k)
+                        || (!job.module.contains(&ResKey::new(k.resref, ResType::NCS))
+                            && (job.module.get(k)).is_some_and(mg_script::outline::has_entry_point))
+                };
+                let names: Vec<ResKey> = match only {
+                    Some(names) => names,
+                    None => (job.module.keys_of(ResType::NSS))
+                        .filter(|k| !skipped(k) && stale(k))
+                        .copied()
+                        .collect(),
+                };
+                let scripts = job.module.keys_of(ResType::NSS).filter(|k| !skipped(k)).count();
+                let results = mg_module::build::compile_named_scripts(
                     &mut staged,
                     &game.resman,
-                    mg_module::build::ScriptSelection::All,
+                    &names,
                     external.as_ref(),
                 );
                 let edits: Vec<mg_edit::Edit> = staged
@@ -2716,10 +2764,10 @@ impl Moonglow {
                         data: staged.get(k).map(<[u8]>::to_vec),
                     })
                     .collect();
-                Some((results, edits))
+                Some((results, edits, stamps, scripts))
             },
-            |app, made| {
-                let Some((results, edits)) = made else { return };
+            move |app, made| {
+                let Some((results, edits, stamps, scripts)) = made else { return };
                 let failed: Vec<String> = results
                     .iter()
                     .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
@@ -2727,14 +2775,27 @@ impl Moonglow {
                 for f in &failed {
                     app.log.error(f.clone());
                 }
+                // Those compiled are as their stamps say; one that failed
+                // is tried again next time.
+                for r in &results {
+                    match (&r.result, stamps.get(&r.script)) {
+                        (Ok(()), Some(stamp)) => app.script_stamps.1.insert(r.script, *stamp),
+                        _ => app.script_stamps.1.remove(&r.script),
+                    };
+                }
                 let changed = edits.len();
                 if !edits.is_empty()
                     && let Err(e) = app.apply(Command::new("Compile scripts", edits))
                 {
                     app.log.error(e.to_string());
                 }
+                let left = scripts.saturating_sub(results.len());
+                let unchanged = match all && left > 0 {
+                    true => format!("; {left} as they were when last compiled, left alone"),
+                    false => String::new(),
+                };
                 app.log.info(format!(
-                    "Compiled {} scripts: {} failed, {changed} changed",
+                    "Compiled {} scripts: {} failed, {changed} changed{unchanged}",
                     results.len(),
                     failed.len()
                 ));
@@ -2898,6 +2959,8 @@ impl Moonglow {
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
         }
+        // (The game's own includes and nwscript may be others now.)
+        self.script_stamps = Default::default();
         self.pictures = Default::default();
         self.thumbnails.forget(self.viewport.as_ref());
         self.palettes = Default::default();

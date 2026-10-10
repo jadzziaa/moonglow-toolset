@@ -606,7 +606,7 @@ fn compile_models(app: &mut Moonglow, i: usize) {
                 let rm = &job.game.as_deref()?.resman;
                 rm.get_named(name, mg_core::ResType::MDL).ok().map(|d| d.into_owned())
             };
-            compile_models_each(&files, &lookup, &mut |done, total| {
+            compile_models_each(&files, &lookup, &|done, total| {
                 job.progress.step(done, total);
                 job.progress.say(format!("{done} of {total} models"));
                 !job.progress.cancelled()
@@ -636,7 +636,7 @@ fn compile_models(app: &mut Moonglow, i: usize) {
                 return;
             }
             if compiled > 0 {
-                match app.haks[i].hak.add_sources(made) {
+                match app.haks[i].hak.add_sources_as("Compile Models", made) {
                     Ok(_) => app.haks[i].changed(),
                     Err(e) => {
                         app.log.error(format!("Compile Models: {e}"));

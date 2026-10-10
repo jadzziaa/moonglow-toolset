@@ -127,10 +127,61 @@ pub fn usages(module: &Module, target: ResKey) -> Vec<Usage> {
 /// next ones what changed since.
 #[derive(Debug, Clone, Default)]
 pub struct UsageIndex {
-    /// Each resource's bytes as read, and the references found in them.
-    seen: std::collections::HashMap<ResKey, (std::sync::Arc<[u8]>, Vec<Reference>)>,
+    /// Each resource as read.
+    seen: std::collections::HashMap<ResKey, Read>,
     /// How many resources the last [`refresh`](Self::refresh) read.
     pub read: usize,
+}
+
+/// What one resource holds that a question may ask for.
+#[derive(Debug, Clone)]
+struct Read {
+    /// Its bytes as read.
+    data: std::sync::Arc<[u8]>,
+    refs: Vec<Reference>,
+    /// A GFF's fields that name a tag ([`TAG_FIELDS`]): where, and the tag.
+    tags: Vec<(String, Vec<u8>)>,
+    /// A script's string literals: where each begins (inside the quotes).
+    strings: Vec<(usize, usize)>,
+}
+
+impl Read {
+    fn of(key: ResKey, data: &std::sync::Arc<[u8]>) -> Read {
+        let mut read =
+            Read { data: data.clone(), refs: Vec::new(), tags: Vec::new(), strings: Vec::new() };
+        if key.restype == ResType::NSS {
+            read.refs = crate::refs::script_includes(key, data);
+            read.strings = tokenize(data)
+                .into_iter()
+                .filter(|t| matches!(t.kind, TokenKind::String { terminated: true }))
+                .map(|t| (t.span.start + 1, t.span.end - 1))
+                .collect();
+        } else if key.restype.is_gff()
+            && let Ok(gff) = Gff::read(data)
+        {
+            read.refs = crate::refs::gff_references(key, &gff);
+            tag_fields(&gff.root, "", &mut read.tags);
+        }
+        read
+    }
+}
+
+/// The fields of `s` that name a tag, with their paths.
+fn tag_fields(s: &Struct, path: &str, out: &mut Vec<(String, Vec<u8>)>) {
+    for f in &s.fields {
+        let label = f.label.to_string_lossy();
+        let p = format!("{path}/{label}");
+        match &f.value {
+            Value::String(v) if TAG_FIELDS.contains(&label.as_str()) => out.push((p, v.clone())),
+            Value::Struct(c) => tag_fields(c, &p, out),
+            Value::List(items) => {
+                for (i, c) in items.iter().enumerate() {
+                    tag_fields(c, &format!("{p}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 impl UsageIndex {
@@ -142,17 +193,17 @@ impl UsageIndex {
         for key in module.keys() {
             let Some(data) = module.shared(key) else { continue };
             match self.seen.get_mut(key) {
-                Some((was, _)) if std::sync::Arc::ptr_eq(was, data) => continue,
+                Some(was) if std::sync::Arc::ptr_eq(&was.data, data) => continue,
                 // (Set again with the same bytes, as a flush of the
                 // documents open does: nothing to read.)
-                Some((was, _)) if **was == **data => {
-                    *was = data.clone();
+                Some(was) if *was.data == **data => {
+                    was.data = data.clone();
                     continue;
                 }
                 _ => {}
             }
             self.read += 1;
-            self.seen.insert(*key, (data.clone(), references(*key, data)));
+            self.seen.insert(*key, Read::of(*key, data));
         }
     }
 
@@ -163,21 +214,76 @@ impl UsageIndex {
         let mut keys: Vec<&ResKey> = self
             .seen
             .iter()
-            .filter(|(_, (_, refs))| refs.iter().any(|r| hit(&r)))
+            .filter(|(_, read)| read.refs.iter().any(|r| hit(&r)))
             .map(|(k, _)| k)
             .collect();
         keys.sort();
         let mut out = Vec::new();
         for key in keys {
-            let (data, refs) = &self.seen[key];
-            let gff = if key.restype.is_gff() { Gff::read(data).ok() } else { None };
-            for r in refs.iter().filter(hit) {
+            let read = &self.seen[key];
+            let gff = if key.restype.is_gff() { Gff::read(&read.data).ok() } else { None };
+            for r in read.refs.iter().filter(hit) {
                 let place = describe(*key, gff.as_ref(), &r.path);
                 out.push(Usage { from: *key, path: r.path.clone(), place });
             }
         }
         out
     }
+
+    /// [`tag_usages`] of `tag`, from what [`refresh`](Self::refresh) read.
+    pub fn tag_usages(&self, tag: &str) -> Vec<Usage> {
+        if tag.is_empty() {
+            return Vec::new();
+        }
+        let hit = |t: &&(String, Vec<u8>)| t.1 == tag.as_bytes();
+        let mut keys: Vec<&ResKey> = self
+            .seen
+            .iter()
+            .filter(|(_, r)| r.tags.iter().any(|t| hit(&t)))
+            .map(|(k, _)| k)
+            .collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let read = &self.seen[key];
+            let gff = Gff::read(&read.data).ok();
+            for (path, _) in read.tags.iter().filter(hit) {
+                let place = describe(*key, gff.as_ref(), path);
+                out.push(Usage { from: *key, path: path.clone(), place });
+            }
+        }
+        out
+    }
+
+    /// [`mentions`] of `name`, from what [`refresh`](Self::refresh) read.
+    pub fn mentions(&self, name: &str, ignore_case: bool) -> Vec<Mention> {
+        let mut keys: Vec<&ResKey> =
+            self.seen.iter().filter(|(_, r)| !r.strings.is_empty()).map(|(k, _)| k).collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let read = &self.seen[key];
+            let src = &read.data[..];
+            for &(a, b) in &read.strings {
+                let s = &src[a..b];
+                let same = match ignore_case {
+                    true => s.eq_ignore_ascii_case(name.as_bytes()),
+                    false => s == name.as_bytes(),
+                };
+                if same {
+                    out.push(mention_at(*key, src, a));
+                }
+            }
+        }
+        out
+    }
+}
+
+/// The mention of a string that begins at `start` of a script's source.
+fn mention_at(script: ResKey, src: &[u8], start: usize) -> Mention {
+    let line = src[..start].iter().filter(|b| **b == b'\n').count() + 1;
+    let text = String::from_utf8_lossy(src).lines().nth(line - 1).unwrap_or("").trim().to_string();
+    Mention { script, line, text }
 }
 
 /// GFF string fields that name a tag: an object's own, a transition's
@@ -231,10 +337,7 @@ pub fn mentions(module: &Module, name: &str, ignore_case: bool) -> Vec<Mention> 
     for key in keys {
         let Some(src) = module.get(&key) else { continue };
         for (start, _) in string_literals(src, name, ignore_case) {
-            let line = src[..start].iter().filter(|b| **b == b'\n').count() + 1;
-            let text =
-                String::from_utf8_lossy(src).lines().nth(line - 1).unwrap_or("").trim().to_string();
-            out.push(Mention { script: key, line, text });
+            out.push(mention_at(key, src, start));
         }
     }
     out
@@ -661,11 +764,19 @@ mod tests {
         let same = |index: &UsageIndex, m: &Module| {
             for t in targets {
                 assert_eq!(index.usages(t), usages(m, t), "{t}");
+                let name = t.resref.to_string();
+                assert_eq!(index.mentions(&name, true), mentions(m, &name, true), "{name}");
+            }
+            for tag in ["GUARD", "guard", "KEEP", ""] {
+                assert_eq!(index.tag_usages(tag), tag_usages(m, tag), "{tag}");
+                assert_eq!(index.mentions(tag, false), mentions(m, tag, false), "{tag}");
             }
         };
         index.refresh(&m);
         assert_eq!(index.read, m.len());
         assert!(!index.usages(targets[0]).is_empty());
+        assert!(!index.tag_usages("GUARD").is_empty());
+        assert!(!index.mentions("guard_spawn", true).is_empty());
         same(&index, &m);
         index.refresh(&m);
         assert_eq!(index.read, 0, "nothing changed");

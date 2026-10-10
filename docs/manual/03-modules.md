@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:33:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T02:57:03Z }
 ---
 
 # Modules
@@ -39,8 +39,8 @@ a directory), nasher projects (see below) and the game's campaign files
   which files, and **Changed Outside Moonglow** asks which to keep. A
   script read again is compiled if **Automatically Compile Scripts on
   Save** is on (Options › Script Editor), as one saved here is, and so
-  are the scripts that include it; not more than 24 scripts at once:
-  **Build › Compile All Scripts** (F7) for those. The script editor's external editor
+  are the scripts that include it (more than 24 at once are compiled
+  in the background, and the log says so). The script editor's external editor
   opens the folder's own file.
 - Saving is safe. A module archive is written to a temporary file, then
   put in place, so a failure never leaves a half-written module. The
@@ -58,7 +58,8 @@ as it was.
 
 **Find References** shows everywhere the module names a script, area,
 conversation or blueprint (the first question in a large module reads
-all of it; the next ones only what changed since). It's in the right-click menus of the module
+all of it; the next ones, for a resource or a tag, only what changed
+since). It's in the right-click menus of the module
 tree and palettes, the script editor's toolbar and **Edit › Find
 References…**.
 - **Places are readable**, such as `keep › creature GUARD › OnSpawn` or

@@ -1213,8 +1213,9 @@ pub(crate) const COMPILED_AT_ONCE: usize = 24;
 impl Moonglow {
     /// `scripts` and the module's scripts that include any of them,
     /// however indirectly: what a change to `scripts` leaves with an
-    /// older compiled script. `None` (and a line in the log) where that
-    /// is more than [`COMPILED_AT_ONCE`].
+    /// older compiled script. `None` where that is more than
+    /// [`COMPILED_AT_ONCE`]: those are compiled as a job instead, off the
+    /// window's thread (the log says so).
     pub(crate) fn with_includers(&mut self, scripts: &[ResKey]) -> Option<Vec<ResKey>> {
         let ws = self.ws.as_mut()?;
         if let Err(e) = ws.flush() {
@@ -1225,10 +1226,11 @@ impl Moonglow {
         all.extend(mg_module::refs::includers(&ws.module, scripts));
         if all.len() > COMPILED_AT_ONCE {
             self.log.info(format!(
-                "{} scripts (those changed and those that include them) were not compiled, \
-                 too many at once: Compile All Scripts does",
+                "{} scripts (those changed and those that include them) are compiled in the \
+                 background",
                 all.len()
             ));
+            self.compile_job(Some(all));
             return None;
         }
         Some(all)

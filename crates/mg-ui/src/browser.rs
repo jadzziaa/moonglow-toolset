@@ -26,6 +26,8 @@ pub struct Browser {
     query: Option<(Option<ResType>, String)>,
     /// The load order changed since the index was built.
     pub(crate) stale: bool,
+    /// Export as Files writes compiled models as text.
+    pub models_as_text: bool,
     /// 2DA views: StrRefs shown as numbers rather than their text.
     pub(crate) raw_strrefs: bool,
     /// 2DA views: only the rows a layer last changed (its index in the
@@ -111,6 +113,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         {
             let keys = browser.shown.iter().map(|&i| browser.entries[i].0).collect();
             actions.push(Action::SaveResources(keys));
+        }
+        if browser.shown.iter().any(|&i| browser.entries[i].0.restype == ResType::MDL) {
+            ui.checkbox(&mut browser.models_as_text, "Models as text").on_hover_text(
+                "Export as Files writes compiled models as the text they compile from",
+            );
         }
     });
     ui.separator();
@@ -202,16 +209,25 @@ pub(crate) fn export(app: &mut Moonglow, keys: &[ResKey]) {
     else {
         return;
     };
-    let mut written = 0;
+    let (mut written, mut as_text) = (0, 0);
     for key in keys {
         let Ok(data) = game.resman.get(key) else { continue };
+        // (Asked for: a compiled model as its text; one that can't be
+        // read so goes out as it is.)
+        let text = (app.browser.models_as_text).then(|| model_text(*key, &data)).flatten();
+        as_text += usize::from(text.is_some());
+        let data = text.map_or(data, |t| t.into_bytes().into());
         if let Err(e) = std::fs::write(dir.join(key.to_string()), &data) {
             app.log.error(format!("Could not write to {}: {e}", dir.display()));
             return;
         }
         written += 1;
     }
-    app.log.info(format!("Exported {written} resources to {}", dir.display()));
+    let models = match as_text {
+        0 => String::new(),
+        n => format!(" ({n} compiled models as text)"),
+    };
+    app.log.info(format!("Exported {written} resources to {}{models}", dir.display()));
     app.export_dir = Some(dir);
 }
 

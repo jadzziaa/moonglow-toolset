@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:00:51Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T02:57:03Z }
 ---
 
 # The main window
@@ -259,8 +259,9 @@ in the model viewer), copy it into the module, or save it to a file
 model shows as the text it compiles from, and **Save As Text…** saves
 it so). **Export N as
 Files…** writes all the resources listed into a folder, once a type or
-part of a name narrows the list. Files go out as they are: a model
-compiled is not turned into text.
+part of a name narrows the list. Files go out as they are; with
+**Models as text** ticked (shown when models are listed), compiled
+models go out as the text they compile from.
 
 A 2DA shows the copy the game reads, with its StrRef columns (Name,
 Description, StrRef and the like) as their text; **StrRefs as numbers**

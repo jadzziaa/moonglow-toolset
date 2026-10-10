@@ -86,7 +86,7 @@ impl Moonglow {
         }
         self.references.index.refresh(&ws.module);
         let usages = self.references.index.usages(key).len();
-        let mentions = rename::mentions(&ws.module, &key.resref.to_string(), true).len();
+        let mentions = self.references.index.mentions(&key.resref.to_string(), true).len();
         self.rename = Some(RenameDraft {
             from: key,
             to: key.resref.to_string(),
@@ -452,17 +452,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         if ws.flush().is_err() {
             return;
         }
+        // (From the index: only what changed since the last question is
+        // read again.)
+        let index = &mut app.references.index;
+        index.refresh(&ws.module);
         let (usages, mentions) = match &query {
-            Query::Resource(k) => (
-                {
-                    app.references.index.refresh(&ws.module);
-                    app.references.index.usages(*k)
-                },
-                rename::mentions(&ws.module, &k.resref.to_string(), true),
-            ),
-            Query::Tag(t) => {
-                (rename::tag_usages(&ws.module, t), rename::mentions(&ws.module, t, false))
-            }
+            Query::Resource(k) => (index.usages(*k), index.mentions(&k.resref.to_string(), true)),
+            Query::Tag(t) => (index.tag_usages(t), index.mentions(t, false)),
         };
         app.references.usages = usages;
         app.references.mentions = mentions;

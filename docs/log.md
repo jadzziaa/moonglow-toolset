@@ -1,5 +1,9 @@
 # Update log
 
+## 2026-10-10
+* **Update**: [Scripts](manual/07-scripts.md) (Compile All passes over what is unchanged; many includers compiled in the background), [modules](manual/03-modules.md), [the main window](manual/02-main-window.md) (Models as text in Export as Files) and [the deferred list](deferred.md): those, Compile Models on every core, tags and script strings from the references index, punch-through particles cut at 0.2 as seen in the client, and the overlays cut where they pass behind the eye.
+* **Update**: [The deferred list](deferred.md): the streak across the view with Object Walkmeshes on was a face the eye passes beside (reproduced on the user's area), not a point behind the near plane; such faces are left out.
+
 ## 2026-10-09
 * **Update**: [Build, verify and test](manual/09-build-and-test.md) (models kept as text are checked), [modules](manual/03-modules.md) (the hak editor's Compile Models; a compiled model shown as text), [the main window](manual/02-main-window.md) (Save As Text…), [the command line](manual/11-command-line.md) (`mg pack --compile-models`, `mg cat --text`) and [the deferred list](deferred.md): the toolset uses the model compiler, writer and linter moved into `mg-mdl`.
 * **Update**: [The deferred list](deferred.md): the model compiler, the binary and ASCII writers and the linter moved into `mg-mdl` from Moonglow Viewer, with their tests on the game's models; nothing in the toolset uses them yet.

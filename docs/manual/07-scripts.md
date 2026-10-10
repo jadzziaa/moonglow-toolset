@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T23:07:40Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T02:57:03Z }
 ---
 
 # Scripts
@@ -94,8 +94,11 @@ The buttons:
   (Options › Script Editor), Save compiles too, and so does saving the
   module (File › Save) for the scripts whose text it saves. The scripts
   that include a script compiled or saved so are compiled again with it
-  (up to 24 at once; **Compile All Scripts** past that): an include
-  file changed leaves none of them with an older compiled script.
+  (more than 24 at once in the background): an include file changed
+  leaves none of them with an older compiled script. **Compile All
+  Scripts** passes over the scripts that, with what they include, are
+  as they were when it last compiled them in this session, and says how
+  many it left alone; the first one of a session compiles them all.
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.

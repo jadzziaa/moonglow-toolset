@@ -1556,7 +1556,8 @@ node dummy arm\n  parent base\nendnode\nendmodelgeom base\ndonemodel base\n";
         "{:?}",
         h.state().log.entries
     );
-    // One step to undo.
+    // One step to undo, named for what it was.
+    assert_eq!(h.state().haks[0].hak.undo_label(), Some("Compile Models"));
     h.state_mut().haks[0].hak.undo();
     assert!(!mg_mdl::is_binary(&model(&h, "base")));
     // As the window runs it: on a thread of its own (no module is open),
@@ -12137,6 +12138,39 @@ fn resources_are_exported_as_files() {
     h.get_by_label("Export 1 as Files…");
 }
 
+/// A compiled model of the load order goes out as the text it compiles
+/// from: Save As Text… for one, and Export as Files with Models as text
+/// ticked for those listed; without it, as it is.
+#[test]
+fn compiled_models_are_saved_as_text() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-models-as-text");
+    let (plain, text) = (dir.join("plain"), dir.join("text"));
+    for d in [&plain, &text] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let dialogs = NoDialogs {
+        save: vec![dir.join("one.mdl")],
+        folders: vec![text.clone(), plain.clone()],
+        ..Default::default()
+    };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    let is_text = |p: &std::path::Path| {
+        let data = std::fs::read(p).unwrap();
+        !mg_mdl::is_binary(&data) && String::from_utf8_lossy(&data).contains("newmodel")
+    };
+    app.run(mg_ui::Action::SaveModelText(key));
+    assert!(is_text(&dir.join("one.mdl")));
+    app.run(mg_ui::Action::SaveResources(vec![key]));
+    assert!(!is_text(&plain.join("plc_a01.mdl")), "as it is, unless asked");
+    app.browser.models_as_text = true;
+    app.run(mg_ui::Action::SaveResources(vec![key]));
+    assert!(is_text(&text.join("plc_a01.mdl")));
+    assert!(app.log.entries.iter().any(|(_, m)| m.contains("1 compiled models as text")));
+}
+
 /// The script editor's To Scratch: the script saved and compiled, then it
 /// and its compiled script copied into the scratch folder; one that
 /// doesn't compile is not copied.
@@ -14421,6 +14455,46 @@ fn a_script_saved_outside_is_compiled_when_asked() {
         std::fs::read(dir.join("hello.nss")).unwrap(),
         b"void main()\n{\n    int n = 3;\n}\n"
     );
+}
+
+/// Compile All Scripts passes over the scripts that are as they were when
+/// it last compiled them: after an include changes, only the scripts that
+/// include it are compiled again.
+#[test]
+fn compile_all_compiles_only_what_changed() {
+    let Some((mut h, _)) = area_harness("compile-changed") else { return };
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let set = |h: &mut Harness<'_, Moonglow>, name: &str, text: &str| {
+        let edit = mg_edit::Edit::SetResource { key: nss(name), data: Some(text.into()) };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+        h.run_steps(2);
+    };
+    set(&mut h, "inc_n", "int N() { return 1; }\n");
+    set(&mut h, "uses_n", "#include \"inc_n\"\nvoid main() { int n = N(); }\n");
+    set(&mut h, "alone", "void main() { int a = 1; }\n");
+    let compile = |h: &mut Harness<'_, Moonglow>| -> String {
+        let before = h.state().log.entries.len();
+        h.state_mut().actions.push(mg_ui::Action::CompileScripts);
+        h.run_steps(3);
+        let mut said = h.state().log.entries[before..].iter().map(|(_, m)| m.clone());
+        said.rfind(|m| m.starts_with("Compiled ")).expect("Compile All's line")
+    };
+    let first = compile(&mut h);
+    assert!(!first.contains("left alone"), "{first}");
+    let again = compile(&mut h);
+    assert!(again.starts_with("Compiled 0 scripts") && again.contains("left alone"), "{again}");
+    // The include changes: it and its includer are compiled, the third
+    // script is not; the includer's compiled script is another.
+    set(&mut h, "inc_n", "int N() { return 2 + GetHitDice(OBJECT_SELF); }\n");
+    let after = compile(&mut h);
+    assert!(after.starts_with("Compiled 2 scripts: 0 failed, 1 changed"), "{after}");
+    // A compiled script that went missing is made again.
+    let ncs = ResKey::parse("alone", ResType::NCS).unwrap();
+    let gone = mg_edit::Edit::SetResource { key: ncs, data: None };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Gone", vec![gone])));
+    h.run_steps(2);
+    let back = compile(&mut h);
+    assert!(back.starts_with("Compiled 1 scripts: 0 failed, 1 changed"), "{back}");
 }
 
 /// In a nasher project the external editor gets the project's own script
