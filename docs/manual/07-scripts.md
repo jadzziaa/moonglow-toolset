@@ -392,7 +392,9 @@ control sends in the game are offered: **Clicked** for buttons, **Focus
 gained** and **lost** for text inputs, **Visible range changed** for lists,
 **Value changed** for a control whose value is bound, and the mouse for any
 control; the window has **Window opened** and **Window closed**. A control
-without an ID gets one. **Events & variants** lists every handler, with a
+without an ID gets one. Its section is in the event script at once (one an
+older Moonglow wrote, unchanged since, is rebuilt with sections, as Build
+does). **Events & variants** lists every handler, with a
 selector for whose event to add. Renaming a control's ID, a bind or a variant
 renames its handlers' sections, and the name where your code quotes it.
 
