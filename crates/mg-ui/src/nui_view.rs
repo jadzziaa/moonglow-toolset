@@ -318,6 +318,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                 ui.weak("Not built")
                     .on_hover_text("Build before testing this layout or these bind values in NWN");
             }
+            // The window opens from a script of yours: what to put in it.
+            ui.menu_button("How to open it…", |ui| {
+                let code = format!(
+                    "#include \"{name}_o\"\n\nvoid main()\n{{\n    Open_{name}(GetEnteringObject());\n}}\n"
+                );
+                ui.label("Open it from a script of yours, for example the module's OnClientEnter:");
+                ui.add(egui::TextEdit::multiline(&mut code.as_str()).code_editor().desired_rows(6));
+                if ui.button("Copy").clicked() {
+                    ui.ctx().copy_text(code.clone());
+                    ui.close();
+                }
+                ui.weak("Pass the player who should see it. Build & compile first.");
+            });
         });
     });
     ui.add_space(6.0);
@@ -879,9 +892,11 @@ fn properties(ui: &mut Ui, node: &mut Value, s: &mut Settings) {
                         if !obj.contains_key(key) {
                             ui.horizontal(|ui| {
                                 ui.label(label);
+                                // It has none: the layout decides; the button gives it one.
+                                ui.weak("Automatic");
                                 if ui
-                                    .button("Auto")
-                                    .on_hover_text("Use a fixed size instead")
+                                    .small_button("Set size")
+                                    .on_hover_text("Give it a fixed size instead")
                                     .clicked()
                                 {
                                     obj.insert(key.into(), json!(fitting_size(obj, key, fixed)));
@@ -1142,6 +1157,21 @@ fn describe_path(doc: &Value, path: &str) -> (Option<String>, String) {
         _ => "Window",
     };
     (None, what.into())
+}
+
+/// The module's NUI windows whose scripts are older than their design: the
+/// game would run what was last built.
+pub(crate) fn stale_windows(module: &mg_module::Module) -> Vec<String> {
+    module
+        .keys()
+        .filter(|k| k.restype == ResType::JUI)
+        .filter_map(|k| {
+            let name = k.resref.to_string();
+            let settings = Settings::parse(module.get(&mg_nui::key(&name, ResType::TXT))?).ok()?;
+            let window = mg_nui::parse(module.get(k)?).ok()?;
+            (!mg_nui::is_current(module, &name, &window, &settings)).then_some(name)
+        })
+        .collect()
 }
 
 /// "1 error", "2 errors".
@@ -1874,7 +1904,7 @@ mod tests {
             assert!(h.query_by_label("Advanced properties").is_none());
             assert!(h.query_by_label("Size & layout").is_some());
             if before["type"] == "row" {
-                assert_eq!(h.query_all_by_label("Auto").count(), 2);
+                assert_eq!(h.query_all_by_label("Set size").count(), 2);
             }
             drop(h);
             assert_eq!(node, before, "opening properties must not mutate the document");
@@ -2229,7 +2259,7 @@ mod tests {
         for live in [false, true] {
             let mut h = keyboard_harness();
             h.run();
-            h.get_by_label("Scale").click();
+            h.get_by_label_contains("Scale ").click();
             h.run();
             h.get_by_label("150%").click();
             h.run();
@@ -2635,7 +2665,9 @@ mod tests {
         app.ws = Some(mg_edit::Workspace::new(m));
         app.run(Action::NewNui("typed".into()));
         app.actions.clear();
+        assert_eq!(super::stale_windows(&app.ws.as_ref().unwrap().module), ["typed"]);
         app.run(Action::GenerateNui("typed".into(), false));
+        assert!(super::stale_windows(&app.ws.as_ref().unwrap().module).is_empty());
         let script = mg_nui::key("typed_e", ResType::NSS);
         let saved = crate::text::decode(app.ws.as_ref().unwrap().module.get(&script).unwrap());
         let typed =
@@ -2761,11 +2793,11 @@ mod tests {
         assert!(h.state().nui_assets.origins.contains_key("fnt_maintext.ttf"));
         let dir = mg_testkit::scratch_dir("nui-editor-preview");
         h.render().unwrap().save(dir.join("editor.png")).unwrap();
-        h.get_by_label("State").click();
+        h.get_by_label_contains("State: ").click();
         h.run();
         h.get_by_label("Hover").click();
         h.run();
-        h.get_by_label("Scale").click();
+        h.get_by_label_contains("Scale ").click();
         h.run();
         h.get_by_label("150%").click();
         h.run();
@@ -2810,7 +2842,7 @@ mod tests {
             .unwrap()
             .module
             .set(mg_nui::key("nui_test", ResType::TXT), settings.bytes());
-        h.get_by_label("Scale").click();
+        h.get_by_label_contains("Scale ").click();
         h.run();
         h.get_all_by_label("100%").last().unwrap().click();
         h.run();

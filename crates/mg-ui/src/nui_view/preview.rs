@@ -810,18 +810,19 @@ pub(super) fn canvas(
             state.text_scroll_x.clear();
             state.text_scroll_y.clear();
         }
-        ui.menu_button("Scale", |ui| {
+        ui.menu_button(format!("Scale {:.0}%", state.preview_scale * 100.0), |ui| {
             for (label, scale) in [("100%", 1.0), ("125%", 1.25), ("150%", 1.5), ("200%", 2.0)] {
                 if ui.selectable_value(&mut state.preview_scale, scale, label).clicked() {
                     ui.close();
                 }
             }
         });
-        let states = ui.add_enabled(!state.preview_interactive, egui::Button::new("State"));
+        const STATES: [&str; 5] = ["Follow pointer", "Normal", "Hover", "Pressed", "Disabled"];
+        let shown = STATES.get(state.preview_state).copied().unwrap_or("Follow pointer");
+        let states = ui
+            .add_enabled(!state.preview_interactive, egui::Button::new(format!("State: {shown}")));
         egui::Popup::menu(&states).show(|ui| {
-            for (i, label) in
-                ["Follow pointer", "Normal", "Hover", "Pressed", "Disabled"].iter().enumerate()
-            {
+            for (i, label) in STATES.iter().enumerate() {
                 if ui.selectable_value(&mut state.preview_state, i, *label).clicked() {
                     ui.close();
                 }

@@ -2741,6 +2741,15 @@ impl Moonglow {
 
     /// Starts the game on the saved module (Test Module).
     fn test_module(&mut self, choose: bool) {
+        if let Some(ws) = &self.ws {
+            let stale = nui_view::stale_windows(&ws.module);
+            if !stale.is_empty() {
+                self.log.warn(format!(
+                    "NUI windows changed since they were built: {} (the game runs what was last built; Build & compile in the NUI Creator)",
+                    stale.join(", ")
+                ));
+            }
+        }
         if test_module::game_running() {
             self.log.warn(
                 "The game started for the last test is still running: close it, then test \

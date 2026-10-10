@@ -417,6 +417,7 @@ pub(super) fn editor(
         }
         ui.horizontal_wrapped(|ui| {
             if scope.is_none() {
+                ui.label("Events of");
                 egui::ComboBox::from_id_salt("event-target")
                     .selected_text(target.as_ref().map_or("Choose…".into(), |t| target_name(t, doc)))
                     .show_ui(ui, |ui| {
