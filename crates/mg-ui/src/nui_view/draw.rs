@@ -340,9 +340,9 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                 if ui.button(*name).clicked() {
                     if !node["draw_list"].is_array() {
                         node["draw_list"] = json!([]);
-                        // The 8193.37 client blanks a window whose last draw list
-                        // has Clip to control on. Off by default; an explicitly
-                        // authored setting is kept.
+                        // Clip to control clips nothing in the 8193.37 client and
+                        // blanks a window whose last draw list has it on: written
+                        // off and not offered. One authored on is flagged.
                         if node.get("draw_list_scissor").is_none() {
                             node["draw_list_scissor"] = false.into();
                         }
@@ -352,19 +352,6 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                 }
             }
         });
-        if node["draw_list"].is_array() {
-            match &mut node["draw_list_scissor"] {
-                Value::Bool(clip) => {
-                    ui.checkbox(clip, "Clip to control");
-                }
-                other => {
-                    ui.horizontal(|ui| {
-                        ui.label("Clip to control");
-                        scalar(ui, other);
-                    });
-                }
-            }
-        }
         let Some(items) = node.get_mut("draw_list").and_then(Value::as_array_mut) else { return };
         let mut remove = None;
         let mut move_item = None;

@@ -252,7 +252,7 @@ not run the NWN engine or scripts. Stock frame bevels are preserved when resized
 Charts render authored series; **Chart series** edits line/column series and
 their data. **Draw layers** adds polylines, curves, ellipses, arcs, text, images,
 lines and rectangles. Coordinate handles move shapes/control points and resize
-rectangles; fields expose binds, clipping, paint order and mouse conditions.
+rectangles; fields expose binds, paint order and mouse conditions.
 A drawing with **Per-row values (in a list)** takes one value per list row
 from its bound arrays, drawn once in each row. Numeric text preview limits
 precision to 16 digits, an editor limit, not the engine's. Verify exact spacing, drawing, scrolling and events in the game.
@@ -493,9 +493,12 @@ and the preview follow them.
   the window opens, and with every pick. Interact does the same.
 - **A Close button** with the ID `mg_close` but no **Clicked** handler does
   nothing in the game. A warning says so.
-- **Clip to control** (a control's draw layers) clips nothing in the game: the
-  layers draw past the control either way. On the last draw layers of a window
-  it blanks the whole window, so that is an error; the preview doesn't clip.
+- **Clip to control** (a control's draw layers, `draw_list_scissor`) clips
+  nothing in the game: the layers draw past the control either way. On the
+  last draw layers of a window it blanks the whole window. So the Creator
+  doesn't offer it (its draw layers are written with it off); a JUI that has
+  it on is flagged, an error on the last draw layers, and **Turn it off** in
+  the problem list fixes it. The preview doesn't clip.
 - **Events.** *Clicked* comes from buttons; a label or a list cell sends only
   *Mouse pressed* and *released* (with the button and the pointer's position
   in the control as payload). A text input sends *Focus gained* and *lost*; a

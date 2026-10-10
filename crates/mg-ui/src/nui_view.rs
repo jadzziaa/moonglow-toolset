@@ -489,6 +489,27 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                                 config_raw = String::from_utf8(s.bytes()).unwrap();
                             }
                         }
+                        // Clip to control does nothing but harm, so it isn't
+                        // offered; one written by hand is turned off here.
+                        if d.path.ends_with("/draw_list_scissor")
+                            && let (Ok(doc), Ok(s)) = (&parsed, &settings)
+                            && ui.small_button("Turn it off").clicked()
+                        {
+                            let (mut doc, mut s) = (doc.clone(), s.clone());
+                            let at = d.path.strip_prefix("/views/").and_then(|p| p.split_once('/'));
+                            let flag = match at {
+                                Some((view, rest)) => s
+                                    .views
+                                    .get_mut(view)
+                                    .and_then(|v| v.pointer_mut(&format!("/{rest}"))),
+                                None => doc.pointer_mut(&d.path),
+                            };
+                            if let Some(flag) = flag {
+                                *flag = json!(false);
+                                raw = serde_json::to_string_pretty(&doc).unwrap();
+                                config_raw = String::from_utf8(s.bytes()).unwrap();
+                            }
+                        }
                         if d.message.starts_with("The mg_close button has no Clicked handler")
                             && let Ok(s) = &settings
                             && ui.small_button("Add Close handler").clicked()
@@ -2065,7 +2086,7 @@ mod tests {
     }
 
     #[test]
-    fn nui_draw_layers_start_unclipped_and_preserve_explicit_clipping() {
+    fn nui_draw_layers_start_unclipped_and_hand_written_clipping_is_turned_off() {
         let mut h = keyboard_harness();
         h.run();
         h.get_by_label("Canvas Button · Close").click();
@@ -2083,20 +2104,19 @@ mod tests {
         let node = &keyboard_document(&h)["root"]["children"][1];
         assert_eq!(node["draw_list_scissor"], false);
         assert_eq!(node["draw_list"][0]["type"], 7);
-        h.get_by_label("Clip to control").scroll_to_me();
+        // It does nothing in the game but blank a window: not offered.
+        assert!(h.query_by_label("Clip to control").is_none());
+        // Written on by hand, it is flagged and one click turns it off.
+        let key = mg_nui::key("nui_test", ResType::JUI);
+        let mut doc = keyboard_document(&h);
+        doc["root"]["children"][1]["draw_list_scissor"] = json!(true);
+        h.state_mut().ws.as_mut().unwrap().module.set(key, serde_json::to_vec(&doc).unwrap());
         h.run();
-        h.get_by_label("Clip to control").click();
-        h.run();
-        assert_eq!(keyboard_document(&h)["root"]["children"][1]["draw_list_scissor"], true);
-        h.get_by_label("+ Draw primitive").scroll_to_me();
-        h.run();
-        h.get_by_label("+ Draw primitive").click();
-        h.run();
-        h.get_by_label("Line").click();
+        h.get_all_by_label("Turn it off").next().unwrap().click();
         h.run();
         let doc = keyboard_document(&h);
-        assert_eq!(doc["root"]["children"][1]["draw_list_scissor"], true);
-        assert_eq!(doc["root"]["children"][1]["draw_list"].as_array().unwrap().len(), 2);
+        assert_eq!(doc["root"]["children"][1]["draw_list_scissor"], false);
+        assert_eq!(doc["root"]["children"][1]["draw_list"].as_array().unwrap().len(), 1);
     }
 
     #[test]
