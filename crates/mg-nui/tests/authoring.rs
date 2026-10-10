@@ -726,6 +726,33 @@ fn toggle_buttons_with_a_fixed_value_are_flagged() {
 
 /// Each handler is a section of the event script; what is written in it
 /// survives Build, also while its handler is removed and when it comes back.
+/// Names are written as scripts are written by hand, `sElement == "pick"`;
+/// only one a plain literal can't hold is spelled through JSON escapes. A
+/// script with the older spelling is still Moonglow's.
+#[test]
+fn event_guards_are_plain_literals_and_older_ones_still_count_as_ours() {
+    use mg_nui::{Action, Route};
+    assert_eq!(mg_nui::string_expr("click"), r#""click""#);
+    assert_eq!(mg_nui::string_expr("pick_2"), r#""pick_2""#);
+    for odd in ["Żółć", "a\"b", "a\\b"] {
+        assert!(mg_nui::string_expr(odd).starts_with("JsonGetString(JsonParse("), "{odd}");
+    }
+    let mut s = Settings::default();
+    s.actions.push(Route { event: "click".into(), element: "pick".into(), action: Action::Code });
+    let script = mg_nui::event_source("w", &s).unwrap();
+    assert!(script.contains(r#"if (sType == "click" && sElement == "pick")"#), "{script}");
+    assert!(!script.contains("JsonParse"));
+    let older = script.replace(
+        r#"sType == "click" && sElement == "pick""#,
+        r#"sType == JsonGetString(JsonParse("\"click\"")) && sElement == JsonGetString(JsonParse("\"pick\""))"#,
+    );
+    assert_ne!(older, script);
+    assert!(!mg_nui::edited_outside("w", &older));
+    assert_eq!(mg_nui::merge_events("w", &s, Some(&older)).unwrap(), script);
+    // A real change outside the sections is still seen.
+    assert!(mg_nui::edited_outside("w", &older.replace("void main()", "void main() // mine")));
+}
+
 #[test]
 fn event_scripts_keep_the_code_written_in_their_handlers() {
     let route = |event: &str, element: &str| mg_nui::Route {

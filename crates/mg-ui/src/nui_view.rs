@@ -1751,8 +1751,8 @@ mod tests {
         assert!(script(&h).contains("// mg:begin click mg_close_x\n"));
         assert!(!script(&h).contains("// mg:begin click mg_close\n"));
         // The guard follows too, so the script still builds.
-        assert!(script(&h).contains(r#"\"mg_close_x\""#));
-        assert!(!script(&h).contains(r#"\"mg_close\""#));
+        assert!(script(&h).contains(r#"sElement == "mg_close_x""#));
+        assert!(!script(&h).contains(r#""mg_close""#));
         assert!(!mg_nui::edited_outside("nui_test", &script(&h)));
         // Deleting the control takes its handler away; its code stays.
         h.get_all_by_label("Button · Close").next().unwrap().click();

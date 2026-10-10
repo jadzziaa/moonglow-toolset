@@ -43,9 +43,43 @@ pub enum Action {
     },
 }
 
-/// Use JSON Unicode escapes rather than depend on an NWScript source codepage.
+/// A string as NWScript source: a plain literal when it is printable ASCII
+/// (as scripts are written by hand), else JSON Unicode escapes, which don't
+/// depend on the source's codepage.
 pub fn string_expr(s: &str) -> String {
+    if plain_literal(s) {
+        return format!("\"{s}\"");
+    }
     format!("JsonGetString(JsonParse({}))", script::literal(&script::ascii_json(&json!(s))))
+}
+
+fn plain_literal(s: &str) -> bool {
+    s.bytes().all(|b| (b' '..=b'~').contains(&b) && b != b'"' && b != b'\\')
+}
+
+/// Guards an earlier Moonglow wrote for plain names, `JsonGetString(JsonParse("\"x\""))`,
+/// as they are written now, `"x"`: a script of then is Moonglow's still.
+fn plain_guards(script: &str) -> String {
+    const OPEN: &str = "JsonGetString(JsonParse(\"\\\"";
+    const CLOSE: &str = "\\\"\"))";
+    let mut out = String::with_capacity(script.len());
+    let mut rest = script;
+    while let Some(at) = rest.find(OPEN) {
+        let inner = &rest[at + OPEN.len()..];
+        match inner.find(CLOSE).map(|end| &inner[..end]).filter(|s| plain_literal(s)) {
+            Some(name) => {
+                out.push_str(&rest[..at]);
+                out.push_str(&format!("\"{name}\""));
+                rest = &inner[name.len() + CLOSE.len()..];
+            }
+            None => {
+                out.push_str(&rest[..at + OPEN.len()]);
+                rest = inner;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Where your code goes: between a `BEGIN key` line and the next `END`.
@@ -293,6 +327,7 @@ pub fn edited_outside(name: &str, script: &str) -> bool {
     let settings = Settings { actions, ..Default::default() };
     // Scripts from before the layout functions have no include line.
     let include = include_line(name);
+    let script = &plain_guards(script);
     merge_events(name, &settings, Some(script))
         .is_ok_and(|s| s.replacen(&include, "", 1) != script.replacen(&include, "", 1))
 }
