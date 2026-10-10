@@ -140,28 +140,6 @@ pub fn clip_segment(camera: &Camera, a: Vec3, b: Vec3, least: f32) -> Option<(Ve
     }
 }
 
-/// How near the eye, along the view, a walkmesh's face is drawn over the
-/// picture: a tenth of the camera's distance to what it looks at. What is
-/// nearer is cut off ([`clip_polygon`]).
-pub fn overlay_depth(camera: &Camera) -> f32 {
-    ((camera.target - camera.eye).length() * 0.1).max(camera.near)
-}
-
-/// Whether a face drawn over the view runs from beside the eye far into
-/// the picture, and would be a streak across it even cut at
-/// [`overlay_depth`]: a corner nearer than a quarter of the camera's
-/// distance to what it looks at, and another three times as far (a small
-/// face on the ground at the foot of a flat view is not). (The eye passing
-/// beside a chandelier's or a wall torch's walkmesh: a corner a hand's
-/// width away lands many screens off, and the face is a spike from the
-/// object to the picture's edge. Seen by the user, twice.)
-pub fn beside_the_eye(camera: &Camera, corners: &[Vec3]) -> bool {
-    let distance = (camera.target - camera.eye).length();
-    let depths = corners.iter().map(|c| depth(camera, *c));
-    let (least, most) = depths.fold((f32::MAX, f32::MIN), |(lo, hi), d| (lo.min(d), hi.max(d)));
-    least < distance * 0.25 && most > least * 3.0
-}
-
 /// The box drawn and picked for an object without a model: sounds,
 /// waypoints without a flag, and objects whose appearance cannot be shown.
 pub fn marker_bounds(kind: ObjectKind) -> (Vec3, Vec3) {
@@ -259,43 +237,33 @@ mod tests {
         assert!(seen.abs().max_element() < 4.0, "{seen}");
     }
 
-    /// A face with a corner beside the eye is told apart from one out in
-    /// the view: the first projects many screens long (a chandelier's
-    /// walkmesh in a builder's area, the eye 12 cm from its corner).
+    /// A face is cut where it passes behind the camera's near plane (it
+    /// stays in its plane), and so is a line; one wholly behind is gone,
+    /// one wholly in front as it was.
     #[test]
-    fn a_face_with_a_corner_beside_the_eye_is_known() {
+    fn faces_and_lines_are_cut_at_a_depth() {
         let camera = Camera::orbit(Vec3::new(10.0, 20.0, 0.0), 11.4, 0.7, 0.14);
         let forward = (camera.target - camera.eye).normalize();
         let side = forward.cross(Vec3::Z).normalize();
         let at = |ahead: f32, aside: f32| camera.eye + forward * ahead + side * aside;
-        let out_there = [at(6.0, 1.0), at(9.0, -2.0), at(11.4, 0.0)];
-        let streak = [at(0.119, 2.0), at(2.34, 0.1), at(2.79, 0.0)];
-        // (It is in front of the near plane: projected, and far too long.)
-        let on_screen: Vec<Vec2> =
-            streak.iter().map(|p| project(&camera, 2.4, *p).unwrap()).collect();
-        assert!((on_screen[0] - on_screen[1]).length() > 3.0, "{on_screen:?}");
-        assert!(beside_the_eye(&camera, &streak));
-        // Cut at the overlay's depth, no corner of a face is beside the
-        // eye, and what is left of it lies in its plane.
-        let least = overlay_depth(&camera);
+        let least = 1.0;
         let small = [at(0.9, 2.0), at(1.3, 1.9), at(1.4, 2.2)];
-        assert!(!beside_the_eye(&camera, &small));
         let cut = clip_polygon(&camera, &small, least);
         assert_eq!(cut.len(), 4, "a corner cut off: a quadrilateral");
         assert!(cut.iter().all(|p| depth(&camera, *p) >= least - 1e-4));
         let normal = (small[1] - small[0]).cross(small[2] - small[0]).normalize();
         assert!(cut.iter().all(|p| (*p - small[0]).dot(normal).abs() < 1e-3));
-        // All of it nearer: nothing; all of it further: as it is.
+        let out_there = [at(6.0, 1.0), at(9.0, -2.0), at(11.4, 0.0)];
         assert!(clip_polygon(&camera, &small, 5.0).is_empty());
         assert_eq!(clip_polygon(&camera, &out_there, least), out_there);
-        // A line: cut where it crosses, gone where it is all too near.
+        // A face with a corner behind the eye shows what is in front.
+        let behind = [at(-2.0, 0.0), at(3.0, 1.0), at(3.0, -1.0)];
+        let shown = clip_polygon(&camera, &behind, camera.near);
+        assert_eq!(shown.len(), 4);
+        assert!(shown.iter().all(|p| project(&camera, 2.0, *p).is_some()));
         let (a, b) = clip_segment(&camera, at(0.5, 0.0), at(6.0, 0.0), least).unwrap();
         assert!((depth(&camera, a) - least).abs() < 1e-4 && b == at(6.0, 0.0));
         assert_eq!(clip_segment(&camera, at(0.2, 0.0), at(0.5, 1.0), least), None);
-        assert!(!beside_the_eye(&camera, &out_there));
-        // A long face from near the eye into the view; a small one as near.
-        assert!(beside_the_eye(&camera, &[at(1.6, 1.0), at(7.0, 0.0), at(7.5, 0.5)]));
-        assert!(!beside_the_eye(&camera, &[at(1.6, 1.0), at(2.0, 0.0), at(2.2, 0.5)]));
     }
 
     #[test]

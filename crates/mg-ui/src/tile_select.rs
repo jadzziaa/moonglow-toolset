@@ -749,7 +749,9 @@ pub(crate) fn refused_overlay(ui: &egui::Ui, view: &mut AreaView) {
         if screen.len() == 4 {
             let fill = Color32::from_rgba_unmultiplied(230, 40, 40, (110.0 * strength) as u8);
             let line = Color32::from_rgba_unmultiplied(255, 60, 60, (255.0 * strength) as u8);
-            painter.add(egui::Shape::convex_polygon(screen, fill, egui::Stroke::new(2.0, line)));
+            // (The outline edge by edge: see `area_view::outline`.)
+            painter.add(egui::Shape::convex_polygon(screen.clone(), fill, egui::Stroke::NONE));
+            crate::area_view::outline(&painter, &screen, egui::Stroke::new(2.0, line));
         }
     }
     ui.ctx().request_repaint();
@@ -774,7 +776,7 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
         let corners = view.on_ground(&corners);
         let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
         if screen.len() == 4 {
-            painter.add(egui::Shape::closed_line(screen, egui::Stroke::new(2.0, blue)));
+            crate::area_view::outline(&painter, &screen, egui::Stroke::new(2.0, blue));
         }
     }
     // The pasted block, under the pointer.
@@ -791,7 +793,7 @@ pub(crate) fn overlay(ui: &egui::Ui, view: &AreaView, clip: Option<&TileClip>) {
             let corners = view.on_ground(&corners);
             let screen: Vec<Pos2> = corners.iter().filter_map(|p| view.screen_pos(*p)).collect();
             if screen.len() == 4 {
-                painter.add(egui::Shape::closed_line(screen, egui::Stroke::new(2.0, gold)));
+                crate::area_view::outline(&painter, &screen, egui::Stroke::new(2.0, gold));
             }
         }
     }

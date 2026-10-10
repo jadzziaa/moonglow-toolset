@@ -93,6 +93,15 @@ The two generated documents get theirs from their generators
 - **Tests that open a GPU device call `mg_testkit::gpu::hold()` first**, so a
   test binary has one device open at a time: a test suite with many at once
   coincided with a kernel panic on the development machine.
+- **Something that looks wrong in a view is reproduced as a picture
+  before it is fixed.** Render the view itself and look at it, before
+  and after the change: `crates/mg-ui/tests/screens.rs` for the window;
+  for an area's view, a harness with a GPU render state, as
+  `area_harness` in `crates/mg-ui/tests/app.rs` sets one up; with the
+  builder's module and user directory where they are on this machine. A
+  simulation of the arithmetic is not the picture: spikes across an
+  area's view took three releases because the projection was simulated,
+  and the cause was in how the outline was drawn.
 - **Parsers never panic on bad input**: bounds-checked reads
   (`mg_core::bin::Reader`), errors with context, and a truncation test per
   format.

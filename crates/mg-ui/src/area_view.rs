@@ -2155,7 +2155,6 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
         view.object_faces = Some(view.object_walks.faces(game, model));
     }
     let Some(faces) = view.object_faces.as_ref() else { return };
-    let camera = view.camera();
     let mut mesh = egui::Mesh::default();
     let mut edges = Vec::new();
     for (corners, object) in faces {
@@ -2164,15 +2163,8 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
             continue;
         }
         let lifted = corners.map(|c| c + Vec3::Z * 0.05);
-        // (Not a face that runs from beside the eye into the view: it
-        // would be a streak across it. And of the others, what is nearer
-        // the eye than a tenth of its distance to what it looks at is cut
-        // off.)
-        let Some(camera) = camera.as_ref() else { continue };
-        if mg_area::pick::beside_the_eye(camera, &lifted) {
-            continue;
-        }
-        let points = view.screen_polygon(&lifted, Some(mg_area::pick::overlay_depth(camera)));
+        // (Cut where it passes behind the eye.)
+        let points = view.screen_polygon(&lifted, None);
         if points.len() < 3 {
             continue;
         }
@@ -2191,7 +2183,19 @@ fn object_walkmesh_overlay(app: &Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     let painter = ui.painter_at(view.rect);
     painter.add(egui::Shape::mesh(mesh));
     for (p, color) in edges {
-        painter.add(egui::Shape::closed_line(p, Stroke::new(1.0, color)));
+        outline(&painter, &p, Stroke::new(1.0, color));
+    }
+}
+
+/// A closed outline over the view, each edge a line of its own. (As one
+/// closed line, egui joins the edges with mitered corners, and a face or a
+/// square seen nearly edge-on has corners so sharp that the joins shot
+/// across the view: spikes from every placeable's walkmesh as the camera
+/// turned, which a builder saw three times before the cause was found.)
+pub(crate) fn outline(painter: &egui::Painter, points: &[Pos2], stroke: impl Into<Stroke>) {
+    let stroke = stroke.into();
+    for k in 0..points.len() {
+        painter.line_segment([points[k], points[(k + 1) % points.len()]], stroke);
     }
 }
 
@@ -2339,11 +2343,9 @@ fn overlays(
             let side = Vec3::new(-ahead.y, ahead.x, 0.0) * 0.6;
             let (tip, base) = (o.position + ahead * 1.0, o.position - ahead * 0.6);
             if let (Some(t), Some(l), Some(r)) = (at(tip), at(base + side), at(base - side)) {
-                painter.add(egui::Shape::convex_polygon(
-                    vec![t, l, r],
-                    Color32::from_rgb(240, 210, 40),
-                    Stroke::new(1.0, Color32::from_rgb(120, 100, 0)),
-                ));
+                let yellow = Color32::from_rgb(240, 210, 40);
+                painter.add(egui::Shape::convex_polygon(vec![t, l, r], yellow, Stroke::NONE));
+                outline(&painter, &[t, l, r], Stroke::new(1.0, Color32::from_rgb(120, 100, 0)));
             }
             continue;
         }
@@ -2374,7 +2376,7 @@ fn overlays(
                     .collect();
                 if ring.len() == 96 {
                     let faint = Color32::from_rgba_unmultiplied(rgb[0], rgb[1], rgb[2], 150);
-                    painter.add(egui::Shape::closed_line(ring, Stroke::new(1.5, faint)));
+                    outline(&painter, &ring, Stroke::new(1.5, faint));
                 }
             }
         }
@@ -4894,6 +4896,29 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Nothing drawn over an area's view is a closed line or a polygon
+    /// with a stroke: egui joins such a stroke's edges with mitered
+    /// corners, which shoot across the view from a shape seen nearly
+    /// edge-on ([`outline`] draws the edges one by one).
+    #[test]
+    fn overlays_have_no_mitered_outlines() {
+        let sources = [
+            ("area_view.rs", include_str!("area_view.rs")),
+            ("tile_select.rs", include_str!("tile_select.rs")),
+            ("terrain_mode.rs", include_str!("terrain_mode.rs")),
+        ];
+        for (name, source) in sources {
+            // (Not this test's own words for them.)
+            let code: String =
+                source.lines().filter(|l| !l.trim_start().starts_with("//")).collect();
+            assert!(!code.contains(concat!("closed", "_line(")), "{name}: a closed line");
+            for part in code.split(concat!("convex", "_polygon(")).skip(1) {
+                let call = part.split(';').next().unwrap_or_default();
+                assert!(call.contains("Stroke::NONE"), "{name}: a polygon with a stroke: {call}");
+            }
+        }
+    }
 
     #[test]
     fn a_sound_s_random_place_has_a_reach() {
