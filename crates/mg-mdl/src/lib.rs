@@ -17,8 +17,14 @@
 //! - Walkmesh files (`.wok`, `.pwk`, `.dwk`) are read by [`walkmesh`].
 
 pub mod ascii;
+pub mod ascii_write;
 pub mod binary;
+pub mod binary_write;
+pub mod compile;
 pub mod ctrl;
+pub mod keywords;
+pub mod lint;
+pub mod outline;
 pub mod walkmesh;
 
 use thiserror::Error;
@@ -476,4 +482,27 @@ mod tests {
         assert!((q[2] - 1.0).abs() < 1e-6 && q[3].abs() < 1e-6);
         assert_eq!(axis_angle([0.0, 0.0, 0.0], 1.0), IDENTITY);
     }
+}
+
+/// Why a model could not be written as text.
+#[derive(Debug, Error)]
+pub enum DecompileError {
+    #[error("not a compiled model (it is already ASCII)")]
+    NotBinary,
+    #[error(transparent)]
+    Read(#[from] MdlError),
+}
+
+/// A compiled model as ASCII, its nodes in the order of their part
+/// numbers, so that compiling the text again keeps them.
+pub fn decompile(data: &[u8]) -> Result<String, DecompileError> {
+    if !is_binary(data) {
+        return Err(DecompileError::NotBinary);
+    }
+    let model = Model::read(data)?;
+    let order = match binary_write::PartNumbers::read(data) {
+        Some(parts) => ascii_write::file_order(&model, &parts.numbers),
+        None => (0..model.nodes.len()).collect(),
+    };
+    Ok(ascii_write::to_ascii_in_order(&model, &ascii_write::Options::default(), &order))
 }
