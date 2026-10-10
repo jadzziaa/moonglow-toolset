@@ -695,6 +695,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
     if (raw != original || config_raw != config_original)
         && let Some(edit) =
             events::follow_controls(app, &name, &original, &raw, &config_original, &mut config_raw)
+                .or_else(|| events::sync_script(app, &name, &config_original, &config_raw))
     {
         edits.push(edit);
     }
@@ -1769,6 +1770,65 @@ mod tests {
             .iter()
             .all(|d| !d.message.contains("Unknown element ID"))
         );
+    }
+
+    /// A window built by an older Moonglow has an event script without
+    /// sections, unchanged since: the Creator takes it as Build does. A handler
+    /// added gets its section at once, and Edit code finds it.
+    #[test]
+    fn nui_handlers_reach_an_older_moonglow_event_script_at_once() {
+        let old = "// Generated NUI events. Regeneration protects manual changes.\nvoid main()\n{\n    object oPlayer = NuiGetEventPlayer();\n    int nToken = NuiGetEventWindow();\n    string sType = NuiGetEventType();\n    string sElement = NuiGetEventElement();\n    int nRow = NuiGetEventArrayIndex();\n    if (sType == JsonGetString(JsonParse(\"\\\"click\\\"\")) && sElement == JsonGetString(JsonParse(\"\\\"mg_close\\\"\")))\n    {\n        NuiDestroy(oPlayer, nToken);\n        return;\n    }\n}\n";
+        // Build's fingerprint (FNV-1a), as the older version saved it.
+        let fingerprint = old
+            .bytes()
+            .fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+        let mut app = Moonglow::new(None, Box::new(crate::NoDialogs::default()));
+        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+        super::create(&mut app, "np_bsel");
+        app.actions.clear();
+        let (jui, txt, nss) = (
+            mg_nui::key("np_bsel", ResType::JUI),
+            mg_nui::key("np_bsel", ResType::TXT),
+            mg_nui::key("np_bsel_e", ResType::NSS),
+        );
+        let module = &mut app.ws.as_mut().unwrap().module;
+        let mut window: Value = serde_json::from_slice(module.get(&jui).unwrap()).unwrap();
+        window["root"]["children"] = json!([
+            {"type":"button","id":"mg_close","label":"Close","height":30.0},
+            {"type":"button","id":"pick","label":"Pick","height":30.0}
+        ]);
+        module.set(jui, serde_json::to_vec(&window).unwrap());
+        let mut s = Settings::parse(module.get(&txt).unwrap()).unwrap();
+        s.actions = vec![mg_nui::Route {
+            event: "click".into(),
+            element: "mg_close".into(),
+            action: mg_nui::Action::Close,
+        }];
+        s.event_hash = Some(format!("{fingerprint:016x}"));
+        module.set(txt, s.bytes());
+        module.set(nss, old.as_bytes().to_vec());
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1600.0)).build_ui_state(
+            |ui, app: &mut Moonglow| {
+                super::ui(app, ui, Some(mg_nui::key("np_bsel", ResType::JUI)));
+                app.run_actions();
+            },
+            app,
+        );
+        h.run();
+        h.get_by_label("Canvas Button · Pick").click();
+        h.run();
+        h.get_by_label("+ Add handler").click();
+        h.run();
+        let script = |h: &Harness<'_, Moonglow>| {
+            crate::text::decode(h.state().ws.as_ref().unwrap().module.get(&nss).unwrap())
+        };
+        assert!(script(&h).contains("// mg:begin click pick\n"), "{}", script(&h));
+        assert!(script(&h).contains("// mg:begin click mg_close\n"));
+        assert!(script(&h).contains("NuiDestroy(oPlayer, nToken);"));
+        h.get_all_by_label("Edit code").last().unwrap().click();
+        h.run();
+        let log = &h.state().log.entries;
+        assert!(!log.iter().any(|(level, _)| *level == crate::Level::Error), "{log:?}");
     }
 
     /// A picture field's From disk… puts the file into the module and names

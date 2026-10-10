@@ -220,7 +220,8 @@ fn clip_to_control_on_the_last_draw_list_blanks_the_window() {
         "draw_list":[{"type":7,"rect":{"x":0.0,"y":0.0,"w":9.0,"h":9.0}}]}]),
             &s
         ),
-        (true, true)
+        // The error says what the warning on the same property would.
+        (true, false)
     );
     // Shown, unclipped.
     assert_eq!(check(json!([spacer(json!(true)), spacer(json!(false))]), &s), (false, true));
@@ -228,7 +229,7 @@ fn clip_to_control_on_the_last_draw_list_blanks_the_window() {
     // A bind's initial value counts.
     let mut bound = Settings::default();
     bound.bindings.insert("clip".into(), Binding { value: json!(true), ..Default::default() });
-    assert_eq!(check(json!([spacer(json!({"bind":"clip"}))]), &bound), (true, true));
+    assert_eq!(check(json!([spacer(json!({"bind":"clip"}))]), &bound), (true, false));
 }
 
 #[test]

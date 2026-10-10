@@ -199,6 +199,17 @@ fn events_over(
     }
 }
 
+/// The event script with `settings`' handlers, over the one there is: what
+/// Build writes, or why it won't. The Creator asks the same, so the two
+/// agree on whose a script is.
+pub fn rebuild_events(
+    name: &str,
+    settings: &Settings,
+    existing: Option<&[u8]>,
+) -> Result<Vec<u8>, String> {
+    events_over(existing, settings, name)
+}
+
 /// Includes event metadata and manual event edits in the editor's build status.
 pub fn is_current(module: &Module, name: &str, window: &Value, settings: &Settings) -> bool {
     let Ok(opener) = opener_source(name, window, settings) else { return false };

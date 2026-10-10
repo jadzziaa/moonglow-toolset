@@ -19,7 +19,7 @@ pub use actions::{
     handler_code, handler_key, handler_offset, initial_function, insert_code, merge_events,
     string_expr, variant_function,
 };
-pub use script::{generate, is_current, opener_source};
+pub use script::{generate, is_current, opener_source, rebuild_events};
 
 pub const FORMAT: &str = "moonglow.nui/1";
 

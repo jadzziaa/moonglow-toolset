@@ -43,19 +43,36 @@ fn write_script(app: &mut Moonglow, key: ResKey, text: String) -> Option<Edit> {
     Some(Edit::SetResource { key, data: Some(crate::text::encode(&text)) })
 }
 
-/// The script rebuilt around `settings`' handlers, if it is Moonglow's and
-/// untouched outside its sections; else why not (logged by the caller).
+/// The script rebuilt around `settings`' handlers as Build would (one
+/// Moonglow wrote, an older one unchanged since included); else why not
+/// (logged by the caller).
 fn rebuilt(name: &str, settings: &Settings, current: Option<&str>) -> Result<String, String> {
-    match current.map(|t| t.replace("\r\n", "\n")) {
-        None => mg_nui::merge_events(name, settings, None),
-        Some(t) if !t.contains(mg_nui::BEGIN.trim_end()) => {
-            Err(format!("{name}_e.nss was written by hand, so it is left as it is"))
-        }
-        Some(t) if mg_nui::edited_outside(name, &t) => Err(format!(
-            "{name}_e.nss was changed outside its mg:begin and mg:end lines, so it is left as it is: move that code into a section before building"
-        )),
-        Some(t) => mg_nui::merge_events(name, settings, Some(&t)),
+    let bytes = current.map(crate::text::encode);
+    mg_nui::rebuild_events(name, settings, bytes.as_deref()).map(|b| crate::text::decode(&b))
+}
+
+/// The event script follows the handlers as they are added and removed, so
+/// a new one's section is there to write in. One that isn't Moonglow's is
+/// left as it is: Build says why.
+pub(super) fn sync_script(
+    app: &mut Moonglow,
+    name: &str,
+    old_config: &str,
+    config: &str,
+) -> Option<Edit> {
+    let (old, new) =
+        (Settings::parse(old_config.as_bytes()).ok()?, Settings::parse(config.as_bytes()).ok()?);
+    let keys = |s: &Settings| s.actions.iter().map(mg_nui::handler_key).collect::<Vec<_>>();
+    if keys(&old) == keys(&new) {
+        return None;
     }
+    let key = ResKey::parse(&format!("{name}_e"), ResType::NSS)?;
+    let current = current_script(app, &key);
+    let text = rebuilt(name, &new, current.as_deref()).ok()?;
+    if current.as_deref() == Some(text.as_str()) {
+        return None;
+    }
+    write_script(app, key, text)
 }
 
 /// Brings the event script up to date with the handlers (keeping what is

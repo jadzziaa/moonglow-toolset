@@ -1,6 +1,7 @@
 # Update log
 
 ## 2026-10-10
+* **Update**: [NUI Creator](manual/07-scripts.md#events): a handler added or removed reaches the event script at once; an event script an older Moonglow wrote (no sections, unchanged since) is taken as Build takes it, no longer called hand-written.
 * **Update**: [NUI Creator](manual/07-scripts.md#images): draw layers in Layers, moved and sized on the canvas; a picture file whose name the game can't read is added under a shortened one.
 * **Update**: [NUI Creator](manual/07-scripts.md#images): **From disk…** beside a picture field (an Image, an Image button, a draw layer) adds the file to the module and uses it.
 * **Update**: [NUI Creator](manual/07-scripts.md#what-the-game-refuses-and-what-it-does-on-its-own): Clip to control is no longer offered (it clips nothing in the game and blanks a window on its last draw layers); one written by hand is flagged with **Turn it off**.
