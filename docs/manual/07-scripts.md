@@ -249,9 +249,9 @@ Charts render authored series; **Chart series** edits line/column series and
 their data. **Draw layers** adds polylines, curves, ellipses, arcs, text, images,
 lines and rectangles. Coordinate handles move shapes/control points and resize
 rectangles; fields expose binds, clipping, paint order and mouse conditions.
-Array-bound drawings repeat locally with a 512-instance preview limit. Numeric
-text preview limits precision to 16 digits. These are editor limits, not engine
-restrictions. Verify exact spacing, drawing, scrolling and events in the game.
+A drawing with **Per-row values (in a list)** takes one value per list row
+from its bound arrays, drawn once in each row. Numeric text preview limits
+precision to 16 digits, an editor limit, not the engine's. Verify exact spacing, drawing, scrolling and events in the game.
 
 #### Images
 

@@ -746,6 +746,35 @@ fn handler_keys_keep_their_spaces_and_unplain_names_are_errors() {
     }
 }
 
+/// Values none of the stock constants have, picture names the game can't
+/// look up, negative cell widths, and a whole-window variant whose last
+/// drawing clips (which blanks the window) are flagged.
+#[test]
+fn out_of_range_values_long_picture_names_and_clipping_variants_are_flagged() {
+    let flagged = |w: &Value, s: &Settings, what: &str| {
+        mg_nui::validate(w, s).iter().any(|d| d.message.contains(what))
+    };
+    let mut w = mg_nui::window();
+    w["root"]["children"] = json!([
+        {"type":"image","value":"a_name_of_twenty_chars","image_aspect":9},
+        {"type":"list","row_count":1,"row_template":[[{"type":"label","value":"x"},-5.0,false]]},
+        {"type":"spacer","draw_list":[{"type":6,"order":3,"render":0,"a":{"x":0.0,"y":0.0},"b":{"x":1.0,"y":1.0}}]}
+    ]);
+    let s = Settings::default();
+    assert!(flagged(&w, &s, "NUI_ASPECT_*"));
+    assert!(flagged(&w, &s, "longer than 16 characters"));
+    assert!(flagged(&w, &s, "not below 0"));
+    assert!(flagged(&w, &s, "NUI_DRAW_LIST_ITEM_ORDER_*"));
+    let mut s = Settings::default();
+    s.views.insert(
+        "cover".into(),
+        json!({"type":"col","children":[],"draw_list_scissor":true,
+        "draw_list":[{"type":6,"order":1,"render":0,"a":{"x":0.0,"y":0.0},"b":{"x":1.0,"y":1.0}}]}),
+    );
+    s.extra.insert("view_targets".into(), json!({"cover":"_window_"}));
+    assert!(flagged(&mg_nui::window(), &s, "when this variant is shown"));
+}
+
 /// max counts UTF-8 bytes; below 4 the client can keep part of a character
 /// (NWN EE 8193.37, max 1: "Ż" stores U+0005).
 #[test]

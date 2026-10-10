@@ -46,6 +46,20 @@ pub fn validate(window: &Value, settings: &Settings) -> Vec<Diagnostic> {
             "NWN shows this window blank: the last draw layers in it have Clip to control on. Turn it off (it clips nothing in the game)",
         );
     }
+    // A variant that replaces the whole window is its last drawing when shown.
+    let targets = settings.extra.get("view_targets");
+    for (name, view) in &settings.views {
+        let whole = targets.and_then(|t| t.get(name)).and_then(Value::as_str) == Some("_window_");
+        if whole
+            && let Some((path, node)) = last_draw_list(view, &format!("/views/{name}"))
+            && scissor_on(node, settings)
+        {
+            c.error(
+                &format!("{path}/draw_list_scissor"),
+                "NWN shows the window blank when this variant is shown: its last draw layers have Clip to control on. Turn it off (it clips nothing in the game)",
+            );
+        }
+    }
     for k in ["resizable", "collapsed", "closable", "transparent", "border", "accepts_input"] {
         c.property(window, k, "", Kind::Bool, true, false);
     }
@@ -319,6 +333,34 @@ impl Check<'_> {
             message: message.into(),
         });
     }
+    /// Literal values outside what the stock constants allow.
+    fn ranges(&mut self, v: &Value, path: &str, keys: &[(&str, i64, i64, &str)]) {
+        for (key, low, high, constants) in keys {
+            if let Some(n) = v.get(*key).and_then(Value::as_i64)
+                && !(*low..=*high).contains(&n)
+            {
+                self.warn(
+                    &format!("{path}/{key}"),
+                    &format!("{n} is none of the {constants} values ({low} to {high})"),
+                );
+            }
+        }
+    }
+
+    /// A literal picture name the game can look up: at most 16 characters.
+    fn picture_name(&mut self, v: &Value, key: &str, path: &str) {
+        if let Some(name) = v.get(key).and_then(Value::as_str)
+            && name.chars().count() > 16
+        {
+            self.warn(
+                &format!("{path}/{key}"),
+                &format!(
+                    "{name:?} is longer than 16 characters: the game finds no picture by that name"
+                ),
+            );
+        }
+    }
+
     fn warn(&mut self, path: &str, message: &str) {
         self.findings.push(Diagnostic {
             severity: Severity::Warning,
@@ -376,6 +418,27 @@ impl Check<'_> {
             self.error(path, "Element needs a string type");
             return;
         };
+        self.ranges(
+            v,
+            path,
+            &[
+                ("image_aspect", 0, 5, "NUI_ASPECT_*"),
+                ("image_halign", 0, 2, "NUI_HALIGN_*"),
+                ("text_halign", 0, 2, "NUI_HALIGN_*"),
+                ("image_valign", 0, 2, "NUI_VALIGN_*"),
+                ("text_valign", 0, 2, "NUI_VALIGN_*"),
+                ("scrollbars", 0, 4, "NUI_SCROLLBARS_*"),
+                ("direction", 0, 1, "NUI_DIRECTION_*"),
+            ],
+        );
+        let picture = match ty {
+            "image" => Some("value"),
+            "button_image" => Some("label"),
+            _ => None,
+        };
+        if let Some(key) = picture {
+            self.picture_name(v, key, path);
+        }
         if !ELEMENTS.contains(&ty) {
             self.warn(
                 path,
@@ -533,6 +596,7 @@ impl Check<'_> {
                         continue;
                     }
                     self.static_property(slot, "type", &p, Kind::Int);
+                    self.ranges(slot, &p, &[("type", 0, 1, "NUI_CHART_TYPE_*")]);
                     self.property(slot, "legend", &p, Kind::Text, false, array_bind);
                     self.property(slot, "color", &p, Kind::Color, false, array_bind);
                     self.property(slot, "data", &p, Kind::Numbers, false, array_bind);
@@ -609,6 +673,12 @@ impl Check<'_> {
                         );
                         continue;
                     }
+                    if cell[1].as_f64().is_some_and(|w| w < 0.0) {
+                        self.warn(
+                            &format!("{p}/1"),
+                            "A cell's width is 0 for automatic or a number of pixels, not below 0",
+                        );
+                    }
                     self.element(&cell[0], &format!("{p}/0"), true);
                 }
             } else {
@@ -649,6 +719,25 @@ impl Check<'_> {
         self.static_property(v, "arrayBinds", path, Kind::Bool);
         for k in ["order", "render"] {
             self.static_property(v, k, path, Kind::Int);
+        }
+        if v["order"].as_i64().is_some_and(|o| o != -1 && o != 1) {
+            self.warn(
+                &format!("{path}/order"),
+                "Paint order is before (-1) or after (1) the control: NUI_DRAW_LIST_ITEM_ORDER_*",
+            );
+        }
+        self.ranges(
+            v,
+            path,
+            &[
+                ("render", 0, 5, "NUI_DRAW_LIST_ITEM_RENDER_*"),
+                ("image_aspect", 0, 5, "NUI_ASPECT_*"),
+                ("image_halign", 0, 2, "NUI_HALIGN_*"),
+                ("image_valign", 0, 2, "NUI_VALIGN_*"),
+            ],
+        );
+        if ty == 5 {
+            self.picture_name(v, "image", path);
         }
         for k in ["enabled", "fill"] {
             self.property(v, k, path, Kind::Bool, true, arrays);

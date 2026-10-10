@@ -182,7 +182,7 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
     }
     let Some(node) = doc.pointer_mut(selected).filter(|n| n["type"] == "list") else { return };
     egui::CollapsingHeader::new("Row data").default_open(true).show(ui, |ui| {
-        let names = mg_nui::bind_names(&node["row_template"]);
+        let names = row_binds(&node["row_template"]);
         if names.is_empty() {
             ui.weak("Bind a cell's value to edit its rows here.");
             return;
@@ -248,13 +248,49 @@ pub(super) fn list(ui: &mut Ui, doc: &mut Value, selected: &str, s: &mut Setting
                     a.push(a.last().cloned().unwrap_or(Value::Null));
                 }
             }
+            let rows =
+                count + usize::from(add || duplicate.is_some()) - usize::from(remove.is_some());
             if node["row_count"].is_number() {
-                node["row_count"] = json!(
-                    count + usize::from(add || duplicate.is_some()) - usize::from(remove.is_some())
-                );
+                node["row_count"] = json!(rows);
+            } else if let Some(bind) = node["row_count"]["bind"].as_str()
+                && let Some(b) = s.bindings.get_mut(bind).filter(|b| b.value.is_u64())
+            {
+                // A row count bound to a number follows the rows too.
+                b.value = json!(rows);
             }
         }
     });
+}
+
+/// The binds a list's rows give values to: those of its cells, and of draw
+/// layers only where they repeat per row (a polyline's bound points without
+/// it are one array, not rows).
+fn row_binds(template: &Value) -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    fn visit(v: &Value, names: &mut std::collections::BTreeSet<String>) {
+        match v {
+            Value::Object(o) => {
+                if let Some(name) = o.get("bind").and_then(Value::as_str) {
+                    names.insert(name.to_owned());
+                }
+                for (key, item) in o {
+                    if key == "draw_list" {
+                        for layer in item.as_array().into_iter().flatten() {
+                            if layer["arrayBinds"] == true {
+                                names.extend(mg_nui::bind_names(layer));
+                            }
+                        }
+                    } else {
+                        visit(item, names);
+                    }
+                }
+            }
+            Value::Array(a) => a.iter().for_each(|v| visit(v, names)),
+            _ => {}
+        }
+    }
+    visit(template, &mut names);
+    names
 }
 
 pub(super) fn binding_options(ui: &mut Ui, v: &mut Value) {
@@ -282,4 +318,21 @@ pub(super) fn binding_options(ui: &mut Ui, v: &mut Value) {
             }
         });
     });
+}
+
+#[cfg(test)]
+mod row_tests {
+    use super::*;
+
+    #[test]
+    fn row_data_skips_a_draw_layers_flat_points_unless_they_repeat_per_row() {
+        let cell = |array_binds: bool| {
+            json!([[{"type":"spacer","draw_list":[{"type":0,"arrayBinds":array_binds,
+                "points":{"bind":"line"}}]}, 0.0, true],
+                [{"type":"label","value":{"bind":"names"}}, 0.0, true]])
+        };
+        let names = |b| row_binds(&cell(b)).into_iter().collect::<Vec<_>>();
+        assert_eq!(names(false), ["names"]);
+        assert_eq!(names(true), ["line", "names"]);
+    }
 }
