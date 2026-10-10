@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:59:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:00:51Z }
 ---
 
 # The main window
@@ -33,8 +33,11 @@ F10 opens the first menu; the same closes the menus. Left and Right go
 from menu to menu, round the ends; Up and Down from row to row, past the
 lines and the rows that can't be chosen now; Enter or Space chooses the
 row marked. Right on a row with a submenu opens it, Left closes it;
-Escape closes the menus. With a menu open, the pointer over another
-menu's name opens that one.
+Escape closes the submenu the keys are in, else the menus. With a menu
+open, the pointer over another menu's name opens that one. Alt and a
+menu's first letter (underlined: Alt+F for File, Alt+V for View) opens
+that menu, and with a menu open a letter goes to the next row that
+begins with it.
 
 **Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:
 type part of it (or of its menu's name), choose with the arrow keys, and
@@ -164,8 +167,11 @@ Up and Down go from row to row, Page Up and Page Down by ten, Home and
 End to the first and the last. Right opens a group, then goes to its
 first row; Left goes from a row to its group, then closes it. Enter
 opens the row's area, script, conversation or blueprint, and opens or
-closes a group. Escape hands the keys back. The row the keys are at is
-marked, and brought into view.
+closes a group. F2 renames and Delete deletes the resource of the row
+under the pointer, or else of the row the keys are at (both ask first,
+as the row's menu does). Ctrl+F goes to the Filter,
+and Down from the Filter goes back into the rows. Escape hands the keys
+back. The row the keys are at is marked, and brought into view.
 
 ## Tabs and windows
 
@@ -205,8 +211,9 @@ not as a window over the area. Drag one out to a window of its own and
 the next opens as a window again. This is kept between runs; **View ›
 Reset Layout** forgets it.
 
-**With no area open**, the main pane says so and lists the module's areas
-to open with a click: the panes beside it keep their widths.
+**With no area open**, the main pane says so and lists the areas opened
+lately in this module, then the module's areas, each to open with a
+click: the panes beside it keep their widths.
 
 A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each
@@ -248,7 +255,9 @@ load order (the game's files, haks, override, the module), with the layer
 each one comes from. Open one to view it (GFF files as a field tree, 2DA
 tables, scripts and other text; models, and blueprints with **Preview**,
 in the model viewer), copy it into the module, or save it to a file
-(**Save As…**, also on its right-click menu in the list). **Export N as
+(**Save As…**, also on its right-click menu in the list; a compiled
+model shows as the text it compiles from, and **Save As Text…** saves
+it so). **Export N as
 Files…** writes all the resources listed into a folder, once a type or
 part of a name narrows the list. Files go out as they are: a model
 compiled is not turned into text.

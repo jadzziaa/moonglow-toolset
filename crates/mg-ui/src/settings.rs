@@ -10,6 +10,8 @@ pub const RECENT_MAX: usize = 10;
 
 /// How many modules' last areas are kept.
 const LAST_AREAS_MAX: usize = 50;
+/// How many areas a module keeps as opened lately.
+const RECENT_AREAS_MAX: usize = 8;
 
 /// The script editor's syntax elements, in the order of
 /// [`ScriptStyle::colors`] (Aurora's Options > Script Editor list).
@@ -41,6 +43,9 @@ pub struct Settings {
     /// The area opened last in each module (its path and the area's
     /// ResRef), most recent first: opened again with the module.
     pub last_areas: Vec<(PathBuf, String)>,
+    /// The areas opened lately in each module (its path and their
+    /// ResRefs, most recent first): offered while no area is open.
+    pub recent_areas: Vec<(PathBuf, Vec<String>)>,
     /// The area view's Lighting switch is off (an even working light), in
     /// views opened from now on.
     pub unlit_areas: bool,
@@ -258,6 +263,13 @@ impl Settings {
         if self.last_area(module) == Some(area) {
             return;
         }
+        let at = self.recent_areas.iter().position(|(m, _)| m == module);
+        let mut areas = at.map(|at| self.recent_areas.remove(at).1).unwrap_or_default();
+        areas.retain(|a| a != area);
+        areas.insert(0, area.to_owned());
+        areas.truncate(RECENT_AREAS_MAX);
+        self.recent_areas.insert(0, (module.to_path_buf(), areas));
+        self.recent_areas.truncate(LAST_AREAS_MAX);
         self.last_areas.retain(|(m, _)| m != module);
         self.last_areas.insert(0, (module.to_path_buf(), area.to_owned()));
         self.last_areas.truncate(LAST_AREAS_MAX);
@@ -273,6 +285,12 @@ impl Settings {
     /// The folder the hak at `hak` was built from.
     pub fn hak_folder(&self, hak: &Path) -> Option<&Path> {
         self.hak_folders.iter().find(|(h, _)| h == hak).map(|(_, f)| f.as_path())
+    }
+
+    /// The areas opened lately in the module at `module`, most recent
+    /// first.
+    pub fn recent_areas(&self, module: &Path) -> &[String] {
+        self.recent_areas.iter().find(|(m, _)| m == module).map_or(&[], |(_, a)| a.as_slice())
     }
 
     /// The area opened last in the module at `module`.
@@ -378,6 +396,10 @@ mod tests {
         assert_eq!(s.last_area(Path::new("b.mod")), Some("cave"));
         assert_eq!(s.last_area(Path::new("c.mod")), None);
         assert_eq!(s.last_areas.len(), 2);
+        assert_eq!(s.recent_areas(Path::new("a.mod")), ["inn", "town"]);
+        s.remember_area(Path::new("a.mod"), "town");
+        assert_eq!(s.recent_areas(Path::new("a.mod")), ["town", "inn"]);
+        assert!(s.recent_areas(Path::new("c.mod")).is_empty());
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
     }

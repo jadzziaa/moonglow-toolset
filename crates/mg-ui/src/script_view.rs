@@ -980,6 +980,10 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         // Options > Script Editor: saving compiles too.
         let compiled =
             (compile || to_scratch || app.settings.auto_compile) && compile_one(app, key, &text);
+        // (After the text is the module's: the scripts that include it.)
+        if compile || app.settings.auto_compile {
+            app.actions.push(Action::CompileIncluders(key));
+        }
         // To Scratch: what was just compiled (nothing, if it failed: the
         // folder keeps what it has).
         if to_scratch && compiled {
@@ -1202,7 +1206,67 @@ pub(crate) fn compile_stale(app: &mut Moonglow, scripts: &[ResKey]) -> (Vec<Stri
     (compiled, broken)
 }
 
+/// How many scripts a save (here or by another program) compiles on the
+/// window's thread: more would hold it, and are left to Compile All.
+pub(crate) const COMPILED_AT_ONCE: usize = 24;
+
 impl Moonglow {
+    /// `scripts` and the module's scripts that include any of them,
+    /// however indirectly: what a change to `scripts` leaves with an
+    /// older compiled script. `None` (and a line in the log) where that
+    /// is more than [`COMPILED_AT_ONCE`].
+    pub(crate) fn with_includers(&mut self, scripts: &[ResKey]) -> Option<Vec<ResKey>> {
+        let ws = self.ws.as_mut()?;
+        if let Err(e) = ws.flush() {
+            self.log.error(e.to_string());
+            return None;
+        }
+        let mut all = scripts.to_vec();
+        all.extend(mg_module::refs::includers(&ws.module, scripts));
+        if all.len() > COMPILED_AT_ONCE {
+            self.log.info(format!(
+                "{} scripts (those changed and those that include them) were not compiled, \
+                 too many at once: Compile All Scripts does",
+                all.len()
+            ));
+            return None;
+        }
+        Some(all)
+    }
+
+    /// Compiles again the scripts that include `script`, saved or
+    /// compiled just now, and names them in the log.
+    pub(crate) fn compile_includers(&mut self, script: ResKey) {
+        if self.game.is_none() {
+            return;
+        }
+        let Some(mut all) = self.with_includers(&[script]) else { return };
+        all.retain(|k| *k != script);
+        if all.is_empty() {
+            return;
+        }
+        let (compiled, _) = compile_stale(self, &all);
+        if !compiled.is_empty() {
+            self.log.info(format!(
+                "Compiled, as they include {}: {}",
+                script.resref,
+                crate::transfer::listed(&compiled)
+            ));
+        }
+        let failed: Vec<String> = all
+            .iter()
+            .filter(|k| !compiled.contains(&k.resref.to_string()))
+            .filter(|k| self.script_fails(**k))
+            .map(|k| k.resref.to_string())
+            .collect();
+        if !failed.is_empty() {
+            self.log.error(format!(
+                "Did not compile (Compile in the script's editor says why): {}",
+                crate::transfer::listed(&failed)
+            ));
+        }
+    }
+
     /// Whether a script of the module that should compile (it has a
     /// `main` or a `StartingConditional`) doesn't.
     pub(crate) fn script_fails(&mut self, key: ResKey) -> bool {

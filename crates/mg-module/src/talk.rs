@@ -486,7 +486,8 @@ impl Table {
                     e.insert("sound".into(), l.sound.into());
                 }
                 if l.sound_length != 0.0 {
-                    e.insert("soundLength".into(), l.sound_length.into());
+                    // (`soundLen`, as nwn_tlk has it: `tlk_io.rs` in `apps/mg`.)
+                    e.insert("soundLen".into(), l.sound_length.into());
                 }
                 serde_json::Value::Object(e)
             })
@@ -536,7 +537,9 @@ impl Table {
             if let Some(s) = e.get("sound").and_then(|s| s.as_str()) {
                 line.sound = s.trim().to_string();
             }
-            if let Some(l) = e.get("soundLength").and_then(serde_json::Value::as_f64) {
+            // (`soundLength` is what Moonglow wrote until 1.20.4.)
+            let length = e.get("soundLen").or_else(|| e.get("soundLength"));
+            if let Some(l) = length.and_then(serde_json::Value::as_f64) {
                 line.sound_length = l as f32;
             }
             lines.insert(row, line);

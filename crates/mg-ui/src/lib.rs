@@ -156,6 +156,8 @@ pub enum Action {
     /// The resource browser's Save As: a resource of the load order to a
     /// file.
     SaveResource(ResKey),
+    /// A model of the load order saved as text (decompiled).
+    SaveModelText(ResKey),
     /// The resource browser's Export as Files: those listed, into a folder.
     SaveResources(Vec<ResKey>),
     /// The same, as JSON (`nwn_tlk`'s).
@@ -187,6 +189,9 @@ pub enum Action {
     },
     /// Tools › Reload Resources: haks and folders that changed on disk.
     ReloadResources,
+    /// The scripts that include this one are compiled again (it was
+    /// saved, with Automatically Compile Scripts on Save).
+    CompileIncluders(ResKey),
     /// Edit › Prefabs › a prefab: placed with a click in the area shown.
     PlacePrefab(String),
     /// Edit › Find References: where a resource is used.
@@ -2293,6 +2298,7 @@ impl Moonglow {
             Action::TestModuleChoose => self.test_module(true),
             Action::TestFromHere { area, at, facing } => self.test_from_here(area, at, facing),
             Action::ReloadResources => self.reload_resources(true),
+            Action::CompileIncluders(key) => self.compile_includers(key),
             Action::SaveTalkTable => {
                 talk_view::save(self);
             }
@@ -2302,7 +2308,8 @@ impl Moonglow {
             Action::TalkCsv(import) => talk_view::transfer(self, import, false),
             Action::TalkJson(import) => talk_view::transfer(self, import, true),
             Action::TalkFile(new) => talk_view::file(self, new),
-            Action::SaveResource(key) => browser::save_as(self, key),
+            Action::SaveResource(key) => browser::save_as(self, key, false),
+            Action::SaveModelText(key) => browser::save_as(self, key, true),
             Action::SaveResources(keys) => browser::export(self, &keys),
             Action::OpenResource(key) => {
                 let Some(tab) = Tab::for_resource(key) else { return };
@@ -2473,7 +2480,12 @@ impl Moonglow {
         // the scripts whose text was just stored are compiled before the
         // module is written (saving the module, not only a script's own
         // Save, is a save).
-        if self.settings.auto_compile && !stored.is_empty() {
+        let stored = match self.settings.auto_compile && !stored.is_empty() {
+            // (With the scripts that include them: theirs are older too.)
+            true => self.with_includers(&stored).unwrap_or_default(),
+            false => Vec::new(),
+        };
+        if !stored.is_empty() {
             let (compiled, _) = script_view::compile_stale(self, &stored);
             if !compiled.is_empty() {
                 self.log.info(format!("Compiled on save: {}", transfer::listed(&compiled)));

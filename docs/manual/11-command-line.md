@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T00:21:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:00:51Z }
 ---
 
 # Command-line tools
@@ -35,7 +35,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg tileset-palette SET [-o OUT]` | make a tileset's palette (`<tileset>palstd.itp`) from its `.set`: groups, features, terrains and crossers |
 | `mg ls ARCHIVE` | list a `.mod`, `.hak`, `.erf`, `.nwm` or `.sav` |
 | `mg unpack ARCHIVE OUT` | unpack it into folder `OUT` |
-| `mg pack DIR ARCHIVE` | pack a folder into an archive (type from the extension); warns when files would start past 2 GiB, where the game stops reading |
+| `mg pack DIR ARCHIVE` | pack a folder into an archive (type from the extension); warns when files would start past 2 GiB, where the game stops reading. `--compile-models` compiles the models kept as text (ASCII `.mdl`) on the way in, each against its supermodel from the folder or the game (which it then needs, as the other commands find it); a model that doesn't compile, has errors `mg verify` would name, or whose supermodel isn't found goes in as the text it is, and is named |
 | `mg gff INPUT [-o OUTPUT]` | a GFF file to JSON (the format of neverwinter.nim and nasher), or JSON back to GFF |
 
 ## The game's resources
@@ -43,9 +43,11 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | Command | Does |
 | --- | --- |
 | `mg which NAME.EXT` | where a resource comes from in the game's load order |
-| `mg cat NAME.EXT` | print a resource to standard output |
+| `mg cat NAME.EXT` | print a resource to standard output; `--text` prints a compiled model (`.mdl`) as the text it compiles from |
 | `mg layers` | the load order's layers and their sizes |
 | `mg tlk STRREF…` | talk-table strings by number |
+| `mg tlk-export TABLE.tlk OUT` | write a talk table as JSON (as neverwinter.nim's `nwn_tlk` writes it) or CSV, by `OUT`'s extension (`.json`, `.csv`); the CSV has the feminine table's text too, where `TABLEf.tlk` lies beside it |
+| `mg tlk-import TABLE.tlk FILE` | read a `.json` or `.csv` file of lines into a talk table (made if it isn't there, as an English table) and save it: the lines the file has are set, the others stay; `--dry-run` says what would change |
 
 ## Modules
 

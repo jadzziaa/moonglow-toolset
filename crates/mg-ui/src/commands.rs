@@ -736,12 +736,16 @@ pub struct MenuKeys {
     path: Vec<usize>,
     /// Each level's rows as last drawn: whether each can be chosen.
     rows: Vec<Vec<bool>>,
+    /// And the letter each begins with (lower case), for a letter typed.
+    initials: Vec<Vec<char>>,
     /// Enter or Space was pressed: the marked row is chosen as it is drawn.
     choose: bool,
     /// Right was pressed: a submenu's entry opens it.
     into: bool,
     /// Alt went down, and nothing else has been pressed since.
     alt_alone: bool,
+    /// Left or Escape left a submenu: its entry closes it as it is drawn.
+    close_sub: bool,
 }
 
 impl MenuKeys {
@@ -766,6 +770,28 @@ impl MenuKeys {
         self.path[level] = at as usize;
     }
 
+    /// The marked row moved to the next that begins with `letter`, round
+    /// the ends (from the top where none is marked).
+    fn seek(&mut self, letter: char) {
+        if self.path.is_empty() {
+            self.path = vec![usize::MAX];
+        }
+        let level = self.path.len() - 1;
+        let (Some(rows), Some(initials)) = (self.rows.get(level), self.initials.get(level)) else {
+            return;
+        };
+        let n = rows.len();
+        let from = self.path[level];
+        let found = (1..=n)
+            .map(|by| if from == usize::MAX { by - 1 } else { (from + by) % n })
+            .find(|at| rows[*at] && initials.get(*at) == Some(&letter));
+        match found {
+            Some(at) => self.path[level] = at,
+            None if from == usize::MAX => self.path[level] = self.first(level),
+            None => {}
+        }
+    }
+
     /// The first row of a level that can be chosen.
     fn first(&self, level: usize) -> usize {
         self.rows.get(level).and_then(|r| r.iter().position(|on| *on)).unwrap_or(0)
@@ -778,10 +804,41 @@ impl MenuKeys {
 /// and closes the menus; Left and Right go from menu to menu, round the
 /// ends; Up and Down from row to row, past separators and rows that can't
 /// be chosen; Enter or Space chooses; Right opens a submenu, Left closes
-/// it; Escape closes.
+/// it; Escape closes the submenu the keys are in, else the menus. Alt and
+/// a menu's first letter (underlined) opens that menu; with a menu open, a
+/// letter goes to the next row that begins with it.
 pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     use egui::{Key, Modifiers, Popup};
     let ctx = ui.ctx().clone();
+    // A letter pressed: with Alt alone held, a menu's; with a menu open
+    // and nothing held, a row's. Taken from the frame's keys, with the
+    // text it typed.
+    let letter = |alt: bool| {
+        ctx.input_mut(|i| {
+            let m = i.modifiers;
+            if m.alt != alt || m.ctrl || m.shift || m.command {
+                return None;
+            }
+            let found = i.events.iter().find_map(|e| match e {
+                egui::Event::Key { key, pressed: true, repeat: false, .. } => {
+                    let name = key.name();
+                    let c = name.chars().next().filter(|c| name.len() == 1 && c.is_alphabetic())?;
+                    Some((*key, c.to_ascii_lowercase()))
+                }
+                _ => None,
+            })?;
+            if alt && !MENUS.iter().any(|(name, _)| initial(name) == found.1) {
+                return None;
+            }
+            i.events.retain(|e| match e {
+                egui::Event::Key { key, .. } => *key != found.0,
+                egui::Event::Text(t) => !t.eq_ignore_ascii_case(&found.1.to_string()),
+                _ => true,
+            });
+            Some(found.1)
+        })
+    };
+    let mnemonic = letter(true);
     // Alt alone: down, then up with no key or button between.
     let (alt_down, other) = ctx.input(|i| {
         // (Alt+Tab to another program and back is not Alt alone: the
@@ -826,12 +883,21 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
         }
         keys.choose = pressed(Key::Enter) || pressed(Key::Space);
         keys.into = false;
+        if let Some(c) = letter(false) {
+            keys.seek(c);
+        }
+        // Escape in a submenu closes that one; else egui closes the menus.
+        if keys.path.len() > 1 && pressed(Key::Escape) {
+            keys.path.pop();
+            keys.close_sub = true;
+        }
     }
     let mut switch: Option<isize> = None;
     if was_open.is_some() {
         if pressed(Key::ArrowLeft) {
             if keys.path.len() > 1 {
                 keys.path.pop();
+                keys.close_sub = true;
             } else {
                 switch = Some(-1);
             }
@@ -845,10 +911,23 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     for level in &mut app.menu_keys.rows {
         level.clear();
     }
+    for level in &mut app.menu_keys.initials {
+        level.clear();
+    }
 
     egui::MenuBar::new().ui(ui, |ui| {
         for (name, items) in MENUS {
-            let (response, _) = egui::containers::menu::MenuButton::new(name).ui(ui, |ui| {
+            // (Its first letter underlined: Alt and the letter opens it.)
+            let mut job = egui::text::LayoutJob::default();
+            let font = egui::TextStyle::Button.resolve(ui.style());
+            let color = ui.visuals().widgets.inactive.text_color();
+            let plain = egui::TextFormat { font_id: font, color, ..Default::default() };
+            let under =
+                egui::TextFormat { underline: egui::Stroke::new(1.0, color), ..plain.clone() };
+            let split = name.chars().next().map_or(0, char::len_utf8);
+            job.append(&name[..split], 0.0, under);
+            job.append(&name[split..], 0.0, plain);
+            let (response, _) = egui::containers::menu::MenuButton::new(job).ui(ui, |ui| {
                 app.menu_row = [0, 0];
                 menu(app, ui, items, 0);
             });
@@ -859,6 +938,7 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
     let open = tops.iter().position(|(id, _)| Popup::is_id_open(&ctx, *id));
     let n = tops.len() as isize;
     let mut go = None;
+    let by_letter = mnemonic.and_then(|c| MENUS.iter().position(|(name, _)| initial(name) == c));
     match open {
         Some(now) => {
             // Right, on a row that is no submenu's: the next menu.
@@ -893,10 +973,14 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
             }
         }
     }
+    if let Some(to) = by_letter.filter(|to| Some(*to) != open) {
+        go = Some(to);
+    }
     if let Some(to) = go {
         Popup::open_id(&ctx, tops[to].0);
         // (Opened by a key: its first row marked, once it has been drawn.)
-        app.menu_keys.path = if switch.is_some() || toggle { vec![usize::MAX] } else { Vec::new() };
+        let keyed = switch.is_some() || toggle || by_letter.is_some();
+        app.menu_keys.path = if keyed { vec![usize::MAX] } else { Vec::new() };
         ctx.request_repaint();
     }
     // A menu opened by a key marks its first row that can be chosen.
@@ -905,7 +989,15 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
         ctx.request_repaint();
     }
     app.menu_keys.choose = false;
+    app.menu_keys.close_sub = false;
     app.menu_open = tops.iter().position(|(id, _)| Popup::is_id_open(&ctx, *id));
+}
+
+/// The letter a menu's or a row's name begins with (past a tick or
+/// spaces before it), lower case.
+fn initial(name: &str) -> char {
+    let first = name.chars().find(|c| c.is_alphanumeric());
+    first.map_or(' ', |c| c.to_lowercase().next().unwrap_or(c))
 }
 
 /// A row of a menu, for the keys: counted, marked where the keys are at
@@ -914,6 +1006,7 @@ pub(crate) fn menu_bar(app: &mut Moonglow, ui: &mut Ui) {
 fn row<'a>(
     app: &mut Moonglow,
     level: usize,
+    name: &str,
     entry: egui::Button<'a>,
     enabled: bool,
 ) -> (egui::Button<'a>, bool) {
@@ -923,6 +1016,10 @@ fn row<'a>(
         app.menu_keys.rows.resize(level + 1, Vec::new());
     }
     app.menu_keys.rows[level].push(enabled);
+    if app.menu_keys.initials.len() <= level {
+        app.menu_keys.initials.resize(level + 1, Vec::new());
+    }
+    app.menu_keys.initials[level].push(initial(name));
     let at = app.menu_keys.at(level, index);
     let chosen = at && enabled && std::mem::take(&mut app.menu_keys.choose);
     (entry.selected(at), chosen)
@@ -940,7 +1037,7 @@ fn submenu(
 ) -> egui::Response {
     use egui::containers::menu::{MenuState, SubMenu, SubMenuButton};
     let index = app.menu_row[level];
-    let (button, chosen) = row(app, level, egui::Button::new(name), enabled);
+    let (button, chosen) = row(app, level, name, egui::Button::new(name), enabled);
     let at = app.menu_keys.at(level, index);
     let inside = app.menu_keys.path.len() == level + 2 && app.menu_keys.path[level] == index;
     let enter = at && enabled && (chosen || app.menu_keys.into);
@@ -957,6 +1054,10 @@ fn submenu(
         let id = SubMenu::id_from_widget_id(ui.next_auto_id());
         MenuState::mark_shown(ui.ctx(), id);
         MenuState::from_ui(ui, |state, _| state.open_item = Some(id));
+    }
+    if at && std::mem::take(&mut app.menu_keys.close_sub) {
+        MenuState::from_ui(ui, |state, _| state.open_item = None);
+        ui.ctx().request_repaint();
     }
     let (response, _) = SubMenuButton::from_button(button).ui(ui, |ui| {
         if level + 1 < app.menu_row.len() {
@@ -1006,7 +1107,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                         entry = entry.shortcut_text(key);
                     }
                     let enabled = app.ws.is_some();
-                    let (entry, chosen) = row(app, level, entry, enabled);
+                    let (entry, chosen) = row(app, level, &c.title, entry, enabled);
                     let mut r = ui.add_enabled(enabled, entry);
                     if !c.hint.is_empty() {
                         r = r.on_hover_text(&c.hint);
@@ -1027,8 +1128,9 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                 let enabled = !recent.is_empty();
                 submenu(app, ui, level, "Recent Modules", enabled, |app, ui| {
                     for p in recent {
-                        let entry = egui::Button::new(p.display().to_string());
-                        let (entry, chosen) = row(app, level + 1, entry, true);
+                        let name = p.display().to_string();
+                        let entry = egui::Button::new(&name);
+                        let (entry, chosen) = row(app, level + 1, &name, entry, true);
                         if ui.add(entry).clicked() || chosen {
                             app.actions.push(Action::OpenModule(p));
                             egui::Popup::close_all(ui.ctx());
@@ -1041,7 +1143,7 @@ fn menu(app: &mut Moonglow, ui: &mut Ui, items: &[Item], level: usize) {
                 let enabled = app.ws.is_some() && !names.is_empty();
                 submenu(app, ui, level, "Prefabs", enabled, |app, ui| {
                     for n in names {
-                        let (entry, chosen) = row(app, level + 1, egui::Button::new(&n), true);
+                        let (entry, chosen) = row(app, level + 1, &n, egui::Button::new(&n), true);
                         let r = ui.add(entry).on_hover_text("Place it in the area shown");
                         if r.clicked() || chosen {
                             app.actions.push(Action::PlacePrefab(n));
@@ -1060,13 +1162,14 @@ fn button(app: &mut Moonglow, ui: &mut Ui, id: Id, level: usize) {
     if !id.shown(app) {
         return;
     }
-    let mut entry = egui::Button::new(id.label(app));
+    let name = id.label(app).to_string();
+    let mut entry = egui::Button::new(&name);
     let key = app.keymap.label_of(&id.id(), ui.ctx());
     if !key.is_empty() {
         entry = entry.shortcut_text(key);
     }
     let enabled = id.enabled(app);
-    let (entry, chosen) = row(app, level, entry, enabled);
+    let (entry, chosen) = row(app, level, &name, entry, enabled);
     let mut r = ui.add_enabled(enabled, entry);
     let hint = id.text().2;
     if !hint.is_empty() {

@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:33:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T23:07:40Z }
 ---
 
 # Scripts
@@ -92,7 +92,10 @@ The buttons:
 - **Compile**: save and compile this script; errors go to the Compiler
   messages and the log. With **Automatically Compile Scripts on Save**
   (Options › Script Editor), Save compiles too, and so does saving the
-  module (File › Save) for the scripts whose text it saves.
+  module (File › Save) for the scripts whose text it saves. The scripts
+  that include a script compiled or saved so are compiled again with it
+  (up to 24 at once; **Compile All Scripts** past that): an include
+  file changed leaves none of them with an older compiled script.
 - **Save As…**: save the script under another name.
 - **Print…**: open the script, highlighted, in your browser to print it
   from there.

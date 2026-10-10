@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T14:25:32Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:33:26Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -77,9 +77,14 @@ Size: S (an hour or two), M (a day or so), L (several days).
   builds every item icon when first shown. 449 icons take
   0.68 s; a page of thousands would take seconds. Laying out only the
   rows on screen would fix it. (S–M)
-- **Where-used at scale:** one Find References takes 0.8 s in the
-  persistent world: it scans the module each time. An index kept up to
-  date would make it instant. (M)
+- **Where-used at scale:** the References window and Rename keep the
+  module's references between questions (`rename::UsageIndex`): the
+  first Find References in the persistent world reads the module as
+  before (0.8 s), the next ones only the resources changed since
+  (7 ms). Not done: the first read is on the window's thread; tags and
+  the strings in scripts are still looked for by reading every
+  resource each time; `mg refs` reads the module each time, as a
+  command run once must. (S each)
 
 ## Frames (a steady 144 a second)
 
@@ -240,8 +245,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Talk tables in a hak or the module** are read-only: Moonglow edits
   only tables in the `tlk` folder. A table kept in the module could be
   edited and saved with it. (S)
-- **Talk tables as CSV only:** Export CSV and Import CSV; nwn_tlk's
-  JSON isn't read or written, and `mg` has no command for either. (S)
+- **Talk tables from a terminal:** `mg tlk-export` and `mg tlk-import`
+  write and read a `.tlk` file as JSON or CSV. The JSON is `nwn_tlk`'s
+  (compared with it: `apps/mg/tests/tlk_io.rs`, which found the sound
+  length named `soundLength` where `nwn_tlk` has `soundLen`; both are
+  read). Not done: a table made by an import is English; the text is
+  not read by a module's `encoding.2da`; the JSON carries the main
+  table only, as `nwn_tlk`'s does. (S each)
 - **One language:** the editor edits the table in its own language;
   translated tables (the same name in other languages' folders) aren't
   shown side by side. (M)
@@ -249,7 +259,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   blueprints and conversations that name a talk-table line. (M)
 - **Inserting or removing lines in the middle** isn't offered: it
   renumbers every later line, and renumbering their users too would
-  need where-used first. (M)
+  need where a StrRef is used first (below). (M)
 - **The client and custom talk tables:** the engine test runs the server;
   whether the client also reads a table from the module (not only from
   haks and the `tlk` folder) for 2DA text isn't tested. (S)
@@ -262,8 +272,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Hak order advice:** Moonglow doesn't know which haks go above which
   (CEP, PRC and the like each document theirs); the conflict report shows
   what each hak hides. (M)
-- **Viewing in the hak editor** shows fields, text or the first bytes:
-  no pictures, models or sounds, and a 2DA as its text. (S)
+- **Viewing in the hak editor** shows fields, text, a compiled model as
+  its text, or the first bytes: no pictures or sounds, a model not as a
+  picture, and a 2DA as its text. (S)
 - **Update from Folder** takes the folder's files in place of the hak's
   (two undo steps: the removal, then the adding); a hak that was built
   from several folders, or added to by hand, loses what the folder
@@ -656,8 +667,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   is open, and the palettes' pane its width (the split is remembered
   from the frame before). It is a tab like another ("No Area Open"),
   without a close button; windows open where they did with the middle
-  empty. Not done of the issue: recent areas in it (it lists the
-  module's first twelve).
+  empty. Since 1.20.5 it lists the areas opened lately in the module
+  (eight are kept, in the settings) before the module's first twelve.
 - **Panes folded away** (GitHub issue 10): a View menu (Module Tree,
   Palettes Panel, Log, ticked while shown; Hide All Panels; Reset
   Layout), with keys (Ctrl+Alt+1, 2, 3 and 0, in Options › Keyboard); a
@@ -712,9 +723,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   Changed Outside Moonglow to ask. The external editor works on the
   folder's file. A script read again is compiled
   where Automatically Compile Scripts on Save is on (a nasher project's
-  too). Not done: the scripts that include a script read again are not
-  compiled with it, nor are more than 24 read at once (a checkout:
-  Compile All), and the compiling is on the window's thread; a module
+  too), and so are the scripts that include it (a script's own Save
+  and Compile, and saving the module, compile the includers too; of
+  these only the reading of a file changed outside is under test). Not
+  done: more than 24 at once are left to Compile All (a checkout, or
+  an include that many scripts use), and the compiling is on the
+  window's thread; a module
   whose script was compiled so has unsaved changes (the compiled
   script, written by the next save); the reloading needs the game's data
   open, as the game's own reloading does; a first Save As into a folder
@@ -751,12 +765,18 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   separators and rows that can't be chosen), Enter and Space choose,
   Right and Left open and close a submenu, and the pointer over another
   menu's name opens it while one is open. The marked row is drawn as
-  selected. Not done: mnemonics (Alt+F, underlined letters); Alt alone
-  was not tried in a test (the harness sends no modifier on its own:
-  F10 was), nor on Windows, where the system may take Alt for its own
-  menu; Escape closes all the menus, not one level; a submenu inside a
-  submenu has no keys (there is none today); the bar itself is never
-  "focused" without a menu open. (S each)
+  selected. Since 1.20.5: Alt and a menu's first letter (underlined)
+  opens it, a letter with a menu open goes to the next row that begins
+  with it, and Escape closes the submenu the keys are in before the
+  menus. Not done: a letter of its own for each row (they go by first
+  letters, and a letter only marks the row: Enter chooses); Alt and a
+  letter opens a menu while text is typed in too, as menus do, and
+  takes the key from a command given Alt and that letter in Options ›
+  Keyboard; Alt alone was not tried in a test (the harness sends no
+  modifier on its own: F10 was), nor on Windows, where the system may
+  take Alt for its own menu; a submenu inside a submenu has no keys
+  (there is none today); the bar itself is never "focused" without a
+  menu open. (S each)
 - **The module tree by the keyboard** (GitHub issue 12): after a click
   in it, with the pointer over it, the arrow keys, Page Up and Down,
   Home and End move a cursor over the groups and their resources, Right
@@ -767,9 +787,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   with the pointer over it). Not done of the issue: a focus outline
   around the pane (the cursor's row is marked instead); the rows of
   what is placed in an area opened out (the cursor passes them);
-  Ctrl+F to the pane's filter and Down from the filter into the list;
-  Enter in the palette; F6 between panes, type-ahead, F2 and Delete at
-  the cursor (Delete works on the row under the pointer). (S each)
+  F6 between panes, type-ahead. Since 1.20.5: Ctrl+F to the Filter
+  and Down from it into the rows, F2 and Delete (the row under the pointer's,
+  else the cursor's), and Enter in the palette (the blueprint's editor; a
+  category opens or closes). Ctrl+F is the tree's only with the keys
+  the tree's and the pointer over its pane; Down from the Filter goes
+  to the first group, not the first match. (S each)
 - **Tabs by the keyboard** (GitHub issue 15): Close Tab (Ctrl+W), Next
   and Previous Tab (Ctrl+Tab, Ctrl+Shift+Tab, Ctrl+Page Down and Up),
   Reopen Closed Tab (Ctrl+Shift+T), all in Options › Keyboard and the
@@ -934,10 +957,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   torso's parts_chest.2da `ACBONUS` (measured with the game's own
   armors); his armor, or his content's table, may be a case that rule
   misses. Needs the item. (S)
-- **Models as text from the resource browser** (asked with the export):
-  files go out as they are, a compiled model compiled. Writing a model
-  as text needs the Viewer's decompiler in the toolset (see "Proposed by
-  the Moonglow Viewer session"). (M, with that move)
+- **Models as text from the resource browser:** a compiled model
+  shows as its text there, and Save As Text… writes it so (`mg cat
+  --text` too). Export N as Files… still writes models as they are.
+  (S)
 - **Export into an archive** is a checkbox, off unless ticked; a builder
   says Aurora adds to an existing archive itself. Aurora's own behavior
   (whether it asks) was not captured. (S)
@@ -992,6 +1015,16 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Area visibility
 
+- **A streak across the view with Object Walkmeshes on** (the user,
+  moving the camera low over an area of many placeables: an orange
+  spike from the ground to the sky): a face of an overlay with a corner
+  a hair in front of the camera's plane was projected thousands of
+  pixels off the screen. A point nearer than the near plane is not
+  projected now (`mg_area::pick::project`), so such a face is left
+  out. Found from the picture and the geometry, not reproduced on the
+  area. A face that straddles the near plane vanishes whole rather
+  than being cut at it, in every overlay drawn so (walkmeshes, sound
+  ranges, outlines). (S)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
@@ -1391,19 +1424,42 @@ the full text); nothing of it is taken up yet, and none of its findings
 were checked here beyond that the code named is there and that the
 toolset is as the proposal says it is.
 
-- **A model compiler and writers for `mg-mdl`:** the viewer's
-  `crates/mgv-mdl` has a binary MDL writer (every node type, both skin
-  layouts), an ASCII-to-binary compiler that runs in process (tangents,
-  a walkmesh's AABB tree, skins' inverse binds, part numbers), a
-  lossless ASCII writer and a linter by line, built on `mg-mdl`'s public
-  types with no new dependencies, under the same license. Its tests are
-  said to round-trip all 25,597 compiled game models and to match the
-  game's own `compilemodel`. Moved here it could serve `mg pack`, `mg
-  verify` and the hak tools without `nwnmdlcomp`. It asks one addition
-  of the reader: each node's part number and the header's node count on
-  `mg_mdl::Model`. Decided (2026-10-07): it is to live in the toolset,
-  since the viewer already builds on the toolset's crates and not the
-  other way about. Not moved yet. (M–L)
+- **A model compiler and writers for `mg-mdl`:** moved (2026-10-09),
+  from the viewer's `crates/mgv-mdl` at its 0.1.6: `mg_mdl::binary_write`
+  (the binary writer, every node type, both skin layouts),
+  `mg_mdl::compile` (ASCII to binary in process: tangents, a walkmesh's
+  AABB tree, skins' inverse binds, part numbers), `mg_mdl::ascii_write`
+  and `mg_mdl::decompile` (a compiled model as text, losslessly),
+  `mg_mdl::lint`, `outline` and `keywords`. Their tests on the game's
+  models came with them (`mdl_compile.rs`, `mdl_decompile.rs`,
+  `mdl_lint.rs` in `mg-corpus-tests`): all 25,597 compiled models are
+  written and read back the same, their decompiled text compiles back,
+  and the game's ASCII models compile. In use since 1.20.5:
+  Verify Module and `mg verify` read a custom model kept as text as the
+  game would (`mdl-text`: the linter's errors and its first five
+  warnings a model, without the keywords the game skips, of which
+  BioWare's own premium modules have a thousand; those modules' haks
+  are left with 28 warnings, known to `doctor.rs`); the resource browser and the hak editor show a
+  compiled model as text, Save As Text… and `mg cat --text` write it;
+  `mg pack --compile-models` and the hak editor's Compile Models compile
+  the models kept as text (`mg_module::models`), each against its
+  supermodel, leaving as text one with errors, with no node, or whose
+  supermodel is not found. Not done: `mg pack` compiles only when
+  asked (the game reads text, and a pack's bytes should not change
+  unasked: on by default later?); Compile Models is a job (off the window's
+  thread, with its progress and Cancel, which leaves the hak as it
+  was) but compiles one model at a time, not on every core, and its
+  step is named "Add resources" in Undo; a compiled model is not
+  compared with the game's own compiler's here (the viewer's `engine.rs`
+  does that); nothing compiles a module's own models, or a nasher
+  project's on Pack Target; the linter's notes (Info) are not shown;
+  the viewer keeps its copy until its pin
+  moves past the release that has these, and keeps the tests that need
+  its `nwnmdlcomp` wrapper, the game's compiler and the client
+  (`nwnmdlcomp.rs`, `engine.rs`, `client.rs`); `PartNumbers::read`
+  still reads a file's part numbers a second time, where the reader
+  now keeps them on each node (`Node::part`), but not the header's
+  node count. (M for the uses)
 - **Animations bind by part number, not by name:** done. The reader
   keeps each node's part number, and `mg-render` binds compiled models
   and animations by it (by name where either is from text, and for a

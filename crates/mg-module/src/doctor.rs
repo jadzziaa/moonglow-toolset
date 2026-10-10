@@ -44,6 +44,7 @@ pub enum Check {
     SetData,
     TileFaces,
     MdlRead,
+    MdlText,
     MtrName,
     TwoDaRow,
     TwoDaRead,
@@ -54,7 +55,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 18] = [
+    pub const ALL: [Check; 19] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -66,6 +67,7 @@ impl Check {
         Check::SetData,
         Check::TileFaces,
         Check::MdlRead,
+        Check::MdlText,
         Check::MtrName,
         Check::TwoDaRow,
         Check::TwoDaRead,
@@ -88,6 +90,7 @@ impl Check {
             Check::SetData => "set-data",
             Check::TileFaces => "tile-faces",
             Check::MdlRead => "mdl-read",
+            Check::MdlText => "mdl-text",
             Check::MtrName => "mtr-name",
             Check::TwoDaRow => "2da-row",
             Check::TwoDaRead => "2da-read",
@@ -116,6 +119,9 @@ impl Check {
             }
             Check::TileFaces => "a tile model has no more faces than Aurora can paint",
             Check::MdlRead => "a tile's model can be read",
+            Check::MdlText => {
+                "a model kept as text has nothing the game refuses, misreads or crashes on"
+            }
             Check::MtrName => "a material's texture names fit a resource name",
             Check::TwoDaRow => "a 2DA row has no more cells than the table has columns",
             Check::TwoDaRead => "a 2DA can be read",
@@ -250,6 +256,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
             ResType::SET => tileset(&mut d, &source, *key),
             ResType::TWODA => two_da(&mut d, &source, *key, layer),
             ResType::MTR => material(&mut d, &source, *key),
+            ResType::MDL => model_text(&mut d, &source, *key),
             _ => {}
         }
     }
@@ -528,6 +535,45 @@ fn tile_model(d: &mut Doctor, name: &str) {
 
 /// A material: texture names longer than a resource name can be (Aurora's
 /// "Pure virtual function called").
+/// A custom model kept as text (ASCII), by `mg_mdl::lint`: what the game
+/// would refuse or crash on is an error, what it would misread a warning
+/// (the first few of a model: a hak of thousands may share one habit;
+/// not the keywords it skips).
+/// Compiled models have nothing to read so.
+fn model_text(d: &mut Doctor, source: &str, key: ResKey) {
+    const WARNINGS: usize = 5;
+    let Ok(data) = d.rm.get(&key) else { return };
+    if mg_mdl::is_binary(&data) {
+        return;
+    }
+    let text = String::from_utf8_lossy(&data);
+    let mut warnings = 0;
+    for found in mg_mdl::lint::check(&text) {
+        let severity = match found.severity {
+            mg_mdl::lint::Severity::Error => Severity::Error,
+            mg_mdl::lint::Severity::Warning => Severity::Warning,
+            mg_mdl::lint::Severity::Info => continue,
+        };
+        // (A keyword the game skips does no harm, and old content is
+        // full of them: BioWare's own premium modules have a thousand.)
+        if severity == Severity::Warning && found.message.starts_with("unknown keyword") {
+            continue;
+        }
+        if severity == Severity::Warning {
+            warnings += 1;
+            if warnings > WARNINGS {
+                continue;
+            }
+        }
+        let at = format!("line {}", found.line + 1);
+        d.push(severity, Check::MdlText, source, key, at, found.message);
+    }
+    if warnings > WARNINGS {
+        let more = format!("and {} more warnings of this model's text", warnings - WARNINGS);
+        d.push(Severity::Warning, Check::MdlText, source, key, "", more);
+    }
+}
+
 fn material(d: &mut Doctor, source: &str, key: ResKey) {
     let Ok(data) = d.rm.get(&key) else { return };
     let mtr = mg_image::mtr::Mtr::parse(&data);
@@ -867,7 +913,7 @@ mod tests {
     #[test]
     fn two_das_name_rows_and_columns() {
         let table = b"2DA V2.0\n\n   Label ModelName StrRef\n0  Chair plc_chair 5\n1  Stool plc_stool 16777217\n2  Box plc_box 3 Crate plc_crate 4\n";
-        let rm = resman(&[("placeables", ResType::TWODA, table), ("plc_box", ResType::MDL, b"x")]);
+        let rm = resman(&[("placeables", ResType::TWODA, table), ("plc_box", ResType::MDL, b"newmodel plc_box\nbeginmodelgeom plc_box\nnode dummy plc_box\n  parent NULL\nendnode\nendmodelgeom plc_box\ndonemodel plc_box\n")]);
         let f = examine(&Module::new(), &rm, TalkTables { base: 100, custom: Some(1) });
         assert_eq!(
             checks(&f),
@@ -975,6 +1021,36 @@ mod tests {
                 ("set-transition", "[GENERAL] Transition".into()),
             ]
         );
+    }
+
+    /// A model kept as text is read as the game would: an emitter that
+    /// crashes it is an error, a keyword it skips a warning (the first
+    /// few), and a compiled model is left alone.
+    #[test]
+    fn a_model_kept_as_text_is_checked() {
+        let text = "newmodel fx\nsetsupermodel fx NULL\nbeginmodelgeom fx\n\
+node dummy fx\n  parent NULL\nendnode\n\
+node emitter spark\n  parent fx\n  p2p 1\n  wibble 1\nendnode\n\
+node dummy twin\n  parent fx\nendnode\n\
+node dummy twin\n  parent fx\nendnode\n\
+node dummy child\n  parent twin\nendnode\n\
+endmodelgeom fx\ndonemodel fx\n";
+        let compiled = mg_mdl::compile::compile(
+            text.replace("p2p 1", "p2p 0").as_bytes(),
+            &Default::default(),
+        )
+        .unwrap()
+        .binary;
+        let rm =
+            resman(&[("fx", ResType::MDL, text.as_bytes()), ("fx_done", ResType::MDL, &compiled)]);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let found: Vec<_> = f.iter().filter(|f| f.check == "mdl-text").collect();
+        assert!(found.iter().all(|f| f.resource == key("fx", ResType::MDL)), "{found:?}");
+        let errors: Vec<_> = found.iter().filter(|f| f.severity == Severity::Error).collect();
+        assert_eq!(errors.len(), 1, "{found:?}");
+        assert!(errors[0].message.contains("reference node") && errors[0].at == "line 7");
+        let warned = found.iter().filter(|f| f.severity == Severity::Warning).count();
+        assert_eq!(warned, 1, "the second twin, not the keyword the game skips: {found:?}");
     }
 
     #[test]

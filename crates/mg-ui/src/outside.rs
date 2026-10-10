@@ -297,11 +297,10 @@ impl Moonglow {
 
     /// Options › Script Editor › Automatically Compile Scripts on Save: a
     /// script another program saved is compiled as one saved here is, so
-    /// that its compiled script is not the older one. (Not the scripts
-    /// that include it; and not a great many at once, a checkout's, which
-    /// would hold the window: Compile All is for those.)
+    /// that its compiled script is not the older one, and so are the
+    /// scripts that include it. (Not a great many at once, a checkout's,
+    /// which would hold the window: Compile All is for those.)
     fn compile_outside(&mut self, changes: &[Outside]) {
-        const AT_ONCE: usize = 24;
         if !self.settings.auto_compile {
             return;
         }
@@ -313,14 +312,15 @@ impl Moonglow {
         if scripts.is_empty() {
             return;
         }
-        if self.game.is_none() || scripts.len() > AT_ONCE {
+        if self.game.is_none() {
             self.log.info(format!(
-                "{} scripts read again were not compiled ({}): Compile All Scripts does",
-                scripts.len(),
-                if self.game.is_none() { "no game data" } else { "too many at once" }
+                "{} scripts read again were not compiled (no game data)",
+                scripts.len()
             ));
             return;
         }
+        // (And the scripts that include them.)
+        let Some(scripts) = self.with_includers(&scripts) else { return };
         let (compiled, _) = crate::script_view::compile_stale(self, &scripts);
         if !compiled.is_empty() {
             self.log.info(format!(

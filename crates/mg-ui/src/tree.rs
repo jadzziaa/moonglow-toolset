@@ -338,11 +338,32 @@ pub(crate) fn module_tree(app: &mut Moonglow, ui: &mut Ui) {
     }
     let filter_id = egui::Id::new("tree-filter");
     let mut filter = app.buffers.get(&filter_id).cloned().unwrap_or_default();
-    ui.horizontal(|ui| {
-        crate::widgets::field_label(ui, "Filter");
-        // (As wide as the pane has room for, not wider.)
-        ui.add(egui::TextEdit::singleline(&mut filter).desired_width(f32::INFINITY));
-    });
+    // Ctrl+F, with the keys the tree's and the pointer over its pane,
+    // goes to the Filter; Down from the Filter goes into the rows.
+    let here = ui.rect_contains_pointer(ui.max_rect());
+    let find = here
+        && crate::palette_view::has_arrows(ui.ctx())
+        && app.tree_cursor.is_some()
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+    let field = ui
+        .horizontal(|ui| {
+            crate::widgets::field_label(ui, "Filter");
+            // (As wide as the pane has room for, not wider.)
+            ui.add(egui::TextEdit::singleline(&mut filter).desired_width(f32::INFINITY))
+        })
+        .inner;
+    if find {
+        field.request_focus();
+    }
+    if field.has_focus()
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown))
+    {
+        field.surrender_focus();
+        app.tree_cursor = Some(TreeAt::Group(GROUPS[0].0));
+        app.tree_cursor_moved = true;
+        crate::palette_view::give_arrows(ui.ctx(), true);
+    }
     app.buffers.insert(filter_id, filter.clone());
     // (As the names it is looked for in are lowered: every letter.)
     let filter = filter.to_lowercase();
@@ -455,6 +476,8 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
     let cursor = app.tree_cursor;
     let cursor_moved = std::mem::take(&mut app.tree_cursor_moved);
     let mut clicked = None;
+    // The resource row under the pointer.
+    let mut pointed = None;
     let Some(ws) = &app.ws else { return };
     let revision = ws.revision();
     // Areas opened out whose contents are to be read (after the tree is
@@ -643,7 +666,12 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                     }
                     // Delete on the row under the pointer asks, as its
                     // menu's Delete… does (not while text is typed).
+                    // (With the keys in the tree, the key is read below.)
+                    if r.hovered() {
+                        pointed = Some(k);
+                    }
                     if r.hovered()
+                        && cursor.is_none()
                         && !ui.ctx().egui_wants_keyboard_input()
                         && ui.input(|i| i.key_pressed(egui::Key::Delete))
                     {
@@ -836,6 +864,20 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
             app.tree_cursor = None;
             crate::palette_view::give_arrows(ui.ctx(), false);
+        }
+        // F2 and Delete on the row under the pointer, else at the
+        // cursor's resource, as its menu's Rename… and Delete… (both ask).
+        let at_cursor = match app.tree_cursor {
+            Some(TreeAt::Resource(k)) => Some(k),
+            _ => None,
+        };
+        if let Some(k) = pointed.or(at_cursor) {
+            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::F2)) {
+                app.actions.push(Action::RenameDialog(k));
+            }
+            if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete)) {
+                app.actions.push(Action::DeleteDialog(k));
+            }
         }
         match pressed.map_or(Step::None, |key| step(&shown, app.tree_cursor, key)) {
             Step::To(at) => {

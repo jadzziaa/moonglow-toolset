@@ -31,6 +31,8 @@ pub struct References {
     revision: Option<u64>,
     /// The Find field.
     pub input: String,
+    /// The module's references, kept between questions.
+    index: rename::UsageIndex,
 }
 
 /// The Rename window, while open.
@@ -82,7 +84,8 @@ impl Moonglow {
         if ws.flush().is_err() {
             return;
         }
-        let usages = rename::usages(&ws.module, key).len();
+        self.references.index.refresh(&ws.module);
+        let usages = self.references.index.usages(key).len();
         let mentions = rename::mentions(&ws.module, &key.resref.to_string(), true).len();
         self.rename = Some(RenameDraft {
             from: key,
@@ -451,7 +454,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         }
         let (usages, mentions) = match &query {
             Query::Resource(k) => (
-                rename::usages(&ws.module, *k),
+                {
+                    app.references.index.refresh(&ws.module);
+                    app.references.index.usages(*k)
+                },
                 rename::mentions(&ws.module, &k.resref.to_string(), true),
             ),
             Query::Tag(t) => {

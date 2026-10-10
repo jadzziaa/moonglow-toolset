@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:59:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T23:07:40Z }
 ---
 
 # Blueprints
@@ -94,7 +94,9 @@ move it there.
 Aurora's: **Up** and **Down** go from row to row, and a blueprint they
 come to is selected, as by a click. **Left** on a blueprint goes to its
 category; on a category it closes it, or goes to the one it is in.
-**Right** opens a category, and goes into one that is open. While the
+**Right** opens a category, and goes into one that is open. **Enter**
+opens the blueprint's editor (a standard one is viewed), as a double
+click does, and opens or closes a category. While the
 keys are on a category, the blueprint selected stays in hand. The keys
 work with the pointer over the palette, and are the palette's until the
 pointer is back in an area's view, where they move the camera again;

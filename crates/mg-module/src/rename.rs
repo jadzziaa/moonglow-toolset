@@ -10,7 +10,7 @@ use mg_resman::ResKey;
 use mg_script::lex::{TokenKind, tokenize};
 
 use crate::Module;
-use crate::refs::{RefKind, references, rewrite_references};
+use crate::refs::{RefKind, Reference, references, rewrite_references};
 
 /// The reference kinds that point at a resource of this type; empty if
 /// nothing refers to such resources by name (they can't be renamed here).
@@ -118,6 +118,66 @@ pub fn usages(module: &Module, target: ResKey) -> Vec<Usage> {
         }
     }
     out
+}
+
+/// The module's references, kept from one question to the next
+/// ([`usages`] reads every resource each time: 0.8 s in a persistent
+/// world). A resource is read again only when the module holds other
+/// bytes for it, so the first question costs what [`usages`] does and the
+/// next ones what changed since.
+#[derive(Debug, Clone, Default)]
+pub struct UsageIndex {
+    /// Each resource's bytes as read, and the references found in them.
+    seen: std::collections::HashMap<ResKey, (std::sync::Arc<[u8]>, Vec<Reference>)>,
+    /// How many resources the last [`refresh`](Self::refresh) read.
+    pub read: usize,
+}
+
+impl UsageIndex {
+    /// Reads the resources that are new or changed since the last time,
+    /// and forgets those that are gone.
+    pub fn refresh(&mut self, module: &Module) {
+        self.read = 0;
+        self.seen.retain(|k, _| module.contains(k));
+        for key in module.keys() {
+            let Some(data) = module.shared(key) else { continue };
+            match self.seen.get_mut(key) {
+                Some((was, _)) if std::sync::Arc::ptr_eq(was, data) => continue,
+                // (Set again with the same bytes, as a flush of the
+                // documents open does: nothing to read.)
+                Some((was, _)) if **was == **data => {
+                    *was = data.clone();
+                    continue;
+                }
+                _ => {}
+            }
+            self.read += 1;
+            self.seen.insert(*key, (data.clone(), references(*key, data)));
+        }
+    }
+
+    /// [`usages`] of `target`, from what [`refresh`](Self::refresh) read.
+    pub fn usages(&self, target: ResKey) -> Vec<Usage> {
+        let kinds = kinds(target.restype);
+        let hit = |r: &&Reference| kinds.contains(&r.kind) && r.target == target.resref;
+        let mut keys: Vec<&ResKey> = self
+            .seen
+            .iter()
+            .filter(|(_, (_, refs))| refs.iter().any(|r| hit(&r)))
+            .map(|(k, _)| k)
+            .collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let (data, refs) = &self.seen[key];
+            let gff = if key.restype.is_gff() { Gff::read(data).ok() } else { None };
+            for r in refs.iter().filter(hit) {
+                let place = describe(*key, gff.as_ref(), &r.path);
+                out.push(Usage { from: *key, path: r.path.clone(), place });
+            }
+        }
+        out
+    }
 }
 
 /// GFF string fields that name a tag: an object's own, a transition's
@@ -437,27 +497,8 @@ pub fn rename(
     }
     // Scripts that include a changed one, however indirectly, compile
     // differently too.
-    let includes: Vec<(ResKey, Vec<ResRef>)> = module
-        .keys_of(ResType::NSS)
-        .map(|k| {
-            let src = module.get(k).unwrap_or_default();
-            (*k, crate::refs::script_includes(*k, src).into_iter().map(|r| r.target).collect())
-        })
-        .collect();
-    loop {
-        let more: Vec<ResKey> = includes
-            .iter()
-            .filter(|(k, inc)| {
-                !report.recompile.contains(k)
-                    && inc.iter().any(|i| report.recompile.iter().any(|r| r.resref == *i))
-            })
-            .map(|(k, _)| *k)
-            .collect();
-        if more.is_empty() {
-            break;
-        }
-        report.recompile.extend(more);
-    }
+    let more = crate::refs::includers(module, &report.recompile);
+    report.recompile.extend(more);
     for key in &report.recompile {
         for t in [ResType::NCS, ResType::NDB] {
             module.remove(&ResKey::new(key.resref, t));
@@ -603,6 +644,46 @@ mod tests {
             rename(&mut m, key("guard_spawn", ResType::NSS), rr("x"), false),
             Err(RenameError::Missing(key("guard_spawn", ResType::NSS)))
         );
+    }
+
+    /// The index answers as the scan does, and reads again only what
+    /// changed: a resource set anew, one added, one removed.
+    #[test]
+    fn the_index_answers_as_the_scan_and_reads_only_what_changed() {
+        let mut m = module();
+        let targets = [
+            key("guard_spawn", ResType::NSS),
+            key("inc_guard", ResType::NSS),
+            key("keep", ResType::ARE),
+            key("guard", ResType::UTC),
+        ];
+        let mut index = UsageIndex::default();
+        let same = |index: &UsageIndex, m: &Module| {
+            for t in targets {
+                assert_eq!(index.usages(t), usages(m, t), "{t}");
+            }
+        };
+        index.refresh(&m);
+        assert_eq!(index.read, m.len());
+        assert!(!index.usages(targets[0]).is_empty());
+        same(&index, &m);
+        index.refresh(&m);
+        assert_eq!(index.read, 0, "nothing changed");
+        // A script that names the include no more; one that newly does.
+        m.set(key("guard_spawn", ResType::NSS), b"void main() {}\n".to_vec());
+        m.set(key("fresh", ResType::NSS), b"#include \"inc_guard\"\nvoid main() {}\n".to_vec());
+        index.refresh(&m);
+        assert_eq!(index.read, 2);
+        same(&index, &m);
+        m.remove(&key("fresh", ResType::NSS));
+        index.refresh(&m);
+        assert_eq!(index.read, 0);
+        // Set again with the bytes it had: not read again.
+        let again = m.get(&key("inc_guard", ResType::NSS)).unwrap().to_vec();
+        m.set(key("inc_guard", ResType::NSS), again);
+        index.refresh(&m);
+        assert_eq!(index.read, 0);
+        same(&index, &m);
     }
 
     #[test]

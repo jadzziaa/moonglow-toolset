@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-06T19:14:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T00:09:13Z }
 ---
 
 # Build, verify and test
@@ -116,6 +116,16 @@ JSON for a build pipeline (`mg --json verify`; see [Command-line
 tools](11-command-line.md)). There each problem carries the id of the
 check that found it (`set-model`, `2da-row`…); `mg checks` lists the
 checks.
+
+**Models kept as text.** A model in a hak, the override or the module
+that is text (ASCII, not compiled) is read as the game would read it
+(`mdl-text`): what the game refuses or crashes on is an error (a
+point-to-point emitter without its reference node, a node without a
+type or a name), what it would misread a warning (a node without its `endnode`,
+a second node of a name whose children hang from the first, more than
+four bones on a vertex; the first five of a model). Keywords the game
+skips are not named: old content is full of them.
+Each names the line. Compiled models are not read so.
 
 ## Test Module
 

@@ -1879,6 +1879,7 @@ dependencies = [
  "mg-edit",
  "mg-erf",
  "mg-gff",
+ "mg-mdl",
  "mg-module",
  "mg-plugin",
  "mg-preview",

@@ -152,6 +152,8 @@ impl Moonglow {
             keys
         };
         // A script changed since it was compiled is compiled first.
+        // (A script going out is compiled whatever it includes: stale
+        // compiles are found by compiling, not by what changed.)
         let scripts: Vec<ResKey> =
             roots.iter().filter(|k| k.restype == mg_core::ResType::NSS).copied().collect();
         let (compiled, broken) = crate::script_view::compile_stale(self, &scripts);

@@ -22,6 +22,7 @@ pub mod haks;
 pub mod instances;
 pub mod journal;
 pub mod minimap;
+pub mod models;
 pub mod nasher;
 pub mod new;
 pub mod nwsync;
@@ -238,6 +239,12 @@ impl Module {
 
     pub fn contains(&self, key: &ResKey) -> bool {
         self.resources.contains_key(key)
+    }
+
+    /// A resource's bytes as the module holds them: another `Arc` once
+    /// the resource is set again, so a cache can tell what changed.
+    pub fn shared(&self, key: &ResKey) -> Option<&Arc<[u8]>> {
+        self.resources.get(key)
     }
 
     /// Adds or replaces a resource (a replaced resource keeps its position).

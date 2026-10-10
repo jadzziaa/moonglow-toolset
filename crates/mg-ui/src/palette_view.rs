@@ -716,10 +716,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     let here = ui.rect_contains_pointer(ui.max_rect());
     let pressed = (here && has_arrows(ui.ctx()) && !ui.ctx().egui_wants_keyboard_input())
         .then(|| {
-            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
+            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter};
             ui.input(|i| {
                 let plain = i.modifiers.is_none();
-                [ArrowUp, ArrowDown, ArrowLeft, ArrowRight]
+                [ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Enter]
                     .into_iter()
                     .find(|k| plain && i.key_pressed(*k))
             })
@@ -800,6 +800,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .filter(|r| listed.shows(*r))
             .or_else(|| tree.sel.selected.and_then(|k| listed.blueprint(k)));
         let step = match from {
+            // Enter: the blueprint's editor, as a double click's (a
+            // standard one is viewed); a category opens or closes.
+            Some(row) if key == egui::Key::Enter => {
+                let (branch, blueprint) = listed.rows[row];
+                match blueprint {
+                    Some(k) if tree.cursor.is_some() => {
+                        tree.picks.push(if custom { Pick::Edit(k) } else { Pick::View(k) });
+                        Step::Stay
+                    }
+                    Some(_) => Step::Stay,
+                    None => Step::Fold(branch, !listed.branches[branch].open),
+                }
+            }
             Some(row) => listed.step(row, key),
             // Nothing to start from: the first row, or the last.
             None => {
