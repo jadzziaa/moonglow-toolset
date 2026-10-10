@@ -51,6 +51,48 @@ fn resource(path: &Path) -> Result<ResKey, String> {
     key_for(&file).map_err(|e| format!("{file}: {e}"))
 }
 
+/// A picture file as the module resource it becomes.
+fn from_file(path: &Path) -> Result<(ResKey, Vec<u8>), String> {
+    let key = resource(path)?;
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok((key, bytes))
+}
+
+fn asked() -> egui::Id {
+    egui::Id::new("nui-picture-from-disk")
+}
+
+/// A picture field's **From disk…**: asks for the file (the editors have no
+/// app), and returns the picture's name on the frame after it was added.
+pub(super) fn from_disk(ui: &mut Ui) -> Option<String> {
+    let field = ui.make_persistent_id("from-disk");
+    let picked = ui.ctx().data_mut(|d| d.remove_temp::<String>(field));
+    if ui
+        .button("From disk…")
+        .on_hover_text("Add a picture file to the module and use it")
+        .clicked()
+    {
+        ui.ctx().data_mut(|d| d.insert_temp(asked(), Some(field)));
+    }
+    picked
+}
+
+/// Answers a **From disk…**: the file into the module, its name to the field.
+pub(super) fn answer_from_disk(ctx: &egui::Context, app: &mut Moonglow) -> Option<Edit> {
+    let field = ctx.data_mut(|d| d.remove_temp::<Option<egui::Id>>(asked()))??;
+    let path = app.dialogs.open_file(FileKind::Images, None)?;
+    match from_file(&path) {
+        Ok((key, bytes)) => {
+            ctx.data_mut(|d| d.insert_temp(field, key.resref.to_string()));
+            Some(Edit::SetResource { key, data: Some(bytes) })
+        }
+        Err(e) => {
+            app.log.error(e);
+            None
+        }
+    }
+}
+
 /// Where a picture comes from, as a builder names it.
 fn origin_name(layer: &str) -> String {
     if let Some(hak) = layer.strip_prefix("hak:") {
@@ -221,7 +263,7 @@ pub(super) fn page(
         ui.add_space(8.0);
         if ui.button("Add images from disk…").on_hover_text("Into the module, named as their files").clicked() {
             for path in app.dialogs.open_files(FileKind::Images, None) {
-                match resource(&path).and_then(|k| Ok((k, std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?))) {
+                match from_file(&path) {
                     Ok((key, bytes)) => edits.push(Edit::SetResource { key, data: Some(bytes) }),
                     Err(e) => app.log.error(e),
                 }

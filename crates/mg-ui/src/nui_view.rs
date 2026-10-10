@@ -687,6 +687,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         }
     }
     let mut edits = page_edits;
+    edits.extend(images::answer_from_disk(ui.ctx(), app));
     if (raw != original || config_raw != config_original)
         && let Some(edit) =
             events::follow_controls(app, &name, &original, &raw, &config_original, &mut config_raw)
@@ -1764,6 +1765,67 @@ mod tests {
             .iter()
             .all(|d| !d.message.contains("Unknown element ID"))
         );
+    }
+
+    /// A picture field's From disk… puts the file into the module and names
+    /// it in the field: an Image control's, and a draw layer's.
+    #[test]
+    fn nui_picture_fields_take_a_file_from_disk() {
+        let dir = mg_testkit::scratch_dir("nui-from-disk");
+        let mut tga = vec![0u8; 18];
+        (tga[2], tga[12], tga[14], tga[16]) = (2, 1, 1, 24);
+        tga.extend([255u8; 3]);
+        let (photo, layer) = (dir.join("my_photo.tga"), dir.join("my_layer.tga"));
+        std::fs::write(&photo, &tga).unwrap();
+        std::fs::write(&layer, &tga).unwrap();
+        let dialogs = crate::NoDialogs { open: vec![layer, photo], ..Default::default() };
+        let mut app = Moonglow::new(None, Box::new(dialogs));
+        app.ws = Some(mg_edit::Workspace::new(mg_module::Module::new()));
+        super::create(&mut app, "pictures");
+        app.actions.clear();
+        let jui = mg_nui::key("pictures", ResType::JUI);
+        let doc = |app: &Moonglow| -> Value {
+            serde_json::from_slice(app.ws.as_ref().unwrap().module.get(&jui).unwrap()).unwrap()
+        };
+        let mut window = doc(&app);
+        window["root"]["children"] = json!([{"type":"image","id":"photo","value":"","height":40.0,
+            "draw_list_scissor":false,
+            "draw_list":[{"type":5,"enabled":true,"order":1,"render":0,"arrayBinds":false,
+                "rect":{"x":0.0,"y":0.0,"w":10.0,"h":10.0},"image":"",
+                "image_aspect":0,"image_halign":0,"image_valign":0}]}]);
+        app.ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&window).unwrap());
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 2400.0)).build_ui_state(
+            |ui, app: &mut Moonglow| {
+                super::ui(app, ui, Some(mg_nui::key("pictures", ResType::JUI)));
+                app.run_actions();
+            },
+            app,
+        );
+        h.run();
+        h.get_by_label_contains("Canvas Image").click();
+        h.run();
+        h.get_all_by_label("From disk…").next().unwrap().click();
+        h.run();
+        h.run();
+        let module = &h.state().ws.as_ref().unwrap().module;
+        assert!(module.contains(&ResKey::parse("my_photo", ResType::TGA).unwrap()));
+        assert_eq!(doc(h.state())["root"]["children"][0]["value"], "my_photo");
+        h.get_by_label("Draw layers").click();
+        h.run();
+        h.get_by_label("1 · Image").click();
+        h.run();
+        h.get_all_by_label("From disk…").last().unwrap().click();
+        h.run();
+        h.run();
+        assert!(
+            h.state()
+                .ws
+                .as_ref()
+                .unwrap()
+                .module
+                .contains(&ResKey::parse("my_layer", ResType::TGA).unwrap())
+        );
+        assert_eq!(doc(h.state())["root"]["children"][0]["draw_list"][0]["image"], "my_layer");
     }
 
     /// Advanced › Images: a picture from disk into the module, used as the

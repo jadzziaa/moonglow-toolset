@@ -226,7 +226,17 @@ pub(super) fn images(
         Some("button_image") => "label",
         _ => return,
     };
-    ui.collapsing("Choose game image", |ui| {
+    // A file from disk goes into the module and is the picture, as a name chosen below.
+    if let Some(name) = images::from_disk(ui) {
+        if let Some(bind) = node[field]["bind"].as_str() {
+            if let Some(b) = s.bindings.get_mut(bind).filter(|b| !b.value.is_array()) {
+                b.value = json!(name);
+            }
+        } else {
+            node[field] = json!(name);
+        }
+    }
+    ui.collapsing("Choose image", |ui| {
         ui.add(
             egui::TextEdit::singleline(&mut state.asset_search).hint_text("Find image resource…"),
         );

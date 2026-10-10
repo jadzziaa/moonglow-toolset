@@ -278,7 +278,9 @@ puts a picture under the window's controls, stretched over it: a draw layer
 of the root column, painted before it, whose rectangle and fit you can
 change in Draw layers.
 
-**Choose game image** searches the current resource stack and displays up to 24
+**From disk…** beside an Image's, an Image button's or a draw layer's picture
+puts a picture file into the module (named as the file) and uses it there.
+**Choose image** searches the current resource stack and displays up to 24
 matching thumbnails. Cropping uses the native image region. Individual list-row
 images are edited in Row data. **Screen** previews common
 resolutions and enables title dragging to author window position. A geometry

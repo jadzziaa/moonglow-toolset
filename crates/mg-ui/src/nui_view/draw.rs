@@ -545,6 +545,9 @@ pub(super) fn editor(ui: &mut Ui, node: &mut Value, s: &mut Settings, assets: &s
                                             .desired_width(140.0)
                                             .hint_text("Picture name"),
                                     );
+                                    if let Some(name) = images::from_disk(ui) {
+                                        *picture = name;
+                                    }
                                     // The pictures of the module and the game, by what is typed.
                                     ui.menu_button("Choose…", |ui| {
                                         egui::ScrollArea::vertical().max_height(240.0).show(
