@@ -61,7 +61,10 @@ fn fs_blend(in: VertexOut) -> @location(0) vec4<f32> {
 fn fs_punch(in: VertexOut) -> @location(0) vec4<f32> {
     let t = textureSample(tex0, samp0, in.uv);
     let c = t * in.color;
-    if (c.a < 0.5) {
+    // (Cut at 0.2, as the game cuts everything: a ramp of alpha on a
+    // `Punch-Through` particle is there from a fifth of its width on, seen
+    // in the client: `particles_look`, `MG_PARTICLES=punch`.)
+    if (c.a <= 0.2) {
         // (And nothing more of it: see the lit meshes' shader.)
         discard;
         return vec4<f32>(0.0);
