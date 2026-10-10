@@ -223,6 +223,17 @@ fn persistent_world_stays_within_budget() {
     let item = ResKey::parse("pw_i00000", ResType::UTI).unwrap();
     let (usages, took) = time(|| mg_module::rename::usages(&ws.module, item));
     b.check(format!("where-used of an item ({} uses)", usages.len()), took, S(2));
+    // The index the window keeps: the first question reads the module,
+    // the next ones only what changed.
+    let mut index = mg_module::rename::UsageIndex::default();
+    let (_, took) = time(|| index.refresh(&ws.module));
+    b.check("where-used index, first read", took, S(2));
+    let (again, took) = time(|| {
+        index.refresh(&ws.module);
+        index.usages(item)
+    });
+    assert_eq!(again, usages);
+    b.check("where-used of an item, from the index", took, MS(50));
     let (changed, took) = time(|| game.resman.changed_layers(|_| true));
     assert!(changed.is_empty());
     b.check("look for changed haks (Reload Resources)", took, MS(100));

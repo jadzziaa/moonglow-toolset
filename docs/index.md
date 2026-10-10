@@ -8,7 +8,7 @@ Documentation of Moonglow Toolset, the reimplementation of the Aurora Toolset fo
 
 # Backlog
 
-* [Deferred: what was left out, for a decision later](deferred.md) - What the post-parity work left undone, by area (script intelligence, nasher projects, content doctor, test loop, scale, frames, EE fields, bulk editing, conversations, palettes, custom content, haks, options), each awaiting a verdict - fix, add or drop.
+* [Deferred: what was left out, for a decision later](deferred.md) - What finished work left undone or unchecked, by area and by the builders' reports and reviews it came from, each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 
 # Finding
 

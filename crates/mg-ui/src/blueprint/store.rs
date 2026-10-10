@@ -206,7 +206,20 @@ fn inventory(f: &mut Form<'_>, ui: &mut Ui) {
         let items = pages[index].list("ItemList").unwrap_or(&[]);
         let items = items.to_vec();
         let icons: Vec<_> = items.iter().map(|it| f.entry_icon(ui.ctx(), it)).collect();
-        let name = |it: &Struct| f.entry_name(it, &names);
+        // What the store sells each for: its cost at the store's mark up
+        // (as Aurora lists it; a buyer's Appraise is the game's to add).
+        let mark_up = f.root.integer("MarkUp").unwrap_or(100).max(0) as u64;
+        let prices: Vec<Option<u64>> = (items.iter())
+            .map(|it| f.entry_cost(it).map(|cost| u64::from(cost) * mark_up / 100))
+            .collect();
+        let name = |it: &Struct| {
+            let name = f.entry_name(it, &names);
+            let price = items.iter().position(|i| std::ptr::eq(i, it)).and_then(|i| prices[i]);
+            match price {
+                Some(gold) => format!("{name}  ·  {gold} gp"),
+                None => name,
+            }
+        };
         let look = inventory::ItemLook {
             icons: &icons,
             name: &name,

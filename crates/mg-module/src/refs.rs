@@ -254,6 +254,36 @@ pub fn script_includes(from: ResKey, source: &[u8]) -> Vec<Reference> {
     out
 }
 
+/// The module's scripts that include any of `changed`, however
+/// indirectly (they compile differently when it changes), not `changed`
+/// themselves; sorted.
+pub fn includers(module: &crate::Module, changed: &[ResKey]) -> Vec<ResKey> {
+    let includes: Vec<(ResKey, Vec<ResRef>)> = module
+        .keys_of(ResType::NSS)
+        .map(|k| {
+            let src = module.get(k).unwrap_or_default();
+            (*k, script_includes(*k, src).into_iter().map(|r| r.target).collect())
+        })
+        .collect();
+    let mut all: Vec<ResKey> = changed.to_vec();
+    loop {
+        let more: Vec<ResKey> = includes
+            .iter()
+            .filter(|(k, inc)| {
+                !all.contains(k) && inc.iter().any(|i| all.iter().any(|r| r.resref == *i))
+            })
+            .map(|(k, _)| *k)
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        all.extend(more);
+    }
+    let mut found = all.split_off(changed.len());
+    found.sort();
+    found
+}
+
 /// The references of any resource (GFF or script source); others have none.
 pub fn references(key: ResKey, data: &[u8]) -> Vec<Reference> {
     if key.restype == ResType::NSS {

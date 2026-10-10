@@ -814,7 +814,7 @@ pub(crate) fn overlay(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView) {
     for (points, color) in &shapes {
         let screen: Vec<Pos2> = points.iter().filter_map(|p| view.screen_pos(*p)).collect();
         if screen.len() == points.len() {
-            painter.add(egui::Shape::closed_line(screen, Line::new(2.0, *color)));
+            crate::area_view::outline(&painter, &screen, Line::new(2.0, *color));
         }
     }
     view.brush_cursor = shapes;

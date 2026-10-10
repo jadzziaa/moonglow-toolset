@@ -63,7 +63,7 @@ impl LocStringEdit {
             .strings
             .iter()
             .map(|(k, bytes)| {
-                let text = crate::text::codepage_of(k.language()).decode(bytes);
+                let text = crate::text::entry_codepage(k.language()).decode(bytes);
                 let (shown, crlf) = to_editor(&text);
                 (k.language(), k.gender(), shown, crlf)
             })
@@ -80,6 +80,26 @@ impl LocStringEdit {
         }
     }
 
+    /// Why [`value`](Self::value) is `None`, for the window to say.
+    pub fn problem(&self) -> Option<String> {
+        if !self.strref.trim().is_empty() && self.strref.trim().parse::<u32>().is_err() {
+            return Some("The String Ref must be a number, or empty.".into());
+        }
+        self.entries.iter().find_map(|(language, _, text, _)| {
+            let codepage = crate::text::entry_codepage(*language);
+            let lacking: String = (text.chars())
+                .filter(|c| codepage.encode(&c.to_string()).is_none())
+                .take(6)
+                .collect();
+            (!lacking.is_empty()).then(|| {
+                format!(
+                    "The {} text has letters its language's text cannot hold: {lacking}",
+                    language.name().unwrap_or("other")
+                )
+            })
+        })
+    }
+
     /// The edited string; `None` if the StrRef is not a number or a text
     /// cannot be written in its language's codepage.
     pub fn value(&self) -> Option<LocString> {
@@ -90,7 +110,7 @@ impl LocStringEdit {
         let mut out = LocString { strref, strings: Vec::new() };
         for (language, gender, text, crlf) in &self.entries {
             let text = from_editor(text, *crlf);
-            let bytes = crate::text::codepage_of(*language).encode(&text)?;
+            let bytes = crate::text::entry_codepage(*language).encode(&text)?;
             out.strings.push((LocStringKey::new(*language, *gender), bytes.into_owned()));
         }
         Some(out)
@@ -441,10 +461,8 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             ui.add_space(6.0);
             let value = edit.value();
             if value.is_none() {
-                ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    "The String Ref must be a number, or empty.",
-                );
+                let problem = edit.problem().unwrap_or_else(|| "It cannot be saved.".into());
+                ui.colored_label(ui.visuals().error_fg_color, problem);
             }
             ui.horizontal(|ui| {
                 if ui.add_enabled(value.is_some(), egui::Button::new("OK")).clicked()
@@ -1388,6 +1406,39 @@ mod tests {
             GffPath::root(),
             "VarTable",
         )
+    }
+
+    /// GitHub issue 13: with Polish the editing language, String Edit reads
+    /// a string's English text as a Polish game shows it (Windows-1250:
+    /// Polish modules keep Polish names there) and takes Polish letters
+    /// typed into it; with English the editing language it is
+    /// Windows-1252, and a letter that has none says why it can't be saved.
+    #[test]
+    fn string_edit_reads_english_text_as_the_polish_game_does() {
+        use mg_core::{Gender, Language, LocStringKey, StrRef};
+        let polish = "Żółw";
+        let bytes = mg_core::Codepage::WINDOWS_1250.encode(polish).unwrap().into_owned();
+        let english = LocStringKey::new(Language::ENGLISH, Gender::Male);
+        let value = LocString { strref: StrRef::NONE, strings: vec![(english, bytes.clone())] };
+        crate::text::set_edit_language(Language::POLISH);
+        let mut edit = LocStringEdit::new(target(), "Name", &value);
+        assert_eq!(edit.entries[0].2, polish);
+        assert_eq!(edit.value(), Some(value.clone()), "written back as it was");
+        edit.entries[0].2 = "Żółwie".into();
+        let typed = edit.value().expect("Polish letters are taken");
+        assert_eq!(mg_core::Codepage::WINDOWS_1250.decode(&typed.strings[0].1), "Żółwie");
+        assert_eq!(edit.problem(), None);
+        // English the editing language: Windows-1252, where "ł" has no
+        // place, and the window says so (it named the String Ref).
+        crate::text::set_edit_language(Language::ENGLISH);
+        let mut edit = LocStringEdit::new(target(), "Name", &value);
+        assert_ne!(edit.entries[0].2, polish);
+        edit.entries[0].2 = "Żółw".into();
+        assert_eq!(edit.value(), None);
+        let problem = edit.problem().unwrap();
+        assert!(problem.contains("English") && problem.contains('ł'), "{problem}");
+        edit.strref = "x".into();
+        assert!(edit.problem().unwrap().contains("String Ref"));
     }
 
     #[test]

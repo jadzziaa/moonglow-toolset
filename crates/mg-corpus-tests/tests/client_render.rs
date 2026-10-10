@@ -773,6 +773,18 @@ fn white_tga() -> Vec<u8> {
     t
 }
 
+/// A white 64×64 texture whose alpha rises evenly from 0 at its left edge
+/// to 1 at its right.
+fn ramp_tga() -> Vec<u8> {
+    let mut t = vec![0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 0, 64, 0, 32, 8];
+    for _ in 0..64 {
+        for x in 0..64u32 {
+            t.extend([255, 255, 255, (x * 255 / 63) as u8]);
+        }
+    }
+    t
+}
+
 /// Exploration: particles in the client. The armoire's model (`plc_a01`,
 /// overridden in the scratch user directory) holds probe emitters, under a
 /// red sun and green ambient light; the client's view is written to
@@ -886,6 +898,22 @@ fn particles_look() {
                 &format!("{throw}\n  colorStart 0 0 1\n  colorEnd 0 0 1"),
             ));
             v
+        }
+        "punch" => {
+            // One large particle each, still, showing a white texture
+            // whose alpha rises from nothing at its left to solid at its
+            // right: `Punch-Through` on the left, `Normal` on the right.
+            // How much of the left one's width is there is where it is cut.
+            let one = "birthrate 1\n  lifeExp 30\n  velocity 0\n  sizeStart 1\n  sizeEnd 1\n  \
+                       texture mgramp";
+            vec![
+                probe_emitter(
+                    "punch",
+                    [column(2), 0.0, 1.5],
+                    &format!("{one}\n  blend Punch-Through"),
+                ),
+                probe_emitter("normal", [column(6), 0.0, 1.5], one),
+            ]
         }
         "linked" => {
             // A few large particles born still, anywhere in a 1.5 m
@@ -1082,6 +1110,7 @@ fn particles_look() {
     std::fs::write(user.join("override/plc_a01.mdl"), &model).unwrap();
     std::fs::write(user.join("override/mgwhite.tga"), white_tga()).unwrap();
     std::fs::write(user.join("override/mgquad.tga"), quadrant_tga(0)).unwrap();
+    std::fs::write(user.join("override/mgramp.tga"), ramp_tga()).unwrap();
     if let Some(dir) = beside.as_deref().and_then(|p| p.parent()) {
         for file in std::fs::read_dir(dir).unwrap().flatten().map(|e| e.path()) {
             if file.is_file() && file.extension().is_some_and(|e| e != "mdl") {
@@ -1599,7 +1628,8 @@ fn cards_mdl() -> String {
 /// and the client's shadows on); `MG_MAINLIGHT` a lightcolor.2da row for
 /// the tiles' main lights; `MG_TILESET` another tileset;
 /// `MG_TURN=1` turns the cards about (their fronts north, away from the
-/// camera);
+/// camera); `MG_DISCARD=1` paints every surface with the alpha the client
+/// cuts it at;
 /// `MG_CLIENT_CAMERA` the client's camera as nwscript. Both views go to
 /// `target/test-output/client_cutouts/`.
 #[test]
@@ -1619,6 +1649,21 @@ fn cutouts_look() {
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
 
     std::fs::write(over.join("mg_cards.mdl"), cards_mdl()).unwrap();
+    // `MG_DISCARD=1`: every surface painted with the alpha it is cut at
+    // (red: `fAlphaDiscardValue`; green: it is below 0, nothing is cut).
+    if std::env::var_os("MG_DISCARD").is_some() {
+        let src = base.resman.get_named("inc_standard", ResType::SHD).unwrap();
+        let mut src = String::from_utf8_lossy(&src).replace("\r\n", "\n");
+        let end = "\tApplyDebugModeOutput(FragmentColor);\n}";
+        let at = src.rfind(end).expect("ApplyDebugModeOutput");
+        src.insert_str(
+            at + end.len() - 1,
+            "#if SHADER_TYPE == 2 && NO_DISCARD != 1\n\tFragmentColor = \
+             vec4(clamp(ALPHA_DISCARD_VALUE, 0.0, 1.0), ALPHA_DISCARD_VALUE < 0.0 ? 1.0 : 0.0, \
+             0.25, 1.0);\n#endif\n",
+        );
+        std::fs::write(over.join("inc_standard.shd"), src).unwrap();
+    }
     for (texture, txi, mtr) in CUTOUTS {
         std::fs::write(over.join(format!("{texture}.tga")), disc_tga()).unwrap();
         if !txi.is_empty() {

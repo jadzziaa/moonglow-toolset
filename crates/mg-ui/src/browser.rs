@@ -26,6 +26,8 @@ pub struct Browser {
     query: Option<(Option<ResType>, String)>,
     /// The load order changed since the index was built.
     pub(crate) stale: bool,
+    /// Export as Files writes compiled models as text.
+    pub models_as_text: bool,
     /// 2DA views: StrRefs shown as numbers rather than their text.
     pub(crate) raw_strrefs: bool,
     /// 2DA views: only the rows a layer last changed (its index in the
@@ -112,6 +114,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             let keys = browser.shown.iter().map(|&i| browser.entries[i].0).collect();
             actions.push(Action::SaveResources(keys));
         }
+        if browser.shown.iter().any(|&i| browser.entries[i].0.restype == ResType::MDL) {
+            ui.checkbox(&mut browser.models_as_text, "Models as text").on_hover_text(
+                "Export as Files writes compiled models as the text they compile from",
+            );
+        }
     });
     ui.separator();
     let row_height = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
@@ -152,6 +159,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         if ui.button("Save As…").on_hover_text("As a file, as it is").clicked() {
                             actions.push(Action::SaveResource(*k));
                         }
+                        if k.restype == ResType::MDL
+                            && ui
+                                .button("Save As Text…")
+                                .on_hover_text("A compiled model as the text it compiles from")
+                                .clicked()
+                        {
+                            actions.push(Action::SaveModelText(*k));
+                        }
                     });
                 });
             }
@@ -159,12 +174,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
     );
 }
 
-/// Save As on a resource of the load order: its bytes to a file.
-pub(crate) fn save_as(app: &mut Moonglow, key: ResKey) {
+/// Save As on a resource of the load order: its bytes to a file; or,
+/// `as_text`, a compiled model as its text (one that is text already is
+/// saved as it is).
+pub(crate) fn save_as(app: &mut Moonglow, key: ResKey, as_text: bool) {
     let Some(game) = &app.game else { return };
     let Ok(data) = game.resman.get(&key) else {
         app.log.error(format!("{key} is not in the load order."));
         return;
+    };
+    let data = match as_text.then(|| mg_mdl::decompile(&data)) {
+        Some(Ok(text)) => text.into_bytes().into(),
+        Some(Err(mg_mdl::DecompileError::NotBinary)) | None => data,
+        Some(Err(e)) => {
+            app.log.error(format!("{key} can't be written as text: {e}"));
+            return;
+        }
     };
     let Some(path) = app.dialogs.save_file(FileKind::Any, Some(&PathBuf::from(key.to_string())))
     else {
@@ -184,16 +209,25 @@ pub(crate) fn export(app: &mut Moonglow, keys: &[ResKey]) {
     else {
         return;
     };
-    let mut written = 0;
+    let (mut written, mut as_text) = (0, 0);
     for key in keys {
         let Ok(data) = game.resman.get(key) else { continue };
+        // (Asked for: a compiled model as its text; one that can't be
+        // read so goes out as it is.)
+        let text = (app.browser.models_as_text).then(|| model_text(*key, &data)).flatten();
+        as_text += usize::from(text.is_some());
+        let data = text.map_or(data, |t| t.into_bytes().into());
         if let Err(e) = std::fs::write(dir.join(key.to_string()), &data) {
             app.log.error(format!("Could not write to {}: {e}", dir.display()));
             return;
         }
         written += 1;
     }
-    app.log.info(format!("Exported {written} resources to {}", dir.display()));
+    let models = match as_text {
+        0 => String::new(),
+        n => format!(" ({n} compiled models as text)"),
+    };
+    app.log.info(format!("Exported {written} resources to {}{models}", dir.display()));
     app.export_dir = Some(dir);
 }
 
@@ -239,6 +273,8 @@ impl Viewed {
             Content::Text(String::from_utf8_lossy(&data).into_owned())
         } else if is_text(key.restype, &data) {
             Content::Text(codepage.decode(&data).into_owned())
+        } else if let Some(text) = model_text(key, &data) {
+            Content::Text(text)
         } else {
             Content::Binary(hex(&data[..data.len().min(512)]))
         };
@@ -266,9 +302,17 @@ pub(crate) fn plain(key: ResKey, data: &[u8]) -> Plain {
         // (Its bytes as Latin-1 where they aren't UTF-8.)
         let latin = || data.iter().map(|&b| b as char).collect();
         Plain::Text(String::from_utf8(data.to_vec()).unwrap_or_else(|_| latin()))
+    } else if let Some(text) = model_text(key, data) {
+        Plain::Text(text)
     } else {
         Plain::Text(hex(&data[..data.len().min(512)]))
     }
+}
+
+/// A compiled model as the text it compiles from (`mg_mdl::decompile`);
+/// nothing for anything else, or a model that can't be read.
+pub(crate) fn model_text(key: ResKey, data: &[u8]) -> Option<String> {
+    (key.restype == ResType::MDL).then(|| mg_mdl::decompile(data).ok()).flatten()
 }
 
 /// Draws a [`Plain`] view, scrolling.

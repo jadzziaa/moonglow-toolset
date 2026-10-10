@@ -47,6 +47,9 @@ pub struct TalkView {
     /// The module's table that was found and could not be read (its name):
     /// said once and not tried again while the module names it.
     unreadable: Option<String>,
+    /// The module's table that was not found (its name), and when it was
+    /// looked for: looked for again every few seconds, not every frame.
+    missing: Option<(String, std::time::Instant)>,
 }
 
 impl TalkView {
@@ -83,10 +86,15 @@ fn open(app: &mut Moonglow, name: &str) {
     if app.talk_view.unreadable.as_deref() == Some(name) {
         return;
     }
+    let again = std::time::Duration::from_secs(3);
+    if (app.talk_view.missing.as_ref()).is_some_and(|(n, at)| n == name && at.elapsed() < again) {
+        return;
+    }
     let (Some(game), Some(install)) = (&app.game, &app.install) else { return };
     let dirs = install.tlk_dirs();
     let Some(found) = talk::find(&game.resman, &dirs, name) else {
         app.talk = None;
+        app.talk_view.missing = Some((name.to_string(), std::time::Instant::now()));
         return;
     };
     let feminine = talk::find(&game.resman, &dirs, &talk::feminine(name));
@@ -500,6 +508,19 @@ fn table(app: &mut Moonglow, ui: &mut Ui) {
         }
         if let Some(problem) = &v.go_to_problem {
             ui.colored_label(ui.visuals().warn_fg_color, problem);
+        }
+        // Where the module names the selected line.
+        let line = v.selected.filter(|_| ws.is_some());
+        if ui
+            .add_enabled(line.is_some(), egui::Button::new("Find References"))
+            .on_hover_text(
+                "Where the module's blueprints, areas, conversations and 2DAs name the \
+                 selected line",
+            )
+            .clicked()
+            && let Some(row) = line
+        {
+            actions.push(Action::FindStrRef(Table::strref(row).0));
         }
         if ui
             .checkbox(&mut v.only_text, "Only lines with text")

@@ -35,7 +35,10 @@ pub fn attenuation_params() -> (f32, f32) {
     let m2 = crate::scene::CUTOFF_RANGE_MULTIPLIER.powi(2);
     (max_inv, m2 * (INTENSITY_AT_RANGE.powf(-2.2) - max_inv))
 }
-/// The default alpha test.
+/// The alpha at or below which a texel is cut out, whatever the texture's
+/// TXI says (`blending punchthrough` or not, `decal` or not) and with an
+/// MTR or without: the client's `fAlphaDiscardValue`, read from it
+/// (`cutouts_look` with `MG_DISCARD=1` in `client_render.rs`).
 const ALPHA_DISCARD: f32 = 0.2;
 
 #[repr(C)]
@@ -1250,7 +1253,11 @@ impl Renderer {
                 } else if surface.blending == Blending::Additive {
                     Pass::Additive
                 } else if alpha < 1.0
-                    || (surface.has_alpha && !surface.reflects)
+                    // (A cut-out is solid where it is not cut: its rim is
+                    // not blended, as the client draws it.)
+                    || (surface.has_alpha
+                        && !surface.reflects
+                        && surface.blending != Blending::Punchthrough)
                     || mat.transparency_hint > 0
                     || slots.effect.is_some_and(|e| e.blend)
                 {
@@ -1258,8 +1265,7 @@ impl Renderer {
                 } else {
                     Pass::Opaque
                 };
-                let discard =
-                    if surface.blending == Blending::Punchthrough { 0.5 } else { ALPHA_DISCARD };
+                let discard = ALPHA_DISCARD;
                 // The 32 most important lights that reach the mesh.
                 reach.reaching(centre, radius, &mut chosen);
                 let mut light_index = [[0u32; 4]; 8];
@@ -1307,8 +1313,14 @@ impl Renderer {
                         flag(slots.normal_variant),
                     ],
                     spec_color: slots.specular_color.map_or([0.0; 4], |c| c.extend(1.0).to_array()),
-                    // (w: which part of a see-through mesh, below.)
-                    extra: [flag(surface.env_cube), flag(is_sky), flag(fade_color.is_some()), 0.0],
+                    // (w: which part of a see-through mesh, below; 3 a
+                    // cut-out, solid where it is not cut.)
+                    extra: [
+                        flag(surface.env_cube),
+                        flag(is_sky),
+                        flag(fade_color.is_some()),
+                        if surface.blending == Blending::Punchthrough { 3.0 } else { 0.0 },
+                    ],
                     water: {
                         let (far, fast) = surface.ripple.unwrap_or((0.0, 0.0));
                         [far, fast, flag(surface.water), 0.0]

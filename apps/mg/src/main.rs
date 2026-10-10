@@ -50,7 +50,17 @@ enum Cmd {
     /// Unpack an ERF archive into a directory.
     Unpack { archive: PathBuf, out: PathBuf },
     /// Pack a directory's files into an ERF archive (type from the extension).
-    Pack { dir: PathBuf, archive: PathBuf },
+    Pack {
+        dir: PathBuf,
+        archive: PathBuf,
+        /// Compile the models kept as text (ASCII .mdl) on the way in:
+        /// each against its supermodel, from the directory or the game
+        /// (found as for the other commands; without one, only the
+        /// directory's). A model that doesn't compile, or whose
+        /// supermodel isn't found, goes in as the text it is, and is named.
+        #[arg(long)]
+        compile_models: bool,
+    },
     /// Convert GFF to JSON (neverwinter.nim / nasher format), or JSON to GFF.
     Gff {
         input: PathBuf,
@@ -64,7 +74,12 @@ enum Cmd {
         resource: String,
     },
     /// Print a resource from the game's load order to stdout.
-    Cat { resource: String },
+    Cat {
+        resource: String,
+        /// A compiled model (.mdl) as the text it compiles from.
+        #[arg(long)]
+        text: bool,
+    },
     /// List the resource layers in load order with their sizes.
     Layers,
     /// Print talk-table strings by StrRef.
@@ -169,6 +184,22 @@ enum Cmd {
         /// The conversation's name (default: the file's).
         #[arg(long)]
         name: Option<String>,
+    },
+    /// Write a talk table (a .tlk file) as JSON, as nwn_tlk writes it, or as
+    /// CSV (a row a line: StrRef, text, the feminine table's text if a
+    /// table named with an added `f` lies beside it, sound, its length),
+    /// by the output's extension (.json, .csv).
+    TlkExport { table: PathBuf, output: PathBuf },
+    /// Read a .json or .csv file of talk-table lines into a talk table (a
+    /// .tlk file, made if it isn't there) and save it: the lines the file
+    /// has are set, the others stay. Nothing is written unless every line
+    /// can be read.
+    TlkImport {
+        table: PathBuf,
+        file: PathBuf,
+        /// Say what would change, and write nothing.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Replace text in a module's names, descriptions, conversation lines
     /// and journal (every language they're written in) and save; prints
@@ -590,6 +621,32 @@ impl Output {
     }
 }
 
+/// A file's extension, lower case.
+fn extension(path: &Path) -> String {
+    path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default()
+}
+
+/// The talk table in the file at `path`, with the feminine table beside
+/// it (the same name with an `f` added) if there is one; a new, empty
+/// one (English) where the file isn't there and `make` allows.
+fn talk_table(path: &Path, make: bool) -> Result<mg_module::talk::Table> {
+    use mg_module::talk::{Found, Source, Table, feminine};
+    let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if !path.is_file() && make {
+        let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        let mut t = Table::create(&name, &dir, mg_core::Language::ENGLISH, false);
+        t.source = Source::File(path.to_path_buf());
+        return Ok(t);
+    }
+    let found = |p: &Path| -> Result<Found> {
+        let data = std::fs::read(p).with_context(|| p.display().to_string())?;
+        Ok(Found { source: Source::File(p.to_path_buf()), data })
+    };
+    let beside = path.with_file_name(format!("{}.tlk", feminine(&name)));
+    let fem = if beside.is_file() { Some(found(&beside)?) } else { None };
+    Table::open(&name, found(path)?, fem).map_err(|e| anyhow::anyhow!("{e}"))
+}
+
 fn main() -> ExitCode {
     // `run`'s one match over every command takes more than Windows' 1 MB main
     // stack in a debug build: it runs on a thread of its own with room.
@@ -702,7 +759,7 @@ fn run(cli: &Cli) -> Result<Output> {
             out.note(format!("unpacked {} files", erf.entries.len()));
             out
         }
-        Cmd::Pack { dir, archive } => {
+        Cmd::Pack { dir, archive, compile_models } => {
             let ext =
                 archive.extension().and_then(|e| e.to_str()).unwrap_or("erf").to_ascii_uppercase();
             let mut file_type = [b' '; 4];
@@ -711,10 +768,56 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut paths: Vec<PathBuf> =
                 std::fs::read_dir(dir)?.flatten().map(|e| e.path()).collect();
             paths.sort();
+            // The models kept as text, compiled (asked for): their bytes
+            // in place of the files'.
+            let mut compiled: std::collections::HashMap<ResKey, Vec<u8>> = Default::default();
+            let (mut made, mut left, mut said) = (Vec::new(), Vec::new(), Vec::new());
+            if *compile_models {
+                let mut models = Vec::new();
+                for p in paths.iter().filter(|p| p.is_file()) {
+                    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                    if let Ok(key) = resource_key(name)
+                        && key.restype == mg_core::ResType::MDL
+                    {
+                        models.push((key, std::fs::read(p)?));
+                    }
+                }
+                let files: Vec<(ResKey, &[u8])> =
+                    models.iter().map(|(k, d)| (*k, d.as_slice())).collect();
+                let game = install(cli).ok().and_then(|gi| ResMan::for_game(&gi).ok());
+                let lookup = |name: &str| {
+                    let rm = game.as_ref()?;
+                    rm.get_named(name, mg_core::ResType::MDL).ok().map(|d| d.into_owned())
+                };
+                for c in mg_module::models::compile_models(&files, &lookup) {
+                    match c.result {
+                        Ok((binary, notes)) => {
+                            for (line, note) in notes {
+                                let at =
+                                    if line > 0 { format!(" line {line}") } else { String::new() };
+                                said.push(format!("{}{at}: {note}", c.model));
+                            }
+                            made.push(c.model.to_string());
+                            compiled.insert(c.model, binary);
+                        }
+                        Err(why) => left.push((c.model.to_string(), why)),
+                    }
+                }
+                if game.is_none() && !left.is_empty() {
+                    said.push(
+                        "no game install found: supermodels were looked for in the directory only"
+                            .into(),
+                    );
+                }
+            }
             for p in paths.iter().filter(|p| p.is_file()) {
                 let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
                 let key = resource_key(name)?;
-                w.add(key.resref, key.restype, std::fs::read(p)?)?;
+                let data = match compiled.remove(&key) {
+                    Some(binary) => binary,
+                    None => std::fs::read(p)?,
+                };
+                w.add(key.resref, key.restype, data)?;
             }
             // Streamed: a hak can be gigabytes.
             let mut file = io::BufWriter::new(std::fs::File::create(archive)?);
@@ -725,8 +828,23 @@ fn run(cli: &Cli) -> Result<Output> {
                 "archive": path_text(archive),
                 "files": w.len(),
                 "past_read_limit": past.iter().map(|(r, t)| format!("{r}.{t}")).collect::<Vec<_>>(),
+                "models_compiled": made,
+                "models_left_as_text": left
+                    .iter()
+                    .map(|(m, why)| json!({ "model": m, "why": why }))
+                    .collect::<Vec<_>>(),
+                "model_notes": said,
             }));
             out.note(format!("packed {} files", w.len()));
+            if *compile_models {
+                out.note(format!("compiled {} models kept as text", made.len()));
+            }
+            for (model, why) in &left {
+                out.note(format!("warning: {model} goes in as text: {why}"));
+            }
+            for note in &said {
+                out.note(note.clone());
+            }
             if let Some(first) = past.first() {
                 out.note(format!(
                     "warning: {} file(s) from {}.{} on start past 2 GiB into the archive, \
@@ -755,10 +873,16 @@ fn run(cli: &Cli) -> Result<Output> {
             out.line(label);
             out
         }
-        Cmd::Cat { resource } => {
+        Cmd::Cat { resource, text } => {
             let rm = ResMan::for_game(&install(cli)?)?;
             let key = resource_key(resource)?;
             let data = rm.get(&key)?;
+            // (A model that is text already is printed as it is.)
+            let data = match text.then(|| mg_mdl::decompile(&data)) {
+                Some(Ok(text)) => text.into_bytes().into(),
+                Some(Err(mg_mdl::DecompileError::NotBinary)) | None => data,
+                Some(Err(e)) => anyhow::bail!("{key}: {e}"),
+            };
             if cli.json {
                 // Text as text; other bytes as hexadecimal.
                 let text = std::str::from_utf8(&data).ok().map(str::to_string);
@@ -1010,6 +1134,47 @@ fn run(cli: &Cli) -> Result<Output> {
             Output::new(
                 json!({ "conversation": key.to_string(), "file": path_text(output), "format": f.name() }),
             )
+        }
+        Cmd::TlkExport { table, output } => {
+            let t = talk_table(table, false)?;
+            let (text, format) = match extension(output).as_str() {
+                "json" => (t.to_json(), "json"),
+                "csv" => (t.to_csv(), "csv"),
+                _ => anyhow::bail!("the output must end .json or .csv"),
+            };
+            std::fs::write(output, text)?;
+            Output::new(json!({
+                "table": path_text(table),
+                "file": path_text(output),
+                "format": format,
+                "lines": t.len(),
+                "feminine": t.feminine.is_some(),
+            }))
+        }
+        Cmd::TlkImport { table, file, dry_run } => {
+            let mut t = talk_table(table, true)?;
+            let text = std::fs::read_to_string(file)?;
+            let (changed, added) = match extension(file).as_str() {
+                "json" => t.import_json(&text),
+                "csv" => t.import_csv(&text),
+                _ => anyhow::bail!("the file must end .json or .csv"),
+            }
+            .map_err(|e| anyhow::anyhow!("{}: {e}", file.display()))?;
+            if !dry_run && (changed > 0 || added > 0 || !table.is_file()) {
+                t.save().map_err(|e| anyhow::anyhow!("{e}"))?;
+            }
+            let mut out = Output::new(json!({
+                "table": path_text(table),
+                "changed": changed,
+                "added": added,
+                "lines": t.len(),
+                "saved": !dry_run,
+            }));
+            out.line(format!(
+                "{changed} lines changed, {added} added{}",
+                if *dry_run { " (nothing written)" } else { "" }
+            ));
+            out
         }
         Cmd::DialogImport { module, file, name } => {
             use mg_module::dialog_io::Format;

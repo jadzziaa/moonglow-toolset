@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:59:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
 ---
 
 # The main window
@@ -24,7 +24,7 @@ close it, **Palettes** on the toolbar brings it back.
 | View | Module Tree, Palettes Panel, Log (each ticked while shown), Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Merchant, Placeable, Sound, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, New Script…, Palettes, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
-| Build | Compile All Scripts, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
+| Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
 | Plugins | the commands of the plugins you have enabled, Manage Plugins…, Install Plugin from File… ([Plugins](15-plugins.md)) |
 | Help | User Manual, Command Palette…, About Moonglow Toolset |
 
@@ -33,8 +33,11 @@ F10 opens the first menu; the same closes the menus. Left and Right go
 from menu to menu, round the ends; Up and Down from row to row, past the
 lines and the rows that can't be chosen now; Enter or Space chooses the
 row marked. Right on a row with a submenu opens it, Left closes it;
-Escape closes the menus. With a menu open, the pointer over another
-menu's name opens that one.
+Escape closes the submenu the keys are in, else the menus. With a menu
+open, the pointer over another menu's name opens that one. Alt and a
+menu's first letter (underlined: Alt+F for File, Alt+V for View) opens
+that menu, and with a menu open a letter goes to the next row that
+begins with it.
 
 **Help › Command Palette…** (Ctrl+Shift+P) finds a command by its name:
 type part of it (or of its menu's name), choose with the arrow keys, and
@@ -151,6 +154,8 @@ string's text is shown beside its number.
 **The panes beside the middle** (the module tree on the left, the
 palettes on the right, the log below) fold away to give the area's view
 the room: **View** has each, ticked while shown, and **Hide All Panels**.
+The module tree («, beside its Filter) and the log (–, in its corner)
+have a button of their own for it.
 A pane folded away leaves a narrow strip at its edge with an arrow: a
 click brings it back, as wide as it was. Closing the palettes' pane by
 its ✕ folds it away the same. What is folded stays so the next time
@@ -158,14 +163,19 @@ Moonglow starts. **View › Reset Layout** shows all three at the sizes
 they have at first.
 
 **The keyboard in the tree.** A click on a row gives the tree the arrow
-keys, while the pointer is over it (the same click in the palette gives
-them to the palette; in an area's view they turn the camera again):
+keys, wherever the pointer goes after, until it is in an area's view,
+where they move the camera again (the same click in the palette gives
+them to the palette); a thin outline shows which pane has them:
 Up and Down go from row to row, Page Up and Page Down by ten, Home and
 End to the first and the last. Right opens a group, then goes to its
 first row; Left goes from a row to its group, then closes it. Enter
 opens the row's area, script, conversation or blueprint, and opens or
-closes a group. Escape hands the keys back. The row the keys are at is
-marked, and brought into view.
+closes a group. A letter or a digit goes to the next row that begins
+with it (a group's name, or a resource's ResRef). F2 renames and Delete deletes the resource of the row
+under the pointer, or else of the row the keys are at (both ask first,
+as the row's menu does). Ctrl+F goes to the Filter,
+and Down from the Filter goes back into the rows. Escape hands the keys
+back. The row the keys are at is marked, and brought into view.
 
 ## Tabs and windows
 
@@ -205,8 +215,9 @@ not as a window over the area. Drag one out to a window of its own and
 the next opens as a window again. This is kept between runs; **View ›
 Reset Layout** forgets it.
 
-**With no area open**, the main pane says so and lists the module's areas
-to open with a click: the panes beside it keep their widths.
+**With no area open**, the main pane says so and lists the areas opened
+lately in this module, then the module's areas, each to open with a
+click: the panes beside it keep their widths.
 
 A window opens as large as one of its kind was last left: resize a
 conversation's window, and the next conversation opens at that size (each
@@ -248,10 +259,13 @@ load order (the game's files, haks, override, the module), with the layer
 each one comes from. Open one to view it (GFF files as a field tree, 2DA
 tables, scripts and other text; models, and blueprints with **Preview**,
 in the model viewer), copy it into the module, or save it to a file
-(**Save As…**, also on its right-click menu in the list). **Export N as
+(**Save As…**, also on its right-click menu in the list; a compiled
+model shows as the text it compiles from, and **Save As Text…** saves
+it so). **Export N as
 Files…** writes all the resources listed into a folder, once a type or
-part of a name narrows the list. Files go out as they are: a model
-compiled is not turned into text.
+part of a name narrows the list. Files go out as they are; with
+**Models as text** ticked (shown when models are listed), compiled
+models go out as the text they compile from.
 
 A 2DA shows the copy the game reads, with its StrRef columns (Name,
 Description, StrRef and the like) as their text; **StrRefs as numbers**

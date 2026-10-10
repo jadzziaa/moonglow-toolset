@@ -285,6 +285,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         Save(bool),
         View(ResKey),
         UpdateFromFolder,
+        CompileModels,
     }
     let mut todo = None;
     // The game's own haks are never written: Save As makes a copy.
@@ -312,6 +313,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             .clicked()
         {
             todo = Some(Do::UpdateFromFolder);
+        }
+        // (Here, not among the buttons under: that row is full.)
+        if ui
+            .button("Compile Models")
+            .on_hover_text(
+                "Compiles the hak's models kept as text (ASCII), each against its supermodel \
+                 from this hak, the module's haks or the game; one that can't be stays as text",
+            )
+            .clicked()
+        {
+            todo = Some(Do::CompileModels);
         }
         ui.weak(where_);
     });
@@ -557,6 +569,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
                 Err(e) => app.log.error(format!("{key}: {e}")),
             }
         }
+        Some(Do::CompileModels) => compile_models(app, i),
         Some(Do::UpdateFromFolder) => {
             // What the folder has now: its files in place of the hak's.
             let doc = &mut app.haks[i];
@@ -570,6 +583,80 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
             }
         }
     }
+}
+
+/// Compile Models: the models of hak `i` kept as text are compiled
+/// (`mg_module::models`) as a job, off the window's thread, and put into
+/// the hak as one step to undo; those that can't be are named in the log
+/// and stay as they are.
+fn compile_models(app: &mut Moonglow, i: usize) {
+    use mg_module::models::{Compiled, compile_models_each};
+    let (id, hak) = (app.haks[i].id, app.haks[i].hak.clone());
+    app.start_job_anywhere(
+        "Compile Models",
+        move |job| -> Vec<Compiled> {
+            job.progress.say("Reading the hak's models");
+            let models: Vec<(ResKey, Vec<u8>)> = (hak.items().iter())
+                .filter(|item| item.key.restype == mg_core::ResType::MDL)
+                .filter_map(|item| Some((item.key, hak.data(item.key).ok()?)))
+                .collect();
+            let files: Vec<(ResKey, &[u8])> =
+                models.iter().map(|(k, d)| (*k, d.as_slice())).collect();
+            let lookup = |name: &str| {
+                let rm = &job.game.as_deref()?.resman;
+                rm.get_named(name, mg_core::ResType::MDL).ok().map(|d| d.into_owned())
+            };
+            compile_models_each(&files, &lookup, &|done, total| {
+                job.progress.step(done, total);
+                job.progress.say(format!("{done} of {total} models"));
+                !job.progress.cancelled()
+            })
+        },
+        move |app, results| {
+            // (The window took no input meanwhile: the hak is as it was.)
+            let Some(i) = app.haks.iter().position(|d| d.id == id) else { return };
+            let (mut made, mut left, mut notes) = (Vec::new(), Vec::new(), 0);
+            for c in results {
+                match c.result {
+                    Ok((binary, said)) => {
+                        notes += said.len();
+                        for (line, note) in said.iter().take(3) {
+                            let at =
+                                if *line > 0 { format!(" line {line}") } else { String::new() };
+                            app.log.info(format!("{}{at}: {note}", c.model));
+                        }
+                        made.push((c.model, mg_module::hak_edit::Source::Bytes(binary.into())));
+                    }
+                    Err(why) => left.push(format!("{}: {why}", c.model)),
+                }
+            }
+            let compiled = made.len();
+            if compiled == 0 && left.is_empty() {
+                app.log.info("Compile Models: the hak has no models kept as text");
+                return;
+            }
+            if compiled > 0 {
+                match app.haks[i].hak.add_sources_as("Compile Models", made) {
+                    Ok(_) => app.haks[i].changed(),
+                    Err(e) => {
+                        app.log.error(format!("Compile Models: {e}"));
+                        return;
+                    }
+                }
+            }
+            app.log.info(format!(
+                "Compile Models: {compiled} compiled ({notes} notes of the compiler's), {} left \
+                 as text",
+                left.len()
+            ));
+            for l in left.iter().take(12) {
+                app.log.warn(format!("Left as text: {l}"));
+            }
+            if left.len() > 12 {
+                app.log.warn(format!("…and {} more left as text", left.len() - 12));
+            }
+        },
+    );
 }
 
 /// Adds files to hak `i`: at once, unless the hak has some of them

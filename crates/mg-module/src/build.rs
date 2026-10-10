@@ -62,11 +62,151 @@ pub fn compile_scripts_with(
         .filter(|k| !skipped(k))
         .copied()
         .collect();
+    compile_named_scripts(module, resman, &names, external)
+}
+
+/// What a script compiles from, as one number: its source and the sources
+/// it includes, however indirectly (those of the module: an include found
+/// only in the haks or the game counts by its name). The same number, the
+/// same compiled script, with the same compiler and game data.
+pub fn script_stamps(module: &Module) -> std::collections::HashMap<ResKey, u64> {
+    use std::collections::HashMap;
+    use std::hash::{Hash, Hasher};
+    fn stamp(
+        key: ResKey,
+        module: &Module,
+        done: &mut HashMap<ResKey, u64>,
+        under: &mut Vec<ResKey>,
+    ) -> u64 {
+        if let Some(s) = done.get(&key) {
+            return *s;
+        }
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        let source = module.get(&key).unwrap_or_default();
+        source.hash(&mut h);
+        // (A script that includes itself, at whatever remove, ends here.)
+        if !under.contains(&key) {
+            under.push(key);
+            for r in crate::refs::script_includes(key, source) {
+                let name = r.target.to_lowercase();
+                name.to_string().hash(&mut h);
+                let include = ResKey::new(name, ResType::NSS);
+                if module.contains(&include) {
+                    stamp(include, module, done, under).hash(&mut h);
+                }
+            }
+            under.pop();
+        }
+        let s = h.finish();
+        if under.is_empty() {
+            done.insert(key, s);
+        }
+        s
+    }
+    let mut done = HashMap::new();
+    for key in module.keys_of(ResType::NSS) {
+        stamp(*key, module, &mut done, &mut Vec::new());
+    }
+    done
+}
+
+/// What Compile All remembers of the scripts it compiled, to pass over
+/// those that need no compiling again: for each, the stamp of what it was
+/// compiled from ([`script_stamps`]) and of the compiled script it made
+/// (0: none, an include file), and what all of it was made with (the
+/// compiler, its settings, the game data: another, and nothing holds).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Remembered {
+    pub made_with: u64,
+    pub scripts: std::collections::HashMap<ResKey, (u64, u64)>,
+}
+
+impl Remembered {
+    fn compiled_stamp(module: &Module, script: &ResKey) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let Some(ncs) = module.get(&ResKey::new(script.resref, ResType::NCS)) else { return 0 };
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        ncs.hash(&mut h);
+        h.finish().max(1)
+    }
+
+    /// Whether `script` is to be compiled: it, or what it includes, is not
+    /// as it was (`stamps`: the module's now), or its compiled script is
+    /// not the one that was made of it (gone, or another program's).
+    pub fn stale(
+        &self,
+        module: &Module,
+        stamps: &std::collections::HashMap<ResKey, u64>,
+        script: &ResKey,
+    ) -> bool {
+        match (self.scripts.get(script), stamps.get(script)) {
+            (Some((source, compiled)), Some(now)) => {
+                source != now || *compiled != Remembered::compiled_stamp(module, script)
+            }
+            _ => true,
+        }
+    }
+
+    /// Notes `script` as compiled, in `module` as it is after, from what
+    /// `stamps` says of it.
+    pub fn note(
+        &mut self,
+        module: &Module,
+        stamps: &std::collections::HashMap<ResKey, u64>,
+        script: ResKey,
+    ) {
+        if let Some(stamp) = stamps.get(&script) {
+            let compiled = Remembered::compiled_stamp(module, &script);
+            self.scripts.insert(script, (*stamp, compiled));
+        }
+    }
+
+    /// The file that keeps what is remembered of the module at `module`,
+    /// in `dir` (Moonglow's own folder, not the module's: nothing is
+    /// written into a builder's repository or module folder).
+    pub fn file(dir: &std::path::Path, module: &std::path::Path) -> std::path::PathBuf {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        module.hash(&mut h);
+        let name = module.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        dir.join(format!("{name}-{:016x}.json", h.finish()))
+    }
+
+    /// What `path` keeps, if it can be read.
+    pub fn read(path: &std::path::Path) -> Option<Remembered> {
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
+        let mut out = Remembered { made_with: v.get("made_with")?.as_u64()?, ..Default::default() };
+        for (name, stamps) in v.get("scripts")?.as_object()? {
+            let key = ResKey::parse(name, ResType::NSS)?;
+            out.scripts.insert(key, (stamps.get(0)?.as_u64()?, stamps.get(1)?.as_u64()?));
+        }
+        Some(out)
+    }
+
+    pub fn write(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let scripts: serde_json::Map<String, serde_json::Value> = (self.scripts.iter())
+            .map(|(k, (a, b))| (k.resref.to_string(), serde_json::json!([a, b])))
+            .collect();
+        let v = serde_json::json!({ "made_with": self.made_with, "scripts": scripts });
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(path, serde_json::to_vec(&v)?)
+    }
+}
+
+/// [`compile_scripts_with`] for the scripts named.
+pub fn compile_named_scripts(
+    module: &mut Module,
+    resman: &ResMan,
+    names: &[ResKey],
+    external: Option<&ExternalCompiler>,
+) -> Vec<ScriptResult> {
     if names.is_empty() {
         return Vec::new();
     }
     if let Some(external) = external {
-        return compile_externally(module, external, &names);
+        return compile_externally(module, external, names);
     }
     let outputs: Mutex<Vec<Compiled>> = Mutex::new(Vec::new());
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(names.len());
@@ -274,6 +414,69 @@ mod tests {
 
     fn key(s: &str, t: ResType) -> ResKey {
         ResKey::new(ResRef::from_str(s).unwrap(), t)
+    }
+
+    /// What is remembered of a compile says a script needs none while it,
+    /// what it includes and its compiled script are as they were; and it
+    /// is kept in a file and read back.
+    #[test]
+    fn what_is_remembered_says_what_to_compile() {
+        let mut m = Module::new();
+        let (nss, ncs) = (key("uses", ResType::NSS), key("uses", ResType::NCS));
+        let inc = key("inc_a", ResType::NSS);
+        m.set(inc, b"int A() { return 1; }\n".to_vec());
+        m.set(nss, b"#include \"inc_a\"\nvoid main() { A(); }\n".to_vec());
+        m.set(ncs, b"NCS one".to_vec());
+        let stamps = script_stamps(&m);
+        let mut r = Remembered { made_with: 7, ..Default::default() };
+        assert!(r.stale(&m, &stamps, &nss), "nothing is remembered yet");
+        r.note(&m, &stamps, nss);
+        r.note(&m, &stamps, inc);
+        assert!(!r.stale(&m, &stamps, &nss) && !r.stale(&m, &stamps, &inc));
+        // Kept in a file, and read back the same.
+        let dir = std::env::temp_dir().join(format!("mg-remembered-{}", std::process::id()));
+        let file = Remembered::file(&dir, std::path::Path::new("/modules/My Module.mod"));
+        assert!(file.file_name().unwrap().to_string_lossy().starts_with("My Module-"));
+        r.write(&file).unwrap();
+        assert_eq!(Remembered::read(&file), Some(r.clone()));
+        std::fs::remove_dir_all(&dir).unwrap();
+        // Another compiled script (another program's), or none: stale.
+        m.set(ncs, b"NCS two".to_vec());
+        assert!(r.stale(&m, &stamps, &nss));
+        m.remove(&ncs);
+        assert!(r.stale(&m, &stamps, &nss));
+        m.set(ncs, b"NCS one".to_vec());
+        assert!(!r.stale(&m, &stamps, &nss));
+        // Its include changed: stale.
+        m.set(inc, b"int A() { return 2; }\n".to_vec());
+        let stamps = script_stamps(&m);
+        assert!(r.stale(&m, &stamps, &nss) && r.stale(&m, &stamps, &inc));
+    }
+
+    /// A script's stamp changes with its own text and with the text of
+    /// what it includes, however indirectly; another script's does not.
+    /// Scripts that include each other have stamps all the same.
+    #[test]
+    fn a_script_s_stamp_follows_what_it_includes() {
+        let mut m = Module::new();
+        let nss = |n: &str| key(n, ResType::NSS);
+        m.set(nss("inc_a"), b"int A() { return 1; }\n".to_vec());
+        m.set(nss("inc_b"), b"#include \"inc_a\"\nint B() { return A(); }\n".to_vec());
+        m.set(nss("uses"), b"#include \"inc_b\"\nvoid main() { B(); }\n".to_vec());
+        m.set(nss("alone"), b"#include \"nw_i0_generic\"\nvoid main() {}\n".to_vec());
+        m.set(nss("loop_a"), b"#include \"loop_b\"\n".to_vec());
+        m.set(nss("loop_b"), b"#include \"loop_a\"\n".to_vec());
+        let before = script_stamps(&m);
+        assert_eq!(before.len(), 6);
+        assert_eq!(script_stamps(&m), before, "the same module, the same stamps");
+        m.set(nss("inc_a"), b"int A() { return 2; }\n".to_vec());
+        let after = script_stamps(&m);
+        for changed in ["inc_a", "inc_b", "uses"] {
+            assert_ne!(after[&nss(changed)], before[&nss(changed)], "{changed}");
+        }
+        for same in ["alone", "loop_a", "loop_b"] {
+            assert_eq!(after[&nss(same)], before[&nss(same)], "{same}");
+        }
     }
 
     #[test]

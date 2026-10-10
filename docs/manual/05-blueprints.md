@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T01:59:26Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:50:54Z }
 ---
 
 # Blueprints
@@ -94,9 +94,11 @@ move it there.
 Aurora's: **Up** and **Down** go from row to row, and a blueprint they
 come to is selected, as by a click. **Left** on a blueprint goes to its
 category; on a category it closes it, or goes to the one it is in.
-**Right** opens a category, and goes into one that is open. While the
+**Right** opens a category, and goes into one that is open. **Enter**
+opens the blueprint's editor (a standard one is viewed), as a double
+click does, and opens or closes a category. While the
 keys are on a category, the blueprint selected stays in hand. The keys
-work with the pointer over the palette, and are the palette's until the
+are the palette's, wherever the pointer is, until the
 pointer is back in an area's view, where they move the camera again;
 W, A, S and D move it all along.
 
@@ -347,7 +349,7 @@ change, beside the fields in a wide window and beside the icon in a
 narrower one; an armor or a cloak is shown on a man or, with **Shown on
 › Female**, on a woman, and its inventory icon is then the one a woman's
 inventory shows), **Properties** (the item
-properties its base item allows, with their parameters), Visuals,
+properties its base item allows, with their parameters; **Search** over the list finds a property or one of its choices, a spell of Cast Spell, by every word typed), Visuals,
 Description, Comments. Moonglow recomputes the item's cost with every
 change, as the game computes it. A stack can exceed its base item's
 limit (Aurora stops there; the game keeps the stack whole). Charges go up
@@ -384,7 +386,9 @@ the most it pays for an item, its gold),
 Advanced, **Restrictions** (base items the merchant will not buy, or will
 only buy), Comments, and the **Inventory** in its store pages (Armor,
 Weapons, Potions & Scrolls, Rings & Amulets, Miscellaneous), each item
-optionally infinite.
+optionally infinite, and listed with what the store sells it for: its
+cost at the store's sell mark up, as Aurora lists it (a buyer's Appraise
+is the game's to add).
 
 Wherever items are added from the item palette (a merchant's or a
 placeable's inventory, a creature's backpack), the item chosen in the

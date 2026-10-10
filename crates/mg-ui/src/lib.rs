@@ -158,7 +158,11 @@ pub enum Action {
     TalkCsv(bool),
     /// The resource browser's Save As: a resource of the load order to a
     /// file.
+    /// Find References for a talk-table line, by its StrRef.
+    FindStrRef(u32),
     SaveResource(ResKey),
+    /// A model of the load order saved as text (decompiled).
+    SaveModelText(ResKey),
     /// The resource browser's Export as Files: those listed, into a folder.
     SaveResources(Vec<ResKey>),
     /// The same, as JSON (`nwn_tlk`'s).
@@ -190,6 +194,9 @@ pub enum Action {
     },
     /// Tools › Reload Resources: haks and folders that changed on disk.
     ReloadResources,
+    /// The scripts that include this one are compiled again (it was
+    /// saved, with Automatically Compile Scripts on Save).
+    CompileIncluders(ResKey),
     /// Edit › Prefabs › a prefab: placed with a click in the area shown.
     PlacePrefab(String),
     /// Edit › Find References: where a resource is used.
@@ -220,6 +227,8 @@ pub enum Action {
         to: mg_core::ResRef,
     },
     CompileScripts,
+    /// Build › Compile Models: the module's models kept as text.
+    CompileModels,
     Verify,
     /// Saves, then starts the game on the module (F9).
     TestModule,
@@ -416,6 +425,16 @@ pub struct Moonglow {
     pub area_focus: Option<(mg_core::ResRef, mg_area::ObjectKind, usize)>,
     /// The References tab.
     pub references: references::References,
+    /// What each script was compiled from when Compile All last compiled
+    /// it (its stamp), and what those stamps were made with: a script
+    /// whose stamp is the same is not compiled again.
+    /// The text field typed in since it got the keyboard: Undo and Redo
+    /// are its own there (`commands::keys_pressed`).
+    pub(crate) text_typed: Option<egui::Id>,
+    pub(crate) script_stamps: mg_module::build::Remembered,
+    /// Where what Compile All remembers is kept from one session to the
+    /// next (a file a module, in Moonglow's own folder); `None`: not kept.
+    pub compiled_dir: Option<PathBuf>,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
     /// The Placeable Gallery, while it is open.
@@ -652,6 +671,9 @@ impl Moonglow {
             find_instance: None,
             area_focus: None,
             references: Default::default(),
+            text_typed: None,
+            script_stamps: Default::default(),
+            compiled_dir: None,
             rename: None,
             copy_as: None,
             placeable_gallery: None,
@@ -1354,8 +1376,15 @@ impl Moonglow {
         if self.ws.is_none() {
             return;
         }
+        // The middle's tabs: those of the main surface that are not in
+        // the palettes' pane. (A tab docked beside the palettes there, the
+        // resource browser's, is the side pane's, not the middle's: with
+        // it open the middle was let go all the same. GitHub issue 11.)
+        let side = (self.dock.find_tab(&Tab::Palette))
+            .filter(|p| p.surface.is_main())
+            .map(|p| (p.surface, p.node));
         let main: Vec<Tab> = (self.dock.iter_all_tabs())
-            .filter(|(p, _)| p.surface.is_main())
+            .filter(|(p, _)| p.surface.is_main() && Some((p.surface, p.node)) != side)
             .map(|(_, t)| t.clone())
             .collect();
         let others = main.iter().any(|t| !matches!(t, Tab::Palette | Tab::NoArea));
@@ -1686,6 +1715,14 @@ impl Moonglow {
                     ui.label(egui::RichText::new(msg).color(level.color(ui)).monospace());
                 }
             });
+        // Its own button to fold it away, in its corner (GitHub issue 10:
+        // each pane has one; the strip it leaves brings it back).
+        let corner = ui.max_rect().right_top() + egui::vec2(-36.0, 2.0);
+        let at = egui::Rect::from_min_size(corner, egui::vec2(20.0, 18.0));
+        if ui.put(at, egui::Button::new("–").small()).on_hover_text("Fold the log away").clicked()
+        {
+            self.show_panel(commands::Id::ViewLog, false);
+        }
     }
 
     /// Opens a module: the workspace, and the game data with the module's
@@ -2289,6 +2326,7 @@ impl Moonglow {
             }
             Action::RenameBlueprint { from, to } => blueprint::rename(self, from, to),
             Action::FindReferences(k) => self.find_references(references::Query::Resource(k)),
+            Action::FindStrRef(n) => self.find_references(references::Query::StrRef(n)),
             Action::RenameDialog(k) => self.rename_dialog(k),
             Action::CopyDialog(k) => self.copy_dialog(k, false),
             Action::PlaceableGallery => {
@@ -2300,11 +2338,13 @@ impl Moonglow {
             Action::DeleteDialog(k) => self.confirm_delete = Some(k),
             Action::DeleteResource(k) => self.delete_resource(k),
             Action::CompileScripts => self.compile_scripts(),
+            Action::CompileModels => self.compile_models(),
             Action::Verify => self.verify(),
             Action::TestModule => self.test_module(false),
             Action::TestModuleChoose => self.test_module(true),
             Action::TestFromHere { area, at, facing } => self.test_from_here(area, at, facing),
             Action::ReloadResources => self.reload_resources(true),
+            Action::CompileIncluders(key) => self.compile_includers(key),
             Action::SaveTalkTable => {
                 talk_view::save(self);
             }
@@ -2314,7 +2354,8 @@ impl Moonglow {
             Action::TalkCsv(import) => talk_view::transfer(self, import, false),
             Action::TalkJson(import) => talk_view::transfer(self, import, true),
             Action::TalkFile(new) => talk_view::file(self, new),
-            Action::SaveResource(key) => browser::save_as(self, key),
+            Action::SaveResource(key) => browser::save_as(self, key, false),
+            Action::SaveModelText(key) => browser::save_as(self, key, true),
             Action::SaveResources(keys) => browser::export(self, &keys),
             Action::OpenResource(key) => {
                 let Some(tab) = Tab::for_resource(key) else { return };
@@ -2485,7 +2526,12 @@ impl Moonglow {
         // the scripts whose text was just stored are compiled before the
         // module is written (saving the module, not only a script's own
         // Save, is a save).
-        if self.settings.auto_compile && !stored.is_empty() {
+        let stored = match self.settings.auto_compile && !stored.is_empty() {
+            // (With the scripts that include them: theirs are older too.)
+            true => self.with_includers(&stored).unwrap_or_default(),
+            false => Vec::new(),
+        };
+        if !stored.is_empty() {
             let (compiled, _) = script_view::compile_stale(self, &stored);
             if !compiled.is_empty() {
                 self.log.info(format!("Compiled on save: {}", transfer::listed(&compiled)));
@@ -2690,22 +2736,147 @@ impl Moonglow {
     }
 
     /// Compile All Scripts, as a job: the bytecode that changed is stored
-    /// through one undoable command when it is done.
+    /// through one undoable command when it is done. A script is passed
+    /// over where it, and what it includes, is as it was when this window
+    /// last compiled it (its stamp: `mg_module::build::script_stamps`).
     fn compile_scripts(&mut self) {
+        self.compile_job(None);
+    }
+
+    /// Build › Compile Models, as a job: the module's own models kept as
+    /// text are compiled (`mg_module::models`), each against its
+    /// supermodel from the module, its haks or the game, and stored as
+    /// one undoable command. One that can't be stays as text, and the log
+    /// says why.
+    fn compile_models(&mut self) {
+        if self.ws.is_none() || self.game.is_none() {
+            self.log.error("Compiling models needs an open module and the game data");
+            return;
+        }
+        self.start_job(
+            "Compile Models",
+            |job| {
+                let game = job.game.as_deref()?;
+                let files: Vec<(ResKey, &[u8])> = (job.module.keys_of(ResType::MDL))
+                    .filter_map(|k| Some((*k, job.module.get(k)?)))
+                    .collect();
+                let lookup = |name: &str| {
+                    game.resman.get_named(name, ResType::MDL).ok().map(|d| d.into_owned())
+                };
+                let each = |done: usize, total: usize| {
+                    job.progress.step(done, total);
+                    !job.progress.cancelled()
+                };
+                Some(mg_module::models::compile_models_each(&files, &lookup, &each))
+            },
+            |app, made| {
+                let Some(results) = made else { return };
+                let (mut edits, mut left, mut notes) = (Vec::new(), Vec::new(), 0);
+                for c in results {
+                    match c.result {
+                        Ok((binary, said)) => {
+                            notes += said.len();
+                            edits.push(mg_edit::Edit::SetResource {
+                                key: c.model,
+                                data: Some(binary),
+                            });
+                        }
+                        Err(why) => left.push(format!("{}: {why}", c.model)),
+                    }
+                }
+                let compiled = edits.len();
+                if compiled == 0 && left.is_empty() {
+                    app.log.info("Compile Models: the module has no models kept as text");
+                    return;
+                }
+                if !edits.is_empty()
+                    && let Err(e) = app.apply(Command::new("Compile Models", edits))
+                {
+                    app.log.error(e.to_string());
+                    return;
+                }
+                app.log.info(format!(
+                    "Compile Models: {compiled} compiled ({notes} notes of the compiler's), {} \
+                     left as text",
+                    left.len()
+                ));
+                for l in left.iter().take(12) {
+                    app.log.warn(format!("Left as text: {l}"));
+                }
+                if left.len() > 12 {
+                    app.log.warn(format!("…and {} more left as text", left.len() - 12));
+                }
+            },
+        );
+    }
+
+    /// Forgets what Compile All remembers in this session, as a new
+    /// session begins: what is kept in [`compiled_dir`](Self::compiled_dir)
+    /// is read at the next compile.
+    pub fn forget_compiled(&mut self) {
+        self.script_stamps = Default::default();
+    }
+
+    /// Compiles scripts as a job: all of them (`None`: those changed
+    /// since they were last compiled here), or those named.
+    pub(crate) fn compile_job(&mut self, only: Option<Vec<ResKey>>) {
         if self.ws.is_none() || self.game.is_none() {
             self.log.error("Compiling needs an open module and the game data");
             return;
         }
         let external = self.external_compiler();
+        // What the stamps were made with: another module, compiler,
+        // setting, or game data (the haks and folders as they were read),
+        // and every script is compiled again.
+        let made_with = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            self.module_path().hash(&mut h);
+            (self.settings.debug_info, format!("{external:?}")).hash(&mut h);
+            if let (Some(game), Some(install)) = (self.game.as_deref(), self.install.as_ref()) {
+                install.root.hash(&mut h);
+                for l in game.resman.layers().iter().filter(|l| user_content(l)) {
+                    (&l.label, l.fingerprint).hash(&mut h);
+                }
+            }
+            h.finish()
+        };
+        // (Kept from the last session, if it was made with the same.)
+        let file = (self.compiled_dir.as_ref().zip(self.module_path()))
+            .map(|(dir, module)| mg_module::build::Remembered::file(dir, &module));
+        if self.script_stamps.made_with != made_with {
+            let kept = file.as_deref().and_then(mg_module::build::Remembered::read);
+            self.script_stamps = match kept {
+                Some(kept) if kept.made_with == made_with => kept,
+                _ => mg_module::build::Remembered { made_with, ..Default::default() },
+            };
+        }
+        let known = self.script_stamps.clone();
+        let all = only.is_none();
+        let title = if all { "Compile All Scripts" } else { "Compile Scripts" };
         self.start_job(
-            "Compile All Scripts",
+            title,
             move |job| {
                 let game = job.game.as_deref()?;
                 let mut staged = job.module.clone();
-                let results = mg_module::build::compile_scripts_with(
+                let stamps = mg_module::build::script_stamps(&job.module);
+                let skipped = |k: &ResKey| {
+                    let target = job.module.project.as_ref().map(|p| p.target());
+                    target.is_some_and(|t| t.skips_compiling(&k.to_string()))
+                };
+                let stale = |k: &ResKey| known.stale(&job.module, &stamps, k);
+                let names: Vec<ResKey> = match only {
+                    Some(names) => names,
+                    None => (job.module.keys_of(ResType::NSS))
+                        .filter(|k| !skipped(k) && stale(k))
+                        .copied()
+                        .collect(),
+                };
+                let scripts = job.module.keys_of(ResType::NSS).filter(|k| !skipped(k)).count();
+                let results = mg_module::build::compile_named_scripts(
                     &mut staged,
                     &game.resman,
-                    mg_module::build::ScriptSelection::All,
+                    &names,
                     external.as_ref(),
                 );
                 let edits: Vec<mg_edit::Edit> = staged
@@ -2716,10 +2887,19 @@ impl Moonglow {
                         data: staged.get(k).map(<[u8]>::to_vec),
                     })
                     .collect();
-                Some((results, edits))
+                // Those compiled are remembered as they are now; one that
+                // failed is tried again next time.
+                let mut now = known.clone();
+                for r in &results {
+                    match r.result {
+                        Ok(()) => now.note(&staged, &stamps, r.script),
+                        Err(_) => _ = now.scripts.remove(&r.script),
+                    }
+                }
+                Some((results, edits, now, scripts))
             },
-            |app, made| {
-                let Some((results, edits)) = made else { return };
+            move |app, made| {
+                let Some((results, edits, now, scripts)) = made else { return };
                 let failed: Vec<String> = results
                     .iter()
                     .filter_map(|r| r.result.as_ref().err().map(|e| e.message.clone()))
@@ -2727,14 +2907,25 @@ impl Moonglow {
                 for f in &failed {
                     app.log.error(f.clone());
                 }
+                app.script_stamps = now;
+                if let Some(file) = &file
+                    && let Err(e) = app.script_stamps.write(file)
+                {
+                    crate::trace::note(format!("compiled scripts not noted in {file:?}: {e}"));
+                }
                 let changed = edits.len();
                 if !edits.is_empty()
                     && let Err(e) = app.apply(Command::new("Compile scripts", edits))
                 {
                     app.log.error(e.to_string());
                 }
+                let left = scripts.saturating_sub(results.len());
+                let unchanged = match all && left > 0 {
+                    true => format!("; {left} as they were when last compiled, left alone"),
+                    false => String::new(),
+                };
                 app.log.info(format!(
-                    "Compiled {} scripts: {} failed, {changed} changed",
+                    "Compiled {} scripts: {} failed, {changed} changed{unchanged}",
                     results.len(),
                     failed.len()
                 ));
@@ -2886,21 +3077,8 @@ impl Moonglow {
     /// refreshes what was shown from them. Asked for (Tools › Reload
     /// Resources), it says when nothing changed.
     pub fn reload_resources(&mut self, asked: bool) {
-        use mg_resman::priority as p;
         let Some(game) = exclusive(&mut self.game) else { return };
-        // The user's content; the install's own folders don't change.
-        let user = |l: &mg_resman::Layer| {
-            matches!(
-                l.priority,
-                p::HAK
-                    | p::HAK_USER
-                    | p::OVERRIDE
-                    | p::DEVELOPMENT
-                    | p::DEVELOPMENT_USER
-                    | p::PORTRAITS_USER
-            )
-        };
-        let mut changed = match game.resman.reload_changed(user) {
+        let mut changed = match game.resman.reload_changed(user_content) {
             Ok(c) => c,
             Err(e) => {
                 self.log.error(format!("Reload Resources: {e}"));
@@ -2931,6 +3109,8 @@ impl Moonglow {
             game.invalidate();
             text::set_game_codepage(Some(game.codepage()));
         }
+        // (The game's own includes and nwscript may be others now.)
+        self.script_stamps = Default::default();
         self.pictures = Default::default();
         self.thumbnails.forget(self.viewport.as_ref());
         self.palettes = Default::default();
@@ -3127,7 +3307,7 @@ impl Moonglow {
             return;
         }
         self.reload_checked = Some(now);
-        self.reload_resources(false);
+        self.reload_changed_content();
         self.reload_changed_files();
         ui.ctx().request_repaint_after(every);
     }
@@ -3349,6 +3529,21 @@ impl Moonglow {
 
 /// The game data to change (its layers, its talk table): only while no job
 /// is reading it, which is whenever the window takes input.
+/// A layer of the user's content, which may change on disk (the
+/// install's own folders don't).
+pub(crate) fn user_content(l: &mg_resman::Layer) -> bool {
+    use mg_resman::priority as p;
+    matches!(
+        l.priority,
+        p::HAK
+            | p::HAK_USER
+            | p::OVERRIDE
+            | p::DEVELOPMENT
+            | p::DEVELOPMENT_USER
+            | p::PORTRAITS_USER
+    )
+}
+
 pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
     game.as_mut().and_then(Arc::get_mut)
 }

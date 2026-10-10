@@ -37,6 +37,15 @@ const KNOWN: &[(&str, &str, &str, usize)] = &[
     // Placed trees, benches and braziers on placeables.2da rows (500 to 700)
     // that the hak's copy leaves empty, hiding the game's.
     ("Neverwinter Nights - Wyvern Crown of Cormyr", "object-row", "module", 29),
+    // Models kept as text that the game misreads a little (`mdl-text`,
+    // all warnings): a second node of a name, whose children hang from
+    // the first (a model's root named twice; a creature's second head),
+    // and a robe with more than four bones on a vertex.
+    ("Neverwinter Nights - Darkness over Daggerford", "mdl-text", "hak:dodee_dev", 13),
+    ("Neverwinter Nights - Darkness over Daggerford", "mdl-text", "hak:dodee_tno_addons", 8),
+    ("Neverwinter Nights - Doom of Icewind Dale", "mdl-text", "hak:doiwd", 1),
+    ("Neverwinter Nights - Pirates of the Sword Coast", "mdl-text", "hak:potsc_resources", 5),
+    ("Neverwinter Nights - Tyrants of the Moonsea", "mdl-text", "hak:tm_race_2da", 1),
 ];
 
 #[test]

@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-09T04:13:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-10T04:28:14Z }
 ---
 
 # Modules
@@ -37,8 +37,10 @@ a directory), nasher projects (see below) and the game's campaign files
   a file new to the folder is not removed. Where a file was changed
   outside and here both, yours is kept, Save writes nothing and says
   which files, and **Changed Outside Moonglow** asks which to keep. A
-  script read again is not compiled by that: **Build › Compile All
-  Scripts** (F7) before testing. The script editor's external editor
+  script read again is compiled if **Automatically Compile Scripts on
+  Save** is on (Options › Script Editor), as one saved here is, and so
+  are the scripts that include it (more than 24 at once are compiled
+  in the background, and the log says so). The script editor's external editor
   opens the folder's own file.
 - Saving is safe. A module archive is written to a temporary file, then
   put in place, so a failure never leaves a half-written module. The
@@ -55,7 +57,11 @@ as it was.
 ## Where things are used, and renaming
 
 **Find References** shows everywhere the module names a script, area,
-conversation or blueprint. It's in the right-click menus of the module
+conversation or blueprint (the first question in a large module reads
+all of it; the next ones, for a resource or a tag, only what changed
+since). A number typed there that is no resource's name is a talk-table
+line's StrRef: the module's names, descriptions, conversation lines and
+2DAs that name that line are listed. It's in the right-click menus of the module
 tree and palettes, the script editor's toolbar and **Edit › Find
 References…**.
 - **Places are readable**, such as `keep › creature GUARD › OnSpawn` or
@@ -255,7 +261,9 @@ module's talk table:
   (16777216 and up), with the feminine text beside them when there's a
   feminine table. **Find** finds lines by words or by StrRef. **Go to**
   takes a StrRef or a line's number: press Enter and the list goes to
-  that line, among all the others, and it is chosen.
+  that line, among all the others, and it is chosen. **Find References**
+  lists where the module names the chosen line (a hak's 2DAs are not
+  looked in).
 - **A line**: choose it to edit its text, its feminine text, and the
   sound spoken with it and its length. **Copy** copies its StrRef, to put
   in a 2DA or a script. The text boxes take the room under the list; a
@@ -278,7 +286,9 @@ module's talk table:
   table's language and the lines that have text, each with its `id` (the
   line's number in the table). An import sets the lines the file has and
   leaves the others; the feminine table is a file of its own there and
-  is not touched.
+  is not touched. (A line's sound length is `soundLen`, as `nwn_tlk` has
+  it; files written before 1.20.5 named it `soundLength` and are still
+  read.) From a terminal: `mg tlk-export` and `mg tlk-import`.
 - **Only lines with text** leaves the empty lines out of the list, for a
   table with reserved ranges. The selected line stays selected: switch it
   off again and the list is at that line, with the empty ones after it
@@ -317,7 +327,16 @@ folder's files, subfolders included, to look over and save.
   **Rename…**, **Extract…** and **Remove**. The list is by name, by type
   or by size (the largest first).
 - **Viewing:** **View**, or a double click, shows a resource under the
-  list: a GFF's fields, a text file's text, else its first bytes.
+  list: a GFF's fields, a text file's text, a compiled model as the
+  text it compiles from, else its first bytes.
+- **Compile Models** compiles the hak's models kept as text (ASCII),
+  each against its supermodel from this hak, the open module's haks or
+  the game, as one step to undo (a hak of many models takes a while:
+  the window shows how far it is, and Cancel leaves the hak as it was). A model that doesn't compile, has
+  errors Verify Module would name, or whose supermodel isn't found stays
+  as text, and the log says why. (`mg pack --compile-models` does the
+  same for a folder.) The game reads models as text too: compiling
+  makes them smaller and quicker to load.
 - **Update from Folder:** a hak built with Build Hak from Folder
   remembers the folder (from one session to the next, once saved):
   **Update from Folder** takes the folder's files again in place of the

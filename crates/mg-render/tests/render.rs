@@ -1281,3 +1281,105 @@ fn only_a_twosided_material_shows_a_face_from_behind() {
     assert_ne!(front, background);
     assert_eq!(front, back, "two-sided: the same from both sides");
 }
+
+/// A cut-out texture (`blending punchthrough`) is cut where its alpha is
+/// 0.2 or less, as any texture is, and solid above: the client's
+/// `fAlphaDiscardValue` (`cutouts_look` with `MG_DISCARD=1`). It was cut
+/// at 0.5, which thinned leaves' and fences' edges.
+#[test]
+fn a_cut_out_is_cut_at_the_client_s_alpha() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    for (name, alpha) in [("kept", 77), ("cut", 46), ("solid", 255)] {
+        assets.solid(name, [200, 200, 200, alpha]);
+        let txi = mg_image::txi::Txi::parse(b"blending punchthrough\n");
+        assets.txis.insert(name.into(), txi);
+    }
+    let area = AreaLight { ambient: Vec3::splat(0.5), diffuse: Vec3::ZERO, ..Default::default() };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let mut shot = |texture: Option<&str>| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.textures[0] = texture.map(str::to_owned);
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(m)));
+        let camera = Camera {
+            eye: Vec3::new(0.0, -0.5, 4.0),
+            target: Vec3::ZERO,
+            fov_y: 0.8,
+            near: 0.1,
+            far: 100.0,
+        };
+        let instances = texture.map(|_| Instance::new(model, Mat4::IDENTITY)).into_iter().collect();
+        let scene = Scene { instances, area, ..Default::default() };
+        r.render_image(&gpu, &assets, &scene, &camera, 32, 32).pixel(16, 16)
+    };
+    let background = shot(None);
+    let solid = shot(Some("solid"));
+    assert_ne!(solid, background);
+    // (Alpha 0.3: kept, and drawn solid; 0.18: cut.)
+    assert_eq!(shot(Some("kept")), solid, "alpha 0.3 is kept, and solid");
+    assert_eq!(shot(Some("cut")), background, "alpha 0.18 is cut");
+}
+
+/// A `Punch-Through` particle is cut where its texture's alpha is 0.2 or
+/// less and solid above, as the client draws it (`particles_look` with
+/// `MG_PARTICLES=punch` in `client_render.rs`): of a texture whose alpha
+/// rises evenly across it, four fifths show. It was cut at 0.5.
+#[test]
+fn a_punch_through_particle_is_cut_at_the_client_s_alpha() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    let ramp: Vec<u8> =
+        (0..64 * 64).flat_map(|i| [255, 255, 255, ((i % 64) * 255 / 63) as u8]).collect();
+    let ramp = mg_image::Rgba { width: 64, height: 64, data: ramp }.into_texture(true);
+    assets.textures.insert("ramp".into(), ramp);
+    assets.solid("solid", [255, 255, 255, 255]);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    // One particle, still, a metre across.
+    let mut lit = |texture: &str| -> (usize, [u8; 4]) {
+        let text = format!(
+            "newmodel fx\nsetsupermodel fx NULL\nbeginmodelgeom fx\nnode dummy fx\n  parent NULL\n\
+             endnode\nnode emitter one\n  parent fx\n  position 0 0 1\n  update Fountain\n  \
+             render Normal\n  blend Punch-Through\n  texture {texture}\n  loop 1\n  xgrid 1\n  \
+             ygrid 1\n  spawntype 0\n  birthrate 1\n  lifeExp 100\n  velocity 0\n  randvel 0\n  \
+             spread 0\n  mass 0\n  particleRot 0\n  sizeStart 1\n  sizeEnd 1\n  xsize 0\n  ysize 0\n  alphaStart 1\n  \
+             alphaEnd 1\n  colorStart 1 1 1\n  colorEnd 1 1 1\nendnode\nendmodelgeom fx\ndonemodel fx\n"
+        );
+        let model = Arc::new(Model::read(text.as_bytes()).unwrap());
+        let gm = Arc::new(GpuModel::new(&gpu, model.clone()));
+        let camera = Camera {
+            eye: Vec3::new(0.0, -4.0, 1.0),
+            target: Vec3::new(0.0, 0.0, 1.0),
+            fov_y: 0.8,
+            near: 0.1,
+            far: 100.0,
+        };
+        // (Stepped until the first particle is born: one, not turned.)
+        let mut p = mg_render::particles::Particles::new(&model);
+        let mut particles = Vec::new();
+        for _ in 0..200 {
+            p.update(&model, None, 0.0, 0.02, &gm.rest, Mat4::IDENTITY);
+            particles = p.batches(&model, None, 0.0, &gm.rest, Mat4::IDENTITY, camera.view());
+            if particles.iter().any(|b| !b.vertices.is_empty()) {
+                break;
+            }
+        }
+        assert_eq!(particles.iter().map(|b| b.vertices.len()).sum::<usize>(), 6, "one particle");
+        let scene = Scene {
+            instances: vec![Instance::new(gm, Mat4::IDENTITY)],
+            background: [0.0, 0.0, 0.0],
+            particles,
+            ..Default::default()
+        };
+        let image = r.render_image(&gpu, &assets, &scene, &camera, 256, 256);
+        let row: Vec<[u8; 4]> = (0..256).map(|x| image.pixel(x, 128)).collect();
+        let shown = row.iter().filter(|p| p[0] > 8).count();
+        (shown, *row.iter().max_by_key(|p| p[0]).unwrap())
+    };
+    let (whole, white) = lit("solid");
+    let (cut, kept) = lit("ramp");
+    assert!(whole > 60, "the particle shows: {whole} pixels across");
+    let share = cut as f32 / whole as f32;
+    assert!((share - 0.8).abs() < 0.04, "{cut} of {whole} pixels: {share}");
+    assert_eq!(kept, white, "what is kept is solid, not blended");
+}

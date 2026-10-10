@@ -279,6 +279,15 @@ impl Hak {
     /// Adds resources by where their bytes are (given, or a file's),
     /// replacing those of the same name; one undo step.
     pub fn add_sources(&mut self, resources: Vec<(ResKey, Source)>) -> Result<Added, String> {
+        self.add_sources_as("Add resources", resources)
+    }
+
+    /// [`add_sources`](Self::add_sources), the step named `what` in Undo.
+    pub fn add_sources_as(
+        &mut self,
+        what: &str,
+        resources: Vec<(ResKey, Source)>,
+    ) -> Result<Added, String> {
         let mut out = Added::default();
         if resources.is_empty() {
             return Ok(out);
@@ -294,7 +303,7 @@ impl Hak {
             };
             items.push(Item { key, size, source });
         }
-        self.checkpoint("Add resources");
+        self.checkpoint(what);
         for item in items {
             self.put(item, &mut out);
         }

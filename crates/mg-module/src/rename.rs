@@ -10,7 +10,7 @@ use mg_resman::ResKey;
 use mg_script::lex::{TokenKind, tokenize};
 
 use crate::Module;
-use crate::refs::{RefKind, references, rewrite_references};
+use crate::refs::{RefKind, Reference, references, rewrite_references};
 
 /// The reference kinds that point at a resource of this type; empty if
 /// nothing refers to such resources by name (they can't be renamed here).
@@ -120,6 +120,241 @@ pub fn usages(module: &Module, target: ResKey) -> Vec<Usage> {
     out
 }
 
+/// The module's references, kept from one question to the next
+/// ([`usages`] reads every resource each time: 0.8 s in a persistent
+/// world). A resource is read again only when the module holds other
+/// bytes for it, so the first question costs what [`usages`] does and the
+/// next ones what changed since.
+#[derive(Debug, Clone, Default)]
+pub struct UsageIndex {
+    /// Each resource as read.
+    seen: std::collections::HashMap<ResKey, Read>,
+    /// How many resources the last [`refresh`](Self::refresh) read.
+    pub read: usize,
+}
+
+/// What one resource holds that a question may ask for.
+#[derive(Debug, Clone)]
+struct Read {
+    /// Its bytes as read.
+    data: std::sync::Arc<[u8]>,
+    refs: Vec<Reference>,
+    /// A GFF's fields that name a tag ([`TAG_FIELDS`]): where, and the tag.
+    tags: Vec<(String, Vec<u8>)>,
+    /// A script's string literals: where each begins (inside the quotes).
+    strings: Vec<(usize, usize)>,
+    /// The talk-table lines it names: a GFF's localized strings that have
+    /// a StrRef, and a 2DA's cells in the columns known to hold one
+    /// (`doctor::STRREF_COLUMNS`); where, and the StrRef.
+    strrefs: Vec<(String, u32)>,
+}
+
+impl Read {
+    fn of(key: ResKey, data: &std::sync::Arc<[u8]>) -> Read {
+        let mut read = Read {
+            data: data.clone(),
+            refs: Vec::new(),
+            tags: Vec::new(),
+            strings: Vec::new(),
+            strrefs: Vec::new(),
+        };
+        if key.restype == ResType::NSS {
+            read.refs = crate::refs::script_includes(key, data);
+            read.strings = tokenize(data)
+                .into_iter()
+                .filter(|t| matches!(t.kind, TokenKind::String { terminated: true }))
+                .map(|t| (t.span.start + 1, t.span.end - 1))
+                .collect();
+        } else if key.restype.is_gff()
+            && let Ok(gff) = Gff::read(data)
+        {
+            read.refs = crate::refs::gff_references(key, &gff);
+            tag_fields(&gff.root, "", &mut read.tags);
+            strref_fields(&gff.root, "", &mut read.strrefs);
+        } else if key.restype == ResType::TWODA
+            && let Ok(table) = mg_2da::TwoDa::parse(data, mg_core::Codepage::default())
+        {
+            let name = key.resref.to_lowercase().to_string();
+            for (_, column) in crate::doctor::STRREF_COLUMNS.iter().filter(|(t, _)| *t == name) {
+                for row in 0..table.len() {
+                    let cell = table.get(row, column).and_then(mg_2da::parse_int);
+                    if let Some(n) = cell.and_then(|n| u32::try_from(n).ok()) {
+                        read.strrefs.push((format!("row {row}, {column}"), n));
+                    }
+                }
+            }
+        }
+        read
+    }
+}
+
+/// The localized strings of `s` that name a talk-table line, with their
+/// paths.
+fn strref_fields(s: &Struct, path: &str, out: &mut Vec<(String, u32)>) {
+    for f in &s.fields {
+        let label = f.label.to_string_lossy();
+        let p = format!("{path}/{label}");
+        match &f.value {
+            Value::LocString(v) if !v.strref.is_none() => out.push((p, v.strref.0)),
+            Value::Struct(c) => strref_fields(c, &p, out),
+            Value::List(items) => {
+                for (i, c) in items.iter().enumerate() {
+                    strref_fields(c, &format!("{p}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// The fields of `s` that name a tag, with their paths.
+fn tag_fields(s: &Struct, path: &str, out: &mut Vec<(String, Vec<u8>)>) {
+    for f in &s.fields {
+        let label = f.label.to_string_lossy();
+        let p = format!("{path}/{label}");
+        match &f.value {
+            Value::String(v) if TAG_FIELDS.contains(&label.as_str()) => out.push((p, v.clone())),
+            Value::Struct(c) => tag_fields(c, &p, out),
+            Value::List(items) => {
+                for (i, c) in items.iter().enumerate() {
+                    tag_fields(c, &format!("{p}[{i}]"), out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+impl UsageIndex {
+    /// Reads the resources that are new or changed since the last time,
+    /// and forgets those that are gone.
+    pub fn refresh(&mut self, module: &Module) {
+        self.read = 0;
+        self.seen.retain(|k, _| module.contains(k));
+        for key in module.keys() {
+            let Some(data) = module.shared(key) else { continue };
+            match self.seen.get_mut(key) {
+                Some(was) if std::sync::Arc::ptr_eq(&was.data, data) => continue,
+                // (Set again with the same bytes, as a flush of the
+                // documents open does: nothing to read.)
+                Some(was) if *was.data == **data => {
+                    was.data = data.clone();
+                    continue;
+                }
+                _ => {}
+            }
+            self.read += 1;
+            self.seen.insert(*key, Read::of(*key, data));
+        }
+    }
+
+    /// [`usages`] of `target`, from what [`refresh`](Self::refresh) read.
+    pub fn usages(&self, target: ResKey) -> Vec<Usage> {
+        let kinds = kinds(target.restype);
+        let hit = |r: &&Reference| kinds.contains(&r.kind) && r.target == target.resref;
+        let mut keys: Vec<&ResKey> = self
+            .seen
+            .iter()
+            .filter(|(_, read)| read.refs.iter().any(|r| hit(&r)))
+            .map(|(k, _)| k)
+            .collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let read = &self.seen[key];
+            let gff = if key.restype.is_gff() { Gff::read(&read.data).ok() } else { None };
+            for r in read.refs.iter().filter(hit) {
+                let place = describe(*key, gff.as_ref(), &r.path);
+                out.push(Usage { from: *key, path: r.path.clone(), place });
+            }
+        }
+        out
+    }
+
+    /// [`tag_usages`] of `tag`, from what [`refresh`](Self::refresh) read.
+    pub fn tag_usages(&self, tag: &str) -> Vec<Usage> {
+        if tag.is_empty() {
+            return Vec::new();
+        }
+        let hit = |t: &&(String, Vec<u8>)| t.1 == tag.as_bytes();
+        let mut keys: Vec<&ResKey> = self
+            .seen
+            .iter()
+            .filter(|(_, r)| r.tags.iter().any(|t| hit(&t)))
+            .map(|(k, _)| k)
+            .collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let read = &self.seen[key];
+            let gff = Gff::read(&read.data).ok();
+            for (path, _) in read.tags.iter().filter(hit) {
+                let place = describe(*key, gff.as_ref(), path);
+                out.push(Usage { from: *key, path: path.clone(), place });
+            }
+        }
+        out
+    }
+
+    /// Where the module names the talk-table line `strref` (the number as
+    /// the files have it: a custom table's lines from 16777216): in a
+    /// localized string of a GFF resource, or in a 2DA of the module in a
+    /// column known to hold StrRefs. From what
+    /// [`refresh`](Self::refresh) read; the haks' 2DAs are not the
+    /// module's, and not looked in.
+    pub fn strref_usages(&self, strref: u32) -> Vec<Usage> {
+        let hit = |t: &&(String, u32)| t.1 == strref;
+        let mut keys: Vec<&ResKey> = (self.seen.iter())
+            .filter(|(_, r)| r.strrefs.iter().any(|t| hit(&t)))
+            .map(|(k, _)| k)
+            .collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let read = &self.seen[key];
+            let gff = if key.restype.is_gff() { Gff::read(&read.data).ok() } else { None };
+            for (path, _) in read.strrefs.iter().filter(hit) {
+                let place = match &gff {
+                    Some(_) => describe(*key, gff.as_ref(), path),
+                    None => format!("{key} › {path}"),
+                };
+                out.push(Usage { from: *key, path: path.clone(), place });
+            }
+        }
+        out
+    }
+
+    /// [`mentions`] of `name`, from what [`refresh`](Self::refresh) read.
+    pub fn mentions(&self, name: &str, ignore_case: bool) -> Vec<Mention> {
+        let mut keys: Vec<&ResKey> =
+            self.seen.iter().filter(|(_, r)| !r.strings.is_empty()).map(|(k, _)| k).collect();
+        keys.sort();
+        let mut out = Vec::new();
+        for key in keys {
+            let read = &self.seen[key];
+            let src = &read.data[..];
+            for &(a, b) in &read.strings {
+                let s = &src[a..b];
+                let same = match ignore_case {
+                    true => s.eq_ignore_ascii_case(name.as_bytes()),
+                    false => s == name.as_bytes(),
+                };
+                if same {
+                    out.push(mention_at(*key, src, a));
+                }
+            }
+        }
+        out
+    }
+}
+
+/// The mention of a string that begins at `start` of a script's source.
+fn mention_at(script: ResKey, src: &[u8], start: usize) -> Mention {
+    let line = src[..start].iter().filter(|b| **b == b'\n').count() + 1;
+    let text = String::from_utf8_lossy(src).lines().nth(line - 1).unwrap_or("").trim().to_string();
+    Mention { script, line, text }
+}
+
 /// GFF string fields that name a tag: an object's own, a transition's
 /// destination, a lock's key, a conversation line's journal category.
 const TAG_FIELDS: [&str; 4] = ["Tag", "LinkedTo", "KeyName", "Quest"];
@@ -171,10 +406,7 @@ pub fn mentions(module: &Module, name: &str, ignore_case: bool) -> Vec<Mention> 
     for key in keys {
         let Some(src) = module.get(&key) else { continue };
         for (start, _) in string_literals(src, name, ignore_case) {
-            let line = src[..start].iter().filter(|b| **b == b'\n').count() + 1;
-            let text =
-                String::from_utf8_lossy(src).lines().nth(line - 1).unwrap_or("").trim().to_string();
-            out.push(Mention { script: key, line, text });
+            out.push(mention_at(key, src, start));
         }
     }
     out
@@ -437,27 +669,8 @@ pub fn rename(
     }
     // Scripts that include a changed one, however indirectly, compile
     // differently too.
-    let includes: Vec<(ResKey, Vec<ResRef>)> = module
-        .keys_of(ResType::NSS)
-        .map(|k| {
-            let src = module.get(k).unwrap_or_default();
-            (*k, crate::refs::script_includes(*k, src).into_iter().map(|r| r.target).collect())
-        })
-        .collect();
-    loop {
-        let more: Vec<ResKey> = includes
-            .iter()
-            .filter(|(k, inc)| {
-                !report.recompile.contains(k)
-                    && inc.iter().any(|i| report.recompile.iter().any(|r| r.resref == *i))
-            })
-            .map(|(k, _)| *k)
-            .collect();
-        if more.is_empty() {
-            break;
-        }
-        report.recompile.extend(more);
-    }
+    let more = crate::refs::includers(module, &report.recompile);
+    report.recompile.extend(more);
     for key in &report.recompile {
         for t in [ResType::NCS, ResType::NDB] {
             module.remove(&ResKey::new(key.resref, t));
@@ -603,6 +816,72 @@ mod tests {
             rename(&mut m, key("guard_spawn", ResType::NSS), rr("x"), false),
             Err(RenameError::Missing(key("guard_spawn", ResType::NSS)))
         );
+    }
+
+    /// The index answers as the scan does, and reads again only what
+    /// changed: a resource set anew, one added, one removed.
+    #[test]
+    fn the_index_answers_as_the_scan_and_reads_only_what_changed() {
+        let mut m = module();
+        let targets = [
+            key("guard_spawn", ResType::NSS),
+            key("inc_guard", ResType::NSS),
+            key("keep", ResType::ARE),
+            key("guard", ResType::UTC),
+        ];
+        let mut index = UsageIndex::default();
+        let same = |index: &UsageIndex, m: &Module| {
+            for t in targets {
+                assert_eq!(index.usages(t), usages(m, t), "{t}");
+                let name = t.resref.to_string();
+                assert_eq!(index.mentions(&name, true), mentions(m, &name, true), "{name}");
+            }
+            for tag in ["GUARD", "guard", "KEEP", ""] {
+                assert_eq!(index.tag_usages(tag), tag_usages(m, tag), "{tag}");
+                assert_eq!(index.mentions(tag, false), mentions(m, tag, false), "{tag}");
+            }
+        };
+        index.refresh(&m);
+        assert_eq!(index.read, m.len());
+        assert!(!index.usages(targets[0]).is_empty());
+        assert!(!index.tag_usages("GUARD").is_empty());
+        assert!(!index.mentions("guard_spawn", true).is_empty());
+        same(&index, &m);
+        index.refresh(&m);
+        assert_eq!(index.read, 0, "nothing changed");
+        // A script that names the include no more; one that newly does.
+        m.set(key("guard_spawn", ResType::NSS), b"void main() {}\n".to_vec());
+        m.set(key("fresh", ResType::NSS), b"#include \"inc_guard\"\nvoid main() {}\n".to_vec());
+        index.refresh(&m);
+        assert_eq!(index.read, 2);
+        same(&index, &m);
+        m.remove(&key("fresh", ResType::NSS));
+        index.refresh(&m);
+        assert_eq!(index.read, 0);
+        // Talk-table lines: a blueprint's name by StrRef, and a 2DA's
+        // cell in a column that holds one; a text of its own is no line.
+        let mut item = Gff::new(*b"UTI ");
+        let named = mg_core::LocString { strref: mg_core::StrRef(16_777_220), strings: Vec::new() };
+        item.root.set("LocalizedName", Value::LocString(named));
+        let own = mg_core::LocString { strref: mg_core::StrRef::NONE, strings: Vec::new() };
+        item.root.set("Description", Value::LocString(own));
+        m.set_gff(key("sword", ResType::UTI), &item).unwrap();
+        let table = b"2DA V2.0\n\n   Label StrRef ModelName\n0  Chair 16777220 plc_chair\n1  Stool 5 plc_stool\n";
+        m.set(key("placeables", ResType::TWODA), table.to_vec());
+        index.refresh(&m);
+        let places: Vec<String> =
+            index.strref_usages(16_777_220).into_iter().map(|u| u.place).collect();
+        assert_eq!(places.len(), 2, "{places:?}");
+        assert!(places[0].contains("placeables.2da") && places[0].contains("row 0, StrRef"));
+        assert!(places[1].starts_with("sword"), "{places:?}");
+        assert_eq!(index.strref_usages(5).len(), 1);
+        assert!(index.strref_usages(u32::MAX).is_empty());
+        // Set again with the bytes it had: not read again.
+        let again = m.get(&key("inc_guard", ResType::NSS)).unwrap().to_vec();
+        m.set(key("inc_guard", ResType::NSS), again);
+        index.refresh(&m);
+        assert_eq!(index.read, 0);
+        same(&index, &m);
     }
 
     #[test]

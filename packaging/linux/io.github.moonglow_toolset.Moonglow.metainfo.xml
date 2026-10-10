@@ -45,6 +45,46 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.20.7" date="2026-10-10">
+      <description>
+        <p>The spikes across the area view with Object Walkmeshes on are
+        gone: they were the corners of each outline, not the walkmesh
+        (1.20.5 and 1.20.6 did not fix them). An item's Available
+        Properties can be searched, a store's inventory shows each
+        item's selling price, the talk table editor finds where a string
+        is used, and Build has Compile Models. Undo stays in a text
+        field you typed in, and the module tree takes type-ahead.</p>
+      </description>
+    </release>
+    <release version="1.20.6" date="2026-10-10">
+      <description>
+        <p>Object Walkmeshes no longer throws a spike across the area
+        view when the camera passes a tall or hanging placeable. Compile
+        All Scripts skips the scripts that are unchanged, Compile Models
+        uses every core, and Export as Files can write compiled models
+        as text.</p>
+      </description>
+    </release>
+    <release version="1.20.5" date="2026-10-09">
+      <description>
+        <p>Models kept as text can be compiled (the hak editor's Compile
+        Models, mg pack --compile-models), compiled models are shown and
+        saved as text, and Verify Module reads text models as the game
+        would. Menus open by their letters, the module tree has more
+        keys, Find References answers at once after its first question,
+        and scripts that include a changed script are compiled with
+        it.</p>
+      </description>
+    </release>
+    <release version="1.20.4" date="2026-10-09">
+      <description>
+        <p>Cut-out textures (leaves, fences, grass) keep the edges the
+        game gives them: cut at the game's own threshold and solid above
+        it. A script saved in another editor is compiled when Moonglow
+        reads it again, and the haks and content folders are watched for
+        changes without holding the window.</p>
+      </description>
+    </release>
     <release version="1.20.3" date="2026-10-09">
       <description>
         <p>A material that says twosided is drawn from behind too, as the

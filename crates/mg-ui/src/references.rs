@@ -19,6 +19,8 @@ use crate::{Action, Moonglow, Tab};
 pub enum Query {
     Resource(ResKey),
     Tag(String),
+    /// A talk-table line, by its StrRef as the files have it.
+    StrRef(u32),
 }
 
 /// The References tab's state.
@@ -31,6 +33,8 @@ pub struct References {
     revision: Option<u64>,
     /// The Find field.
     pub input: String,
+    /// The module's references, kept between questions.
+    index: rename::UsageIndex,
 }
 
 /// The Rename window, while open.
@@ -65,6 +69,7 @@ impl Moonglow {
         self.references.input = match &query {
             Query::Resource(k) => k.resref.to_string(),
             Query::Tag(t) => t.clone(),
+            Query::StrRef(n) => n.to_string(),
         };
         self.references.query = Some(query);
         self.references.revision = None;
@@ -82,8 +87,9 @@ impl Moonglow {
         if ws.flush().is_err() {
             return;
         }
-        let usages = rename::usages(&ws.module, key).len();
-        let mentions = rename::mentions(&ws.module, &key.resref.to_string(), true).len();
+        self.references.index.refresh(&ws.module);
+        let usages = self.references.index.usages(key).len();
+        let mentions = self.references.index.mentions(&key.resref.to_string(), true).len();
         self.rename = Some(RenameDraft {
             from: key,
             to: key.resref.to_string(),
@@ -415,7 +421,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         crate::widgets::field_label(ui, "Find references to");
         let r = ui.add(
             egui::TextEdit::singleline(&mut app.references.input)
-                .hint_text("a script, area, conversation, blueprint or tag")
+                .hint_text("a script, area, conversation, blueprint, tag or StrRef")
                 .desired_width(260.0),
         );
         let submitted = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -435,9 +441,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             keys.dedup();
             keys.first().copied()
         });
-        app.references.query = Some(match resource {
-            Some(k) => Query::Resource(k),
-            None => Query::Tag(name),
+        // (A number that is no resource's name: a talk-table line.)
+        app.references.query = Some(match (resource, name.parse::<u32>()) {
+            (Some(k), _) => Query::Resource(k),
+            (None, Ok(strref)) => Query::StrRef(strref),
+            (None, Err(_)) => Query::Tag(name),
         });
         app.references.revision = None;
     }
@@ -449,14 +457,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         if ws.flush().is_err() {
             return;
         }
+        // (From the index: only what changed since the last question is
+        // read again.)
+        let index = &mut app.references.index;
+        index.refresh(&ws.module);
         let (usages, mentions) = match &query {
-            Query::Resource(k) => (
-                rename::usages(&ws.module, *k),
-                rename::mentions(&ws.module, &k.resref.to_string(), true),
-            ),
-            Query::Tag(t) => {
-                (rename::tag_usages(&ws.module, t), rename::mentions(&ws.module, t, false))
-            }
+            Query::Resource(k) => (index.usages(*k), index.mentions(&k.resref.to_string(), true)),
+            Query::Tag(t) => (index.tag_usages(t), index.mentions(t, false)),
+            Query::StrRef(n) => (index.strref_usages(*n), Vec::new()),
         };
         app.references.usages = usages;
         app.references.mentions = mentions;
@@ -478,6 +486,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
             }
         }
         Query::Tag(t) => _ = ui.heading(format!("Tag “{t}”")),
+        Query::StrRef(n) => {
+            ui.heading(format!("Talk-table line {n}")).on_hover_text(
+                "Where the module's blueprints, areas, conversations and 2DAs name this \
+                 line (a hak's 2DAs are not looked in)",
+            );
+        }
     });
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         // An area's objects are said to be in the area as the rest of the

@@ -503,13 +503,37 @@ fn no_area(app: &mut Moonglow, ui: &mut Ui) {
         if ui.button("Area Wizard…").on_hover_text("Make a new area").clicked() {
             app.actions.push(Action::AreaWizard);
         }
+        // Those opened lately first (those still in the module), then
+        // the module's first.
+        let by_name = app.settings.area_names;
+        let recent: Vec<mg_core::ResRef> = (app.module_path())
+            .map(|m| app.settings.recent_areas(&m).to_vec())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|a| std::str::FromStr::from_str(a).ok())
+            .filter(|a| areas.contains(a))
+            .collect();
+        let link = |app: &mut Moonglow, ui: &mut Ui, area: mg_core::ResRef| {
+            let label = match &app.ws {
+                Some(ws) => app.area_names.label(ws, app.game.as_deref(), area, by_name),
+                None => area.to_string(),
+            };
+            if ui.link(label).clicked() {
+                app.actions.push(Action::OpenTab(Tab::Area(area)));
+            }
+        };
+        if !recent.is_empty() {
+            ui.add_space(16.0);
+            ui.strong("Opened lately");
+            for area in &recent {
+                link(app, ui, *area);
+            }
+        }
         if !areas.is_empty() {
             ui.add_space(16.0);
             ui.strong("Areas");
             for area in areas.iter().take(12) {
-                if ui.link(area.to_string()).clicked() {
-                    app.actions.push(Action::OpenTab(Tab::Area(*area)));
-                }
+                link(app, ui, *area);
             }
             if areas.len() > 12 {
                 ui.weak(format!("and {} more in the module tree", areas.len() - 12));

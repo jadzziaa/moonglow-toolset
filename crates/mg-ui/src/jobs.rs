@@ -116,7 +116,27 @@ impl Moonglow {
         work: impl FnOnce(&Context) -> T + Send + 'static,
         finish: impl FnOnce(&mut Moonglow, T) + 'static,
     ) {
-        let title = title.into();
+        self.start_job_on(title.into(), true, work, finish);
+    }
+
+    /// [`start_job`](Self::start_job) for work that needs no module (a
+    /// hak's, open on its own): without one open, the job's is empty.
+    pub(crate) fn start_job_anywhere<T: Send + 'static>(
+        &mut self,
+        title: impl Into<String>,
+        work: impl FnOnce(&Context) -> T + Send + 'static,
+        finish: impl FnOnce(&mut Moonglow, T) + 'static,
+    ) {
+        self.start_job_on(title.into(), false, work, finish);
+    }
+
+    fn start_job_on<T: Send + 'static>(
+        &mut self,
+        title: String,
+        needs_module: bool,
+        work: impl FnOnce(&Context) -> T + Send + 'static,
+        finish: impl FnOnce(&mut Moonglow, T) + 'static,
+    ) {
         if let Some(job) = &self.job {
             self.log.warn(format!("{title}: waiting for {} to finish", job.title));
             return;
@@ -130,10 +150,11 @@ impl Moonglow {
                 self.log.error(format!("{title}: {e}"));
                 return;
             }
-            None => {
+            None if needs_module => {
                 self.log.error(format!("{title} needs an open module"));
                 return;
             }
+            None => Module::new(),
         };
         crate::trace::note(format!("job starts: {title}"));
         let progress = Arc::new(Progress::default());

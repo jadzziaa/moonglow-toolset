@@ -220,7 +220,40 @@ pub(crate) fn has_arrows(ctx: &egui::Context) -> bool {
 
 /// Gives the arrow keys to the palette, or back to the area's view.
 pub(crate) fn give_arrows(ctx: &egui::Context, palette: bool) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new("palette-arrow-keys"), palette));
+    give_keys(ctx, if palette { Keys::Palette } else { Keys::Area });
+}
+
+/// Which list the keys are: the one clicked last, until the pointer is in
+/// an area's view again. They are that list's wherever the pointer is
+/// meanwhile (GitHub issue 12: they were only with the pointer over it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Keys {
+    Area,
+    Palette,
+    Tree,
+    /// A list of a window's own (Module Properties' haks).
+    List,
+}
+
+pub(crate) fn give_keys(ctx: &egui::Context, to: Keys) {
+    ctx.data_mut(|d| {
+        d.insert_temp(egui::Id::new("palette-arrow-keys"), to != Keys::Area);
+        d.insert_temp(egui::Id::new("arrow-keys-of"), to);
+    });
+}
+
+/// A thin outline round the pane the keys are (`rect`), so that it shows
+/// where the arrow keys go.
+pub(crate) fn keys_outline(ui: &egui::Ui, rect: egui::Rect, list: Keys) {
+    if keys_are(ui.ctx(), list) {
+        let stroke = egui::Stroke::new(1.0, ui.visuals().selection.stroke.color);
+        ui.painter().rect_stroke(rect.shrink(1.0), 2.0, stroke, egui::StrokeKind::Inside);
+    }
+}
+
+pub(crate) fn keys_are(ctx: &egui::Context, list: Keys) -> bool {
+    has_arrows(ctx)
+        && ctx.data(|d| d.get_temp::<Keys>(egui::Id::new("arrow-keys-of"))) == Some(list)
 }
 
 impl PaletteView {
@@ -713,13 +746,12 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     // is over it (not over a list elsewhere that has keys of its own) and
     // no text is being typed: the rows are listed as they are drawn, to
     // move through.
-    let here = ui.rect_contains_pointer(ui.max_rect());
-    let pressed = (here && has_arrows(ui.ctx()) && !ui.ctx().egui_wants_keyboard_input())
+    let pressed = (keys_are(ui.ctx(), Keys::Palette) && !ui.ctx().egui_wants_keyboard_input())
         .then(|| {
-            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp};
+            use egui::Key::{ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Enter};
             ui.input(|i| {
                 let plain = i.modifiers.is_none();
-                [ArrowUp, ArrowDown, ArrowLeft, ArrowRight]
+                [ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Enter]
                     .into_iter()
                     .find(|k| plain && i.key_pressed(*k))
             })
@@ -787,6 +819,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         }
     });
     crate::widgets::home_and_end(ui, &mut list);
+    keys_outline(ui, list.inner_rect, Keys::Palette);
     let shown = std::mem::take(&mut tree.shown);
     // The arrow keys: the cursor moves through the rows as they were
     // drawn, or its category opens or closes (when the palette is drawn
@@ -800,6 +833,19 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             .filter(|r| listed.shows(*r))
             .or_else(|| tree.sel.selected.and_then(|k| listed.blueprint(k)));
         let step = match from {
+            // Enter: the blueprint's editor, as a double click's (a
+            // standard one is viewed); a category opens or closes.
+            Some(row) if key == egui::Key::Enter => {
+                let (branch, blueprint) = listed.rows[row];
+                match blueprint {
+                    Some(k) if tree.cursor.is_some() => {
+                        tree.picks.push(if custom { Pick::Edit(k) } else { Pick::View(k) });
+                        Step::Stay
+                    }
+                    Some(_) => Step::Stay,
+                    None => Step::Fold(branch, !listed.branches[branch].open),
+                }
+            }
             Some(row) => listed.step(row, key),
             // Nothing to start from: the first row, or the last.
             None => {

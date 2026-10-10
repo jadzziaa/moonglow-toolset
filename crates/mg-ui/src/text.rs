@@ -28,6 +28,21 @@ pub(crate) fn codepage_of(language: Language) -> Codepage {
     GAME_CODEPAGE.with(Cell::get).unwrap_or_default().for_language(language)
 }
 
+/// The codepage of one language's text of a localized string, as String
+/// Edit reads and writes it: the language's, but with Polish the editing
+/// language, the text of a Windows-1252 language (English, French...) is
+/// Windows-1250 too. A Polish game shows such text by its own codepage,
+/// and Polish modules keep Polish names in the English text (GitHub issue
+/// 13: they showed as mojibake there, and Polish letters typed could not
+/// be saved); the lists read it so already ([`elsewhere`]).
+pub(crate) fn entry_codepage(language: Language) -> Codepage {
+    let (own, edited) = (codepage_of(language), codepage_of(edit_language()));
+    match own == Codepage::WINDOWS_1252 && edited == Codepage::WINDOWS_1250 {
+        true => edited,
+        false => own,
+    }
+}
+
 /// Sets the game's codepage (for the calling thread), as
 /// `GameData::codepage` has it; `None` without a game.
 pub(crate) fn set_game_codepage(codepage: Option<Codepage>) {

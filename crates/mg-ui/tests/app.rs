@@ -471,6 +471,37 @@ fn reload_resources_picks_up_new_files_in_override() {
     assert!(app.log.entries.iter().any(|(_, m)| m == "Reload Resources: nothing changed"));
 }
 
+/// The override folder is watched off the window's thread: a file new to
+/// it is the game data's within a few seconds, without being asked for,
+/// and nothing is read again while nothing changed.
+#[test]
+fn a_file_new_to_the_override_is_seen_by_the_watch() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-reload-watch");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("override")).unwrap();
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let key = ResKey::parse("mg_watch_test", ResType::TWODA).unwrap();
+    // (The watch begins; what it says at its start finds nothing changed.)
+    app.reload_changed_content();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    app.reload_changed_content();
+    assert!(!app.log.entries.iter().any(|(_, m)| m.starts_with("Reloaded")));
+    std::fs::write(user.join("override/mg_watch_test.2da"), "2DA V2.0\n\n   Label\n0  x\n")
+        .unwrap();
+    let had = |app: &Moonglow| app.game.as_deref().unwrap().resman.contains(&key);
+    for _ in 0..80 {
+        if had(&app) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        app.reload_changed_content();
+    }
+    assert!(had(&app), "{:?}", app.log.entries);
+    assert!(app.log.entries.iter().any(|(_, m)| m == "Reloaded override"));
+}
+
 /// Saving a module that was never saved asks where first, and then does
 /// what a save does once: the build before saving is not run for the
 /// question and again for the answer, and not at all if it is called off.
@@ -1483,6 +1514,66 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
     h.get_by_label("Replace 2").click();
     h.run();
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), now), ("mg_two.2da".to_string(), two)]);
+}
+
+/// The hak editor's Compile Models compiles the hak's models kept as
+/// text, one step to undo; a model whose supermodel is nowhere stays as
+/// text and is named in the log, and a compiled model shows as text.
+#[test]
+fn the_hak_editor_compiles_the_models_kept_as_text() {
+    let dir = mg_testkit::scratch_dir("ui-hak-models");
+    let base = "newmodel base\nsetsupermodel base NULL\nclassification character\n\
+setanimationscale 1\nbeginmodelgeom base\nnode dummy base\n  parent NULL\nendnode\n\
+node dummy arm\n  parent base\nendnode\nendmodelgeom base\ndonemodel base\n";
+    let orphan = base.replace("base", "orphan").replace("orphan NULL", "orphan mg_nowhere_zz");
+    std::fs::write(dir.join("base.mdl"), base).unwrap();
+    std::fs::write(dir.join("orphan.mdl"), &orphan).unwrap();
+    let dialogs = NoDialogs {
+        open_many: vec![vec![dir.join("base.mdl"), dir.join("orphan.mdl")]],
+        ..Default::default()
+    };
+    let app = Moonglow::new(None, Box::new(dialogs));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 760.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    mg_ui::hak_view::new_hak(h.state_mut());
+    h.run();
+    h.get_by_label("Add Files…").click();
+    h.run();
+    let model = |h: &Harness<'_, Moonglow>, name: &str| {
+        h.state().haks[0].hak.data(ResKey::parse(name, ResType::MDL).unwrap()).unwrap()
+    };
+    assert!(!mg_mdl::is_binary(&model(&h, "base")));
+    h.get_by_label("Compile Models").click();
+    h.run();
+    assert!(mg_mdl::is_binary(&model(&h, "base")), "compiled");
+    assert_eq!(model(&h, "orphan"), orphan.as_bytes(), "left as text");
+    let said = |h: &Harness<'_, Moonglow>, what: &str| {
+        h.state().log.entries.iter().any(|(_, m)| m.contains(what))
+    };
+    assert!(
+        said(&h, "1 compiled") && said(&h, "Left as text: orphan.mdl"),
+        "{:?}",
+        h.state().log.entries
+    );
+    // One step to undo, named for what it was.
+    assert_eq!(h.state().haks[0].hak.undo_label(), Some("Compile Models"));
+    h.state_mut().haks[0].hak.undo();
+    assert!(!mg_mdl::is_binary(&model(&h, "base")));
+    // As the window runs it: on a thread of its own (no module is open),
+    // the hak changed when the work is handed back.
+    h.state_mut().background_jobs = true;
+    h.run();
+    h.get_by_label("Compile Models").click();
+    let started = std::time::Instant::now();
+    while !mg_mdl::is_binary(&model(&h, "base")) {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(started.elapsed() < std::time::Duration::from_secs(20), "not compiled");
+    }
+    h.run_steps(2);
+    assert!(!h.state().busy(), "the job is done");
+    assert_eq!(model(&h, "orphan"), orphan.as_bytes());
 }
 
 #[test]
@@ -3038,9 +3129,10 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
     assert!(width(&h, &Tab::NoArea).unwrap() > 300.0);
 
-    // An area opened takes its place (the pane lists the module's, each
-    // a link, beside the module tree's row); the palettes' pane stays.
-    assert_eq!(h.query_all_by_label("start").count(), 2);
+    // An area opened takes its place (the pane lists those opened lately
+    // and the module's, each a link, beside the module tree's row); the
+    // palettes' pane stays.
+    assert_eq!(h.query_all_by_label("start").count(), 3);
     h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
     h.run();
     h.run();
@@ -3048,10 +3140,27 @@ fn the_middle_keeps_its_place_with_no_area_open() {
     let now = width(&h, &Tab::Palette).unwrap();
     assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
     // And closed again, the same.
-    h.state_mut().actions.push(mg_ui::Action::CloseTab(area));
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(area.clone()));
     h.run();
     h.run();
     assert!(has(&h, &Tab::NoArea));
+    let now = width(&h, &Tab::Palette).unwrap();
+    assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
+    // The area just opened is offered first, among those opened lately.
+    h.get_by_label("Opened lately");
+    assert_eq!(h.query_all_by_label("start").count(), 3);
+    // With the resource browser docked beside the palettes (the side
+    // pane's tab, not the middle's), the middle keeps its place too.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(area.clone()));
+    h.run();
+    h.run();
+    let side = h.state().dock.find_tab(&Tab::Palette).unwrap();
+    h.state_mut().dock[side.surface][side.node].append_tab(Tab::Resources);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(area));
+    h.run();
+    h.run();
+    assert!(has(&h, &Tab::NoArea), "the middle is kept with Resources in the side pane");
     let now = width(&h, &Tab::Palette).unwrap();
     assert!((now - palette).abs() < 3.0, "the palettes' pane: {palette} wide, then {now}");
 }
@@ -3167,6 +3276,87 @@ fn tabs_by_the_keyboard() {
     assert_eq!(h.state().dock.iter_all_tabs().count(), 4);
 }
 
+/// Find References for a talk-table line: the module's localized strings
+/// that name its StrRef, from the talk-table editor's button's action and
+/// from a number typed in the References window's field.
+#[test]
+fn find_references_finds_where_a_talk_table_line_is_named() {
+    let dir = mg_testkit::scratch_dir("ui-strref-refs");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let mut item = mg_gff::Gff::new(*b"UTI ");
+    let named = mg_core::LocString { strref: mg_core::StrRef(16_777_220), strings: Vec::new() };
+    item.root.set("LocalizedName", mg_gff::Value::LocString(named));
+    let key = ResKey::parse("sword", ResType::UTI).unwrap();
+    let edit = mg_edit::Edit::SetResource { key, data: Some(item.to_bytes().unwrap()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Item", vec![edit])));
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::FindStrRef(16_777_220));
+    h.run_steps(3);
+    h.get_by_label("Talk-table line 16777220");
+    let found = h.state().references.usages.clone();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].from, key);
+    // Another line: nothing names it.
+    h.state_mut().actions.push(mg_ui::Action::FindStrRef(16_777_221));
+    h.run_steps(3);
+    assert!(h.state().references.usages.is_empty());
+}
+
+/// GitHub issue 18: Ctrl+Z while a text field has the keyboard is the
+/// field's (its typing is taken back), not the module's Undo, which undid
+/// an earlier change somewhere else; with no field in hand it is the
+/// module's again.
+#[test]
+fn undo_in_a_text_field_is_the_field_s() {
+    let dir = mg_testkit::scratch_dir("ui-undo-in-text");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let key = ResKey::parse("mg_note", ResType::NSS).unwrap();
+    let edit = mg_edit::Edit::SetResource { key, data: Some(b"void main() {}\n".to_vec()) };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Earlier", vec![edit])));
+    h.run();
+    let undoable =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_owned);
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+    // Typing in a field (the module tree's Filter), then Ctrl+Z and
+    // Ctrl+Y: the module's history is as it was.
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().focus();
+    h.run();
+    filter_type(&mut h, "ab");
+    assert!(h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"), "not the module's Undo");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Y);
+    h.run_steps(2);
+    assert_eq!(undoable(&h).as_deref(), Some("Earlier"));
+    // With no field in hand, Ctrl+Z is the module's.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(2);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(undoable(&h), None, "the module's Undo");
+}
+
+fn filter_type(h: &mut Harness<'_, Moonglow>, text: &str) {
+    h.event(egui::Event::Text(text.into()));
+    h.run_steps(2);
+}
+
 /// GitHub issue 12: the module tree by the keyboard. A click in it gives
 /// it the arrow keys: Up and Down go from row to row, Left and Right
 /// close and open a group, Enter opens the row's resource.
@@ -3213,6 +3403,39 @@ fn the_module_tree_by_the_keyboard() {
     assert!(h.state().dock.find_tab(&area).is_none());
     key(&mut h, egui::Key::Enter);
     assert!(h.state().dock.find_tab(&area).is_some());
+    // A letter goes to the next row that begins with it.
+    key(&mut h, egui::Key::C);
+    assert_eq!(at(&h), Some(TreeAt::Group("Conversations")));
+    key(&mut h, egui::Key::S);
+    assert_eq!(at(&h), Some(TreeAt::Group("Scripts")));
+    key(&mut h, egui::Key::A);
+    key(&mut h, egui::Key::S);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)), "the area named start, after Areas");
+    // F2 and Delete at the cursor ask, as the row's menu does.
+    h.get_by_label("start").hover();
+    key(&mut h, egui::Key::F2);
+    assert!(h.state().rename.is_some(), "Rename… of the cursor's resource");
+    h.state_mut().rename = None;
+    h.run();
+    key(&mut h, egui::Key::Delete);
+    assert_eq!(h.state().confirm_delete, Some(start));
+    h.state_mut().confirm_delete = None;
+    h.run();
+    // Ctrl+F goes to the Filter, and Down from it into the rows.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::F);
+    h.run();
+    h.run();
+    assert!(h.ctx.egui_wants_keyboard_input(), "the Filter has the keyboard");
+    key(&mut h, egui::Key::ArrowDown);
+    assert!(!h.ctx.egui_wants_keyboard_input());
+    assert_eq!(at(&h), Some(TreeAt::Group("Areas")));
+    // The keys are the tree's with the pointer off it too (over the
+    // middle, where no area is open).
+    h.hover_at(egui::pos2(700.0, 400.0));
+    h.run();
+    key(&mut h, egui::Key::Home);
+    key(&mut h, egui::Key::ArrowDown);
+    assert_eq!(at(&h), Some(TreeAt::Resource(start)), "Down, with the pointer elsewhere");
     // End is the last row; Escape hands the keys back.
     key(&mut h, egui::Key::End);
     assert!(matches!(at(&h), Some(TreeAt::Group(_))));
@@ -3250,6 +3473,18 @@ fn panels_fold_away_and_come_back() {
     h.get_by_label("⏵").click();
     h.run();
     assert!(tree(&h) && !h.state().settings.hide_tree);
+    // Each pane's own button folds it away too (the tree's, the log's).
+    h.get_by_label("«").click();
+    h.run();
+    assert!(!tree(&h) && h.state().settings.hide_tree);
+    h.get_by_label("⏵").click();
+    h.run();
+    h.get_by_label("–").click();
+    h.run();
+    assert!(h.state().settings.hide_log);
+    h.get_by_label("⏶ Log").click();
+    h.run();
+    assert!(!h.state().settings.hide_log && tree(&h));
     // The palettes: their pane goes, and comes back as wide.
     key(&mut h, egui::Key::Num2);
     assert!(palette(&h).is_none() && h.state().settings.hide_palettes);
@@ -3411,6 +3646,42 @@ fn menus_by_the_keyboard() {
     key(&mut h, egui::Key::ArrowLeft);
     assert!(shown(&h, "Rotate Area") || shown(&h, "Area Wizard"), "Left again: the menu before");
     key(&mut h, egui::Key::Escape);
+
+    // Alt and a menu's letter opens it; a letter then goes to the next
+    // row that begins with it (L: the Log), which Enter chooses.
+    let alt = |h: &mut Harness<'_, Moonglow>, k: egui::Key| {
+        h.key_press_modifiers(egui::Modifiers::ALT, k);
+        h.run();
+        h.run();
+        h.run();
+    };
+    alt(&mut h, egui::Key::V);
+    assert!(shown(&h, "Hide All Panels") && !shown(&h, "Save As"));
+    key(&mut h, egui::Key::L);
+    key(&mut h, egui::Key::Enter);
+    assert!(h.state().settings.hide_log, "the row the letter went to");
+    alt(&mut h, egui::Key::V);
+    key(&mut h, egui::Key::R);
+    key(&mut h, egui::Key::Enter);
+    assert!(!h.state().settings.hide_log, "Reset Layout");
+    // Alt and another menu's letter, with one open: that one.
+    alt(&mut h, egui::Key::V);
+    alt(&mut h, egui::Key::H);
+    assert!(shown(&h, "About Moonglow") && !shown(&h, "Hide All Panels"));
+    key(&mut h, egui::Key::Escape);
+    assert!(!shown(&h, "About Moonglow"));
+    // Escape in a submenu closes the submenu, and the menu stays.
+    alt(&mut h, egui::Key::T);
+    for _ in 0..4 {
+        key(&mut h, egui::Key::ArrowUp);
+    }
+    key(&mut h, egui::Key::ArrowRight);
+    assert!(shown(&h, "Open Tileset"));
+    key(&mut h, egui::Key::Escape);
+    assert!(!shown(&h, "Open Tileset"), "the submenu closed");
+    assert!(shown(&h, "Faction Editor"), "one level");
+    key(&mut h, egui::Key::Escape);
+    assert!(!shown(&h, "Faction Editor"));
 
     // By the mouse: with File open, the pointer over Edit opens Edit.
     h.get_by_label("File").click();
@@ -3974,6 +4245,18 @@ fn store_editor_stocks_prices_and_restricts() {
         .map(|i| (i.integer("Repos_PosX").unwrap(), i.integer("Repos_Posy").unwrap()))
         .collect();
     assert!(!at_before.contains(&at), "{at:?} is taken");
+    // Each item is listed with what the store sells it for: its cost at
+    // the store's mark up, as Aurora lists it.
+    let price = {
+        let mark_up = field(&mut h, &key).integer("MarkUp").unwrap() as u64;
+        let game = h.state().game.as_deref().unwrap();
+        let uti = game.resman.get_named("nw_wswls001", ResType::UTI).unwrap();
+        let item = mg_gff::Gff::read(&uti).unwrap();
+        u64::from(game.item_cost(&mg_rules::ItemValue::from_gff(&item.root))) * mark_up / 100
+    };
+    assert!(price > 0);
+    let listed = format!("Longsword  ·  {price} gp");
+    assert!(h.query_all_by_label_contains(&listed).next().is_some(), "{listed}");
     // The store will not buy torches, then will only buy them.
     h.get_by_label("Restrictions").click();
     h.run();
@@ -4333,6 +4616,20 @@ fn item_editor_adds_properties_and_keeps_the_cost() {
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run();
     assert_eq!(cost_of(&mut h).0, plus_one);
+    // Search: the kinds and choices that have every word typed, opened
+    // out (a builder: Cast Spell alone has hundreds).
+    let count = |h: &Harness<'_, Moonglow>, label: &str| h.query_all_by_label(label).count();
+    let before = count(&h, "Enhancement Bonus");
+    assert!(before >= 1);
+    type_into_hint(&mut h, "🔍 Search properties", "cast fireball");
+    h.run_steps(2);
+    assert_eq!(count(&h, "Cast Spell"), 1);
+    assert_eq!(count(&h, "Enhancement Bonus"), before - 1, "not among those found");
+    assert!(h.query_all_by_label_contains("Fireball").next().is_some(), "its choices show");
+    assert!(h.query_all_by_label_contains("Magic Missile").next().is_none());
+    h.get_all_by_value("cast fireball").next().unwrap().type_text(" zzz");
+    h.run_steps(2);
+    h.get_by_label("No property has that.");
 }
 
 #[test]
@@ -8851,6 +9148,20 @@ fn the_arrow_keys_move_through_the_palette_after_a_click_in_it() {
     assert_ne!(first, second);
     press(&mut h, egui::Key::ArrowUp);
     assert_eq!(selected(&h), Some(first));
+    // Enter opens the blueprint, as a double click does.
+    let tabs: Vec<Tab> = h.state().dock.iter_all_tabs().map(|(_, t)| t.clone()).collect();
+    press(&mut h, egui::Key::Enter);
+    let opened: Vec<Tab> = h
+        .state()
+        .dock
+        .iter_all_tabs()
+        .map(|(_, t)| t.clone())
+        .filter(|t| !tabs.contains(t))
+        .collect();
+    assert_eq!(opened.len(), 1, "{opened:?}");
+    let at = h.state().dock.find_tab(&opened[0]).unwrap();
+    h.state_mut().dock.remove_tab(at);
+    h.run_steps(3);
     // Right does nothing on a blueprint. Left: to its category (the
     // blueprint stays in hand), then the category closes.
     press(&mut h, egui::Key::ArrowRight);
@@ -8861,6 +9172,11 @@ fn the_arrow_keys_move_through_the_palette_after_a_click_in_it() {
     h.get_by_label(&tavern);
     press(&mut h, egui::Key::ArrowLeft);
     assert!(h.query_by_label(&tavern).is_none(), "closed");
+    // Enter on a category opens and closes it.
+    press(&mut h, egui::Key::Enter);
+    h.get_by_label(&tavern);
+    press(&mut h, egui::Key::Enter);
+    assert!(h.query_by_label(&tavern).is_none(), "closed by Enter");
     // Right: it opens, then the cursor goes in.
     press(&mut h, egui::Key::ArrowRight);
     h.get_by_label(&tavern);
@@ -8877,13 +9193,16 @@ fn the_arrow_keys_move_through_the_palette_after_a_click_in_it() {
     press(&mut h, egui::Key::ArrowLeft);
     assert!(h.state().palette.at_category());
     assert_eq!(selected(&h), tavern_key, "still in hand");
-    // With the pointer elsewhere (the log, under the area), the keys
-    // leave the palette alone.
+    // With the pointer elsewhere (the log, under the area), the keys are
+    // the palette's still: they are until the pointer is in an area's
+    // view (GitHub issue 12).
     let palette_at = h.get_by_label(&tavern).rect().center();
     h.hover_at(egui::pos2(300.0, 700.0));
     h.run_steps(2);
     press(&mut h, egui::Key::ArrowDown);
-    assert!(h.state().palette.at_category(), "the pointer is not over the palette");
+    assert!(!h.state().palette.at_category(), "the keys are the palette's off it too");
+    press(&mut h, egui::Key::ArrowLeft);
+    assert!(h.state().palette.at_category());
     h.hover_at(palette_at);
     h.run_steps(2);
     // None of that moved the camera, nor does an arrow held down.
@@ -11970,6 +12289,39 @@ fn resources_are_exported_as_files() {
     h.get_by_label("Export 1 as Files…");
 }
 
+/// A compiled model of the load order goes out as the text it compiles
+/// from: Save As Text… for one, and Export as Files with Models as text
+/// ticked for those listed; without it, as it is.
+#[test]
+fn compiled_models_are_saved_as_text() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-models-as-text");
+    let (plain, text) = (dir.join("plain"), dir.join("text"));
+    for d in [&plain, &text] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let dialogs = NoDialogs {
+        save: vec![dir.join("one.mdl")],
+        folders: vec![text.clone(), plain.clone()],
+        ..Default::default()
+    };
+    let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    let is_text = |p: &std::path::Path| {
+        let data = std::fs::read(p).unwrap();
+        !mg_mdl::is_binary(&data) && String::from_utf8_lossy(&data).contains("newmodel")
+    };
+    app.run(mg_ui::Action::SaveModelText(key));
+    assert!(is_text(&dir.join("one.mdl")));
+    app.run(mg_ui::Action::SaveResources(vec![key]));
+    assert!(!is_text(&plain.join("plc_a01.mdl")), "as it is, unless asked");
+    app.browser.models_as_text = true;
+    app.run(mg_ui::Action::SaveResources(vec![key]));
+    assert!(is_text(&text.join("plc_a01.mdl")));
+    assert!(app.log.entries.iter().any(|(_, m)| m.contains("1 compiled models as text")));
+}
+
 /// The script editor's To Scratch: the script saved and compiled, then it
 /// and its compiled script copied into the scratch folder; one that
 /// doesn't compile is not copied.
@@ -14183,6 +14535,162 @@ fn saving_the_module_compiles_edited_scripts_when_asked() {
     edit_and_save(&mut h);
     assert!(has(&mut h, &ncs), "compiled on save");
     assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Compiled on save: hello")));
+}
+
+/// A script another program saved in the module's folder is compiled
+/// when it is read again, with Automatically Compile Scripts on Save: the
+/// folder's compiled script was the older one until Compile All.
+#[test]
+fn a_script_saved_outside_is_compiled_when_asked() {
+    use mg_module::ModuleLocation;
+    use mg_module::new::new_module;
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut m = new_module(&game, "Outside", &mut fastrand::Rng::with_seed(7)).unwrap();
+    let (nss, ncs) = (
+        ResKey::parse("hello", ResType::NSS).unwrap(),
+        ResKey::parse("hello", ResType::NCS).unwrap(),
+    );
+    m.set(nss, b"void main()\n{\n}\n".to_vec());
+    let dir = mg_testkit::scratch_dir("ui-folder-compile").join("module");
+    m.save_as(&ModuleLocation::Folder(dir.clone())).unwrap();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.settings.no_mod_beside_folder = true;
+    app.settings.auto_compile = false;
+    app.open_module(&dir);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let compiled = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        ws.module.get(&ncs).map(<[u8]>::to_vec)
+    };
+    let save_outside = |h: &mut Harness<'_, Moonglow>, text: &str| {
+        std::fs::write(dir.join("hello.nss"), text).unwrap();
+        h.state_mut().reload_project_files();
+        h.run_steps(3);
+    };
+    // Not asked: read again, not compiled.
+    save_outside(&mut h, "void main()\n{\n    int n = 1;\n}\n");
+    let text = h.state().ws.as_ref().unwrap().module.get(&nss).unwrap().to_vec();
+    assert!(String::from_utf8_lossy(&text).contains("int n = 1;"));
+    assert!(compiled(&mut h).is_none());
+    // Asked: compiled, and again when its text changes.
+    h.state_mut().settings.auto_compile = true;
+    save_outside(&mut h, "void main()\n{\n    int n = 2;\n}\n");
+    let first = compiled(&mut h).expect("compiled when read again");
+    save_outside(&mut h, "void main()\n{\n    int n = 2;\n    n += GetHitDice(OBJECT_SELF);\n}\n");
+    assert_ne!(compiled(&mut h).unwrap(), first);
+    // An include saved outside: the script that includes it is compiled.
+    std::fs::write(dir.join("inc_n.nss"), "int N() { return 1; }\n").unwrap();
+    save_outside(&mut h, "#include \"inc_n\"\nvoid main()\n{\n    int n = N();\n}\n");
+    let with_one = compiled(&mut h).unwrap();
+    std::fs::write(dir.join("inc_n.nss"), "int N() { return 2 + GetHitDice(OBJECT_SELF); }\n")
+        .unwrap();
+    h.state_mut().reload_project_files();
+    h.run_steps(3);
+    assert_ne!(compiled(&mut h).unwrap(), with_one, "its includer is compiled again");
+    // One that does not compile keeps its compiled script, and is named.
+    save_outside(&mut h, "void main()\n{\n    nothing();\n}\n");
+    assert!(h.state().log.entries.iter().any(|(_, m)| m.contains("Did not compile")));
+    // The save writes the compiled script beside its source.
+    save_outside(&mut h, "void main()\n{\n    int n = 3;\n}\n");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    assert_eq!(std::fs::read(dir.join("hello.ncs")).ok(), compiled(&mut h));
+    assert_eq!(
+        std::fs::read(dir.join("hello.nss")).unwrap(),
+        b"void main()\n{\n    int n = 3;\n}\n"
+    );
+}
+
+/// Build › Compile Models compiles the module's own models kept as text,
+/// as one step to undo; one whose supermodel is nowhere stays as text.
+#[test]
+fn the_module_s_text_models_are_compiled() {
+    let Some((mut h, _)) = area_harness("module-models") else { return };
+    let base = "newmodel mg_base\nsetsupermodel mg_base NULL\nclassification character\n\
+setanimationscale 1\nbeginmodelgeom mg_base\nnode dummy mg_base\n  parent NULL\nendnode\n\
+node dummy arm\n  parent mg_base\nendnode\nendmodelgeom mg_base\ndonemodel mg_base\n";
+    let orphan =
+        base.replace("mg_base", "mg_orphan").replace("mg_orphan NULL", "mg_orphan mg_nowhere_zz");
+    let key = |n: &str| ResKey::parse(n, ResType::MDL).unwrap();
+    let edits = vec![
+        mg_edit::Edit::SetResource { key: key("mg_base"), data: Some(base.into()) },
+        mg_edit::Edit::SetResource { key: key("mg_orphan"), data: Some(orphan.clone().into()) },
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Models", edits)));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::CompileModels);
+    h.run_steps(3);
+    let model = |h: &mut Harness<'_, Moonglow>, n: &str| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.flush().unwrap();
+        ws.module.get(&key(n)).unwrap().to_vec()
+    };
+    assert!(mg_mdl::is_binary(&model(&mut h, "mg_base")), "{:?}", h.state().log.entries);
+    assert_eq!(model(&mut h, "mg_orphan"), orphan.as_bytes());
+    let log = &h.state().log.entries;
+    assert!(log.iter().any(|(_, m)| m.contains("Compile Models: 1 compiled")), "{log:?}");
+    assert!(log.iter().any(|(_, m)| m.contains("Left as text: mg_orphan.mdl")), "{log:?}");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Compile Models"));
+}
+
+/// Compile All Scripts passes over the scripts that are as they were when
+/// it last compiled them: after an include changes, only the scripts that
+/// include it are compiled again.
+#[test]
+fn compile_all_compiles_only_what_changed() {
+    let Some((mut h, _)) = area_harness("compile-changed") else { return };
+    let nss = |n: &str| ResKey::parse(n, ResType::NSS).unwrap();
+    let set = |h: &mut Harness<'_, Moonglow>, name: &str, text: &str| {
+        let edit = mg_edit::Edit::SetResource { key: nss(name), data: Some(text.into()) };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+        h.run_steps(2);
+    };
+    set(&mut h, "inc_n", "int N() { return 1; }\n");
+    set(&mut h, "uses_n", "#include \"inc_n\"\nvoid main() { int n = N(); }\n");
+    set(&mut h, "alone", "void main() { int a = 1; }\n");
+    let compile = |h: &mut Harness<'_, Moonglow>| -> String {
+        let before = h.state().log.entries.len();
+        h.state_mut().actions.push(mg_ui::Action::CompileScripts);
+        h.run_steps(3);
+        let mut said = h.state().log.entries[before..].iter().map(|(_, m)| m.clone());
+        said.rfind(|m| m.starts_with("Compiled ")).expect("Compile All's line")
+    };
+    let first = compile(&mut h);
+    assert!(!first.contains("left alone"), "{first}");
+    let again = compile(&mut h);
+    assert!(again.starts_with("Compiled 0 scripts") && again.contains("left alone"), "{again}");
+    // The include changes: it and its includer are compiled, the third
+    // script is not; the includer's compiled script is another.
+    set(&mut h, "inc_n", "int N() { return 2 + GetHitDice(OBJECT_SELF); }\n");
+    let after = compile(&mut h);
+    assert!(after.starts_with("Compiled 2 scripts: 0 failed, 1 changed"), "{after}");
+    // A compiled script that went missing is made again.
+    let ncs = ResKey::parse("alone", ResType::NCS).unwrap();
+    let gone = mg_edit::Edit::SetResource { key: ncs, data: None };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Gone", vec![gone])));
+    h.run_steps(2);
+    let back = compile(&mut h);
+    assert!(back.starts_with("Compiled 1 scripts: 0 failed, 1 changed"), "{back}");
+    // Kept from one session to the next, in a folder of Moonglow's own:
+    // the next session's first Compile All passes over them too.
+    h.state_mut().forget_compiled();
+    let all = compile(&mut h);
+    assert!(!all.contains("left alone"), "nothing is kept without a folder: {all}");
+    let kept = mg_testkit::scratch_dir("ui-compiled-kept");
+    h.state_mut().compiled_dir = Some(kept.clone());
+    h.state_mut().forget_compiled();
+    compile(&mut h);
+    assert_eq!(std::fs::read_dir(&kept).unwrap().count(), 1, "a file for the module");
+    h.state_mut().forget_compiled();
+    let next = compile(&mut h);
+    assert!(next.starts_with("Compiled 0 scripts") && next.contains("left alone"), "{next}");
 }
 
 /// In a nasher project the external editor gets the project's own script
