@@ -92,7 +92,10 @@ pub fn inside(points: &[Vec3], p: Vec2) -> bool {
 /// front of the camera.
 pub fn project(camera: &Camera, aspect: f32, p: Vec3) -> Option<Vec2> {
     let clip = camera.projection(aspect) * camera.view() * p.extend(1.0);
-    if clip.w <= 1e-6 {
+    // (Nearer than the near plane is not in the picture either; and a
+    // point a hair in front of the eye would land far off the screen: a
+    // walkmesh's face with such a corner was a streak across the view.)
+    if clip.w < camera.near.max(1e-6) {
         return None;
     }
     let ndc = clip.truncate() / clip.w;
@@ -179,6 +182,21 @@ mod tests {
 
     fn close(a: Vec3, b: Vec3) -> bool {
         (a - b).abs().max_element() < 1e-3
+    }
+
+    /// A point beside the eye, a hair in front of its plane, is not in
+    /// the view: projected, it lay thousands of screens away, and an
+    /// overlay's face with such a corner was a streak across the picture.
+    #[test]
+    fn a_point_nearer_than_the_near_plane_is_not_projected() {
+        let camera = Camera::orbit(Vec3::new(10.0, 20.0, 0.0), 30.0, 0.7, 0.9);
+        let forward = (camera.target - camera.eye).normalize();
+        let side = forward.cross(Vec3::Z).normalize();
+        let beside = |ahead: f32| camera.eye + forward * ahead + side * 2.0;
+        assert_eq!(project(&camera, 1.5, beside(camera.near * 0.01)), None);
+        assert_eq!(project(&camera, 1.5, beside(-1.0)), None);
+        let seen = project(&camera, 1.5, beside(camera.near * 4.0 + 4.0)).unwrap();
+        assert!(seen.abs().max_element() < 4.0, "{seen}");
     }
 
     #[test]
