@@ -253,6 +253,24 @@ Array-bound drawings repeat locally with a 512-instance preview limit. Numeric
 text preview limits precision to 16 digits. These are editor limits, not engine
 restrictions. Verify exact spacing, drawing, scrolling and events in the game.
 
+#### Images
+
+**Advanced › Images** lists the pictures the window shows (its Images, Image
+buttons and draw layers', its variants' too) and where the game finds each:
+the module, a hak, the game, or nowhere (the game then shows its `gui_error`
+picture). **Add images from disk…** puts pictures (PNG, TGA, DDS, JPG, BMP;
+the file's name, at most 16 letters, digits, `_` or `-`, is the picture's)
+into the module, to use while you work. Players get custom pictures from a
+hak: choose one of the module's haks, or **New hak…**, and **Add images to
+the hak…** writes them into it, or **Move module images into the hak** moves
+this window's pictures there from the module. A new hak is made in the
+game's hak folder (one saved elsewhere is copied there) and added at the
+top of the module's haks; Undo takes it off the list and brings the pictures
+back into the module, while the hak file keeps them. **Use as background**
+puts a picture under the window's controls, stretched over it: a draw layer
+of the root column, painted before it, whose rectangle and fit you can
+change in Draw layers.
+
 **Choose game image** searches the current resource stack and displays up to 24
 matching thumbnails. Cropping uses the native image region. Individual list-row
 images are edited in Row data. **Screen** previews common

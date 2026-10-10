@@ -127,7 +127,7 @@ fn image(bytes: &[u8], ty: ResType) -> Result<egui::ColorImage, String> {
     ))
 }
 
-fn names(v: &Value, s: &Settings, out: &mut BTreeSet<String>) {
+pub(super) fn names(v: &Value, s: &Settings, out: &mut BTreeSet<String>) {
     fn add(v: &Value, s: &Settings, out: &mut BTreeSet<String>) {
         let v = resolved(v, s);
         if let Some(a) = v.as_array() {

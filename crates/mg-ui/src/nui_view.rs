@@ -14,6 +14,7 @@ mod design;
 mod draw;
 mod events;
 mod fields;
+mod images;
 mod interaction;
 #[cfg(test)]
 mod interaction_tests;
@@ -62,6 +63,8 @@ struct State {
     window_move: Option<interaction::WindowMove>,
     issues: bool,
     page: usize,
+    /// The hak Images adds pictures to: one the module uses, or None for a new one.
+    images_hak: Option<String>,
     view_mode: usize,
     name: String,
     load_search: String,
@@ -330,6 +333,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
                         state.page = 3;
                         ui.close();
                     }
+                    if ui.selectable_label(state.page == 5, "Images").clicked() {
+                        state.page = 5;
+                        ui.close();
+                    }
                     ui.separator();
                     for (suffix, label) in [("_o", "Open script"), ("_e", "Event script")] {
                         if let Some(k) = ResKey::parse(&format!("{name}{suffix}"), ResType::NSS)
@@ -383,7 +390,17 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
         });
         ui.separator();
     }
+    let mut page_edits = Vec::new();
     match state.page {
+        5 => {
+            if let (Ok(mut v), Ok(s)) = (parsed, settings) {
+                let before = v.clone();
+                page_edits = images::page(ui, app, &name, &mut v, &s, &mut state);
+                if v != before {
+                    raw = serde_json::to_string_pretty(&v).unwrap();
+                }
+            }
+        }
         4 => {
             if let (Ok(mut v), Ok(mut s)) = (parsed, settings) {
                 let before = v.clone();
@@ -527,7 +544,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, key: Option<ResKey>) {
             }
         }
     }
-    let mut edits = Vec::new();
+    let mut edits = page_edits;
     if (raw != original || config_raw != config_original)
         && let Some(edit) =
             events::follow_controls(app, &name, &original, &raw, &config_original, &mut config_raw)
@@ -1472,6 +1489,75 @@ mod tests {
             .iter()
             .all(|d| !d.message.contains("Unknown element ID"))
         );
+    }
+
+    /// Advanced › Images: a picture from disk into the module, used as the
+    /// window's background, then moved into a new hak the module lists. The
+    /// user folder is a scratch one.
+    #[test]
+    fn nui_images_from_disk_go_into_the_module_and_a_hak() {
+        let dir = mg_testkit::scratch_dir("nui-images");
+        let user = dir.join("user");
+        std::fs::create_dir_all(user.join("hak")).unwrap();
+        let mut tga = vec![0u8; 18];
+        (tga[2], tga[12], tga[14], tga[16]) = (2, 1, 1, 24);
+        tga.extend([255u8; 3]);
+        let picture = dir.join("my_bg.tga");
+        std::fs::write(&picture, &tga).unwrap();
+        let hak = user.join("hak").join("nui_images.hak");
+        let dialogs = crate::NoDialogs {
+            open_many: vec![vec![picture]],
+            save: vec![hak.clone()],
+            ..Default::default()
+        };
+        let install = mg_resman::GameInstall::new(mg_testkit::corpus!(), Some(user.clone()), "en");
+        let mut app = Moonglow::new(Some(install), Box::new(dialogs));
+        let mut module = mg_module::Module::new();
+        module.set_info(&mg_gff::Gff::new(*b"IFO ")).unwrap();
+        app.ws = Some(mg_edit::Workspace::new(module));
+        super::create(&mut app, "pictures");
+        app.actions.clear();
+        let mut h = Harness::builder().with_size(egui::vec2(1100.0, 900.0)).build_ui_state(
+            |ui, app: &mut Moonglow| {
+                super::ui(app, ui, Some(mg_nui::key("pictures", ResType::JUI)));
+                app.run_actions();
+            },
+            app,
+        );
+        h.run();
+        h.get_by_label("Advanced").click();
+        h.run();
+        h.get_by_label("Images").click();
+        h.run();
+        let key = ResKey::parse("my_bg", ResType::TGA).unwrap();
+        h.get_by_label("Add images from disk…").click();
+        h.run();
+        assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
+        // Name it in the window: it is listed, and can be the background.
+        let jui = mg_nui::key("pictures", ResType::JUI);
+        let mut doc: Value =
+            serde_json::from_slice(h.state().ws.as_ref().unwrap().module.get(&jui).unwrap())
+                .unwrap();
+        doc["root"]["children"] = json!([{"type":"image","value":"my_bg","height":40.0}]);
+        h.state_mut().ws.as_mut().unwrap().module.set(jui, serde_json::to_vec(&doc).unwrap());
+        h.run();
+        h.get_by_label("Use as background").click();
+        h.run();
+        let doc: Value =
+            serde_json::from_slice(h.state().ws.as_ref().unwrap().module.get(&jui).unwrap())
+                .unwrap();
+        let back = &doc["root"]["draw_list"][0];
+        assert_eq!(
+            (back["image"].clone(), back["image_aspect"].clone(), back["order"].clone()),
+            (json!("my_bg"), json!(5), json!(-1))
+        );
+        h.get_by_label("Move module images into the hak").click();
+        h.run();
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        assert!(!ws.module.contains(&key), "the picture left the module");
+        assert_eq!(images::listed_haks(ws), ["nui_images"]);
+        let written = mg_module::hak_edit::Hak::open(&hak).unwrap();
+        assert!(written.items().iter().any(|i| i.key == key));
     }
 
     #[test]
