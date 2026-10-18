@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.33.1" date="2026-10-18">
+      <description>
+        <p>A conversation link goes to its line by a double click or Go to
+        Linked. A nasher project keeps NUI windows and finds files moved
+        in it. Verify Module lists errors first and objects of missing
+        blueprints once a blueprint. Helmets and shields preview as worn.</p>
+      </description>
+    </release>
     <release version="1.33.0" date="2026-10-17">
       <description>
         <p>Fill paints a floor: a rectangle dragged out fills with rows of
