@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-15T07:03:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T21:05:31Z }
 ---
 
 # Modules
@@ -127,11 +127,17 @@ unpacking or packing between the toolset and git.
   - new resources go where the project's rules put them;
   - deleted ones lose their files;
   - other files in the folder are left alone.
+
+  A new file the project's sources (`include` in `nasher.cfg`) don't take
+  in is written all the same, and the log says so: nasher would not pack
+  it, and the project would not read it back when opened again. Add its
+  extension to the include (a NUI window's `jui` and `txt`, say).
 - **Changes made elsewhere are picked up while the project is open.**
   Every few seconds (Options › General, the reloading switch) Moonglow
   looks for source files that another program changed, added or deleted:
   an editor, a `git checkout` that discards a change, a `git pull`. Those
-  are read again, the log names them, and open editors show them. It is
+  are read again, the log names them, and open editors show them. A file
+  moved within the project is read from where it is now. It is
   not unsaved work. If the undo history had changes to one of them, the
   history is cleared (Undo could not take them back from the new file).
 - **Where you have unsaved changes to a file that also changed
@@ -146,7 +152,9 @@ unpacking or packing between the toolset and git.
   open the project.
 - **Start a project from any module** with **File › Save As nasher
   Project…**, choosing an empty folder. Moonglow writes a `nasher.cfg` as
-  `nasher init` does, with everything under `src/`.
+  `nasher init` does, with everything under `src/`, its sources taking in
+  scripts, GFF files as JSON, NUI windows, and the module's other kinds
+  of file (2DAs, pictures).
 - **Build › Pack** *file* writes the module the project builds, as `nasher
   pack` does. **Test Module** (F9) packs it into the game's `modules`
   folder and starts the game on it.

@@ -385,7 +385,15 @@ impl ModelView {
             }
         };
         let lying = item
-            && preview.as_ref().is_ok_and(|p| p.idle.is_none() && !p.base.model.contains("cloak"));
+            && preview.as_ref().is_ok_and(|p| {
+                p.idle.is_none()
+                    && !p.base.model.contains("cloak")
+                    && !worn_as_modeled(app, source, p)
+            });
+        // (A shield from its front, the side away from its bearer, as its
+        // thumbnail shows it.)
+        let shield = preview.as_ref().is_ok_and(|p| is_shield(app, source, p));
+        let yaw = if shield { 240f32 } else { 60f32 }.to_radians();
         let stand =
             if lying { Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2) } else { Mat4::IDENTITY };
         let mut view = ModelView {
@@ -397,7 +405,7 @@ impl ModelView {
             model_lights: true,
             time: 0.0,
             // Models face +Y: from the front, a little to the side.
-            yaw: 60f32.to_radians(),
+            yaw,
             pitch: 20f32.to_radians(),
             distance: 5.0,
             target: Vec3::ZERO,
@@ -412,6 +420,12 @@ impl ModelView {
         };
         view.frame();
         view
+    }
+
+    /// Whether what it shows is stood up for the viewer (an item modeled
+    /// lying), not shown as it is.
+    pub fn stood(&self) -> bool {
+        self.stand != Mat4::IDENTITY
     }
 
     /// What it shows of a blueprint (none for a model).
@@ -1034,15 +1048,32 @@ fn pictured_look(app: &Moonglow, key: Pictured) -> Option<(Source, Preview)> {
 /// what follows). A shield's model faces its bearer: its front, which
 /// tells one from another, is the side away from where models face.
 fn is_shield(app: &Moonglow, source: &Source, preview: &Preview) -> bool {
-    let item = matches!(source, Source::Resource(k) if k.restype == ResType::UTI);
-    let Some(Ok(t)) = app.game.as_deref().filter(|_| item).map(|g| g.table("baseitems")) else {
-        return false;
+    worn_slots(app, source, preview).is_some_and(|s| s & 0x30 == 0x20)
+}
+
+/// Whether a preview is an item modeled as it is worn, a helmet (on the
+/// head, `EquipableSlots` 0x1) or a shield ([`is_shield`]): shown so, not
+/// stood up as an item modeled lying is (a helmet lay on its side, a
+/// shield on its back, a builder's report).
+fn worn_as_modeled(app: &Moonglow, source: &Source, preview: &Preview) -> bool {
+    worn_slots(app, source, preview).is_some_and(|s| s & 0x30 == 0x20 || s & 0x1 != 0)
+}
+
+/// The slots an item's preview is worn in (baseitems.2da's
+/// `EquipableSlots`, by its model's name: `ItemClass` and what follows);
+/// `None` if it is no item's.
+fn worn_slots(app: &Moonglow, source: &Source, preview: &Preview) -> Option<i32> {
+    let item = match source {
+        Source::Resource(k) => k.restype == ResType::UTI,
+        Source::Instance { path, .. } => {
+            crate::blueprint::instance_type(path) == Some(ResType::UTI)
+        }
     };
+    let t = app.game.as_deref().filter(|_| item)?.table("baseitems").ok()?;
     let class = preview.base.model.split('_').next().unwrap_or_default();
-    (0..t.len()).any(|row| {
-        t.get(row, "ItemClass").is_some_and(|c| c.eq_ignore_ascii_case(class))
-            && t.get_int(row, "EquipableSlots").is_some_and(|s| s & 0x30 == 0x20)
-    })
+    (0..t.len())
+        .filter(|row| t.get(*row, "ItemClass").is_some_and(|c| c.eq_ignore_ascii_case(class)))
+        .find_map(|row| t.get_int(row, "EquipableSlots"))
 }
 
 fn draw_thumbnail(

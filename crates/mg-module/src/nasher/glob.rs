@@ -121,6 +121,31 @@ pub(crate) fn matches(name: &str, pattern: &str) -> bool {
         .is_some_and(|rx| rx.is_match(name))
 }
 
+/// Whether `pattern` finds the file `path`, as [`walk`] would (whether it
+/// is there or not: a file about to be written).
+pub(crate) fn covers(root: &Path, pattern: &str, path: &Path) -> bool {
+    let pattern = pattern.replace('\\', "/");
+    let rel =
+        |base: &Path| path.strip_prefix(base).ok().map(|r| r.to_string_lossy().replace('\\', "/"));
+    if !has_magic(&pattern) {
+        let p = root.join(&pattern);
+        return path == p || path.starts_with(&p);
+    }
+    let (base, magic) = match pattern.find(|c| ['*', '?', '[', '{'].contains(&c)) {
+        Some(first) => match pattern[..first].rfind('/') {
+            Some(slash) => (&pattern[..slash], &pattern[slash + 1..]),
+            None => ("", &pattern[..]),
+        },
+        None => ("", &pattern[..]),
+    };
+    let dir = if base.is_empty() { root.to_path_buf() } else { root.join(base) };
+    let Some(rel) = rel(&dir) else { return false };
+    to_regex(magic, true)
+        .ok()
+        .and_then(|rx| Regex::new(&rx).ok())
+        .is_some_and(|rx| rx.is_match(&rel))
+}
+
 /// The files a pattern finds, relative to `root` unless absolute, as
 /// absolute paths in the order the walk meets them. As in nasher's build,
 /// names compare ignoring case.

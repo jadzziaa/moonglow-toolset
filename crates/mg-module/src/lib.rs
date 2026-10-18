@@ -424,7 +424,19 @@ impl Module {
                     .is_some_and(|p| p.root() == root.as_path() && &p.target == target);
                 if !same {
                     let file = format!("{}.mod", self.project_file_stem(root));
-                    let mut project = nasher::Project::create(root, &file)?;
+                    // (The kinds of file it keeps other than scripts and
+                    // GFF, for its sources to take them in.)
+                    let mut kinds: Vec<String> = self
+                        .keys()
+                        .filter(|k| {
+                            !nasher::is_json_type(k.restype)
+                                && !matches!(k.restype, ResType::NSS | ResType::NCS | ResType::NDB)
+                        })
+                        .filter_map(|k| k.restype.extension().map(str::to_string))
+                        .collect();
+                    kinds.sort();
+                    kinds.dedup();
+                    let mut project = nasher::Project::create(root, &file, &kinds)?;
                     // A project keeps scripts as source; compiled scripts
                     // without one are lost, as with nasher.
                     let orphans: Vec<String> = self

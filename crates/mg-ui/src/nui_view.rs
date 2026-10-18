@@ -354,9 +354,16 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
                         app.log.error(e.message.clone());
                     }
                 }
+                // (Into the module, as any edit: a nasher project's files
+                // are written when it is saved. "Written" was read as on
+                // disk, a builder's report.)
+                let saved = match app.ws.as_ref().is_some_and(|w| w.module.project.is_some()) {
+                    true => "File › Save writes them into the nasher project's sources",
+                    false => "File › Save writes them into the module",
+                };
                 app.log.info(format!(
-                    "Built {name}: {name}_o.nss written, {name}_e.nss compiled. To open the \
-                     window, include {name}_o in a script of yours and call \
+                    "Built {name}: {name}_o.nss made, {name}_e.nss made and compiled ({saved}). \
+                     To open the window, include {name}_o in a script of yours and call \
                      Open_{name}(oPlayer)."
                 ));
                 if export {

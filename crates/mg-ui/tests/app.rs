@@ -280,6 +280,69 @@ fn closing_with_unsaved_changes_asks_first() {
     );
 }
 
+/// A NUI window's scripts in a nasher project: Build makes them in the
+/// module, and Save writes them where the project's rules put them (a
+/// builder's report: not copied to the project; Build said "written").
+#[test]
+fn a_nui_window_s_scripts_go_into_a_nasher_project() {
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("ui-nasher-nui");
+    let path = sample_module(&dir);
+    let project = dir.join("project");
+    let _ = std::fs::remove_dir_all(&project);
+    let app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs { folders: vec![project.clone()], ..Default::default() }),
+    );
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1500.0, 1000.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.state_mut().open_module(&path);
+    h.run();
+    h.get_by_label("File").click();
+    h.run();
+    h.get_by_label("Save As nasher Project…").click();
+    h.run();
+    assert!(project.join("nasher.cfg").is_file(), "{:?}", h.state().log.entries);
+    h.state_mut().actions.push(mg_ui::Action::NewNui("zz_win".into()));
+    h.run();
+    h.get_by_label("Build & compile").click();
+    h.run();
+    let log = format!("{:?}", h.state().log.entries);
+    assert!(log.contains("Built zz_win"), "{log}");
+    // Said where they go, and when: into the project, with Save.
+    assert!(log.contains("File › Save writes them into the nasher project's sources"), "{log}");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    let mut files: Vec<String> = walk(&project.join("src"));
+    files.sort();
+    for name in ["zz_win_o.nss", "zz_win_e.nss"] {
+        assert!(files.iter().any(|f| f.ends_with(name)), "{name} in {files:?}\n{log}");
+    }
+    // The project opened again: the window is in it.
+    let back = mg_module::Module::open(&project).unwrap();
+    let jui = ResKey::parse("zz_win", ResType::JUI).unwrap();
+    assert!(
+        back.contains(&jui),
+        "files {files:?}; warnings {:?}",
+        back.project.as_ref().unwrap().warnings
+    );
+}
+
+/// The files under `dir`, by their paths.
+fn walk(dir: &std::path::Path) -> Vec<String> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            out.extend(walk(&p));
+        } else {
+            out.push(p.display().to_string());
+        }
+    }
+    out
+}
+
 #[test]
 fn nasher_projects_save_in_place_and_never_overwrite_other_changes() {
     let dir = mg_testkit::scratch_dir("ui-nasher");
@@ -2779,6 +2842,66 @@ fn conversation_search_bookmarks_and_test() {
     assert!(h.state().dialog_views[&key].test.as_ref().unwrap().is_empty());
     click(&mut h, "Done");
     assert!(h.state().dialog_views[&key].test.is_none());
+}
+
+/// A link goes to the line it links to, where that is owned, its parents
+/// opened out: by a double click on it, as in Aurora, and by its menu's
+/// Go to Linked (a builder's report: nothing happened).
+#[test]
+fn a_conversation_link_goes_to_its_line() {
+    use mg_module::dialog::{Kind, Parent, add_link, add_node, new_dialog};
+    let dir = mg_testkit::scratch_dir("ui-dialog-go-to-linked");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("talk", ResType::DLG).unwrap();
+    let mut g = new_dialog();
+    let hello = add_node(&mut g, Parent::Root, "Hello there.");
+    let who = add_node(&mut g, Parent::Node(Kind::Entry, hello), "Who are you?");
+    let go = add_node(&mut g, Parent::Root, "Go away.");
+    add_link(&mut g, Parent::Node(Kind::Entry, go), who);
+    let mut m = Module::open(&path).unwrap();
+    m.set_gff(key, &g).unwrap();
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Dialog(key)));
+    // (Frames a sixtieth of a second apart: the two clicks of a double
+    // click in a frame each.)
+    let mut h = Harness::builder()
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    // The greeting folded: only the link's row shows.
+    h.state_mut().dialog_views.get_mut(&key).unwrap().collapsed.insert((Kind::Entry, hello));
+    h.run();
+    assert!(h.query_by_label("Who are you? [END DIALOGUE]").is_none());
+    let owned = mg_ui::dialog_view::Row { parent: Parent::Node(Kind::Entry, hello), pos: 0 };
+    // A double click on the link.
+    let at = h.get_by_label("Who are you?").rect().center();
+    h.hover_at(at);
+    h.run_steps(60);
+    let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+    for pressed in [true, false, true, false] {
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+    }
+    h.run();
+    let view = &h.state().dialog_views[&key];
+    assert_eq!(view.selected, Some(owned), "the line where it is owned");
+    assert!(!view.collapsed.contains(&(Kind::Entry, hello)), "its parent opened out");
+    h.get_by_label("Who are you? [END DIALOGUE]");
+    // The link's menu: Go to Linked.
+    let link = mg_ui::dialog_view::Row { parent: Parent::Node(Kind::Entry, go), pos: 0 };
+    h.state_mut().dialog_views.get_mut(&key).unwrap().selected = Some(link);
+    h.state_mut().dialog_views.get_mut(&key).unwrap().collapsed.insert((Kind::Entry, hello));
+    h.run();
+    h.get_by_label("Who are you?").click_secondary();
+    h.run();
+    h.get_by_label("Go to Linked").click();
+    h.run();
+    assert_eq!(h.state().dialog_views[&key].selected, Some(owned));
+    // Not on a row that is no link.
+    h.get_all_by_label_contains("Hello there.").next().unwrap().click_secondary();
+    h.run();
+    assert!(h.query_by_label("Go to Linked").is_none());
 }
 
 #[test]
@@ -13997,6 +14120,71 @@ fn the_plugin_console_runs_what_is_typed() {
     assert_eq!(tag_of(&mut h, &key), "TYPED");
 }
 
+/// An item in its preview: one modeled lying (a sword) is stood up; a
+/// helmet and a shield, modeled as worn, are shown so, a shield from its
+/// front (a builder's report: they came up on their sides).
+#[test]
+fn helmets_and_shields_preview_as_worn() {
+    let root = mg_testkit::corpus!();
+    let mut app = Moonglow::new(
+        Some(mg_resman::GameInstall::new(&root, None, "en")),
+        Box::new(NoDialogs::default()),
+    );
+    for name in ["nw_wswls001", "nw_arhe001", "nw_ashsw001"] {
+        let key = ResKey::parse(name, ResType::UTI).unwrap();
+        app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    }
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let view = |name: &str| {
+        let key = ResKey::parse(name, ResType::UTI).unwrap();
+        let v = &h.state().model_views[&mg_ui::model_view::Source::Resource(key)];
+        (v.stood(), v.yaw.to_degrees().round())
+    };
+    assert_eq!(view("nw_wswls001"), (true, 60.0), "a sword stood up");
+    assert_eq!(view("nw_arhe001"), (false, 60.0), "a helmet as worn");
+    assert_eq!(view("nw_ashsw001"), (false, 240.0), "a shield as worn, from its front");
+}
+
+/// Verify's report: errors first; objects placed from a blueprint that is
+/// gone (common, and harmless as the module plays) one line a blueprint,
+/// last, not one an object among the errors (a builder's report: some 200
+/// lines read as errors).
+#[test]
+fn verify_says_errors_first_and_gone_blueprints_once_each() {
+    use mg_module::refs::{RefKind, Reference};
+    use mg_module::verify::{Category, Missing};
+    use mg_ui::LogLevel;
+    let missing = |from: &str, path: &str, kind: RefKind, target: &str| Missing {
+        reference: Reference {
+            from: ResKey::from_filename(from).unwrap(),
+            path: path.into(),
+            kind,
+            target: ResRef::from_str(target).unwrap(),
+        },
+        category: Category::Placeables,
+        uncompiled: false,
+    };
+    let utp = RefKind::Blueprint(ResType::UTP);
+    let list = [
+        missing("forest.git", "/Placeable List[3]/TemplateResRef", utp, "ub_seta004"),
+        missing("forest.git", "/Placeable List[9]/TemplateResRef", utp, "ub_seta004"),
+        missing("cave.git", "/Placeable List[0]/TemplateResRef", utp, "ub_seta004"),
+        missing("cave.git", "/Placeable List[1]/TemplateResRef", utp, "ub_roca"),
+        missing("cave.git", "/Placeable List[1]/OnUsed", RefKind::Script, "no_script"),
+    ];
+    let report = mg_ui::verify_report(&list, &[]);
+    assert_eq!(report[0].0, LogLevel::Error);
+    assert!(report[0].1.contains("no_script"), "{report:#?}");
+    assert!(report.iter().all(|(l, _)| *l != LogLevel::Warn), "no warning an object");
+    let lines: Vec<&str> = report[1..].iter().map(|(_, t)| t.as_str()).collect();
+    assert!(lines[0].starts_with("4 object(s) are placed from 2 blueprint(s)"), "{lines:#?}");
+    assert_eq!(
+        lines[1..],
+        ["  ub_roca.utp: 1 placed, in cave", "  ub_seta004.utp: 3 placed, in forest, cave"]
+    );
+}
+
 /// A plugin's checks run with Verify Module (which needs the game).
 #[test]
 fn a_plugin_s_checks_run_with_verify() {
@@ -17318,6 +17506,16 @@ fn the_module_tree_sorts_objects_and_stays_still_under_a_click() {
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 38)];
     h.run_steps(6);
     assert_eq!(h.get_by_label("WP_01").rect(), row);
+    // One row marked, the one selected last: not WP_03's too, clicked
+    // before (a builder's report).
+    let marked: Vec<String> = h
+        .query_all_by(|n| {
+            n.label().is_some_and(|l| l.starts_with("WP_"))
+                && n.toggled() == Some(egui::accesskit::Toggled::True)
+        })
+        .filter_map(|n| n.accesskit_node().label().map(|l| l.to_string()))
+        .collect();
+    assert_eq!(marked, ["WP_01"]);
     // One far down: its row is brought into view.
     assert!(h.query_by_label("WP_39").is_none(), "out of view");
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];

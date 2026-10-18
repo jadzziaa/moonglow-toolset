@@ -3744,24 +3744,11 @@ impl Moonglow {
             |app, made| {
                 let Some((missing, findings, said)) = made else { return };
                 app.log.entries.extend(said);
-                for m in &missing {
-                    let what = if m.uncompiled { "is not compiled" } else { "is missing" };
-                    let text = format!(
-                        "{:?}: {}{} → {} {} {what}",
-                        m.category,
-                        m.reference.from,
-                        m.reference.path,
-                        m.reference.kind.name(),
-                        m.reference.target
-                    );
-                    if m.is_error() { app.log.error(text) } else { app.log.warn(text) }
-                }
-                for f in &findings {
-                    let at = if f.at.is_empty() { String::new() } else { format!(" › {}", f.at) };
-                    let text = format!("{} › {}{at}: {}", f.source, f.resource, f.message);
-                    match f.severity {
-                        mg_module::doctor::Severity::Error => app.log.error(text),
-                        mg_module::doctor::Severity::Warning => app.log.warn(text),
+                for (level, text) in verify_report(&missing, &findings) {
+                    match level {
+                        LogLevel::Error => app.log.error(text),
+                        LogLevel::Warn => app.log.warn(text),
+                        LogLevel::Info => app.log.info(text),
                     }
                 }
                 let errors = missing.iter().filter(|m| m.is_error()).count()
@@ -3769,9 +3756,14 @@ impl Moonglow {
                         .iter()
                         .filter(|f| f.severity == mg_module::doctor::Severity::Error)
                         .count();
-                let warnings = missing.len() + findings.len() - errors;
+                let gone = missing.iter().filter(|m| m.placed_from_gone_blueprint()).count();
+                let warnings = missing.len() + findings.len() - errors - gone;
+                let gone = match gone {
+                    0 => String::new(),
+                    n => format!("; {n} object(s) placed from blueprints the module no longer has"),
+                };
                 app.log.info(format!(
-                    "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s))",
+                    "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s){gone})",
                     missing.len(),
                     findings.len()
                 ));
@@ -3911,6 +3903,91 @@ pub(crate) use mg_module::build::user_content;
 
 pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
     game.as_mut().and_then(Arc::get_mut)
+}
+
+/// How a line of Verify's report is said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    Info,
+}
+
+/// Verify Module's report, as the log shows it: errors first, then
+/// warnings; and objects placed from a blueprint that is gone, one line a
+/// blueprint, last, said for what they are (each object was a line of its
+/// own, among the first, a builder's report: some 200 of them, read as
+/// errors).
+pub fn verify_report(
+    missing: &[mg_module::verify::Missing],
+    findings: &[mg_module::doctor::Finding],
+) -> Vec<(LogLevel, String)> {
+    use mg_module::doctor::Severity;
+    let reference = |m: &mg_module::verify::Missing| {
+        let what = if m.uncompiled { "is not compiled" } else { "is missing" };
+        format!(
+            "{:?}: {}{} → {} {} {what}",
+            m.category,
+            m.reference.from,
+            m.reference.path,
+            m.reference.kind.name(),
+            m.reference.target
+        )
+    };
+    let finding = |f: &mg_module::doctor::Finding| {
+        let at = if f.at.is_empty() { String::new() } else { format!(" › {}", f.at) };
+        format!("{} › {}{at}: {}", f.source, f.resource, f.message)
+    };
+    let (gone, missing): (Vec<_>, Vec<_>) =
+        missing.iter().partition(|m| m.placed_from_gone_blueprint());
+    let mut out = Vec::new();
+    out.extend(missing.iter().filter(|m| m.is_error()).map(|m| (LogLevel::Error, reference(m))));
+    out.extend(
+        (findings.iter().filter(|f| f.severity == Severity::Error))
+            .map(|f| (LogLevel::Error, finding(f))),
+    );
+    out.extend(missing.iter().filter(|m| !m.is_error()).map(|m| (LogLevel::Warn, reference(m))));
+    out.extend(
+        (findings.iter().filter(|f| f.severity == Severity::Warning))
+            .map(|f| (LogLevel::Warn, finding(f))),
+    );
+    // By blueprint: how many are placed from it, and in which areas.
+    let mut by_blueprint: std::collections::BTreeMap<String, (usize, Vec<String>)> =
+        Default::default();
+    for m in &gone {
+        let r = &m.reference;
+        let name = match r.kind {
+            mg_module::refs::RefKind::Blueprint(t) => {
+                format!("{}.{}", r.target, t.extension().unwrap_or("?"))
+            }
+            _ => r.target.to_string(),
+        };
+        let entry = by_blueprint.entry(name).or_default();
+        entry.0 += 1;
+        let area = r.from.resref.to_string();
+        if !entry.1.contains(&area) {
+            entry.1.push(area);
+        }
+    }
+    if !by_blueprint.is_empty() {
+        out.push((
+            LogLevel::Info,
+            format!(
+                "{} object(s) are placed from {} blueprint(s) the module no longer has: they \
+                 work as they are (each holds all it needs, as in many of BioWare's modules); \
+                 only placing more of them and Update Instances need the blueprint",
+                gone.len(),
+                by_blueprint.len()
+            ),
+        ));
+        for (blueprint, (count, areas)) in by_blueprint {
+            out.push((
+                LogLevel::Info,
+                format!("  {blueprint}: {count} placed, in {}", areas.join(", ")),
+            ));
+        }
+    }
+    out
 }
 
 /// Loads the game data of an install, logging the outcome.

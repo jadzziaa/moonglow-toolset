@@ -179,13 +179,25 @@ impl Project {
 
     /// Makes a project at `root` for a module that isn't in one: a
     /// `nasher.cfg` like `nasher init --default` writes, packing `file`
-    /// (kept if there is one already), and no sources yet.
-    pub fn create(root: &Path, file: &str) -> Result<Project, ModuleError> {
+    /// (kept if there is one already), and no sources yet. Its sources take
+    /// in scripts and GFF files kept as JSON, as nasher's do, and the files
+    /// of the other kinds of `extensions` (a module's 2DAs, pictures) and
+    /// NUI windows (`jui`, `txt`): with nasher's alone, a window saved into
+    /// the project was neither read back nor packed (a builder's report).
+    pub fn create(root: &Path, file: &str, extensions: &[String]) -> Result<Project, ModuleError> {
         let cfg = Package::config_path(root);
         if !cfg.exists() {
             std::fs::create_dir_all(root).map_err(io(root))?;
+            let mut kinds: Vec<String> = ["nss", "json", "jui", "txt"].map(String::from).to_vec();
+            for e in extensions {
+                let e = e.to_ascii_lowercase();
+                if !kinds.contains(&e) {
+                    kinds.push(e);
+                }
+            }
+            let kinds = kinds.join(",");
             let text = format!(
-                "[package]\n  [package.sources]\n  include = \"src/**/*.{{nss,json}}\"\n\n  \
+                "[package]\n  [package.sources]\n  include = \"src/**/*.{{{kinds}}}\"\n\n  \
                  [package.rules]\n  \"*\" = \"src\"\n\n[target]\nname = \"default\"\nfile = \"{file}\"\n\
                  description = \"\"\n"
             );
@@ -304,11 +316,19 @@ impl Project {
             }
             let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
             let Some((key, json)) = resource_of(&name) else { continue };
+            // A resource whose file is gone and is found elsewhere in the
+            // tree was moved there (in the project's folder, by hand): it
+            // is read from there now, rather than taken for deleted (a
+            // builder's NUI window, moved, was not found).
+            let moved = self.sources.get(&key).is_some_and(|src| !src.path.exists());
             if (json && !is_json_type(key.restype))
-                || self.sources.contains_key(&key)
+                || (self.sources.contains_key(&key) && !moved)
                 || added.iter().any(|a| a.key == key)
             {
                 continue;
+            }
+            if moved {
+                changes.retain(|c| c.key != key);
             }
             let Some(file) = std::fs::read(&path).ok().map(Arc::<[u8]>::from) else { continue };
             match self.resource_from(&path, json, &file) {
@@ -435,6 +455,9 @@ impl Project {
         let disk = |p: &Path| std::fs::read(p).ok();
         let mut steps = Vec::new();
         let mut conflicts = Vec::new();
+        // New files the target's sources don't take in: nasher won't pack
+        // them, and the project won't read them back.
+        let mut uncovered: Vec<PathBuf> = Vec::new();
         for (key, bytes) in resources {
             match self.sources.get(key) {
                 Some(src) if src.resource[..] == bytes[..] => {}
@@ -459,6 +482,9 @@ impl Project {
                         None => "unknown".to_string(),
                     };
                     let path = root.join(folder).join(source_name(key, json));
+                    if !self.target().covers(&root, &path) {
+                        uncovered.push(path.clone());
+                    }
                     let text = self.source_bytes(key, json, bytes)?;
                     match disk(&path) {
                         Some(existing) if existing == text => {
@@ -485,6 +511,27 @@ impl Project {
         if !conflicts.is_empty() {
             conflicts.sort();
             return Err(ModuleError::ChangedOnDisk(conflicts));
+        }
+        if !uncovered.is_empty() {
+            uncovered.sort();
+            let shown: Vec<String> = uncovered
+                .iter()
+                .map(|p| p.strip_prefix(&root).unwrap_or(p).display().to_string())
+                .collect();
+            let mut kinds: Vec<String> = uncovered
+                .iter()
+                .filter_map(|p| p.extension().map(|e| e.to_string_lossy().to_string()))
+                .collect();
+            kinds.sort();
+            kinds.dedup();
+            self.warnings.push(format!(
+                "{}: written, but nasher.cfg's sources ({}) don't take them in: nasher won't \
+                 pack them, and the project won't read them back when opened again. Add {} \
+                 to its include.",
+                shown.join(", "),
+                self.target().includes.join(", "),
+                kinds.join(", ")
+            ));
         }
         let mut report = SaveReport::default();
         for step in steps {
@@ -703,6 +750,63 @@ mod tests {
         m.remove(&key("a1", ResType::GIT));
         let report = m.project.as_mut().unwrap().save(&m.resources).unwrap();
         assert_eq!(report, SaveReport::default());
+    }
+
+    /// A source file moved in the project's folder while it is open is
+    /// read from where it is now, not taken for deleted (a builder's NUI
+    /// window, moved, was not found).
+    #[test]
+    fn a_file_moved_in_the_tree_is_found_there() {
+        let root = scratch("moved");
+        module().save_as(&project_location(&root)).unwrap();
+        let mut m = Module::open(&root).unwrap();
+        let project = m.project.as_mut().unwrap();
+        std::fs::create_dir_all(root.join("src/scripts")).unwrap();
+        std::fs::rename(root.join("src/on_load.nss"), root.join("src/scripts/on_load.nss"))
+            .unwrap();
+        let (changes, problems) = project.outside();
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(changes.len(), 1, "{changes:?}");
+        assert_eq!(changes[0].path, root.join("src/scripts/on_load.nss"));
+        assert!(changes[0].resource.is_some(), "read there, not deleted");
+        project.took(&changes[0]);
+        assert_eq!(project.outside(), (vec![], vec![]));
+        // And it is written there.
+        m.set(key("on_load", ResType::NSS), b"void main() { int moved; }\n".to_vec());
+        let report = m.project.as_mut().unwrap().save(&m.resources).unwrap();
+        assert_eq!(report.written, [root.join("src/scripts/on_load.nss")]);
+    }
+
+    /// A new file a save writes where the project's sources don't take it
+    /// in is said: nasher wouldn't pack it, nor the project read it back.
+    /// A project Moonglow makes takes in the kinds of file it is made with
+    /// and NUI windows.
+    #[test]
+    fn a_file_the_sources_leave_out_is_said() {
+        let root = scratch("uncovered");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("nasher.cfg"),
+            "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+             [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+        )
+        .unwrap();
+        let mut m = module();
+        m.set(key("win", ResType::JUI), b"{}".to_vec());
+        m.save_as(&project_location(&root)).unwrap();
+        let warnings = m.project.as_ref().unwrap().warnings.join("\n");
+        assert!(warnings.contains("src/win.jui") && warnings.contains("Add jui"), "{warnings}");
+        // Made by Moonglow: its include takes them in.
+        let made = scratch("made-with-kinds");
+        let mut m = module();
+        m.set(key("win", ResType::JUI), b"{}".to_vec());
+        m.set(key("tbl", ResType::TWODA), b"2DA V2.0\n\n   A\n0  1\n".to_vec());
+        m.save_as(&project_location(&made)).unwrap();
+        assert!(m.project.as_ref().unwrap().warnings.iter().all(|w| !w.contains("Add ")));
+        let back = Module::open(&made).unwrap();
+        assert!(
+            back.contains(&key("win", ResType::JUI)) && back.contains(&key("tbl", ResType::TWODA))
+        );
     }
 
     #[test]

@@ -457,6 +457,38 @@ fn palette_hover_preview() {
 
 #[test]
 #[ignore]
+fn item_previews() {
+    // Items in the preview tab, as their blueprint rows' Preview opens
+    // them: an armor, a helmet, a shield and a Drow shield (a builder's
+    // report after 1.33.0: armor showed a head and pelvis, the Drow
+    // shields bags, helmets and shields turned oddly).
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens-model");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    for name in ["nw_aarcl004", "nw_arhe001", "nw_ashsw001", "x2_adrowshl001"] {
+        let key = ResKey::parse(name, ResType::UTI).unwrap();
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Model(key)));
+        h.run_steps(4);
+        shoot(&mut h, &dir, &format!("item-preview-{name}"));
+        let tab = h.state().dock.find_tab(&mg_ui::Tab::Model(key)).unwrap();
+        h.state_mut().dock.remove_tab(tab);
+        h.run_steps(2);
+    }
+}
+
+#[test]
+#[ignore]
 fn blueprint_preview() {
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();

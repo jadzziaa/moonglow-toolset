@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T20:28:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T20:54:08Z }
 ---
 
 # Build, verify and test
@@ -75,8 +75,14 @@ is missing and what is wrong with the module's custom content.
   compiled.
 - **Warnings:**
   - what a blueprint names, which matters only once something places it;
-  - a placed object's blueprint that is gone (the object keeps working);
   - sounds and portraits.
+
+Errors come first in the log, then warnings. Objects placed from a
+blueprint the module no longer has come last, one line a blueprint with
+how many are placed from it and in which areas. They are no fault: a
+placed object holds all it needs and works in the game, and many modules
+(BioWare's too) have them. Only placing more of it and Update Instances
+need the blueprint.
 
 **Custom content** covers the module, the haks in your `hak` folder, and
 `override` and `development`. Each problem names the hak or folder, the

@@ -65,6 +65,29 @@ pub struct DialogView {
     /// What a line's right-click menu asked for, done on the next frame
     /// as the toolbar's button of that name does it.
     pub menu: Option<Asked>,
+    /// The selected row is to be scrolled to as it is drawn ([`go_to_line`]).
+    pub reveal: bool,
+}
+
+/// Selects the row where line `(kind, index)` is owned (not a link to
+/// it), its parents opened out, and has it scrolled to: a link's Go to
+/// Linked (and a double click on it, as Aurora's), a bookmark.
+pub(crate) fn go_to_line(view: &mut DialogView, g: &Gff, kind: Kind, index: u32) {
+    let Some((parent, pos)) = mg_module::dialog::owner(g, kind, index) else { return };
+    let mut up = parent;
+    let mut seen = HashSet::new();
+    while let Parent::Node(k, i) = up {
+        if !seen.insert((k, i)) {
+            break;
+        }
+        view.collapsed.remove(&(k, i));
+        match mg_module::dialog::owner(g, k, i) {
+            Some((p, _)) => up = p,
+            None => break,
+        }
+    }
+    view.selected = Some(Row { parent, pos });
+    view.reveal = true;
 }
 
 /// A choice of a line's right-click menu.
@@ -528,9 +551,8 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             format!("{kind:?} {index}: {}", line_text(app.game.as_deref(), n)),
                         )
                         .clicked()
-                        && let Some((parent, pos)) = mg_module::dialog::owner(&g, kind, index)
                     {
-                        view.selected = Some(Row { parent, pos });
+                        go_to_line(&mut view, &g, kind, index);
                     }
                 }
                 return;
@@ -913,6 +935,15 @@ fn tree(
             }
             r.context_menu(|ui| {
                 view.selected = Some(row);
+                if linked
+                    && ui
+                        .button("Go to Linked")
+                        .on_hover_text("The line this row links to, where it is owned")
+                        .clicked()
+                {
+                    go_to_line(view, g, kind, index);
+                    ui.close();
+                }
                 for (label, asked) in [
                     ("Add", Asked::Add),
                     ("Copy", Asked::Copy),
@@ -933,6 +964,15 @@ fn tree(
             };
             if r.clicked() {
                 view.selected = Some(row);
+            }
+            // A double click on a link goes to the line it links to, as
+            // in Aurora.
+            if linked && r.double_clicked() {
+                go_to_line(view, g, kind, index);
+            }
+            if view.reveal && view.selected == Some(row) {
+                r.scroll_to_me(Some(egui::Align::Center));
+                view.reveal = false;
             }
             if look.scripts {
                 let marks = markers(l, n);

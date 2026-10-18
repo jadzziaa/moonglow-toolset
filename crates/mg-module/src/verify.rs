@@ -90,6 +90,17 @@ impl Missing {
     /// matter only once something places it, and an object placed from a
     /// blueprint that is gone keeps working (it holds all it needs), so those
     /// are warnings.
+    /// Whether it is an object placed in an area from a blueprint the
+    /// module no longer has (nor its haks or the game): common, even in
+    /// BioWare's modules, and harmless as it plays; only placing more and
+    /// Update Instances need the blueprint.
+    pub fn placed_from_gone_blueprint(&self) -> bool {
+        let r = &self.reference;
+        r.from.restype == ResType::GIT
+            && r.path.ends_with("/TemplateResRef")
+            && matches!(r.kind, RefKind::Blueprint(_))
+    }
+
     pub fn is_error(&self) -> bool {
         let r = &self.reference;
         // A missing sound, portrait or movie leaves silence or a blank.

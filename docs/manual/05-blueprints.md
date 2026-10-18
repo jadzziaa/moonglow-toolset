@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T11:57:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T21:05:31Z }
 ---
 
 # Blueprints
@@ -165,7 +165,9 @@ The palette's buttons:
   an item's Appearance page show the model beside their fields, in a
   window wide enough for both (a creature's Appearance page always has
   it). A change shows as you make it.
-- **Preview**: show the blueprint in the model viewer. A blueprint
+- **Preview**: show the blueprint in the model viewer. An item modeled
+  lying (a sword) is stood up; a helmet and a shield show as worn, a
+  shield from its front. A blueprint
   without a model (a merchant, a sound, a trigger, a waypoint, an
   encounter) shows its fields instead, and a merchant what it sells, page
   by page.

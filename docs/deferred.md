@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T21:13:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T21:05:31Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1161,6 +1161,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Models and textures
 
+- **Heed's previews after 1.33.0** (not reproduced): armor that shows only
+  a head and pelvis (sometimes shoulders) in the preview, and the Drow
+  shields of the standard palette shown as bags in their thumbnails and
+  the palette's hover preview. In the base game they show whole
+  (`item_previews` in `screens.rs`: `nw_aarcl004`, `x2_adrowshl001`), so
+  his haks are the likely cause (a `baseitems.2da` or armor parts of
+  their own); his hak list or a blueprint is needed. (S–M)
 - **A compiled model is known by its first byte** being zero, not its
   first four (troubletcat's report after 1.32.2: a fancy-mapped CTP
   Babylon hak's 587 tile models begin `\0CTP` or `\0OMB`, drawn in the

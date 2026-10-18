@@ -538,6 +538,12 @@ fn follow_selection(app: &mut Moonglow) {
     if selected != app.tree_object {
         app.tree_object = selected;
         app.tree_object_pending = selected.is_some();
+        // The keys' cursor on an object's row (a row clicked) goes to the
+        // one selected now: one row marked, the one selected last, however
+        // it was selected (it stayed marked too, a builder's report).
+        if matches!(app.tree_cursor, Some(TreeAt::Object(..))) {
+            app.tree_cursor = selected.map(|(area, kind, index)| TreeAt::Object(area, kind, index));
+        }
         if let Some((area, ..)) = selected.filter(|_| !app.settings.tree_keeps_areas_closed) {
             app.tree_reveal = Some((area, true));
         }

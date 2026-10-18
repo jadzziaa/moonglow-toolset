@@ -3,7 +3,7 @@ type: Manual Page
 title: NUI Creator
 description: The NUI Creator - designing an Enhanced Edition UI window (JUI) on a canvas with the game's skin and fonts, images, keys, binds, swap layout variants, event handlers, building its scripts, and what the game refuses or does on its own.
 tags: [manual, nui, scripts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T02:40:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T20:54:08Z }
 sources:
   - id: mg-nui
     resource: crates/mg-nui
@@ -331,7 +331,9 @@ one chosen in Options › Script Editor, with debug files (`.ndb`) when Generate
 Debug Information is on. The opener is validated by
 compiling a temporary caller; that caller is never stored in the module.
 It changes the module only if validation and event compilation succeed;
-one Undo reverses the generated set. The event script is rebuilt around its
+one Undo reverses the generated set. Like any edit, it is written to disk
+when the module is saved: in a nasher project, File › Save writes the
+scripts into the project's sources, where its rules put them. The event script is rebuilt around its
 handlers, keeping everything written between their markers. A script changed
 outside the markers is not overwritten: Build says so, and you move that code
 into a section. A script written by hand (with no markers) stays as it is.

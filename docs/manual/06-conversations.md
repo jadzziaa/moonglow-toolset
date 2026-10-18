@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-14T10:00:39Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T20:54:08Z }
 ---
 
 # Conversations
@@ -17,7 +17,9 @@ as Aurora's.
 The conversation is a tree under **Root**: the NPC's lines (red, headed
 `[OWNER]` or the speaker's tag) and the player's replies (blue). A gray
 line is a **link**: it stands for a line elsewhere in the tree, so
-branches can join and loop without copying text. Select a line to edit it
+branches can join and loop without copying text. Double-click a link, or
+right-click it for **Go to Linked**, to go to the line itself (the
+branches above it open out). Select a line to edit it
 below the tree: its **Speaker** (NPC lines: the conversation's owner, or
 a creature in the module by tag) and its **Text** (the **…** button edits
 every language). A line whose text is a talk-table string (as all the
