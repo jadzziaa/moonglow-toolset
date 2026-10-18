@@ -516,7 +516,10 @@ impl Project {
             uncovered.sort();
             let shown: Vec<String> = uncovered
                 .iter()
-                .map(|p| p.strip_prefix(&root).unwrap_or(p).display().to_string())
+                // (With `/`, as nasher.cfg's patterns are written.)
+                .map(|p| {
+                    p.strip_prefix(&root).unwrap_or(p).display().to_string().replace('\\', "/")
+                })
                 .collect();
             let mut kinds: Vec<String> = uncovered
                 .iter()
