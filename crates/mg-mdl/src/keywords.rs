@@ -238,6 +238,18 @@ const REFERENCE: &[&str] = &["refmodel", "reattachable"];
 /// Extra keywords in animation nodes.
 pub const ANIM_NODE: &[&str] = &["endlist", "sampleperiod"];
 
+/// Keywords that tools write and the game's reader does not read
+/// (nwn-mdl-spec MDL-ASCII-070), with the one it reads instead, if any.
+pub const NOT_READ: &[(&str, &str)] = &[
+    ("setfillumcolor", "selfillumcolor"),
+    ("ambient_only", "ambientonly"),
+    ("fading_light", "fadinglight"),
+    ("n_dynamic_type", "ndynamictype"),
+    ("affect_dynamic", "affectdynamic"),
+    ("negativelight", ""),
+    ("lensflares", ""),
+];
+
 /// Whether a (lower-case) keyword means something in a node of this type.
 /// Lists and key lists (`…key`) are checked separately.
 pub fn known_in_node(ty: &str, key: &str) -> bool {

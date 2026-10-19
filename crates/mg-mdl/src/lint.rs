@@ -417,7 +417,11 @@ fn node_line(
         "update" => n.update = w.get(1).map(|s| s.to_ascii_lowercase()),
         "birthrate" => n.birthrate = value().map(|v| (at, v)),
         "period" => n.period = value().map(|v| (at, v)),
-        "parent" => {}
+        "parent" if w[0] != "parent" => l.push(
+            at,
+            Severity::Warning,
+            format!("{}: the game reads parent in lower case only; this node is in no tree", w[0]),
+        ),
         _ => {}
     }
     unknown(l, at, &n.ty, w[0], key);
@@ -428,6 +432,15 @@ fn node_line(
 /// uses it (a typo, most likely), a note if another type does (the game's
 /// own models carry dangly settings on skins, for one).
 fn unknown(l: &mut Lint, at: usize, ty: &str, word: &str, key: &str) {
+    if let Some((_, instead)) = keywords::NOT_READ.iter().find(|(k, _)| *k == key) {
+        let message = if instead.is_empty() {
+            format!("{word}: the game does not read it")
+        } else {
+            format!("{word}: the game does not read it; it reads {instead}")
+        };
+        l.push(at, Severity::Info, message);
+        return;
+    }
     if keywords::known_in_node(ty, key) {
         return;
     }
@@ -596,6 +609,22 @@ donemodel box\n";
         assert!(
             messages(&ee).iter().any(|(_, s, m)| *s == Severity::Info && m.contains("nwnmdlcomp"))
         );
+    }
+
+    /// What tools write and the game does not read is pointed out
+    /// (nwn-mdl-spec MDL-ASCII-070, MDL-ASCII-010).
+    #[test]
+    fn keywords_the_game_does_not_read() {
+        let text = "newmodel t\nbeginmodelgeom t\nnode dummy t\n  parent NULL\nendnode\n\
+                    node trimesh m\n  parent t\n  setfillumcolor 1 1 1\nendnode\n\
+                    node light l\n  PARENT t\n  ambient_only 1\nendnode\n\
+                    endmodelgeom t\ndonemodel t\n";
+        let found = messages(text);
+        let said =
+            |s: &str| found.iter().find(|(_, _, m)| m.contains(s)).map(|(l, sev, _)| (*l, *sev));
+        assert_eq!(said("it reads selfillumcolor"), Some((7, Severity::Info)), "{found:?}");
+        assert_eq!(said("it reads ambientonly"), Some((11, Severity::Info)), "{found:?}");
+        assert_eq!(said("lower case only"), Some((10, Severity::Warning)), "{found:?}");
     }
 
     #[test]

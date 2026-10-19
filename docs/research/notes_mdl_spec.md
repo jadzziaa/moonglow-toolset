@@ -1,22 +1,21 @@
 ---
 type: Research Note
 title: nwn-mdl-spec against Moonglow's model code and notes
-description: Where the shared NWN:EE model specification (nwn-mdl-spec, read on engine build 89.8193.37-17) and its conformance suite disagree with mg-mdl's reader, compiler and decompiler, with the preview's skin binding and with notes_models.md - each finding, the part of Moonglow it affects, and what was done or deferred.
+description: Where the shared NWN:EE model specification (nwn-mdl-spec, read on engine build 89.8193.37-17) and its conformance suite disagreed with mg-mdl's reader, compiler and decompiler, with the preview's skin binding and with notes_models.md - each finding, the part of Moonglow it touched, what was changed (the suite from 27 to 46 of 46 compiles) and what is left.
 tags: [models, mdl, conformance, compiler, skins]
-status: draft
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T20:10:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T20:39:09Z }
 stale_after: 2027-01-19T00:00:00Z
 sources:
   - id: spec
     resource: https://github.com/plenarius/nwn-mdl-spec
-    title: "nwn-mdl-spec: NWN:EE model format (MDL), an evidenced specification and conformance suite (commit ac87e10; text CC-BY 4.0, data CC0)"
+    title: 'nwn-mdl-spec: NWN:EE model format (MDL), an evidenced specification and conformance suite (commit ac87e10; text CC-BY 4.0, data CC0)'
     last_modified: 2026-10-19T19:13:35Z
   - id: run
-    resource: "runner/mdlconf.py run and stock, with the spec's Moonglow adapter built against develop at b727b33 (2026-10-19)"
+    resource: runner/mdlconf.py run and stock, with the spec's Moonglow adapter (its compile given the probe folder's .mtr files through compile_named_with), against develop on 2026-10-19
     title: The conformance suite run on Moonglow
-  - id: notes
-    resource: notes_models.md
-    title: Moonglow's model research notes
+  - id: client
+    resource: placeables_look in crates/mg-corpus-tests/tests/client_render.rs, with MG_OVERRIDE
+    title: The game client, on a panel lit by setfillumcolor and by selfillumcolor
 ---
 
 # nwn-mdl-spec against Moonglow's model code and notes
@@ -32,67 +31,96 @@ and [notes_models.md](notes_models.md).
 
 ## The suite run on Moonglow
 
-Run on 2026-10-19 against `develop` (b727b33, version 1.34.2) with the
-spec's own adapter:[^run] **27 of 46 compiles pass, 44 of 46 decompiles;
-13 of 14 stock models decompile as the spec reads them.** The result is
-line for line the report the spec publishes for Moonglow (`e0ed4c4`, a
-commit not in our history), so that report describes the code as it is.
+| | Compile | Decompile | Stock models |
+| --- | --- | --- | --- |
+| 1.34.2 (as the spec's published report, `e0ed4c4`) | 27 of 46 | 44 of 46 | 13 of 14 |
+| After the changes below | **46 of 46** | **45 of 46** | **14 of 14** |
 
-## What it means for Moonglow
+Run with the spec's runner and adapter;[^run] two of the compiles need the
+probe's `.mtr` files, which the adapter passes once it calls
+`compile_named_with` (the spec's adapter calls `compile_named`, which looks
+up no materials).
 
-Moonglow uses the three parts differently, which decides what each finding
-costs:
+## How Moonglow uses each part
 
-- **The reader** draws every model (areas, previews, the viewer). A rule
-  that changes what a model *is* (a keyword the engine does not read, a
-  default) changes the picture.
-- **The compiler** (`mg_mdl::compile`) makes the binary models that
-  `mg-module` packs into a hak from models kept as text, and Moonglow
-  Viewer's `mgv compile`. What it gets wrong is what the game shows.
+- **The reader** draws every model (areas, previews, the viewer).
+- **The compiler** (`mg_mdl::compile`) makes the binary models that the hak
+  window, Build and `mg pack --compile-models` pack from models kept as
+  text, and Moonglow Viewer's `mgv compile`.
 - **The decompiler** gives the text in the resource browser and
   `mg cat --text`.
 
-### Reader: what Moonglow draws
+## What changed
 
-| Finding | Rule | Moonglow | Effect |
-| --- | --- | --- | --- |
-| `setfillumcolor` (a misspelling in 2,387 stock ASCII files) is not read | MDL-ASCII-070 | read as `selfillumcolor` (`ctrl.rs`), and [notes_models.md](notes_models.md) says to accept both | a model whose only self-illumination is the misspelling glows in Moonglow and not in the game |
-| `ambient_only`, `fading_light`, `negativelight`, `lensflares` are not read | MDL-ASCII-070 | `ambient_only` read as `ambientonly` | an ASCII light so written is ambient-only in Moonglow alone |
-| a light's defaults when absent: `lightpriority` 5, `nDynamicType` 1, `affectdynamic` 1, `shadow` 1, `fadinglight` 1 | zspec_light | 0, 0, 1, 1, 0 | ASCII lights that leave them out |
-| `orientation 0 0 0 a`: a rotation of a about +X (the zero axis normalised to +X) | MDL-ASCII-032 | the identity | rare |
-| `PARENT` (upper case) is not read: the node leaves the tree | MDL-ASCII-031 | read | rare |
-| a vertex with no valid bone is drawn at clip-space 0 (its triangles collapse) | MDL-SKIN-030 | kept in its rest pose | the stock `c_wings2` has 102 such vertices |
-| a body part's skin bones are the **skeleton's tree positions** (depth-first walk), and its bind lists are the skeleton's size | MDL-SKIN-011, -012 | agreed (1.34.1, from the HD bodies); the bone was looked up by part number first, now by the walk | none for `pmh0` (text, no part numbers); a binary skeleton on a supermodel could have differed |
+### The reader (what Moonglow draws)
 
-### Compiler: what a hak built by Moonglow holds
+- **`setfillumcolor` gives no self-illumination** (MDL-ASCII-070). Our
+  notes said to accept it; the game does not read it, seen in the client
+  on a test panel.[^client] 28 meshes of the game's ASCII models glowed in
+  Moonglow alone (the lanterns of `tni01` tiles). The linter notes it.
+- **A light's values when left out** are the game's: priority 5, dynamic
+  type 1, affect dynamic 1, shadow 1, fading 1; `ambient_only`,
+  `fading_light`, `n_dynamic_type` and `affect_dynamic` are not read (the
+  linter notes them). Four of the game's lights have no priority: drawn at
+  the highest in Moonglow before.
+- **`orientation 0 0 0 a`** turns `a` about +X (MDL-ASCII-032); 206 of the
+  game's nodes have such a line, with angles under a millionth.
+- **`parent` is read in lower case only** (MDL-ASCII-010); the linter
+  warns about `PARENT`.
+- **Vertices merge as the game merges them** (MDL-MESH-010, -011): by
+  their values (position, normal, UVs, colour, tangent, a face's
+  `mirrorlist`, a skin's weights, a dangly constraint), not by their
+  index in the text; a walkmesh only through a neighbouring face
+  (MDL-MESH-012). A face left with two corners on one vertex is dropped
+  (MDL-MESH-020), except on a walkmesh, whose tree numbers its faces.
+- **Normals from smoothing groups** as the game computes them
+  (MDL-MESH-031, -032). The game's own ASCII models look the same: the
+  most a picture of the kobold `c_koba` changed was 4 of 255.
+- **Key lists in the geometry** (`alphabezierkey`) are controllers at their
+  first value (MDL-CTRL-023).
+- **A body part's skin bones** are the skeleton's tree positions
+  (MDL-SKIN-011), looked up by the walk, not by part number.
 
-| Finding | Rule | Moonglow | Effect in the game |
-| --- | --- | --- | --- |
-| animmesh animation sets: vertex-major, the animation node's vertex count sizes the copy | MDL-MESH-062, MDL-BIN-045 | written with vertex count 0 | an animated mesh (water) does not animate |
-| AABB walkmesh: vertices merged by adjacency, a tie split on -Z (32) | MDL-MESH-051, -052 | merged globally, ties split on +X (1) | the walkmesh's tree differs from the engine's |
-| normals from smoothing groups (back-to-back faces, group bits) | MDL-MESH-031 | differ | shading |
-| tangents: a seam of mirrored UVs clones its vertex; a material named by `bitmap` or `materialname` gives a normal-mapped hint | MDL-MESH-041, -043 | no clone; `compile_named` has no material lookup (the hak build passes none) | normal-mapped shading |
-| children sorted when a child mesh has `transparencyhint` > 0 | MDL-NODE-012 | file order | draw order of see-through meshes |
-| degenerate faces removed (on AABB too) | MDL-MESH-024 | kept | extra faces |
-| light defaults, `ambient_only`, `setfillumcolor`, a zero orientation axis | as above | as above | as above |
-| mesh `alpha` bezier key written | MDL-CTRL-020 | missing | a fading mesh |
+### The compiler (what a hak built by Moonglow holds)
 
-### Decompiler
+- **Animated meshes animate**: the animation node carries its vertex count
+  (MDL-BIN-045), and every set follows the merged vertices (MDL-MESH-062).
+  Before, an animated mesh compiled by Moonglow did not move in the game.
+- **Walkmesh trees** take the game's planes (MDL-MESH-052: from the
+  children's centres, signed, a tie -Z).
+- **Tangents** as the game makes them (MDL-MESH-043): seams of mirrored UVs
+  get copied vertices; only `NormalAndSpecMapped` and `NormalTangents`
+  ask for them; and a mesh with no hint takes its material's
+  (MDL-MESH-041), from the `.mtr` its `materialname` or `bitmap` names
+  (`compile_named_with`; the hak build finds them among the files, the
+  haks and the game).
+- **Children of see-through meshes** are sorted as the game sorts them
+  (MDL-NODE-012): libstdc++'s `std::sort`, step for step
+  (`mg_mdl::stdsort`), since past 16 children it is not stable.
+
+### The decompiler
+
+- An emitter's bare `detonate` is written (MDL-CTRL-012).
+
+## What is left
 
 | Finding | Rule | Moonglow |
 | --- | --- | --- |
-| an emitter's bare static `detonate` | MDL-CTRL-012 | left out (`vwp_flash_blured`, `zspec_deton`) |
-| animmesh sets over vertices split by their UVs | MDL-MESH-062 | one set fewer per frame (`zspec_animtv`) |
-| a body part's skin bones named from the skeleton it is bound to | MDL-SKIN-040 | not checked here |
+| an animated mesh's frames over vertices split by their UVs (`zspec_animtv`) | MDL-MESH-062 | written over the welded vertices: the game reads them back to the same frames, the suite compares the text |
+| a node whose `parent` line is missing or not read is in no tree | MDL-ASCII-031 | hangs from the root (only `c_quiver`'s malformed `node pos=[…]` lines in the game's models) |
+| a vertex with no valid bone collapses to clip-space 0 | MDL-SKIN-030 | kept in its rest pose (the stock `c_wings2` has 102) |
+| face records' normals and adjacency over the source faces after a deletion | MDL-MESH-021, -022 | from the faces kept (SHOULD; nothing seen in game) |
+| a body part's skin bones named from its skeleton when decompiled | MDL-SKIN-040 | not checked |
+| the suite in our own tests | | its probes and goldens are CC0 and could run in the corpus tests |
 
-## Where it agrees with us
+## Where it agreed with us from the start
 
-Controller ids and columns, node numbering against a supermodel (the name
-walk, nodes it lacks, the node count), classification bytes, number
-reading, aabb render and shadow defaults, mesh material defaults, bezier
-column bytes and the three-stop emitter values: Moonglow passes these, and
-several of the spec's rules cite our notes (B.2, B.8, B.19, B.22c) and the
-Viewer's in-game checks.
+Controller ids and columns, node numbering against a supermodel,
+classification bytes, number reading, aabb render and shadow defaults,
+mesh material defaults, bezier column bytes and the three-stop emitter
+values; several of the spec's rules cite our notes (B.2, B.8, B.19, B.22c)
+and the Viewer's in-game checks.
 
 [^spec]: nwn-mdl-spec: NWN:EE model format (MDL), an evidenced specification and conformance suite (commit ac87e10; text CC-BY 4.0, data CC0)
 [^run]: The conformance suite run on Moonglow
+[^client]: The game client, on a panel lit by setfillumcolor and by selfillumcolor

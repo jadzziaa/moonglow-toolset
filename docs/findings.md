@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:48:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T20:39:09Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -610,6 +610,24 @@ its own part is not drawn at all (`mg_preview::compose::without_skins`).
   and different from the stock parts'; in Moonglow,
   `a_body_part_bound_to_the_skeleton_follows_its_bones` (a part made so
   by hand).
+
+### `setfillumcolor` is not self-illumination
+
+2,365 meshes of the game's own ASCII models carry `setfillumcolor`, a
+misspelling of `selfillumcolor` that nwnmdlcomp compiled and our notes
+said to accept. The game does not read it: an armoire's model replaced
+(in a scratch override) by a grey panel whose only glow is
+`setfillumcolor 1 0 0` is drawn dark in the client, and the same panel
+with `selfillumcolor 1 0 0` red (`placeables_look` with `MG_OVERRIDE`,
+2026-10-19). nwn-mdl-spec finds the same in the engine's compile of its
+probe `zspec_setfill` (MDL-ASCII-070). Of the game's models, 28 meshes
+glow by the misspelling alone, most of them lanterns of `tni01` tiles;
+Moonglow drew them lit until 1.34.4, and its reader now gives the word no
+meaning (the linter notes it; the decompiler still writes it, for
+nwnmdlcomp, before `selfillumcolor`).
+
+- **Checked:** by eye, in the client's pictures beside Moonglow's
+  (2026-10-19).
 
 ### A part-based creature with no body part fields
 

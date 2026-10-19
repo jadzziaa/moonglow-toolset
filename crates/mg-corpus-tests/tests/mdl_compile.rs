@@ -275,6 +275,7 @@ fn decompiled_models_compile_back() {
             let sources = mg_mdl::compile::Sources {
                 supermodel: sup.as_ref().map(|(m, p)| (m, p)),
                 existing: Some((&model, &numbers)),
+                materials: None,
             };
             let out = match mg_mdl::compile::compile(text.as_bytes(), &sources) {
                 Ok(c) => c,

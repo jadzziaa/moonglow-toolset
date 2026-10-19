@@ -264,10 +264,39 @@ fn mesh(
     check!(b.textures == a.textures, "{at}: textures {:?} vs {:?}", b.textures, a.textures);
     check!(b.material == a.material && b.renderhint == a.renderhint, "{at}: material");
     // Faces whose corners the binary model has (others are dropped by
-    // readers, and the ASCII reader drops them too).
+    // readers, and the ASCII reader drops them too), and not two of them
+    // one vertex by its values: the game's older compiler kept such faces
+    // (two vertices alike, not merged), and the game's own merge, which
+    // the ASCII reader follows, makes them one and drops the face
+    // (nwn-mdl-spec MDL-MESH-010, -020). They have no area.
     let n = b.vertices.len();
-    let faces: Vec<_> =
-        b.faces.iter().filter(|f| f.vertices.iter().all(|&v| (v as usize) < n)).collect();
+    let flat = |x: f32| if x == 0.0 { 0 } else { x.to_bits() };
+    let value = |v: u32| {
+        let v = v as usize;
+        let uvs: Vec<u32> =
+            b.uvs.iter().filter_map(|s| s.get(v)).flatten().map(|&x| flat(x)).collect();
+        let tangent = b.tangents.get(v).map(|t| t.map(flat));
+        (
+            b.vertices[v].map(flat),
+            b.normals.get(v).map(|n| n.map(flat)),
+            uvs,
+            b.colors.get(v),
+            tangent,
+        )
+    };
+    let faces: Vec<_> = b
+        .faces
+        .iter()
+        .filter(|f| f.vertices.iter().all(|&v| (v as usize) < n))
+        .filter(|f| {
+            // (A walkmesh keeps them: its tree names faces by number.)
+            if matches!(b.extra, MeshExtra::Aabb(_)) {
+                return true;
+            }
+            let [x, y, z] = f.vertices.map(value);
+            x != y && y != z && x != z
+        })
+        .collect();
     check!(faces.len() == a.faces.len(), "{at}: {} faces vs {}", faces.len(), a.faces.len());
     if faces.len() != a.faces.len() {
         return;

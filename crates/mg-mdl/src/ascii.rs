@@ -20,7 +20,7 @@ use crate::ctrl::{self, flags};
 use crate::{
     AabbEntry, AnimMesh, AnimMeshSets, AnimNode, Animation, Classification, Controller, Dangly,
     EMITTER_FLAGS, Emitter, Face, Light, MdlError, Mesh, MeshExtra, Model, Node, NodeKind,
-    Reference, Skin, Vec2, Vec3, axis_angle, face_normal, normalize,
+    Reference, Skin, Vec2, Vec3, axis_angle, engine_normalize, face_normal,
 };
 
 /// Where things are in an ASCII model's text: line numbers from 1 (0: not
@@ -155,6 +155,7 @@ const LISTS: &[&str] = &[
     "texindices1",
     "texindices2",
     "texindices3",
+    "mirrorlist",
 ];
 
 /// Lists whose lines start with a name, not a number (counts are trusted).
@@ -238,7 +239,10 @@ fn node_block<'a>(
                 n.span.end = ls[i - 1].number;
                 break;
             }
-            "parent" => n.parent = l.words.get(1).map(|w| w.to_string()),
+            // (Read in lower case only, as the game reads it: a node whose
+            // `PARENT` it skips is in no tree. nwn-mdl-spec MDL-ASCII-010.)
+            "parent" if l.words[0] == "parent" => n.parent = l.words.get(1).map(|w| w.to_string()),
+            "parent" => {}
             "aabb" => {
                 let mut row: Vec<f32> =
                     l.words[1..].iter().filter_map(|w| w.parse().ok()).collect();
@@ -447,47 +451,122 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh, notes: &mut Vec<Note>) {
             ),
         );
     }
-    // Normals per corner: from the file, else from smoothing groups
-    // (area-weighted face normals of the faces sharing a group).
-    let face_normals: Vec<Vec3> =
+    // Normals per corner: from the file, else from the smoothing groups as
+    // the game computes them (nwn-mdl-spec MDL-MESH-031): a corner takes
+    // the normal of an earlier face at its vertex that shares a group bit
+    // and does not face away; else the area-weighted sum of its face's
+    // and the later faces' that share a bit, made unit as the game does
+    // (MDL-MESH-032). Group 0 joins no other face.
+    let area: Vec<Vec3> =
         faces.iter().map(|f| face_normal(verts[f.v[0]], verts[f.v[1]], verts[f.v[2]])).collect();
+    let unit: Vec<Vec3> = area.iter().map(|&n| engine_normalize(n)).collect();
+    let given = file_normals.len() >= verts.len();
     let mut at_vertex: Vec<Vec<usize>> = vec![Vec::new(); verts.len()];
-    if file_normals.len() < verts.len() {
+    if !given {
         for (fi, f) in faces.iter().enumerate() {
             for &v in &f.v {
-                at_vertex[v].push(fi);
-            }
-        }
-    }
-    let corner_normal = |fi: usize, v: usize| -> Vec3 {
-        if let Some(n) = file_normals.get(v).filter(|_| file_normals.len() >= verts.len()) {
-            return *n;
-        }
-        let f = &faces[fi];
-        if f.smooth == 0 {
-            return normalize(face_normals[fi]);
-        }
-        let mut sum = [0.0f32; 3];
-        for &g in &at_vertex[v] {
-            if g == fi || faces[g].smooth & f.smooth != 0 {
-                for k in 0..3 {
-                    sum[k] += face_normals[g][k];
+                if at_vertex[v].last() != Some(&fi) && !at_vertex[v].contains(&fi) {
+                    at_vertex[v].push(fi);
                 }
             }
         }
-        normalize(sum)
-    };
-    let mut index: HashMap<(usize, usize, [u32; 3]), u32> = HashMap::new();
+    }
+    let mut normals: Vec<[Vec3; 3]> = Vec::with_capacity(faces.len());
     for (fi, f) in faces.iter().enumerate() {
+        let mut corner = [[0.0f32; 3]; 3];
+        for (c, n) in corner.iter_mut().enumerate() {
+            let v = f.v[c];
+            if given {
+                *n = file_normals[v];
+                continue;
+            }
+            let shares = |g: usize| faces[g].smooth & f.smooth != 0;
+            let earlier = at_vertex[v].iter().filter(|&&g| g < fi && shares(g)).find_map(|&g| {
+                let k = faces[g].v.iter().position(|&x| x == v)?;
+                let n = normals[g][k];
+                let d = unit[fi][0] * n[0] + unit[fi][1] * n[1] + unit[fi][2] * n[2];
+                (d >= -0.99).then_some(n)
+            });
+            *n = earlier.unwrap_or_else(|| {
+                let mut sum = area[fi];
+                for &g in at_vertex[v].iter().filter(|&&g| g > fi && shares(g)) {
+                    for k in 0..3 {
+                        sum[k] += area[g][k];
+                    }
+                }
+                if sum == [0.0; 3] { unit[fi] } else { engine_normalize(sum) }
+            });
+        }
+        normals.push(corner);
+    }
+    // Vertices: a corner is a vertex of its values, as the game merges
+    // them (MDL-MESH-010, -011): position, normal, the UV sets, colour,
+    // tangent, and a skin's weights, a dangly mesh's constraint (an
+    // animated mesh's frames: by its source vertex), compared exactly
+    // (-0 is 0). Each joins the first equal one before it. A walkmesh
+    // merges only through an earlier face with two corners equal to its
+    // own (MDL-MESH-012).
+    let flat = |x: f32| if x == 0.0 { 0 } else { x.to_bits() };
+    let weights = raw.list("weights");
+    let constraints = raw.list("constraints");
+    let extra = |v: usize| -> String {
+        match raw.ty.as_str() {
+            "skin" => weights.get(v).map(|r| r.join(" ").to_ascii_lowercase()).unwrap_or_default(),
+            "danglymesh" => constraints
+                .get(v)
+                .and_then(|r| r.first())
+                .map(|w| w.to_string())
+                .unwrap_or_default(),
+            "animmesh" => v.to_string(),
+            _ => String::new(),
+        }
+    };
+    // (A face's `mirrorlist` value, its low byte, is a vertex's too.)
+    let mirror: Vec<u8> = raw
+        .list("mirrorlist")
+        .iter()
+        .map(|r| r.first().and_then(|w| w.parse::<i64>().ok()).unwrap_or(0) as u8)
+        .collect();
+    type Key = (u8, [u32; 3], [u32; 3], Vec<u32>, Option<[u8; 4]>, Option<[u32; 4]>, String);
+    let key = |fi: usize, v: usize, t: usize, n: Vec3| -> Key {
+        let uvs: Vec<u32> = tverts
+            .iter()
+            .filter(|l| !l.is_empty())
+            .flat_map(|l| l.get(t).copied().unwrap_or([0.0, 0.0]))
+            .map(flat)
+            .collect();
+        let tangent = (tangents.len() >= verts.len()).then(|| tangents[v].map(flat));
+        let color = (!colors.is_empty()).then(|| colors.get(v).copied().unwrap_or([255; 4]));
+        let mirrored = mirror.get(fi).copied().unwrap_or(0);
+        (mirrored, verts[v].map(flat), n.map(flat), uvs, color, tangent, extra(v))
+    };
+    let walkmesh = raw.ty == "aabb";
+    let mut index: HashMap<Key, u32> = HashMap::new();
+    let mut face_keys: Vec<[Key; 3]> = Vec::with_capacity(faces.len());
+    for (fi, f) in faces.iter().enumerate() {
+        let keys: [Key; 3] = std::array::from_fn(|c| key(fi, f.v[c], f.t[c], normals[fi][c]));
         let mut out = [0u32; 3];
-        for (c, slot) in out.iter_mut().enumerate() {
+        // (A walkmesh's: the vertices of the first earlier face with two
+        // corners equal to this one's.)
+        let beside = walkmesh
+            .then(|| {
+                (0..fi).find(|&g| face_keys[g].iter().filter(|k| keys.contains(k)).count() >= 2)
+            })
+            .flatten();
+        for c in 0..3 {
             let (v, t) = (f.v[c], f.t[c]);
-            let n = corner_normal(fi, v);
-            let key = (v, t, n.map(f32::to_bits));
-            *slot = *index.entry(key).or_insert_with(|| {
+            let found = if walkmesh {
+                beside.and_then(|g| {
+                    let k = face_keys[g].iter().position(|k| *k == keys[c])?;
+                    Some(m.faces[g].vertices[k])
+                })
+            } else {
+                index.get(&keys[c]).copied()
+            };
+            out[c] = found.unwrap_or_else(|| {
                 let i = m.vertices.len() as u32;
                 m.vertices.push(verts[v]);
-                m.normals.push(n);
+                m.normals.push(normals[fi][c]);
                 for (set, list) in tverts.iter().enumerate() {
                     if !list.is_empty() {
                         m.uvs[set].push(list.get(t).copied().unwrap_or([0.0, 0.0]));
@@ -501,10 +580,24 @@ fn build_mesh(raw: &RawNode<'_>, m: &mut Mesh, notes: &mut Vec<Note>) {
                 }
                 m.source.push(v as u32);
                 m.source_uv.push(t as u32);
+                if !walkmesh {
+                    index.insert(keys[c].clone(), i);
+                }
                 i
             });
         }
         m.faces.push(Face { vertices: out, material: f.material });
+        face_keys.push(keys);
+    }
+    // A face with two corners on one vertex is left out, last to first;
+    // its vertices stay (MDL-MESH-020). Not on a walkmesh, whose tree
+    // names its faces by number (the game leaves them, its tree then
+    // pointing a face too far: MDL-MESH-024).
+    if !walkmesh {
+        m.faces.retain(|f| {
+            let [a, b, c] = f.vertices;
+            a != b && b != c && a != c
+        });
     }
 }
 
@@ -527,18 +620,17 @@ fn geometry_node(raw: &RawNode<'_>, notes: &mut Vec<Note>) -> Node {
                     .iter()
                     .filter_map(|r| r.first().map(|w| w.to_ascii_lowercase()))
                     .collect(),
-                priority: int(p("lightpriority").and_then(|v| v.first())),
-                ambient_only: flag(p("ambientonly").or(p("ambient_only")).and_then(|v| v.first())),
-                dynamic_type: int(p("ndynamictype")
-                    .or(p("n_dynamic_type"))
-                    .or(p("isdynamic"))
-                    .and_then(|v| v.first())),
-                affect_dynamic: p("affectdynamic")
-                    .or(p("affect_dynamic"))
-                    .is_none_or(|v| flag(v.first())),
+                // (What the game reads, with its values for what is left
+                // out: nwn-mdl-spec's zspec_light. It reads no
+                // `ambient_only`, `fading_light`, `n_dynamic_type` or
+                // `affect_dynamic`, which tools have written.)
+                priority: p("lightpriority").map_or(5, |v| int(v.first())),
+                ambient_only: flag(p("ambientonly").and_then(|v| v.first())),
+                dynamic_type: p("ndynamictype").or(p("isdynamic")).map_or(1, |v| int(v.first())),
+                affect_dynamic: p("affectdynamic").is_none_or(|v| flag(v.first())),
                 shadow: p("shadow").is_none_or(|v| flag(v.first())),
                 generate_flare: flag(p("generateflare").and_then(|v| v.first())),
-                fading: flag(p("fadinglight").or(p("fading_light")).and_then(|v| v.first())),
+                fading: p("fadinglight").is_none_or(|v| flag(v.first())),
             })
         }
         "emitter" => {
@@ -662,6 +754,21 @@ fn geometry_node(raw: &RawNode<'_>, notes: &mut Vec<Note>) -> Node {
         let name = ctrl::canonical(k);
         node.controllers.retain(|c| c.name != name);
         node.controllers.push(Controller::constant(name, &values[..values.len().min(cols)]));
+    }
+    // And key lists in the geometry (`alphabezierkey`): the game keeps
+    // them, and at time 0, where it evaluates them, they are their first
+    // value (nwn-mdl-spec MDL-CTRL-023). A single value of the same
+    // keyword stands.
+    for k in &raw.keys {
+        let name = ctrl::canonical(&k.name);
+        let transform = matches!(name, "position" | "orientation" | "scale");
+        if transform
+            || ctrl::columns(node_flags, name).is_none()
+            || node.controllers.iter().any(|c| c.name == name)
+        {
+            continue;
+        }
+        node.controllers.push(key_controller(name, &k.rows, k.bezier));
     }
     node
 }
@@ -1121,7 +1228,9 @@ donemodel test
         let plane = &m.nodes[1];
         assert_eq!(plane.position, [1.0, 2.0, 3.0]);
         assert!((plane.orientation[2] - 1.0).abs() < 1e-6);
-        assert_eq!(plane.value("selfillumcolor"), Some(&[0.1, 0.2, 0.3][..]));
+        // (`setfillumcolor`, a misspelling, means nothing to the game:
+        // nwn-mdl-spec's zspec_setfill.)
+        assert_eq!(plane.value("selfillumcolor"), None);
         let mesh = plane.mesh().unwrap();
         assert_eq!(mesh.textures[0].as_deref(), Some("tex01"));
         assert_eq!(mesh.diffuse, [0.5, 0.5, 0.5]);
@@ -1215,6 +1324,37 @@ donemodel test
             m.animations[0].nodes[0].controllers.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["selfillumcolor"]);
         assert_eq!(m.animations[0].nodes[0].controllers[0].times.len(), 2);
+    }
+
+    /// A light reads as the game reads it (nwn-mdl-spec's zspec_light):
+    /// its values for what is left out, and none of the spellings tools
+    /// have written that it does not read; a node whose `parent` is in
+    /// capitals is in no tree, as the game skips the line.
+    #[test]
+    fn lights_and_parents_read_as_the_game_reads_them() {
+        let mdl = "newmodel t\nbeginmodelgeom t\nnode dummy t\n  parent NULL\nendnode\n\
+                   node light bare\n  parent t\nendnode\n\
+                   node light spelt\n  parent t\n  ambient_only 1\n  fading_light 0\n\
+                   n_dynamic_type 0\n  affect_dynamic 0\nendnode\n\
+                   node light given\n  parent t\n  ambientonly 1\n  fadinglight 0\n\
+                   ndynamictype 0\n  lightpriority 2\nendnode\n\
+                   node dummy caps\n  PARENT bare\nendnode\nendmodelgeom t\ndonemodel t\n";
+        let m = read(mdl.as_bytes()).unwrap();
+        let light = |name: &str| match &m.nodes.iter().find(|n| n.name == name).unwrap().kind {
+            NodeKind::Light(l) => l.clone(),
+            _ => panic!("{name} is a light"),
+        };
+        for name in ["bare", "spelt"] {
+            let l = light(name);
+            let read = (l.priority, l.ambient_only, l.dynamic_type, l.affect_dynamic, l.fading);
+            assert_eq!(read, (5, false, 1, true, true), "{name}");
+        }
+        let l = light("given");
+        assert_eq!((l.priority, l.ambient_only, l.dynamic_type, l.fading), (2, true, 0, false));
+        // (`PARENT`: no parent read, so not under `bare`.)
+        let caps = m.nodes.iter().position(|n| n.name == "caps").unwrap();
+        let bare = m.nodes.iter().position(|n| n.name == "bare").unwrap();
+        assert_ne!(m.nodes[caps].parent, Some(bare));
     }
 
     #[test]

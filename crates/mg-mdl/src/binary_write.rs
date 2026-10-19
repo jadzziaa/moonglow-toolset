@@ -702,15 +702,33 @@ impl Writer<'_> {
             d.vec3(at + 12, e.max);
             d.u32(at + 0x20, e.face as u32);
             if e.face < 0 {
+                let first = *next;
                 let left = place(d, entries, next);
                 d.u32(at + 0x18, left as u32);
+                let second = *next;
                 let right = place(d, entries, next);
                 d.u32(at + 0x1C, right as u32);
-                // The plane that parts its children: the box's longest
-                // side.
-                let size = sub(e.max, e.min);
-                let axis = (0..3).fold(0, |a, k| if size[k] > size[a] { k } else { a });
-                d.u32(at + 0x24, 1 << axis);
+                // The plane that parts its children, as the game adds it
+                // (nwn-mdl-spec MDL-MESH-052): the axis along which their
+                // boxes' centres lie farthest apart (x only if strictly,
+                // then y over z), negative (8, 16, 32) where the right one
+                // lies lower; a tie is -Z.
+                let centre = |i: usize| {
+                    entries
+                        .get(i)
+                        .map_or([0.0; 3], |c| [0, 1, 2].map(|k| (c.min[k] + c.max[k]) * 0.5))
+                };
+                let d3 = sub(centre(second), centre(first));
+                let a = d3.map(f32::abs);
+                let axis = if a[0] > a[1] && a[0] > a[2] {
+                    0
+                } else if a[1] > a[2] {
+                    1
+                } else {
+                    2
+                };
+                let flag = if d3[axis] > 0.0 { 1u32 << axis } else { 8u32 << axis };
+                d.u32(at + 0x24, flag);
             }
             at
         }
@@ -906,13 +924,10 @@ impl Writer<'_> {
             if count > usize::from(u16::MAX) {
                 return Err(CompileError::TooManyVertices { node: node.name.clone(), count });
             }
-            // The model's mesh of this name says how many vertices a set
-            // has; an animation's own count is for one it does not.
-            let models =
-                own.and_then(|i| self.model.nodes[i].mesh()).map_or(0, |m| m.vertices.len());
-            if models != count {
-                d.u16(at + 0x230, count as u16);
-            }
+            // The animation node's own count sizes the sets: the game
+            // copies count × sets entries by it, and with none it animates
+            // nothing (nwn-mdl-spec MDL-BIN-045, its probe zspec_animmesh).
+            d.u16(at + 0x230, count as u16);
             d.f32(at + 0x270, sets.sample_period);
             // Vertex-major: a vertex's value in each set, then the next's.
             let (vsets, tsets) = (sets.vertex_sets.len(), sets.uv_sets.len());

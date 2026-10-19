@@ -1081,8 +1081,10 @@ fn run(cli: &Cli) -> Result<Output> {
                 let mut models = Vec::new();
                 for p in paths.iter().filter(|p| p.is_file()) {
                     let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                    // (Materials too: a mesh with no render hint takes its
+                    // material's.)
                     if let Ok(key) = resource_key(name)
-                        && key.restype == mg_core::ResType::MDL
+                        && matches!(key.restype, mg_core::ResType::MDL | mg_core::ResType::MTR)
                     {
                         models.push((key, std::fs::read(p)?));
                     }
@@ -1090,9 +1092,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 let files: Vec<(ResKey, &[u8])> =
                     models.iter().map(|(k, d)| (*k, d.as_slice())).collect();
                 let game = install(cli).ok().and_then(|gi| ResMan::for_game(&gi).ok());
-                let lookup = |name: &str| {
+                let lookup = |name: &str, t: mg_core::ResType| {
                     let rm = game.as_ref()?;
-                    rm.get_named(name, mg_core::ResType::MDL).ok().map(|d| d.into_owned())
+                    rm.get_named(name, t).ok().map(|d| d.into_owned())
                 };
                 for c in mg_module::models::compile_models(&files, &lookup) {
                     match c.result {

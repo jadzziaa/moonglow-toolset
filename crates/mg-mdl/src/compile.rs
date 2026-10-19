@@ -10,6 +10,8 @@
 //! part numbers, by the order of the text and from the model's compiled
 //! version where there is one.
 
+use std::collections::HashMap;
+
 use crate::ctrl::flags;
 use crate::{AabbEntry, Mesh, MeshExtra, Model, NodeKind, Vec3};
 use thiserror::Error;
@@ -38,6 +40,28 @@ pub struct Sources<'a> {
     /// The compiled model of its own name, where it was compiled before:
     /// its nodes keep the numbers they have there.
     pub existing: Option<(&'a Model, &'a PartNumbers)>,
+    /// Materials (`.mtr`) by name, where the game would find them: a mesh
+    /// with no render hint takes its material's for its tangents.
+    pub materials: Option<Materials<'a>>,
+}
+
+/// Finds a material (`.mtr`) by name: its file.
+#[derive(Clone, Copy)]
+pub struct Materials<'a>(pub &'a dyn Fn(&str) -> Option<Vec<u8>>);
+
+impl std::fmt::Debug for Materials<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Materials")
+    }
+}
+
+/// A material's render hint (`renderhint`), lower case.
+fn material_hint(mtr: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(mtr).lines().find_map(|l| {
+        let mut w = l.split_whitespace();
+        w.next().filter(|k| k.eq_ignore_ascii_case("renderhint"))?;
+        w.next().map(str::to_ascii_lowercase)
+    })
 }
 
 /// A compiled model and what the compiler has to say about it.
@@ -106,6 +130,110 @@ pub fn tangents(mesh: &Mesh) -> Vec<[f32; 4]> {
             [t[0], t[1], t[2], sign]
         })
         .collect()
+}
+
+/// A mesh's tangents as the game's compiler makes them (nwn-mdl-spec
+/// MDL-MESH-043), from its first UV set, triangle by triangle in the index
+/// list: each adds its tangent to its corners' vertices, the first to
+/// reach a vertex giving its handedness; one of the other handedness
+/// takes a copy of the vertex instead (once per vertex and handedness;
+/// an animated mesh's vertex is overwritten), its corner in the index list
+/// rewritten, the faces left. Then each is made square to the normal and
+/// unit. A triangle flat in UV adds its normals' mean, turned (y, z, x).
+fn engine_tangents(mesh: &mut Mesh) {
+    let count = mesh.vertices.len();
+    if mesh.uvs[0].len() != count || mesh.normals.len() != count {
+        return;
+    }
+    let animated = matches!(mesh.extra, MeshExtra::Anim(_));
+    let mut tris: Vec<[u32; 3]> = mesh.triangles().collect();
+    let mut tan: Vec<Vec3> = vec![[0.0; 3]; count];
+    let mut hand: Vec<f32> = vec![0.0; count];
+    let mut copies: HashMap<(u32, i8), u32> = HashMap::new();
+    let mut cloned = false;
+    for tri in &mut tris {
+        let [a, b, c] = tri.map(|v| v as usize);
+        if a >= mesh.vertices.len() || b >= mesh.vertices.len() || c >= mesh.vertices.len() {
+            continue;
+        }
+        let (p, uv) = (&mesh.vertices, &mesh.uvs[0]);
+        let (e1, e2) = (sub(p[b], p[a]), sub(p[c], p[a]));
+        let (du1, dv1) = (uv[b][0] - uv[a][0], uv[b][1] - uv[a][1]);
+        let (du2, dv2) = (uv[c][0] - uv[a][0], uv[c][1] - uv[a][1]);
+        let det = du1 * dv2 - du2 * dv1;
+        let (t, w): (Vec3, f32) = if det != 0.0 {
+            (
+                std::array::from_fn(|k| (dv2 * e1[k] - dv1 * e2[k]) / det),
+                if det >= 0.0 { 1.0 } else { -1.0 },
+            )
+        } else {
+            let n = &mesh.normals;
+            let mean: Vec3 = std::array::from_fn(|k| (n[a][k] + n[b][k] + n[c][k]) / 3.0);
+            ([mean[1], mean[2], mean[0]], 1.0)
+        };
+        for corner in tri.iter_mut() {
+            let mut v = *corner as usize;
+            if hand[v] == 0.0 {
+                hand[v] = w;
+            } else if hand[v] != w {
+                if animated {
+                    hand[v] = w;
+                } else {
+                    let key = (*corner, w as i8);
+                    let copy = match copies.get(&key) {
+                        Some(&i) => i as usize,
+                        None => {
+                            let i = clone_vertex(mesh, v);
+                            tan.push([0.0; 3]);
+                            hand.push(w);
+                            copies.insert(key, i as u32);
+                            i
+                        }
+                    };
+                    *corner = copy as u32;
+                    v = copy;
+                    cloned = true;
+                }
+            }
+            for k in 0..3 {
+                tan[v][k] += t[k];
+            }
+        }
+    }
+    mesh.tangents = (0..mesh.vertices.len())
+        .map(|v| {
+            let n = mesh.normals[v];
+            let d = dot(n, tan[v]);
+            let t = crate::engine_normalize(std::array::from_fn(|k| tan[v][k] - n[k] * d));
+            [t[0], t[1], t[2], hand[v]]
+        })
+        .collect();
+    if cloned {
+        mesh.drawn = tris;
+    }
+}
+
+/// Appends a copy of vertex `v` of every per-vertex stream; its index.
+fn clone_vertex(mesh: &mut Mesh, v: usize) -> usize {
+    fn copy<T: Clone>(list: &mut Vec<T>, v: usize) {
+        if let Some(x) = list.get(v).cloned() {
+            list.push(x);
+        }
+    }
+    copy(&mut mesh.vertices, v);
+    copy(&mut mesh.normals, v);
+    for set in &mut mesh.uvs {
+        copy(set, v);
+    }
+    copy(&mut mesh.colors, v);
+    copy(&mut mesh.source, v);
+    copy(&mut mesh.source_uv, v);
+    match &mut mesh.extra {
+        MeshExtra::Skin(s) => copy(&mut s.weights, v),
+        MeshExtra::Dangly(d) => copy(&mut d.constraints, v),
+        _ => {}
+    }
+    mesh.vertices.len() - 1
 }
 
 /// A walkmesh's tree over its faces, as entries in pre-order: each box
@@ -273,10 +401,30 @@ pub fn compile(text: &[u8], sources: &Sources<'_>) -> Result<Compiled, CompileEr
                 skin.inverse_bind = inverse_binds(&rest, i);
             }
         }
-        // A render hint wants tangents: the text's, else made here.
-        let hinted = mesh.renderhint.as_deref().is_some_and(|h| !h.eq_ignore_ascii_case("none"));
+        // A normal-mapped render hint wants tangents: the text's, else
+        // made here as the game makes them. Only `NormalAndSpecMapped`
+        // and `NormalTangents` (any case); another word, none
+        // (nwn-mdl-spec MDL-MESH-040, -042). A mesh with no hint takes
+        // its material's: the one `materialname` names, else `bitmap`
+        // (MDL-MESH-041); its own hint stays unsaid.
+        let found = || {
+            let find = sources.materials?;
+            [mesh.material.as_deref(), mesh.textures[0].as_deref()]
+                .into_iter()
+                .flatten()
+                .find_map(|n| (find.0)(n))
+                .and_then(|m| material_hint(&m))
+        };
+        let hint = match mesh.renderhint.clone() {
+            Some(h) => Some(h),
+            None => found(),
+        };
+        let hinted = hint.as_deref().is_some_and(|h| {
+            h.eq_ignore_ascii_case("normalandspecmapped")
+                || h.eq_ignore_ascii_case("normaltangents")
+        });
         if hinted && mesh.tangents.is_empty() && !mesh.vertices.is_empty() {
-            mesh.tangents = tangents(mesh);
+            engine_tangents(mesh);
         }
         if !hinted {
             mesh.tangents.clear();
@@ -332,18 +480,43 @@ pub fn compile(text: &[u8], sources: &Sources<'_>) -> Result<Compiled, CompileEr
             else {
                 continue;
             };
-            let count = source.len();
+            // (A set read from text follows the source `verts` and
+            // `tverts`; each merged vertex takes its source's entries,
+            // nwn-mdl-spec MDL-MESH-062. A set as long as the merged list
+            // is no exception: zspec_animtv's five tverts merge into five
+            // vertices in another order.)
             for set in &mut sets.vertex_sets {
-                if set.len() != count && source.iter().all(|&v| (v as usize) < set.len()) {
+                if source.iter().all(|&v| (v as usize) < set.len()) {
                     *set = source.iter().map(|&v| set[v as usize]).collect();
                 }
             }
             for set in &mut sets.uv_sets {
-                if set.len() != count && source_uv.iter().all(|&v| (v as usize) < set.len()) {
+                if source_uv.iter().all(|&v| (v as usize) < set.len()) {
                     *set = source_uv.iter().map(|&v| set[v as usize]).collect();
                 }
             }
         }
+    }
+
+    // A node with a see-through child mesh has its children sorted, as
+    // the game's compiler sorts them (after numbering, which keeps the
+    // text's order): every child that is not a mesh first, then the
+    // meshes by transparency hint, by libstdc++'s `std::sort`
+    // (nwn-mdl-spec MDL-NODE-012). Not an animation's tree.
+    let hint = |m: &Model, i: usize| m.nodes[i].mesh().map(|x| x.transparency_hint as i32);
+    for i in 0..model.nodes.len() {
+        let children = model.nodes[i].children.clone();
+        if !children.iter().any(|&c| hint(&model, c).is_some_and(|h| h > 0)) {
+            continue;
+        }
+        let mut sorted = children;
+        let m = &model;
+        crate::stdsort::sort(&mut sorted, &|&a, &b| match (hint(m, a), hint(m, b)) {
+            (None, Some(_)) => true,
+            (Some(x), Some(y)) => x < y,
+            _ => false,
+        });
+        model.nodes[i].children = sorted;
     }
 
     // Numbered in the order of the text.
@@ -364,7 +537,7 @@ fn numbered(
 ) -> Option<(Model, PartNumbers)> {
     let data = lookup(name)?;
     if !crate::is_binary(&data) && depth < 16 {
-        if let Ok(c) = compile_named_at(&data, name, lookup, &|_| None, depth + 1) {
+        if let Ok(c) = compile_named_at(&data, name, lookup, &|_| None, None, depth + 1) {
             return Some((Model::read(&c.binary).ok()?, PartNumbers::read(&c.binary)?));
         }
         let model = Model::read(&data).ok()?;
@@ -379,6 +552,7 @@ fn compile_named_at(
     name: &str,
     lookup: &dyn Fn(&str) -> Option<Vec<u8>>,
     compiled_before: &dyn Fn(&str) -> Option<Vec<u8>>,
+    materials: Option<Materials<'_>>,
     depth: usize,
 ) -> Result<Compiled, CompileError> {
     if crate::is_binary(text) {
@@ -394,6 +568,7 @@ fn compile_named_at(
     let sources = Sources {
         supermodel: supermodel.as_ref().map(|(m, p)| (m, p)),
         existing: existing.as_ref().map(|(m, p)| (m, p)),
+        materials,
     };
     compile(text, &sources)
 }
@@ -409,7 +584,19 @@ pub fn compile_named(
     lookup: &dyn Fn(&str) -> Option<Vec<u8>>,
     compiled_before: &dyn Fn(&str) -> Option<Vec<u8>>,
 ) -> Result<Compiled, CompileError> {
-    compile_named_at(text, name, lookup, compiled_before, 0)
+    compile_named_at(text, name, lookup, compiled_before, None, 0)
+}
+
+/// [`compile_named`] with `materials` (`.mtr` files by name, where the game
+/// would find them), for meshes that take their render hint from one.
+pub fn compile_named_with(
+    text: &[u8],
+    name: &str,
+    lookup: &dyn Fn(&str) -> Option<Vec<u8>>,
+    compiled_before: &dyn Fn(&str) -> Option<Vec<u8>>,
+    materials: &dyn Fn(&str) -> Option<Vec<u8>>,
+) -> Result<Compiled, CompileError> {
+    compile_named_at(text, name, lookup, compiled_before, Some(Materials(materials)), 0)
 }
 
 #[cfg(test)]
@@ -465,7 +652,7 @@ endmodelgeom m\ndonemodel m\n";
         let text = MODEL
             .replace("node dummy a\n  parent m\nendnode\n", "")
             .replace("node trimesh b", "node dummy a\n  parent m\nendnode\nnode dummy new\n  parent a\nendnode\nnode trimesh b");
-        let sources = Sources { supermodel: None, existing: Some((&old, &old_parts)) };
+        let sources = Sources { existing: Some((&old, &old_parts)), ..Default::default() };
         let again = compile(text.as_bytes(), &sources).unwrap();
         let back = Model::read(&again.binary).unwrap();
         let parts = PartNumbers::read(&again.binary).unwrap();

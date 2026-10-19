@@ -1168,7 +1168,8 @@ fn quadrant_tga(descriptor: u8) -> Vec<u8> {
 /// tilted (a visual transform turned about all three axes), the middle one
 /// plain, the east one tilted and static. `MG_TGA` (a number) gives the
 /// armoire's texture as a four-color TGA with that image descriptor (16:
-/// right to left; 32: top first). Both views go to
+/// right to left; 32: top first); `MG_OVERRIDE` a folder of files for the
+/// scratch override (another armoire model). Both views go to
 /// `target/test-output/client_placeables/`.
 #[test]
 #[ignore]
@@ -1183,6 +1184,13 @@ fn placeables_look() {
     };
     let dir = scratch_dir("client_placeables");
     std::fs::create_dir_all(dir.join("user/override")).unwrap();
+    // `MG_OVERRIDE`: a folder of files for the scratch user folder's
+    // override (the armoire's model, `plc_a01.mdl`, made another).
+    if let Some(from) = std::env::var_os("MG_OVERRIDE") {
+        for f in std::fs::read_dir(from).unwrap().flatten() {
+            std::fs::copy(f.path(), dir.join("user/override").join(f.file_name())).unwrap();
+        }
+    }
     let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     if let Some(d) = std::env::var("MG_TGA").ok().and_then(|d| d.parse::<u8>().ok()) {
         let model = base.resman.get_named("plc_a01", ResType::MDL).unwrap();

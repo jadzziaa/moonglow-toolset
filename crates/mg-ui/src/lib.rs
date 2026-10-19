@@ -3144,11 +3144,14 @@ impl Moonglow {
             "Compile Models",
             |job| {
                 let game = job.game.as_deref()?;
+                // (Its materials too: a mesh with no render hint takes its
+                // material's.)
                 let files: Vec<(ResKey, &[u8])> = (job.module.keys_of(ResType::MDL))
+                    .chain(job.module.keys_of(ResType::MTR))
                     .filter_map(|k| Some((*k, job.module.get(k)?)))
                     .collect();
-                let lookup = |name: &str| {
-                    game.resman.get_named(name, ResType::MDL).ok().map(|d| d.into_owned())
+                let lookup = |name: &str, t: ResType| {
+                    game.resman.get_named(name, t).ok().map(|d| d.into_owned())
                 };
                 let each = |done: usize, total: usize| {
                     job.progress.step(done, total);

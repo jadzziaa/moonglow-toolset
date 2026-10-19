@@ -533,13 +533,21 @@ impl Writer {
     }
 
     /// A rest-pose controller: its first row (readers keep only that).
-    /// `detonate` (an animation event of emitters) means nothing at rest.
+    /// An emitter's `detonate` has no values: a bare line, which the
+    /// game's compiler makes the same controller of (nwn-mdl-spec
+    /// MDL-CTRL-012; the stock `vwp_flash_blured` has one).
     fn rest_controller(&mut self, c: &Controller) {
         if c.name.starts_with("ctrl") {
             self.line(&format!("  # {} not written: no ASCII keyword", c.name));
             return;
         }
-        if c.columns == 0 || c.times.is_empty() || c.name == "detonate" {
+        if c.name == "detonate" {
+            if !c.times.is_empty() {
+                self.line("  detonate");
+            }
+            return;
+        }
+        if c.columns == 0 || c.times.is_empty() {
             return;
         }
         let values: Vec<String> = c.row(0).iter().map(|v| num(*v)).collect();

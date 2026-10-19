@@ -626,15 +626,19 @@ fn compile_models(app: &mut Moonglow, i: usize) {
         "Compile Models",
         move |job| -> Vec<Compiled> {
             job.progress.say("Reading the hak's models");
+            // (Its materials too: a mesh with no render hint takes its
+            // material's.)
             let models: Vec<(ResKey, Vec<u8>)> = (hak.items().iter())
-                .filter(|item| item.key.restype == mg_core::ResType::MDL)
+                .filter(|item| {
+                    matches!(item.key.restype, mg_core::ResType::MDL | mg_core::ResType::MTR)
+                })
                 .filter_map(|item| Some((item.key, hak.data(item.key).ok()?)))
                 .collect();
             let files: Vec<(ResKey, &[u8])> =
                 models.iter().map(|(k, d)| (*k, d.as_slice())).collect();
-            let lookup = |name: &str| {
+            let lookup = |name: &str, t: mg_core::ResType| {
                 let rm = &job.game.as_deref()?.resman;
-                rm.get_named(name, mg_core::ResType::MDL).ok().map(|d| d.into_owned())
+                rm.get_named(name, t).ok().map(|d| d.into_owned())
             };
             compile_models_each(&files, &lookup, &|done, total| {
                 job.progress.step(done, total);

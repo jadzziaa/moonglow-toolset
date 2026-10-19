@@ -98,9 +98,12 @@ pub fn columns(node_flags: u32, name: &str) -> Option<usize> {
 }
 
 /// A controller's name under its one spelling: old models write
-/// `setfillumcolor` for `selfillumcolor`.
+/// A controller's name as the game knows it. (`setfillumcolor`, a
+/// misspelling 2,387 of the game's own ASCII models carry, is not
+/// `selfillumcolor`: the game does not read it, nwn-mdl-spec MDL-ASCII-070
+/// and its probe `zspec_setfill`; nwnmdlcomp did.)
 pub(crate) fn canonical(name: &str) -> &str {
-    if name == "setfillumcolor" { "selfillumcolor" } else { name }
+    name
 }
 
 #[cfg(test)]
@@ -114,7 +117,9 @@ mod tests {
         assert_eq!(name(0x5, 88), "birthrate");
         assert_eq!(name(0x3, 88), "radius");
         assert_eq!(name(0x1, 999), "ctrl999");
-        assert_eq!(columns(0x21, "setfillumcolor"), Some(3));
+        assert_eq!(columns(0x21, "selfillumcolor"), Some(3));
+        // (A misspelling the game does not read: nwn-mdl-spec MDL-ASCII-070.)
+        assert_eq!(columns(0x21, "setfillumcolor"), None);
         assert_eq!(columns(0x1, "alpha"), None);
     }
 

@@ -45,6 +45,11 @@ fn triangles(m: &mg_mdl::Mesh) -> BTreeMap<Vec<[i64; 5]>, usize> {
             })
             .collect();
         corners.sort();
+        // (Two corners alike: a face the game's merge drops, as the ASCII
+        // reader does; the game's older compiler kept some. No area.)
+        if corners.windows(2).any(|w| w[0] == w[1]) {
+            continue;
+        }
         corners.push([f.material as i64, 0, 0, 0, 0]);
         *out.entry(corners).or_insert(0) += 1;
     }
@@ -336,7 +341,13 @@ fn models_match_nwnmdlcomp() {
             let data = rm.get(k).unwrap();
             let bin = Model::read(&data).unwrap();
             let r = decompile(&tool, &root, &dir, &k.resref.to_string(), &data).and_then(|ascii| {
-                let asc = Model::read(&ascii).map_err(|e| format!("ASCII: {e}"))?;
+                // nwnmdlcomp writes self-illumination as `setfillumcolor`,
+                // a spelling the game does not read (findings: "`setfillumcolor`
+                // is not self-illumination"), nor Moonglow since 1.34.4: read
+                // as what nwnmdlcomp means by it, for the comparison.
+                let ascii =
+                    String::from_utf8_lossy(&ascii).replace("setfillumcolor", "selfillumcolor");
+                let asc = Model::read(ascii.as_bytes()).map_err(|e| format!("ASCII: {e}"))?;
                 Ok(compare(&bin, &asc))
             });
             (k.to_string(), r)

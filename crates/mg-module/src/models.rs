@@ -18,10 +18,12 @@ pub struct Compiled {
 }
 
 /// Compiles the models among `files` that are text, each against what
-/// there is: `lookup` gives a model's file by name (among the files
-/// themselves, then the haks and the game: its supermodels, and the
-/// compiled model of its own name where one lies under it, whose part
-/// numbers it keeps). Compiled models and other resources are passed over.
+/// there is: `lookup` gives a resource's file by name and type, where the
+/// files themselves have none (the haks and the game): a model's
+/// supermodels, the compiled model of its own name where one lies under it
+/// (whose part numbers it keeps), and the materials (`.mtr`) a mesh with no
+/// render hint takes its hint from (nwn-mdl-spec MDL-MESH-041). Compiled
+/// models and other resources are passed over.
 ///
 /// A model whose text has errors (`mg_mdl::lint`) or holds no node stays
 /// as text, and so does one whose supermodel is not found: animations go by
@@ -29,7 +31,7 @@ pub struct Compiled {
 /// creature would stand still in the game.
 pub fn compile_models(
     files: &[(ResKey, &[u8])],
-    lookup: &(dyn Fn(&str) -> Option<Vec<u8>> + Sync),
+    lookup: &(dyn Fn(&str, ResType) -> Option<Vec<u8>> + Sync),
 ) -> Vec<Compiled> {
     compile_models_each(files, lookup, &|_, _| true)
 }
@@ -40,19 +42,19 @@ pub fn compile_models(
 /// files' order.
 pub fn compile_models_each(
     files: &[(ResKey, &[u8])],
-    lookup: &(dyn Fn(&str) -> Option<Vec<u8>> + Sync),
+    lookup: &(dyn Fn(&str, ResType) -> Option<Vec<u8>> + Sync),
     each: &(dyn Fn(usize, usize) -> bool + Sync),
 ) -> Vec<Compiled> {
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    let own = |name: &str| {
+    let own = |name: &str, t: ResType| {
         files
             .iter()
-            .find(|(k, _)| {
-                k.restype == ResType::MDL && k.resref.to_string().eq_ignore_ascii_case(name)
-            })
+            .find(|(k, _)| k.restype == t && k.resref.to_string().eq_ignore_ascii_case(name))
             .map(|(_, d)| d.to_vec())
     };
-    let find = |name: &str| own(name).or_else(|| lookup(name));
+    let find = |name: &str| own(name, ResType::MDL).or_else(|| lookup(name, ResType::MDL));
+    // (A mesh with no render hint takes its material's.)
+    let material = |name: &str| own(name, ResType::MTR).or_else(|| lookup(name, ResType::MTR));
     let texts: Vec<&(ResKey, &[u8])> = (files.iter())
         .filter(|(key, data)| key.restype == ResType::MDL && !mg_mdl::is_binary(data))
         .collect();
@@ -83,8 +85,8 @@ pub fn compile_models_each(
             return Err(format!("its supermodel {s} was not found"));
         }
         // (The compiled model under it: not the text itself.)
-        let before = |n: &str| lookup(n).filter(|d| mg_mdl::is_binary(d));
-        let c = mg_mdl::compile::compile_named(data, &name, &find, &before)
+        let before = |n: &str| lookup(n, ResType::MDL).filter(|d| mg_mdl::is_binary(d));
+        let c = mg_mdl::compile::compile_named_with(data, &name, &find, &before, &material)
             .map_err(|e| e.to_string())?;
         Ok((c.binary, c.notes))
     };
@@ -116,6 +118,7 @@ pub fn compile_models_each(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mg_core::ResRef;
 
     const BASE: &str = "newmodel base\nsetsupermodel base NULL\nclassification character\n\
 setanimationscale 1\nbeginmodelgeom base\n\
@@ -152,7 +155,7 @@ doneanim wave base\ndonemodel base\n";
             (key("done", ResType::MDL), &done),
             (key("notes", ResType::TXT), b"newmodel x\n"),
         ];
-        let out = compile_models(&files, &|_| None);
+        let out = compile_models(&files, &|_, _| None);
         let named: Vec<String> = out.iter().map(|c| c.model.resref.to_string()).collect();
         assert_eq!(named, ["child", "base", "orphan", "broken"]);
         let (child_bin, _) = out[0].result.clone().unwrap();
@@ -162,12 +165,41 @@ doneanim wave base\ndonemodel base\n";
         assert_eq!(numbers(&child_bin), numbers(&out[1].result.clone().unwrap().0));
         assert!(out[2].result.as_ref().unwrap_err().contains("supermodel nowhere"));
         assert!(out[3].result.as_ref().unwrap_err().starts_with("line 1"), "{:?}", out[3].result);
-        let empty = compile_models(&[(key("empty", ResType::MDL), b"# nothing\n")], &|_| None);
+        let empty = compile_models(&[(key("empty", ResType::MDL), b"# nothing\n")], &|_, _| None);
         assert!(empty[0].result.is_err());
         // Found outside the files: compiled.
-        let outside =
-            |n: &str| (n == "nowhere").then(|| BASE.replace("base", "nowhere").into_bytes());
+        let outside = |n: &str, t: ResType| {
+            (n == "nowhere" && t == ResType::MDL)
+                .then(|| BASE.replace("base", "nowhere").into_bytes())
+        };
         let out = compile_models(&files[2..3], &outside);
         assert!(out[0].result.is_ok(), "{:?}", out[0].result);
+    }
+
+    /// A mesh with no render hint takes its material's (nwn-mdl-spec
+    /// MDL-MESH-041): a normal-mapped one, found among the files, gives it
+    /// tangents, as the game's compiler makes them.
+    #[test]
+    fn a_mesh_takes_its_material_s_render_hint() {
+        let key = |n: &str, t| ResKey::new(ResRef::from_str(n).unwrap(), t);
+        let model = "newmodel quad\nsetsupermodel quad NULL\nbeginmodelgeom quad\n\
+            node dummy quad\n  parent NULL\nendnode\nnode trimesh q\n  parent quad\n\
+            bitmap stone\n  verts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n\
+            tverts 4\n    0 0 0\n    1 0 0\n    1 1 0\n    0 1 0\n\
+            faces 2\n    0 1 2 1 0 1 2 0\n    0 2 3 1 0 2 3 0\nendnode\n\
+            endmodelgeom quad\ndonemodel quad\n";
+        let mtr = b"renderhint NormalAndSpecMapped\ntexture0 stone\n";
+        // (The binary reader takes the tangent streams only with a hint of
+        // the mesh's own: 1.69 files used them otherwise. Here they show as
+        // four tangents and their signs, 64 bytes, more.)
+        let size = |files: &[(ResKey, &[u8])]| {
+            let out = compile_models(files, &|_, _| None);
+            out[0].result.clone().unwrap().0.len()
+        };
+        let quad = (key("quad", ResType::MDL), model.as_bytes());
+        let alone = size(&[quad]);
+        assert_eq!(size(&[quad, (key("stone", ResType::MTR), mtr)]), alone + 64);
+        let plain = b"renderhint None\ntexture0 stone\n";
+        assert_eq!(size(&[quad, (key("stone", ResType::MTR), plain)]), alone);
     }
 }

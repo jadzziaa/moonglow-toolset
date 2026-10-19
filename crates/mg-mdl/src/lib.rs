@@ -25,6 +25,7 @@ pub mod ctrl;
 pub mod keywords;
 pub mod lint;
 pub mod outline;
+mod stdsort;
 pub mod walkmesh;
 
 use thiserror::Error;
@@ -458,9 +459,12 @@ pub struct AnimMeshSets {
 /// A rotation of `angle` radians about `axis` (ASCII orientations).
 pub fn axis_angle(axis: Vec3, angle: f32) -> Quat {
     let len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
-    if len < 1e-12 || angle == 0.0 {
+    if angle == 0.0 {
         return IDENTITY;
     }
+    // (A zero axis is +X, as the game normalises it: nwn-mdl-spec
+    // MDL-ASCII-032, `orientation 0 0 0 1` turns a radian about X.)
+    let (axis, len) = if len < 1e-12 { ([1.0, 0.0, 0.0], 1.0) } else { (axis, len) };
     let (s, c) = (angle / 2.0).sin_cos();
     [axis[0] / len * s, axis[1] / len * s, axis[2] / len * s, c]
 }
@@ -472,9 +476,21 @@ pub(crate) fn face_normal(a: Vec3, b: Vec3, c: Vec3) -> Vec3 {
     [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
 }
 
-pub(crate) fn normalize(v: Vec3) -> Vec3 {
-    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if len < 1e-20 { [0.0, 0.0, 1.0] } else { [v[0] / len, v[1] / len, v[2] / len] }
+/// A vector made unit as the game makes it (`Vector::Normalize`,
+/// nwn-mdl-spec MDL-MESH-032): one within 1e-5 of unit length squared is
+/// kept, zero is +X, and the rest is scaled by `sqrt(1 / length²)` in
+/// single precision. A last-bit difference splits a vertex the game
+/// merges.
+pub(crate) fn engine_normalize(v: Vec3) -> Vec3 {
+    let l2 = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    if (l2 - 1.0).abs() <= 1e-5 {
+        return v;
+    }
+    if l2 == 0.0 {
+        return [1.0, 0.0, 0.0];
+    }
+    let k = (1.0 / l2).sqrt();
+    [v[0] * k, v[1] * k, v[2] * k]
 }
 
 #[cfg(test)]
@@ -485,7 +501,12 @@ mod tests {
     fn axis_angle_quaternions() {
         let q = axis_angle([0.0, 0.0, 1.0], std::f32::consts::PI);
         assert!((q[2] - 1.0).abs() < 1e-6 && q[3].abs() < 1e-6);
-        assert_eq!(axis_angle([0.0, 0.0, 0.0], 1.0), IDENTITY);
+        // A zero axis is +X, as the game normalises it (nwn-mdl-spec
+        // MDL-ASCII-032, its probe zspec_orient); no angle is no turn.
+        let x = axis_angle([0.0, 0.0, 0.0], 1.0);
+        assert!((x[0] - 0.5f32.sin()).abs() < 1e-6 && (x[3] - 0.5f32.cos()).abs() < 1e-6);
+        assert_eq!(x[1..3], [0.0, 0.0]);
+        assert_eq!(axis_angle([0.0, 0.0, 0.0], 0.0), IDENTITY);
     }
 }
 
