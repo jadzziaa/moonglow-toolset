@@ -43,6 +43,37 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     );
 }
 
+/// Variables in an area's ARE, which the game does not read (it reads an
+/// area's from its GIT: `engine_area_variables`), as Moonglow wrote them
+/// before 1.34.3: Verify fails, naming them.
+#[test]
+fn verify_finds_area_variables_the_game_does_not_read() {
+    let root = mg_testkit::corpus!();
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let dir = mg_testkit::scratch_dir("mg-verify-area-vars");
+    let mut m = Module::open(&chess).unwrap();
+    let are = ResKey::new(ResRef::from_str("chess").unwrap(), ResType::ARE);
+    let mut g = m.gff(&are).unwrap().unwrap();
+    let mut v = Struct::new(0);
+    v.set("Name", Value::String(b"iNoMap".to_vec()));
+    v.set("Type", Value::Dword(1));
+    v.set("Value", Value::Int(1));
+    g.root.set("VarTable", Value::List(vec![v]));
+    m.set_gff(are, &g).unwrap();
+    let path = dir.join("area-vars.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let f = &json["findings"][0];
+    assert_eq!(f["check"], "area-variables");
+    assert!(f["message"].as_str().unwrap().contains("iNoMap"), "{f}");
+}
+
 /// A module naming a talk table the game can't find doesn't load: Verify
 /// fails on it. The table in the module's own resources is found, as the
 /// game finds it there (`tests/engine_tlk.rs`).

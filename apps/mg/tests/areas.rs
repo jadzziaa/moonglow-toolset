@@ -81,7 +81,10 @@ fn areas_are_listed_and_changed_together() {
     assert_eq!(are("cave2").root.integer("Flags"), Some(0x3 | 0x100));
     assert_eq!(are("cave2").root.get("SunFogAmount"), Some(&Value::Byte(9)));
     assert_eq!(are("inn").root.get("SunFogAmount"), Some(&Value::Byte(2)));
-    assert_eq!(are("cave1").root.list("VarTable").unwrap()[0].integer("Value"), Some(57));
+    // (A variable is the area's GIT's, where the game reads it.)
+    let git =
+        |name: &str| Module::open(&path).unwrap().gff(&key(name, ResType::GIT)).unwrap().unwrap();
+    assert_eq!(git("cave1").root.list("VarTable").unwrap()[0].integer("Value"), Some(57));
 
     // Every area only when asked; a value that doesn't fit changes nothing.
     let bytes = std::fs::read(&path).unwrap();

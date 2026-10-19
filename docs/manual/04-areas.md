@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T12:26:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:49:00Z }
 ---
 
 # Areas
@@ -97,7 +97,7 @@ Options › Keyboard):
 | Ctrl + drag | move the camera over the area, the ground following the pointer (a closed hand shows it held; a tileset brush paints nothing with it) |
 | Right drag, or middle drag | turn the camera (W A S D move it meanwhile) |
 | Alt + middle drag, or Alt + drag begun off the selection | move the camera (Alt + drag on the selection raises or lowers it) |
-| Wheel | zoom (slowly with Shift, or with Ctrl when nothing selected takes a scale; when painting tiles, Shift is the brush's) |
+| Wheel | zoom (slowly with Shift, or with Ctrl unless the pointer is on a selected object that takes a scale; when painting tiles, Shift is the brush's) |
 | Sideways scroll (a tilted wheel, a second wheel, two fingers sideways on a touchpad) | move the camera left and right, as the screen has it |
 | Arrow keys, W A S D, or numpad 4, 6, 8, 2 | move the camera |
 | Numpad 7, 9 | turn |
@@ -124,7 +124,7 @@ field).
 | Drag the ring around them | turn them as the pointer goes round |
 | Shift + drag a tilt ring | tilt their models about X (red) or Y (green) |
 | Shift + drag the square handle | scale their models: away from the object larger, toward it smaller |
-| Ctrl + wheel | scale their models, as in Aurora: up larger, down smaller |
+| Ctrl + wheel, the pointer on one of them | scale their models, as in Aurora: up larger, down smaller |
 | Shift + drag an arrow | move them along one axis alone: east (red), north (green) or up (blue) |
 | Q, E | turn them 15° left or right (or by the snapping angle); with Shift, 90° |
 | G | drop them to the ground |
@@ -182,8 +182,11 @@ several selected objects each scale about their own feet. Escape drops
 the drag.
 
 **Ctrl + wheel** scales the selected objects too, as Aurora's does: with
-the pointer over the view, turn the wheel up to make their models
-larger and down to make them smaller, about a twentieth a notch. The
+the pointer on one of them, turn the wheel up to make their models
+larger and down to make them smaller, about a twentieth a notch. With
+the pointer anywhere else, Ctrl + wheel zooms the view slowly, so that
+the wheel turned while Ctrl still moves the view (Ctrl + drag) leaves
+the selection's size alone. The
 size shows beside the pointer and in the status line; it becomes one
 step to undo when Ctrl is let go or the wheel rests (Escape, or Undo
 meanwhile, drops it). It works on what a scale works on: creatures,
@@ -539,6 +542,12 @@ Properties** on the viewer's toolbar:
 - **Events**, **Advanced** (the tag, the loading screen, Variables; flags
   such as interior, underground, natural, no rest, PvP; **Shader Flags**, the area flags past those three, which
   custom shaders read from their `areaFlags` uniform), **Comments**.
+- An area's **Variables** are kept in its GIT, where the game reads them
+  (a script's `GetLocalInt` on the area). Before 1.34.3 Moonglow wrote
+  them into its ARE, which the game does not read, so they read 0:
+  opening the area's Variables moves them to the GIT (one step to undo;
+  a variable of the same name already there keeps its value), and
+  **Verify Module** lists the areas that still hold some in their ARE.
 
 ### Several areas together
 

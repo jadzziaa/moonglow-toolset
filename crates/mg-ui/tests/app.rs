@@ -14702,6 +14702,9 @@ fn several_areas_are_edited_together() {
         are.root.set("IsNight", mg_gff::Value::Byte(0));
         are.root.set("VarTable", mg_gff::Value::List(vars));
         m.set(key(name, ResType::ARE), are.to_bytes().unwrap());
+        let mut git = Gff::new(*b"GIT ");
+        git.root.set("AreaProperties", mg_gff::Value::Struct(mg_gff::Struct::new(100)));
+        m.set(key(name, ResType::GIT), git.to_bytes().unwrap());
     }
     m.save().unwrap();
     let mut app = app_with(Vec::new());
@@ -14755,7 +14758,10 @@ fn several_areas_are_edited_together() {
     assert_eq!(flags(&mut h, "cave1"), Some(0x5));
     assert_eq!(flags(&mut h, "cave2"), Some(0x1 | 0x100));
     assert_eq!(flags(&mut h, "inn"), Some(0x1));
-    // Variables: one added is added to each, which keeps its own.
+    // Variables: one added is added to each, which keeps its own. (The
+    // caves' are in their ARE, as Moonglow wrote them before 1.34.3:
+    // opening the window moves them to the GIT, where the game reads
+    // them, one step of its own.)
     h.get_by_label("Variables (1)…").click();
     h.run();
     h.get_by_label("Add").click();
@@ -14769,7 +14775,10 @@ fn several_areas_are_edited_together() {
     h.get_all_by_label("OK").last().unwrap().click();
     h.run_steps(2);
     let names = |h: &mut Harness<'_, Moonglow>, name: &str| -> Vec<String> {
-        let a = are(h, name);
+        let key = ResKey::new(ResRef::from_str(name).unwrap(), ResType::GIT);
+        let a = h.state_mut().ws.as_mut().unwrap().doc(&key).unwrap().root.clone();
+        let left = are(h, name).list("VarTable").map_or(0, <[_]>::len);
+        assert_eq!(left, 0, "{name}: none left in the ARE");
         let vars = a.list("VarTable").unwrap_or(&[]);
         vars.iter()
             .map(|v| String::from_utf8_lossy(v.string("Name").unwrap()).into_owned())
@@ -16083,7 +16092,9 @@ fn a_dragon_s_box_in_an_area() {
 /// Aurora's does: shown as the wheel turns, one command when Ctrl is let
 /// go, and Undo takes it back whole (or drops it while it is under way).
 /// A static placeable takes no scale, and with nothing selected that
-/// does the wheel zooms, as it did.
+/// does the wheel zooms, as it did; so does it with the pointer off the
+/// selection (a builder's report: the view moved with Ctrl + drag, the
+/// wheel turned to zoom scaled the placeable selected).
 #[test]
 fn ctrl_and_the_wheel_scale_what_is_selected() {
     use glam::Vec3;
@@ -16143,9 +16154,18 @@ fn ctrl_and_the_wheel_scale_what_is_selected() {
     let_go(&mut h);
     assert!(distance(&h) < far, "zoomed in");
     assert_eq!(scale(&mut h), None);
-    // The chest selected: it grows as the wheel turns, shown before it is
-    // a command, and the view stays where it is.
+    // The chest selected, the pointer off it: the wheel zooms still.
     h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Placeable, 0)];
+    h.hover_at(screen(&h, area, pivot) + egui::vec2(160.0, 0.0));
+    h.run_steps(2);
+    let far = distance(&h);
+    turn(&mut h, 200.0);
+    let_go(&mut h);
+    assert!(distance(&h) < far, "zoomed, the pointer off the chest");
+    assert_eq!(scale(&mut h), None, "the chest keeps its size");
+    // The pointer on it: it grows as the wheel turns, shown before it is
+    // a command, and the view stays where it is.
+    h.hover_at(screen(&h, area, pivot));
     h.run_steps(2);
     let far = distance(&h);
     turn(&mut h, 200.0);
@@ -17571,6 +17591,97 @@ fn text_in_another_language_shows_where_the_one_edited_has_none() {
 /// where its area is opened out there: its kind's list opened, its row
 /// marked. An area left closed in the tree is opened out to it, as in
 /// Aurora, or with the option off stays closed.
+/// An area's variables are its GIT's, where the game reads them
+/// (`engine_area_variables`): the Advanced page's Variables… edits those,
+/// and moves there what an earlier Moonglow wrote into the ARE (a
+/// builder's report: an area's variable read 0 in its OnEnter).
+#[test]
+fn an_area_s_variables_are_kept_in_its_git() {
+    use mg_gff::{Struct, Value};
+    let Some((mut h, area)) = area_harness("area-variables") else { return };
+    let (are, git) = (ResKey::new(area, ResType::ARE), ResKey::new(area, ResType::GIT));
+    let var = |name: &str, value: i32| {
+        let mut s = Struct::new(0);
+        s.set("Name", Value::String(name.as_bytes().to_vec()));
+        s.set("Type", Value::Dword(1));
+        s.set("Value", Value::Int(value));
+        s
+    };
+    let set = mg_edit::Edit::SetField {
+        key: are,
+        path: mg_edit::GffPath::root(),
+        label: "VarTable".into(),
+        value: Some(Value::List(vec![var("iNoMap", 1)])),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Old", vec![set])));
+    let vars = |h: &mut Harness<'_, Moonglow>, key: ResKey| -> Option<Vec<Struct>> {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&key).unwrap().root.list("VarTable").map(<[_]>::to_vec)
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
+    h.run_steps(3);
+    h.get_by_label("Advanced").click();
+    h.run_steps(2);
+    h.get_by_label("Variables (1)…").click();
+    h.run_steps(3);
+    assert_eq!(vars(&mut h, git), Some(vec![var("iNoMap", 1)]), "moved to the GIT");
+    assert_eq!(vars(&mut h, are), None, "and gone from the ARE");
+    assert_eq!(h.state().var_edit.as_ref().unwrap().target.key, git);
+    // A variable added: in the GIT.
+    h.state_mut()
+        .var_edit
+        .as_mut()
+        .unwrap()
+        .rows
+        .push(mg_ui::widgets::VarRow::new("iMore", 1, "2"));
+    h.run_steps(2);
+    h.get_all_by_label("OK").last().unwrap().click();
+    h.run_steps(3);
+    assert!(h.state().var_edit.is_none(), "the window closed");
+    assert_eq!(vars(&mut h, git), Some(vec![var("iNoMap", 1), var("iMore", 2)]));
+    assert_eq!(vars(&mut h, are), None);
+}
+
+/// A placed object's row in the module tree opens its variables from its
+/// menu, as Aurora's list does; the window lists them by name, and writes
+/// them back in the order they were stored (a builder's asks).
+#[test]
+fn a_tree_object_s_menu_opens_its_variables_listed_by_name() {
+    use mg_gff::{Struct, Value};
+    let Some((mut h, area)) = area_harness("tree-variables") else { return };
+    let git = ResKey::new(area, ResType::GIT);
+    let var = |name: &str, value: i32| {
+        let mut s = Struct::new(0);
+        s.set("Name", Value::String(name.as_bytes().to_vec()));
+        s.set("Type", Value::Dword(1));
+        s.set("Value", Value::Int(value));
+        s
+    };
+    let stored = vec![var("zeta", 1), var("Alpha", 2), var("mid", 3)];
+    let edits = (0..2)
+        .map(|i| mg_edit::Edit::SetField {
+            key: git,
+            path: mg_edit::GffPath::root().item("WaypointList", i),
+            label: "VarTable".into(),
+            value: Some(Value::List(stored.clone())),
+        })
+        .collect();
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0)];
+    h.run_steps(6);
+    h.query_all_by_label_contains("WAYPOINT").next().expect("a waypoint's row").click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Variables…").click();
+    h.run_steps(3);
+    let edit = h.state().var_edit.clone().expect("the Variables window");
+    assert_eq!(edit.target.key, git);
+    let names: Vec<&str> = edit.rows.iter().map(|r| r.name.as_str()).collect();
+    assert_eq!(names, ["Alpha", "mid", "zeta"], "by name");
+    assert_eq!(edit.list(), stored, "written back as stored");
+    assert!(h.query_by_label("Variables").is_some(), "the window shows");
+}
+
 #[test]
 fn the_module_tree_shows_the_object_selected_in_the_area() {
     use mg_area::ObjectKind;

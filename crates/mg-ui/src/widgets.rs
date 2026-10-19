@@ -126,12 +126,21 @@ pub struct VarRow {
     pub value: String,
     /// The stored struct, so fields the editor does not show survive.
     original: Struct,
+    /// Its place in the stored list (`None`: new), where it is written
+    /// back: the window lists by name, the file keeps its order.
+    stored_at: Option<usize>,
 }
 
 impl VarRow {
     /// A new variable: 1 int, 2 float, 3 string.
     pub fn new(name: &str, kind: u32, value: &str) -> VarRow {
-        VarRow { name: name.to_string(), kind, value: value.to_string(), original: Struct::new(0) }
+        VarRow {
+            name: name.to_string(),
+            kind,
+            value: value.to_string(),
+            original: Struct::new(0),
+            stored_at: None,
+        }
     }
 }
 
@@ -179,10 +188,13 @@ pub struct VarTableEdit {
 }
 
 impl VarTableEdit {
+    /// The window lists the variables by name (a builder's ask: they were
+    /// hard to find in the order they were made), each case alike.
     pub fn new(target: FieldTarget, list: &[Struct]) -> VarTableEdit {
-        let rows = list
+        let mut rows: Vec<VarRow> = list
             .iter()
-            .map(|s| {
+            .enumerate()
+            .map(|(at, s)| {
                 let value = match s.get("Value") {
                     Some(Value::Int(v)) => v.to_string(),
                     Some(Value::Float(v)) => v.to_string(),
@@ -195,9 +207,11 @@ impl VarTableEdit {
                     kind: s.dword("Type").unwrap_or(1),
                     value,
                     original: s.clone(),
+                    stored_at: Some(at),
                 }
             })
             .collect();
+        rows.sort_by_cached_key(|r| r.name.to_lowercase());
         VarTableEdit { target, original: list.to_vec(), rows, set_name: None }
     }
 
@@ -246,10 +260,12 @@ impl VarTableEdit {
         None
     }
 
-    /// The VarTable list.
+    /// The VarTable list: the variables in the order they were stored,
+    /// those added after them (an untouched list is written as it was).
     pub fn list(&self) -> Vec<Struct> {
-        self.rows
-            .iter()
+        let mut rows: Vec<&VarRow> = self.rows.iter().collect();
+        rows.sort_by_key(|r| r.stored_at.unwrap_or(usize::MAX));
+        rows.into_iter()
             .map(|r| {
                 let mut s = r.original.clone();
                 if s.fields.is_empty() {
@@ -712,6 +728,18 @@ pub(crate) fn resref_field(
         }
     });
     out
+}
+
+/// Opens the Variables window on the VarTable of the struct at `path` in
+/// `key` (a placed object in its area's GIT, a blueprint at its root).
+pub(crate) fn open_variables(app: &mut Moonglow, key: ResKey, path: GffPath) {
+    let list = (app.ws.as_mut())
+        .and_then(|ws| ws.doc(&key).ok())
+        .and_then(|d| path.get(&d.root))
+        .and_then(|s| s.list("VarTable"))
+        .unwrap_or(&[])
+        .to_vec();
+    app.var_edit = Some(VarTableEdit::new(FieldTarget::new(key, path, "VarTable"), &list));
 }
 
 /// A "Variables…" button for an object's VarTable.

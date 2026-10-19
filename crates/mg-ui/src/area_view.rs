@@ -4042,12 +4042,22 @@ fn wheel_scales(
     // (With Ctrl held, egui reports the wheel as a zoom.)
     let speed = ui.ctx().options(|o| o.input_options.scroll_zoom_speed);
     let turned = ui.input(|i| i.zoom_delta().ln()) / speed.max(f32::EPSILON);
+    // The pointer on one of the selected objects (or a scaling under way,
+    // which a model shrunk from under the pointer goes on with): elsewhere
+    // Ctrl + wheel zooms, slowly, as it does with nothing selected. Ctrl
+    // also moves the view (Ctrl + drag), and a builder who then turned the
+    // wheel to zoom scaled the placeable selected.
+    let on_selected = || {
+        view.wheel_scale.is_some()
+            || response.hover_pos().and_then(|p| view.pick(p)).is_some_and(|i| view.selected(i))
+    };
     let asked = turned != 0.0
         && command
         && !shift
         && response.hovered()
         && view.drag.is_none()
-        && crate::terrain_mode::active(app, view).is_none();
+        && crate::terrain_mode::active(app, view).is_none()
+        && on_selected();
     if !asked {
         return false;
     }
@@ -4872,16 +4882,7 @@ fn context_menu(app: &mut Moonglow, view: &mut AreaView, ui: &mut egui::Ui) {
         && ui.button("Variables…").clicked()
     {
         let path = mg_edit::GffPath::root().item(kind.list(), index);
-        let list = app
-            .ws
-            .as_mut()
-            .and_then(|ws| ws.doc(&view.git()).ok())
-            .and_then(|g| path.get(&g.root))
-            .and_then(|s| s.list("VarTable"))
-            .unwrap_or(&[])
-            .to_vec();
-        let target = crate::widgets::FieldTarget::new(view.git(), path, "VarTable");
-        app.var_edit = Some(crate::widgets::VarTableEdit::new(target, &list));
+        crate::widgets::open_variables(app, view.git(), path);
         ui.close();
     }
     ui.separator();

@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T11:44:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:27:30Z }
 ---
 
 # Blueprints
@@ -257,7 +257,10 @@ Shared parts:
 - **Scripts**: event scripts, picked from the module's and the game's
   (**Edit** opens one).
 - **Variables…**: local variables the object starts with, in a window
-  whose edges are dragged to size it. **Save Set…**
+  whose edges are dragged to size it, listed by name (each case alike;
+  one added goes at the bottom, and they are saved in the order they
+  were made). A placed object's opens from its right-click menu too, in
+  the area or the module tree. **Save Set…**
   keeps them under a name. **Add Set** adds a saved set to any object's
   or blueprint's variables, in any module; a variable of the same name
   takes the set's value. Sets are small JSON files in Moonglow's data

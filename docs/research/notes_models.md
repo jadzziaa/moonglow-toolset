@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE model and texture formats: research notes for Moonglow Toolset'
 description: NWN:EE model and texture formats for the renderer - ASCII and binary MDL, animations and supermodels, part-based creatures and PLT, textures and materials, special nodes, walkmeshes, lights, limits - with citations, open questions and where the wiki and the data disagree.
 tags: [models, mdl, textures, plt, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T04:32:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:48:33Z }
 ---
 
 # NWN:EE model and texture formats: research notes for Moonglow Toolset
@@ -127,7 +127,7 @@ All nodes (dummy base): `parent <name|NULL>`, `position x y z` (relative to pare
 | diffuse r g b | 1 1 1 (old compiles 0.8) | multiplied with texture0; shipped files sometimes have 4 values |
 | specular r g b | 0 0 0 | no effect in EE |
 | shininess f | 1 | ignored in EE |
-| selfillumcolor r g b | 0 0 0 | emissive; animatable; misspelt `setfillumcolor` in old files (2,388 occurrences shipped!) - accept both |
+| selfillumcolor r g b | 0 0 0 | emissive; animatable; misspelt `setfillumcolor` in old files (2,388 occurrences shipped!), which the engine does **not** read (nwn-mdl-spec MDL-ASCII-070, its probe `zspec_setfill`; see [notes_mdl_spec.md](notes_mdl_spec.md)): accept it for nwnmdlcomp, give it no meaning |
 | alpha f | 1.0 | animatable |
 | render 0/1 | 1 | 0 = not drawn but still casts shadow |
 | shadow 0/1 | 1 | shadow volume only for trimesh (not skin); use low-poly `render 0 shadow 1` shadow meshes |
@@ -167,7 +167,7 @@ Face vertex vs UV indices are separate lists -> renderer must de-index (split ve
 | ndynamictype 0/1 (old: isdynamic) | tile lights: 0 main lights, 1 animated/source lights |
 | affectdynamic 0/1 | default 1 |
 | shadow 0/1 | default 1 |
-| lightpriority 1-5 | 1 highest (5 = unneeded tile lights) |
+| lightpriority 1-5 | 1 highest (5 = unneeded tile lights); 5 when absent, and absent `nDynamicType`, `affectdynamic`, `shadow` and `fadinglight` are 1 (nwn-mdl-spec, `zspec_light`) |
 | fadinglight 0/1 | 1.5 s fade |
 | generateflare 0/1 (always 0 in binaries even when flares exist - draw flares when lists are non-empty and flareradius > 0), flareradius f, flarepositions n / flaresizes n / flarecolorshifts n / texturenames n (lists) | lens flares (textures fxpa_lensflare, fxpa_lensring); `lensflares 0/1` also seen |
 | shadowradius f, verticaldisplacement f | EE shadow tuning |

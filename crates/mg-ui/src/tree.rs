@@ -259,6 +259,8 @@ enum Asked {
     /// Shown in the area's view.
     Go,
     Properties,
+    /// Its variables, in the Variables window (as Aurora's list offers).
+    Variables,
     /// In the model viewer, as it is placed.
     Preview,
     Copy,
@@ -403,6 +405,7 @@ fn contents_ui(
                         for (label, asked) in [
                             ("Go To", Asked::Go),
                             ("Properties", Asked::Properties),
+                            ("Variables…", Asked::Variables),
                             ("Preview", Asked::Preview),
                             ("Copy", Asked::Copy),
                             ("Delete", Asked::Delete),
@@ -1196,6 +1199,10 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
             Asked::Properties => {
                 let path = mg_edit::GffPath::root().item(kind.list(), index);
                 app.actions.push(Action::OpenTab(Tab::Instance { area, path }));
+            }
+            Asked::Variables => {
+                let path = mg_edit::GffPath::root().item(kind.list(), index);
+                crate::widgets::open_variables(app, git, path);
             }
             Asked::Preview => {
                 let path = mg_edit::GffPath::root().item(kind.list(), index);

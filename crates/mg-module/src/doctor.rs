@@ -54,10 +54,11 @@ pub enum Check {
     TwoDaRef,
     TwoDaDescribed,
     ObjectRow,
+    AreaVariables,
 }
 
 impl Check {
-    pub const ALL: [Check; 21] = [
+    pub const ALL: [Check; 22] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -79,6 +80,7 @@ impl Check {
         Check::TwoDaRef,
         Check::TwoDaDescribed,
         Check::ObjectRow,
+        Check::AreaVariables,
     ];
 
     pub fn id(self) -> &'static str {
@@ -104,6 +106,7 @@ impl Check {
             Check::TwoDaRef => "2da-ref",
             Check::TwoDaDescribed => "2da-described",
             Check::ObjectRow => "object-row",
+            Check::AreaVariables => "area-variables",
         }
     }
 
@@ -139,6 +142,7 @@ impl Check {
                 "a table of the module's that has a description (name.2da.toml) holds what it says"
             }
             Check::ObjectRow => "objects use 2DA rows that exist and have what they need",
+            Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
         }
     }
 }
@@ -271,6 +275,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
         }
     }
     objects(&mut d, module);
+    area_variables(&mut d, module);
     described_tables(&mut d, module);
     custom_tlk(&mut d, module);
     d.out.sort_by(|a, b| {
@@ -1091,6 +1096,32 @@ fn objects(d: &mut Doctor, module: &Module) {
             let place = crate::rename::describe(key, Some(&gff), &path);
             d.push(severity, Check::ObjectRow, "module", key, place, message);
         }
+    }
+}
+
+/// Areas with variables in their ARE: the game reads an area's from its
+/// GIT's root and none from the ARE (`engine_area_variables`), where
+/// Moonglow wrote them before 1.34.3, so a script read 0 for them.
+fn area_variables(d: &mut Doctor, module: &Module) {
+    let mut keys: Vec<ResKey> =
+        module.keys().filter(|k| k.restype == ResType::ARE).copied().collect();
+    keys.sort();
+    for key in keys {
+        let Some(Ok(gff)) = module.gff(&key) else { continue };
+        let Some(vars) = gff.root.list("VarTable").filter(|v| !v.is_empty()) else { continue };
+        let names: Vec<String> = vars
+            .iter()
+            .filter_map(|v| v.string("Name"))
+            .map(|n| String::from_utf8_lossy(n).into_owned())
+            .collect();
+        let message = format!(
+            "{} variable{} in the area's ARE, which the game does not read ({}): open the \
+             area's Variables (Area Properties, Advanced) to move them to its GIT",
+            names.len(),
+            if names.len() == 1 { "" } else { "s" },
+            names.join(", ")
+        );
+        d.push(Severity::Error, Check::AreaVariables, "module", key, "VarTable", message);
     }
 }
 

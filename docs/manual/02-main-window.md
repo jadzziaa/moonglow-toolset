@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T18:11:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:27:30Z }
 ---
 
 # The main window
@@ -114,7 +114,8 @@ by tag instead, as Aurora lists them (they often share a name, and their
 tags are what scripts and transitions go by); the pointer resting on a
 row shows the other. Click an object to go to it in the area's view,
 selected (the tree stays still, so a second click makes a double click);
-double-click for its Properties; right-click for those and for
+double-click for its Properties; right-click for those, for
+**Variables…** (its variables' window, as Aurora's list has it), for
 **Preview** (creatures, doors, items and placeables, as placed),
 **Copy** (pasted in any area with Ctrl+V) and **Delete**. The Filter
 narrows an opened area's objects to those it finds by name or tag.

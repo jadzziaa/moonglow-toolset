@@ -589,9 +589,80 @@ fn advanced(f: &mut Form<'_>, ui: &mut Ui) {
         });
         ui.end_row();
         crate::widgets::field_label(ui, "Variables");
-        f.variables(ui);
+        area_variables(f, ui);
         ui.end_row();
     });
+}
+
+/// The areas' variables (this one's, and those edited with it): the game
+/// reads an area's from its GIT's root, none from its ARE
+/// (`engine_area_variables`). Those Moonglow wrote into the ARE before
+/// 1.34.3 are moved to the GIT, one step to undo, when the window opens
+/// (one of the same name in the GIT keeps its value there).
+fn area_variables(f: &mut Form<'_>, ui: &mut Ui) {
+    let areas: Vec<ResRef> =
+        std::iter::once(f.key.resref).chain(f.also.iter().map(|(k, _)| k.resref)).collect();
+    let Some(ws) = f.app.ws.as_mut() else { return };
+    let mut lists = Vec::new();
+    for &area in &areas {
+        let read = |t: ResType, ws: &mut mg_edit::Workspace| -> Vec<mg_gff::Struct> {
+            ws.doc(&ResKey::new(area, t))
+                .ok()
+                .and_then(|d| d.root.list("VarTable").map(<[_]>::to_vec))
+                .unwrap_or_default()
+        };
+        lists.push((area, read(ResType::GIT, ws), read(ResType::ARE, ws)));
+    }
+    let name = |s: &mg_gff::Struct| s.string("Name").map(<[u8]>::to_vec);
+    // Each area's variables as they are once moved: the GIT's, then the
+    // ARE's it lacks.
+    let moved: Vec<(ResRef, Vec<mg_gff::Struct>, bool)> = lists
+        .into_iter()
+        .map(|(area, mut git, are)| {
+            let had = !are.is_empty();
+            for v in are {
+                if !git.iter().any(|g| name(g) == name(&v)) {
+                    git.push(v);
+                }
+            }
+            (area, git, had)
+        })
+        .collect();
+    let shown = &moved[0].1;
+    let label = format!("Variables ({})…", shown.len());
+    if !ui.button(label).on_hover_text("Edit scripting variables").clicked() {
+        return;
+    }
+    let mut edits = Vec::new();
+    for (area, list, had) in &moved {
+        if !had {
+            continue;
+        }
+        let set = |t: ResType, value: Option<Value>| Edit::SetField {
+            key: ResKey::new(*area, t),
+            path: GffPath::root(),
+            label: "VarTable".into(),
+            value,
+        };
+        edits.push(set(ResType::GIT, Some(Value::List(list.clone()))));
+        edits.push(set(ResType::ARE, None));
+    }
+    if !edits.is_empty() {
+        f.app.log.info(if edits.len() == 2 {
+            "The area's variables moved from its ARE to its GIT, where the game reads them".into()
+        } else {
+            format!(
+                "{} areas' variables moved from their ARE to their GIT, where the game reads them",
+                edits.len() / 2
+            )
+        });
+        f.app.actions.push(Action::Apply(Command::new("Move area variables", edits)));
+    }
+    let git = |a: ResRef| (ResKey::new(a, ResType::GIT), GffPath::root());
+    let (key, path) = git(areas[0]);
+    let mut target = crate::widgets::FieldTarget::new(key, path, "VarTable");
+    target.also = areas[1..].iter().map(|&a| git(a)).collect();
+    f.app.var_edit = Some(crate::widgets::VarTableEdit::new(target, shown));
 }
 
 /// The Edit Areas Together window: the areas ticked, and the filters that

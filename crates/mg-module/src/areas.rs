@@ -389,6 +389,28 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
         let mut note = |what: String, from: Option<String>, to: Option<String>| {
             done.push(Changed { area, what, from, to });
         };
+        // An area's variables are its GIT's: the game reads none from its
+        // ARE (`engine_area_variables`), where Moonglow wrote them before
+        // 1.34.3. Those are moved to the GIT first (one of the same name
+        // there keeps its value).
+        let vars_changed =
+            changes.iter().any(|c| matches!(c, Change::Var { .. } | Change::RemoveVar(_)));
+        if vars_changed {
+            let git = git.as_mut().ok_or_else(|| format!("{area} has no GIT for its variables"))?;
+            let in_are = are.root.list("VarTable").unwrap_or(&[]).to_vec();
+            if !in_are.is_empty() {
+                let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
+                for v in in_are {
+                    if !vars.iter().any(|g| g.string("Name") == v.string("Name")) {
+                        vars.push(v);
+                    }
+                }
+                git.root.set("VarTable", Value::List(vars));
+                are.root.remove("VarTable");
+                (are_changed, git_changed) = (true, true);
+                note("variables moved from the ARE to the GIT".into(), None, None);
+            }
+        }
         for change in changes {
             match change {
                 Change::Set { field, value } => {
@@ -427,10 +449,11 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
                     }
                 }
                 Change::Var { name, kind, value } => {
-                    let mut vars = are.root.list("VarTable").unwrap_or(&[]).to_vec();
+                    let Some(git) = git.as_mut() else { continue };
+                    let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
                     if let Some((from, to)) = set_var(&mut vars, name, *kind, value)? {
-                        are.root.set("VarTable", Value::List(vars));
-                        are_changed = true;
+                        git.root.set("VarTable", Value::List(vars));
+                        git_changed = true;
                         note(format!("var {name}"), from, Some(to));
                     }
                 }
@@ -470,12 +493,13 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
                     }
                 }
                 Change::RemoveVar(name) => {
-                    let mut vars = are.root.list("VarTable").unwrap_or(&[]).to_vec();
+                    let Some(git) = git.as_mut() else { continue };
+                    let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
                     let at = vars.iter().position(|v| v.string("Name") == Some(name.as_bytes()));
                     if let Some(i) = at {
                         let from = vars.remove(i).get("Value").map(shown);
-                        are.root.set("VarTable", Value::List(vars));
-                        are_changed = true;
+                        git.root.set("VarTable", Value::List(vars));
+                        git_changed = true;
                         note(format!("var {name}"), from, None);
                     }
                 }
@@ -548,6 +572,10 @@ mod tests {
         m.gff(&ResKey::new(r(name), ResType::ARE)).unwrap().unwrap().root
     }
 
+    fn git(m: &Module, name: &str) -> Struct {
+        m.gff(&ResKey::new(r(name), ResType::GIT)).unwrap().unwrap().root
+    }
+
     #[test]
     fn areas_are_listed_and_filtered() {
         let m = module();
@@ -591,18 +619,21 @@ mod tests {
             let git = m.gff(&ResKey::new(r(name), ResType::GIT)).unwrap().unwrap();
             assert_eq!(git.root.child("AreaProperties").unwrap().integer("MusicDay"), Some(57));
         }
-        // Each keeps its other flags and variables.
+        // Each keeps its other flags and variables. The variables are the
+        // GIT's, where the game reads them: those an earlier Moonglow left
+        // in the ARE (cave1's nDepth) are moved there first.
         assert_eq!(are(&m, "cave1").integer("Flags"), Some(0x5));
         assert_eq!(are(&m, "cave2").integer("Flags"), Some(0x1 | 0x100));
         assert_eq!(
-            are(&m, "cave1").list("VarTable").unwrap(),
+            git(&m, "cave1").list("VarTable").unwrap(),
             [var("nDepth", 1, Value::Int(4)), var("nMusic", 1, Value::Int(57))]
         );
         assert_eq!(
-            are(&m, "cave2").list("VarTable").unwrap(),
+            git(&m, "cave2").list("VarTable").unwrap(),
             [var("nMusic", 1, Value::Int(57)), var("nDepth", 1, Value::Int(4))]
         );
-        // The inn wasn't named.
+        assert_eq!(are(&m, "cave1").list("VarTable"), None, "moved from the ARE");
+        // The inn wasn't named: its variable stays where it is.
         assert_eq!(are(&m, "inn").integer("SunFogAmount"), Some(2));
         assert_eq!(are(&m, "inn").list("VarTable").unwrap().len(), 1);
         // What changed, by area.

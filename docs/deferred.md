@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T21:05:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:48:33Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1161,13 +1161,27 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Models and textures
 
-- **Heed's previews after 1.33.0** (not reproduced): armor that shows only
-  a head and pelvis (sometimes shoulders) in the preview, and the Drow
-  shields of the standard palette shown as bags in their thumbnails and
-  the palette's hover preview. In the base game they show whole
-  (`item_previews` in `screens.rs`: `nw_aarcl004`, `x2_adrowshl001`), so
-  his haks are the likely cause (a `baseitems.2da` or armor parts of
-  their own); his hak list or a blueprint is needed. (S–M)
+- **Heed's previews after 1.33.0** (not reproduced): the Drow shields of
+  the standard palette shown as bags in their thumbnails and the
+  palette's hover preview. In the base game they show whole
+  (`item_previews` in `screens.rs`: `x2_adrowshl001`), so his haks are the
+  likely cause (a `baseitems.2da` of their own); his hak list or a
+  blueprint is needed. (His armor showing only a head and pelvis was
+  Beamdog's HD bodies, drawn whole since 1.34.1.) (S–M)
+- **Where mg-mdl differs from nwn-mdl-spec** (August's pointer to the
+  shared spec, 2026-10-19; [the comparison](research/notes_mdl_spec.md)):
+  its conformance suite passes 27 of 46 compiles and 44 of 46 decompiles.
+  Reader (what Moonglow draws): `setfillumcolor` and `ambient_only` are
+  read though the engine reads neither; a light's defaults when absent
+  (priority 5, dynamic type 1, fading 1); `orientation 0 0 0 a` turns
+  about +X; `PARENT` in capitals drops the node; a vertex with no valid
+  bone collapses. Compiler (what a hak built by Moonglow holds): animmesh
+  sets (an animated mesh does not animate), the AABB merge and tie plane,
+  smoothing-group normals, tangents at mirrored seams and from a material
+  (the hak build has no material lookup), the transparency sort of
+  children, degenerate faces, a mesh's `alpha` bezier keys. Decompiler: a
+  bare `detonate`, animmesh sets over split vertices. The suite itself
+  could run in the corpus tests (its probes and goldens are CC0). (M–L)
 - **A compiled model is known by its first byte** being zero, not its
   first four (troubletcat's report after 1.32.2: a fancy-mapped CTP
   Babylon hak's 587 tile models begin `\0CTP` or `\0OMB`, drawn in the

@@ -170,14 +170,36 @@ fn without_skins(model: Arc<Model>, body_part: Option<&Model>) -> Arc<Model> {
 /// Whether a compiled body part's skin was compiled against the skeleton
 /// it hangs from: its bind pose has one entry per node of the skeleton
 /// (not of the part), and its bones are nodes of the skeleton. Beamdog's
-/// HD bodies are made so (`pmh0_chest039`: bones `torso_g` and
-/// `rbicep_g`).
+/// HD bodies are made so (`pmh0_neck001`: bones 4, 5 and 2 of `pmh0`,
+/// `neck_g`, `head_g` and `torso_g`; nwn-mdl-spec MDL-SKIN-012).
 fn bound_to_skeleton(skin: &mg_mdl::Skin, part: &Model, skeleton: &Model) -> bool {
     let nodes = skeleton.nodes.len();
     !skin.bones.is_empty()
         && skin.inverse_bind.len() == nodes
         && nodes != part.nodes.len()
         && skin.bones.iter().all(|&b| b < nodes)
+}
+
+/// A model's nodes in the order of a depth-first walk of its tree from its
+/// first root, children in their order: where the engine binds a skin's
+/// bones (nwn-mdl-spec MDL-SKIN-011). A binary model's nodes are read in
+/// this order; one read from text keeps the file's. Nodes outside the tree
+/// follow, in their order.
+fn tree_order(model: &Model) -> Vec<usize> {
+    let mut out = Vec::with_capacity(model.nodes.len());
+    let mut seen = vec![false; model.nodes.len()];
+    let root = model.nodes.iter().position(|n| n.parent.is_none());
+    let mut stack: Vec<usize> = root.into_iter().collect();
+    while let Some(i) = stack.pop() {
+        if std::mem::replace(&mut seen[i], true) {
+            continue;
+        }
+        out.push(i);
+        let children = model.nodes[i].children.iter().rev();
+        stack.extend(children.filter(|&&c| c < model.nodes.len() && !seen[c]));
+    }
+    out.extend((0..model.nodes.len()).filter(|&i| !seen[i]));
+    out
 }
 
 /// Where a body part's stand-ins for the skeleton's nodes start, and the
@@ -204,11 +226,10 @@ fn on_skeleton(model: &Model, skeleton: &Model) -> Option<(Arc<Model>, Skeleton)
         return None;
     }
     let from = model.nodes.len();
-    // A compiled skin's bone is the skeleton's node of that part number
-    // (of that place, where the skeleton has no numbers).
-    let nodes: Vec<usize> = (0..skeleton.nodes.len())
-        .map(|b| skeleton.nodes.iter().position(|n| n.part == Some(b as i32)).unwrap_or(b))
-        .collect();
+    // A compiled skin's bone is the skeleton's node at that place in a
+    // depth-first walk of its tree (nwn-mdl-spec MDL-SKIN-011: not its part
+    // number, which a skeleton on a supermodel takes from that one's).
+    let nodes = tree_order(skeleton);
     let mut on = model.clone();
     for (n, was) in on.nodes.iter_mut().zip(&model.nodes) {
         if !bound(was) {
@@ -729,6 +750,23 @@ mod ray_tests {
         let mg_mdl::MeshExtra::Skin(s) = &on.nodes[1].mesh().unwrap().extra else { panic!() };
         assert_eq!((s.bones.as_slice(), s.inverse_bind.len()), ([4].as_slice(), 5));
         assert!(on_skeleton(&Model::read(text.as_bytes()).unwrap(), &skeleton).is_none());
+    }
+
+    /// A skin's bones are found by a depth-first walk of the skeleton's
+    /// tree, whatever order its nodes are listed in.
+    #[test]
+    fn a_skeleton_s_tree_is_walked_depth_first() {
+        // (Declared s, arm, head, hand under arm: file order is not the
+        // tree's.)
+        let text = "newmodel s\nsetsupermodel s NULL\nbeginmodelgeom s\n\
+            node dummy s\n  parent NULL\nendnode\n\
+            node dummy arm\n  parent s\nendnode\n\
+            node dummy head\n  parent s\nendnode\n\
+            node dummy hand\n  parent arm\nendnode\n\
+            endmodelgeom s\ndonemodel s\n";
+        let m = Model::read(text.as_bytes()).unwrap();
+        let names: Vec<&str> = tree_order(&m).iter().map(|&i| m.nodes[i].name.as_str()).collect();
+        assert_eq!(names, ["s", "arm", "hand", "head"]);
     }
 
     /// Beamdog's HD bodies showed only their head and pelvis (a builder's

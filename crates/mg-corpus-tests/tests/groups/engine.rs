@@ -13,6 +13,8 @@ mod engine_2da;
 mod engine_area_edits;
 #[path = "../engine_area_light.rs"]
 mod engine_area_light;
+#[path = "../engine_area_variables.rs"]
+mod engine_area_variables;
 #[path = "../engine_armor_colors.rs"]
 mod engine_armor_colors;
 #[path = "../engine_big_hak.rs"]

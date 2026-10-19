@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T11:44:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:48:33Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -589,7 +589,10 @@ its head and pelvis, in Moonglow alone) is the second: Beamdog's HD
 bodies (the human male's `pmh0_*` parts) are skins compiled against the
 creature's skeleton. Such a skin's bind pose has one entry per node of
 the skeleton (56 for `pmh0`), not of the part, and its bones are the
-skeleton's nodes by number (`pmh0_chest039`: `torso_g` and `rbicep_g`);
+skeleton's nodes by their place in a depth-first walk of its tree
+(`pmh0_neck001`: 4, 5 and 2, `neck_g`, `head_g` and `torso_g`; as
+nwn-mdl-spec's MDL-SKIN-011 and -012 have it, from the engine's code:
+[the comparison](research/notes_mdl_spec.md));
 the head and pelvis are plain meshes. A compiled skin that is not so
 (the first row's, compiled by `mgv compile`, keeps a bind pose for the
 part's own nodes) is not drawn. Moonglow draws the first, second, third
