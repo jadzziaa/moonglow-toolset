@@ -3,7 +3,7 @@ type: Finding
 title: Findings
 description: What Moonglow's authors learned about NWN:EE that is undocumented or documented wrongly - item costs, creatures, areas and tiles, talk tables and 2DAs, haks, GFF fields, what Aurora writes - each saying how it was checked, where Moonglow implements it and what nwn.wiki says.
 tags: [findings, engine, aurora, gff, 2da, nwn-wiki]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T09:37:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T11:44:06Z }
 sources:
   - id: engine
     resource: The game itself (NWN:EE 89.8193.37) - a private nwserver, and the game client read back by screenshot; tests engine_* and client_* in crates/mg-corpus-tests/tests
@@ -577,21 +577,36 @@ copy could not be taken for the game's).
 | The model | The skin's bone | In the client |
 | --- | --- | --- |
 | Body part, compiled | the skeleton's (`torso_g`, no node of the part) | not drawn |
+| Body part, compiled against the skeleton (Beamdog's HD bodies) | the skeleton's | drawn, following the skeleton's bones |
 | Body part, text | the same | drawn as a plain mesh, where the part hangs |
 | Body part, compiled | the part's own dummy | drawn at the creature's feet, not where the part hangs |
 | Body part, text | the part's own dummy | drawn out of shape, above its place |
 | Held item, compiled or text | the skeleton's (`lforearm_g`) | not drawn |
 
 A builder's report (a body part exported as a skin shows in Moonglow
-and not in the game) is the first row. Moonglow draws the first, the
-second and the last row as the client does; a skin weighted to nodes of
+and not in the game) is the first row. Another's (an armor showing only
+its head and pelvis, in Moonglow alone) is the second: Beamdog's HD
+bodies (the human male's `pmh0_*` parts) are skins compiled against the
+creature's skeleton. Such a skin's bind pose has one entry per node of
+the skeleton (56 for `pmh0`), not of the part, and its bones are the
+skeleton's nodes by number (`pmh0_chest039`: `torso_g` and `rbicep_g`);
+the head and pelvis are plain meshes. A compiled skin that is not so
+(the first row's, compiled by `mgv compile`, keeps a bind pose for the
+part's own nodes) is not drawn. Moonglow draws the first, second, third
+and last rows as the client does: the skeleton's skin posed by the base's
+nodes (`mg_preview::compose::on_skeleton`); a skin weighted to nodes of
 its own part is not drawn at all (`mg_preview::compose::without_skins`).
 
 - **Checked:** by eye, in the client's pictures (2026-10-11); the rule
   on a model read as text and compiled, in `mg-preview`'s
   `a_body_part_s_skin_is_drawn_as_the_game_draws_it`. The compiled
   models were made by `mgv compile`, not the game's own compiler; one
-  body part and one item were tried.
+  body part and one item were tried. The second row: the HD pack's
+  `pmh0_*` parts in the override of `creatures_look` (2026-10-19), the
+  client's armored human whole and its picture beside Moonglow's alike,
+  and different from the stock parts'; in Moonglow,
+  `a_body_part_bound_to_the_skeleton_follows_its_bones` (a part made so
+  by hand).
 
 ### A part-based creature with no body part fields
 

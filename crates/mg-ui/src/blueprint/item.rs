@@ -328,7 +328,7 @@ fn part_choice(
     let current = part_number(&f.root, labels[0]).unwrap_or(0);
     let choices: Vec<Choice> =
         numbers.iter().map(|&n| Choice { row: n as usize, text: text(n) }).collect();
-    if let Some(v) = super::situated::pick_sized(ui, f.key, what, &choices, current, PART_WIDTH) {
+    if let Some(v) = super::situated::pick_part(ui, f.key, what, &choices, current, PART_WIDTH) {
         set_part(f, what, labels, v);
     }
 }

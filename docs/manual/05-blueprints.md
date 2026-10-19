@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T21:05:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T11:44:06Z }
 ---
 
 # Blueprints
@@ -156,7 +156,9 @@ The palette's buttons:
   first and last. A creature's and a placeable's Appearance list shows
   each appearance's picture beside the row the pointer rests on, and the
   chosen one's with the pointer resting on the list's box: leave it there
-  and the picture follows the arrow keys.
+  and the picture follows the arrow keys. A body or armor part's list
+  takes the mouse wheel too, with the pointer resting on it: down to the
+  next part, up to the one before, without opening it.
 - **Edit Copy…**: copy any blueprint, standard or custom, into the module
   as a new custom one, and open it. It asks for the copy's ResRef (a free
   one is offered) and Tag first.
@@ -301,9 +303,10 @@ every change, as Aurora does on OK.
   large as the window has room for; its wings, tail and colors, and its
   body parts, are to the right, so a change shows as you make it (a
   body part may be **0 (none)**, which draws nothing). A body part's
-  mesh that is a skin mesh is drawn as the game draws it: not at all
-  where the model is compiled, as a plain mesh where it is kept as
-  text (body parts are meant to be plain meshes). A creature that had a
+  mesh that is a skin mesh is drawn as the game draws it: as a plain
+  mesh where it is kept as text; where it is compiled, following the
+  skeleton's bones if it was compiled against the skeleton (as Beamdog's
+  HD bodies are), else not at all. A creature that had a
   single model keeps no body parts: given an appearance with a body of
   parts, it gets them (each 1, no belt or shoulders) in the same step,
   since the game draws only a head without them. **Pop

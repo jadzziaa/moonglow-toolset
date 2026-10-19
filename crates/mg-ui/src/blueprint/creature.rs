@@ -542,7 +542,7 @@ fn appearance_fields(f: &mut Form<'_>, ui: &mut Ui, game: &GameData, prefix: Opt
             let current = part_number(&f.root, label).unwrap_or(0);
             let choices = part_choices(&numbers);
             crate::widgets::field_label(ui, text);
-            if let Some(v) = situated::pick(ui, f.key, label, &choices, current) {
+            if let Some(v) = situated::pick_part(ui, f.key, label, &choices, current, 220.0) {
                 set_part(f, text, label, v);
             }
             ui.end_row();

@@ -9950,6 +9950,52 @@ fn colours_are_chosen_from_palette_swatches() {
     assert_eq!(field(&mut h, &key).integer("Cloth1Color"), Some(pick));
 }
 
+/// The mouse wheel over a part's list steps through it without opening it
+/// (a builder's request): down to the next part, up to the one before.
+#[test]
+fn the_mouse_wheel_steps_through_an_armor_s_parts() {
+    let Some((mut h, key)) = blueprint_harness("nw_aarcl001", "part_wheel", ResType::UTI) else {
+        return;
+    };
+    h.get_by_label("Appearance").click();
+    h.run();
+    let torso = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("ArmorPart_Torso");
+    let before = torso(&mut h).expect("a torso");
+    // The torso's list: beside its label, on its row.
+    let label = h.get_by_label("Torso").rect();
+    let list = h
+        .get_all_by_role(egui::accesskit::Role::ComboBox)
+        .map(|n| n.rect())
+        .find(|r| r.min.x > label.max.x && (r.center().y - label.center().y).abs() < 6.0)
+        .expect("the torso's list");
+    let wheel = |h: &mut Harness<'_, Moonglow>, y: f32| {
+        h.hover_at(list.center());
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: egui::vec2(0.0, y),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(2);
+    };
+    wheel(&mut h, -50.0);
+    let next = torso(&mut h).unwrap();
+    assert!(next > before, "down: the next part ({before} → {next})");
+    assert!(h.query_by_label(&format!("Torso {next}")).is_none(), "the list stays closed");
+    wheel(&mut h, 50.0);
+    assert_eq!(torso(&mut h), Some(before), "up: the one before");
+    // Away from the list, the wheel scrolls the page and picks nothing.
+    h.hover_at(label.center() - egui::vec2(0.0, 30.0));
+    h.event(egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -50.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.run_steps(2);
+    assert_eq!(torso(&mut h), Some(before));
+}
+
 #[test]
 fn an_armor_s_parts_take_colors_of_their_own_and_keep_them() {
     use mg_gff::Value;

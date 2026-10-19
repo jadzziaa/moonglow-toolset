@@ -574,6 +574,20 @@ pub(super) fn pick(
     pick_sized(ui, key, name, choices, current, 220.0)
 }
 
+/// [`pick_sized`] for a body or armor part: the mouse wheel over it, closed,
+/// steps through its choices too (a builder's ask: to see each on the
+/// model without opening the list).
+pub(super) fn pick_part(
+    ui: &mut Ui,
+    key: ResKey,
+    name: &str,
+    choices: &[Choice],
+    current: i64,
+    width: f32,
+) -> Option<i64> {
+    pick_with(ui, key, name, choices, current, width, true)
+}
+
 /// [`pick`], `width` wide: narrower for choices that are a word or a
 /// number.
 pub(super) fn pick_sized(
@@ -583,6 +597,19 @@ pub(super) fn pick_sized(
     choices: &[Choice],
     current: i64,
     width: f32,
+) -> Option<i64> {
+    pick_with(ui, key, name, choices, current, width, false)
+}
+
+/// [`pick_sized`], the wheel stepping through it where `wheel`.
+fn pick_with(
+    ui: &mut Ui,
+    key: ResKey,
+    name: &str,
+    choices: &[Choice],
+    current: i64,
+    width: f32,
+    wheel: bool,
 ) -> Option<i64> {
     let shown = choices
         .iter()
@@ -602,6 +629,9 @@ pub(super) fn pick_sized(
     // The arrow keys step through it, as in Aurora.
     let rows: Vec<i64> = choices.iter().map(|c| c.row as i64).collect();
     let pick = pick.or_else(|| crate::widgets::arrow_pick(ui, &list.response, &rows, current));
+    let pick = pick.or_else(|| {
+        wheel.then(|| crate::widgets::wheel_pick(ui, &list.response, &rows, current)).flatten()
+    });
     pick.filter(|&v| v != current)
 }
 

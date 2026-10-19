@@ -22,6 +22,10 @@ struct Placed {
     colors: Option<[u8; 10]>,
     env_map: Option<String>,
     animated: bool,
+    /// A body part whose skins are bound to the base's skeleton: its
+    /// nodes from here on stand for the base's, posed as the base is
+    /// ([`on_skeleton`]).
+    skeleton: Option<Skeleton>,
     /// Its own animations and its supermodels' (animated parts).
     anims: Vec<(String, Arc<Model>)>,
 }
@@ -31,6 +35,20 @@ impl Placed {
     fn animation(&self, name: &str) -> Option<&Animation> {
         let owner = self.anims.iter().find(|(n, _)| n.eq_ignore_ascii_case(name))?;
         owner.1.animation(name)
+    }
+
+    /// A body part bound to the skeleton ([`Placed::skeleton`]), posed:
+    /// its own nodes at rest, and its stand-ins where the base's nodes are
+    /// at `base_pose`, in the part's space (`hung`: where it hangs, at its
+    /// scale). `None` for any other part.
+    fn skeleton_pose(&self, base_pose: &[Mat4], hung: Mat4) -> Option<Vec<Mat4>> {
+        let skeleton = self.skeleton.as_ref()?;
+        let back = hung.inverse();
+        let rest = &self.gpu.rest;
+        let mut pose = rest[..skeleton.from.min(rest.len())].to_vec();
+        let at = |&n: &usize| back * base_pose.get(n).copied().unwrap_or(Mat4::IDENTITY);
+        pose.extend(skeleton.nodes.iter().map(at));
+        Some(pose)
     }
 }
 
@@ -87,9 +105,15 @@ fn place_unguarded(
     let mut model = load(&part.model)?;
     // A part hung from a node and not animated (a body part, a held
     // item) is drawn rigid by the game, and a mesh in it that is a skin
-    // has no skeleton to follow there.
-    if let Some(node) = part.attach.as_deref().filter(|_| !part.animated && base.is_some()) {
-        model = without_skins(model, node.ends_with("_g"));
+    // has no skeleton to follow there, save a body part's skin bound to
+    // the body's skeleton.
+    let mut skeleton = None;
+    if let Some((node, base)) = part.attach.as_deref().zip(base).filter(|_| !part.animated) {
+        let body_part = node.ends_with("_g").then_some(base);
+        model = without_skins(model, body_part);
+        if let Some((on, at)) = body_part.and_then(|base| on_skeleton(&model, base)) {
+            (model, skeleton) = (on, Some(at));
+        }
     }
     let attach = part
         .attach
@@ -106,6 +130,7 @@ fn place_unguarded(
         colors: part.colors,
         env_map: part.env_map.clone(),
         animated: part.animated,
+        skeleton,
         anims,
     })
 }
@@ -114,15 +139,18 @@ fn place_unguarded(
 /// there not drawn (the model itself if it has none such). Seen in the
 /// client (`docs/findings.md`, "A skin mesh in a body part or a held
 /// item"): a body part's skin whose bones are the skeleton's, no nodes of
-/// the part, is not drawn where the model is compiled and is drawn as a
-/// plain mesh where it is text; a held item's is drawn in neither.
-/// (`body_part`: it hangs from one of the skeleton's part nodes.)
-fn without_skins(model: Arc<Model>, body_part: bool) -> Arc<Model> {
+/// the part, is drawn as a plain mesh where the model is text and, where
+/// it is compiled, only if it was compiled against the skeleton
+/// ([`bound_to_skeleton`]); a held item's is drawn in neither.
+/// (`body_part`: the skeleton, where it hangs from one of its part nodes.)
+fn without_skins(model: Arc<Model>, body_part: Option<&Model>) -> Arc<Model> {
     let hidden = |n: &mg_mdl::Node| {
         n.mesh().is_some_and(|m| match &m.extra {
-            // (Text: no bind pose is stored.)
             mg_mdl::MeshExtra::Skin(s) => {
-                m.render && !(body_part && s.bones.is_empty() && s.inverse_bind.is_empty())
+                // (Text: no bind pose is stored.)
+                let text = s.bones.is_empty() && s.inverse_bind.is_empty();
+                let bound = body_part.is_some_and(|base| bound_to_skeleton(s, &model, base));
+                m.render && !(body_part.is_some() && text) && !bound
             }
             _ => false,
         })
@@ -137,6 +165,67 @@ fn without_skins(model: Arc<Model>, body_part: bool) -> Arc<Model> {
         }
     }
     Arc::new(rigid)
+}
+
+/// Whether a compiled body part's skin was compiled against the skeleton
+/// it hangs from: its bind pose has one entry per node of the skeleton
+/// (not of the part), and its bones are nodes of the skeleton. Beamdog's
+/// HD bodies are made so (`pmh0_chest039`: bones `torso_g` and
+/// `rbicep_g`).
+fn bound_to_skeleton(skin: &mg_mdl::Skin, part: &Model, skeleton: &Model) -> bool {
+    let nodes = skeleton.nodes.len();
+    !skin.bones.is_empty()
+        && skin.inverse_bind.len() == nodes
+        && nodes != part.nodes.len()
+        && skin.bones.iter().all(|&b| b < nodes)
+}
+
+/// Where a body part's stand-ins for the skeleton's nodes start, and the
+/// base's node each stands for.
+#[derive(Debug)]
+struct Skeleton {
+    from: usize,
+    nodes: Vec<usize>,
+}
+
+/// A body part whose skins are bound to the skeleton ([`bound_to_skeleton`])
+/// as the renderer can draw it: the skeleton's nodes put after its own (as
+/// dummies, which [`Composed::instances`] poses as the base's), and its
+/// skins' bones and bind poses moved onto them. `None` for a part with no
+/// such skin.
+fn on_skeleton(model: &Model, skeleton: &Model) -> Option<(Arc<Model>, Skeleton)> {
+    let bound = |n: &mg_mdl::Node| {
+        n.mesh().is_some_and(|m| match &m.extra {
+            mg_mdl::MeshExtra::Skin(s) => m.render && bound_to_skeleton(s, model, skeleton),
+            _ => false,
+        })
+    };
+    if !model.nodes.iter().any(bound) {
+        return None;
+    }
+    let from = model.nodes.len();
+    // A compiled skin's bone is the skeleton's node of that part number
+    // (of that place, where the skeleton has no numbers).
+    let nodes: Vec<usize> = (0..skeleton.nodes.len())
+        .map(|b| skeleton.nodes.iter().position(|n| n.part == Some(b as i32)).unwrap_or(b))
+        .collect();
+    let mut on = model.clone();
+    for (n, was) in on.nodes.iter_mut().zip(&model.nodes) {
+        if !bound(was) {
+            continue;
+        }
+        if let mg_mdl::NodeKind::Mesh(m) = &mut n.kind
+            && let mg_mdl::MeshExtra::Skin(s) = &mut m.extra
+        {
+            s.bones.iter_mut().for_each(|b| *b += from);
+            let mut binds = vec![([0.0, 0.0, 0.0, 1.0], [0.0; 3]); from];
+            binds.append(&mut s.inverse_bind);
+            s.inverse_bind = binds;
+        }
+    }
+    let stand_in = |&i: &usize| mg_mdl::Node::new(&skeleton.nodes[i].name, mg_mdl::NodeKind::Dummy);
+    on.nodes.extend(nodes.iter().map(stand_in));
+    Some((Arc::new(on), Skeleton { from, nodes }))
 }
 
 impl Composed {
@@ -254,7 +343,8 @@ impl Composed {
         let mut out = vec![instance(&self.base, transform, Some(base_pose.clone()))];
         for p in &self.parts {
             let at = p.attach.and_then(|i| base_pose.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-            let placed = transform * at * Mat4::from_scale(Vec3::splat(p.scale));
+            let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
+            let placed = transform * hung;
             // Animated parts play the animation on their own nodes: their
             // own (wings, tails), else the base's (robe and cloak bones).
             let pose = if p.animated {
@@ -267,7 +357,7 @@ impl Composed {
                 let worn = self.base.gpu.model.animation_scale;
                 own.or(base_anim).map(|a| Arc::new(anim::pose_worn(&p.gpu.model, a, t, worn)))
             } else {
-                None
+                p.skeleton_pose(&base_pose, hung).map(Arc::new)
             };
             out.push(instance(p, placed, pose));
         }
@@ -361,6 +451,23 @@ impl Composed {
                 let Some(mesh) = gm.model.nodes.get(m.node).and_then(|n| n.mesh()) else {
                     continue;
                 };
+                let faces = mesh.faces.iter().map(|f| f.vertices);
+                let triangles = faces.chain(mesh.drawn.iter().copied());
+                let mut meets = |t: Option<f32>| {
+                    if let Some(t) = t.filter(|&t| best.is_none_or(|b| t < b)) {
+                        best = Some(t);
+                    }
+                };
+                // A skinned mesh where its bones put it, as it is drawn.
+                if let Some(places) = skinned_places(gm, m, nodes, to) {
+                    let corner = |i: u32| places.get(i as usize).copied();
+                    for [a, b, c] in triangles {
+                        if let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) {
+                            meets(ray_triangle(origin, dir, a, b, c));
+                        }
+                    }
+                    continue;
+                }
                 let node = nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
                 // The ray in the mesh's space (an affine map keeps its
                 // parameter).
@@ -371,15 +478,9 @@ impl Composed {
                     continue;
                 }
                 let corner = |i: u32| mesh.vertices.get(i as usize).copied().map(Vec3::from);
-                let faces = mesh.faces.iter().map(|f| f.vertices);
-                for [a, b, c] in faces.chain(mesh.drawn.iter().copied()) {
-                    let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) else {
-                        continue;
-                    };
-                    if let Some(t) = ray_triangle(o, d, a, b, c)
-                        && best.is_none_or(|b| t < b)
-                    {
-                        best = Some(t);
+                for [a, b, c] in triangles {
+                    if let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) {
+                        meets(ray_triangle(o, d, a, b, c));
                     }
                 }
             }
@@ -388,7 +489,9 @@ impl Composed {
         meet(&self.base.gpu, rest, Mat4::IDENTITY);
         for p in &self.parts {
             let at = p.attach.and_then(|i| rest.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-            meet(&p.gpu, &p.gpu.rest, at * Mat4::from_scale(Vec3::splat(p.scale)));
+            let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
+            let posed = p.skeleton_pose(rest, hung);
+            meet(&p.gpu, posed.as_deref().unwrap_or(&p.gpu.rest), hung);
         }
         best
     }
@@ -412,29 +515,8 @@ impl Composed {
                 // dragon's wings, bound spread out, are folded in its
                 // pause, and the box around the spread was several times
                 // the dragon.
-                if let Some((skin, weights, vertices)) = skinned(gm, m) {
-                    let bones: Vec<Mat4> = skin
-                        .bones
-                        .iter()
-                        .zip(&skin.inverse_bind)
-                        // (A bone that is no node of the model holds the
-                        // mesh where it is, as the renderer has it.)
-                        .map(|(&b, bind)| {
-                            to * nodes.get(b).copied().unwrap_or(Mat4::IDENTITY) * *bind
-                        })
-                        .collect();
-                    for (v, weights) in vertices.iter().zip(weights) {
-                        let v = Vec3::from(*v);
-                        let (mut at, mut total) = (Vec3::ZERO, 0.0);
-                        for &(bone, weight) in weights {
-                            if let Some(m) = bones.get(usize::from(bone)).filter(|_| weight > 0.0) {
-                                at += m.transform_point3(v) * weight;
-                                total += weight;
-                            }
-                        }
-                        // (A vertex no bone holds stays with the mesh's node.)
-                        let w =
-                            if total > 0.0 { at / total } else { (to * node).transform_point3(v) };
+                if let Some(places) = skinned_places(gm, m, nodes, to) {
+                    for w in places {
                         min = min.min(w);
                         max = max.max(w);
                     }
@@ -462,8 +544,9 @@ impl Composed {
                 let worn = self.base.gpu.model.animation_scale;
                 Some(anim::pose_worn(&p.gpu.model, own.or(Some(base))?, t, worn))
             });
-            let nodes = posed.as_deref().unwrap_or(&p.gpu.rest);
-            add(&p.gpu, nodes, at * Mat4::from_scale(Vec3::splat(p.scale)));
+            let hung = at * Mat4::from_scale(Vec3::splat(p.scale));
+            let posed = posed.or_else(|| p.skeleton_pose(pose, hung));
+            add(&p.gpu, posed.as_deref().unwrap_or(&p.gpu.rest), hung);
         }
         if min.x > max.x { (Vec3::splat(-1.0), Vec3::splat(1.0)) } else { (min, max) }
     }
@@ -482,6 +565,40 @@ fn skinned<'a>(gm: &'a GpuModel, m: &'a mg_render::model::GpuMesh) -> Option<Ski
         }
         _ => None,
     }
+}
+
+/// Where a skinned mesh's bones put each of its vertices, as the renderer
+/// draws them (`nodes`: its model's pose; `to`: from the model's space);
+/// `None` for a mesh that is not skinned.
+fn skinned_places(
+    gm: &GpuModel,
+    m: &mg_render::model::GpuMesh,
+    nodes: &[Mat4],
+    to: Mat4,
+) -> Option<Vec<Vec3>> {
+    let (skin, weights, vertices) = skinned(gm, m)?;
+    let node = nodes.get(m.node).copied().unwrap_or(Mat4::IDENTITY);
+    let bones: Vec<Mat4> = skin
+        .bones
+        .iter()
+        .zip(&skin.inverse_bind)
+        // (A bone that is no node of the model holds the mesh where it
+        // is, as the renderer has it.)
+        .map(|(&b, bind)| to * nodes.get(b).copied().unwrap_or(Mat4::IDENTITY) * *bind)
+        .collect();
+    let place = |(v, weights): (&[f32; 3], &[(u16, f32); 4])| {
+        let v = Vec3::from(*v);
+        let (mut at, mut total) = (Vec3::ZERO, 0.0);
+        for &(bone, weight) in weights {
+            if let Some(m) = bones.get(usize::from(bone)).filter(|_| weight > 0.0) {
+                at += m.transform_point3(v) * weight;
+                total += weight;
+            }
+        }
+        // (A vertex no bone holds stays with the mesh's node.)
+        if total > 0.0 { at / total } else { (to * node).transform_point3(v) }
+    };
+    Some(vertices.iter().zip(weights).map(place).collect())
 }
 
 /// Whether a ray meets the box `min`..`max`.
@@ -538,32 +655,61 @@ mod ray_tests {
         let mut model = Model::default();
         model.nodes.push(Node::new("plain", mesh(MeshExtra::None)));
         model.nodes.push(Node::new("skin", mesh(MeshExtra::Skin(Default::default()))));
-        let rigid = without_skins(Arc::new(model), false);
+        let rigid = without_skins(Arc::new(model), None);
         let drawn: Vec<bool> = rigid.nodes.iter().map(|n| n.mesh().unwrap().render).collect();
         assert_eq!(drawn, [true, false]);
         // One without skins is the same model, not a copy.
         let mut plain = Model::default();
         plain.nodes.push(Node::new("plain", mesh(MeshExtra::None)));
         let plain = Arc::new(plain);
-        assert!(Arc::ptr_eq(&without_skins(plain.clone(), false), &plain));
+        assert!(Arc::ptr_eq(&without_skins(plain.clone(), None), &plain));
+    }
+
+    /// A body part whose mesh is a skin weighted to a bone of the
+    /// skeleton, which is no node of the part.
+    const SKINNED_PART: &str = "newmodel part\nsetsupermodel part NULL\n\
+        classification character\nbeginmodelgeom part\nnode dummy part\n  parent NULL\n\
+        endnode\nnode skin part_g\n  parent part\n  bitmap part\n\
+        verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+        tverts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+        faces 1\n    0 1 2 1 0 1 2 0\n\
+        weights 3\n    torso_g 1.0\n    torso_g 1.0\n    torso_g 1.0\n\
+        endnode\nendmodelgeom part\ndonemodel part\n";
+
+    /// A skeleton for it: the part hangs from `pelvis_g`, half a meter
+    /// below `torso_g`.
+    fn skeleton() -> Model {
+        let text = "newmodel base\nsetsupermodel base NULL\nclassification character\n\
+            beginmodelgeom base\nnode dummy base\n  parent NULL\nendnode\n\
+            node dummy pelvis_g\n  parent base\n  position 0 0 0.5\nendnode\n\
+            node dummy torso_g\n  parent base\n  position 0 0 1\nendnode\n\
+            endmodelgeom base\ndonemodel base\n";
+        Model::read(text.as_bytes()).unwrap()
+    }
+
+    /// The part as compiled against the skeleton (as Beamdog's HD bodies
+    /// are): its bone is the skeleton's `torso_g` (node 2), and its bind
+    /// pose has one entry per node of the skeleton.
+    fn bound_part() -> Model {
+        let mut part = Model::read(SKINNED_PART.as_bytes()).unwrap();
+        let mg_mdl::NodeKind::Mesh(m) = &mut part.nodes[1].kind else { panic!("a mesh") };
+        let count = m.vertices.len();
+        let mg_mdl::MeshExtra::Skin(s) = &mut m.extra else { panic!("a skin") };
+        s.bones = vec![2];
+        s.weights = vec![[(0, 1.0), (0, 0.0), (0, 0.0), (0, 0.0)]; count];
+        s.inverse_bind = vec![([0.0, 0.0, 0.0, 1.0], [0.0; 3]); 3];
+        part
     }
 
     #[test]
     fn a_body_part_s_skin_is_drawn_as_the_game_draws_it() {
-        // A part whose mesh is a skin weighted to a bone of the skeleton,
-        // which is no node of the part: as text, and compiled.
-        let text = "newmodel part\nsetsupermodel part NULL\nclassification character\n\
-            beginmodelgeom part\nnode dummy part\n  parent NULL\nendnode\n\
-            node skin part_g\n  parent part\n  bitmap part\n\
-            verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
-            tverts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
-            faces 1\n    0 1 2 1 0 1 2 0\n\
-            weights 3\n    torso_g 1.0\n    torso_g 1.0\n    torso_g 1.0\n\
-            endnode\nendmodelgeom part\ndonemodel part\n";
+        // As text, and compiled (on its own, not against the skeleton).
+        let skeleton = skeleton();
         let drawn = |model: Model, body_part: bool| {
-            let rigid = without_skins(Arc::new(model), body_part);
+            let rigid = without_skins(Arc::new(model), body_part.then_some(&skeleton));
             rigid.nodes.iter().find_map(|n| n.mesh()).expect("a mesh").render
         };
+        let text = SKINNED_PART;
         let as_text = Model::read(text.as_bytes()).unwrap();
         let compiled = mg_mdl::compile::compile(text.as_bytes(), &Default::default()).unwrap();
         let as_binary = Model::read(&compiled.binary).unwrap();
@@ -572,6 +718,51 @@ mod ray_tests {
         assert!(!drawn(as_binary.clone(), true), "compiled, a body part: not drawn");
         assert!(!drawn(as_text, false), "text, a held item: not drawn");
         assert!(!drawn(as_binary, false), "compiled, a held item: not drawn");
+        // Compiled against the skeleton: drawn as a body part, its bone
+        // moved onto a stand-in for the skeleton's node.
+        assert!(drawn(bound_part(), true), "bound to the skeleton, a body part: drawn");
+        assert!(!drawn(bound_part(), false), "bound to the skeleton, a held item: not drawn");
+        let (on, at) = on_skeleton(&bound_part(), &skeleton).expect("bound to the skeleton");
+        assert_eq!((at.from, at.nodes.as_slice()), (2, [0, 1, 2].as_slice()));
+        assert_eq!(on.nodes.len(), 5);
+        assert_eq!(on.nodes[4].name, "torso_g");
+        let mg_mdl::MeshExtra::Skin(s) = &on.nodes[1].mesh().unwrap().extra else { panic!() };
+        assert_eq!((s.bones.as_slice(), s.inverse_bind.len()), ([4].as_slice(), 5));
+        assert!(on_skeleton(&Model::read(text.as_bytes()).unwrap(), &skeleton).is_none());
+    }
+
+    /// Beamdog's HD bodies showed only their head and pelvis (a builder's
+    /// report): their other parts are skins compiled against the skeleton,
+    /// which follow its bones, not the node they hang from.
+    #[test]
+    fn a_body_part_bound_to_the_skeleton_follows_its_bones() {
+        mg_testkit::gpu::hold();
+        let Some(gpu) = Gpu::headless() else {
+            eprintln!("skipped: no GPU");
+            return;
+        };
+        let (base, part) = (Arc::new(skeleton()), Arc::new(bound_part()));
+        let load = |name: &str| match name {
+            "base" => Some(base.clone()),
+            "part" => Some(part.clone()),
+            _ => None,
+        };
+        let part = crate::Part { attach: Some("pelvis_g".into()), ..crate::Part::new("part") };
+        let preview = Preview { parts: vec![part], ..Preview::model("base") };
+        let c = Composed::new(&gpu, &preview, &load).unwrap();
+        // At `torso_g`, a meter up, not at `pelvis_g` where it hangs.
+        let (min, max) = c.bounds();
+        assert!((min.z - 1.0).abs() < 1e-4 && (max.z - 1.0).abs() < 1e-4, "{min} {max}");
+        assert!((max.x - 1.0).abs() < 1e-4 && (max.y - 1.0).abs() < 1e-4, "{min} {max}");
+        let instances = c.instances(None, 0.0, Mat4::IDENTITY);
+        let pose = instances[1].pose.as_ref().expect("posed by the skeleton");
+        let torso = instances[1].transform * pose[4];
+        assert!(torso.w_axis.truncate().abs_diff_eq(Vec3::Z, 1e-5), "{torso}");
+        // Clicked where it is drawn.
+        assert!(
+            c.ray_hit(Vec3::new(0.2, 0.2, 5.0), Vec3::NEG_Z)
+                .is_some_and(|t| (t - 4.0).abs() < 1e-4)
+        );
     }
 
     #[test]

@@ -1315,6 +1315,35 @@ fn cancel_button(ui: &mut Ui, hover: Option<&str>) -> bool {
 /// the row before and after `current` among `rows` (in the order the list
 /// shows them), Page Up and Page Down ten away, Home and End the first
 /// and last. The row chosen so.
+/// The mouse wheel over a closed choice list `r` (a body or armor part's):
+/// down chooses the row after `current` among `rows`, up the one before,
+/// without opening it; the wheel is the list's then, not the page's (which
+/// does not scroll under it). The row chosen so.
+pub(crate) fn wheel_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64) -> Option<i64> {
+    if !r.hovered() || rows.is_empty() || egui::Popup::is_id_open(ui.ctx(), r.id.with("popup")) {
+        return None;
+    }
+    // (The wheel's turn this frame, as its events have it: a notch a step.)
+    let scroll: f32 = ui.input(|i| {
+        (i.events.iter())
+            .filter_map(|e| match e {
+                egui::Event::MouseWheel { delta, .. } => Some(delta.y),
+                _ => None,
+            })
+            .sum()
+    });
+    if scroll == 0.0 {
+        return None;
+    }
+    // (Taken: the page under the list doesn't scroll.)
+    ui.input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
+    let last = rows.len() as i64 - 1;
+    let at = rows.iter().position(|&row| row == current).map(|a| a as i64);
+    let by = if scroll < 0.0 { 1 } else { -1 };
+    let to = at.map_or(0, |a| (a + by).clamp(0, last));
+    Some(rows[to as usize])
+}
+
 pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64) -> Option<i64> {
     if r.clicked() {
         r.request_focus();
