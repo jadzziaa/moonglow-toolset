@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.34.1" date="2026-10-19">
+      <description>
+        <p>Beamdog's HD bodies are drawn whole in previews and areas,
+        following the skeleton, and the mouse wheel steps through a body
+        or armor part's list.</p>
+      </description>
+    </release>
     <release version="1.34.0" date="2026-10-19">
       <description>
         <p>The Tiles palette's Gallery: every tile a terrain or crosser
