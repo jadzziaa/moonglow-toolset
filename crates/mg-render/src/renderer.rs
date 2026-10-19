@@ -1267,25 +1267,34 @@ impl Renderer {
                 let slots = &surface.slots;
                 let bound = surface.bound;
                 let flag = |b: bool| if b { 1.0 } else { 0.0 };
+                // See-through of its own, whatever the instance's opacity.
+                // (A cut-out is solid where it is not cut: its rim is not
+                // blended, as the client draws it.)
+                let see_through = (surface.has_alpha
+                    && !surface.reflects
+                    && surface.blending != Blending::Punchthrough)
+                    || mat.transparency_hint > 0
+                    || slots.effect.is_some_and(|e| e.blend);
                 let pass = if fade_color.is_some() {
                     Pass::SkyFade
                 } else if is_sky {
                     Pass::Sky
                 } else if surface.blending == Blending::Additive {
                     Pass::Additive
-                } else if alpha < 1.0
-                    // (A cut-out is solid where it is not cut: its rim is
-                    // not blended, as the client draws it.)
-                    || (surface.has_alpha
-                        && !surface.reflects
-                        && surface.blending != Blending::Punchthrough)
-                    || mat.transparency_hint > 0
-                    || slots.effect.is_some_and(|e| e.blend)
-                {
+                } else if alpha < 1.0 || see_through {
                     Pass::Blend
                 } else {
                     Pass::Opaque
                 };
+                // A mesh solid of its own in an instance drawn see-through
+                // (a tile or a blueprint about to be placed): its depth is
+                // laid first, so that the instance's nearer surfaces hide
+                // its farther ones (a tile's water, nearer the eye by its
+                // middle, was drawn over its bridge).
+                let ghost_solid = pass == Pass::Blend
+                    && inst.opacity < 1.0
+                    && alpha / inst.opacity >= 1.0
+                    && !see_through;
                 let discard = ALPHA_DISCARD;
                 // The 32 most important lights that reach the mesh.
                 reach.reaching(centre, radius, &mut chosen);
@@ -1392,6 +1401,12 @@ impl Renderer {
                         let [cube, sky, fade, _] = uniform.extra;
                         DrawUniform { extra: [cube, sky, fade, which], ..uniform }
                     };
+                    // (Its depth alone, before any of the rest is drawn.)
+                    if ghost_solid {
+                        uniforms.push(part(4.0));
+                        draws.push(Draw { depth: f32::INFINITY, ..draw });
+                    }
+                    let draw = Draw { uniform: uniforms.len() as u32, ..draw };
                     uniforms.push(part(1.0));
                     draws.push(draw);
                     uniforms.push(part(2.0));

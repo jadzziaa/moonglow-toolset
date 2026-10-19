@@ -1118,22 +1118,29 @@ fn draw_thumbnail(
     let towards =
         |yaw: f32| Vec3::new(yaw.cos() * pitch.cos(), yaw.sin() * pitch.cos(), pitch.sin());
     let usual = 60f32.to_radians();
+    // (Of `first` and the others, the side that shows half as much again.)
+    let best = |first: f32, others: [f32; 3]| {
+        others
+            .into_iter()
+            .fold((first, composed.facing(towards(first))), |best, yaw| {
+                let shows = composed.facing(towards(yaw));
+                if shows > best.1 * 1.5 + 1e-3 { (yaw, shows) } else { best }
+            })
+            .0
+    };
+    let quarter = std::f32::consts::FRAC_PI_2;
     let yaw = match turned {
-        // (From the south-west, as an area opens: the camera goes round
-        // the other way from the tile's turn.)
-        Some(by) => -120f32.to_radians() - by,
+        // From the south-west, as an area opens (the camera goes round the
+        // other way from the tile's turn), or from another corner where
+        // that shows much more: a chasm's wall faces into the chasm, and
+        // from behind it showed only its lip and the floor far below.
+        Some(by) => {
+            let sw = -120f32.to_radians() - by;
+            best(sw, [sw + quarter, sw - quarter, sw + 2.0 * quarter])
+        }
         // (A shield from its front.)
         None if shield => usual + std::f32::consts::PI,
-        None => {
-            [usual + std::f32::consts::PI, usual + 1.57, usual - 1.57]
-                .into_iter()
-                .fold((usual, composed.facing(towards(usual))), |best, yaw| {
-                    // (Only for a side that shows half as much again.)
-                    let shows = composed.facing(towards(yaw));
-                    if shows > best.1 * 1.5 + 1e-3 { (yaw, shows) } else { best }
-                })
-                .0
-        }
+        None => best(usual, [usual + std::f32::consts::PI, usual + 1.57, usual - 1.57]),
     };
     let mut particles = Vec::new();
     if let Some((model, playing, pose)) = composed.emitters(idle, 0.0) {
@@ -1188,35 +1195,59 @@ fn draw_thumbnail(
     render_picture(app, &scene, &camera)
 }
 
-/// A tileset's group as a picture: each tile's model in its place, as the
-/// group goes in unturned, seen from the south-west and a little above, as
-/// a tile's picture is. `None` where none of its tiles can be drawn.
+/// A tileset's group as a picture: as it stands placed, unturned, in open
+/// ground, with the tiles around it that its placement changes (a castle's
+/// gate, a single tile, in the castle its corners call for), seen from the
+/// south-west and a little above, as a tile's picture is. `None` where
+/// none of its tiles can be drawn.
 fn draw_group_thumbnail(
     app: &mut Moonglow,
     tileset: mg_core::ResRef,
     group: u32,
 ) -> Option<(wgpu::Texture, egui::TextureId)> {
-    let set = (app.area_views.values().filter_map(|v| v.terrain.as_ref()))
+    let tools = (app.area_views.values().filter_map(|v| v.terrain.as_ref()))
         .find(|t| t.tileset == tileset)
-        .map(|t| t.set.clone())
-        .or_else(|| {
-            app.game.as_deref().and_then(|g| mg_area::tileset(g, tileset).ok()).map(Arc::new)
-        })?;
+        .map(|t| (t.set.clone(), Some(t.index.clone())));
+    let (set, index) = tools.or_else(|| {
+        let game = app.game.as_deref()?;
+        mg_area::tileset(game, tileset).ok().map(|set| (Arc::new(set), None))
+    })?;
     let g = set.groups.get(group as usize)?;
+    let index = index.unwrap_or_else(|| mg_tiles::TileIndex::new(&set));
+    // The tiles and their places: as placed (the group's first tile at
+    // the origin), else the group's own tiles alone.
+    let placed: Vec<((i64, i64), mg_tiles::Placement)> =
+        match mg_tiles::paint::group_placed(&index, &set, group as usize) {
+            Some(placed) => {
+                let m = i64::from(mg_tiles::paint::GROUP_MARGIN);
+                let at = |(x, y): (u32, u32)| (i64::from(x) - m, i64::from(y) - m);
+                placed.into_iter().map(|(cell, p)| (at(cell), p)).collect()
+            }
+            None => (g.tiles.iter().enumerate())
+                .filter_map(|(k, t)| {
+                    let p = mg_tiles::Placement { tile: (*t)?, orientation: 0, height: 0 };
+                    Some((mg_tiles::group_slot(k, g.columns, 0), p))
+                })
+                .collect(),
+        };
     // (Each tile's models kept until the picture is drawn.)
     let mut parts = Vec::new();
-    for (k, tile) in g.tiles.iter().enumerate() {
-        let Some(tile) = tile else { continue };
-        let Some(t) = set.tiles.get(*tile as usize) else { continue };
+    for ((c, r), p) in placed {
+        let Some(t) = set.tiles.get(p.tile as usize) else { continue };
         let Some(key) = ResKey::parse(&t.model.to_ascii_lowercase(), ResType::MDL) else {
             continue;
         };
         let source = Source::Resource(key);
         let Ok(preview) = preview_of(app, &source) else { continue };
         let Ok(composed) = compose(app, &source, &preview) else { continue };
-        let (c, r) = mg_tiles::group_slot(k, g.columns, 0);
-        let at = Vec3::new(c as f32 * mg_area::TILE_SIZE, r as f32 * mg_area::TILE_SIZE, 0.0);
-        parts.push((composed, Mat4::from_translation(at)));
+        let at = Vec3::new(
+            c as f32 * mg_area::TILE_SIZE,
+            r as f32 * mg_area::TILE_SIZE,
+            p.height as f32 * set.general.transition,
+        );
+        let turn =
+            glam::Quat::from_rotation_z(f32::from(p.orientation % 4) * std::f32::consts::FRAC_PI_2);
+        parts.push((composed, Mat4::from_rotation_translation(turn, at)));
     }
     if parts.is_empty() {
         return None;

@@ -415,7 +415,12 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
 
     // A see-through mesh in two parts: what is nearly opaque of it first
     // (hiding what is behind), the rest afterwards (hiding nothing). A
-    // cut-out (3) is solid where it was not cut.
+    // cut-out (3) is solid where it was not cut. A solid mesh of an
+    // instance drawn see-through lays its depth alone first (4): blended
+    // at no opacity, it changes no color.
+    if (draws[this_draw].extra.w > 3.5) {
+        return vec4<f32>(0.0);
+    }
     if (draws[this_draw].extra.w > 2.5) {
         color.a = 1.0;
     } else if (draws[this_draw].extra.w > 1.5) {

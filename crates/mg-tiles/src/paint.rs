@@ -653,6 +653,42 @@ pub fn step_fit(
     }
 }
 
+/// Cells of open ground around a group placed by [`group_placed`]: room
+/// for the tiles around it that its placement changes.
+pub const GROUP_MARGIN: u32 = 3;
+
+/// A group as it stands once placed, unturned, in open ground (the
+/// tileset's `Default` terrain): its tiles and the tiles around it that
+/// its placement changes (the castle around a castle's gate, whose
+/// corners are castle), each cell with its tile, the group's first tile
+/// in cell ([`GROUP_MARGIN`], [`GROUP_MARGIN`]). `None` where it cannot
+/// be placed there.
+pub fn group_placed(
+    index: &TileIndex,
+    set: &Tileset,
+    group: usize,
+) -> Option<Vec<((u32, u32), Placement)>> {
+    let g = set.groups.get(group)?;
+    let (w, h) = (g.columns.max(1) + 2 * GROUP_MARGIN, g.rows.max(1) + 2 * GROUP_MARGIN);
+    let ground = Corner { terrain: index.terrain(&set.general.default)?, height: 0 };
+    let lattice = Lattice::new(w, h, ground);
+    let tiles = crate::fill(index, &lattice, &mut fastrand::Rng::with_seed(0)).ok()?;
+    let mut grid = Grid::new(index, w, h, tiles)?;
+    let stroke = grid.place_group(index, g, GROUP_MARGIN, GROUP_MARGIN, 0)?;
+    // (The cells around whose terrain changes; the rest stay open ground.)
+    let changed: BTreeSet<(u32, u32)> = (stroke.fixed.iter().map(|&(cell, _)| cell))
+        .chain(
+            stroke
+                .cells
+                .iter()
+                .copied()
+                .filter(|&(x, y)| stroke.lattice.cell(x, y) != grid.lattice.cell(x, y)),
+        )
+        .collect();
+    grid.apply(index, stroke, &mut fastrand::Rng::with_seed(0));
+    Some(changed.into_iter().map(|(x, y)| ((x, y), grid.tile(x, y))).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -741,6 +777,40 @@ Top={}\nRight={}\nBottom={}\nLeft={}\n",
             .rev()
             .map(|y| (0..=l.width()).map(|x| l.corner(x, y).height).collect())
             .collect()
+    }
+
+    /// A group whose corners are another terrain than open ground's is
+    /// pictured with the tiles around it that its placement changes: a
+    /// castle's gate with the castle around it (a builder's report: the
+    /// Gallery showed the gate alone).
+    #[test]
+    fn a_group_is_placed_with_the_tiles_it_changes_around_it() {
+        let mut set = set();
+        // (Tile 15: B at every corner.)
+        let gate = mg_set::Group {
+            name: "Gate".into(),
+            strref: Default::default(),
+            rows: 1,
+            columns: 1,
+            tiles: vec![Some(15)],
+        };
+        set.groups.push(gate);
+        let index = TileIndex::new(&set);
+        let placed = group_placed(&index, &set, 0).expect("placed");
+        let m = GROUP_MARGIN;
+        assert!(placed.contains(&((m, m), Placement { tile: 15, orientation: 0, height: 0 })));
+        let cells: Vec<(u32, u32)> = placed.iter().map(|&(c, _)| c).collect();
+        let around: Vec<(u32, u32)> =
+            (m - 1..=m + 1).flat_map(|y| (m - 1..=m + 1).map(move |x| (x, y))).collect();
+        assert_eq!(
+            cells,
+            around.iter().copied().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>()
+        );
+        // A group of open ground's own terrain changes nothing around it.
+        set.groups[0].tiles = vec![Some(0)];
+        let placed = group_placed(&index, &set, 0).expect("placed");
+        assert_eq!(placed.iter().map(|&(c, _)| c).collect::<Vec<_>>(), [(m, m)]);
+        assert!(group_placed(&index, &set, 5).is_none());
     }
 
     #[test]

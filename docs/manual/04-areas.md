@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T02:48:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T12:26:04Z }
 ---
 
 # Areas
@@ -453,7 +453,9 @@ as Aurora's Terrain tab does:
   as the blueprint palettes', with the pictures' size beside it.
 - In the **Gallery**, each terrain and crosser is a heading that opens and
   closes, with every tile it can make under it as pictures: each variant,
-  and each transition to another terrain (none of a group's). Its name
+  and each transition to another terrain (none of a group's). A tile is
+  seen from the south-west, as an area opens, or from the corner that
+  shows much more of it (a chasm's wall, which faces into the chasm). Its name
   still chooses the brush. Click a picture to paint with that tile itself:
   a click places it, a drag places it in every tile the pointer passes,
   and a right click turns it a quarter, as a group. Drag a picture into
@@ -466,14 +468,18 @@ as Aurora's Terrain tab does:
   reads **Refine Tile →** and the tile's model) makes the tiles you click
   or drag over that tile, wherever it fits as they stand, and leaves the
   rest. Click the picture again, or another brush, to let it go.
-- In the Gallery, **Features** and **Groups** are pictures too: each
-  group's tiles together, as it is placed. Click one to place it (a right
-  click in the area turns it), or drag it into the area.
+- In the Gallery, **Features** and **Groups** are pictures too: each as
+  it stands once placed in open ground, its tiles together with the tiles
+  around that its placement changes (a castle's gate, a single tile, in
+  the castle its corners call for; a boat in its water). Click one to
+  place it (a right click in the area turns it), or drag it into the
+  area.
 - The Eraser, Refine Tile and Raise/Lower head the Terrain list, whatever
   the tileset's order.
 
 Under the pointer, the area shows the tiles a click would make, slightly
-see-through, in place of those they replace: a feature or group, a
+see-through (their nearer surfaces over their farther ones, a bridge
+over its water), in place of those they replace: a feature or group, a
 terrain's or a raised corner's tiles, the Eraser's or Refine Tile's
 choice. While you drag a terrain, a crosser or the Eraser, it shows what letting go
 now would paint. The click or drag puts down exactly the tiles shown:

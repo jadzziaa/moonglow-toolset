@@ -1051,6 +1051,45 @@ fn a_see_through_edge_does_not_hide_the_ground_behind_it() {
     );
 }
 
+/// What is drawn see-through (a tile about to be placed) shows its nearer
+/// surfaces over its farther ones, whatever order its meshes are drawn
+/// in: a bridge over water, the bridge's middle farther from the eye than
+/// the water's (a builder's report: the water was drawn over the bridge).
+#[test]
+fn a_see_through_instance_s_near_surfaces_hide_its_far_ones() {
+    let Some(gpu) = gpu() else { return };
+    let (bridge, water) =
+        (colored_quad(&gpu, [1.0, 0.0, 0.0]), colored_quad(&gpu, [0.0, 0.0, 1.0]));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -1.0, 10.0),
+        target: Vec3::ZERO,
+        fov_y: 1.4,
+        near: 0.1,
+        far: 100.0,
+    };
+    let at = |p: Vec3, scale: f32| Mat4::from_translation(p) * Mat4::from_scale(Vec3::splat(scale));
+    let ghost = |model: &Arc<GpuModel>, place: Mat4| Instance {
+        opacity: 0.6,
+        ..Instance::new(model.clone(), place)
+    };
+    let scene = Scene {
+        instances: vec![
+            ghost(&bridge, at(Vec3::new(6.0, 0.0, 1.0), 0.5)),
+            ghost(&water, at(Vec3::ZERO, 10.0)),
+        ],
+        area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let img = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
+    let pixels: Vec<[u8; 4]> =
+        (0..64).flat_map(|y| (0..64).map(move |x| (x, y))).map(|(x, y)| img.pixel(x, y)).collect();
+    let over = |p: &[u8; 4], a: usize, b: usize| u16::from(p[a]) > 3 * u16::from(p[b]);
+    let (blue, red) = (|p: &[u8; 4]| over(p, 2, 0), |p: &[u8; 4]| over(p, 0, 2));
+    assert!(pixels.iter().any(|p| p[2] > 60 && blue(p)), "the water");
+    assert!(pixels.iter().any(|p| p[0] > 60 && red(p)), "the bridge, the water not over it");
+}
+
 /// A [`quad`] of a colour.
 fn colored_quad(gpu: &Gpu, color: [f32; 3]) -> Arc<GpuModel> {
     let mut model = quad();
@@ -1100,7 +1139,8 @@ fn meshes_out_of_the_camera_s_sight_are_left_out() {
 
 /// Each draw takes its own values (they lie in one list, a draw's found by
 /// its number): quads of three colours show each in its own, one of them
-/// see-through (two draws, each with values of its own) between the others.
+/// see-through (three draws, each with values of its own: its depth, and
+/// its two parts) between the others.
 #[test]
 fn every_draw_takes_its_own_values() {
     let Some(gpu) = gpu() else { return };
@@ -1127,7 +1167,7 @@ fn every_draw_takes_its_own_values() {
     };
     let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
     let image = r.render_image(&gpu, &NoAssets, &scene, &camera, 64, 64);
-    assert_eq!(r.drawn.meshes, 4, "{:?}", r.drawn);
+    assert_eq!(r.drawn.meshes, 5, "{:?}", r.drawn);
     // (Where each quad is in the picture.)
     for (channel, x) in [11, 32, 53].into_iter().enumerate() {
         let pixel = image.pixel(x, 32);
@@ -1219,8 +1259,9 @@ fn instances_are_drawn_in_the_order_of_the_meshes_they_meet() {
     assert_eq!(r.drawn.batches, r.drawn.meshes, "{:?}", r.drawn);
     // Solid: the first white, the red, and the two other whites together.
     // See-through (their fringes: nothing of them is solid): the same of
-    // the greens. Twelve meshes (the see-through ones in two parts).
-    assert_eq!((drawn.meshes, drawn.batches), (12, 9), "{drawn:?}");
+    // the greens, after their depths. Sixteen meshes (the
+    // see-through ones in three parts: the depth and two).
+    assert_eq!((drawn.meshes, drawn.batches), (16, 11), "{drawn:?}");
     assert!(instanced.data == one_by_one.data, "the same picture");
     // (And the see-through green over the red is what is seen: more green
     // than red there, as it would not be with the red drawn last.)
