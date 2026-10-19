@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T21:05:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T22:55:29Z }
 ---
 
 # Modules
@@ -132,6 +132,14 @@ unpacking or packing between the toolset and git.
   in is written all the same, and the log says so: nasher would not pack
   it, and the project would not read it back when opened again. Add its
   extension to the include (a NUI window's `jui` and `txt`, say).
+- **Files the include leaves out are named.** Opening a project, and when
+  a file is moved to a folder the include doesn't look in, the log lists
+  the files in the source folders that Moonglow would read and the
+  include leaves out (a NUI window's `.txt` only beside its `.jui`; what
+  an `exclude` leaves out is left be). **Build › Add Left-Out Files to
+  nasher.cfg** adds a line for their kinds beside the include they lie
+  under (`include = "src/**/*.{jui,txt}"`), and they are read: nasher
+  packs them from then on too.
 - **Changes made elsewhere are picked up while the project is open.**
   Every few seconds (Options › General, the reloading switch) Moonglow
   looks for source files that another program changed, added or deleted:

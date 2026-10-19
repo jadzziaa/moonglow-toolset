@@ -280,6 +280,47 @@ fn closing_with_unsaved_changes_asks_first() {
     );
 }
 
+/// A NUI window moved in a nasher project to a folder its include leaves
+/// out (a builder's report: not listed, after a restart too): said on
+/// opening, and Build › Add Left-Out Files to nasher.cfg takes it in.
+#[test]
+fn a_nui_window_the_include_leaves_out_is_said_and_taken_in() {
+    let dir = mg_testkit::scratch_dir("ui-nasher-left-out");
+    let path = sample_module(&dir);
+    let project = dir.join("project");
+    let _ = std::fs::remove_dir_all(&project);
+    std::fs::create_dir_all(project.join("src/scripts/chat-commands")).unwrap();
+    std::fs::write(
+        project.join("nasher.cfg"),
+        "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+         [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+    )
+    .unwrap();
+    let mut m = mg_module::Module::open(&path).unwrap();
+    let location = mg_module::ModuleLocation::Project { root: project.clone(), target: "m".into() };
+    m.save_as(&location).unwrap();
+    let windows = project.join("src/scripts/chat-commands");
+    std::fs::write(windows.join("test.jui"), br#"{"version":1}"#).unwrap();
+    std::fs::write(windows.join("test.txt"), b"settings").unwrap();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1500.0, 1000.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.state_mut().open_module(&project);
+    h.run();
+    let log = format!("{:?}", h.state().log.entries);
+    assert!(log.contains("src/scripts/chat-commands/test.jui"), "{log}");
+    assert!(h.query_by_label("NUI windows (0)").is_some());
+    h.get_by_label("Build").click();
+    h.run();
+    h.get_by_label("Add Left-Out Files to nasher.cfg").click();
+    h.run_steps(3);
+    let jui = ResKey::parse("test", ResType::JUI).unwrap();
+    assert!(h.state().ws.as_ref().unwrap().module.contains(&jui), "{:?}", h.state().log.entries);
+    assert!(h.query_by_label("NUI windows (1)").is_some());
+    let cfg = std::fs::read_to_string(project.join("nasher.cfg")).unwrap();
+    assert!(cfg.contains("include = \"src/**/*.{jui,txt}\""), "{cfg}");
+}
+
 /// A NUI window's scripts in a nasher project: Build makes them in the
 /// module, and Save writes them where the project's rules put them (a
 /// builder's report: not copied to the project; Build said "written").

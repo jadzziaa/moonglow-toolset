@@ -165,6 +165,9 @@ pub enum Action {
     OpenFolderDialog,
     /// Build › Pack *file*: a nasher project's module file, as nasher packs it.
     PackTarget,
+    /// Build › Add Left-Out Files to nasher.cfg: an include line for the
+    /// files the project's include leaves out, and they are read.
+    TakeInLeftOut,
     /// Saves, then runs the action if the module was saved.
     SaveThen(Box<Action>),
     /// Runs an action that would discard unsaved changes, without asking.
@@ -2431,6 +2434,7 @@ impl Moonglow {
             }
             Action::FoldPalettes => self.show_panel(commands::Id::ViewPalettes, false),
             Action::PackTarget => _ = self.pack_target(),
+            Action::TakeInLeftOut => self.take_in_left_out(),
             Action::ExportDialog(keys) => {
                 if self.ws.is_some() {
                     self.export = Some(ExportDraft {
@@ -3034,6 +3038,23 @@ impl Moonglow {
         let Some(project) = ws.module.project.as_mut() else { return };
         for w in std::mem::take(&mut project.warnings) {
             self.log.warn(w);
+        }
+    }
+
+    /// Build › Add Left-Out Files to nasher.cfg (see
+    /// [`mg_module::nasher::Project::take_in_left_out`]); the files are then
+    /// read as files added to the tree.
+    fn take_in_left_out(&mut self) {
+        let Some(project) = self.ws.as_mut().and_then(|ws| ws.module.project.as_mut()) else {
+            return;
+        };
+        match project.take_in_left_out() {
+            Ok(Some(line)) => {
+                self.log.info(format!("nasher.cfg: added {line}"));
+                self.reload_project_files();
+            }
+            Ok(None) => self.log.info("The project's include leaves no file out"),
+            Err(e) => self.log.error(e.to_string()),
         }
     }
 

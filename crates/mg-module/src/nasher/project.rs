@@ -41,6 +41,9 @@ pub struct Project {
     stamps: HashMap<PathBuf, Stamp>,
     /// Things worth telling the user about the tree, taken by the caller.
     pub warnings: Vec<String>,
+    /// Files in the source folders that the target's include leaves out
+    /// and Moonglow would read ([`Project::left_out`]), as last looked.
+    pub left_out: Vec<PathBuf>,
 }
 
 /// A file's modification time and size.
@@ -95,6 +98,41 @@ fn source_name(key: &ResKey, json: bool) -> String {
 
 /// The resource a source file name stands for, and whether the file is
 /// JSON; `None` if it isn't a resource.
+/// The folder an include looks in, relative to the project (the part
+/// before its first wildcard): `src/**/*.nss` looks in `src`. `None` for one
+/// that looks outside the project's folder, or in all of it.
+fn source_base(pattern: &str) -> Option<String> {
+    let pattern = pattern.replace('\\', "/");
+    let mut parts = Vec::new();
+    for part in pattern.split('/') {
+        if super::glob::has_magic(part) {
+            break;
+        }
+        parts.push(part);
+    }
+    // (The last part without a wildcard is a file's name, unless more follow.)
+    if parts.len() == pattern.split('/').count() {
+        parts.pop();
+    }
+    let base = parts.join("/");
+    let outside = base.is_empty()
+        || base.starts_with('/')
+        || base.split('/').any(|p| p == "..")
+        || base.contains(':');
+    (!outside).then_some(base)
+}
+
+/// The kinds (extensions, lower case) of `files`.
+fn left_out_kinds(files: &[PathBuf]) -> Vec<String> {
+    let mut kinds: Vec<String> = files
+        .iter()
+        .filter_map(|p| p.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()))
+        .collect();
+    kinds.sort();
+    kinds.dedup();
+    kinds
+}
+
 fn resource_of(file_name: &str) -> Option<(ResKey, bool)> {
     let (name, json) = match file_name.strip_suffix(".json") {
         Some(inner) => (inner, true),
@@ -131,6 +169,7 @@ impl Project {
             sources: HashMap::new(),
             stamps: HashMap::new(),
             warnings: Vec::new(),
+            left_out: Vec::new(),
         };
         let conv = project.conversion();
         let mut resources = IndexMap::new();
@@ -174,7 +213,116 @@ impl Project {
             project.sources.insert(key, Source { path, json, file, resource });
         }
         project.settle_area_list(&mut resources);
+        project.left_out = project.left_out();
+        if !project.left_out.is_empty() {
+            let warning = project.left_out_warning();
+            project.warnings.push(warning);
+        }
         Ok((project, resources))
+    }
+
+    /// The files in the source folders (where the target's includes look,
+    /// in the project's folder) that no include takes in and no exclude
+    /// leaves out on purpose, of a kind Moonglow reads: nasher won't pack
+    /// them, and the project doesn't read them. A `.txt` counts only beside
+    /// a NUI window of its name (its settings); other notes are left be. A
+    /// builder's NUI window, moved into a folder the include didn't take
+    /// in, was not found.
+    pub fn left_out(&self) -> Vec<PathBuf> {
+        let root = self.root().to_path_buf();
+        let target = self.target();
+        let mut bases: Vec<String> =
+            target.includes.iter().filter_map(|p| source_base(p)).collect();
+        bases.sort();
+        bases.dedup();
+        let mut out = Vec::new();
+        for base in bases {
+            for path in super::glob::walk(&root, &format!("{base}/**/*")).unwrap_or_default() {
+                if out.contains(&path)
+                    || target.covers(&root, &path)
+                    || target.excludes.iter().any(|p| super::glob::covers(&root, p, &path))
+                {
+                    continue;
+                }
+                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                let Some((key, json)) = resource_of(&name) else { continue };
+                if json && !is_json_type(key.restype) {
+                    continue;
+                }
+                if key.restype == ResType::TXT && !path.with_extension("jui").is_file() {
+                    continue;
+                }
+                out.push(path);
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// What [`Project::left_out`] found, said.
+    fn left_out_warning(&self) -> String {
+        let root = self.root();
+        let shown: Vec<String> = (self.left_out.iter())
+            .map(|p| p.strip_prefix(root).unwrap_or(p).display().to_string().replace('\\', "/"))
+            .collect();
+        format!(
+            "{}: in the sources, but nasher.cfg's include ({}) leaves {} out: nasher won't pack \
+             {}, and Moonglow doesn't read {}. Build › Add Left-Out Files to nasher.cfg takes \
+             in {}.",
+            shown.join(", "),
+            self.target().includes.join(", "),
+            if shown.len() == 1 { "it" } else { "them" },
+            if shown.len() == 1 { "it" } else { "them" },
+            if shown.len() == 1 { "it" } else { "them" },
+            left_out_kinds(&self.left_out).join(", ")
+        )
+    }
+
+    /// Takes in the files the include leaves out ([`Project::left_out`]):
+    /// a line `include = "<folder>/**/*.{<their kinds>}"` is added to
+    /// `nasher.cfg` beside the include of the target's they lie under, and
+    /// the package is read again. They are read as files added to the
+    /// tree ([`Project::outside`]). Returns the line added.
+    pub fn take_in_left_out(&mut self) -> Result<Option<String>, ModuleError> {
+        let left = self.left_out();
+        if left.is_empty() {
+            self.left_out = left;
+            return Ok(None);
+        }
+        let root = self.root().to_path_buf();
+        let cfg = Package::config_path(&root);
+        let bad =
+            |message: String| ModuleError::Source { name: cfg.display().to_string(), message };
+        let text = std::fs::read_to_string(&cfg).map_err(io(&cfg))?;
+        // The include of the target's whose folder holds the first file.
+        let (pattern, base) = (self.target().includes.iter())
+            .filter_map(|p| Some((p.clone(), source_base(p)?)))
+            .find(|(_, base)| left[0].starts_with(root.join(base)))
+            .ok_or_else(|| bad("no include of the target's looks in the files' folder".into()))?;
+        let kinds = left_out_kinds(&left);
+        let pick =
+            if kinds.len() == 1 { kinds[0].clone() } else { format!("{{{}}}", kinds.join(",")) };
+        let added = format!("include = \"{base}/**/*.{pick}\"");
+        // Beside that include's line, as indented.
+        let lines: Vec<&str> = text.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| {
+                let t = l.trim_start();
+                t.starts_with("include") && l.contains(&format!("\"{pattern}\""))
+            })
+            .ok_or_else(|| bad(format!("include = \"{pattern}\" is not a line of it")))?;
+        let indent: String = lines[at].chars().take_while(|c| c.is_whitespace()).collect();
+        let mut out: Vec<String> = lines.iter().map(|l| l.to_string()).collect();
+        out.insert(at + 1, format!("{indent}{added}"));
+        let mut written = out.join("\n");
+        if text.ends_with('\n') {
+            written.push('\n');
+        }
+        std::fs::write(&cfg, written).map_err(io(&cfg))?;
+        self.package = Package::read(&root)?;
+        self.left_out = self.left_out();
+        Ok(Some(added))
     }
 
     /// Makes a project at `root` for a module that isn't in one: a
@@ -345,6 +493,24 @@ impl Project {
         changes.extend(added);
         changes.sort_by(|a, b| a.path.cmp(&b.path));
         problems.sort();
+        // A file gone from where it was read: if it is now where the
+        // include doesn't look, it was moved there, and is said
+        // ([`Project::left_out`]) rather than only taken for deleted.
+        let gone: Vec<ResKey> =
+            changes.iter().filter(|c| c.resource.is_none()).map(|c| c.key).collect();
+        if !gone.is_empty() {
+            let left = self.left_out();
+            let moved = left.iter().any(|p| {
+                let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+                resource_of(&name).is_some_and(|(k, _)| gone.contains(&k))
+            });
+            let new = left != self.left_out;
+            self.left_out = left;
+            if moved && new {
+                let warning = self.left_out_warning();
+                self.warnings.push(warning);
+            }
+        }
         (changes, problems)
     }
 
@@ -810,6 +976,83 @@ mod tests {
         assert!(
             back.contains(&key("win", ResType::JUI)) && back.contains(&key("tbl", ResType::TWODA))
         );
+    }
+
+    /// A NUI window and its settings moved into a folder the include
+    /// leaves out (a builder's report: not found, after a restart too) is
+    /// said on opening, and taken in by an include line added beside the
+    /// project's own, then read as a file added to the tree. A note of
+    /// the builder's and a file an exclude leaves out are left be.
+    #[test]
+    fn files_the_include_leaves_out_are_said_and_taken_in() {
+        let root = scratch("left-out");
+        let dir = root.join("src/scripts/chat-commands");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            root.join("nasher.cfg"),
+            "[package]\n  [package.sources]\n  include = \"src/**/*.{nss,json}\"\n  \
+             exclude = \"src/old/**\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+        )
+        .unwrap();
+        let mut m = module();
+        m.save_as(&project_location(&root)).unwrap();
+        std::fs::write(dir.join("test.jui"), b"{}").unwrap();
+        std::fs::write(dir.join("test.txt"), b"settings").unwrap();
+        std::fs::write(dir.join("readme.txt"), b"notes").unwrap();
+        std::fs::create_dir_all(root.join("src/old")).unwrap();
+        std::fs::write(root.join("src/old/gone.jui"), b"{}").unwrap();
+        let opened = Module::open(&root).unwrap();
+        let mut p = opened.project.clone().unwrap();
+        let names = |files: &[PathBuf]| -> Vec<String> {
+            files.iter().map(|f| f.file_name().unwrap().to_string_lossy().into_owned()).collect()
+        };
+        assert_eq!(names(&p.left_out), ["test.jui", "test.txt"]);
+        assert!(!opened.contains(&key("test", ResType::JUI)));
+        let warning = p.warnings.join("\n");
+        assert!(
+            warning.contains("src/scripts/chat-commands/test.jui") && warning.contains("jui, txt"),
+            "{warning}"
+        );
+        let added = p.take_in_left_out().unwrap();
+        assert_eq!(added.as_deref(), Some("include = \"src/**/*.{jui,txt}\""));
+        let cfg = std::fs::read_to_string(root.join("nasher.cfg")).unwrap();
+        assert!(
+            cfg.contains(
+                "  include = \"src/**/*.{nss,json}\"\n  include = \"src/**/*.{jui,txt}\"\n"
+            ),
+            "{cfg}"
+        );
+        assert!(p.left_out.is_empty());
+        let (changes, problems) = p.outside();
+        assert!(problems.is_empty(), "{problems:?}");
+        let keys: Vec<ResKey> = changes.iter().map(|c| c.key).collect();
+        assert!(
+            keys.contains(&key("test", ResType::JUI)) && keys.contains(&key("test", ResType::TXT))
+        );
+        // And opened again: read.
+        let again = Module::open(&root).unwrap();
+        assert!(again.contains(&key("test", ResType::JUI)));
+        assert!(again.project.unwrap().left_out.is_empty());
+
+        // Moved, while open, to where the include doesn't look: said, not
+        // only taken for deleted.
+        let moved = scratch("left-out-moved");
+        std::fs::create_dir_all(moved.join("src/sub")).unwrap();
+        std::fs::write(
+            moved.join("nasher.cfg"),
+            "[package]\n  [package.sources]\n  include = \"src/*.{nss,json,jui}\"\n  \
+             [package.rules]\n  \"*\" = \"src\"\n[target]\nname = \"m\"\nfile = \"m.mod\"\n",
+        )
+        .unwrap();
+        let mut m = module();
+        m.set(key("win", ResType::JUI), b"{}".to_vec());
+        m.save_as(&project_location(&moved)).unwrap();
+        let mut p = Module::open(&moved).unwrap().project.unwrap();
+        assert!(p.left_out.is_empty());
+        std::fs::rename(moved.join("src/win.jui"), moved.join("src/sub/win.jui")).unwrap();
+        let _ = p.outside();
+        assert_eq!(names(&p.left_out), ["win.jui"]);
+        assert!(p.warnings.iter().any(|w| w.contains("src/sub/win.jui")), "{:?}", p.warnings);
     }
 
     #[test]

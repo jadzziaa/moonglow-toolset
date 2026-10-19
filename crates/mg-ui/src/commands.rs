@@ -69,6 +69,8 @@ pub enum Id {
     TestModule,
     TestChoose,
     PackTarget,
+    /// A nasher project's files its include leaves out, taken in.
+    TakeInLeftOut,
     AreaStatistics,
     /// The Plugins window.
     Plugins,
@@ -200,6 +202,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::TestModule),
             Do(Id::TestChoose),
             Do(Id::PackTarget),
+            Do(Id::TakeInLeftOut),
             Separator,
             Do(Id::AreaStatistics),
         ],
@@ -388,6 +391,12 @@ impl Id {
                 "Pack the Project's Module",
                 "Write the nasher project's module file, as nasher packs it",
             ),
+            Id::TakeInLeftOut => (
+                "take-in-left-out",
+                "Add Left-Out Files to nasher.cfg",
+                "Files in the project's sources that its include leaves out (nasher won't pack \
+                 them): an include line for their kinds is added, and they are read",
+            ),
             Id::AreaStatistics => ("area-statistics", "Area Statistics", ""),
             Id::Plugins => (
                 "plugins",
@@ -522,7 +531,9 @@ impl Id {
     /// project is not).
     fn shown(self, app: &Moonglow) -> bool {
         match self {
-            Id::PackTarget => app.ws.as_ref().is_some_and(|ws| ws.module.project.is_some()),
+            Id::PackTarget | Id::TakeInLeftOut => {
+                app.ws.as_ref().is_some_and(|ws| ws.module.project.is_some())
+            }
             _ => true,
         }
     }
@@ -573,6 +584,9 @@ impl Id {
             }
             Id::ResizeArea | Id::RotateArea | Id::AreaStatistics => shown_area(app).is_some(),
             Id::PackTarget => self.shown(app),
+            Id::TakeInLeftOut => (app.ws.as_ref())
+                .and_then(|ws| ws.module.project.as_ref())
+                .is_some_and(|p| !p.left_out.is_empty()),
             Id::Save
             | Id::SaveAs
             | Id::SaveAsProject
@@ -636,6 +650,7 @@ impl Id {
             Id::TestModule => Action::SaveThen(Box::new(Action::TestModule)),
             Id::TestChoose => Action::SaveThen(Box::new(Action::TestModuleChoose)),
             Id::PackTarget => Action::PackTarget,
+            Id::TakeInLeftOut => Action::TakeInLeftOut,
             Id::Manual => Action::OpenTab(Tab::Manual),
             // The rest open a window of their own, or change what shows.
             Id::ImportConversation => {

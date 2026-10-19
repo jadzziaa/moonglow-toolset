@@ -199,6 +199,9 @@ impl Moonglow {
     pub fn reload_project_files(&mut self) {
         let Some(ws) = self.ws.as_mut() else { return };
         let Some((changes, problems)) = ws.module.outside() else { return };
+        // (A file moved where the project's include doesn't look is said.)
+        self.take_project_warnings();
+        let Some(ws) = self.ws.as_mut() else { return };
         for p in problems {
             if self.outside.said.insert(hash(&p)) {
                 self.log.warn(format!("Changed outside Moonglow, and not read: {p}"));
