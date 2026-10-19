@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.34.0" date="2026-10-19">
+      <description>
+        <p>The Tiles palette's Gallery: every tile a terrain or crosser
+        can make, and every feature and group, as pictures to choose,
+        drag into the area or open. A tile chosen is painted as it is,
+        and Refine Tile dragged makes a run of tiles alike.</p>
+      </description>
+    </release>
     <release version="1.33.1" date="2026-10-18">
       <description>
         <p>A conversation link goes to its line by a double click or Go to
