@@ -518,13 +518,63 @@ pub fn compile(text: &[u8], sources: &Sources<'_>) -> Result<Compiled, CompileEr
         });
         model.nodes[i].children = sorted;
     }
+    // The nodes in the order of the tree as it is written: what a skin's
+    // bones and bind poses are numbered by (nwn-mdl-spec MDL-SKIN-011),
+    // and what the sort changed. (`was`: each node's index before.)
+    let was = in_tree_order(&mut model);
 
     // Numbered in the order of the text.
     let mut order: Vec<usize> = (0..model.nodes.len()).collect();
-    order.sort_by_key(|&i| (line(i) == 0, line(i), i));
+    order.sort_by_key(|&i| (line(was[i]) == 0, line(was[i]), was[i]));
     let parts = binary::number_nodes(&model, &order, sources.supermodel, sources.existing);
     notes.sort();
     Ok(Compiled { binary: binary::write(&model, &parts)?, notes })
+}
+
+/// Puts a model's nodes in the order of a depth-first walk of its tree,
+/// children in their order, nodes outside it after; every reference to a
+/// node follows (parents, children, a skin's bones and bind poses). Returns
+/// each node's index before.
+fn in_tree_order(model: &mut Model) -> Vec<usize> {
+    let n = model.nodes.len();
+    let mut order = Vec::with_capacity(n);
+    let mut seen = vec![false; n];
+    let mut stack: Vec<usize> =
+        model.nodes.iter().position(|x| x.parent.is_none()).into_iter().collect();
+    while let Some(i) = stack.pop() {
+        if i >= n || std::mem::replace(&mut seen[i], true) {
+            continue;
+        }
+        order.push(i);
+        stack.extend(model.nodes[i].children.iter().rev());
+    }
+    order.extend((0..n).filter(|&i| !seen[i]));
+    if order.iter().enumerate().all(|(new, &old)| new == old) {
+        return order;
+    }
+    let mut new_of = vec![0; n];
+    for (new, &old) in order.iter().enumerate() {
+        new_of[old] = new;
+    }
+    let mut nodes: Vec<crate::Node> = order.iter().map(|&o| model.nodes[o].clone()).collect();
+    for node in &mut nodes {
+        node.parent = node.parent.map(|p| new_of.get(p).copied().unwrap_or(p));
+        for c in &mut node.children {
+            *c = new_of.get(*c).copied().unwrap_or(*c);
+        }
+        if let NodeKind::Mesh(m) = &mut node.kind
+            && let MeshExtra::Skin(skin) = &mut m.extra
+        {
+            for b in &mut skin.bones {
+                *b = new_of.get(*b).copied().unwrap_or(*b);
+            }
+            if skin.inverse_bind.len() == n {
+                skin.inverse_bind = order.iter().map(|&o| skin.inverse_bind[o]).collect();
+            }
+        }
+    }
+    model.nodes = nodes;
+    order
 }
 
 /// A model by name as a compiler needs it: the model and its part numbers.
@@ -615,6 +665,31 @@ node aabb floor\n  parent m\n  \
 verts 4\n    0 0 0\n    2 0 0\n    2 2 0\n    0 2 0\n  \
 faces 2\n    0 1 2 1 0 0 0 3\n    0 2 3 1 0 0 0 4\nendnode\n\
 endmodelgeom m\ndonemodel m\n";
+
+    /// Children sorted as the game sorts them change the tree's order,
+    /// which a skin's bones are numbered by: they still name their nodes
+    /// (a corpus run caught a placeable's skin bound to the wrong bones).
+    #[test]
+    fn a_skin_keeps_its_bones_when_the_tree_is_sorted() {
+        let text = "newmodel m\nsetsupermodel m NULL\nbeginmodelgeom m\n\
+            node dummy m\n  parent NULL\nendnode\n\
+            node trimesh glass\n  parent m\n  transparencyhint 1\n  verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+            faces 1\n    0 1 2 1 0 0 0 0\nendnode\n\
+            node dummy bone\n  parent m\n  position 0 0 2\nendnode\n\
+            node skin s\n  parent m\n  verts 3\n    0 0 0\n    1 0 0\n    0 1 0\n\
+            faces 1\n    0 1 2 1 0 0 0 0\n  weights 3\n    bone 1\n    bone 1\n    bone 1\nendnode\n\
+            endmodelgeom m\ndonemodel m\n";
+        let back =
+            Model::read(&compile(text.as_bytes(), &Sources::default()).unwrap().binary).unwrap();
+        let root = &back.nodes[back.node("m").unwrap()];
+        let names: Vec<&str> = root.children.iter().map(|&c| back.nodes[c].name.as_str()).collect();
+        assert_eq!(names, ["bone", "s", "glass"], "dummies, then meshes by hint");
+        let s = back.nodes[back.node("s").unwrap()].mesh().unwrap();
+        let MeshExtra::Skin(skin) = &s.extra else { panic!("a skin") };
+        let bone =
+            |v: usize| back.nodes[skin.bones[usize::from(skin.weights[v][0].0)]].name.as_str();
+        assert_eq!((bone(0), bone(1), bone(2)), ("bone", "bone", "bone"));
+    }
 
     #[test]
     fn a_text_compiles_to_what_it_says() {

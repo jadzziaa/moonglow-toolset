@@ -445,23 +445,30 @@ fn the_games_ascii_models_compile() {
                     && !p.ends_with(": animtvert")
             });
             // Animated sets, directly: the compiled model's are the text's,
-            // vertex for vertex (the reader's render vertices are the
-            // compiler's), where the text gave them per render vertex.
+            // each render vertex taking its source vertex's and texture
+            // vertex's entries, as the game's compiler takes them
+            // (nwn-mdl-spec MDL-MESH-062; its probe zspec_animtv), where
+            // the text gives one per source vertex.
             for (a, b) in model.animations.iter().zip(&back.animations) {
                 for (n, m) in a.nodes.iter().zip(&b.nodes) {
-                    let count = model
-                        .node(&n.name)
-                        .and_then(|i| model.nodes[i].mesh())
-                        .map_or(0, |mesh| mesh.vertices.len());
+                    let Some(mesh) = model.node(&n.name).and_then(|i| model.nodes[i].mesh()) else {
+                        continue;
+                    };
                     let (Some(x), Some(y)) = (&n.anim_mesh, &m.anim_mesh) else {
                         if n.anim_mesh.is_some() != m.anim_mesh.is_some() {
                             problems.push(format!("{}/{}: animated sets", a.name, n.name));
                         }
                         continue;
                     };
-                    let whole = x.vertex_sets.iter().all(|v| v.len() == count)
-                        && x.uv_sets.iter().all(|v| v.len() == count);
-                    if whole && (x.vertex_sets != y.vertex_sets || x.uv_sets != y.uv_sets) {
+                    fn through<T: Copy>(set: &[T], source: &[u32]) -> Option<Vec<T>> {
+                        source.iter().map(|&v| set.get(v as usize).copied()).collect()
+                    }
+                    let verts: Option<Vec<Vec<_>>> =
+                        x.vertex_sets.iter().map(|s| through(s, &mesh.source)).collect();
+                    let uvs: Option<Vec<Vec<_>>> =
+                        x.uv_sets.iter().map(|s| through(s, &mesh.source_uv)).collect();
+                    let (Some(verts), Some(uvs)) = (verts, uvs) else { continue };
+                    if verts != y.vertex_sets || uvs != y.uv_sets {
                         problems.push(format!("{}/{}: animated sets", a.name, n.name));
                     }
                 }
