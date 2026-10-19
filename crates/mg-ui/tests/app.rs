@@ -13323,6 +13323,266 @@ fn refine_tile_steps_a_tile_through_those_that_fit_and_paints_nothing() {
     assert_eq!(grid(&mut h).tile(1, 1), before.tile(1, 1));
 }
 
+/// The model of tile `tile` of the test area's tileset (Rural): its
+/// picture's name in the tiles palette's Gallery.
+fn index_model(h: &Harness<'_, Moonglow>, tile: u32) -> String {
+    let game = h.state().game.as_deref().unwrap();
+    let set = mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap();
+    set.tiles[tile as usize].model.clone()
+}
+
+/// Finds `name` (a heading's or a tile's model) in the tiles palette's
+/// search: what it finds shows, its heading opened out. (A picture out of
+/// sight has no name to find it by.)
+fn open_tile_heading(h: &mut Harness<'_, Moonglow>, name: &str) {
+    h.state_mut().palette.filter = name.to_lowercase();
+    h.run_steps(3);
+}
+
+/// The tiles palette's Gallery: a terrain's tiles as pictures; one chosen
+/// is placed as it is in every tile a drag passes, as one step.
+#[test]
+fn a_tile_chosen_in_the_gallery_is_painted_along_a_drag() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("tile-gallery") else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let before = grid(&mut h);
+    // A grass tile other than the one in (1, 1): flat grass all round, no
+    // crosser (a road's would bring the road into the tiles beside it).
+    let grass = index.terrain("Grass").unwrap();
+    let all_grass = index.tiles_where(|c| {
+        c.corners.iter().all(|k| k.terrain == grass && k.height == 0) && c.edges == [None; 4]
+    });
+    let tile = *all_grass.iter().find(|t| **t != before.tile(1, 1).tile).expect("grass variants");
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(3);
+    // (Scrolled to: the pictures under the headings above take the
+    // pane's height.)
+    // (Its picture is named by its model, under its heading, opened.)
+    let picture = index_model(&h, tile);
+    open_tile_heading(&mut h, &picture);
+    h.get_all_by_label(&picture).next().expect("its picture under Grass").scroll_to_me();
+    h.run_steps(3);
+    h.get_all_by_label(&picture).next().unwrap().click();
+    h.run_steps(2);
+    let brush = h.state().palette.tile_brush.clone().expect("chosen");
+    assert_eq!(brush.brush, mg_area::terrain::Brush::Tile(tile));
+    // Dragged across the second row's tiles.
+    let from = screen(&h, area, Vec3::new(5.0, 15.0, 0.0));
+    let to = screen(&h, area, Vec3::new(35.0, 15.0, 0.0));
+    h.hover_at(from);
+    h.run_steps(2);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=8 {
+        h.hover_at(from + (to - from) * (k as f32 / 8.0));
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let after = grid(&mut h);
+    for x in 0..4 {
+        assert_eq!(after.tile(x, 1).tile, tile, "({x}, 1)");
+    }
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h).tiles, before.tiles, "one step");
+}
+
+/// Refine Tile dragged: the first tile steps to the next that fits, and
+/// every tile of its kind passed becomes that tile too; with a tile chosen
+/// in the Gallery first, those it fits become it.
+#[test]
+fn refine_tile_dragged_makes_tiles_of_a_kind_alike() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("refine-drag") else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    let drag = |h: &mut Harness<'_, Moonglow>, y: f32| {
+        let from = screen(h, area, Vec3::new(5.0, y, 0.0));
+        let to = screen(h, area, Vec3::new(35.0, y, 0.0));
+        h.hover_at(from);
+        h.run_steps(2);
+        press(h, from, true, egui::Modifiers::NONE);
+        for k in 1..=8 {
+            h.hover_at(from + (to - from) * (k as f32 / 8.0));
+            h.run_steps(1);
+        }
+        press(h, to, false, egui::Modifiers::NONE);
+        h.run_steps(3);
+    };
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(3);
+    h.get_by_label("🔁 Refine Tile").click();
+    h.run_steps(2);
+    let before = grid(&mut h);
+    let next = mg_tiles::paint::next_fit(&index, &before.lattice.cell(0, 2), before.tile(0, 2))
+        .expect("Rural's grass has other tiles");
+    drag(&mut h, 25.0);
+    let after = grid(&mut h);
+    assert_eq!(after.tile(0, 2), next, "the first: its next");
+    for x in 1..4 {
+        assert_eq!(after.tile(x, 2).tile, next.tile, "({x}, 2): the first's tile");
+    }
+    assert_eq!(after.lattice, before.lattice, "no terrain painted");
+    assert_eq!(after.tile(0, 1), before.tile(0, 1), "a row not passed is as it was");
+    // A tile chosen in the Gallery, then Refine Tile: the tiles passed
+    // become it.
+    let grass = index.terrain("Grass").unwrap();
+    let all_grass = index.tiles_where(|c| {
+        c.corners.iter().all(|k| k.terrain == grass && k.height == 0) && c.edges == [None; 4]
+    });
+    let tile =
+        *all_grass.iter().find(|t| **t != next.tile && **t != before.tile(0, 0).tile).unwrap();
+    let picture = index_model(&h, tile);
+    open_tile_heading(&mut h, &picture);
+    h.get_all_by_label(&picture).next().unwrap().scroll_to_me();
+    h.run_steps(3);
+    h.get_all_by_label(&picture).next().unwrap().click();
+    h.run_steps(2);
+    // (The search cleared: it found the tile alone.)
+    h.state_mut().palette.filter.clear();
+    h.run_steps(3);
+    h.get_by_label_contains("Refine Tile →").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label_contains("Refine Tile →").click();
+    h.run_steps(2);
+    assert_eq!(h.state().palette.tile_brush.as_ref().unwrap().target, Some(tile));
+    drag(&mut h, 5.0);
+    let row = grid(&mut h);
+    for x in 0..4 {
+        assert_eq!(row.tile(x, 0).tile, tile, "({x}, 0): the tile chosen");
+    }
+}
+
+/// The tiles palette as the blueprint palettes: its search finds
+/// brushes and tiles, its headings open and close; a tile's picture double
+/// clicked opens its view, and one dragged into the area is placed where it
+/// is dropped.
+#[test]
+fn the_tile_gallery_searches_opens_a_tile_and_drops_one_in_the_area() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("tile-gallery-more") else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    h.run_steps(3);
+    // Headings closed at first: no picture shows.
+    let grass = index.terrain("Grass").unwrap();
+    let flat = index.tiles_where(|c| {
+        c.corners.iter().all(|k| k.terrain == grass && k.height == 0) && c.edges == [None; 4]
+    });
+    let before = grid(&mut h);
+    let tile = *flat.iter().find(|t| **t != before.tile(2, 2).tile).unwrap();
+    let model = index_model(&h, tile);
+    assert!(h.query_by_label(&model).is_none(), "under a closed heading");
+    // The search: by a tile's model, its heading opened with it.
+    open_tile_heading(&mut h, &model);
+    h.get_by_label(&model);
+    assert!(h.query_by_label("Water").is_none(), "a heading without it is not shown");
+    // A double click: its view.
+    let at = h.get_by_label(&model).rect().center();
+    h.run_steps(30);
+    let (button, modifiers) = (egui::PointerButton::Primary, egui::Modifiers::NONE);
+    for pressed in [true, false, true, false] {
+        h.event(egui::Event::PointerButton { pos: at, button, pressed, modifiers });
+    }
+    h.run_steps(3);
+    let tileset = ResRef::from_str("ttr01").unwrap();
+    let tab = h.state().dock.find_tab(&Tab::Tile { tileset, tile }).expect("its view");
+    h.get_by_label("Corners");
+    h.state_mut().dock.remove_tab(tab);
+    h.run_steps(3);
+    // Dragged into the area: placed in the tile it is dropped on.
+    let from = h.get_by_label(&model).rect().center();
+    let to = screen(&h, area, Vec3::new(25.0, 25.0, 0.0));
+    h.hover_at(from);
+    press(&h, from, true, egui::Modifiers::NONE);
+    for k in 1..=10 {
+        h.hover_at(from + (to - from) * (k as f32 / 10.0));
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h).tile(2, 2).tile, tile, "placed where it was dropped");
+}
+
+/// In the tiles palette's Gallery, a tileset's features and groups are
+/// pictures of their tiles together: a click chooses one, and one dragged
+/// into the area is placed where it is dropped.
+#[test]
+fn the_tile_gallery_s_groups_are_pictures_to_choose_and_drop() {
+    use glam::Vec3;
+    use mg_tiles::TileIndex;
+    let Some((mut h, area)) = area_harness("tile-gallery-groups") else { return };
+    let index = {
+        let game = h.state().game.as_deref().unwrap();
+        TileIndex::new(&mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).unwrap())
+    };
+    let grid = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let are = ws.doc(&ResKey::new(area, ResType::ARE)).unwrap();
+        mg_area::terrain::grid(&are.root, &index).unwrap()
+    };
+    h.state_mut().settings.palette_gallery = true;
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Palette));
+    h.run_steps(3);
+    palette_type(&mut h, "🗻", "Tiles");
+    open_tile_heading(&mut h, "well");
+    // Rural's Well: a group of one tile (117), its picture named.
+    let well = h.get_all_by_label_contains("Well").next().expect("its picture").rect().center();
+    h.get_all_by_label_contains("Well").next().unwrap().click();
+    h.run_steps(2);
+    let brush = h.state().palette.tile_brush.clone().expect("chosen");
+    assert!(matches!(brush.brush, mg_area::terrain::Brush::Group(_)), "{brush:?}");
+    h.state_mut().palette.tile_brush = None;
+    h.run_steps(2);
+    // Dragged into the area: placed where it is dropped.
+    let to = screen(&h, area, Vec3::new(25.0, 15.0, 0.0));
+    h.hover_at(well);
+    press(&h, well, true, egui::Modifiers::NONE);
+    for k in 1..=10 {
+        h.hover_at(well + (to - well) * (k as f32 / 10.0));
+        h.run_steps(1);
+    }
+    press(&h, to, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    assert_eq!(grid(&mut h).tile(2, 1).tile, 117, "the Well where it was dropped");
+}
+
 #[test]
 fn a_terrain_drag_with_shift_fills_its_rectangle() {
     use glam::Vec3;

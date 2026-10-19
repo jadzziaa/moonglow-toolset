@@ -205,6 +205,15 @@ impl TileIndex {
         Some(cell)
     }
 
+    /// The tiles (outside groups) whose cell, unturned, `keep` keeps, in
+    /// the tileset's order: the tiles with a terrain at a corner, say.
+    pub fn tiles_where(&self, keep: impl Fn(&Cell) -> bool) -> Vec<u32> {
+        (self.cells.iter().enumerate())
+            .filter(|(i, cell)| !self.grouped[*i] && keep(cell))
+            .map(|(i, _)| i as u32)
+            .collect()
+    }
+
     /// Whether a tile belongs to a group. Group tiles are placed only with
     /// their group, never to fit terrain.
     pub fn is_grouped(&self, tile: u32) -> bool {

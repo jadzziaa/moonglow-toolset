@@ -801,6 +801,9 @@ pub(crate) enum Pictured {
     /// A tile's model lying at this many quarter turns, as it would in
     /// an area (a tile's variants, which differ by their turn too).
     Tile(ResKey, u8),
+    /// A tileset's group (its index): its tiles' models, each in its place,
+    /// as the group is placed (a feature, a building).
+    Group(mg_core::ResRef, u32),
 }
 
 impl Pictured {
@@ -819,7 +822,7 @@ impl Thumbnails {
             .iter()
             .filter_map(|(k, made)| match k {
                 Pictured::Resource(k) => Some((*k, made.id())),
-                Pictured::Look(_) | Pictured::Tile(..) => None,
+                Pictured::Look(_) | Pictured::Tile(..) | Pictured::Group(..) => None,
             })
             .collect()
     }
@@ -835,7 +838,7 @@ impl Thumbnails {
             .iter()
             .filter_map(|(k, made)| match k {
                 Pictured::Look(l) => Some((*l, made.id())),
-                Pictured::Resource(_) | Pictured::Tile(..) => None,
+                Pictured::Resource(_) | Pictured::Tile(..) | Pictured::Group(..) => None,
             })
             .collect()
     }
@@ -994,6 +997,17 @@ pub(crate) fn make_thumbnails(app: &mut Moonglow, ctx: &egui::Context) {
 /// what the blueprint still looks like.
 fn make_thumbnail(app: &mut Moonglow, key: Pictured) {
     let (frame, revision) = (app.thumbnails.frame, app.thumbnails.revision);
+    if let Pictured::Group(tileset, group) = key {
+        let picture = draw_group_thumbnail(app, tileset, group);
+        app.thumbnails.drawn += 1;
+        let made = Made { picture, look: None, revision, used: frame };
+        if let Some(old) = app.thumbnails.made.insert(key, made)
+            && let (Some((_, id)), Some(vp)) = (old.picture, &app.viewport)
+        {
+            vp.render_state.renderer.write().free_texture(&id);
+        }
+        return;
+    }
     let look = pictured_look(app, key);
     let kept = key.follows_the_module().then_some(look.as_ref().map(|(_, preview)| preview));
     if let (Some(made), Some(now)) = (app.thumbnails.made.get_mut(&key), kept)
@@ -1039,6 +1053,8 @@ fn pictured_look(app: &Moonglow, key: Pictured) -> Option<(Source, Preview)> {
             // (Named, for a message, by the table its row is of.)
             Some((Source::Resource(ResKey::parse("appearance", ResType::TWODA)?), preview))
         }
+        // (Several models: drawn by `draw_group_thumbnail`.)
+        Pictured::Group(..) => None,
     }
 }
 
@@ -1089,7 +1105,8 @@ fn draw_thumbnail(
     };
     let shield = is_shield(app, source, preview);
     let composed = compose(app, source, preview).ok()?;
-    let vp = app.viewport.as_mut()?;
+    // (Drawn with the GPU: none, no picture.)
+    app.viewport.as_ref()?;
     // As the viewer frames it: from the front, a little to the side.
     // A model that emits (flames, sparks, a shaft of light: some are
     // nothing else) is drawn a few seconds in, its particles in the frame.
@@ -1168,6 +1185,74 @@ fn draw_thumbnail(
         particles,
         ..Default::default()
     };
+    render_picture(app, &scene, &camera)
+}
+
+/// A tileset's group as a picture: each tile's model in its place, as the
+/// group goes in unturned, seen from the south-west and a little above, as
+/// a tile's picture is. `None` where none of its tiles can be drawn.
+fn draw_group_thumbnail(
+    app: &mut Moonglow,
+    tileset: mg_core::ResRef,
+    group: u32,
+) -> Option<(wgpu::Texture, egui::TextureId)> {
+    let set = (app.area_views.values().filter_map(|v| v.terrain.as_ref()))
+        .find(|t| t.tileset == tileset)
+        .map(|t| t.set.clone())
+        .or_else(|| {
+            app.game.as_deref().and_then(|g| mg_area::tileset(g, tileset).ok()).map(Arc::new)
+        })?;
+    let g = set.groups.get(group as usize)?;
+    // (Each tile's models kept until the picture is drawn.)
+    let mut parts = Vec::new();
+    for (k, tile) in g.tiles.iter().enumerate() {
+        let Some(tile) = tile else { continue };
+        let Some(t) = set.tiles.get(*tile as usize) else { continue };
+        let Some(key) = ResKey::parse(&t.model.to_ascii_lowercase(), ResType::MDL) else {
+            continue;
+        };
+        let source = Source::Resource(key);
+        let Ok(preview) = preview_of(app, &source) else { continue };
+        let Ok(composed) = compose(app, &source, &preview) else { continue };
+        let (c, r) = mg_tiles::group_slot(k, g.columns, 0);
+        let at = Vec3::new(c as f32 * mg_area::TILE_SIZE, r as f32 * mg_area::TILE_SIZE, 0.0);
+        parts.push((composed, Mat4::from_translation(at)));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    let (mut instances, mut lights) = (Vec::new(), Vec::new());
+    for (composed, at) in &parts {
+        let (low, high) = composed.bounds();
+        (min, max) = (min.min(at.transform_point3(low)), max.max(at.transform_point3(high)));
+        instances.extend(composed.instances(None, 0.0, *at));
+        lights.extend(composed.point_lights(*at));
+    }
+    let pitch = 30f32.to_radians();
+    let yaw = -120f32.to_radians();
+    let target = (min + max) * 0.5;
+    let radius = ((max - min).length() * 0.5).max(0.1);
+    let distance = radius / 20f32.to_radians().sin() * 0.9;
+    let camera = Camera::orbit(target, distance, yaw, pitch);
+    let scene = Scene {
+        instances,
+        lights,
+        area: AreaLight::default(),
+        background: [0.16, 0.18, 0.21],
+        ..Default::default()
+    };
+    render_picture(app, &scene, &camera)
+}
+
+/// A picture of `scene` from `camera`, in a texture of its own, and egui's
+/// name for it: a thumbnail.
+fn render_picture(
+    app: &mut Moonglow,
+    scene: &Scene,
+    camera: &Camera,
+) -> Option<(wgpu::Texture, egui::TextureId)> {
+    let vp = app.viewport.as_mut()?;
     // Drawn into the targets every picture is drawn into, and resolved
     // into a texture of its own: what is kept of it. (Each kept its own
     // multisampled and depth targets, nine times its picture's memory.)
@@ -1200,8 +1285,8 @@ fn draw_thumbnail(
     vp.renderer.render(
         &vp.gpu,
         assets,
-        &scene,
-        &camera,
+        scene,
+        camera,
         target,
         resolve,
         &targets.depth,

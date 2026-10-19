@@ -76,6 +76,10 @@ pub struct PaletteView {
     pub prefabs: bool,
     /// The tileset brush chosen.
     pub tile_brush: Option<crate::terrain_mode::TileBrush>,
+    /// The tile chosen last among a terrain's or crosser's pictures (the
+    /// tiles palette's Gallery), of the tileset shown: Refine Tile, chosen
+    /// after it, makes tiles that one.
+    pub tile_choice: Option<u32>,
     /// The area shown last: its tileset's palette is the one shown.
     pub area: Option<ResRef>,
     pub(crate) tile_palettes: HashMap<ResRef, Arc<mg_area::terrain::TilesetPalette>>,
@@ -300,6 +304,7 @@ impl Default for PaletteView {
             tiles: false,
             prefabs: false,
             tile_brush: None,
+            tile_choice: None,
             area: None,
             tile_palettes: HashMap::new(),
             tileset_names: HashMap::new(),
@@ -480,6 +485,40 @@ pub(crate) fn fold_icons(ui: &mut egui::Ui, what: &str) -> Option<bool> {
     fold
 }
 
+/// The palette's search: the pane's width, with what it looks in said
+/// (`hint`), and a button to clear it. Its keys, as the module tree's
+/// Filter has them (GitHub issue 12): Ctrl+F while the keys are the
+/// palette's goes to it; Escape clears it; Escape again, or Down, goes back
+/// to the list. Whether Down left it for the list.
+fn search_row(ui: &mut egui::Ui, view: &mut PaletteView, hint: &str) -> bool {
+    let search_id = egui::Id::new("palette-search-field");
+    let find = keys_are(ui.ctx(), Keys::Palette)
+        && !ui.ctx().egui_wants_keyboard_input()
+        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
+    let left = crate::widgets::filter_keys(ui, search_id, &mut view.filter, find);
+    if left.is_some() {
+        give_keys(ui.ctx(), Keys::Palette);
+    }
+    let entered = left == Some(crate::widgets::FilterLeft::Down);
+    if entered {
+        view.cursor = None;
+    }
+    ui.horizontal(|ui| {
+        let clear = !view.filter.is_empty();
+        let room = ui.available_width() - if clear { 26.0 } else { 0.0 };
+        ui.add(
+            egui::TextEdit::singleline(&mut view.filter)
+                .id(search_id)
+                .hint_text(hint)
+                .desired_width(room.max(60.0)),
+        );
+        if clear && ui.small_button("×").on_hover_text("Clear the search").clicked() {
+            view.filter.clear();
+        }
+    });
+    entered
+}
+
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     if app.game.is_none() {
         ui.label("No game data.");
@@ -655,43 +694,15 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui) {
         return;
     }
     if view.tiles {
-        // (The tile palette's groups open and close, too.)
-        ui.horizontal(|ui| view.fold = fold_icons(ui, "group"));
-        ui.separator();
+        // As the blueprint palettes: the search, then a row of what there
+        // is and how it is shown (the tile palette's own: its headings,
+        // brushes and tiles), then the list.
+        search_row(ui, &mut view, "🔍 Search name, model");
         app.palette = view;
         crate::terrain_mode::palette_ui(app, ui);
         return;
     }
-    // The search: the pane's width, with what it looks in said, and a
-    // button to clear it.
-    // Its keys, as the module tree's Filter has them (GitHub issue 12):
-    // Ctrl+F while the keys are the palette's goes to it; Escape clears
-    // it; Escape again, or Down, goes back to the list.
-    let search_id = egui::Id::new("palette-search-field");
-    let find = keys_are(ui.ctx(), Keys::Palette)
-        && !ui.ctx().egui_wants_keyboard_input()
-        && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::F));
-    let left = crate::widgets::filter_keys(ui, search_id, &mut view.filter, find);
-    if left.is_some() {
-        give_keys(ui.ctx(), Keys::Palette);
-    }
-    let entered = left == Some(crate::widgets::FilterLeft::Down);
-    if entered {
-        view.cursor = None;
-    }
-    ui.horizontal(|ui| {
-        let clear = !view.filter.is_empty();
-        let room = ui.available_width() - if clear { 26.0 } else { 0.0 };
-        ui.add(
-            egui::TextEdit::singleline(&mut view.filter)
-                .id(search_id)
-                .hint_text("🔍 Search name, tag, resref")
-                .desired_width(room.max(60.0)),
-        );
-        if clear && ui.small_button("×").on_hover_text("Clear the search").clicked() {
-            view.filter.clear();
-        }
-    });
+    let entered = search_row(ui, &mut view, "🔍 Search name, tag, resref");
 
     // The palette to show.
     let kind = view.kind;

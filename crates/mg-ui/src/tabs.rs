@@ -76,6 +76,10 @@ pub enum Tab {
     TileProperties,
     /// What an object placed in an area looks like, in the 3D viewer.
     InstanceModel { area: mg_core::ResRef, path: mg_edit::GffPath },
+    /// A tile of a tileset (its index), to look at: its model and what
+    /// the tileset says of it (a double click in the tiles palette's
+    /// Gallery).
+    Tile { tileset: mg_core::ResRef, tile: u32 },
 }
 
 impl Tab {
@@ -124,6 +128,7 @@ impl Tab {
             Tab::PlaceableGallery => "placeable-gallery",
             Tab::Options => "options",
             Tab::TileProperties => "tile-properties",
+            Tab::Tile { .. } => "tile",
         }
     }
 
@@ -227,7 +232,7 @@ impl Viewer<'_> {
         let escape = crate::widgets::escape_past_dialogs(ui.ctx())
             && ui.memory(|m| m.focused().is_none())
             && !ui.input(|i| i.pointer.any_down());
-        let model = matches!(tab, Tab::Model(_) | Tab::InstanceModel { .. })
+        let model = matches!(tab, Tab::Model(_) | Tab::InstanceModel { .. } | Tab::Tile { .. })
             && ui.rect_contains_pointer(ui.max_rect());
         let layer = ui.layer_id();
         let front = layer.order == egui::Order::Middle
@@ -314,6 +319,7 @@ impl Viewer<'_> {
             Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
             Tab::Options => crate::options::ui(self.app, ui),
             Tab::TileProperties => crate::tile_select::ui(self.app, ui),
+            Tab::Tile { tileset, tile } => crate::tile_view::ui(self.app, ui, *tileset, *tile),
         }
     }
 }
@@ -381,6 +387,13 @@ impl TabViewer for Viewer<'_> {
             Tab::PlaceableGallery => "Appearance Gallery".into(),
             Tab::Options => "Options".into(),
             Tab::TileProperties => "Tile Properties".into(),
+            Tab::Tile { tileset, tile } => {
+                let model = (self.app.area_views.values().filter_map(|v| v.terrain.as_ref()))
+                    .find(|t| t.tileset == *tileset)
+                    .and_then(|t| t.set.tiles.get(*tile as usize).map(|t| t.model.clone()));
+                format!("{} (tile)", model.unwrap_or_else(|| format!("{tileset} tile {tile}")))
+                    .into()
+            }
             Tab::InstanceModel { area, path } => {
                 format!("{} (preview)", instance_title(self.app, *area, path)).into()
             }

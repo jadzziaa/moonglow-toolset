@@ -1816,8 +1816,17 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
             mg_area::terrain::Brush::Crosser(_) => "drag across tiles",
             mg_area::terrain::Brush::RaiseLower => "click to raise, right click to lower",
             mg_area::terrain::Brush::Eraser => "click a tile (Shift + click: its next variant)",
-            mg_area::terrain::Brush::Refine => "click a tile for the next that fits there",
+            mg_area::terrain::Brush::Refine if b.target.is_some() => {
+                "click a tile, or drag, to make those it fits the tile chosen"
+            }
+            mg_area::terrain::Brush::Refine => {
+                "click a tile for the next that fits there; drag: the first's, in every tile of \
+                 its kind passed"
+            }
             mg_area::terrain::Brush::Group(_) => "click to place, right click to turn",
+            mg_area::terrain::Brush::Tile(_) => {
+                "click or drag to place this tile, right click to turn it"
+            }
             _ => "click a corner",
         };
         let at = crate::terrain_mode::status(view).unwrap_or_default();
@@ -2960,6 +2969,14 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
         && let Some(dragged) = response.dnd_release_payload::<Appearance>()
     {
         drop_appearance(app, view, response, &dragged);
+        return;
+    }
+    // A tile from the tiles palette's Gallery: placed where it is dropped.
+    type Tile = crate::terrain_mode::DraggedTile;
+    if egui::DragAndDrop::has_payload_of_type::<Tile>(ui.ctx())
+        && let Some(dragged) = response.dnd_release_payload::<Tile>()
+    {
+        crate::terrain_mode::drop_tile(app, view, response, &dragged);
         return;
     }
     // Q and E turn a blueprint about to be placed (dragged, or chosen in

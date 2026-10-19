@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-17T21:13:04Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T02:48:29Z }
 ---
 
 # Areas
@@ -442,6 +442,33 @@ as Aurora's Terrain tab does:
   a rectangle), and erases them when you let go.
 - **Refine Tile** (Moonglow's own) steps the tile you click through the
   other tiles that fit there, whatever it holds, and never paints.
+  Dragged, it does that to the first tile, and every tile it passes of the
+  same kind (the same terrain at its corners and the same crossers, so
+  that tile fits there) becomes that tile too, turned to fit: a whole run
+  of wall made alike in one stroke. Tiles of another kind are left as
+  they were, and the area's line says how many.
+- The Tiles palette has the blueprint palettes' tools: a **search** (a
+  brush's name, or a tile's model), **Expand All** and **Collapse All**,
+  how many there are, and **List** (☰) or **Gallery** (⊞), the same switch
+  as the blueprint palettes', with the pictures' size beside it.
+- In the **Gallery**, each terrain and crosser is a heading that opens and
+  closes, with every tile it can make under it as pictures: each variant,
+  and each transition to another terrain (none of a group's). Its name
+  still chooses the brush. Click a picture to paint with that tile itself:
+  a click places it, a drag places it in every tile the pointer passes,
+  and a right click turns it a quarter, as a group. Drag a picture into
+  the area to place it where you drop it. The tiles around fit themselves
+  to it (a tile with a bit of road brings the road into its neighbors).
+  Double-click a picture for the tile's view: its model to turn and zoom,
+  and what the tileset says of it (each corner's terrain and height, each
+  edge's crosser, its lights, loops, doors and sounds), with **Paint with
+  it**. Chosen from its picture, **Refine Tile** chosen next (it then
+  reads **Refine Tile →** and the tile's model) makes the tiles you click
+  or drag over that tile, wherever it fits as they stand, and leaves the
+  rest. Click the picture again, or another brush, to let it go.
+- In the Gallery, **Features** and **Groups** are pictures too: each
+  group's tiles together, as it is placed. Click one to place it (a right
+  click in the area turns it), or drag it into the area.
 - The Eraser, Refine Tile and Raise/Lower head the Terrain list, whatever
   the tileset's order.
 

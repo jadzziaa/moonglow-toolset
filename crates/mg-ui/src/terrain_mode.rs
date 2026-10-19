@@ -18,6 +18,16 @@
 //!   the tiles the pointer passes, as a terrain brush marks corners, and
 //!   erases them all when the button is let go.
 //!
+//! - A tile chosen from a terrain's or a crosser's pictures (the palette's
+//!   Gallery) is placed as it is, turned as a group is (a right click turns
+//!   it), the tiles around fitted to it; dragged, it goes in every tile
+//!   the pointer passes.
+//! - Refine Tile steps a tile to the next that fits there, or with a tile
+//!   chosen in the Gallery makes it that one where it fits. Dragged, it
+//!   does so to the first tile, and every tile passed where that tile fits
+//!   (the same kind: its terrain and crossers) becomes it too; others are
+//!   left.
+//!
 //! Every stroke is one undoable command on the ARE (`mg_tiles::paint`,
 //! `mg_area::terrain`).
 
@@ -42,6 +52,29 @@ pub struct TileBrush {
     pub tileset: ResRef,
     pub label: String,
     pub brush: Brush,
+    /// Refine Tile's tile to make of those it acts on, chosen in the
+    /// palette's Gallery (`None`: the next that fits).
+    pub target: Option<u32>,
+}
+
+/// Tile `tile` as it fits cell `(x, y)` of `grid` (turned and raised to
+/// fit), if it does there: turned as the tile there now is, where it fits
+/// so too.
+fn fit_of(tools: &Tools, grid: &Grid, (x, y): (u32, u32), tile: u32) -> Option<Placement> {
+    let fits = mg_tiles::paint::fits_in_order(&tools.index, &grid.lattice.cell(x, y));
+    let now = grid.tile(x, y);
+    (fits.iter().find(|p| p.tile == tile && p.orientation == now.orientation))
+        .or_else(|| fits.iter().find(|p| p.tile == tile))
+        .copied()
+}
+
+/// What Refine Tile makes of the tile in `cell`: the brush's target tile
+/// where it fits, else the next tile that fits there.
+fn refined(tools: &Tools, grid: &Grid, brush: &TileBrush, (x, y): (u32, u32)) -> Option<Placement> {
+    match brush.target {
+        Some(t) => fit_of(tools, grid, (x, y), t),
+        None => next_fit(&tools.index, &grid.lattice.cell(x, y), grid.tile(x, y)),
+    }
 }
 
 /// What painting an area's tiles needs from its tileset.
@@ -213,7 +246,19 @@ fn stroke(
             (grid.raise(&tools.index, &tools.rules, x, y, !lower), what.into())
         }
         Brush::Eraser if cycle => (next_tile(tools, grid, spot), "Next tile".into()),
-        Brush::Refine => (next_tile(tools, grid, spot), "Refine tile".into()),
+        Brush::Refine => {
+            let st = refined(tools, grid, brush, spot.cell).map(|_| Stroke {
+                lattice: grid.lattice.clone(),
+                cells: vec![spot.cell],
+                fixed: Vec::new(),
+            });
+            (st, "Refine tile".into())
+        }
+        Brush::Tile(t) => {
+            let p = Placement { tile: t, orientation: turns % 4, height: 0 };
+            let (cx, cy) = spot.cell;
+            (grid.place_tiles(&tools.index, &[((0, 0), Some(p))], cx, cy), label)
+        }
         Brush::Eraser => (grid.erase(&tools.index, spot.cell.0, spot.cell.1), "Erase tile".into()),
         Brush::Crosser(c) => (grid.draw_crosser(&tools.index, &[], &[spot.cell], c), label),
         Brush::Group(g) => {
@@ -307,7 +352,9 @@ fn click(
     let refine = brush.brush == Brush::Refine;
     let cycle = refine || shift && matches!(brush.brush, Brush::Eraser | Brush::Terrain(_));
     let (st, label) = stroke(tools, g, brush, s, lower, cycle, turns);
-    let pick = if cycle && matches!(brush.brush, Brush::Eraser | Brush::Refine) {
+    let pick = if refine {
+        refined(tools, g, brush, s.cell)
+    } else if cycle && brush.brush == Brush::Eraser {
         let (cx, cy) = s.cell;
         next_fit(&tools.index, &g.lattice.cell(cx, cy), g.tile(cx, cy))
     } else {
@@ -374,7 +421,7 @@ fn work_out_preview(app: &mut Moonglow, view: &AreaView, shift: bool) -> Option<
     let changed = if let Some(drag) = &view.terrain_drag {
         // A drag: what letting go now would paint.
         let size = (model.width, model.height);
-        paint_corners(tools, &mut g, &brush, drag, size, seed).0
+        paint_corners(tools, &mut g, &brush, drag, size, seed, view.group_turns).0
     } else if let (false, Brush::Crosser(c)) = (view.crossing.is_empty(), brush.brush) {
         let st = crosser_stroke(tools, &g, crossing_shown(view), c);
         changes(tools, &mut g, st?, None, seed)
@@ -578,7 +625,11 @@ pub(crate) fn input(
                 commit(app, view, g, st, &label, pick);
             }
         }
-        Brush::Terrain(_) | Brush::RaiseLower | Brush::Eraser
+        // A right click turns a tile chosen alone a quarter, as a group.
+        Brush::Tile(_) if response.secondary_clicked() => {
+            view.group_turns = (view.group_turns + 1) % 4;
+        }
+        Brush::Terrain(_) | Brush::RaiseLower | Brush::Eraser | Brush::Refine | Brush::Tile(_)
             if terrain_drag(app, view, response, &brush) => {}
         _ => {
             let lower = response.secondary_clicked() && brush.brush == Brush::RaiseLower;
@@ -587,7 +638,8 @@ pub(crate) fn input(
                 && let Some(g) = current_grid(app, view)
             {
                 let tools = view.terrain.as_ref().expect("checked");
-                let (st, label, pick) = click(tools, &g, &brush, s, shift, lower, 0);
+                let turns = view.group_turns;
+                let (st, label, pick) = click(tools, &g, &brush, s, shift, lower, turns);
                 commit(app, view, g, st, &label, pick);
             } else if response.secondary_clicked() && brush.brush != Brush::RaiseLower {
                 // (Raise/Lower's right click lowers: where it finds no
@@ -617,7 +669,7 @@ fn terrain_drag(
     if response.drag_started_by(egui::PointerButton::Primary) && view.terrain_drag.is_none() {
         let press = response.ctx.input(|i| i.pointer.press_origin());
         let from = press.and_then(|p| view.ground_at(p, 0.0));
-        let tiles = brush.brush == Brush::Eraser;
+        let tiles = matches!(brush.brush, Brush::Eraser | Brush::Refine | Brush::Tile(_));
         view.terrain_drag = Some(TerrainDrag { at: from, tiles, ..Default::default() });
     }
     let Some(mut drag) = view.terrain_drag.take() else { return false };
@@ -644,12 +696,16 @@ fn terrain_drag(
     };
     let before = g.clone();
     // The tiles the drag's preview showed; the next chooses anew.
+    let turns = view.group_turns;
     let (changes, label, refused) =
-        paint_corners(tools, &mut g, brush, &drag, (w, h), view.preview_seed);
+        paint_corners(tools, &mut g, brush, &drag, (w, h), view.preview_seed, turns);
     view.preview_seed = fastrand::u64(..);
     tile_command(app, view, &before, &changes, &label);
     let what = if drag.tiles { "tiles" } else { "corners" };
-    view.notice = (refused > 0).then(|| format!("{label}: no tile fits at {refused} {what}"));
+    view.notice = (refused > 0).then(|| match brush.brush {
+        Brush::Refine => format!("{label}: {refused} {what} of another kind left as they were"),
+        _ => format!("{label}: no tile fits at {refused} {what}"),
+    });
     true
 }
 
@@ -680,7 +736,11 @@ fn paint_corners(
     drag: &TerrainDrag,
     (w, h): (u32, u32),
     seed: u64,
+    turns: u8,
 ) -> (Changes, String, usize) {
+    if brush.brush == Brush::Refine {
+        return refine_cells(tools, g, brush, &drag.marked());
+    }
     let mut rng = fastrand::Rng::with_seed(seed);
     let mut changed: Vec<(u32, u32)> = Vec::new();
     let (mut label, mut refused) = (format!("Paint {}", brush.label), 0);
@@ -694,7 +754,7 @@ fn paint_corners(
         );
         let Some(s) = spot(at, w, h) else { continue };
         let s = if drag.tiles { s } else { Spot { corner: (x, y), ..s } };
-        let (st, l) = stroke(tools, g, brush, s, false, false, 0);
+        let (st, l) = stroke(tools, g, brush, s, false, false, turns);
         match st {
             Some(st) => {
                 label = l;
@@ -709,6 +769,47 @@ fn paint_corners(
     }
     let changes = changed.iter().map(|&(x, y)| ((x, y), g.tile(x, y))).collect();
     (changes, label, refused)
+}
+
+/// A Refine Tile drag over `cells`, in order: the first becomes what a
+/// click would make of it (the next tile that fits there, or the brush's
+/// target tile), and every other where that tile fits as it stands (the
+/// same kind of tile: its terrain and crossers) becomes it too, turned to
+/// fit; the rest, and a group's tiles, are left. The cells changed and
+/// their new tiles, the label, and how many were left.
+fn refine_cells(
+    tools: &Tools,
+    g: &mut Grid,
+    brush: &TileBrush,
+    cells: &[(u32, u32)],
+) -> (Changes, String, usize) {
+    let label = "Refine tiles".to_string();
+    let Some(&first) = cells.first() else { return (Vec::new(), label, 0) };
+    // (With a target, the tiles where it fits, the first among them.)
+    let first_made = refined(tools, g, brush, first);
+    let Some(tile) = brush.target.or(first_made.map(|p| p.tile)) else {
+        return (Vec::new(), label, cells.len());
+    };
+    let w = g.lattice.width();
+    let (mut changes, mut left) = (Vec::new(), 0);
+    for &(x, y) in cells {
+        let made = if (x, y) == first {
+            first_made
+        } else if tools.index.is_grouped(g.tile(x, y).tile) {
+            None
+        } else {
+            fit_of(tools, g, (x, y), tile)
+        };
+        match made {
+            Some(p) if p != g.tile(x, y) => {
+                g.tiles[(y * w + x) as usize] = p;
+                changes.push(((x, y), p));
+            }
+            Some(_) => {}
+            None => left += 1,
+        }
+    }
+    (changes, label, left)
 }
 
 /// The quarters a crosser drag has marked: its path, or with Shift the
@@ -909,9 +1010,27 @@ fn cursor_shapes(
             let h = z(s.cell.0, s.cell.1) + 0.05;
             let square = crate::area_view::tile_square(x, y, h);
             // Refine Tile, and the Eraser with Shift, step the tile through
-            // those that fit (in a drag, Shift fills a rectangle).
+            // those that fit (in a drag, Shift fills a rectangle); Refine
+            // Tile's target tile is refused where it does not fit.
             let cycle = shift && view.terrain_drag.is_none() || brush.brush == Brush::Refine;
-            polygon(&square, if cycle { CYCLE } else { ok });
+            let fits = brush.target.is_none() || refined(tools, &g, &brush, s.cell).is_some();
+            polygon(
+                &square,
+                if !fits {
+                    refused
+                } else if cycle {
+                    CYCLE
+                } else {
+                    ok
+                },
+            );
+        }
+        Brush::Tile(_) => {
+            let (st, _) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
+            let (x, y) = (s.cell.0 as f32, s.cell.1 as f32);
+            let h = z(s.cell.0, s.cell.1) + 0.05;
+            let square = crate::area_view::tile_square(x, y, h);
+            polygon(&square, if st.is_some() { ok } else { refused });
         }
         _ => {
             // A click on a corner of the brush's own terrain adds none: it
@@ -983,13 +1102,74 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
             p
         }
     };
-    let mut chosen = app.palette.tile_brush.clone();
-    let fold = app.palette.fold;
-    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        for item in &palette.branches {
-            show_item(ui, item, tileset, &mut chosen, 0, fold);
+    // The row over the list, as the blueprint palettes have it: every
+    // heading opened or closed, how many there are (of the search, if
+    // any), names or pictures, and the pictures' size.
+    let filter = app.palette.filter.trim().to_lowercase();
+    let gallery = app.settings.palette_gallery;
+    let shown = {
+        let Some(tools) = app.area_views.get(&area).and_then(|v| v.terrain.as_ref()) else {
+            return;
+        };
+        count(&palette.branches, tools, &filter, gallery)
+    };
+    let mut fold = None;
+    ui.horizontal_wrapped(|ui| {
+        fold = crate::palette_view::fold_icons(ui, "heading");
+        ui.weak(format!("{shown} item{}", if shown == 1 { "" } else { "s" }))
+            .on_hover_text(if filter.is_empty() { "In this tileset's palette" } else { "Found" });
+        ui.separator();
+        if ui.selectable_label(!gallery, "☰").on_hover_text("List: the brushes by name").clicked()
+        {
+            app.settings.palette_gallery = false;
+        }
+        if ui
+            .selectable_label(gallery, "⊞")
+            .on_hover_text(
+                "Gallery: each terrain's and crosser's tiles as pictures under it, to choose \
+                 one by eye",
+            )
+            .clicked()
+        {
+            app.settings.palette_gallery = true;
+        }
+        if gallery {
+            // (A slider doesn't wrap of itself: on a row of its own where
+            // this one has no room for it.)
+            if ui.available_size_before_wrap().x < ui.spacing().slider_width {
+                ui.end_row();
+            }
+            crate::appearance_gallery::size_slider(app, ui);
         }
     });
+    ui.separator();
+    let mut chosen = app.palette.tile_brush.clone();
+    let mut choice = app.palette.tile_choice;
+    let side = crate::appearance_gallery::tile_side(app);
+    let ready = if gallery { app.thumbnails.every() } else { Default::default() };
+    let Some(tools) = app.area_views.get(&area).and_then(|v| v.terrain.as_ref()) else { return };
+    let mut at = Place {
+        tileset,
+        tools,
+        chosen: &mut chosen,
+        choice: &mut choice,
+        fold: fold.or(app.palette.fold),
+        filter: &filter,
+        gallery: gallery.then_some(Pictures { side, ready: &ready }),
+        shown: Vec::new(),
+        open: None,
+    };
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        for item in &palette.branches {
+            show_item(ui, item, &mut at, 0);
+        }
+    });
+    let (shown, open) = (std::mem::take(&mut at.shown), at.open);
+    app.thumbnails.show(shown);
+    if let Some(tile) = open {
+        app.actions.push(crate::Action::OpenTab(crate::Tab::Tile { tileset, tile }));
+    }
+    app.palette.tile_choice = choice;
     if chosen != app.palette.tile_brush {
         if chosen.is_some() {
             app.palette.selected = None;
@@ -998,16 +1178,140 @@ pub(crate) fn palette_ui(app: &mut Moonglow, ui: &mut egui::Ui) {
     }
 }
 
-fn show_item(
-    ui: &mut egui::Ui,
-    item: &PaletteItem,
-    tileset: ResRef,
-    chosen: &mut Option<TileBrush>,
-    depth: usize,
-    fold: Option<bool>,
+/// A tile or a group dragged from the tiles palette's Gallery: dropped in
+/// an area of its tileset, it is placed where it is dropped.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct DraggedTile {
+    pub tileset: ResRef,
+    /// [`Brush::Tile`] or [`Brush::Group`].
+    pub brush: Brush,
+    pub label: String,
+}
+
+/// A tile or a group from the tiles palette dropped in an area view:
+/// placed in the tile under the pointer, turned as the brush is, as a
+/// click places it.
+pub(crate) fn drop_tile(
+    app: &mut Moonglow,
+    view: &mut AreaView,
+    response: &egui::Response,
+    dropped: &DraggedTile,
 ) {
+    let (Some(model), Some(tools)) = (view.model.as_ref(), view.terrain.as_ref()) else { return };
+    if tools.tileset != dropped.tileset {
+        return;
+    }
+    let (w, h) = (model.width, model.height);
+    let Some(s) = response
+        .hover_pos()
+        .or_else(|| response.ctx.pointer_latest_pos())
+        .and_then(|p| view.ground_at(p, 0.0))
+        .and_then(|p| spot(p, w, h))
+    else {
+        return;
+    };
+    let Some(g) = current_grid(app, view) else { return };
+    let tools = view.terrain.as_ref().expect("checked");
+    let brush = TileBrush {
+        tileset: dropped.tileset,
+        label: dropped.label.clone(),
+        brush: dropped.brush,
+        target: None,
+    };
+    let (st, label) = stroke(tools, &g, &brush, s, false, false, view.group_turns);
+    commit(app, view, g, st, &label, None);
+}
+
+/// How many entries the palette shows under `filter`: brushes, or in the
+/// Gallery tiles.
+fn count(items: &[PaletteItem], tools: &Tools, filter: &str, gallery: bool) -> usize {
+    items
+        .iter()
+        .map(|i| match i {
+            PaletteItem::Folder { items, .. } => count(items, tools, filter, gallery),
+            PaletteItem::Brush { label, brush: Brush::Group(_) } => {
+                usize::from(matches(label, filter))
+            }
+            PaletteItem::Brush { label, brush } => {
+                let tiles = brush_tiles(&tools.index, *brush);
+                let found = found_tiles(tools, label, &tiles, filter);
+                match (gallery && !tiles.is_empty(), matches(label, filter)) {
+                    (true, _) => found.len(),
+                    (false, true) => 1,
+                    (false, false) => usize::from(!found.is_empty()),
+                }
+            }
+        })
+        .sum()
+}
+
+/// Whether `label` has the search in it (everything matches no search).
+fn matches(label: &str, filter: &str) -> bool {
+    filter.is_empty() || label.to_lowercase().contains(filter)
+}
+
+/// The tiles of a brush the search finds: all of them where the brush's
+/// name has it, else those whose model's name has it.
+fn found_tiles(tools: &Tools, label: &str, tiles: &[u32], filter: &str) -> Vec<u32> {
+    if matches(label, filter) {
+        return tiles.to_vec();
+    }
+    let model = |t: u32| tools.set.tiles.get(t as usize).map(|t| t.model.to_lowercase());
+    tiles.iter().copied().filter(|t| model(*t).is_some_and(|m| m.contains(filter))).collect()
+}
+
+/// Whether a palette entry has something the search finds.
+fn has_found(item: &PaletteItem, tools: &Tools, filter: &str) -> bool {
+    match item {
+        PaletteItem::Folder { items, .. } => items.iter().any(|i| has_found(i, tools, filter)),
+        PaletteItem::Brush { label, brush } => {
+            matches(label, filter)
+                || !found_tiles(tools, label, &brush_tiles(&tools.index, *brush), filter).is_empty()
+        }
+    }
+}
+
+/// The tiles palette's Gallery: its pictures' size, and those made.
+struct Pictures<'a> {
+    side: f32,
+    ready: &'a std::collections::HashMap<crate::model_view::Pictured, Option<egui::TextureId>>,
+}
+
+/// What the tiles palette's entries are drawn with, and what they change:
+/// the brush chosen, the tile chosen among the pictures, the pictures in
+/// sight and the tile whose view a double click asked for.
+struct Place<'a> {
+    tileset: ResRef,
+    tools: &'a Tools,
+    chosen: &'a mut Option<TileBrush>,
+    choice: &'a mut Option<u32>,
+    fold: Option<bool>,
+    filter: &'a str,
+    gallery: Option<Pictures<'a>>,
+    shown: Vec<crate::model_view::Pictured>,
+    open: Option<u32>,
+}
+
+/// The tiles a terrain or crosser brush can make: those with the terrain
+/// at a corner, or the crosser on an edge (none of a group's).
+pub(crate) fn brush_tiles(index: &TileIndex, brush: Brush) -> Vec<u32> {
+    match brush {
+        Brush::Terrain(t) => index.tiles_where(|c| c.corners.iter().any(|k| k.terrain == t)),
+        Brush::Crosser(x) => index.tiles_where(|c| c.edges.contains(&Some(x))),
+        _ => Vec::new(),
+    }
+}
+
+fn show_item(ui: &mut egui::Ui, item: &PaletteItem, at: &mut Place, depth: usize) {
+    let tileset = at.tileset;
+    let searching = !at.filter.is_empty();
+    if searching && !has_found(item, at.tools, at.filter) {
+        return;
+    }
     match item {
         PaletteItem::Folder { label, items } => {
+            // (What the search finds shows, opened out.)
+            let open = if searching { Some(true) } else { at.fold };
             egui::CollapsingHeader::new(label.as_str())
                 .id_salt((tileset, depth, label.as_str()))
                 .default_open(
@@ -1016,7 +1320,7 @@ fn show_item(
                             .iter()
                             .any(|i| matches!(i, PaletteItem::Brush { brush: Brush::Eraser, .. })),
                 )
-                .open(fold)
+                .open(open)
                 .show(ui, |ui| {
                     // The tools first (where tilesets list them varies),
                     // with Moonglow's Refine Tile beside the Eraser, then
@@ -1035,28 +1339,206 @@ fn show_item(
                         PaletteItem::Brush { brush: Brush::RaiseLower, .. } => 2,
                         _ => 3,
                     });
+                    // In the Gallery, a folder's groups (its features, its
+                    // buildings) are pictures, as many across as fit, as a
+                    // category's blueprints are.
+                    let mut groups: Vec<(&str, usize)> = Vec::new();
                     for i in items {
-                        show_item(ui, i, tileset, chosen, depth + 1, fold);
+                        match i {
+                            PaletteItem::Brush { label, brush: Brush::Group(g) }
+                                if at.gallery.is_some() =>
+                            {
+                                if !searching || matches(label, at.filter) {
+                                    groups.push((label.as_str(), *g));
+                                }
+                            }
+                            _ => {
+                                group_pictures(ui, &std::mem::take(&mut groups), at);
+                                show_item(ui, i, at, depth + 1);
+                            }
+                        }
                     }
+                    group_pictures(ui, &groups, at);
                 });
         }
         PaletteItem::Brush { label, brush } => {
-            let on = chosen.as_ref().is_some_and(|b| b.label == *label && b.brush == *brush);
-            let shown = match brush {
-                Brush::Eraser => crate::icons::labelled(crate::icons::ERASER, label),
-                Brush::RaiseLower => crate::icons::labelled(crate::icons::RAISE_LOWER, label),
-                Brush::Refine => crate::icons::labelled(crate::icons::REFINE, label),
-                _ => label.clone(),
+            let tiles = match at.gallery {
+                Some(_) => {
+                    found_tiles(at.tools, label, &brush_tiles(&at.tools.index, *brush), at.filter)
+                }
+                None => Vec::new(),
             };
-            if ui.selectable_label(on, shown).clicked() {
-                *chosen = if on {
-                    None
-                } else {
-                    Some(TileBrush { tileset, label: label.clone(), brush: *brush })
-                };
+            if tiles.is_empty() {
+                brush_row(ui, label, *brush, at);
+                return;
             }
+            // In the Gallery, a terrain or crosser is a heading its tiles
+            // open and close under, as a category of blueprints; its name
+            // chooses the brush.
+            let id = ui.make_persistent_id((tileset, "tile-heading", label.as_str()));
+            let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+                ui.ctx(),
+                id,
+                false,
+            );
+            if let Some(open) = if searching { Some(true) } else { at.fold } {
+                state.set_open(open);
+            }
+            state
+                .show_header(ui, |ui| brush_row(ui, label, *brush, at))
+                .body(|ui| tile_pictures(ui, &tiles, at));
         }
     }
+}
+
+/// A brush's row: its name, chosen by a click (Refine Tile naming the
+/// tile it makes, one chosen in the Gallery).
+fn brush_row(ui: &mut egui::Ui, label: &str, brush: Brush, at: &mut Place) {
+    let on = at.chosen.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
+    let target = match brush {
+        Brush::Refine => *at.choice,
+        _ => None,
+    };
+    let shown = match brush {
+        Brush::Eraser => crate::icons::labelled(crate::icons::ERASER, label),
+        Brush::RaiseLower => crate::icons::labelled(crate::icons::RAISE_LOWER, label),
+        Brush::Refine => {
+            let model = target.and_then(|t| at.tools.set.tiles.get(t as usize));
+            let to = model.map(|t| format!(" → {}", t.model)).unwrap_or_default();
+            crate::icons::labelled(crate::icons::REFINE, &format!("{label}{to}"))
+        }
+        _ => label.to_string(),
+    };
+    if ui.selectable_label(on, shown).clicked() {
+        *at.chosen = if on {
+            None
+        } else {
+            Some(TileBrush { tileset: at.tileset, label: label.to_string(), brush, target })
+        };
+        // (A brush other than Refine Tile lets the tile chosen go.)
+        if brush != Brush::Refine {
+            *at.choice = None;
+        }
+    }
+}
+
+/// Pictures of a tileset's groups (`(name, index)`), as many across as
+/// fit: a click chooses one (placed as a group is, a right click in the
+/// area turning it), and one dragged into the area is placed where it is
+/// dropped.
+fn group_pictures(ui: &mut egui::Ui, groups: &[(&str, usize)], at: &mut Place) {
+    let Some(pictures) = &at.gallery else { return };
+    if groups.is_empty() {
+        return;
+    }
+    let (asked, ready) = (pictures.side, pictures.ready);
+    let seen = ui.clip_rect().right() - ui.cursor().left();
+    let room = ui.available_width().min(seen) - 1.0;
+    let side = crate::appearance_gallery::fitted(room, asked, 4.0).1;
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+        for &(label, g) in groups {
+            let brush = Brush::Group(g);
+            let pictured = crate::model_view::Pictured::Group(at.tileset, g as u32);
+            let made = ready.get(&pictured).copied();
+            let on = at.chosen.as_ref().is_some_and(|b| b.label == label && b.brush == brush);
+            let (r, in_sight) = crate::widgets::picture_tile(ui, side, label, on, made);
+            if in_sight {
+                at.shown.push(pictured);
+            }
+            let choose = |at: &mut Place| {
+                *at.choice = None;
+                let label = label.to_string();
+                *at.chosen = Some(TileBrush { tileset: at.tileset, label, brush, target: None });
+            };
+            if r.drag_started() {
+                choose(at);
+                let label = label.to_string();
+                r.dnd_set_drag_payload(DraggedTile { tileset: at.tileset, brush, label });
+            }
+            if r.clicked() {
+                if on {
+                    *at.chosen = None;
+                } else {
+                    choose(at);
+                }
+            }
+            let size = at.tools.set.groups.get(g).map(|g| (g.columns, g.rows));
+            r.on_hover_ui(|ui| {
+                ui.strong(label);
+                if let Some((columns, rows)) = size {
+                    ui.label(format!("A group of {columns} by {rows} tiles"));
+                }
+                if let Some(Some(id)) = made {
+                    ui.image(egui::load::SizedTexture::new(id, egui::vec2(180.0, 180.0)));
+                }
+                ui.weak(
+                    "Click to place it (right click in the area turns it), or drag it into the area",
+                );
+            });
+        }
+    });
+}
+
+/// A terrain's or crosser's tiles as pictures over their models' names,
+/// as many across as fit, as the blueprint palettes' Gallery draws them:
+/// a click chooses one (it is painted as it is, and Refine Tile chosen
+/// after it makes tiles that one), a double click opens its view, and one
+/// dragged into the area is placed where it is dropped.
+fn tile_pictures(ui: &mut egui::Ui, tiles: &[u32], at: &mut Place) {
+    let Some(pictures) = &at.gallery else { return };
+    let (asked, ready) = (pictures.side, pictures.ready);
+    // (Of the pane's visible width, as the blueprint palettes fit theirs.)
+    let seen = ui.clip_rect().right() - ui.cursor().left();
+    let room = ui.available_width().min(seen) - 1.0;
+    let side = crate::appearance_gallery::fitted(room, asked, 4.0).1;
+    ui.set_max_width(room);
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(4.0, 4.0);
+        for &t in tiles {
+            let Some(tile) = at.tools.set.tiles.get(t as usize) else { continue };
+            let key = ResKey::parse(&tile.model.to_ascii_lowercase(), ResType::MDL);
+            let pictured = key.map(|k| crate::model_view::Pictured::Tile(k, 0));
+            let made = pictured.and_then(|p| ready.get(&p).copied());
+            let current = *at.choice == Some(t);
+            let (r, in_sight) = crate::widgets::picture_tile(ui, side, &tile.model, current, made);
+            if in_sight {
+                at.shown.extend(pictured);
+            }
+            let choose = |at: &mut Place| {
+                *at.choice = Some(t);
+                let (brush, label) = (Brush::Tile(t), tile.model.clone());
+                *at.chosen = Some(TileBrush { tileset: at.tileset, label, brush, target: None });
+            };
+            if r.drag_started() {
+                // (Chosen too: the area shows where it would go.)
+                choose(at);
+                let (brush, label) = (Brush::Tile(t), tile.model.clone());
+                r.dnd_set_drag_payload(DraggedTile { tileset: at.tileset, brush, label });
+            }
+            if r.double_clicked() {
+                at.open = Some(t);
+            } else if r.clicked() {
+                if current {
+                    *at.choice = None;
+                    *at.chosen = None;
+                } else {
+                    choose(at);
+                }
+            }
+            r.on_hover_ui(|ui| {
+                ui.strong(&tile.model);
+                ui.label(format!("Tile {t} of the tileset"));
+                if let Some(Some(id)) = made {
+                    let size = 180.0;
+                    ui.image(egui::load::SizedTexture::new(id, egui::vec2(size, size)));
+                }
+                ui.weak(
+                    "Click to paint with it, double-click for its view, or drag it into the area",
+                );
+            });
+        }
+    });
 }
 
 #[cfg(test)]

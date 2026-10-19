@@ -30,6 +30,11 @@ pub enum Brush {
     Refine,
     /// The tileset's group of this index.
     Group(usize),
+    /// One tile of the tileset (its index), chosen from a terrain's or a
+    /// crosser's pictures in the palette's Gallery: placed as it is,
+    /// turned as a group is, the tiles around fitted to it. Moonglow's
+    /// own.
+    Tile(u32),
 }
 
 /// An entry of the tileset palette: a brush, or a folder of entries.

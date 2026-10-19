@@ -57,6 +57,7 @@ pub mod terrain_mode;
 pub mod test_module;
 mod text;
 pub mod tile_select;
+mod tile_view;
 pub mod tileset_view;
 pub mod trace;
 mod transfer;

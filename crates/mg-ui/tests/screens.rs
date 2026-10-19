@@ -2132,6 +2132,69 @@ fn area_dropped_cloaks() {
 
 #[test]
 #[ignore]
+fn tile_gallery() {
+    // The tiles palette's Gallery: each terrain's and crosser's tiles as
+    // pictures under it; one chosen.
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&root.join("data/nwm/Chapter1.nwm"));
+    app.settings.palette_gallery = true;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let area = mg_core::ResRef::from_str("map_m1q1a").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    h.run_steps(5);
+    h.state_mut().palette.tiles = true;
+    for _ in 0..40 {
+        h.run_steps(2);
+    }
+    shoot(&mut h, &dir, "tile-gallery");
+    // Every heading opened: the tiles as pictures, as the blueprint
+    // palettes' Gallery draws theirs.
+    // (The palette's: the log's fold button is another ⏷.)
+    let palette = h.get_by_label("Tiles").rect().right();
+    let fold = h.get_all_by_label("⏷").find(|n| n.rect().left() > palette - 300.0).unwrap();
+    fold.click();
+    // The features first: groups, as pictures of their tiles together.
+    for _ in 0..60 {
+        h.run_steps(2);
+    }
+    shoot(&mut h, &dir, "tile-gallery-groups");
+    // A group of several tiles, each in its place.
+    h.state_mut().palette.filter = "2x2".into();
+    for _ in 0..60 {
+        h.run_steps(2);
+    }
+    shoot(&mut h, &dir, "tile-gallery-2x2");
+    h.state_mut().palette.filter.clear();
+    h.run_steps(4);
+    h.get_by_label("Bridge").scroll_to_me();
+    for _ in 0..40 {
+        h.run_steps(2);
+    }
+    shoot(&mut h, &dir, "tile-gallery-open");
+    // A tile's view, as a double click on its picture opens it.
+    let tileset = mg_core::ResRef::from_str("tcn01").unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Tile { tileset, tile: 10 }));
+    for _ in 0..10 {
+        h.run_steps(2);
+    }
+    shoot(&mut h, &dir, "tile-view");
+}
+
+#[test]
+#[ignore]
 fn area_paint() {
     // The placeable brush: two placeables chosen, Paint on; its circle on
     // the ground and the dab a press would lay, see-through.
