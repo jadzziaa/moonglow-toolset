@@ -3,7 +3,7 @@ type: Manual Page
 title: Conversations
 description: Conversations - the conversation tree, a line's tabs, writing conversations elsewhere, the Script Wizard and backups.
 tags: [manual, conversations]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-18T20:54:08Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:21:07Z }
 ---
 
 # Conversations
@@ -133,12 +133,27 @@ written in those tools and brought in. The mapping:
     and `[[otherwise->E3]]`.
   - Ink: a knot of conditional diverts, `{c_seen: -> E2}` then `-> E3`.
 - **A passage or knot reached twice** becomes a link.
+- **Script parameters** (read with `GetScriptParam`) follow the script's
+  name, `name=value` separated by spaces; a name or value with a space,
+  or an empty one, goes in quotes: `do:a_give item="gold coins" count=5`,
+  `{if c_has item=gold}`.
+  - Ink: a condition's parameters are a tag naming the condition,
+    `+ {c_has} [Here it is.] # if:c_has item=gold -> E4`; before a
+    conditional divert, on its own line just above it:
+    `# if:c_seen times=2` then `{c_seen: -> E2}`.
+  - Twine: in a reply's braces and an `npc-choice` link as above
+    (`[[if c_seen times=2->E2]]`). A passage's tags can't hold a space,
+    so there an NPC line's action takes its parameters as a web address
+    does: `do:a_give?item=gold%20coins&count=5`.
+  - In a name or value, `%`, `"`, `\`, line breaks and the characters
+    Ink or Twine reads as syntax (`# / { } [ ] | < >`) are written as
+    `%` and their hexadecimal code (`"` is `%22`, `#` is `%23`), so the
+    story stays valid Ink and Twine.
 
 Text Moonglow writes is escaped where the format would read it as syntax:
 in Twine as HTML character references, which story formats show as the
 characters; in Ink with backslashes, and a blank line as `//`. Only the
-English text goes out, not condition and action parameters, animations,
-comments or delays. Every conversation the game and its modules ship
+English text goes out, not animations, comments or delays. Every conversation the game and its modules ship
 plays the same after a round trip through Twine or Ink. Ink beyond this
 subset (stitches, gathers, logic) is refused with its line number.
 

@@ -19,15 +19,25 @@
 //!   `npc-choice` (`[[if c_seen->E2]]`, `[[otherwise->E3]]`) or a knot of
 //!   conditional diverts (`{c_seen: -> E2}`, `-> E3`).
 //! - **Links** are references to the same passage or knot.
+//! - **Script parameters** follow the script's name, `name=value`
+//!   separated by spaces, a name or value with a space (or empty) in
+//!   quotes, and `%`, `"`, `\`, line breaks and what Ink or Twine reads as
+//!   syntax (`# / { } [ ] | < >`) percent-escaped (`%22`): `do:a_give
+//!   item="gold coins" count=5`, `{if c_has item=gold}`. In Ink a
+//!   condition's parameters are a tag naming it, `# if:c_has item=gold`:
+//!   on the choice, or on its own line before a conditional divert. In a
+//!   Twine passage's tags, which can't hold a space, an action's are a
+//!   query: `do:a_give?item=gold%20coins&count=5`. Names and values are
+//!   text in the game's codepage, as the lines' are.
 //!
-//! Only English text is exported; condition and action parameters,
-//! animations, comments and delays are not. A conversation read back
-//! plays as the original did ([`play_outline`]).
+//! Only English text is exported; animations, comments and delays are
+//! not. A conversation read back plays as the original did
+//! ([`play_outline`]).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
-use mg_core::ResRef;
+use mg_core::{Codepage, ResRef};
 use mg_gff::{Gff, Struct, Value};
 
 use crate::dialog::{
@@ -126,8 +136,176 @@ fn resref(s: &Struct, label: &str) -> Option<String> {
     s.resref(label).filter(|r| !r.is_empty()).map(|r| r.to_string())
 }
 
+/// The codepage a conversation's strings (speaker, quest, comment,
+/// parameters) are read and written in, as its lines' text is
+/// ([`crate::dialog::new_node`]).
+const CODEPAGE: Codepage = Codepage::WINDOWS_1252;
+
 fn string(s: &Struct, label: &str) -> String {
-    String::from_utf8_lossy(s.string(label).unwrap_or_default()).into_owned()
+    CODEPAGE.decode(s.string(label).unwrap_or_default()).into_owned()
+}
+
+/// Text as a string field's value (a character the codepage lacks is a
+/// "?").
+fn string_value(s: &str) -> Value {
+    Value::String(CODEPAGE.encode_lossy(s))
+}
+
+// ---------------------------------------------------------------- parameters
+
+/// A script's parameters (`ActionParams`, `ConditionParams`): name and
+/// value.
+type Params = Vec<(String, String)>;
+
+/// The parameters in a list.
+fn params(s: &Struct, label: &str) -> Params {
+    let list = s.list(label).unwrap_or(&[]);
+    list.iter().map(|p| (string(p, "Key"), string(p, "Value"))).collect()
+}
+
+/// A parameter list, as Aurora writes it.
+fn params_list(params: &Params) -> Value {
+    Value::List(
+        params
+            .iter()
+            .enumerate()
+            .map(|(i, (k, v))| {
+                let mut s = Struct::new(i as u32);
+                s.set("Key", string_value(k));
+                s.set("Value", string_value(v));
+                s
+            })
+            .collect(),
+    )
+}
+
+/// What a parameter's name or value has percent-escaped (`%22`), in Ink
+/// and in Twine: the characters either reads as syntax where a parameter
+/// is written (a tag, a link, braces, a comment), `%` itself, the quote,
+/// the backslash and line breaks.
+const PARAM_ESCAPED: &str = "%\"\\#/{}[]|<>\n\r\t";
+
+fn percent(s: &str, also: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if PARAM_ESCAPED.contains(c) || also.contains(c) {
+            let _ = write!(out, "%{:02X}", c as u32);
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Percent escapes (`%22`, of ASCII characters) undone; a `%` not
+/// starting one is kept.
+fn unpercent(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(at) = rest.find('%') {
+        out.push_str(&rest[..at]);
+        let hex = rest.get(at + 1..at + 3).filter(|h| h.bytes().all(|b| b.is_ascii_hexdigit()));
+        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()).filter(u8::is_ascii) {
+            Some(b) => {
+                out.push(b as char);
+                rest = &rest[at + 3..];
+            }
+            None => {
+                out.push('%');
+                rest = &rest[at + 1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A parameter's name or value as written: escaped, and in quotes when
+/// it is empty or holds a space.
+fn param_word(s: &str, also: &str) -> String {
+    let w = percent(s, also);
+    if w.is_empty() || w.contains(char::is_whitespace) { format!("\"{w}\"") } else { w }
+}
+
+/// A script and its parameters as Ink's tags and Twine's braces hold
+/// them: `a_give item="gold coins" count=5` (just the name without
+/// parameters).
+fn call_text(script: &str, params: &Params) -> String {
+    let mut out = script.to_string();
+    for (k, v) in params {
+        let _ = write!(out, " {}={}", param_word(k, "="), param_word(v, ""));
+    }
+    out
+}
+
+/// A script and its parameters, as [`call_text`] writes them.
+fn read_call(s: &str) -> Result<(String, Params), String> {
+    let s = s.trim();
+    let (script, rest) = s.split_once(char::is_whitespace).unwrap_or((s, ""));
+    let mut params = Vec::new();
+    let mut chars = rest.chars().peekable();
+    loop {
+        while chars.next_if(|c| c.is_whitespace()).is_some() {}
+        if chars.peek().is_none() {
+            break;
+        }
+        let (mut key, mut value, mut quoted) = (String::new(), None::<String>, false);
+        loop {
+            let q = quoted;
+            let Some(c) = chars.next_if(move |c| q || !c.is_whitespace()) else { break };
+            match c {
+                '"' => quoted = !quoted,
+                '=' if !quoted && value.is_none() => value = Some(String::new()),
+                c => value.as_mut().unwrap_or(&mut key).push(c),
+            }
+        }
+        if quoted {
+            return Err(format!("{s}: a quote doesn't end"));
+        }
+        let value = value.ok_or(format!("{s}: the parameter {key:?} has no =value"))?;
+        params.push((unpercent(&key), unpercent(&value)));
+    }
+    Ok((script.to_string(), params))
+}
+
+/// A script's parameters in a Twine passage's tag, which can't hold a
+/// space: `item=gold%20coins&count=5`.
+fn query_text(params: &Params) -> String {
+    let word = |s: &str, also: &str| percent(s, also);
+    params
+        .iter()
+        .map(|(k, v)| format!("{}={}", word(k, " &=?"), word(v, " &?")))
+        .collect::<Vec<_>>()
+        .join("&")
+}
+
+fn read_query(s: &str) -> Result<Params, String> {
+    s.split('&')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let (k, v) = p.split_once('=').ok_or(format!("{p}: a parameter has no =value"))?;
+            Ok((unpercent(k), unpercent(v)))
+        })
+        .collect()
+}
+
+/// A link's condition and its parameters (`c_has item=gold`), if it has
+/// one.
+fn condition(l: &Struct) -> Option<String> {
+    resref(l, "Active").map(|c| call_text(&c, &params(l, "ConditionParams")))
+}
+
+/// Sets the condition of the link at `pos` under a parent, as
+/// [`condition`] writes it: the script and its parameters.
+fn set_condition_call(g: &mut Gff, parent: Parent, pos: usize, call: &str) -> Result<(), String> {
+    let (script, params) = read_call(call)?;
+    set_condition(g, parent, pos, &script);
+    if !params.is_empty()
+        && let Some(l) = crate::dialog::links_mut(g, parent).and_then(|l| l.get_mut(pos))
+    {
+        l.set("ConditionParams", params_list(&params));
+    }
+    Ok(())
 }
 
 /// A tag's value with spaces and `%` escaped (`kid%202`), as Twine's tags
@@ -140,15 +318,22 @@ fn unescape(v: &str) -> String {
     v.replace("%20", " ").replace("%25", "%")
 }
 
-/// A line's tags: speaker, action, journal update, sound.
-fn tags(kind: Kind, n: &Struct) -> Vec<String> {
+/// A line's tags: speaker, action (with its parameters: `do:a_give
+/// item="gold coins"`, or in a Twine passage's tags, which can't hold a
+/// space, `do:a_give?item=gold%20coins`), journal update, sound.
+fn tags(kind: Kind, n: &Struct, passage_tags: bool) -> Vec<String> {
     let mut out = Vec::new();
     let speaker = string(n, "Speaker");
     if kind == Kind::Entry && !speaker.is_empty() {
         out.push(format!("speaker:{}", escape(&speaker)));
     }
     if let Some(a) = resref(n, "Script") {
-        out.push(format!("do:{}", escape(&a)));
+        let p = params(n, "ActionParams");
+        out.push(match passage_tags {
+            _ if p.is_empty() => format!("do:{}", escape(&a)),
+            true => format!("do:{a}?{}", query_text(&p)),
+            false => format!("do:{}", call_text(&a, &p)),
+        });
     }
     let quest = string(n, "Quest");
     if !quest.is_empty() {
@@ -165,15 +350,28 @@ fn tags(kind: Kind, n: &Struct) -> Vec<String> {
 fn apply_tags(n: &mut Struct, tags: &[String]) -> Result<(), String> {
     let r = |v: &str| ResRef::from_str(v).map(Value::resref).map_err(|e| format!("{v}: {e}"));
     for t in tags {
-        let (k, v) = t.split_once(':').unwrap_or((t, ""));
-        let v = unescape(v.trim());
+        let (k, raw) = t.split_once(':').unwrap_or((t, ""));
+        let v = unescape(raw.trim());
         match k.trim() {
-            "speaker" => n.set("Speaker", Value::String(v.as_bytes().to_vec())),
-            "do" => n.set("Script", r(&v)?),
+            "speaker" => n.set("Speaker", string_value(&v)),
+            "do" => {
+                // `a_give?item=gold%20coins` (a Twine passage's tag) or
+                // `a_give item="gold coins"`.
+                let query =
+                    raw.trim().split_once('?').filter(|(s, _)| !s.contains(char::is_whitespace));
+                let (script, params) = match query {
+                    Some((s, q)) => (unescape(s), read_query(q)?),
+                    None => read_call(raw).map(|(s, p)| (unescape(&s), p))?,
+                };
+                n.set("Script", r(&script)?);
+                if !params.is_empty() {
+                    n.set("ActionParams", params_list(&params));
+                }
+            }
             "sound" => n.set("Sound", r(&v)?),
             "journal" => {
                 let (q, e) = v.rsplit_once(':').unwrap_or((&v, "0"));
-                n.set("Quest", Value::String(q.as_bytes().to_vec()));
+                n.set("Quest", string_value(q));
                 n.set("QuestEntry", Value::Dword(e.trim().parse().unwrap_or(0)));
             }
             _ => {}
@@ -353,8 +551,8 @@ pub fn play_outline(g: &Gff, limit: usize) -> Option<Vec<String>> {
                 "{}{kind:?}|{}|if {}|{}{}",
                 "  ".repeat(depth),
                 t.join("\n").trim(),
-                resref(l, "Active").unwrap_or_default(),
-                tags(kind, n).join(" "),
+                condition(l).unwrap_or_default(),
+                tags(kind, n, false).join(" "),
                 if looped { "|again" } else { "" }
             ));
             if out.len() > limit {
@@ -386,10 +584,10 @@ pub fn to_text(g: &Gff) -> String {
             let i = link_index(l);
             let Some(n) = node(g, kind, i) else { continue };
             let mut notes: Vec<String> = Vec::new();
-            if let Some(c) = resref(l, "Active") {
+            if let Some(c) = condition(l) {
                 notes.push(format!("if {c}"));
             }
-            notes.extend(tags(kind, n).into_iter().filter(|t| !t.starts_with("speaker:")));
+            notes.extend(tags(kind, n, false).into_iter().filter(|t| !t.starts_with("speaker:")));
             let who = match kind {
                 Kind::Entry => {
                     let s = string(n, "Speaker");
@@ -557,10 +755,10 @@ pub fn update_from_csv(g: &mut Gff, csv: &str) -> Result<usize, String> {
             && let Some(s) =
                 speaker.and_then(|c| row.get(c)).filter(|s| **s != string(n, "Speaker"))
         {
-            n.set("Speaker", Value::String(s.as_bytes().to_vec()));
+            n.set("Speaker", string_value(s));
         }
         if let Some(c) = comment.and_then(|c| row.get(c)).filter(|c| **c != string(n, "Comment")) {
-            n.set("Comment", Value::String(c.as_bytes().to_vec()));
+            n.set("Comment", string_value(c));
         }
         changed += usize::from(*n != before);
     }
@@ -620,7 +818,7 @@ pub fn to_twee(g: &Gff, title: &str) -> String {
     let choice = |out: &mut String, name: &str, parent: Parent| {
         let _ = writeln!(out, ":: {name} [npc-choice]");
         for l in links(g, parent) {
-            let cond = resref(l, "Active").map_or("otherwise".to_string(), |c| format!("if {c}"));
+            let cond = condition(l).map_or("otherwise".to_string(), |c| format!("if {c}"));
             let _ = writeln!(out, "[[{cond}->{}]]", passage(Kind::Entry, link_index(l)));
         }
         out.push('\n');
@@ -630,7 +828,7 @@ pub fn to_twee(g: &Gff, title: &str) -> String {
     }
     for (i, n) in crate::dialog::nodes(g, Kind::Entry).iter().enumerate() {
         let i = i as u32;
-        let tags = tags(Kind::Entry, n);
+        let tags = tags(Kind::Entry, n, true);
         let tags = if tags.is_empty() { String::new() } else { format!(" [{}]", tags.join(" ")) };
         let _ = writeln!(out, ":: {}{tags}", passage(Kind::Entry, i));
         let t = text(n);
@@ -647,7 +845,7 @@ pub fn to_twee(g: &Gff, title: &str) -> String {
             } else {
                 html_text(&t).replace('\n', "&#10;")
             };
-            if let Some(c) = resref(l, "Active") {
+            if let Some(c) = condition(l) {
                 let _ = write!(label, " {{if {c}}}");
             }
             for tag in tags_of_reply(reply) {
@@ -674,7 +872,7 @@ pub fn to_twee(g: &Gff, title: &str) -> String {
 
 /// A reply's tags in Twine's braces: `do a_x`, `journal q:10`, `sound s`.
 fn tags_of_reply(n: &Struct) -> Vec<String> {
-    tags(Kind::Reply, n).into_iter().map(|t| t.replacen(':', " ", 1)).collect()
+    tags(Kind::Reply, n, false).into_iter().map(|t| t.replacen(':', " ", 1)).collect()
 }
 
 /// A Twine story as read: its passages, its start (`StoryData`'s), and
@@ -840,7 +1038,7 @@ impl Builder<'_> {
                 apply_tags(node_mut(&mut self.g, Kind::Reply, r).expect("made"), tags)?;
                 if let Some(c) = rc {
                     let last = links(&self.g, at).len() - 1;
-                    set_condition(&mut self.g, at, last, c);
+                    set_condition_call(&mut self.g, at, last, c)?;
                 }
                 if let Some(to) = to {
                     self.place(Parent::Node(Kind::Reply, r), to, None, depth + 1)?;
@@ -848,7 +1046,7 @@ impl Builder<'_> {
             }
         }
         if let Some(c) = cond {
-            set_condition(&mut self.g, parent, pos, c);
+            set_condition_call(&mut self.g, parent, pos, c)?;
         }
         Ok(())
     }
@@ -936,6 +1134,12 @@ pub fn to_ink(g: &Gff) -> String {
             let to = passage(Kind::Entry, link_index(l));
             match resref(l, "Active") {
                 Some(c) => {
+                    // The condition's parameters: a tag on the line
+                    // before.
+                    let p = params(l, "ConditionParams");
+                    if !p.is_empty() {
+                        let _ = writeln!(out, "# if:{}", call_text(&c, &p));
+                    }
                     let _ = writeln!(out, "{{{c}: -> {to}}}");
                 }
                 None => {
@@ -958,7 +1162,7 @@ pub fn to_ink(g: &Gff) -> String {
     for (i, n) in entries.iter().enumerate() {
         let i = i as u32;
         let _ = writeln!(out, "=== {} ===", passage(Kind::Entry, i));
-        for t in tags(Kind::Entry, n) {
+        for t in tags(Kind::Entry, n, false) {
             let _ = writeln!(out, "# {t}");
         }
         let t = text(n);
@@ -982,7 +1186,13 @@ pub fn to_ink(g: &Gff) -> String {
                 Next::One(e) => passage(Kind::Entry, e),
                 Next::Choice => passage(Kind::Reply, r),
             };
-            let tags: String = tags(Kind::Reply, reply).iter().map(|t| format!(" # {t}")).collect();
+            // The condition's parameters are a tag, `if:` and the
+            // condition with them.
+            let cond_params = condition(l).filter(|_| !params(l, "ConditionParams").is_empty());
+            let tags: String = (cond_params.map(|c| format!("if:{c}")).into_iter())
+                .chain(tags(Kind::Reply, reply, false))
+                .map(|t| format!(" # {t}"))
+                .collect();
             // (Tags before the divert: Inky refuses a tag after it.)
             let _ = writeln!(out, "+ {cond}[{t}]{tags} -> {target}");
         }
@@ -999,6 +1209,21 @@ pub fn to_ink(g: &Gff) -> String {
     out
 }
 
+/// Where an `# if:` tag goes, on its own line.
+const IF_TAG_PLACE: &str =
+    "an # if: tag on its own line goes just before the {condition: -> KNOT} it is for";
+
+/// A condition as an `# if:` tag gives it (`c_x key=value`), which must
+/// name the condition it is for (`{c_x}`).
+fn with_params(at: usize, cond: Option<&str>, call: String) -> Result<String, String> {
+    let script = call.split_whitespace().next().unwrap_or_default();
+    match cond {
+        Some(c) if c == script => Ok(call),
+        Some(c) => Err(format!("line {at}: # if:{script} isn't the condition there, {{{c}}}")),
+        None => Err(format!("line {at}: # if:{script} has no {{{script}}} to give parameters to")),
+    }
+}
+
 /// Reads an Ink story as a new conversation: the subset [`to_ink`]
 /// writes (knots, `# tags`, text, choices with a condition and a divert,
 /// conditional diverts). Anything else (stitches, gathers, logic, glue) is
@@ -1008,6 +1233,8 @@ pub fn from_ink(source: &str) -> Result<Gff, String> {
     let mut start: Option<String> = None;
     let mut current: Option<String> = None;
     let mut first_knot: Option<String> = None;
+    // A conditional divert's `# if:` tag, on the line before it.
+    let mut pending: Option<(usize, String)> = None;
     for (n, raw) in source.lines().enumerate() {
         let at = n + 1;
         // An empty comment inside a knot's text is a blank line in it.
@@ -1022,6 +1249,12 @@ pub fn from_ink(source: &str) -> Result<Gff, String> {
         let line = ink_uncomment(raw).trim();
         if line.is_empty() || line.starts_with("VAR ") || line.starts_with("CONST ") {
             continue;
+        }
+        let pending_if = pending.take();
+        if let Some((from, _)) = &pending_if
+            && !line.starts_with('{')
+        {
+            return Err(format!("line {from}: {IF_TAG_PLACE}"));
         }
         if let Some(name) = line.strip_prefix("===") {
             let name = name.trim().trim_end_matches('=').trim();
@@ -1043,7 +1276,10 @@ pub fn from_ink(source: &str) -> Result<Gff, String> {
         };
         let k = lines.get_mut(&knot).expect("made");
         if let Some(tag) = line.strip_prefix('#') {
-            k.tags.push(tag.trim().to_string());
+            match tag.trim().strip_prefix("if:") {
+                Some(call) => pending = Some((at, call.trim().to_string())),
+                None => k.tags.push(tag.trim().to_string()),
+            }
         } else if let Some(choice) = line.strip_prefix('+').or_else(|| line.strip_prefix('*')) {
             // + {cond} [text] # tag -> target (and, as Moonglow wrote it
             // before 1.22.1, + {cond} [text] -> target # tag)
@@ -1065,6 +1301,12 @@ pub fn from_ink(source: &str) -> Result<Gff, String> {
                 let end = r.find('}').ok_or(format!("line {at}: a condition doesn't end"))?;
                 cond = Some(r[..end].trim().to_string());
                 rest = r[end + 1..].trim();
+            }
+            // `# if:c_x key=value`: the condition's parameters.
+            let mut tags = tags;
+            if let Some(i) = tags.iter().position(|t| t.starts_with("if:")) {
+                let call = tags.remove(i)["if:".len()..].trim().to_string();
+                cond = Some(with_params(at, cond.as_deref(), call)?);
             }
             let (text, after) = match rest.strip_prefix('[') {
                 Some(r) => {
@@ -1097,9 +1339,11 @@ pub fn from_ink(source: &str) -> Result<Gff, String> {
                 .split_once(':')
                 .and_then(|(c, t)| Some((c.trim(), t.trim().strip_prefix("->")?.trim())))
                 .ok_or(format!("line {at}: only {{condition: -> KNOT}} is read"))?;
-            k.choice
-                .get_or_insert_with(Vec::new)
-                .push((Some(cond.to_string()), target.to_string()));
+            let cond = match pending_if {
+                Some((from, call)) => with_params(from, Some(cond), call)?,
+                None => cond.to_string(),
+            };
+            k.choice.get_or_insert_with(Vec::new).push((Some(cond), target.to_string()));
         } else if let Some(t) = line.strip_prefix("->") {
             k.choice.get_or_insert_with(Vec::new).push((None, t.trim().to_string()));
         } else if line.starts_with('-')
@@ -1114,6 +1358,9 @@ pub fn from_ink(source: &str) -> Result<Gff, String> {
             }
             k.text.push_str(&ink_unescape(line));
         }
+    }
+    if let Some((from, _)) = pending {
+        return Err(format!("line {from}: {IF_TAG_PLACE}"));
     }
     let start = start.or(first_knot).ok_or("no knots")?;
     if start == "END" {
@@ -1204,6 +1451,96 @@ mod tests {
             "{}",
             to_ink(&new)
         );
+    }
+
+    fn pairs(p: &[(&str, &str)]) -> Params {
+        p.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
+    }
+
+    /// Condition and action parameters go out to Ink and Twine and come
+    /// back: a starting link's (a knot of conditional diverts, a passage
+    /// tagged `npc-choice`), a reply's condition and action, an NPC line's
+    /// action; names and values with spaces, quotes, what Ink and Twine
+    /// read as syntax, `%`, a letter outside ASCII and nothing.
+    #[test]
+    fn script_parameters_survive_ink_and_twine() {
+        let mut g = sample();
+        let odd = pairs(&[
+            ("item", "gold coins"),
+            ("say", "\"Hi\" #1 // a->b {x} [y] |z| \\ 100%20"),
+            ("who", "Zoë"),
+            ("empty", ""),
+            ("a b", "c=d?e&f"),
+        ]);
+        let set = |g: &mut Gff, parent: Parent, pos: usize, p: &Params| {
+            crate::dialog::links_mut(g, parent).unwrap()[pos]
+                .set("ConditionParams", params_list(p));
+        };
+        // E0 (c_seen) at the start, R0 (c_curious) under E1.
+        set(&mut g, Parent::Root, 0, &pairs(&[("times", "2")]));
+        set(&mut g, Parent::Node(Kind::Entry, 1), 0, &odd);
+        node_mut(&mut g, Kind::Entry, 1).unwrap().set("ActionParams", params_list(&odd));
+        let cold = pairs(&[("mood", "cold")]);
+        node_mut(&mut g, Kind::Reply, 1).unwrap().set("ActionParams", params_list(&cold));
+        // The game's codepage, as the lines' text.
+        let zoe = &node(&g, Kind::Entry, 1).unwrap().list("ActionParams").unwrap()[2];
+        assert_eq!(zoe.string("Value"), Some(&b"Zo\xeb"[..]));
+
+        let want = play_outline(&g, 10_000).unwrap();
+        assert!(want.iter().any(|l| l.contains("|if c_seen times=2|")), "{want:?}");
+        let ink = to_ink(&g);
+        assert!(ink.contains("=== start ===\n# if:c_seen times=2\n{c_seen: -> E0}\n"), "{ink}");
+        assert!(ink.contains("# do:a_bye mood=cold -> END"), "{ink}");
+        let tag = "a_hello item=\"gold coins\" \
+            say=\"%22Hi%22 %231 %2F%2F a-%3Eb %7Bx%7D %5By%5D %7Cz%7C %5C 100%2520\" \
+            who=Zoë empty=\"\" \"a b\"=c=d?e&f";
+        assert!(ink.contains(&format!("\n# do:{tag}\n")), "{ink}");
+        assert!(ink.contains("+ {c_curious} [Who are you?] # if:c_curious item="), "{ink}");
+        let twee = to_twee(&g, "keeper");
+        assert!(twee.contains("[[if c_seen times=2->E0]]"), "{twee}");
+        assert!(
+            twee.contains(":: E1 [speaker:KEEPER do:a_hello?item=gold%20coins&say=%22Hi%22%20"),
+            "{twee}"
+        );
+        assert!(twee.contains("&a%20b=c=d%3Fe%26f]"), "{twee}");
+        assert!(twee.contains("{do a_bye mood=cold}->END]]"), "{twee}");
+
+        for (format, back) in [("Ink", from_ink(&ink)), ("Twine", from_twee(&twee))] {
+            let back = back.unwrap_or_else(|e| panic!("{format}: {e}"));
+            assert_eq!(play_outline(&back, 10_000).unwrap(), want, "{format}");
+            let start = links(&back, Parent::Root);
+            assert_eq!(params(&start[0], "ConditionParams"), pairs(&[("times", "2")]));
+            let hello = link_index(&start[1]);
+            assert_eq!(params(node(&back, Kind::Entry, hello).unwrap(), "ActionParams"), odd);
+            let replies = links(&back, Parent::Node(Kind::Entry, hello));
+            assert_eq!(params(&replies[0], "ConditionParams"), odd, "{format}");
+            let bye = node(&back, Kind::Reply, link_index(&replies[1])).unwrap();
+            assert_eq!(params(bye, "ActionParams"), cold, "{format}");
+            let zoe = &node(&back, Kind::Entry, hello).unwrap().list("ActionParams").unwrap()[2];
+            assert_eq!(zoe.string("Value"), Some(&b"Zo\xeb"[..]), "{format}");
+        }
+    }
+
+    /// An `# if:` tag names the condition it gives parameters to, and one
+    /// on its own line goes just before its conditional divert.
+    #[test]
+    fn ink_condition_parameters_go_with_their_condition() {
+        let ok = "-> a\n=== a ===\nHi\n+ {c_x} [Go] # if:c_x n=1 # do:a_y k=\"v w\" -> END\n";
+        let g = from_ink(ok).unwrap();
+        let l = &links(&g, Parent::Node(Kind::Entry, 0))[0];
+        assert_eq!(params(l, "ConditionParams"), pairs(&[("n", "1")]));
+        let r = node(&g, Kind::Reply, link_index(l)).unwrap();
+        assert_eq!(params(r, "ActionParams"), pairs(&[("k", "v w")]));
+        for (bad, line) in [
+            ("-> a\n=== a ===\nHi\n+ {c_x} [Go] # if:c_z n=1 -> END\n", "line 4:"),
+            ("-> a\n=== a ===\nHi\n+ [Go] # if:c_z n=1 -> END\n", "line 4:"),
+            ("-> s\n=== s ===\n# if:c_x n=1\n-> a\n=== a ===\nHi\n", "line 3:"),
+            ("-> s\n=== s ===\n# if:c_x n=1\n", "line 3:"),
+            ("-> a\n=== a ===\nHi\n+ {c_x} [Go] # if:c_x n=\"1 -> END\n", "doesn't end"),
+        ] {
+            let e = from_ink(bad).unwrap_err();
+            assert!(e.contains(line), "{bad}: {e}");
+        }
     }
 
     #[test]

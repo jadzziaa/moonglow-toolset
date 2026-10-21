@@ -202,7 +202,7 @@ pub fn node_mut(g: &mut Gff, kind: Kind, index: u32) -> Option<&mut Struct> {
     list_mut(g, kind.list()).get_mut(index as usize)
 }
 
-fn links_mut(g: &mut Gff, parent: Parent) -> Option<&mut Vec<Struct>> {
+pub(crate) fn links_mut(g: &mut Gff, parent: Parent) -> Option<&mut Vec<Struct>> {
     match parent {
         Parent::Root => Some(list_mut(g, "StartingList")),
         Parent::Node(k, i) => {
