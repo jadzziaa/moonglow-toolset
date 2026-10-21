@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:43:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:49:34Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1282,6 +1282,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     whether the engine also ignores a lone `customshaderGS`, and what it
     does with a geometry program at all, is not checked (no content has
     one). (S)
+  - Pictures already made (the galleries' thumbnails, a hovered row's
+    preview) are kept across a flip of the switch, drawn as they were,
+    until they are asked for anew. (S)
+  - `Scene` gained `environment` and `GpuMesh` `tangents_made`: Moonglow
+    Viewer, which builds on these crates by tag, needs them at its next
+    bump (a `Scene { .. }` literal without `..Default::default()` stops
+    compiling). (M6)
   - The model viewer's area for the shaders is outdoors without wind
     (`areaFlags` 0): an interior-only effect (TDoD's roofs) shows as
     outdoors there. (S)
