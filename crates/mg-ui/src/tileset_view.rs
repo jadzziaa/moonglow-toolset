@@ -94,6 +94,16 @@ impl TilesetDoc {
         self.reread();
     }
 
+    /// Whether it has a step to undo.
+    pub fn has_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
+    /// Whether it has a step to redo.
+    pub fn has_redo(&self) -> bool {
+        !self.redo.is_empty()
+    }
+
     pub fn undo(&mut self) {
         if let Some(prev) = self.undo.pop() {
             self.redo.push(std::mem::replace(&mut self.file, prev));
@@ -174,20 +184,6 @@ pub fn open_path(app: &mut Moonglow, path: PathBuf) {
     }
 }
 
-/// Saves every tileset with unsaved changes.
-pub(crate) fn save_all(app: &mut Moonglow) {
-    for d in app.tilesets.iter_mut().filter(|d| d.is_dirty()) {
-        match d.save() {
-            Ok(()) => app.log.info(format!("Saved {}", d.path.display())),
-            Err(e) => app.log.error(e),
-        }
-    }
-}
-
-pub(crate) fn unsaved(app: &Moonglow) -> bool {
-    app.tilesets.iter().any(TilesetDoc::is_dirty)
-}
-
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
     let Some(i) = app.tilesets.iter().position(|d| d.id == id) else {
         ui.label("This tileset was closed.");
@@ -223,10 +219,10 @@ fn draw(app: &mut Moonglow, ui: &mut Ui, d: &mut TilesetDoc) {
             ui.selectable_value(&mut d.page, page, name);
         }
         ui.separator();
-        if ui.add_enabled(!d.undo.is_empty(), egui::Button::new("Undo")).clicked() {
+        if ui.add_enabled(d.has_undo(), egui::Button::new("Undo")).clicked() {
             d.undo();
         }
-        if ui.add_enabled(!d.redo.is_empty(), egui::Button::new("Redo")).clicked() {
+        if ui.add_enabled(d.has_redo(), egui::Button::new("Redo")).clicked() {
             d.redo();
         }
         if ui.add_enabled(d.is_dirty(), egui::Button::new("Save")).clicked() {
@@ -785,43 +781,4 @@ fn check(app: &mut Moonglow, d: &mut TilesetDoc) {
     let Some(key) = ResKey::parse(&stem, ResType::SET) else { return };
     d.findings =
         Some(mg_module::doctor::examine_tileset(&game.resman, key, d.file.text().as_bytes()));
-}
-
-/// Asks what to do with a tileset's unsaved changes when its tab is closed.
-pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(id) = app.tileset_closing else { return };
-    let Some(i) = app.tilesets.iter().position(|d| d.id == id) else {
-        app.tileset_closing = None;
-        return;
-    };
-    let title = app.tilesets[i].title();
-    let mut answer = None;
-    egui::Window::new("Unsaved Tileset")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(format!("{} has unsaved changes.", title.trim_end_matches(" *")));
-            ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    answer = Some(true);
-                }
-                if ui.button("Discard").clicked() {
-                    answer = Some(false);
-                }
-                if crate::widgets::cancel(ui) {
-                    app.tileset_closing = None;
-                }
-            });
-        });
-    let Some(keep) = answer else { return };
-    app.tileset_closing = None;
-    if keep && let Err(e) = app.tilesets[i].save() {
-        app.log.error(e);
-        return;
-    }
-    app.tilesets.remove(i);
-    if let Some(t) = app.dock.find_tab(&Tab::Tileset(id)) {
-        app.dock.remove_tab(t);
-    }
 }

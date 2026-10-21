@@ -251,28 +251,6 @@ pub(crate) fn save(app: &mut Moonglow, id: u32, ask: bool) -> bool {
     }
 }
 
-/// Whether any hak has unsaved changes.
-pub(crate) fn unsaved(app: &Moonglow) -> bool {
-    app.haks.iter().any(|d| d.hak.is_dirty())
-}
-
-/// Saves every hak with unsaved changes that has a file (not the game's).
-pub(crate) fn save_all(app: &mut Moonglow) {
-    let root = app.install.as_ref().map(|gi| gi.root.clone());
-    let ids: Vec<u32> = app
-        .haks
-        .iter()
-        .filter(|d| d.hak.is_dirty())
-        .filter(|d| {
-            d.hak.path.as_ref().is_some_and(|p| root.as_ref().is_none_or(|r| !p.starts_with(r)))
-        })
-        .map(|d| d.id)
-        .collect();
-    for id in ids {
-        save(app, id, false);
-    }
-}
-
 fn size(n: u64) -> String {
     match n {
         n if n >= 1 << 30 => format!("{:.2} GB", n as f64 / f64::from(1u32 << 30)),
@@ -763,42 +741,4 @@ pub(crate) fn adding_window(app: &mut Moonglow, ctx: &egui::Context) {
     let added = app.haks[i].hak.add_files(&files);
     app.haks[i].changed();
     report(app, &added);
-}
-
-/// Asks what to do with a hak's unsaved changes when its tab is closed.
-pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(id) = app.hak_closing else { return };
-    let Some(doc) = app.haks.iter().find(|d| d.id == id) else {
-        app.hak_closing = None;
-        return;
-    };
-    let title = doc.title();
-    let mut answer = None;
-    egui::Window::new("Unsaved Hak")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(format!("{} has unsaved changes.", title.trim_end_matches(" *")));
-            ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    answer = Some(true);
-                }
-                if ui.button("Discard").clicked() {
-                    answer = Some(false);
-                }
-                if crate::widgets::cancel(ui) {
-                    app.hak_closing = None;
-                }
-            });
-        });
-    let Some(keep) = answer else { return };
-    app.hak_closing = None;
-    if keep && !save(app, id, false) {
-        return;
-    }
-    app.haks.retain(|d| d.id != id);
-    if let Some(t) = app.dock.find_tab(&Tab::Hak(id)) {
-        app.dock.remove_tab(t);
-    }
 }
