@@ -897,8 +897,12 @@ fn shaders_opening(
                 break;
             }
         }
-        let stats = h.state().viewport.as_ref().map(|v| v.renderer.game_shader_stats());
-        let stats = stats.unwrap_or_default();
+        let vp = h.state().viewport.as_ref();
+        let stats = vp.map(|v| v.renderer.game_shader_stats()).unwrap_or_default();
+        let failures = vp.map(|v| v.renderer.game_shader_failures().to_vec()).unwrap_or_default();
+        if !failures.is_empty() {
+            println!("  the game's shaders that couldn't be drawn: {failures:?}");
+        }
         println!(
             "  area {area} opened with the Shaders on, {run}: its longest frame {:.0} ms of {frames}; \
              shown after {:.0} ms, drawn by the game's programs after {:.0} ms ({} programs \

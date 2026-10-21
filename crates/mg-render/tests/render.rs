@@ -1569,6 +1569,108 @@ fn the_game_path_draws_opengl_s_clip_space_right() {
     assert!(differ <= 8, "{differ} pixels differ in what they show");
 }
 
+/// The game path on whatever GPU the platform has (CI's Windows runner
+/// draws it with Direct3D 12, its macOS one with Metal, as no game install
+/// is there for the stock programs): an authored pair written as the
+/// engine's shaders are (loose uniforms, a `sampler2D` passed to a
+/// function, varyings, an include), compiled by mg-shader, its uniforms in
+/// the draw's block (`texture0Bound`, `materialFrontDiffuse`), the frame's
+/// (`screenParams`, `m_proj`) and the lights' arrays, drawn and its pixels
+/// read back. Prints the adapter it ran on to the test's output whether or
+/// not output is captured, and fails rather than skip where an adapter is
+/// there but the path doesn't draw.
+#[test]
+fn an_authored_glsl_pair_draws_on_this_platform_s_gpu() {
+    use std::io::Write;
+    let Some(gpu) = gpu() else {
+        let _ = writeln!(std::io::stdout(), "game path: skipped, no GPU adapter");
+        return;
+    };
+    let info = gpu.device.adapter_info();
+    let mut assets = TestAssets::default();
+    assets.opaque("red", [255, 0, 0]);
+    let inc = r#"
+#ifndef INC_PLATFORM
+#define INC_PLATFORM
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+uniform mat4 m_texture;
+uniform vec4 screenParams;
+uniform vec4 materialFrontDiffuse;
+uniform int texture0Bound;
+uniform int numLights;
+uniform vec4 lightColor[MAX_NUM_LIGHTS];
+varying vec2 vUv;
+varying vec4 vTint;
+#endif
+"#;
+    let vs = r#"
+#define SHADER_TYPE 1
+#include "inc_platform"
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+void main ()
+{
+    vUv = mat2(m_texture) * vTcIn;
+    vTint = materialFrontDiffuse;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+#include "inc_platform"
+uniform sampler2D texUnit0;
+vec3 Sample(sampler2D tex, vec2 uv)
+{
+    return texture2D(tex, uv).rgb * float(texture0Bound);
+}
+void main ()
+{
+    vec3 c = Sample(texUnit0, vUv) * vTint.rgb;
+    for (int i = 0; i < numLights; i++)
+        c += lightColor[i].rgb;
+    // (The frame's block: the picture's width, 64 pixels.)
+    c.b += screenParams.x / 64.0;
+    gl_FragColor = vec4(c, 1.0);
+}
+"#;
+    assets.shaders.insert("inc_platform".into(), inc.into());
+    assets.shaders.insert("vslit".into(), vs.into());
+    assets.shaders.insert("fslit".into(), fs.into());
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![standing_quad(&gpu, "red", Vec3::new(0.0, 0.0, 1.0), 3.0)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    let _ = writeln!(
+        std::io::stdout(),
+        "game path: {} ({:?}, {:?}): {} of the game's draws, failures {:?}, middle pixel {:?}",
+        info.name,
+        info.backend,
+        info.device_type,
+        r.drawn.game,
+        r.game_shader_failures(),
+        img.pixel(32, 32),
+    );
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 1, "{:?}", r.drawn);
+    // The texture's red (bound, through the function), the material's
+    // white, no lights, and the frame's width as blue.
+    assert_eq!(img.pixel(32, 32), [255, 0, 255, 255]);
+    // Around the quad, the background.
+    assert_eq!(img.pixel(1, 1), [0, 0, 0, 255]);
+}
+
 /// A program that doesn't compile is drawn with Moonglow's own shader
 /// (the picture is the same as without the game's shaders) and reported
 /// once, however many frames.

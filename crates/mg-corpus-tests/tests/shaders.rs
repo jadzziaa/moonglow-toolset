@@ -16,7 +16,7 @@ use std::path::Path;
 
 use mg_core::ResType;
 use mg_resman::{ErfContainer, GameInstall, LayerClass, ResKey, ResMan, priority};
-use mg_shader::{Preamble, Stage, compile, program_stage};
+use mg_shader::{Part, Preamble, Stage, compile, program_stage};
 use mg_testkit::{at_least, builder_hak_dirs, corpus, files_with_ext, sweep};
 
 /// Every 3rd program on an everyday run.
@@ -38,15 +38,34 @@ fn programs(rm: &ResMan, keys: impl IntoIterator<Item = ResKey>) -> Vec<(String,
     out
 }
 
-/// Compiles each program; the failures, one line each.
+/// Compiles each program and splits its uniforms as a renderer does (M3:
+/// the draw's, the frame's, the bones'; here by a rough rule of names, as
+/// what is split is the program, not the rule); the failures, one line
+/// each.
 fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
     let pre = Preamble::default();
+    let part = |m: &mg_shader::Member| match m.name.as_str() {
+        "m_bones" => Part::Bones,
+        n if n.starts_with("m_") || n.starts_with("material") || n.starts_with("light") => {
+            Part::Draw
+        }
+        _ => Part::Frame,
+    };
     list.iter()
         .filter_map(|(name, stage)| {
-            compile(name, *stage, &pre, rm).err().map(|e| {
-                let d: Vec<String> = e.diagnostics().iter().map(ToString::to_string).collect();
-                format!("{name} ({stage}): {}", d.join("; "))
-            })
+            let split = compile(name, *stage, &pre, rm).and_then(|mut p| {
+                let had = !p.reflection.uniforms.is_empty();
+                let split = p.split_uniforms(part)?;
+                Ok(if had && !split { Some("its uniforms not split".to_string()) } else { None })
+            });
+            match split {
+                Ok(None) => None,
+                Ok(Some(why)) => Some(format!("{name} ({stage}): {why}")),
+                Err(e) => {
+                    let d: Vec<String> = e.diagnostics().iter().map(ToString::to_string).collect();
+                    Some(format!("{name} ({stage}): {}", d.join("; ")))
+                }
+            }
         })
         .collect()
 }
