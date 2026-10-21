@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T17:50:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T17:53:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1329,6 +1329,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - A program whose uniforms can't be split (its block used otherwise
     than member by member: none of the 102 seen) falls back to
     Moonglow's shader, reported, rather than drawing with one block. (S)
+  - **Pictures drawn once wait for the pipelines** (a gallery's or
+    palette's thumbnails, a hovered row's preview: drawn once and kept,
+    they can't take the fallback): the first ones a session needs block
+    the UI thread for the worker's time (28–113 ms for area092's pairs).
+    `frames_at_144` with the default on (nothing over the budget by its
+    median) shows the Gallery's worst frames while scrolling at 10 and 49
+    ms; not yet compared with the switch off. (S)
   - The tests that compare pictures of the area view and the model
     viewer choose the switch off; only the switch tests and TDoD's wind
     test draw the game's shaders through the window. (S)
