@@ -18,6 +18,7 @@ mg-mdl.workspace = true
 mg-resman.workspace = true
 mg-rules.workspace = true
 mg-set.workspace = true
+mg-shader.workspace = true
 mg-tiles.workspace = true
 fastrand.workspace = true
 mg-schema.workspace = true

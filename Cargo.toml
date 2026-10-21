@@ -31,6 +31,7 @@ mg-rules = { path = "crates/mg-rules" }
 mg-schema = { path = "crates/mg-schema" }
 mg-script = { path = "crates/mg-script" }
 mg-serve = { path = "crates/mg-serve" }
+mg-shader = { path = "crates/mg-shader" }
 mg-set = { path = "crates/mg-set" }
 mg-ssf = { path = "crates/mg-ssf" }
 mg-testkit = { path = "crates/mg-testkit" }
@@ -51,11 +52,16 @@ egui_dock = "0.21"
 egui_kittest = "0.36"
 encoding_rs = "0.8"
 fastrand = "2"
+# (glslang's C++ built from the sources the crate ships, with cc: no
+# CMake, Python or network, which the Flatpak's offline build needs.)
+glslang = "0.9"
 glam = { version = "0.30", features = ["bytemuck"] }
 # (The NUI preview's JPEG and BMP pictures, which nothing else here reads.)
 image = { version = "0.25", default-features = false, features = ["jpeg", "bmp"] }
 indexmap = "2"
 memmap2 = "0.9"
+# (The version wgpu uses: its modules go to wgpu as they are.)
+naga = { version = "30", features = ["spv-in"] }
 mlua = { version = "0.12", features = ["luau", "serde"] }
 png = "0.18"
 pollster = "0.4"

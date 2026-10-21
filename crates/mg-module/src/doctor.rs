@@ -15,8 +15,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use mg_2da::{TwoDa, overlong_rows};
 use mg_core::{Codepage, ResRef, ResType};
 use mg_gff::{Struct, Value};
-use mg_resman::{Layer, ResKey, ResMan, priority};
+use mg_resman::{Layer, LayerClass, ResKey, ResMan, priority};
 use mg_set::Tileset;
+use mg_shader::{Preamble, Stage, assemble, compile, compile_assembled, program_stage};
 
 use crate::Module;
 
@@ -46,6 +47,7 @@ pub enum Check {
     MdlRead,
     MdlText,
     MtrName,
+    ShaderCompile,
     TwoDaRow,
     TwoDaRead,
     TwoDaLimit,
@@ -58,7 +60,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 22] = [
+    pub const ALL: [Check; 23] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -72,6 +74,7 @@ impl Check {
         Check::MdlRead,
         Check::MdlText,
         Check::MtrName,
+        Check::ShaderCompile,
         Check::TwoDaRow,
         Check::TwoDaRead,
         Check::TwoDaLimit,
@@ -98,6 +101,7 @@ impl Check {
             Check::MdlRead => "mdl-read",
             Check::MdlText => "mdl-text",
             Check::MtrName => "mtr-name",
+            Check::ShaderCompile => "shader-compile",
             Check::TwoDaRow => "2da-row",
             Check::TwoDaRead => "2da-read",
             Check::TwoDaLimit => "2da-limit",
@@ -132,6 +136,10 @@ impl Check {
                 "a model kept as text has nothing the game refuses, misreads or crashes on"
             }
             Check::MtrName => "a material's texture names fit a resource name",
+            Check::ShaderCompile => {
+                "a shader program of the module's content compiles (the game draws one that \
+                 doesn't magenta; Moonglow draws with its own shader instead)"
+            }
             Check::TwoDaRow => "a 2DA row has no more cells than the table has columns",
             Check::TwoDaRead => "a 2DA can be read",
             Check::TwoDaLimit => "a 2DA has no more rows than the game or Aurora takes",
@@ -158,7 +166,7 @@ impl Check {
             | Check::SetData
             | Check::TileFaces
             | Check::MdlRead => Group::Tilesets,
-            Check::MdlText | Check::MtrName => Group::Models,
+            Check::MdlText | Check::MtrName | Check::ShaderCompile => Group::Models,
             Check::TwoDaRow
             | Check::TwoDaRead
             | Check::TwoDaLimit
@@ -378,6 +386,7 @@ pub fn examine(module: &Module, resman: &ResMan, tlk: TalkTables) -> Vec<Finding
             _ => {}
         }
     }
+    shaders(&mut d, &custom);
     objects(&mut d, module);
     area_variables(&mut d, module);
     described_tables(&mut d, module);
@@ -714,6 +723,120 @@ fn material(d: &mut Doctor, source: &str, key: ResKey) {
                 ),
             );
         }
+    }
+}
+
+/// The custom content's shader programs that don't compile: those its
+/// materials name (`customshaderVS`, `customshaderFS`), its `.shd` files
+/// that are programs, and, where it replaces a stock file (an include:
+/// `tdod_shaders.hak`'s `inc_lighting`), the stock programs that include
+/// it. Compiled as the game at its highest settings has them
+/// ([`Preamble::default`]). A program's first error is reported; one found
+/// in many programs is one finding.
+fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
+    let layers = d.rm.layers();
+    // A program, and where it was asked for: source, resource, field.
+    let mut wanted: BTreeMap<(String, Stage), (String, ResKey, &str)> = BTreeMap::new();
+    let mut replaces_stock = false;
+    for (key, &layer) in custom {
+        let source = &layers[layer].label;
+        let Ok(data) = d.rm.get(key) else { continue };
+        match key.restype {
+            ResType::MTR => {
+                let mtr = mg_image::mtr::Mtr::parse(&data);
+                let named = [
+                    (mtr.shader_vs, Stage::Vertex, "customshaderVS"),
+                    (mtr.shader_fs, Stage::Fragment, "customshaderFS"),
+                ];
+                for (name, stage, field) in named {
+                    if let Some(name) = name {
+                        wanted.entry((name, stage)).or_insert((source.clone(), *key, field));
+                    }
+                }
+            }
+            ResType::SHD => {
+                let name = key.resref.to_lowercase().to_string();
+                match program_stage(&name, &data) {
+                    Some(stage) => {
+                        wanted.entry((name, stage)).or_insert((source.clone(), *key, ""));
+                    }
+                    None => {
+                        replaces_stock |=
+                            layers.iter().any(|l| !is_custom(l) && l.container.contains(key))
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let custom_layer = |label: &str| layers.iter().any(|l| l.label == label && is_custom(l));
+    let pre = Preamble::default();
+    // (source, resource, at, message) -> the programs it was found in.
+    let mut found: BTreeMap<(String, ResKey, String, String), Vec<String>> = BTreeMap::new();
+    // A program's first error: glslang's later ones mostly follow from it.
+    let mut record = |e: mg_shader::ShaderError, program: String, asked: (&str, ResKey, &str)| {
+        if let Some(dg) = e.diagnostics().into_iter().next() {
+            let place = dg.at.as_ref().and_then(|at| {
+                let key = ResKey::parse(&at.file.name, ResType::SHD)?;
+                custom_layer(&at.file.origin)
+                    .then(|| (at.file.origin.clone(), key, format!("line {}", at.line)))
+            });
+            let (source, resource, at) = place.unwrap_or_else(|| {
+                let at = dg.at.as_ref().map_or(asked.2.to_string(), ToString::to_string);
+                (asked.0.to_string(), asked.1, at)
+            });
+            found.entry((source, resource, at, dg.message)).or_default().push(program.clone());
+        }
+    };
+    for ((name, stage), (source, key, field)) in &wanted {
+        if let Err(e) = compile(name, *stage, &pre, d.rm) {
+            record(e, format!("{name} ({stage})"), (source, *key, field));
+        }
+    }
+    if replaces_stock {
+        let mut stock: Vec<(String, Stage, ResKey)> = Vec::new();
+        for l in layers.iter().filter(|l| l.class == LayerClass::Key) {
+            for k in l.container.keys().filter(|k| k.restype == ResType::SHD) {
+                let name = k.resref.to_lowercase().to_string();
+                let Ok(data) = l.container.read(&k) else { continue };
+                if let Some(stage) = program_stage(&name, &data)
+                    && !wanted.contains_key(&(name.clone(), stage))
+                {
+                    stock.push((name, stage, k));
+                }
+            }
+        }
+        stock.sort();
+        stock.dedup();
+        for (name, stage, key) in stock {
+            let Ok(a) = assemble(&name, stage, &pre, d.rm) else { continue };
+            if !a.uses_origin(custom_layer) {
+                continue;
+            }
+            if let Err(e) = compile_assembled(&a) {
+                let source = d.rm.origin(&key).unwrap_or_default().to_string();
+                record(e, format!("{name} ({stage})"), (&source, key, ""));
+            }
+        }
+    }
+    for ((source, resource, at, message), programs) in found {
+        let which = match programs.as_slice() {
+            [one] => format!("{one} doesn't compile (the game draws it magenta)"),
+            [a, b] => format!("{a} and {b} don't compile (the game draws them magenta)"),
+            [a, b, rest @ ..] => format!(
+                "{a}, {b} and {} more programs don't compile (the game draws them magenta)",
+                rest.len()
+            ),
+            [] => continue,
+        };
+        d.push(
+            Severity::Error,
+            Check::ShaderCompile,
+            &source,
+            resource,
+            at,
+            format!("{message}: {which}"),
+        );
     }
 }
 
@@ -1318,6 +1441,61 @@ mod tests {
 
     fn checks(f: &[Finding]) -> Vec<(&str, String)> {
         f.iter().map(|f| (f.check.as_ref(), f.at.clone())).collect()
+    }
+
+    #[test]
+    fn shader_programs_that_do_not_compile() {
+        let mut game = MemContainer::new();
+        let shd = |t: &str| t.as_bytes().to_vec();
+        game.insert(key("inc_x", ResType::SHD), shd("float F() { return 1.0; }\n"));
+        game.insert(
+            key("fs_stock", ResType::SHD),
+            shd("#define SHADER_TYPE 2\n#include \"inc_x\"\nvoid main() { gl_FragColor = vec4(F()); }\n"),
+        );
+        game.insert(
+            key("fs_other", ResType::SHD),
+            shd("#define SHADER_TYPE 2\nvoid main() { gl_FragColor = vec4(1.0); }\n"),
+        );
+        let mut hak = MemContainer::new();
+        hak.insert(
+            key("my_mat", ResType::MTR),
+            b"customshaderVS vs_ok\ncustomshaderFS fs_mine\n".to_vec(),
+        );
+        hak.insert(
+            key("fs_mine", ResType::SHD),
+            shd("#define SHADER_TYPE 2\nvoid main()\n{ gl_FragColor = vec4(nope); }\n"),
+        );
+        hak.insert(
+            key("vs_ok", ResType::SHD),
+            shd("#define SHADER_TYPE 1\nattribute vec4 vPos;\nvoid main() { gl_Position = vPos; }\n"),
+        );
+        // Replaces the game's include: the stock program that has it breaks.
+        hak.insert(key("inc_x", ResType::SHD), shd("\nfloat F() { return missing; }\n"));
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "game", LayerClass::Key, game);
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let f: Vec<_> = f.iter().filter(|f| f.check == "shader-compile").collect();
+        let got: Vec<_> =
+            f.iter().map(|f| (f.source.as_str(), f.resource.to_string(), f.at.as_str())).collect();
+        assert_eq!(
+            got,
+            [
+                ("my.hak", "fs_mine.shd".to_string(), "line 3"),
+                ("my.hak", "inc_x.shd".into(), "line 2")
+            ],
+            "{f:#?}"
+        );
+        assert!(f[0].message.contains("'nope'") && f[0].message.contains("fs_mine (fragment)"));
+        assert!(f[1].message.contains("fs_stock (fragment) doesn't compile"), "{}", f[1].message);
+        // A material naming a shader that isn't there.
+        let mut hak = MemContainer::new();
+        hak.insert(key("lost", ResType::MTR), b"customshaderFS fs_gone\n".to_vec());
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        assert_eq!(checks(&f), [("shader-compile", "customshaderFS".to_string())]);
+        assert!(f[0].message.contains("fs_gone"), "{}", f[0].message);
     }
 
     #[test]

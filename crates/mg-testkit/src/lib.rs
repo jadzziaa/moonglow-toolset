@@ -109,6 +109,13 @@ pub fn bundled_haks(root: &Path) -> Vec<PathBuf> {
     files_with_ext(&root.join("data/hk"), "hak")
 }
 
+/// Folders of a builder's haks that the corpus tests take as installed
+/// (`MOONGLOW_HAKS`, separated as `PATH` is), beside the user's `hak/`
+/// and the game's `data/hk/`: a module's own build folder, say.
+pub fn builder_hak_dirs() -> Vec<PathBuf> {
+    env::var_os("MOONGLOW_HAKS").map(|v| env::split_paths(&v).collect()).unwrap_or_default()
+}
+
 /// Files in `dir` (not recursive) with extension `ext` (any case), sorted.
 pub fn files_with_ext(dir: &Path, ext: &str) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)

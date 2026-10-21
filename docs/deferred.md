@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:39:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:45:02Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1157,6 +1157,31 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   the game's are constant). Magic Sparks show faintly from above; not
   compared with the client. (S)
   (from builders' reports after 1.14.1)
+- **The game's shaders, compiled (M0 of [the shaders
+  proposal](shaders-proposal.md)):** what the compiler (`mg-shader`) and
+  Verify's `shader-compile` check leave out. (from M0, 2026-10-21)
+  - Verify compiles each program once, as the game at its highest
+    settings has it (`Preamble::default`: quality 2, enhanced lighting,
+    32 lights, keyholing on, `NO_DISCARD 0`). A program that fails only
+    at low or medium quality, with enhanced lighting off
+    (`FRAGMENT_LIGHTING 0`), for an opaque material (`NO_DISCARD 1`) or
+    with another light count isn't reported. Nor is it compiled again
+    per Verify run cheaply: each run compiles every custom program (TDoD
+    with its shader haks: about a second). (S)
+  - Arrays of samplers are refused (not split), and `customShaderGS`
+    (a geometry shader) is not read; no shader seen has either. (S)
+  - What the engine does is assumed in three places, none checked in the
+    client: an indented `#include` is spliced (14 of the stock ones
+    are), a missing include fails the program, and splicing stops 16
+    deep. (S)
+  - Locations follow glslang's order of declaration (glslang-rs runs no
+    I/O mapping) and the bindings are Moonglow's (group 0, blocks, then
+    texture and sampler pairs): M1 gives vertex inputs Moonglow's vertex
+    layout and matches the varyings by name. A uniform that is a struct
+    is described as `Other`, without its members (none in the stock
+    blocks). (M1)
+  - The C++ build: glslang is in every program and test binary that
+    links `mg-module` (about 40 s of C++ on a cold build, once).
 - **A tileset's custom shader:** Moonglow runs none (see Custom shader
   effects above, and [the shaders proposal](shaders-proposal.md) for
   running them). Two it knows by name are drawn by its own shader instead.

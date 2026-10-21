@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:46:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:45:35Z }
 ---
 
 # Build, verify and test
@@ -100,6 +100,7 @@ crash Aurora with an access violation that names nothing:
 | A group whose first tile is `-1` or shared with another group, or names a tile that doesn't exist | the group won't paint, or Aurora crashes |
 | A tileset door type that isn't a `doortypes.2da` row | the door has no appearance |
 | A material (`.mtr`) naming a texture longer than 16 characters | Aurora's "Pure virtual function called" |
+| A shader program that doesn't compile: one a material names (`customshaderVS`, `customshaderFS`), one of the haks' `.shd` programs, or a stock program broken by a hak's copy of a stock include (`inc_lighting`). Named at the file and line with the shader compiler's message, the programs it breaks listed; compiled as the game at its highest settings has them | the game draws the meshes that use it magenta |
 | A 2DA row with more cells than columns (two rows run together) | Aurora's access violation; the game drops the cells |
 | `baseitems.2da` over 256 rows, `lightcolor.2da` over 32 | Aurora fails (the game is fine) |
 | A 2DA string reference past the end of its talk table | "Bad Strref" |

@@ -38,6 +38,8 @@ mod nwn_gff_diff;
 mod nwsync;
 #[path = "../palettes.rs"]
 mod palettes;
+#[path = "../shaders.rs"]
+mod shaders;
 #[path = "../small_formats.rs"]
 mod small_formats;
 #[path = "../text_replace.rs"]

@@ -1,9 +1,9 @@
 ---
 type: Proposal
 title: 'The game''s own shaders in the area view: a proposal for 2.0'
-description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported).
+description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check.
 tags: [proposal, rendering, shaders, custom-content, renderer, release-2]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:11:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:44:32Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -27,11 +27,19 @@ sources:
   - id: spike
     resource: tools/shaders/spike.py and tools/shaders/nagacheck, run 2026-10-21 (game 89.8193.37, glslang 16.6.0, SPIRV-Tools spirv-opt, naga 30.0.1)
     title: The compile spike
+  - id: crates
+    resource: crates.io packages shaderc-sys 0.10.1, glslang 0.9.1, glslang-sys 0.9.2+e1b562a, spirv-tools-sys 0.13.3 (their build.rs and published files), read 2026-10-21
+    title: The candidate crates for native glslang and SPIRV-Tools
+  - id: m0
+    resource: crates/mg-shader, crates/mg-corpus-tests/tests/shaders.rs, crates/mg-module/src/doctor.rs (shader-compile)
+    title: M0, the compiler
 ---
 
 # The game's own shaders in the area view: a proposal for 2.0
 
-Status: accepted on 2026-10-21 (see [the owner's decisions](#the-owners-decisions)); nothing is built yet.
+Status: accepted on 2026-10-21 (see [the owner's decisions](#the-owners-decisions)).
+M0, the compiler, is built ([M0: the compiler](#m0-the-compiler-2026-10-21)); nothing
+is drawn with it yet.
 
 Moonglow draws with one WGSL shader of its own that approximates EE's
 lighting ([the plan](PLAN.md) §5.5). This proposes that 2.0 draws with
@@ -151,7 +159,7 @@ What it shows:
 What it doesn't show: **nothing has been drawn yet.** These are the parts
 still to be proved:
 
-- vertex input locations (`--aml` numbers them arbitrarily);
+- vertex input locations (M0 numbers them in glslang's order of declaration);
 - matching varyings between the stages;
 - the coordinate space (the spike set naga's `adjust_coordinate_space`
   without checking it);
@@ -166,7 +174,8 @@ still to be proved:
    │  assemble: engine preamble + #include splicing         (Rust, from assemble.py/spike.py)
    ▼
 GLSL 330 ──glslang -V -R (relaxed Vulkan rules)──► SPIR-V
-   │  split combined image samplers                          (SPIRV-Tools optimizer pass)
+   │  split combined image samplers; locations for inputs    (Rust, on the SPIR-V words)
+   │  and outputs
    ▼
 naga::front::spv ──► naga::Module
    │  fixups in IR, by name:
@@ -181,26 +190,102 @@ One Rust interface takes the assembled source and the preamble and returns
 a naga `Module` with its reflection. The compiler behind it can be swapped
 later.
 
-**Native glslang and SPIRV-Tools (decided).** This route is proven
-end to end. The pure-Rust alternative is naga's `glsl-in`, which needs a
-pass of Moonglow's own before it can even be tried: gathering the loose
-uniforms into a block and giving the samplers bindings. It stays a
-possible later swap behind the interface. The cost is a C++ build in
-every package, so the first milestone (M0) proves it on all four
-packages: AppImage, Flatpak (which builds offline), the Windows installer
-and the macOS app. Which crate to use is not settled. `shaderc-sys`
-(google/shaderc-rs) has a `build-from-source` feature, built with CMake.
-`glslang` (SnowflakePowered/glslang-rs) needs checking: whether it vendors
-its C++ sources, and whether SPIRV-Tools' optimizer comes with it. If the
-optimizer has to be left out, the sampler split can be done another way:
-in the GLSL pass (only two include functions take a `sampler2D`
-parameter), or on the SPIR-V words in Rust.
+**Native glslang (decided); the SPIRV-Tools pass done in Rust (M0).**
+This route is proven end to end. The pure-Rust alternative is naga's
+`glsl-in`, which needs a pass of Moonglow's own before it can even be
+tried: gathering the loose uniforms into a block and giving the samplers
+bindings. It stays a possible later swap behind the interface. The cost
+is a C++ build in every package, so the first milestone (M0) proves it
+on all four packages: AppImage, Flatpak (which builds offline), the
+Windows installer and the macOS app.
+
+The crate, chosen in M0 from the crates' build scripts and published
+files (2026-10-21):
+
+| Crate | Brings | Why not, or why |
+|---|---|---|
+| `shaderc-sys` 0.10.1 (google/shaderc-rs), `build-from-source` | shaderc, glslang, SPIRV-Tools, vendored (8 MB) | built with CMake; shaderc's API has neither glslang's relaxed Vulkan rules (`-R`) nor SPIRV-Tools' passes by name, so neither the loose uniforms nor the sampler split can be had through it |
+| `spirv-tools-sys` 0.13.3 (rust-gpu) | SPIRV-Tools, vendored, built with `cc`; every optimizer pass is compiled in | its C wrapper's list of passes leaves out `SplitCombinedImageSampler`; a patched copy would be a git dependency, which the Flatpak's offline build refuses (`cargo_sources.py`) |
+| **`glslang` 0.9.1 + `glslang-sys` 0.9.2** (SnowflakePowered/glslang-rs) | glslang's C++, vendored (4.5 MB), built with `cc` alone: no CMake, Python or network | **chosen**: a safe API with the relaxed rules (`VULKAN_RULES_RELAXED`); about 40 s of C++ on a cold build. Its `compile` links and generates in one call, so glslang's own I/O mapping (`--amb --aml`) never runs: Moonglow numbers the locations (below) and the bindings (in the IR, as the spike did) |
+
+What SPIRV-Tools' optimizer did in the spike is a pass of Moonglow's on
+the SPIR-V words (`mg-shader`'s `spirv.rs`, about 400 lines): each
+combined image sampler becomes `NAME_image` and `NAME_sampler` (the
+names `spirv-opt` gives them), each function parameter that takes one
+two parameters, each load a load of both and an `OpSampledImage`. The
+same pass gives every input and output without one a location, which
+naga requires. No SPIRV-Tools is built.
 
 **Licensing.** glslang (BSD/Apache) and SPIRV-Tools (Apache-2.0) are
 GPL-3.0-compatible. Beamdog's shaders are never shipped. They are read
 from the user's install at run time and compiled on the user's machine,
 and the compiled cache stays in the user's cache folder ([the
 plan](PLAN.md) §8).
+
+## M0: the compiler (2026-10-21)
+
+`crates/mg-shader`, after `mg-image` in [the layering](PLAN.md) §4 so that
+Verify (`mg-module`) can use it; `mg-render` takes it in M1. It holds no
+wgpu.
+
+- **Assembly** (`assemble.rs`): the engine's preamble as a struct of its
+  defines (`Preamble`, the game at its highest settings by default),
+  then the program with each `#include "name"` (1 to 16 characters,
+  after any indentation, as the engine reads it) spliced in
+  verbatim through `Sources`: the resource manager's load order (a
+  hak's `inc_lighting` over the game's), or texts by name. Guards are
+  the shaders' own; a file nested 16 deep (one that includes itself) is
+  an error at its line. A file's bytes are Latin-1, carriage returns
+  dropped, and a character outside ASCII becomes one glslang refuses
+  where it matters. Every line keeps the file and line it came from.
+- **Compile** (`glsl.rs`): glslang to Vulkan 1.0 SPIR-V under relaxed
+  rules. Its messages (`ERROR: 0:LINE: …`) are mapped back through the
+  splicing to the `.shd` and line; the lines that follow an error
+  (`compilation terminated`, the count) are left out. A panic in the
+  bindings is caught and is that program's error.
+- **SPIR-V** (`spirv.rs`): the sampler split and the locations, above.
+  Every index is checked: words it doesn't understand are an error.
+- **naga** (`reflect.rs`, `lib.rs`): naga 30 `spv-in`
+  (`adjust_coordinate_space` on; the clip space is M1's), every
+  resource bound in group 0 (uniform blocks first, then each texture
+  with its sampler next to it, then anything else), validated. The
+  `Program` carries the module, its `ModuleInfo` and a `Reflection`:
+  the uniform block's members by name with offset, type, array length,
+  stride and size; the textures by their shader names (`texUnit0`) with
+  dimension and the bindings of texture and sampler; the inputs and
+  outputs by name with location and type (naga keeps no output's name;
+  the SPIR-V pass hands them over).
+- **Measured** (release build, this machine): a program compiles in 5
+  to 30 ms (the first, with glslang's start, about 30). The 102 in
+  0.7 s.
+- **Tests.** Unit tests on authored shaders only: an include spliced
+  twice behind its guard, line numbers back through the splicing, a
+  missing include at its line, the depth limit, the engine's include
+  syntax, stage and program detection, a vertex program's block
+  (`m_bones[64]` 4096 bytes at stride 64, no members overlapping) and
+  attributes, a fragment program's three samplers split and paired with
+  a `sampler2D` passed to a function, the preamble deciding what
+  compiles, and truncated, binary, empty and unbalanced sources as
+  errors, not panics; bad SPIR-V words likewise. The corpus test
+  (`mg-corpus-tests`, `formats` group, `shaders.rs`, through
+  `mg_testkit::sweep`) compiles every stock program and every program
+  in the installed haks (the user's `hak/`, the Workshop's, `data/hk/`
+  and `MOONGLOW_HAKS`), a folder's shader haks layered together; where
+  they replace a stock file the stock programs are compiled again with
+  it. Each failure is named with file, line and message. On this
+  machine with `MOONGLOW_HAKS=~/Projects/tdod-module/build/hak`: 65 of
+  65 stock programs, and in TDoD's folder 102 of 102 (its 37 and the 65
+  stock again over its `inc_lighting`).
+- **Verify** (`shader-compile`, in the Models and materials group; `mg
+  checks` lists it): the custom content's programs that don't compile,
+  those its materials name (`customshaderVS`/`FS`, a missing one
+  included), its `.shd` programs, and where it replaces a stock file,
+  the stock programs that include it. Each program's first error, at
+  the custom file and line it is in; one message found in many
+  programs is one finding naming them ("… and 56 more programs don't
+  compile (the game draws them magenta)"). Seen on TDoD with its shader
+  haks attached to a scratch copy: none; with a line of `inc_lighting`
+  broken, one finding at its line, 58 programs.
 
 ## Two tiers
 
@@ -288,7 +373,8 @@ Decided on 2026-10-21:[^decisions]
 1. **Scope of 2.0: tier B**, the game's shaders for everything, with
    tier A on the way.
 2. **The compiler: native glslang and SPIRV-Tools.** Which crate brings
-   them is settled in M0.
+   them is settled in M0: glslang-rs, with SPIRV-Tools' one pass done in
+   Rust instead ([M0](#m0-the-compiler-2026-10-21)).
 3. **On by default** once M3 meets the frame budget. The switch stays for
    comparing and for a machine where compiling fails.
 4. **A program that doesn't compile falls back** to Moonglow's own shader
@@ -307,7 +393,8 @@ Decided on 2026-10-21:[^decisions]
   wanted rather than the game's.
 - Whether glslang's relaxed rules accept everything else builders write.
   The corpus here is one module's. The Vault and the Workshop would widen
-  it (M0's test runs over whatever haks are installed).
+  it (M0's test runs over whatever haks are installed, and
+  `MOONGLOW_HAKS`).
 
 [^decisions]: The owner's answers, 2026-10-21.
 [^spike]: The compile spike: `tools/shaders/spike.py`, 2026-10-21.

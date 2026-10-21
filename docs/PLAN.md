@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:10:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:44:43Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -141,6 +141,7 @@ in this list (test code may also use `mg-testkit`). All of these exist.
 | `mg-audio` | sounds and music decoded (MP3 behind `BMU V1.0`, IMA ADPCM and PCM WAVE) for playback |
 | `mg-resman` | layered resolution in the engine's order, DDS/TGA rule, install detection |
 | `mg-image` | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
+| `mg-shader` | the game's own shaders (`.shd`): a program assembled as the engine does it (preamble, `#include` splicing through the load order), compiled by glslang (built in), its combined samplers split and locations given on the SPIR-V, read into a validated naga module with its uniforms, textures and varyings by name; errors at their file and line ([the shaders proposal](shaders-proposal.md), M0) |
 | `mg-mdl` | MDL binary and ASCII, read and written; the model compiler, the linter and the outline; WOK/PWK/DWK walkmeshes |
 | `mg-schema` | typed views of IFO, ARE, GIT, GIC, UTC/UTD/UTE/UTI/UTM/UTP/UTS/UTT/UTW, DLG, JRL, FAC, ITP, PTM and PTT, generated from the observed schema |
 | `mg-rules` | 2DA/TLK-backed game data (appearance, baseitems, classes, feats, spells, skills, item properties, placeables, doors, portraits, sounds, ...); the nine types of placed object (`ObjectKind`: blueprint type, GIT list and struct id, names) |
@@ -237,13 +238,16 @@ chosen ([the shaders proposal](shaders-proposal.md), accepted
 2026-10-21): every mesh draws with the program the engine would choose,
 compiled on the user's machine from the install's and the haks' `.shd`
 files (a hak's override of a stock include, and the custom shaders MTRs
-name, included), by native glslang (relaxed Vulkan rules) and SPIRV-Tools
-into naga. The WGSL shader stays as the fallback: for a program still
-compiling, for one that doesn't compile (reported by Verify, not drawn
-magenta) and with the view's Shaders switch off. The switch is on by
-default once the frame budget is met. A spike (2026-10-21) took all 102
-programs on the development machine to valid shader modules; nothing is
-drawn with them yet.
+name, included), by native glslang (relaxed Vulkan rules) into naga. The
+WGSL shader stays as the fallback: for a program still compiling, for one
+that doesn't compile (reported by Verify, not drawn magenta) and with the
+view's Shaders switch off. The switch is on by default once the frame
+budget is met. The compiler is built (`mg-shader`, M0, 2026-10-21:
+glslang-rs, with the combined-sampler split SPIRV-Tools did in the spike
+done in Rust on the SPIR-V words): it takes all 102 programs on the
+development machine to validated naga modules, and Verify's
+`shader-compile` check reports a module's programs that don't compile.
+Nothing is drawn with them yet.
 
 ### 5.6 Tile painting
 
