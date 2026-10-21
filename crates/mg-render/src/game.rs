@@ -105,7 +105,8 @@ pub(crate) enum Key {
     ViewInv,
     Vp,
     VpInv,
-    /// `m_texture`: the identity (only `mat2(m_texture)` is read).
+    /// `m_texture`: a tile's texture turned with it, else the identity
+    /// (only `mat2(m_texture)` is read).
     TextureMatrix,
     Bones,
     Skinmesh,
@@ -118,13 +119,17 @@ pub(crate) enum Key {
     MaterialAmbient,
     MaterialDiffuse,
     MaterialEmissive,
-    /// `globalColor`: white.
+    /// `globalColor`: white, the mesh's alpha its alpha (what the unlit
+    /// `fst` draws a decal in: read from the client).
     GlobalColor,
     TextureBound(u8),
     AlphaDiscard,
     EnvMapCube,
     TexEnvBound,
     TexEnvCubeBound,
+    /// `texNoiseBound`: 1, `solid_noise` bound to `texUnitNoise` (read
+    /// from the client).
+    TexNoiseBound,
     // Lights.
     NumLights,
     LightPosition,
@@ -144,6 +149,9 @@ pub(crate) enum Key {
     ModuleMinutesPerHour,
     ModuleDawnHour,
     ModuleDuskHour,
+    ModuleDay,
+    ModuleMonth,
+    ModuleYear,
     // The camera, and the player at its focus.
     CameraPosition,
     CameraFocus,
@@ -196,6 +204,7 @@ pub(crate) fn key(name: &str) -> Key {
         "envMapCube" => EnvMapCube,
         "texEnvBound" => TexEnvBound,
         "texEnvCubeBound" => TexEnvCubeBound,
+        "texNoiseBound" => TexNoiseBound,
         "numLights" => NumLights,
         "lightPosition" => LightPosition,
         "lightColor" => LightColor,
@@ -212,6 +221,9 @@ pub(crate) fn key(name: &str) -> Key {
         "moduleMinutesPerHour" => ModuleMinutesPerHour,
         "moduleDawnHour" => ModuleDawnHour,
         "moduleDuskHour" => ModuleDuskHour,
+        "moduleDay" => ModuleDay,
+        "moduleMonth" => ModuleMonth,
+        "moduleYear" => ModuleYear,
         "cameraPosition" => CameraPosition,
         "cameraFocus" => CameraFocus,
         "cameraPitch" => CameraPitch,
@@ -350,6 +362,8 @@ pub(crate) struct DrawValues<'a> {
     /// What the material is, as the renderer numbers it (with `params`,
     /// all that its template of values is made of).
     pub(crate) material: u32,
+    /// `m_texture`.
+    pub(crate) texture_matrix: Mat4,
 }
 
 /// A value to write.
@@ -368,12 +382,15 @@ fn v3(v: Vec3, w: f32) -> [f32; 4] {
     v.extend(w).to_array()
 }
 
-/// The camera's pitch from straight down and its yaw anticlockwise from
-/// east, degrees (as `SetCameraFacing` takes them [INF]).
+/// The camera's pitch, degrees from straight down, and its yaw, degrees
+/// anticlockwise from north (-180 to 180), as the client uploads them
+/// (read back: 50 and 0 for the default camera of a player facing north,
+/// and -45 facing north-east; `program_choice_in_the_client` in
+/// `client_render.rs`).
 fn pitch_yaw(eye: Vec3, target: Vec3) -> (f32, f32) {
     let d = (target - eye).normalize_or_zero();
     let pitch = d.dot(-Vec3::Z).clamp(-1.0, 1.0).acos().to_degrees();
-    let yaw = d.y.atan2(d.x).to_degrees().rem_euclid(360.0);
+    let yaw = (d.y.atan2(d.x).to_degrees() + 90.0).rem_euclid(360.0) - 180.0;
     (pitch, yaw)
 }
 
@@ -391,7 +408,7 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         ViewInv => Val::M(f.derived.view_inv),
         Vp => Val::M(f.derived.vp),
         VpInv => Val::M(f.derived.vp_inv),
-        TextureMatrix => Val::M(Mat4::IDENTITY),
+        TextureMatrix => Val::M(d.texture_matrix),
         Bones => Val::Ms(d.bones),
         Skinmesh => Val::I(i32::from(!d.bones.is_empty())),
         ScreenParams => Val::V([f.size.0, f.size.1, 0.0, 0.0]),
@@ -402,13 +419,14 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         MaterialAmbient => Val::V(d.ambient),
         MaterialDiffuse => Val::V(d.diffuse),
         MaterialEmissive => Val::V(d.emissive),
-        GlobalColor => Val::V([1.0; 4]),
+        GlobalColor => Val::V([1.0, 1.0, 1.0, d.diffuse[3]]),
         TextureBound(n) => {
             Val::I(i32::from(d.bound.get(usize::from(*n)).copied().unwrap_or(false)))
         }
         AlphaDiscard => Val::F(d.alpha_discard),
         EnvMapCube | TexEnvCubeBound => Val::I(i32::from(d.env_cube)),
         TexEnvBound => Val::I(i32::from(!d.env_cube)),
+        TexNoiseBound => Val::I(1),
         NumLights => Val::I(d.light_positions.len() as i32),
         LightPosition => Val::Vs(d.light_positions),
         LightColor => Val::Vs(d.light_colors),
@@ -423,11 +441,14 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         // §B.4): see `time_values`.
         SceneCurrentFrame => Val::I(time_values(f.seconds).0),
         WorldTimer => Val::I(time_values(f.seconds).1),
-        // The editor keeps no module clock: the game's defaults, at noon.
-        ModuleHour => Val::I(12),
-        ModuleMinutesPerHour => Val::I(2),
-        ModuleDawnHour => Val::I(6),
-        ModuleDuskHour => Val::I(18),
+        // The module's, as it starts (the editor's clock doesn't run).
+        ModuleHour => Val::I(f.environment.clock.hour as i32),
+        ModuleMinutesPerHour => Val::I(f.environment.clock.minutes_per_hour as i32),
+        ModuleDawnHour => Val::I(f.environment.clock.dawn as i32),
+        ModuleDuskHour => Val::I(f.environment.clock.dusk as i32),
+        ModuleDay => Val::I(f.environment.clock.day as i32),
+        ModuleMonth => Val::I(f.environment.clock.month as i32),
+        ModuleYear => Val::I(f.environment.clock.year as i32),
         CameraPosition => Val::V(v3(f.eye, 0.0)),
         CameraFocus => Val::V(v3(f.target, 0.0)),
         CameraPitch => Val::F(f.derived.pitch),
@@ -593,9 +614,9 @@ pub(crate) fn unit(name: &str) -> Unit {
 pub(crate) fn part(m: &Member) -> Part {
     use Key::*;
     match key(&m.name) {
-        Mv | Mvp | M | Normal | Skinmesh | BboxMin | BboxMax | MaterialAmbient
-        | MaterialDiffuse | MaterialEmissive | TextureBound(_) | AlphaDiscard | EnvMapCube
-        | TexEnvBound | TexEnvCubeBound => Part::Draw,
+        Mv | Mvp | M | Normal | TextureMatrix | Skinmesh | BboxMin | BboxMax | MaterialAmbient
+        | MaterialDiffuse | MaterialEmissive | GlobalColor | TextureBound(_) | AlphaDiscard
+        | EnvMapCube | TexEnvBound | TexEnvCubeBound => Part::Draw,
         NumLights | LightPosition | LightColor => Part::Lights,
         Bones => Part::Bones,
         Param(name) if unfilled(&name) => Part::Frame,
@@ -608,9 +629,10 @@ pub(crate) fn part(m: &Member) -> Part {
 }
 
 /// The engine's uniforms the contract leaves zero (`staticLighting`, as
-/// Moonglow has no baked light; the target, scriptable, keyhole and wind
-/// sources' values; the module's date): the same for every draw, so the
-/// frame's, not looked up as an MTR's parameter for each.
+/// Moonglow has no baked light, and as the client has it for every mesh
+/// at fragment lighting; the target, scriptable, keyhole and wind
+/// sources' values): the same for every draw, so the frame's, not looked
+/// up as an MTR's parameter for each.
 fn unfilled(name: &str) -> bool {
     matches!(
         name,
@@ -620,13 +642,9 @@ fn unfilled(name: &str) -> bool {
             | "userinputMousePosition"
             | "playerInCutscene"
             | "cameraDialogState"
-            | "moduleYear"
-            | "moduleMonth"
-            | "moduleDay"
             | "lightAmbient"
             | "lightDiffuse"
             | "lightQuadraticAtten"
-            | "texNoiseBound"
             | "texFBColor"
             | "texFBDepth"
     ) || ["target", "scriptable", "keyhole", "windPointSource"].iter().any(|p| name.starts_with(p))
@@ -728,6 +746,8 @@ pub(crate) enum GamePass {
 pub(crate) struct PipelineKey {
     pub(crate) vs: String,
     pub(crate) fs: String,
+    /// The preamble's `NO_DISCARD` for the material ([`no_discard`]).
+    pub(crate) no_discard: bool,
     pub(crate) skinned: bool,
     pub(crate) twosided: bool,
     pub(crate) pass: GamePass,
@@ -961,7 +981,7 @@ pub(crate) struct GameShaders {
     /// out in `data` as the frame is uploaded.
     regions: Fast<(u32, Kind), Region>,
     /// Each program pair's values' number ([`GamePipeline::values`]).
-    value_ids: HashMap<(String, String, bool), u32>,
+    value_ids: HashMap<(String, String, bool, bool), u32>,
     /// The places of the lights' values written this frame, by pipeline,
     /// stage and set.
     light_places: Fast<(u32, usize, u32), u32>,
@@ -1112,7 +1132,8 @@ impl std::fmt::Debug for WorkerLink {
 struct Worker {
     gpu: Gpu,
     era: u64,
-    programs: HashMap<(String, Stage), Result<Arc<Program>, String>>,
+    /// By name, stage and `NO_DISCARD`.
+    programs: HashMap<(String, Stage, bool), Result<Arc<Program>, String>>,
     stats: ShaderStats,
 }
 
@@ -1158,10 +1179,11 @@ impl Worker {
         &mut self,
         a: &Result<mg_shader::Assembled, String>,
         stage: Stage,
+        no_discard: bool,
         cache: Option<&ProgramCache>,
     ) -> Result<Arc<Program>, String> {
         let a = a.as_ref().map_err(Clone::clone)?;
-        let key = (a.name.to_ascii_lowercase(), stage);
+        let key = (a.name.to_ascii_lowercase(), stage, no_discard);
         if let Some(p) = self.programs.get(&key) {
             return p.clone();
         }
@@ -1189,10 +1211,11 @@ impl Worker {
         let w = self;
         let at = |name: &str, e: String| format!("{name}: {e}");
         let cache = job.cache.as_ref();
+        let nd = key.no_discard;
         let mut vs =
-            (*w.program(&job.vs, Stage::Vertex, cache).map_err(|e| at(&key.vs, e))?).clone();
+            (*w.program(&job.vs, Stage::Vertex, nd, cache).map_err(|e| at(&key.vs, e))?).clone();
         let mut fs =
-            (*w.program(&job.fs, Stage::Fragment, cache).map_err(|e| at(&key.fs, e))?).clone();
+            (*w.program(&job.fs, Stage::Fragment, nd, cache).map_err(|e| at(&key.fs, e))?).clone();
         if key.skinned {
             vs.read_input_as_uint("vIndex").map_err(|e| at(&key.vs, e.to_string()))?;
         }
@@ -1391,9 +1414,9 @@ impl GameShaders {
         gpu.queue.write_buffer(&zero, 0, &[0; ZERO_SIZE as usize]);
         GameShaders {
             // The game at its highest settings; no keyholing (the editor
-            // has no player to cut a view to) and materials that may
-            // discard (alpha-tested), as Moonglow's own shader draws them.
-            preamble: Preamble { keyholing: false, no_discard: false, ..Preamble::default() },
+            // has no player to cut a view to). `NO_DISCARD` is the
+            // material's, each pipeline's ([`PipelineKey::no_discard`]).
+            preamble: Preamble { keyholing: false, ..Preamble::default() },
             pipelines: HashMap::new(),
             pending: std::collections::HashSet::new(),
             worker: None,
@@ -1468,11 +1491,12 @@ impl GameShaders {
             return ready(p);
         }
         if !self.pending.contains(key) {
+            let preamble = Preamble { no_discard: key.no_discard, ..self.preamble.clone() };
             let job = Job {
                 era: self.era,
                 key: key.clone(),
-                vs: assembled(assets, &self.preamble, &key.vs, Stage::Vertex),
-                fs: assembled(assets, &self.preamble, &key.fs, Stage::Fragment),
+                vs: assembled(assets, &preamble, &key.vs, Stage::Vertex),
+                fs: assembled(assets, &preamble, &key.fs, Stage::Fragment),
                 format,
                 samples,
                 cache: self.cache.clone(),
@@ -1563,7 +1587,7 @@ impl GameShaders {
                 let next = self.next_id;
                 let values = *self
                     .value_ids
-                    .entry((key.vs.clone(), key.fs.clone(), key.skinned))
+                    .entry((key.vs.clone(), key.fs.clone(), key.no_discard, key.skinned))
                     .or_insert(next);
                 Some(Arc::new(GamePipeline {
                     id: self.next_id,
@@ -2009,15 +2033,61 @@ fn layout(gpu: &Gpu, stage: &StagePlan, visibility: wgpu::ShaderStages) -> wgpu:
     })
 }
 
-/// The stock lit pair the engine draws a mesh with (notes §A.3): `_nm`
-/// with normal and other maps, `_sm` reflecting an environment map.
-pub(crate) fn lit_pair(normal_mapped: bool, reflects: bool) -> (&'static str, &'static str) {
-    match (reflects, normal_mapped) {
-        (false, false) => ("vslit", "fslit"),
-        (false, true) => ("vslit_nm", "fslit_nm"),
-        (true, false) => ("vslit_sm", "fslit_sm"),
-        (true, true) => ("vslit_sm_nm", "fslit_sm_nm"),
+/// What of a mesh decides the stock pair the engine draws it with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub(crate) struct Traits {
+    /// It has texture coordinates.
+    pub(crate) uvs: bool,
+    /// It reflects an environment map: its texture's TXI names one
+    /// (`envmaptexture`), or its object does (placeables.2da `Reflection`,
+    /// appearance.2da `ENVMAP`).
+    pub(crate) reflects: bool,
+    /// Its model or material has a render hint (`NormalAndSpecMapped`).
+    pub(crate) hint: bool,
+    /// Its texture is a decal (TXI `decal 1`): unlit.
+    pub(crate) decal: bool,
+}
+
+/// The stock pair the engine draws a mesh with (notes §A.4), as read from
+/// the client (`program_choice_in_the_client` in `client_render.rs`,
+/// 89.8193.37-17):
+///
+/// - a decal: `vsvt`/`fst`, unlit and without fog, whatever else;
+/// - no texture coordinates: `vslitnotex`/`fslit`, `vslitnt_sm`/`fslit_sm`
+///   reflecting;
+/// - else `vslit`/`fslit`, `_sm` reflecting an environment map (a TXI's
+///   `envmaptexture`, `default` too, an object's `Reflection` or
+///   `ENVMAP`; not `bumpyshinytexture`, not the tileset's `EnvMap`), `_nm`
+///   with a render hint (a model's or an MTR's; maps named without one
+///   are not read: `fslit` samples no normal map), `_sm_nm` with both.
+///
+/// Vertex colors don't choose `vslitc*`; nothing a content mesh is chose
+/// `vsv`, `vsvc` or `vsvtc`.
+pub(crate) fn stock_pair(t: Traits) -> (&'static str, &'static str) {
+    if t.decal {
+        return ("vsvt", "fst");
     }
+    match (t.uvs, t.reflects, t.hint) {
+        (false, false, _) => ("vslitnotex", "fslit"),
+        (false, true, _) => ("vslitnt_sm", "fslit_sm"),
+        (true, false, false) => ("vslit", "fslit"),
+        (true, false, true) => ("vslit_nm", "fslit_nm"),
+        (true, true, false) => ("vslit_sm", "fslit_sm"),
+        (true, true, true) => ("vslit_sm_nm", "fslit_sm_nm"),
+    }
+}
+
+/// The preamble's `NO_DISCARD` for a material (notes §A.4, open question
+/// 10), as read from the client: 1 (the program's `discard`s defined
+/// away, early depth kept) but where the mesh may be cut or blended by
+/// its alpha: 0 without a texture, with a texture whose alpha means
+/// opacity (alpha in its texels, not only an alpha channel; or a TXI
+/// `alphamean` below 1), with a mesh alpha below 1, or an MTR's
+/// `transparency`. An environment-mapped texture's alpha is its
+/// reflectivity: 1. A punch-through TXI on an opaque texture, a
+/// transparency hint, a decal: 1.
+pub(crate) fn no_discard(textured: bool, cut: bool, alpha: f32, transparency: bool) -> bool {
+    textured && !cut && alpha >= 1.0 && !transparency
 }
 
 /// The program pair a material names (notes §A.4): its `customshaderVS`
@@ -2034,16 +2104,15 @@ pub(crate) fn custom_pair(vs: Option<&str>, fs: Option<&str>) -> Option<(String,
 }
 
 /// The pair a mesh is drawn with: its material's ([`custom_pair`]), else
-/// the stock lit pair ([`lit_pair`]); and whether it is the material's.
+/// the stock pair ([`stock_pair`]); and whether it is the material's.
 pub(crate) fn program_pair(
     custom: Option<&(String, String)>,
-    normal_mapped: bool,
-    reflects: bool,
+    traits: Traits,
 ) -> (String, String, bool) {
     match custom {
         Some((vs, fs)) => (vs.clone(), fs.clone(), true),
         None => {
-            let (vs, fs) = lit_pair(normal_mapped, reflects);
+            let (vs, fs) = stock_pair(traits);
             (vs.into(), fs.into(), false)
         }
     }
@@ -2067,8 +2136,146 @@ mod tests {
         assert_eq!(pair(Some(""), Some("fslit")), None);
         assert_eq!(pair(Some("null"), Some("fslit")), None);
         let custom = ("vs_a".to_string(), "fs_a".to_string());
-        assert_eq!(program_pair(Some(&custom), false, true), ("vs_a".into(), "fs_a".into(), true));
-        assert_eq!(program_pair(None, true, false), ("vslit_nm".into(), "fslit_nm".into(), false));
+        let hinted = Traits { uvs: true, hint: true, ..Traits::default() };
+        assert_eq!(program_pair(Some(&custom), hinted), ("vs_a".into(), "fs_a".into(), true));
+        assert_eq!(program_pair(None, hinted), ("vslit_nm".into(), "fslit_nm".into(), false));
+    }
+
+    /// The engine's choice, as the client showed it
+    /// (`program_choice_in_the_client` in `client_render.rs`, 89.8193.37-17;
+    /// `docs/research/notes_shaders.md` §A.4): each card's traits, the
+    /// pair, and `NO_DISCARD` (textured, cut, alpha, MTR transparency).
+    #[test]
+    fn the_engine_s_choice_of_program_and_no_discard() {
+        let t = |uvs, reflects, hint, decal| Traits { uvs, reflects, hint, decal };
+        // (What, traits, pair, `NO_DISCARD`'s inputs, `NO_DISCARD`.)
+        let seen: [(&str, Traits, (&str, &str), (bool, bool, f32, bool), bool); 17] = [
+            (
+                "plain",
+                t(true, false, false, false),
+                ("vslit", "fslit"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            (
+                "alpha",
+                t(true, false, false, false),
+                ("vslit", "fslit"),
+                (true, true, 1.0, false),
+                false,
+            ),
+            (
+                "32-bit, all opaque",
+                t(true, false, false, false),
+                ("vslit", "fslit"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            (
+                "decal",
+                t(true, false, false, true),
+                ("vsvt", "fst"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            (
+                "decal, alpha",
+                t(true, false, false, true),
+                ("vsvt", "fst"),
+                (true, true, 1.0, false),
+                false,
+            ),
+            (
+                "envmaptexture",
+                t(true, true, false, false),
+                ("vslit_sm", "fslit_sm"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            // (An environment-mapped texture's alpha is not cut: the
+            // surface says so.)
+            (
+                "envmaptexture, alpha",
+                t(true, true, false, false),
+                ("vslit_sm", "fslit_sm"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            (
+                "envmaptexture, mesh alpha",
+                t(true, true, false, false),
+                ("vslit_sm", "fslit_sm"),
+                (true, false, 0.5, false),
+                false,
+            ),
+            (
+                "mesh alpha 0.5",
+                t(true, false, false, false),
+                ("vslit", "fslit"),
+                (true, false, 0.5, false),
+                false,
+            ),
+            (
+                "no texture",
+                t(true, false, false, false),
+                ("vslit", "fslit"),
+                (false, false, 1.0, false),
+                false,
+            ),
+            (
+                "no tverts",
+                t(false, false, false, false),
+                ("vslitnotex", "fslit"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            (
+                "no texture or tverts",
+                t(false, false, false, false),
+                ("vslitnotex", "fslit"),
+                (false, false, 1.0, false),
+                false,
+            ),
+            (
+                "no tverts, envmaptexture",
+                t(false, true, false, false),
+                ("vslitnt_sm", "fslit_sm"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            (
+                "render hint",
+                t(true, false, true, false),
+                ("vslit_nm", "fslit_nm"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            (
+                "render hint, envmaptexture",
+                t(true, true, true, false),
+                ("vslit_sm_nm", "fslit_sm_nm"),
+                (true, false, 1.0, false),
+                true,
+            ),
+            (
+                "MTR transparency",
+                t(true, false, false, false),
+                ("vslit", "fslit"),
+                (true, false, 1.0, true),
+                false,
+            ),
+            (
+                "alphamean 0.5",
+                t(true, false, false, false),
+                ("vslit", "fslit"),
+                (true, true, 1.0, false),
+                false,
+            ),
+        ];
+        for (what, traits, pair, (textured, cut, alpha, transparency), nd) in seen {
+            assert_eq!(stock_pair(traits), pair, "{what}");
+            assert_eq!(no_discard(textured, cut, alpha, transparency), nd, "{what}");
+        }
     }
 
     use super::*;
@@ -2107,8 +2314,20 @@ mod tests {
         assert_eq!(unit("texUnitEnvCube"), Unit::EnvCube);
         assert_eq!(unit("texUnitNoise"), Unit::Noise);
         assert_eq!(unit("texFBColor"), Unit::White);
-        assert_eq!(lit_pair(false, false), ("vslit", "fslit"));
-        assert_eq!(lit_pair(true, true), ("vslit_sm_nm", "fslit_sm_nm"));
+        assert_eq!(key("texNoiseBound"), Key::TexNoiseBound);
+        assert_eq!(key("moduleDay"), Key::ModuleDay);
+    }
+
+    #[test]
+    fn the_camera_s_angles_are_the_client_s() {
+        // Looking north, 50 degrees from straight down; then north-east.
+        let at =
+            |dir: Vec3| pitch_yaw(Vec3::new(20.0, 20.0, 1.25) - dir, Vec3::new(20.0, 20.0, 1.25));
+        let north = Vec3::new(0.0, 50f32.to_radians().sin(), -50f32.to_radians().cos());
+        let (pitch, yaw) = at(north);
+        assert!((pitch - 50.0).abs() < 1e-3 && yaw.abs() < 1e-3, "{pitch} {yaw}");
+        let north_east = Vec3::new(1.0, 1.0, -1.0).normalize();
+        assert!((at(north_east).1 + 45.0).abs() < 1e-3, "{:?}", at(north_east));
     }
 
     /// An authored program with uniforms of every kind the contract
@@ -2211,6 +2430,17 @@ void main ()
             (f32_at(&out, at), f32_at(&out, at + 20), f32_at(&out, at + 4)),
             (1.0, 1.0, 0.0)
         );
+        // A tile's texture turned a quarter with it (`rotatetexture`): the
+        // client's [[0, 1], [-1, 0]], column by column.
+        let turned = DrawValues {
+            texture_matrix: Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2),
+            ..Default::default()
+        };
+        let mut t = vec![0u8; plan.size as usize];
+        fill(&plan, &f, &turned, &mut t);
+        let at = m("m_texture").offset;
+        let quarter: Vec<f32> = [0, 4, 16, 20].iter().map(|i| f32_at(&t, at + i)).collect();
+        assert!(quarter.iter().zip([0.0, 1.0, -1.0, 0.0]).all(|(a, b)| (a - b).abs() < 1e-6));
         assert_eq!(f32_at(&out, m("m_proj").offset + 56), f.proj.w_axis.z);
         // Arrays at their stride; past the draw's lights, zeros.
         let (lp, lc) = (m("lightPosition"), m("lightColor"));

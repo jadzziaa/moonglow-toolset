@@ -935,6 +935,7 @@ impl AreaScene {
             pose: posed.pose.clone(),
             state: posed.state.clone(),
             textures,
+            tile: true,
             ..Instance::new(loaded.gpu.clone(), transform)
         });
     }

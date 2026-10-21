@@ -1442,6 +1442,22 @@ fn refresh(app: &mut Moonglow, view: &mut AreaView) {
     view.model = Some(model);
 }
 
+/// The module's clock as it starts, as the game's shaders read it
+/// (`moduleHour`, `moduleDawnHour`…: the module.ifo's).
+fn module_clock(app: &mut Moonglow) -> mg_render::ModuleClock {
+    let info = app.ws.as_mut().and_then(|ws| ws.doc(&crate::module_props::info_key()).ok());
+    let Some(r) = info.map(|i| &i.root) else { return mg_render::ModuleClock::default() };
+    mg_render::ModuleClock {
+        hour: r.read(&ifo::MOD_START_HOUR).into(),
+        minutes_per_hour: r.read(&ifo::MOD_MIN_PER_HOUR).into(),
+        dawn: r.read(&ifo::MOD_DAWN_HOUR).into(),
+        dusk: r.read(&ifo::MOD_DUSK_HOUR).into(),
+        day: r.read(&ifo::MOD_START_DAY).into(),
+        month: r.read(&ifo::MOD_START_MONTH).into(),
+        year: r.read(&ifo::MOD_START_YEAR),
+    }
+}
+
 /// The module's start location, if it is in this area: position and facing.
 fn start_location(app: &mut Moonglow, area: ResRef) -> Option<(Vec3, f32)> {
     let ws = app.ws.as_mut()?;
@@ -2113,6 +2129,7 @@ fn viewport(
         || !ghost_instances.is_empty()
         || !preview_instances.is_empty()
         || !hidden.is_empty();
+    let clock = module_clock(app);
     let (Some(model), Some(scene), Some(orbit), Some(vp), Some(game)) =
         (&view.model, &view.scene, view.orbit, app.viewport.as_mut(), app.game.as_deref())
     else {
@@ -2180,6 +2197,7 @@ fn viewport(
     let (targets, id) = view.targets.as_ref().expect("made above");
     if !kept {
         let mut frame = scene.scene_hiding(&shown, &settings, &hidden);
+        frame.environment.clock = clock;
         // Flames, sparks and portals: with the animations (they need
         // frames), moved on by the time since they were last drawn.
         if settings.animate {

@@ -576,7 +576,8 @@ fn what_is_only_worn_lies_in_an_area_as_aurora_shows_it() {
     // palette's alpha shows it, a shiny color's. Without one the alpha
     // was drawn see-through (a builder saw the floor through a cloak
     // Aurora draws solid and shiny). Armor dropped has the items' one.
-    assert_eq!(cloak.base.env_map.as_deref(), Some("chrome1"));
+    // (`default`: the area's, as the game binds it; `chrome1` with none.)
+    assert_eq!(cloak.base.env_map.as_deref(), Some("default"));
     assert_eq!(placed("nw_aarcl004").base.env_map.as_deref(), Some("chrome1"));
     // As it is worn: a body's parts.
     let worn = item(&game, &blueprint(&game, "nw_aarcl001", ResType::UTI).root).unwrap();

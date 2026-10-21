@@ -86,6 +86,12 @@ pub struct Material {
     pub emissive: Vec3,
     pub alpha: f32,
     pub transparency_hint: u32,
+    /// `rotatetexture 1`: on a tile, its texture turns with the tile
+    /// ([`crate::Instance::tile`]).
+    pub rotate_texture: bool,
+    /// It has texture coordinates (`tverts`): the game draws one without
+    /// with `vslitnotex` (or `vslitnt_sm`).
+    pub uvs: bool,
 }
 
 /// A drawn mesh.
@@ -225,6 +231,8 @@ impl GpuModel {
                     emissive,
                     alpha: node.value("alpha").and_then(|v| v.first().copied()).unwrap_or(1.0),
                     transparency_hint: m.transparency_hint,
+                    rotate_texture: m.rotate_texture,
+                    uvs: m.uvs.first().is_some_and(|u| !u.is_empty()),
                 },
                 min,
                 max,

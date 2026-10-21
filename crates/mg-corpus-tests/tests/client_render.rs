@@ -49,6 +49,9 @@ use mg_testkit::{corpus, oracle_tool, scratch_dir};
 mod common;
 use common::{SETTINGS, client_screenshot, compile, save_png};
 
+#[path = "client_render/programs.rs"]
+mod programs;
+
 /// The scripted camera: facing (degrees anticlockwise from east).
 const FACING: f32 = 90.0;
 /// The armoire, metres north of the player.
@@ -342,15 +345,44 @@ fn reference_scenes_match_the_client() {
         if std::env::var_os("MG_FIT").is_some() {
             fit_camera(&mut r, &gpu, &game, &scene, &client);
         }
-        let ours = r.render_image(&gpu, &game.resman, &scene, &camera, client.width, client.height);
-        save_png(&ours, &dir.join("moonglow.png"));
-        for (region, rect, tolerance) in REGIONS {
-            let (a, b) = (mean(&client, rect), mean(&ours, rect));
-            let diff: Vec<f32> = (0..3).map(|c| b[c] - a[c]).collect();
-            eprintln!("{name}: {region:12} client {a:5.1?} moonglow {b:5.1?} diff {diff:5.1?}");
-            if diff.iter().any(|d| d.abs() > tolerance) {
-                failures.push(format!("{name}: {region} differs by {diff:?}"));
+        // Moonglow's own shader (the Shaders switch off) and the game's
+        // (on), each against the client.
+        for on in [false, true] {
+            r.game_shaders = on;
+            let ours =
+                r.render_image(&gpu, &game.resman, &scene, &camera, client.width, client.height);
+            assert_eq!(r.game_shader_failures(), &[], "{name}");
+            let switch = if on { "on" } else { "off" };
+            save_png(&ours, &dir.join(format!("moonglow_{switch}.png")));
+            let mut worst = 0f32;
+            for (region, rect, tolerance) in REGIONS {
+                let (a, b) = (mean(&client, rect), mean(&ours, rect));
+                let diff: Vec<f32> = (0..3).map(|c| b[c] - a[c]).collect();
+                worst = diff.iter().fold(worst, |w, d| w.max(d.abs()));
+                eprintln!(
+                    "{name} ({switch}): {region:12} client {a:5.1?} moonglow {b:5.1?} diff {diff:5.1?}"
+                );
+                if diff.iter().any(|d| d.abs() > tolerance) {
+                    failures.push(format!("{name} ({switch}): {region} differs by {diff:?}"));
+                }
             }
+            // The whole picture below the game's GUI: the mean difference.
+            let (mut sum, mut n) = (0f64, 0f64);
+            let (w, h) = (client.width as usize, client.height as usize);
+            for y in h / 10..h * 7 / 10 {
+                for x in w / 10..w * 9 / 10 {
+                    let i = (y * w + x) * 4;
+                    sum += (0..3)
+                        .map(|c| f64::from(client.data[i + c].abs_diff(ours.data[i + c])))
+                        .sum::<f64>()
+                        / 3.0;
+                    n += 1.0;
+                }
+            }
+            eprintln!(
+                "{name} ({switch}): regions within {worst:.1} of 255; the picture {:.2} of 255 on average",
+                sum / n
+            );
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

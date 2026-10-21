@@ -73,6 +73,9 @@ struct Draw {
     // lightmap there, 8 a flow map slides the texture), y = slide speed,
     // z = shadow reduction, w = shadow brightening.
     effect: vec4<f32>,
+    // The texture's turn (the game's `m_texture`: a tile's ground turned
+    // with it): x = cos, y = sin.
+    uv_turn: vec4<f32>,
     // x = number of lights for this draw, y = 1 if skinned, z = first bone,
     // w = 1 if the mesh's tangents were made (not the model's)
     light_count: vec4<u32>,
@@ -133,7 +136,9 @@ struct VertexOut {
 
 fn finish(v: VertexIn, pos: vec3<f32>, normal: vec3<f32>, tangent: vec4<f32>) -> VertexOut {
     var out: VertexOut;
-    let uv = v.uv;
+    // (`mat2(m_texture) * vTcIn`.)
+    let turn = draws[this_draw].uv_turn.xy;
+    let uv = vec2<f32>(turn.x * v.uv.x - turn.y * v.uv.y, turn.y * v.uv.x + turn.x * v.uv.y);
     out.draw = this_draw;
     out.color = v.color;
     out.uv1 = v.uv1;
@@ -198,6 +203,14 @@ fn fresnel(spec0: f32, c: f32) -> f32 {
     let f = 1.0 - c;
     let f2 = f * f;
     return mix(spec0, 1.0, f2 * f2 * f);
+}
+
+// A normal map's x and y turned back as the texture was turned
+// (`transpose(mat2(m_texture))`): the tangents are the model's, which
+// turned with the tile while its texture coordinates turned the other way.
+fn unturn(t: vec2<f32>) -> vec2<f32> {
+    let turn = draws[this_draw].uv_turn.xy;
+    return vec2<f32>(turn.x * t.x + turn.y * t.y, -turn.y * t.x + turn.x * t.y);
 }
 
 // The environment map's 2D ("sphere") coordinates, view space.
@@ -316,7 +329,9 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     // made for the game's shaders, light_count.w) the derivatives'.
     var tsb = tangent_frame(surface_n, dp1, dp2, duv1, duv2);
     let own_t = in.tangent_view.xyz;
-    if (in.tangent_view.w != 0.0 && dot(own_t, own_t) > 1e-12 && draws[this_draw].light_count.w == 0u) {
+    let own = in.tangent_view.w != 0.0 && dot(own_t, own_t) > 1e-12
+        && draws[this_draw].light_count.w == 0u;
+    if (own) {
         let tn = normalize(own_t);
         let handed = select(-1.0, 1.0, in.tangent_view.w >= 0.0);
         tsb = mat3x3<f32>(tn, cross(surface_n, tn) * handed, surface_n);
@@ -329,7 +344,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     // before anything is discarded.
     var n_env = surface_n;
     if (normal_mapped) {
-        let t = textureSampleGrad(tex_normal, samp0, in.uv, duv1, duv2).rg * 2.0 - 1.0;
+        let s = textureSampleGrad(tex_normal, samp0, in.uv, duv1, duv2).rg * 2.0 - 1.0;
+        let t = select(s, unturn(s), own);
         n_env = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
     }
     let env_uv = env_coords(n_env, in.pos_view);
@@ -471,7 +487,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     // The normal map: RG only, Z rebuilt.
     var n = surface_n;
     if (normal_mapped) {
-        let t = textureSampleGrad(tex_normal, samp0, uv, duv1, duv2).rg * 2.0 - 1.0;
+        let s = textureSampleGrad(tex_normal, samp0, uv, duv1, duv2).rg * 2.0 - 1.0;
+        let t = select(s, unturn(s), own);
         n = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
     }
 

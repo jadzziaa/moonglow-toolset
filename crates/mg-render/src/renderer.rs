@@ -83,6 +83,7 @@ struct DrawUniform {
     extra: [f32; 4],
     water: [f32; 4],
     effect: [f32; 4],
+    uv_turn: [f32; 4],
     light_count: [u32; 4],
     light_index: [[u32; 4]; 8],
 }
@@ -110,6 +111,13 @@ enum Pass {
 #[derive(Debug)]
 struct TextureEntry {
     gpu: GpuTexture,
+    /// Its alpha means something: an alpha channel with texels below
+    /// opaque in it (a 32-bit picture all opaque has none, as the game
+    /// takes it), or a BioWare DDS's alpha mean below 1.
+    alpha: bool,
+    /// The game cuts a mesh by it (`NO_DISCARD` 0): it has alpha, or its
+    /// TXI's `alphamean` is below 1 (that decides, where given).
+    cut: bool,
     blending: Blending,
     env: Option<String>,
     decal: bool,
@@ -175,8 +183,10 @@ struct Slots {
     displacement_multiplier: f32,
     /// MTR `CustomSpecularColor`, linear.
     specular_color: Option<glam::Vec3>,
-    /// The game's normal-mapped shader variant (`_nm`): a render hint, or
-    /// any map beyond the diffuse texture.
+    /// The game's normal-mapped shader variant (`_nm`): a render hint, the
+    /// model's or the MTR's. Without one the game draws `fslit`, which reads
+    /// no map beyond the diffuse texture (read from the client): the maps
+    /// are left out.
     normal_variant: bool,
     /// A known custom shader's doings.
     effect: Option<Effect>,
@@ -201,6 +211,33 @@ struct Slots {
     /// (`blending punchthrough`), not `decal` (seen in the client:
     /// `cutouts_look` in `client_render.rs`).
     twosided: bool,
+}
+
+/// `m_texture` for a mesh of an instance: a tile's texture turned with it
+/// where the mesh asks (`rotatetexture 1`), by the tile's turn; else the
+/// identity ([`crate::Instance::tile`]).
+fn texture_turn(inst: &Instance, mat: &crate::model::Material) -> Mat4 {
+    if !(inst.tile && mat.rotate_texture) {
+        return Mat4::IDENTITY;
+    }
+    let x = inst.transform.x_axis;
+    Mat4::from_rotation_z(x.y.atan2(x.x))
+}
+
+/// Whether a texture's alpha means something ([`TextureEntry::alpha`]): an
+/// alpha channel, with texels below opaque where they can be read (RGBA8
+/// pictures: TGA, PLT; a BioWare DDS by its alpha mean).
+fn alpha_in(t: &mg_image::Texture) -> bool {
+    if !t.has_alpha {
+        return false;
+    }
+    if let Some(mean) = t.alpha_mean {
+        return mean < 1.0;
+    }
+    match (t.format, t.mips.first()) {
+        (mg_image::Format::Rgba8, Some(level)) => level.chunks_exact(4).any(|p| p[3] < 255),
+        _ => true,
+    }
 }
 
 /// Whether a fragment shader's source switches the environment map off.
@@ -237,6 +274,11 @@ struct Surface {
     /// The texture's alpha makes the mesh see-through (not when it is an
     /// environment map's reflectivity).
     has_alpha: bool,
+    /// The game cuts it by its texture's alpha (`NO_DISCARD` 0, with the
+    /// draw's own reasons: [`crate::game::no_discard`]).
+    cut: bool,
+    /// What chooses the game's stock pair for it.
+    traits: crate::game::Traits,
     /// It reflects an environment map, and that is a cube map.
     reflects: bool,
     env_cube: bool,
@@ -301,9 +343,29 @@ pub enum DebugView {
 /// fringe's.
 type GamePipelines = (Arc<crate::game::GamePipeline>, Option<Arc<crate::game::GamePipeline>>);
 
+/// A mesh the game's shaders drew, and with what
+/// ([`Renderer::game_programs`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GameProgram {
+    /// The model's name and the mesh's node's.
+    pub model: String,
+    pub node: String,
+    /// The program pair, and the preamble's `NO_DISCARD`.
+    pub vs: String,
+    pub fs: String,
+    pub no_discard: bool,
+}
+
+/// What [`GamePipelines`] are kept by ([`Renderer::game_pipelines`]).
+type GamePipelinesKey = (usize, crate::game::Traits, bool, bool, crate::game::GamePass);
+
 #[derive(Debug)]
 pub struct Renderer {
     pub debug: DebugView,
+    /// Where `Some`, each frame lists there the program pairs the game's
+    /// shaders chose for the meshes they draw (for comparing with the
+    /// client's choice: `program_choice_in_the_client`).
+    pub game_programs: Option<Vec<GameProgram>>,
     /// Lit meshes are drawn with the game's own shaders (`vslit`/`fslit`
     /// and their variants, compiled from the assets' `.shd`) where they
     /// can be, Moonglow's own shader drawing the rest and any whose
@@ -319,9 +381,9 @@ pub struct Renderer {
     pub game_background: bool,
     game: crate::game::GameShaders,
     /// The pipelines of each mesh's slots ([`Renderer::game_pipelines`]): by
-    /// the slots (their place), whether it reflects, is skinned, and its
-    /// pass.
-    game_pipelines: HashMap<(usize, bool, bool, crate::game::GamePass), Option<GamePipelines>>,
+    /// the slots (their place), what chooses its stock pair, its
+    /// `NO_DISCARD`, whether it is skinned, and its pass.
+    game_pipelines: HashMap<GamePipelinesKey, Option<GamePipelines>>,
     /// Each material's key, by its place among [`Renderer::groups`].
     material_keys: Vec<MaterialKey>,
     /// Draws of one mesh are drawn as instances of one draw (on; off,
@@ -789,6 +851,7 @@ impl Renderer {
         });
         Renderer {
             debug: DebugView::Lit,
+            game_programs: None,
             game_shaders: false,
             game_background: false,
             game: crate::game::GameShaders::new(gpu),
@@ -852,41 +915,39 @@ impl Renderer {
     }
 
     /// Whether a mesh is one the game's shaders draw (with them on): one
-    /// whose material names a program pair; else a lit one Moonglow's
-    /// shader does nothing of its own for (no decal, no known custom
-    /// shader's effect, no ripples, no water), with the stock pair.
+    /// whose material names a program pair; else one Moonglow's shader
+    /// does nothing of its own for (no known custom shader's effect, no
+    /// ripples, no water), with the stock pair (a decal's unlit).
     fn game_path(&mut self, slots: &Slots, surface: &Surface) -> bool {
         if let Some(g) = &slots.geometry {
             self.game.fail(g, "it is a geometry program, which wgpu has no stage for".into());
             return false;
         }
         slots.custom.is_some()
-            || (!surface.decal
-                && slots.effect.is_none()
-                && surface.ripple.is_none()
-                && !surface.water)
+            || (slots.effect.is_none() && surface.ripple.is_none() && !surface.water)
     }
 
     /// The pipelines a mesh of these slots is drawn with by the game's
     /// shaders (a see-through one's two parts: its fringe's second); kept
     /// by the slots, so that a frame's draws look up no programs by name.
+    #[allow(clippy::too_many_arguments)]
     fn game_pipelines(
         &mut self,
         gpu: &Gpu,
         assets: &dyn Assets,
         slots: &Arc<Slots>,
-        reflects: bool,
+        traits: crate::game::Traits,
+        no_discard: bool,
         skinned: bool,
         pass: crate::game::GamePass,
     ) -> Option<GamePipelines> {
         use crate::game::{GamePass, PipelineKey};
-        let at = (Arc::as_ptr(slots) as usize, reflects, skinned, pass);
+        let at = (Arc::as_ptr(slots) as usize, traits, no_discard, skinned, pass);
         if let Some(p) = self.game_pipelines.get(&at) {
             return p.clone();
         }
-        let (vs, fs, _) =
-            crate::game::program_pair(slots.custom.as_ref(), slots.normal_variant, reflects);
-        let key = PipelineKey { vs, fs, skinned, twosided: slots.twosided, pass };
+        let (vs, fs, _) = crate::game::program_pair(slots.custom.as_ref(), traits);
+        let key = PipelineKey { vs, fs, no_discard, skinned, twosided: slots.twosided, pass };
         let (format, samples, wait) = (self.color_format, self.sample_count, !self.game_background);
         use crate::game::Ready;
         let p = match self.game.pipeline(gpu, assets, &key, format, samples, wait) {
@@ -1009,15 +1070,16 @@ impl Renderer {
                 out.names[6] = out.names[7].take();
             }
         }
+        out.normal_variant = mat.normal_mapped
+            || mtr.as_ref().is_some_and(|m| m.renderhint != mg_image::mtr::RenderHint::None);
         if out.effect.is_none() && out.custom.is_none() {
-            // (A custom shader's own slots mean nothing to the stock ones.)
-            for name in &mut out.names[STOCK_SLOTS..] {
+            // (A custom shader's own slots mean nothing to the stock ones;
+            // nor do the maps to `fslit`, without a render hint.)
+            let from = if out.normal_variant { STOCK_SLOTS } else { 1 };
+            for name in &mut out.names[from..] {
                 *name = None;
             }
         }
-        out.normal_variant = mat.normal_mapped
-            || mtr.as_ref().is_some_and(|m| m.renderhint != mg_image::mtr::RenderHint::None)
-            || out.names[1..STOCK_SLOTS].iter().any(Option::is_some);
         let out = Arc::new(out);
         self.slots.insert(key, out.clone());
         out
@@ -1173,19 +1235,24 @@ impl Renderer {
         let bound: [bool; SLOTS] = std::array::from_fn(|i| {
             names[i].as_deref().is_some_and(|t| self.texture(gpu, assets, t).is_some())
         });
-        let (blending, env, decal, clamp, has_alpha) = match &tex {
-            Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.gpu.has_alpha),
-            None => (Blending::Default, None, false, (false, false), false),
+        let (blending, env, decal, clamp, has_alpha, cut) = match &tex {
+            Some(t) => (t.blending, t.env.clone(), t.decal, t.clamp, t.alpha, t.cut),
+            None => (Blending::Default, None, false, (false, false), false, false),
         };
-        // The environment map: the texture's (TXI), `default` or
-        // none there meaning the object's, then the area's.
-        let fallback = || inst.env_map.clone().or_else(|| scene_env.map(str::to_string));
+        // The environment map a mesh reflects: its texture's (TXI
+        // `envmaptexture`), else its object's (placeables.2da
+        // `Reflection`, appearance.2da `ENVMAP`); `default` the area's
+        // (the tileset's `EnvMap`), else `chrome1`. And the one every lit
+        // mesh's specular light reflects, bound to `texUnitEnv`: its own,
+        // else the area's (read from the client:
+        // `program_choice_in_the_client` in `client_render.rs`).
+        let area = || scene_env.map_or_else(|| "chrome1".to_string(), str::to_string);
+        let resolved = |e: String| if e.eq_ignore_ascii_case("default") { area() } else { e };
+        let object = inst.env_map.clone().map(resolved);
         let env = match env {
-            Some(e) if e.eq_ignore_ascii_case("default") => {
-                Some(fallback().unwrap_or_else(|| "chrome1".into()))
-            }
+            Some(e) if e.eq_ignore_ascii_case("default") => Some(object.unwrap_or_else(area)),
             Some(e) => Some(e),
-            None => inst.env_map.clone(),
+            None => object,
         };
         let env_mapped = env.is_some();
         // A shader with the environment map switched off reflects
@@ -1198,15 +1265,11 @@ impl Renderer {
             env_mapped && !slots.no_env,
             has_alpha && !(env_mapped && slots.no_env && !see_through),
         );
-        let env_cube = env
-            .as_deref()
-            .and_then(|e| self.texture(gpu, assets, &e.to_ascii_lowercase()))
-            .is_some_and(|t| t.cube);
-        let key: MaterialKey = (
-            std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }),
-            env.map_or_else(|| "chrome1".into(), |e| e.to_ascii_lowercase()),
-            clamp,
-        );
+        let env = env.unwrap_or_else(area).to_ascii_lowercase();
+        let env_cube = self.texture(gpu, assets, &env).is_some_and(|t| t.cube);
+        let key: MaterialKey =
+            (std::array::from_fn(|i| if bound[i] { names[i].clone() } else { None }), env, clamp);
+        let hint = slots.normal_variant;
         Surface {
             material: self.material_group(gpu, assets, &key),
             slots,
@@ -1218,6 +1281,9 @@ impl Renderer {
             water: tex.as_ref().is_some_and(|t| t.water),
             has_alpha,
             reflects,
+            // (An environment-mapped texture's alpha is its reflectivity.)
+            cut: cut && !env_mapped,
+            traits: crate::game::Traits { uvs: mat.uvs, reflects, hint, decal },
             env_cube,
         }
     }
@@ -1233,6 +1299,8 @@ impl Renderer {
             if let Some(faces) = faces.and_then(|f| <[mg_image::Texture; 6]>::try_from(f).ok()) {
                 let entry = Some(Arc::new(TextureEntry {
                     gpu: GpuTexture::upload_cube(gpu, name, &faces),
+                    alpha: false,
+                    cut: false,
                     blending: txi.blending(),
                     env: None,
                     decal: false,
@@ -1246,11 +1314,20 @@ impl Renderer {
             }
         }
         let entry = assets.texture(name).map(|t| {
+            let alpha = alpha_in(&t.texture);
             Arc::new(TextureEntry {
                 cube: false,
+                alpha,
+                cut: t.txi.alpha_mean().map_or(alpha, |mean| mean < 1.0),
                 gpu: GpuTexture::upload(gpu, name, &t.texture, t.txi.mipmap()),
                 blending: t.txi.blending(),
-                env: t.txi.envmap().map(str::to_ascii_lowercase),
+                // (Water reflects its `bumpyshinytexture`, as the game's
+                // shiny water does: Moonglow's stands in for it.)
+                env: t
+                    .txi
+                    .envmap()
+                    .or_else(|| t.txi.water().then(|| t.txi.bumpy_shiny()).flatten())
+                    .map(str::to_ascii_lowercase),
                 decal: t.txi.decal(),
                 clamp: t.txi.clamp(),
                 ripple: t.txi.ripple(),
@@ -1409,6 +1486,9 @@ impl Renderer {
         let scene_env = scene.env_map.as_deref();
         let scene_env_id = self.name_id(scene_env);
         let mut hidden = 0;
+        if let Some(list) = &mut self.game_programs {
+            list.clear();
+        }
         // (instance, sky, sky fade colour)
         let all = sky
             .iter()
@@ -1527,11 +1607,32 @@ impl Renderer {
                     && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
                     && self.game_path(slots, surface)
                 {
+                    // (`NO_DISCARD`: the material's, and the mesh's alpha
+                    // as it is now.)
+                    let no_discard = crate::game::no_discard(
+                        surface.textured,
+                        surface.cut,
+                        alpha,
+                        slots.transparency,
+                    );
+                    if let Some(list) = &mut self.game_programs {
+                        let (vs, fs, _) =
+                            crate::game::program_pair(slots.custom.as_ref(), surface.traits);
+                        let node = |n: usize| inst.model.model.nodes.get(n).map(|n| n.name.clone());
+                        list.push(GameProgram {
+                            model: inst.model.model.name.clone(),
+                            node: node(mesh.node).unwrap_or_default(),
+                            vs,
+                            fs,
+                            no_discard,
+                        });
+                    }
                     let pipelines = self.game_pipelines(
                         gpu,
                         assets,
                         slots,
-                        surface.reflects,
+                        surface.traits,
+                        no_discard,
                         mesh.skin.is_some(),
                         game_pass,
                     );
@@ -1567,6 +1668,7 @@ impl Renderer {
                             bbox: (mesh.min, mesh.max),
                             params: &slots.params,
                             material: surface.material,
+                            texture_matrix: texture_turn(inst, mat),
                         };
                         timed += usize::from(p.timed);
                         let draw = self.game.push(p, surface.material, mesh, dynamic_range, f, &d);
@@ -1651,6 +1753,10 @@ impl Renderer {
                     water: {
                         let (far, fast) = surface.ripple.unwrap_or((0.0, 0.0));
                         [far, fast, flag(surface.water), 0.0]
+                    },
+                    uv_turn: {
+                        let m = texture_turn(inst, mat);
+                        [m.x_axis.x, m.x_axis.y, 0.0, 0.0]
                     },
                     effect: match slots.effect {
                         Some(e) => {

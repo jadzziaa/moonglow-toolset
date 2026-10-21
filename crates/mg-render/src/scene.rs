@@ -34,6 +34,12 @@ pub struct Instance {
     /// whatever the scene's light: an editor's marker (a waypoint's flag),
     /// which must tell apart in a dark area.
     pub unlit: bool,
+    /// A tile of an area: the meshes of its model that turn their texture
+    /// with them (`rotatetexture 1`, the tilesets' ground) have it turned
+    /// by the tile's orientation, through the game's `m_texture` (read
+    /// from the client: `program_choice_in_the_client` in
+    /// `client_render.rs`). A placeable's are not, however it is turned.
+    pub tile: bool,
 }
 
 impl Instance {
@@ -49,6 +55,7 @@ impl Instance {
             textures: None,
             opacity: 1.0,
             unlit: false,
+            tile: false,
         }
     }
 }
@@ -207,6 +214,42 @@ pub struct Environment {
     pub weather: u8,
     /// `areaWeatherDensity`.
     pub weather_density: f32,
+    /// The module's clock (`moduleHour`, `moduleDawnHour`…).
+    pub clock: ModuleClock,
+}
+
+/// The module's clock as the game's shaders read it (`moduleHour`,
+/// `moduleMinutesPerHour`, `moduleDawnHour`, `moduleDuskHour`,
+/// `moduleDay`, `moduleMonth`, `moduleYear`): the module.ifo's starting
+/// hour, day, month and year, its minutes an hour and its dawn and dusk
+/// (read back from the client as it starts a module:
+/// `program_choice_in_the_client` in `client_render.rs`). The editor's
+/// clock doesn't run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ModuleClock {
+    pub hour: u32,
+    pub minutes_per_hour: u32,
+    pub dawn: u32,
+    pub dusk: u32,
+    pub day: u32,
+    pub month: u32,
+    pub year: u32,
+}
+
+impl Default for ModuleClock {
+    /// No module's: noon of a day of two minutes an hour, dawn at 6, dusk
+    /// at 18 (the toolset's new module's).
+    fn default() -> Self {
+        ModuleClock {
+            hour: 12,
+            minutes_per_hour: 2,
+            dawn: 6,
+            dusk: 18,
+            day: 1,
+            month: 1,
+            year: 1372,
+        }
+    }
 }
 
 impl Environment {
@@ -214,14 +257,21 @@ impl Environment {
     /// medium, 2 strong). Its weather is clear: the game rolls it from the
     /// ARE's chances as it runs, and the editor runs none.
     pub fn from_are(flags: u32, wind_power: i64) -> Environment {
-        Environment { flags, wind: wind(wind_power), weather: 0, weather_density: 0.0 }
+        Environment {
+            flags,
+            wind: wind(wind_power),
+            weather: 0,
+            weather_density: 0.0,
+            clock: ModuleClock::default(),
+        }
     }
 }
 
 /// `areaGlobalWind` for an ARE's `WindPower`: none, (0.707, 0.707, 0) and
 /// (1.414, 1.414, 0), as The Domains of Dread's wind shaders give the
 /// toolset's three (their comments, `shd_windgrass_vs`; a length squared of
-/// 1 and 4, as notes §B.4 has it).
+/// 1 and 4, as notes §B.4 has it), and as the client uploads it (a strong
+/// wind read back: `program_choice_in_the_client` in `client_render.rs`).
 pub fn wind(power: i64) -> Vec3 {
     let along = std::f32::consts::FRAC_1_SQRT_2 * power.clamp(0, 2) as f32;
     Vec3::new(along, along, 0.0)

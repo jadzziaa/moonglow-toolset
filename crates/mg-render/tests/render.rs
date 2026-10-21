@@ -533,13 +533,18 @@ fn material_maps_shade() {
     assets.materials.insert("tilted".into(), mtr);
 
     // The quad with u along +X, lit from +X and above, seen from above;
-    // with tangents, when given.
+    // with tangents, when given. With maps or a material it has a render
+    // hint: without one the game draws `fslit`, which reads no map.
     let tangents = std::cell::Cell::new(None::<[f32; 4]>);
+    let hinted = std::cell::Cell::new(true);
     let model = |bitmap: &str, maps: [Option<&str>; 3], mtr: Option<&str>| {
         let mut m = quad();
         let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
         mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
         mesh.source_uv = vec![0, 1, 2, 3];
+        if hinted.get() && (maps.iter().any(Option::is_some) || mtr.is_some()) {
+            mesh.renderhint = Some("NormalAndSpecMapped".into());
+        }
         if let Some(t) = tangents.get() {
             mesh.tangents = vec![t; 4];
         }
@@ -579,6 +584,13 @@ fn material_maps_shade() {
     eprintln!("plain {plain}, flat normal map {flat}, towards {towards}, away {away}");
     assert!((plain - flat).abs() <= 3.0);
     assert!(towards > flat + 10.0 && away < flat - 10.0);
+    // Without a render hint, the maps aren't read (as the client draws
+    // such a mesh: `fslit`).
+    hinted.set(false);
+    let unhinted = grey(&shot(model("white", [Some("plus_u_n"), None, None], None), lit));
+    hinted.set(true);
+    eprintln!("towards, without a render hint: {unhinted}");
+    assert!((unhinted - plain).abs() <= 1.0);
 
     let shiny = grey(&shot(model("white", [None, Some("shiny_s"), None], None), lit));
     let dull = grey(&shot(model("white", [None, Some("dull_s"), None], None), lit));
@@ -1011,8 +1023,13 @@ fn a_see_through_edge_does_not_hide_the_ground_behind_it() {
         assets.textures.insert(name.into(), t);
     };
     solid(&mut assets, "water", [0, 0, 255, 255], false);
-    // (Opaque, but with an alpha channel: drawn with the see-through.)
-    solid(&mut assets, "ground", [200, 0, 0, 255], true);
+    // (Opaque where the plant is, but with an alpha channel and a texel
+    // below opaque in a corner: drawn with the see-through, as the game
+    // takes it; all opaque, it would be solid.)
+    let mut ground = [200u8, 0, 0, 255].repeat(16);
+    ground[3] = 128;
+    let t = mg_image::Rgba { width: 4, height: 4, data: ground }.into_texture(true);
+    assets.textures.insert("ground".into(), t);
     solid(&mut assets, "plant", [0, 200, 0, 128], true);
     let model = |bitmap: &str| {
         let mut m = quad();
@@ -1909,6 +1926,9 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         "mgspec".into(),
         mg_image::Rgba { width: w, height: h, data: spec }.into_texture(false),
     );
+    // A decal: the checker, its TXI `decal 1`.
+    own.textures.insert("mgdecal".into(), own.textures["mgchecker"].clone());
+    own.txis.insert("mgdecal".into(), mg_image::txi::Txi::parse(b"decal 1\n"));
     let assets = WithGameShaders { own, game: &rm };
 
     let ball = Arc::new(GpuModel::new(&gpu, Arc::new(sphere("mgchecker", 24, 48))));
@@ -1962,6 +1982,8 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
     if let NodeKind::Mesh(m) = &mut bumpy.nodes[1].kind {
         m.textures[1] = Some("mgnormal".into());
         m.textures[2] = Some("mgspec".into());
+        // (Its maps read with a render hint, as the game reads them.)
+        m.renderhint = Some("normalandspecmapped".into());
         // Along +u, around the axis.
         m.tangents = m
             .vertices
@@ -1976,10 +1998,50 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         Arc::new(GpuModel::new(&gpu, Arc::new(bumpy))),
         Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0)),
     );
+    // M4: a decal (`vsvt`/`fst`, unlit); a sphere without texture
+    // coordinates (`vslitnotex`); a tile's ground turned a quarter with
+    // its texture (`rotatetexture`: `m_texture`, and Moonglow's turn).
+    let mut decal = quad();
+    let mut bare = sphere("mgchecker", 24, 48);
+    let mut turned = quad();
+    for (m, texture) in
+        [(&mut decal, "mgdecal"), (&mut bare, "mgchecker"), (&mut turned, "mgchecker")]
+    {
+        if let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind {
+            mesh.textures[0] = Some(texture.into());
+            if texture == "mgdecal" || mesh.vertices.len() == 4 {
+                mesh.uvs[0] = vec![[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]];
+            } else {
+                mesh.uvs[0].clear();
+            }
+            mesh.rotate_texture = true;
+        }
+    }
+    let decal = Instance::new(
+        Arc::new(GpuModel::new(&gpu, Arc::new(decal))),
+        Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+    );
+    let bare = Instance::new(
+        Arc::new(GpuModel::new(&gpu, Arc::new(bare))),
+        Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+    );
+    let turned = Instance {
+        tile: true,
+        ..Instance::new(
+            Arc::new(GpuModel::new(&gpu, Arc::new(turned))),
+            Mat4::from_rotation_translation(
+                glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+                Vec3::new(0.0, 0.0, 1.0),
+            ),
+        )
+    };
     let mut scenes = vec![
         ("sphere", sphere_scene, camera),
         ("reflecting", Scene { instances: vec![shiny], ..base.clone() }, close),
         ("normal_mapped", Scene { instances: vec![bumpy], ..base.clone() }, close),
+        ("decal", Scene { instances: vec![decal], ..base.clone() }, close),
+        ("no_uvs", Scene { instances: vec![bare], ..base.clone() }, close),
+        ("tile_turned", Scene { instances: vec![turned], ..base.clone() }, close),
     ];
     for name in ["tcn01_a01_01", "plc_a01", "c_wolf"] {
         let data = rm.get_named(name, mg_core::ResType::MDL).unwrap();
@@ -2005,6 +2067,19 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         scenes.push((name, scene, camera));
     }
 
+    // The tile's texture is turned: its picture is not the one it has
+    // unturned (a mutation check of the scene that follows).
+    {
+        let (_, scene, camera) = scenes.iter().find(|(n, ..)| *n == "tile_turned").unwrap();
+        let mut unturned = scene.clone();
+        unturned.instances[0].tile = false;
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = true;
+        let a = r.render_image(&gpu, &assets, scene, camera, 320, 320);
+        let b = r.render_image(&gpu, &assets, &unturned, camera, 320, 320);
+        let differ = a.data.chunks(4).zip(b.data.chunks(4)).filter(|(p, q)| p != q).count();
+        assert!(differ > 5000, "the turned texture: {differ} pixels differ");
+    }
     let mut failures = Vec::new();
     for (name, scene, camera) in &scenes {
         let mut theirs = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
@@ -2289,7 +2364,9 @@ fn a_see_through_mesh_is_drawn_in_two_parts_by_its_programs() {
     };
     solid(&mut assets, "water", [0, 0, 255, 255], false);
     solid(&mut assets, "lava", [255, 255, 0, 255], false);
-    solid(&mut assets, "ground", [200, 0, 0, 255], true);
+    // (An alpha channel with a texel below opaque in it: see-through, as
+    // the game takes it; all opaque, it would be solid.)
+    solid(&mut assets, "ground", [200, 0, 0, 250], true);
     // Its edge half see-through, its middle solid.
     let mut plant = Vec::new();
     for y in 0..4 {
