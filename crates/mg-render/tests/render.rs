@@ -2757,3 +2757,76 @@ fn the_game_s_programs_draw_particles_in_their_blends() {
         assert_eq!(seen[2][..3], [0, 0, 255], "punch-through: {seen:?}");
     }
 }
+
+/// See-through meshes the game's programs draw are instances of one draw
+/// where they don't meet on the screen, as Moonglow's own are (M5: a field
+/// of fires and grass was a draw for each part of each mesh), each with its
+/// own values: three see-through quads in a row, red, green and blue by
+/// their material colors, in two draws (each part one).
+#[test]
+fn see_through_meshes_by_the_game_s_programs_are_instances_of_one_draw() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    // (`fslit` standing in: the texture times the material's diffuse.)
+    authored_lit_pair(&mut assets);
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+uniform vec4 materialFrontDiffuse;
+varying vec2 vUv;
+varying vec3 vBlack;
+varying vec3 vWhite;
+void main ()
+{
+    vec4 t = texture2D(texUnit0, vUv);
+    gl_FragColor = vec4(t.rgb * materialFrontDiffuse.rgb * vWhite + vBlack, t.a);
+}
+"#;
+    assets.shaders.insert("fslit".into(), fs.into());
+    // (Opaque in the middle, half see-through around it.)
+    let data: Vec<u8> = (0..16 * 16)
+        .flat_map(|i| {
+            let (x, y) = (i % 16, i / 16);
+            let a = if (4..12).contains(&x) && (4..12).contains(&y) { 255 } else { 128 };
+            [255, 255, 255, a]
+        })
+        .collect();
+    let veil = mg_image::Rgba { width: 16, height: 16, data }.into_texture(true);
+    assets.textures.insert("veil".into(), veil);
+    let colored = |rgb: [f32; 3]| {
+        let mut model = quad();
+        if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+            m.textures[0] = Some("veil".into());
+            m.diffuse = rgb;
+        }
+        Arc::new(GpuModel::new(&gpu, Arc::new(model)))
+    };
+    // (One model, three places; its color by the instance's model.)
+    let red = colored([1.0, 0.0, 0.0]);
+    let instances: Vec<Instance> = [-2.2, 0.0, 2.2]
+        .into_iter()
+        .map(|x| Instance::new(red.clone(), Mat4::from_translation(Vec3::new(x - 0.5, -0.5, 0.0))))
+        .collect();
+    let camera = Camera {
+        eye: Vec3::new(0.0, -0.01, 8.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene { instances, background: [0.0, 0.0, 0.0], ..Default::default() };
+    let mut seen = Vec::new();
+    for instancing in [true, false] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = true;
+        r.instancing = instancing;
+        let image = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+        assert_eq!(r.game_shader_failures(), &[]);
+        assert_eq!(r.drawn.game, 6, "{:?}", r.drawn);
+        seen.push((r.drawn.batches, [11, 32, 53].map(|x| image.pixel(x, 32))));
+    }
+    let ((batched, a), (each, b)) = (seen[0], seen[1]);
+    assert_eq!((batched, each), (2, 6), "a draw for each part, or a draw for each mesh's");
+    assert_eq!(a, b, "the same picture either way");
+    assert!(a.iter().all(|p| p[0] > 100 && p[1] < 30), "each quad red where it is: {a:?}");
+}

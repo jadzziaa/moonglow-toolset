@@ -521,6 +521,17 @@ fn put(out: &mut [u8], at: u32, bytes: [u8; 4]) {
     }
 }
 
+/// Floats, as they lie in memory (little-endian, as every platform
+/// Moonglow runs on and as the GPU reads them): one copy for a vector or a
+/// matrix's column, not a call a component (a frame writes the values of
+/// thousands of draws, their lights' arrays among them).
+fn put_floats(out: &mut [u8], at: u32, values: &[f32]) {
+    let at = at as usize;
+    if let Some(slot) = out.get_mut(at..at + 4 * values.len()) {
+        slot.copy_from_slice(bytemuck::cast_slice(values));
+    }
+}
+
 /// A scalar of the member's kind.
 fn put_scalar(out: &mut [u8], at: u32, kind: Scalar, x: f32) {
     let bytes = match kind {
@@ -541,6 +552,14 @@ fn put_one(out: &mut [u8], at: u32, ty: ValueType, v: &Val<'_>, index: usize) {
         (ValueType::Int, Val::F(x)) => scalar(*x, Scalar::Int),
         (ValueType::Uint | ValueType::Bool, Val::I(i)) => scalar(*i as f32, Scalar::Uint),
         (ValueType::Uint | ValueType::Bool, Val::F(x)) => scalar(*x, Scalar::Uint),
+        (ValueType::Vector(n, Scalar::Float), Val::V(c)) => {
+            put_floats(out, at, &c[..usize::from(n).min(4)])
+        }
+        (ValueType::Vector(n, Scalar::Float), Val::Vs(list)) => {
+            if let Some(c) = list.get(index) {
+                put_floats(out, at, &c[..usize::from(n).min(4)]);
+            }
+        }
         (ValueType::Vector(n, kind), Val::V(c)) => {
             for (i, x) in c.iter().take(usize::from(n)).enumerate() {
                 put_scalar(out, at + 4 * i as u32, kind, *x);
@@ -570,9 +589,7 @@ fn put_one(out: &mut [u8], at: u32, ty: ValueType, v: &Val<'_>, index: usize) {
 fn put_matrix(out: &mut [u8], at: u32, columns: u8, rows: u8, m: &[[f32; 4]; 4]) {
     let stride = if rows == 2 { 8 } else { 16 };
     for (c, column) in m.iter().take(usize::from(columns)).enumerate() {
-        for (r, x) in column.iter().take(usize::from(rows)).enumerate() {
-            put(out, at + (c as u32) * stride + 4 * r as u32, x.to_le_bytes());
-        }
+        put_floats(out, at + (c as u32) * stride, &column[..usize::from(rows).min(4)]);
     }
 }
 
@@ -933,6 +950,13 @@ impl GameDraw<'_> {
     /// instances of one draw).
     pub(crate) fn order(&self) -> (u32, u32, usize) {
         (self.pipeline.id, self.material, self.geometry.id())
+    }
+
+    /// What it can be drawn as an instance with others by: its pipeline
+    /// and material (and the renderer's mesh); `None` for a skinned draw,
+    /// whose bones are its own.
+    pub(crate) fn batch_key(&self) -> Option<(u32, u32)> {
+        self.bones.is_none().then_some((self.pipeline.id, self.material))
     }
 
     /// Whether `next` can be drawn as the next instance of this draw.

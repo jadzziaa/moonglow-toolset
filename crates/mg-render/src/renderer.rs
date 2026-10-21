@@ -136,8 +136,8 @@ struct TextureEntry {
 /// M5): Moonglow's. `fswater` sees what is under the water through the
 /// framebuffer (`texFBColor`, `texFBDepth`), which Moonglow doesn't give
 /// it; without it, the water is drawn opaque and pale, farther from the
-/// client than Moonglow's own (TDoD's fountain 16.5 of 255 against 11.7, a
-/// rural lake 19.3 against 12.6: `surfaces_in_the_client`).
+/// client than Moonglow's own (TDoD's fountain 16.4 of 255 against 11.7, a
+/// rural lake 19.4 against 12.6: `surfaces_in_the_client`).
 pub const GAME_WATER: bool = false;
 
 /// Texture slots: diffuse, normal, specular, roughness, height,
@@ -1946,12 +1946,19 @@ impl Renderer {
                 // sixteenth of it and a hundredth of a pixel.)
                 if solid { batcher.pass(10.0, 1e-3) } else { batcher.pass(0.125, 1e-5) }
             }
-            let key = match d.game {
-                // (A game draw is a draw of its own.)
-                Some(i) => (usize::MAX - i as usize, u32::MAX, None),
-                None => (std::ptr::from_ref(d.mesh) as usize, d.material, d.dynamic),
+            // (A see-through, additive or sky draw of the game's: with
+            // others of its pipeline, material and mesh where they don't
+            // meet on the screen, as Moonglow's own; a skinned one by
+            // itself.)
+            let game_key = d.game.map(|i| game_blended[i as usize].batch_key());
+            let key = match game_key {
+                Some(Some((pipeline, material))) => {
+                    (std::ptr::from_ref(d.mesh) as usize, material, pipeline + 1, d.dynamic)
+                }
+                Some(None) => (usize::MAX - d.game.unwrap_or(0) as usize, u32::MAX, u32::MAX, None),
+                None => (std::ptr::from_ref(d.mesh) as usize, d.material, 0, d.dynamic),
             };
-            let batch = if !self.instancing || d.game.is_some() {
+            let batch = if !self.instancing || matches!(game_key, Some(None)) {
                 batcher.place(key, None, None)
             } else if solid {
                 // (A model's own meshes in the order they came in.)
@@ -1966,6 +1973,19 @@ impl Renderer {
         }
         let (starts, order) = crate::batch::in_order(&batch_of, batcher.batches());
         self.batcher = batcher;
+        // The game's draws among them in the order they are drawn, so that
+        // a batch's are instances in a row.
+        if !game_blended.is_empty() {
+            let mut taken: Vec<Option<crate::game::GameDraw<'_>>> =
+                game_blended.drain(..).map(Some).collect();
+            for &k in &order {
+                if let Some(i) = draws[k as usize].game {
+                    let at = game_blended.len() as u32;
+                    game_blended.extend(taken[i as usize].take());
+                    draws[k as usize].game = Some(at);
+                }
+            }
+        }
         // (And the game's solid draws', as they are drawn.)
         self.drawn.batches = starts.len() - 1;
         // (Each instance's uniforms, by its number.)
@@ -2239,9 +2259,11 @@ impl Renderer {
                     own_lost = true;
                 }
                 if let Some(i) = d.game {
-                    let draw = std::slice::from_ref(&game_blended[i as usize]);
+                    // (The batch's draws, in a row.)
+                    let n = (batch[1] - batch[0]) as usize;
+                    let draws = &game_blended[i as usize..i as usize + n];
                     let (dynamic, particles) = (&self.dynamic_buffer, &self.particle_buffer);
-                    let _ = self.game.draw(&mut pass, draw, dynamic, particles, &mut game_bound);
+                    let _ = self.game.draw(&mut pass, draws, dynamic, particles, &mut game_bound);
                     own_lost = true;
                     continue;
                 }

@@ -27,7 +27,9 @@ use glam::Vec3;
 
 /// What draws must share to be one draw: the mesh (its address), its
 /// material's bind group, and the vertices that replace its own.
-pub(crate) type Key = (usize, u32, Option<(u64, u64)>);
+/// A draw's key: its mesh, its material, its pipeline of the game's
+/// programs (0: Moonglow's own), its replaced vertices.
+pub(crate) type Key = (usize, u32, u32, Option<(u64, u64)>);
 
 /// A draw's bounds: a box, in the space of its pass.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -359,11 +361,11 @@ mod tests {
         let mut placed = Vec::new();
         for tile in 0..64 {
             let (x, y) = ((tile % 8) as f32 * 10.0, (tile / 8) as f32 * 10.0);
-            let floor = b.place((1, 0, None), Some(cube(x, y, 0.0, 10.0, 0.0)), None);
+            let floor = b.place((1, 0, 0, None), Some(cube(x, y, 0.0, 10.0, 0.0)), None);
             let decal =
-                b.place((2, 1, None), Some(cube(x + 2.0, y + 2.0, 0.0, 3.0, 0.0)), Some(floor));
+                b.place((2, 1, 0, None), Some(cube(x + 2.0, y + 2.0, 0.0, 3.0, 0.0)), Some(floor));
             let rock =
-                b.place((3, 0, None), Some(cube(x + 6.0, y + 6.0, 0.0, 2.0, 1.5)), Some(decal));
+                b.place((3, 0, 0, None), Some(cube(x + 6.0, y + 6.0, 0.0, 2.0, 1.5)), Some(decal));
             placed.extend([floor, decal, rock]);
         }
         assert_eq!(b.batches(), 3);
@@ -382,9 +384,9 @@ mod tests {
         let mut b = Batcher::default();
         b.begin();
         b.pass(10.0, 0.001);
-        let floor = (1, 0, None);
+        let floor = (1, 0, 0, None);
         let first = b.place(floor, Some(cube(0.0, 0.0, 0.0, 10.0, 0.0)), None);
-        let rug = b.place((2, 1, None), Some(cube(8.0, 2.0, 0.0, 4.0, 0.0)), None);
+        let rug = b.place((2, 1, 0, None), Some(cube(8.0, 2.0, 0.0, 4.0, 0.0)), None);
         // The next tile's floor lies under the rug too: after it, as it came.
         let second = b.place(floor, Some(cube(10.0, 0.0, 0.0, 10.0, 0.0)), None);
         // A floor far from the rug joins the latest of its kind.
@@ -392,19 +394,19 @@ mod tests {
         assert!(first < rug && rug < second, "{first} {rug} {second}");
         assert_eq!(third, second);
         // What is over the rug but well above it (a branch) meets nothing.
-        let branch = (3, 0, None);
+        let branch = (3, 0, 0, None);
         let high = b.place(branch, Some(cube(8.0, 2.0, 3.0, 4.0, 1.0)), None);
         let other = b.place(branch, Some(cube(58.0, 2.0, 3.0, 4.0, 1.0)), None);
         assert_eq!(high, other);
         // A picture flat on a wall that ends on the squares' line: after
         // the wall, though they are on either side of the line.
-        let (wall, picture) = ((5, 0, None), (6, 0, None));
+        let (wall, picture) = ((5, 0, 0, None), (6, 0, 0, None));
         let _ = b.place(picture, Some(slab([70.0, 44.0, 1.0], [70.0, 46.0, 2.0])), None);
         let hung_on = b.place(wall, Some(slab([29.8, 40.0, 0.0], [30.0, 50.0, 3.0])), None);
         let hung = b.place(picture, Some(slab([30.0, 44.0, 1.0], [30.0, 46.0, 2.0])), None);
         assert!(hung > hung_on, "{hung} {hung_on}");
         // A draw without bounds: nothing joins a batch before it.
-        let skinned = b.place((4, 0, None), None, None);
+        let skinned = b.place((4, 0, 0, None), None, None);
         let fourth = b.place(floor, Some(cube(90.0, 0.0, 0.0, 10.0, 0.0)), None);
         assert!(fourth > skinned);
         // And a new pass begins anew.
@@ -434,7 +436,7 @@ mod tests {
                 if n.next() < 0.4 {
                     (model, last) = (i, None);
                 }
-                let key = ((n.next() * 9.0) as usize, (n.next() * 2.0) as u32, None);
+                let key = ((n.next() * 9.0) as usize, (n.next() * 2.0) as u32, 0, None);
                 let bounds = match (n.next() * 20.0) as u32 {
                     0 => None,
                     1 => Some(cube(0.0, 0.0, 0.0, span * 3.0, 1.0)),
