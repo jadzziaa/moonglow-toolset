@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:46:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T08:28:33Z }
 ---
 
 # Options
@@ -77,6 +77,10 @@ the module is opened again from its file.
   Properties are open in already; off, each in a window of its own. A
   tab dragged out is a window of its own again, to set two side by side.
   (Scripts have the same on the Script Editor page.)
+- **Move windows by dragging anywhere in them**: off by default. A
+  window of tabs (Properties, conversations, scripts…) moves by its tab
+  bar alone, so a click that misses a control doesn't move it; on, any
+  part of it that isn't a control moves it too.
 - **Ask before the window is closed**: on by default. The window's
   close button asks before Moonglow closes where nothing is unsaved (with
   unsaved changes it asks about those, as always); File › Exit closes

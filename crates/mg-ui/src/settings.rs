@@ -209,6 +209,10 @@ pub struct Settings {
     /// Options > General: a blueprint's Category list is in alphabetical
     /// order, rather than in the palette's (Palette › Categories…).
     pub categories_by_name: bool,
+    /// Options > General: a window of tabs (Properties, conversations,
+    /// scripts… dragged or opened out of the main window) moves when
+    /// dragged anywhere in it; off, only by its tab bar.
+    pub drag_windows_anywhere: bool,
     /// Options > General: Minimize Toolset on test module.
     pub minimize_on_test: bool,
     /// Options > General: Start a Steam copy through Steam for a test is

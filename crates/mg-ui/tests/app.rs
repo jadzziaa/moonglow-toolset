@@ -11300,6 +11300,64 @@ fn close_windows(h: &mut Harness<'_, Moonglow>) {
     }
 }
 
+/// A window of tabs moves by its tab bar, not by a drag on a part of its
+/// body that isn't a control (Taro49's report: a click beside a control
+/// moved the conversation editor); Options › General brings that back.
+#[test]
+fn a_window_of_tabs_moves_by_its_tab_bar_alone() {
+    let dir = mg_testkit::scratch_dir("ui-window-drag");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Factions));
+    h.run_steps(3);
+    let window = |h: &Harness<'_, Moonglow>| {
+        let (_, leaf) = h.state().dock.iter_leaves().find(|(p, _)| !p.surface.is_main()).unwrap();
+        leaf.rect
+    };
+    let drag = |h: &mut Harness<'_, Moonglow>, from: egui::Pos2| {
+        let button = egui::PointerButton::Primary;
+        let modifiers = egui::Modifiers::NONE;
+        h.hover_at(from);
+        h.run_steps(2);
+        h.event(egui::Event::PointerButton { pos: from, button, pressed: true, modifiers });
+        h.run_steps(2);
+        for k in 1..=4 {
+            h.hover_at(from + egui::vec2(15.0, 10.0) * k as f32);
+            h.run_steps(2);
+        }
+        let to = from + egui::vec2(60.0, 40.0);
+        h.event(egui::Event::PointerButton { pos: to, button, pressed: false, modifiers });
+        h.run_steps(3);
+        h.hover_at(egui::pos2(5.0, 780.0));
+        h.run_steps(3);
+    };
+    // A spot of the body with nothing on it: below the relations' page,
+    // left of the factions' list (seen in a picture).
+    let before = window(&h);
+    let spot = |r: egui::Rect| egui::pos2(r.left() + 200.0, r.center().y + 40.0);
+    drag(&mut h, spot(before));
+    assert_eq!(window(&h), before, "not moved by its body");
+    // By the tab bar's room beside the tabs, it moves.
+    drag(&mut h, before.min + egui::vec2(400.0, 12.0));
+    let moved = window(&h);
+    assert!(moved.min.x > before.min.x + 30.0, "moved by its tab bar: {before:?} {moved:?}");
+    let before = moved;
+    h.state_mut().settings.drag_windows_anywhere = true;
+    h.run();
+    drag(&mut h, spot(before));
+    let after = window(&h);
+    // (Down: the screen's right edge stops it going right.)
+    assert!(
+        after.min.y > before.min.y + 20.0,
+        "moved by its body when asked: {before:?} {after:?}"
+    );
+}
+
 #[test]
 fn editors_open_in_windows_over_the_area() {
     let Some((mut h, area)) = area_harness("editor-windows") else { return };

@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:46:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T08:28:33Z }
 ---
 
 # The main window
@@ -266,7 +266,10 @@ the object selected in an area in the module tree** unticked in Options
 area is opened out already. **Show in Module Tree** on the
 tab's menu opens it out to what is placed in it. The bar beside the
 tab does the same on a double click and a right click, and the window is
-dragged by it. The arrow at the bar's left folds the window to its bar.
+dragged by it, and only by it: a drag on a part of the window that isn't
+a control doesn't move it (Options › General › **Move windows by
+dragging anywhere in them** does). The arrow at the bar's left folds the
+window to its bar.
 
 Closing a tab or window never loses work: every change is part of the
 module (and undoable) the moment you make it. **Save** writes the module.

@@ -39,6 +39,7 @@ pub struct OptionsDraft {
     pub mod_beside_folder: bool,
     pub area_names: bool,
     pub categories_by_name: bool,
+    pub drag_windows_anywhere: bool,
     pub last_area: bool,
     pub tabs_by_recent: bool,
     pub ask_before_closing: bool,
@@ -131,6 +132,7 @@ impl OptionsDraft {
             mod_beside_folder: !s.no_mod_beside_folder,
             area_names: s.area_names,
             categories_by_name: s.categories_by_name,
+            drag_windows_anywhere: s.drag_windows_anywhere,
             last_area: !s.no_last_area,
             tabs_by_recent: s.tabs_by_recent,
             ask_before_closing: !s.close_without_asking,
@@ -198,6 +200,7 @@ impl OptionsDraft {
             no_mod_beside_folder: !self.mod_beside_folder,
             area_names: self.area_names,
             categories_by_name: self.categories_by_name,
+            drag_windows_anywhere: self.drag_windows_anywhere,
             no_last_area: !self.last_area,
             tabs_by_recent: self.tabs_by_recent,
             close_without_asking: !self.ask_before_closing,
@@ -500,6 +503,16 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  the window Properties are open in already; off, each in a \
                                  window of its own. (A tab dragged out is a window of its own \
                                  again)",
+                            );
+                            ui.checkbox(
+                                &mut draft.drag_windows_anywhere,
+                                "Move windows by dragging anywhere in them",
+                            )
+                            .on_hover_text(
+                                "A window of tabs (Properties, conversations, scripts…) moves \
+                                 when dragged by any part that is not a control; off, only by \
+                                 its tab bar, so that a click that misses a control doesn't \
+                                 move it",
                             );
                             ui.checkbox(
                                 &mut draft.tabs_by_recent,
@@ -1218,7 +1231,7 @@ mod tests {
         let mut d = OptionsDraft::from_settings(&s);
         (d.build_on_save, d.minimize_on_test, d.auto_compile, d.debug_info) =
             (true, true, true, true);
-        (d.area_names, d.categories_by_name) = (true, true);
+        (d.area_names, d.categories_by_name, d.drag_windows_anywhere) = (true, true, true);
         d.ui_scale = 125;
         (d.name_resrefs, d.palette_cr, d.light_theme) = (true, false, true);
         d.script_templates = " /tmp/templates ".into();
@@ -1227,6 +1240,7 @@ mod tests {
         assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
         assert!(t.area_names && !s.area_names, "areas by ResRef unless asked");
         assert!(t.categories_by_name && !s.categories_by_name, "the palette's order unless asked");
+        assert!(t.drag_windows_anywhere && !s.drag_windows_anywhere, "by the tab bar unless asked");
         assert_eq!((t.ui_scale, s.ui_scale), (Some(125), None), "the usual size unless asked");
         assert!(t.name_resrefs && t.palette_no_cr && t.light_theme);
         // Unless asked: names alone, challenge ratings shown, the dark theme.

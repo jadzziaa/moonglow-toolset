@@ -410,6 +410,17 @@ impl TabViewer for Viewer<'_> {
         // margin, `Moonglow::ui`, and takes its tabs' from that: without
         // this they sat flush against their pane's edge.)
         let margin = egui::Margin { left: 6, right: 6, top: 2, bottom: 6 };
+        // In a window of its own, a drag on what isn't a control is the
+        // tab's, behind all it shows, not the window's (egui_dock's windows
+        // have no title bar, so egui moves them by any part): the window
+        // moves by its tab bar alone (Taro49's report: a click beside a
+        // control moved the conversation editor), unless Options › General
+        // asks for anywhere. (The main window's tabs don't move.)
+        if !self.app.settings.drag_windows_anywhere
+            && ui.layer_id().order != egui::Order::Background
+        {
+            ui.interact(ui.max_rect(), ui.id().with("no-window-drag"), egui::Sense::drag());
+        }
         egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
             // (All the room, so a view that fills its tab still does.)
             ui.set_min_size(ui.available_size());
