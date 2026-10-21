@@ -826,6 +826,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         });
 
     // Compiler, Help, Bookmarks, Search Results.
+    let palette = Palette::for_ui(&app.settings.script_style, ui);
     let mut jump: Option<(ResKey, usize)> = None;
     let mut open_other: Option<(String, usize)> = None;
     // (At most three fifths of the editor: the text keeps its room.)
@@ -846,10 +847,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     ui.selectable_value(&mut t.info, tab, label);
                 }
             });
-            egui::ScrollArea::vertical()
-                .id_salt("script-info-rows")
-                .auto_shrink([false, false])
-                .show(ui, |ui| match t.info {
+            // (Help sideways too: its lines are as long as the source's.)
+            let area = match t.info {
+                InfoTab::Help => egui::ScrollArea::both(),
+                _ => egui::ScrollArea::vertical(),
+            };
+            area.id_salt("script-info-rows").auto_shrink([false, false]).show(ui, |ui| {
+                match t.info {
                     InfoTab::Compiler => {
                         for m in t.messages.iter().filter(|m| m.script == key) {
                             let color = if m.error {
@@ -877,12 +881,26 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             }
                         }
                     }
+                    // As the source has it, in the editor's colors and
+                    // font: the comment above, `//`, columns and all
+                    // (nwscript.nss lines up its lists), then the
+                    // declaration. Not wrapped (the pane scrolls).
                     InfoTab::Help => match &t.help {
                         Some(h) => {
-                            ui.monospace(&h.signature);
-                            if !h.doc.is_empty() {
-                                ui.label(&h.doc);
-                            }
+                            let source = if h.doc.is_empty() {
+                                h.signature.clone()
+                            } else {
+                                format!("{}\n{}", h.doc, h.signature)
+                            };
+                            let mut job = highlight(&source, &palette);
+                            job.wrap.max_width = f32::INFINITY;
+                            let ground = palette
+                                .background
+                                .unwrap_or_else(|| ui.visuals().text_edit_bg_color());
+                            egui::Frame::new().fill(ground).inner_margin(4.0).show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.add(egui::Label::new(job).extend());
+                            });
                         }
                         None => {
                             ui.weak("Select a function or constant, or put the cursor on one.");
@@ -924,11 +942,11 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             }
                         }
                     }
-                });
+                }
+            });
         });
 
     // The editor with line numbers.
-    let palette = Palette::for_ui(&app.settings.script_style, ui);
     let indent = tools::Indent::of(&app.settings.script_style);
     let error_line = app.live_error(key).and_then(|e| e.0);
     let error_color = ui.visuals().error_fg_color;

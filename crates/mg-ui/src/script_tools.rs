@@ -27,6 +27,8 @@ pub struct Symbol {
     pub kind: SymbolKind,
     /// The declaration as shown in Help.
     pub signature: String,
+    /// Its documentation, the comment lines above it as the source has
+    /// them (`//`, spaces and columns), shown so in Help.
     pub doc: String,
     /// Declared by the script or its includes (not `nwscript.nss`); Aurora
     /// shows these in bold.
@@ -191,7 +193,7 @@ fn from_spec(spec: &Spec) -> Vec<Symbol> {
             name: f.name.clone(),
             kind: SymbolKind::Function,
             signature: f.signature(),
-            doc: f.doc.clone(),
+            doc: f.doc_source.clone(),
             custom: false,
         })
         .collect();
@@ -199,7 +201,7 @@ fn from_spec(spec: &Spec) -> Vec<Symbol> {
         name: c.name.clone(),
         kind: SymbolKind::Constant,
         signature: format!("{} {} = {}", c.ty, c.name, c.value),
-        doc: c.doc.clone(),
+        doc: c.doc_source.clone(),
         custom: false,
     }));
     out
@@ -226,7 +228,7 @@ pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>
                 name: f.name.clone(),
                 kind: SymbolKind::Function,
                 signature: format!("{} {}({})", f.return_type, f.name, params.join(", ")),
-                doc: f.doc.clone(),
+                doc: f.doc_source.clone(),
                 custom: true,
             });
         }
@@ -241,7 +243,7 @@ pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>
                     g.ty,
                     g.name
                 ),
-                doc: g.doc.clone(),
+                doc: g.doc_source.clone(),
                 custom: true,
             });
         }

@@ -56,7 +56,11 @@ pub struct Declaration {
     /// one, else its prototype).
     pub at: Location,
     pub signature: String,
+    /// The comment lines above it, without `//` (hover text).
     pub doc: String,
+    /// The same lines as written, `//` and columns as in the source
+    /// (the script editor's Help).
+    pub doc_source: String,
 }
 
 /// A local variable or parameter.
@@ -352,12 +356,13 @@ impl Index {
                     at: Location { file: f.clone(), span: func.name_span.clone() },
                     signature: format!("{} {}({})", func.return_type, func.name, params.join(", ")),
                     doc: func.doc.clone(),
+                    doc_source: func.doc_source.clone(),
                 };
                 if func.body.is_some() {
                     // The documentation may be on the prototype.
                     return Some(match prototype {
-                        Some(Declaration { doc, .. }) if d.doc.is_empty() => {
-                            Declaration { doc, ..d }
+                        Some(Declaration { doc, doc_source, .. }) if d.doc.is_empty() => {
+                            Declaration { doc, doc_source, ..d }
                         }
                         _ => d,
                     });
@@ -379,6 +384,7 @@ impl Index {
                         g.ty
                     ),
                     doc: g.doc.clone(),
+                    doc_source: g.doc_source.clone(),
                 });
             }
             if let Some(st) = o.structs.iter().find(|s| s.name == name) {
@@ -388,6 +394,7 @@ impl Index {
                     at: Location { file: f.clone(), span: idx.name_in(&st.span, name) },
                     signature: format!("struct {name}"),
                     doc: String::new(),
+                    doc_source: String::new(),
                 });
             }
         }
@@ -425,6 +432,7 @@ impl Index {
                 at: Location { file: file.to_ascii_lowercase(), span: l.decl.clone() },
                 signature: format!("{} {name}", l.ty),
                 doc: String::new(),
+                doc_source: String::new(),
             });
         }
         self.top_level(file, name, sources)
@@ -572,6 +580,7 @@ impl Index {
                         at: Location { file: name.clone(), span: l.decl.clone() },
                         signature: format!("{} {}", l.ty, l.name),
                         doc: String::new(),
+                        doc_source: String::new(),
                     });
                 }
             }

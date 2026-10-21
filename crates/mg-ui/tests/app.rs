@@ -9595,6 +9595,36 @@ fn a_save_that_does_not_compile_says_so() {
     assert_eq!(h.state().script_tools.info, mg_ui::script_tools::InfoTab::Compiler);
 }
 
+/// Help shows a function's documentation as the source has it: the
+/// comment lines with their `//` and their columns, then the declaration
+/// (Jasperre's report: lists in nwscript.nss's comments lost their
+/// alignment, the `//` and each line's indentation stripped).
+#[test]
+fn help_shows_documentation_as_the_source_has_it() {
+    let dir = mg_testkit::scratch_dir("ui-script-help");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "// Adds.\r\n// - nA:    the first\r\n//           (any)\r\nint Add(int nA) { return nA; }\r\nvoid main() { Add(1); }\r\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    assert_eq!(h.state().script_tools.info, mg_ui::script_tools::InfoTab::Help);
+    let shown = h.get_by_label_contains("// - nA:").accesskit_node().value().unwrap_or_default();
+    assert_eq!(
+        shown, "// Adds.\n// - nA:    the first\n//           (any)\nint Add(int nA)",
+        "as written, then the declaration"
+    );
+}
+
 #[test]
 fn page_keys_move_through_the_script_editor() {
     // Sacha's report: Page Up and Page Down did nothing in the script editor.

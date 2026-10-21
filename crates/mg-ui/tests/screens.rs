@@ -1156,6 +1156,44 @@ fn script_error_line() {
     shoot(&mut h, &dir, "script-background");
 }
 
+/// Help as `nwscript.nss` has it: the comment with its `//` and columns,
+/// in the editor's colors and font, then the declaration; and the
+/// Compiler tab's lines with their times.
+#[test]
+#[ignore]
+fn script_help() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-help");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\r\n{\r\n    int n = ;\r\n}\r\n".to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.state_mut().script_tools.filter = "GetFirstObjectInShape".into();
+    h.run();
+    h.run();
+    h.get_by_label("GetFirstObjectInShape").click();
+    shoot(&mut h, &dir, "script-help");
+    // Compile twice: two lines, each with its time.
+    h.get_by_label("Compile").click();
+    h.run();
+    shoot(&mut h, &dir, "script-compiler");
+}
+
 /// A selection in the script editor: whole lines (to their line ends),
 /// and part of one.
 #[test]

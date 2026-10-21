@@ -101,7 +101,7 @@ impl Moonglow {
             name: d.name.clone(),
             kind: tools::SymbolKind::Function,
             signature: d.signature.clone(),
-            doc: d.doc.clone(),
+            doc: d.doc_source.clone(),
             custom: d.at.file != NWSCRIPT,
         });
         self.script_tools.info = InfoTab::Help;

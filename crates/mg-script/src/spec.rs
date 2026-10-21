@@ -25,6 +25,10 @@ pub struct Function {
     pub params: Vec<Param>,
     /// The `//` comment lines directly above the declaration, without `//`.
     pub doc: String,
+    /// The same lines as written, `//` and the spaces before it too
+    /// ([`comment_as_written`](crate::outline::comment_as_written)):
+    /// `nwscript.nss`'s aligned columns line up in it.
+    pub doc_source: String,
 }
 
 impl Function {
@@ -50,6 +54,8 @@ pub struct Constant {
     /// The value as written.
     pub value: String,
     pub doc: String,
+    /// [`Function::doc_source`].
+    pub doc_source: String,
 }
 
 /// A parsed language spec.
@@ -76,7 +82,8 @@ impl Spec {
         let text = String::from_utf8_lossy(src);
         let toks = tokenize(text.as_bytes());
         let mut spec = Spec::default();
-        let mut doc: Vec<String> = Vec::new();
+        // (Each comment line as written: `doc` without the `//`.)
+        let mut doc: Vec<&str> = Vec::new();
         let mut blank_lines = 0;
         let mut i = 0;
         let s = |t: &Token| &text[t.span.clone()];
@@ -87,7 +94,7 @@ impl Spec {
                     if blank_lines > 0 {
                         doc.clear();
                     }
-                    doc.push(s(t).trim_start_matches('/').trim().to_string());
+                    doc.push(crate::outline::comment_as_written(&text, &t.span));
                     blank_lines = 0;
                     i += 1;
                     continue;
@@ -139,7 +146,13 @@ impl Spec {
             i += 1; // the `;`
             let words: Vec<&str> = stmt.iter().map(|t| s(t)).collect();
             // A comment block counts as documentation only directly above.
-            let docs = if blank_lines > 0 { String::new() } else { doc.join("\n") };
+            let (docs, doc_source) = if blank_lines > 0 {
+                Default::default()
+            } else {
+                let plain: Vec<&str> =
+                    doc.iter().map(|l| crate::outline::comment_text(l)).collect();
+                (plain.join("\n"), doc.join("\n"))
+            };
             doc.clear();
             blank_lines = 0;
             let words = match words.first() {
@@ -152,6 +165,7 @@ impl Spec {
                     name: name.to_string(),
                     value: value.concat(),
                     doc: docs,
+                    doc_source,
                 }),
                 [ret, name, "(", rest @ ..] if rest.last() == Some(&")") => {
                     let params = parse_params(&rest[..rest.len() - 1]);
@@ -161,6 +175,7 @@ impl Spec {
                         name: name.to_string(),
                         params,
                         doc: docs,
+                        doc_source,
                     });
                 }
                 _ => {}
@@ -225,6 +240,27 @@ int Random(int nMaxInteger);
 void ActionMoveToObject(object oMoveTo, int bRun=FALSE, float fRange=1.0f);
 void Jump(vector vDest=[0.0,0.0,0.0], location lLoc=LOCATION_INVALID);
 ";
+
+    /// A function's documentation as written too, for Help to show as
+    /// `nwscript.nss` has it: the `//`, the spaces before it and inside
+    /// it (aligned columns), no `\r` (the file is CRLF).
+    #[test]
+    fn documentation_is_kept_as_written() {
+        let src = "// Sets a thing.\r\n// - nKind:   KIND_A\r\n//             KIND_B\r\n  // indented\r\nvoid Set(int nKind);\r\n";
+        let s = Spec::parse(src.as_bytes());
+        let f = s.function("Set").unwrap();
+        assert_eq!(
+            f.doc_source,
+            "// Sets a thing.\n// - nKind:   KIND_A\n//             KIND_B\n  // indented"
+        );
+        assert_eq!(f.doc, "Sets a thing.\n- nKind:   KIND_A\nKIND_B\nindented");
+        let r = Spec::parse(SAMPLE.as_bytes());
+        assert_eq!(
+            r.function("Random").unwrap().doc_source,
+            "// Get an integer between 0 and nMaxInteger-1.\n// Return value on error: 0"
+        );
+        assert_eq!(r.function("Jump").unwrap().doc_source, "");
+    }
 
     #[test]
     fn parses_constants_functions_and_structures() {
