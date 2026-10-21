@@ -230,52 +230,20 @@ fn row_picker(
         *row = on.then_some(n);
         return;
     }
-    let sorted;
-    let choices = if choices.len() > mg_rules::ORDERED_CHOICES {
-        sorted = mg_rules::by_name(choices.to_vec());
-        sorted.as_slice()
-    } else {
-        choices
+    let mut number = |ui: &mut Ui, row: usize| {
+        ui.label(format!("Row {row}"));
     };
-    let shown = match row {
-        Some(r) => {
-            choices.iter().find(|c| c.row == *r).map_or(format!("({r})"), |c| c.text.clone())
-        }
-        None => any.unwrap_or("Choose…").to_string(),
-    };
-    let filter_id = ui.id().with((id, "filter"));
-    egui::ComboBox::from_id_salt(id)
-        .selected_text(shown)
+    let current = row.map(|r| r as i64);
+    let list = crate::widgets::row_choice(egui::Id::new(id), choices, current)
         .width(260.0)
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-        .show_ui(ui, |ui| {
-            let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-            if choices.len() > 30 {
-                ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
-                ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-            }
-            let filter = filter.to_lowercase();
-            egui::ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
-                if let Some(any) = any
-                    && ui.selectable_label(row.is_none(), any).clicked()
-                {
-                    *row = None;
-                    ui.close();
-                }
-                let shown = choices.iter().filter(|c| {
-                    filter.is_empty()
-                        || c.text.to_lowercase().contains(&filter)
-                        || c.row.to_string() == filter
-                });
-                for c in shown {
-                    let r = ui.selectable_label(*row == Some(c.row), &c.text);
-                    if r.on_hover_text(format!("Row {}", c.row)).clicked() {
-                        *row = Some(c.row);
-                        ui.close();
-                    }
-                }
-            });
-        });
+        .about(&mut number);
+    let list = match any {
+        Some(any) => list.none(any),
+        None => list.unset("Choose…"),
+    };
+    if let Some(picked) = list.show_optional(ui) {
+        *row = picked.and_then(|r| usize::try_from(r).ok());
+    }
 }
 
 /// The choices of a table, as the game names them.

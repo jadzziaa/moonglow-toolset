@@ -290,17 +290,11 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             mg_rules::ChoiceColumns { name: Some("STRREF"), label: Some("LABEL") },
                         )
                         .unwrap_or_default();
-                    let shown = looks
-                        .iter()
-                        .find(|c| c.row == w.appearance as usize)
-                        .map_or_else(String::new, |c| c.text.clone());
-                    egui::ComboBox::from_id_salt("wizard-waypoint-look")
-                        .selected_text(shown)
-                        .show_ui(ui, |ui| {
-                            for c in &looks {
-                                ui.selectable_value(&mut w.appearance, c.row as u8, &c.text);
-                            }
-                        });
+                    let id = egui::Id::new("wizard-waypoint-look");
+                    let current = i64::from(w.appearance);
+                    if let Some(row) = crate::widgets::row_choice(id, &looks, current).show(ui) {
+                        w.appearance = row as u8;
+                    }
                     ui.end_row();
                 });
             }

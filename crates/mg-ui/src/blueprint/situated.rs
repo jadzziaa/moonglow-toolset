@@ -162,34 +162,20 @@ pub(super) fn portrait(f: &mut Form<'_>, ui: &mut Ui) {
         (None, Some(r)) => r.to_string(),
         (None, None) => "(none)".to_string(),
     };
-    let filter_id = egui::Id::new(("portrait-filter", f.key));
     let pick_id = egui::Id::new(("portrait-pick", f.key));
     let mut pick = None;
+    let list: Vec<Choice> =
+        choices.iter().map(|&(row, b)| Choice { row, text: b.to_string() }).collect();
     // A little room below, so the picture doesn't sit on the next row.
     ui.vertical(|ui| {
         ui.horizontal(|ui| {
             if let Some(b) = current.and_then(base) {
                 portrait_image(f, ui, &b.to_lowercase(), 'm', 32.0, egui::Sense::hover());
             }
-            // (A click in its Filter field must not close it.)
-            egui::ComboBox::from_id_salt(("portrait", f.key))
-                .selected_text(shown)
-                .width(200.0)
-                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                .show_ui(ui, |ui| {
-                    let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
-                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter"));
-                    ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
-                    let filter = filter.to_lowercase();
-                    for (row, b) in
-                        choices.iter().filter(|(_, b)| b.to_lowercase().contains(&filter))
-                    {
-                        if ui.selectable_label(current == Some(*row), *b).clicked() {
-                            pick = Some(*row);
-                            ui.close();
-                        }
-                    }
-                });
+            let id = egui::Id::new(("portrait", f.key));
+            let row = current.map(|r| r as i64);
+            let list = crate::widgets::row_choice(id, &list, row).width(200.0).shown(shown);
+            pick = list.show(ui).and_then(|r| usize::try_from(r).ok());
             if ui.button("Portraits…").on_hover_text("Select Portrait").clicked() {
                 // Placeables and doors start on their own portraits.
                 let inanimate = f.root.get("Appearance_Type").is_none();
@@ -563,7 +549,8 @@ pub(super) fn advanced(
 }
 
 /// A choice among `choices` by row, outside a field (`current` is the
-/// row); the row picked.
+/// row); the row picked. (A [`row_choice`](crate::widgets::row_choice):
+/// a long list by name, with a Filter field.)
 pub(super) fn pick(
     ui: &mut Ui,
     key: ResKey,
@@ -571,7 +558,19 @@ pub(super) fn pick(
     choices: &[Choice],
     current: i64,
 ) -> Option<i64> {
-    pick_sized(ui, key, name, choices, current, 220.0)
+    pick_list(key, name, choices, current, 220.0).show(ui)
+}
+
+/// [`pick`] in the order given, however long (a cost table's values,
+/// from the least).
+pub(super) fn pick_ordered(
+    ui: &mut Ui,
+    key: ResKey,
+    name: &str,
+    choices: &[Choice],
+    current: i64,
+) -> Option<i64> {
+    pick_list(key, name, choices, current, 220.0).ordered().show(ui)
 }
 
 /// [`pick_sized`] for a body or armor part: the mouse wheel over it, closed,
@@ -585,11 +584,11 @@ pub(super) fn pick_part(
     current: i64,
     width: f32,
 ) -> Option<i64> {
-    pick_with(ui, key, name, choices, current, width, true)
+    pick_list(key, name, choices, current, width).ordered().wheel().show(ui)
 }
 
-/// [`pick`], `width` wide: narrower for choices that are a word or a
-/// number.
+/// [`pick_ordered`], `width` wide: narrower for choices that are a word
+/// or a number (a part's model and color, in their numbers' order).
 pub(super) fn pick_sized(
     ui: &mut Ui,
     key: ResKey,
@@ -598,41 +597,17 @@ pub(super) fn pick_sized(
     current: i64,
     width: f32,
 ) -> Option<i64> {
-    pick_with(ui, key, name, choices, current, width, false)
+    pick_list(key, name, choices, current, width).ordered().show(ui)
 }
 
-/// [`pick_sized`], the wheel stepping through it where `wheel`.
-fn pick_with(
-    ui: &mut Ui,
+fn pick_list<'a>(
     key: ResKey,
     name: &str,
-    choices: &[Choice],
+    choices: &'a [Choice],
     current: i64,
     width: f32,
-    wheel: bool,
-) -> Option<i64> {
-    let shown = choices
-        .iter()
-        .find(|c| c.row as i64 == current)
-        .map_or_else(|| format!("({current})"), |c| c.text.clone());
-    let mut pick = None;
-    let list = egui::ComboBox::from_id_salt(("pick", key, name))
-        .selected_text(shown)
-        .width(width)
-        .show_ui(ui, |ui| {
-            for c in choices {
-                if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
-                    pick = Some(c.row as i64);
-                }
-            }
-        });
-    // The arrow keys step through it, as in Aurora.
-    let rows: Vec<i64> = choices.iter().map(|c| c.row as i64).collect();
-    let pick = pick.or_else(|| crate::widgets::arrow_pick(ui, &list.response, &rows, current));
-    let pick = pick.or_else(|| {
-        wheel.then(|| crate::widgets::wheel_pick(ui, &list.response, &rows, current)).flatten()
-    });
-    pick.filter(|&v| v != current)
+) -> crate::widgets::RowChoice<'a> {
+    crate::widgets::row_choice(egui::Id::new(("pick", key, name)), choices, current).width(width)
 }
 
 /// The model viewer's tab for the form's object: a placed object as it is

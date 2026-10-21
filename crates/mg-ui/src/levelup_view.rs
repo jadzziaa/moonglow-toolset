@@ -77,12 +77,7 @@ pub(crate) fn window(app: &mut Moonglow, ctx: &egui::Context) {
             g.choices("classes", ChoiceColumns { name: Some("Name"), label: Some("Label") }).ok()
         })
         .unwrap_or_default();
-    let name = |class: u32| {
-        names
-            .iter()
-            .find(|c| c.row == class as usize)
-            .map_or_else(|| format!("({class})"), |c| c.text.clone())
-    };
+    let name = |class: u32| mg_rules::choice_text(&names, i64::from(class));
     let (mut ok, mut cancel) = (false, false);
     egui::Window::new("Creature Levelup Wizard")
             .pivot(egui::Align2::CENTER_CENTER)

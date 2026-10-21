@@ -55,6 +55,16 @@ pub fn by_name(mut choices: Vec<Choice>) -> Vec<Choice> {
     choices
 }
 
+/// What a list of choices shows for `row`: its text, else the number in
+/// parentheses (a row the list does not have: deleted from the table, or
+/// a value no row stands for).
+pub fn choice_text(choices: &[Choice], row: i64) -> String {
+    choices
+        .iter()
+        .find(|c| c.row as i64 == row)
+        .map_or_else(|| format!("({row})"), |c| c.text.clone())
+}
+
 /// Lists of at most this many choices keep the table's order, which means
 /// something there (speeds from slow to fast, difficulties from easy to
 /// hard); longer ones are shown by name.
@@ -451,6 +461,17 @@ mod tests {
         let sorted =
             by_name(vec![c(0, "Toughness"), c(1, "alertness"), c(2, "Dodge"), c(3, "Dodge")]);
         assert_eq!(sorted, [c(1, "alertness"), c(2, "Dodge"), c(3, "Dodge"), c(0, "Toughness")]);
+    }
+
+    #[test]
+    fn a_choice_shows_its_name_else_its_number() {
+        let c = |row, text: &str| Choice { row, text: text.into() };
+        let list = [c(0, "None"), c(4, "Dodge")];
+        assert_eq!(choice_text(&list, 4), "Dodge");
+        assert_eq!(choice_text(&list, 0), "None");
+        assert_eq!(choice_text(&list, 2), "(2)", "a row the list lacks");
+        assert_eq!(choice_text(&list, -1), "(-1)", "a value no row stands for");
+        assert_eq!(choice_text(&[], 7), "(7)");
     }
 
     #[test]

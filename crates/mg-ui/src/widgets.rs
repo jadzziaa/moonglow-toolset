@@ -1356,11 +1356,6 @@ fn cancel_button(ui: &mut Ui, hover: Option<&str>) -> bool {
     r.clicked() || (layer.order == egui::Order::Middle && escape_on(ui.ctx(), layer))
 }
 
-/// The arrow keys on a list of choices, as in Aurora: with the list's
-/// button `r` in focus (clicked, or reached with Tab), Up and Down choose
-/// the row before and after `current` among `rows` (in the order the list
-/// shows them), Page Up and Page Down ten away, Home and End the first
-/// and last. The row chosen so.
 /// The mouse wheel over a closed choice list `r` (a body or armor part's):
 /// down chooses the row after `current` among `rows`, up the one before,
 /// without opening it; the wheel is the list's then, not the page's (which
@@ -1390,6 +1385,307 @@ pub(crate) fn wheel_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64
     Some(rows[to as usize])
 }
 
+/// A row of a table to choose among `choices` (a 2DA's rows by name, or
+/// any numbered list), the one way every editor does it:
+///
+/// - the box shows the chosen row's name, else its number in parentheses
+///   ([`mg_rules::choice_text`]);
+/// - a list of more than [`mg_rules::ORDERED_CHOICES`] is shown by name
+///   (unless [`ordered`](RowChoice::ordered)), a shorter one as given;
+/// - past [`FILTERED_CHOICES`] rows, a Filter field above them narrows
+///   them by name (or by a row's number), the rows scrolling under it;
+/// - opened, the list is whole and begins at the chosen row;
+/// - with the box in focus, the arrow keys step through it, as in Aurora
+///   ([`arrow_pick`]), in the order the list shows.
+///
+/// Made with [`row_choice`]; [`show`](RowChoice::show) draws it and says
+/// the row chosen.
+#[must_use]
+pub(crate) struct RowChoice<'a> {
+    id: egui::Id,
+    choices: &'a [mg_rules::Choice],
+    current: Option<i64>,
+    width: Option<f32>,
+    shown: Option<String>,
+    unset: &'a str,
+    none: Option<&'a str>,
+    ordered: bool,
+    wheel: bool,
+    numbered: bool,
+    hover: Option<String>,
+    about: Option<About<'a>>,
+}
+
+/// What a row list shows of a row beside it (its picture): [`RowChoice::about`].
+type About<'a> = &'a mut dyn FnMut(&mut Ui, usize);
+
+/// Lists of more than this many rows have a Filter field.
+pub(crate) const FILTERED_CHOICES: usize = 30;
+
+/// A list of `choices` with `current` chosen (`None`: no row), its box
+/// `id`: see [`RowChoice`].
+pub(crate) fn row_choice<'a>(
+    id: egui::Id,
+    choices: &'a [mg_rules::Choice],
+    current: impl Into<Option<i64>>,
+) -> RowChoice<'a> {
+    RowChoice {
+        id,
+        choices,
+        current: current.into(),
+        width: None,
+        shown: None,
+        unset: "",
+        none: None,
+        ordered: false,
+        wheel: false,
+        numbered: false,
+        hover: None,
+        about: None,
+    }
+}
+
+/// (The arrow keys' and the wheel's stand-in for the row of none.)
+const NO_ROW: i64 = i64::MIN;
+
+impl<'a> RowChoice<'a> {
+    /// Whether the list `id` (in `ui`) is open or has the keys, or the
+    /// pointer is on its box: when it reads its rows beyond the one chosen
+    /// (a caller may make them only then, when they are many). The rows
+    /// are there in the pass a click opens it in, which measures the list
+    /// to place it above or below the box.
+    pub(crate) fn in_use(ui: &Ui, id: egui::Id) -> bool {
+        let key = ui.make_persistent_id(id).with("in use");
+        let Some((used, rect)) = ui.data(|d| d.get_temp::<(bool, egui::Rect)>(key)) else {
+            return false;
+        };
+        used || ui.input(|i| i.pointer.latest_pos().is_some_and(|p| rect.contains(p)))
+    }
+
+    /// The box's width (else egui's for a combo box).
+    pub(crate) fn width(mut self, width: f32) -> Self {
+        self.width = Some(width);
+        self
+    }
+
+    /// What the box shows, in place of the chosen row's name.
+    pub(crate) fn shown(mut self, text: impl Into<String>) -> Self {
+        self.shown = Some(text.into());
+        self
+    }
+
+    /// What the box shows while no row is chosen, with no row of none to
+    /// choose ("Not set").
+    pub(crate) fn unset(mut self, text: &'a str) -> Self {
+        self.unset = text;
+        self
+    }
+
+    /// A row for none, first, named `text` (the box shows it while none
+    /// is chosen).
+    pub(crate) fn none(mut self, text: &'a str) -> Self {
+        self.none = Some(text);
+        self.unset = text;
+        self
+    }
+
+    /// In the order given, however long (an order that means something:
+    /// part numbers, bonuses from +1 up, the palette's categories).
+    pub(crate) fn ordered(mut self) -> Self {
+        self.ordered = true;
+        self
+    }
+
+    /// The mouse wheel over the closed box steps through it too
+    /// ([`wheel_pick`]).
+    pub(crate) fn wheel(mut self) -> Self {
+        self.wheel = true;
+        self
+    }
+
+    /// Each row with its number after its name.
+    pub(crate) fn numbered(mut self) -> Self {
+        self.numbered = true;
+        self
+    }
+
+    /// Said with the pointer on the box.
+    pub(crate) fn hover_text(mut self, text: impl Into<String>) -> Self {
+        self.hover = Some(text.into());
+        self
+    }
+
+    /// What `about` shows of a row (its picture) beside the row the pointer
+    /// rests on, and of the chosen one with the pointer on the box.
+    pub(crate) fn about(mut self, about: About<'a>) -> Self {
+        self.about = Some(about);
+        self
+    }
+
+    /// Draws it: the row chosen, if another than the one chosen before.
+    pub(crate) fn show(self, ui: &mut Ui) -> Option<i64> {
+        self.show_optional(ui).flatten()
+    }
+
+    /// [`show`](Self::show), where the row of none may be chosen
+    /// (`Some(None)`).
+    pub(crate) fn show_optional(self, ui: &mut Ui) -> Option<Option<i64>> {
+        let RowChoice {
+            id,
+            choices,
+            current,
+            width,
+            shown,
+            unset,
+            none,
+            ordered,
+            wheel,
+            numbered,
+            hover,
+            mut about,
+        } = self;
+        let shown = shown.unwrap_or_else(|| match current {
+            Some(row) => mg_rules::choice_text(choices, row),
+            None => unset.to_string(),
+        });
+        // (The widget's own state, by `id`, where `in_use` finds it.)
+        let key = ui.make_persistent_id(id);
+        let filter_id = key.with("filter");
+        let open_id = key.with("open");
+        let long = choices.len() > FILTERED_CHOICES;
+        // A long list by name; a short one as given. (Put in order only
+        // when it is used: open, or in focus for the arrow keys.)
+        let sorted = std::cell::OnceCell::new();
+        let by_name = !ordered && choices.len() > mg_rules::ORDERED_CHOICES;
+        let in_order = || -> &[mg_rules::Choice] {
+            if by_name {
+                sorted.get_or_init(|| mg_rules::by_name(choices.to_vec()))
+            } else {
+                choices
+            }
+        };
+        fn text(c: &mg_rules::Choice, numbered: bool) -> std::borrow::Cow<'_, str> {
+            if numbered {
+                format!("{}  ({})", c.text, c.row).into()
+            } else {
+                c.text.as_str().into()
+            }
+        }
+        let mut pick: Option<Option<i64>> = None;
+        // (Open until a choice is made or a click lands outside: a click in
+        // its Filter field must not close it.)
+        let mut combo = egui::ComboBox::from_id_salt(id)
+            .selected_text(shown)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        if let Some(width) = width {
+            combo = combo.width(width);
+        }
+        // Just opened: the list is whole and begins at the one chosen, not
+        // at its top (a long list was searched for it every time).
+        let opened = !ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+        let list = combo.show_ui(ui, |ui| {
+            if opened {
+                ui.data_mut(|d| {
+                    d.remove_temp::<String>(filter_id);
+                    d.insert_temp(open_id.with("go"), true);
+                });
+            }
+            // (A popup's first pass only measures it: the list is brought
+            // to the chosen row in the first pass that draws it.)
+            let go = !ui.is_sizing_pass()
+                && ui.data_mut(|d| d.remove_temp::<bool>(open_id.with("go"))).is_some();
+            let mut filter: String = ui.data(|d| d.get_temp(filter_id)).unwrap_or_default();
+            // (What is typed narrows the list from its top, wherever it
+            // had been scrolled to.)
+            let mut narrowed = false;
+            if long {
+                narrowed =
+                    ui.add(egui::TextEdit::singleline(&mut filter).hint_text("Filter")).changed();
+                ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
+            }
+            let filter = filter.trim().to_lowercase();
+            let matches = |c: &mg_rules::Choice| {
+                filter.is_empty()
+                    || text(c, numbered).to_lowercase().contains(&filter)
+                    || c.row.to_string() == filter
+            };
+            // (The rows scroll under the Filter field, which stays.)
+            let mut rows = |ui: &mut Ui| {
+                if let Some(none) = none {
+                    let r = ui.selectable_label(current.is_none(), none);
+                    if go && current.is_none() {
+                        r.scroll_to_me(Some(egui::Align::Center));
+                    }
+                    if r.clicked() {
+                        pick = Some(None);
+                        ui.close();
+                    }
+                }
+                for c in in_order().iter().filter(|c| matches(c)) {
+                    let chosen = current == Some(c.row as i64);
+                    let mut r = ui.selectable_label(chosen, text(c, numbered));
+                    if go && chosen {
+                        r.scroll_to_me(Some(egui::Align::Center));
+                    }
+                    if let Some(about) = about.as_mut() {
+                        r = r.on_hover_ui_at_pointer(|ui| about(ui, c.row));
+                    }
+                    if r.clicked() {
+                        pick = Some(Some(c.row as i64));
+                        ui.close();
+                    }
+                }
+            };
+            if long {
+                let mut area = egui::ScrollArea::vertical().max_height(170.0);
+                if narrowed {
+                    area = area.vertical_scroll_offset(0.0);
+                }
+                area.show(ui, rows);
+            } else {
+                rows(ui);
+            }
+        });
+        let r = &list.response;
+        // (In use once a click has opened it, before it is drawn open, or
+        // with the keys; and where its box was, for the pointer: see
+        // `in_use`.)
+        let open = list.inner.is_some() || egui::ComboBox::is_open(ui.ctx(), r.id);
+        let in_use = (open || r.has_focus(), r.rect);
+        ui.data_mut(|d| {
+            d.insert_temp(open_id, list.inner.is_some());
+            d.insert_temp(key.with("in use"), in_use);
+        });
+        // The arrow keys step through it, as in Aurora (in the order
+        // shown), and the wheel where asked.
+        let stepping = r.clicked() || r.has_focus() || (wheel && r.hovered());
+        if pick.is_none() && stepping {
+            let rows: Vec<i64> = (none.map(|_| NO_ROW).into_iter())
+                .chain(in_order().iter().map(|c| c.row as i64))
+                .collect();
+            let at = current.unwrap_or(NO_ROW);
+            let stepped = arrow_pick(ui, r, &rows, at)
+                .or_else(|| wheel.then(|| wheel_pick(ui, r, &rows, at)).flatten());
+            pick = stepped.map(|row| (row != NO_ROW).then_some(row));
+        }
+        let mut response = list.response;
+        if let Some(hover) = hover {
+            response = response.on_hover_text(hover);
+        }
+        // The chosen one's picture with the pointer on the box: it follows
+        // the arrow keys.
+        if let (Some(about), Some(Ok(row))) = (about, current.map(usize::try_from)) {
+            response.on_hover_ui(|ui| about(ui, row));
+        }
+        pick.filter(|&p| p != current)
+    }
+}
+
+/// The arrow keys on a list of choices, as in Aurora: with the list's
+/// button `r` in focus (clicked, or reached with Tab), Up and Down choose
+/// the row before and after `current` among `rows` (in the order the list
+/// shows them), Page Up and Page Down ten away, Home and End the first
+/// and last. The row chosen so.
 pub(crate) fn arrow_pick(ui: &Ui, r: &egui::Response, rows: &[i64], current: i64) -> Option<i64> {
     if r.clicked() {
         r.request_focus();

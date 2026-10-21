@@ -622,12 +622,7 @@ pub(super) fn special_abilities(f: &mut Form<'_>, ui: &mut Ui) {
     let base = f.path.clone();
     let key = f.key;
     let names = mg_rules::by_name(f.choices("spells", Some("Name"), Some("Label")));
-    let name_of = |row: i64| {
-        names
-            .iter()
-            .find(|c| c.row as i64 == row)
-            .map_or_else(|| format!("({row})"), |c| c.text.clone())
-    };
+    let name_of = |row: i64| mg_rules::choice_text(&names, row);
     let list: Vec<Struct> = f.root.list("SpecAbilityList").unwrap_or(&[]).to_vec();
     let level: i64 = f
         .root

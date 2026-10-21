@@ -5352,6 +5352,148 @@ fn a_dropdown_s_filter_field_can_be_typed_in() {
     assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_none(), "closed");
 }
 
+/// An item property's sub-properties are a long list like any other: Cast
+/// Spell's hundreds of spells open at the one chosen, with a Filter field
+/// to narrow them by name.
+#[test]
+fn an_item_property_s_spells_have_a_filter() {
+    let Some((mut h, key)) = blueprint_harness("nw_it_mpotion001", "potion_filter", ResType::UTI)
+    else {
+        return;
+    };
+    let subtype = |h: &mut Harness<'_, Moonglow>| {
+        field(h, &key).list("PropertiesList").unwrap()[0].integer("Subtype")
+    };
+    h.run();
+    h.get_by_label("Properties").click();
+    h.run();
+    // The potion's Cast Spell, chosen: its parameters show under it.
+    h.get_all_by_label_contains("Cure Light Wounds").last().unwrap().click();
+    h.run();
+    let before = subtype(&mut h);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.contains("Cure Light Wounds")))
+        .map(|n| n.rect().center())
+        .expect("the Sub-Property dropdown");
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run();
+    // Opened at the chosen spell (far down the list: Aid, Barkskin… come
+    // first), under the Filter field.
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
+    let row = (h.query_all_by_label_contains("Cure Light Wounds"))
+        .map(|n| n.rect().center().y)
+        .find(|y| *y > top)
+        .expect("the chosen spell's row");
+    assert!(row - top < 260.0, "the chosen spell is {} under the Filter field", row - top);
+    // (A potion's spells: those iprp_spells allows on a potion.)
+    assert!(h.query_all_by_label_contains("Barkskin").count() > 0, "the list is whole");
+    type_into_hint(&mut h, "Filter", "bull's");
+    assert!(h.query_all_by_label_contains("Bull's Strength").count() > 0, "the list is narrowed");
+    assert!(h.query_all_by_label_contains("Barkskin").count() == 0, "to the spells that match");
+    h.get_all_by_label_contains("Bull's Strength").next().unwrap().click();
+    h.run();
+    let after = subtype(&mut h);
+    assert_ne!(after, before, "Bull's Strength chosen");
+    let base = field(&mut h, &key).integer("BaseItem").unwrap() as u32;
+    let game = h.state().game.clone().unwrap();
+    let spells = game.property_subtypes(&game.property_type(15).unwrap(), base);
+    let name = mg_rules::choice_text(&spells, after.unwrap());
+    assert!(name.contains("Bull's Strength"), "{name}");
+    assert!(h.query(egui_kittest::kittest::by().predicate(hint)).is_none(), "closed");
+}
+
+/// The arrow keys step through a blueprint's palette category too, as
+/// through any list of choices (the list once had them alone).
+#[test]
+fn arrow_keys_step_through_a_palette_category() {
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "category_arrows", ResType::UTP)
+    else {
+        return;
+    };
+    h.run();
+    let category = |h: &mut Harness<'_, Moonglow>| field(h, &key).integer("PaletteID");
+    let before = category(&mut h);
+    // The Category dropdown: the one beside its label.
+    let line = h.get_by_label("Category").rect().center().y;
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .map(|n| n.rect().center())
+        .find(|c| (c.y - line).abs() < 6.0)
+        .expect("the Category dropdown");
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run();
+    // (The chest's may be the last category: then Up is the one to try.)
+    let (mut step, mut back) = (egui::Key::ArrowDown, egui::Key::ArrowUp);
+    h.key_press(step);
+    h.run();
+    if category(&mut h) == before {
+        (step, back) = (back, step);
+        h.key_press(step);
+        h.run();
+    }
+    assert_ne!(category(&mut h), before, "another category, by {step:?}");
+    h.key_press(back);
+    h.run();
+    assert_eq!(category(&mut h), before, "and back, by {back:?}");
+}
+/// The 2DA editor's "a row of X.2da" is the same list: a cell naming a
+/// row far down spells.2da opens it there, with a Filter field (its rows'
+/// names are made only while it is in use, and are there when a click
+/// opens it), and a row typed for is chosen.
+#[test]
+fn a_table_s_row_list_opens_at_the_row_named() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let dir = mg_testkit::scratch_dir("ui-table-row-list");
+    std::fs::write(dir.join("nasher.cfg"), "").unwrap();
+    let file = dir.join("my_scrolls.2da");
+    std::fs::write(&file, "2DA V2.0\r\n\r\n  Label Spell\r\n0 Scroll_A 300\r\n1 Scroll_B 2\r\n")
+        .unwrap();
+    let toml = "[columns.Spell]\nkind = \"row\"\ntable = \"spells\"\n";
+    std::fs::write(dir.join("my_scrolls.2da.toml"), toml).unwrap();
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(0, 1);
+    h.run_steps(3);
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("300  ")))
+        .map(|n| n.rect().center())
+        .expect("the rows' list");
+    h.hover_at(at);
+    h.run_steps(1);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let hint = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    let top = h.get(egui_kittest::kittest::by().predicate(hint)).rect().bottom();
+    let row = (h.query_all_by_label_contains("300  "))
+        .map(|n| n.rect().center().y)
+        .find(|y| *y > top)
+        .expect("the named row, in the list");
+    assert!(row - top < 260.0, "the named row is {} under the Filter field", row - top);
+    type_into_hint(&mut h, "Filter", "302");
+    h.get_by_label_contains("302  ").click();
+    h.run_steps(3);
+    assert_eq!(table_of(&h, id).get(0, "Spell"), Some("302"));
+}
 /// Hovering a skill shows what the game says of it (Aurora's F1).
 #[test]
 fn a_skill_s_description_shows_on_hover() {
@@ -5779,6 +5921,9 @@ fn door_editor_sets_appearance_lock_and_transition() {
     };
     assert_eq!(field(&mut h, &key).integer("Appearance"), Some(0));
     h.get_by_value(&generic[0].text).click();
+    h.run();
+    // (A long list, by name: the row scrolled to.)
+    h.get_by_label(&generic[1].text).scroll_to_me();
     h.run();
     h.get_by_label(&generic[1].text).click();
     h.run();

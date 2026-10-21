@@ -53,26 +53,16 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         ui.end_row();
         crate::widgets::field_label(ui, "Difficulty");
         // The index, and the difficulty value it stands for.
+        f.mark_mixed(ui, "DifficultyIndex");
         let current = f.int("DifficultyIndex");
-        let shown = difficulties
-            .iter()
-            .find(|c| c.row as i64 == current)
-            .map_or_else(|| format!("({current})"), |c| c.text.clone());
-        let mut pick = None;
-        egui::ComboBox::from_id_salt(("ute-diff", f.key)).selected_text(shown).show_ui(ui, |ui| {
-            for c in &difficulties {
-                if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
-                    pick = Some(c.row);
-                }
-            }
-        });
-        if let Some(row) = pick.filter(|&r| r as i64 != current) {
-            let value = values.get(row).copied().unwrap_or(0);
+        let id = egui::Id::new(("ute-diff", f.key));
+        if let Some(row) = crate::widgets::row_choice(id, &difficulties, current).show(ui) {
+            let value = usize::try_from(row).ok().and_then(|r| values.get(r)).copied();
             f.set_many(
                 "Difficulty",
                 &[
-                    ("DifficultyIndex", row as i64, FieldType::Int),
-                    ("Difficulty", value, FieldType::Int),
+                    ("DifficultyIndex", row, FieldType::Int),
+                    ("Difficulty", value.unwrap_or(0), FieldType::Int),
                 ],
             );
         }

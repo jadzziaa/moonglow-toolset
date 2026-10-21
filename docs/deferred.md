@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:07:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:47:48Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2066,20 +2066,6 @@ of truth, and does each caller's difference matter.
 
 ### To build once (the structure the copies want)
 
-- **A 2DA row's dropdown, six times:** `Form::choice_shown`
-  (`blueprint/mod.rs:989`) has the filter past 30 rows, the sort by name,
-  the scroll to the chosen row, Aurora's arrow keys and the "≠" mark;
-  `situated::pick_with` (`:605`), `creature::optional_pick` (`:692`),
-  `encounter.rs:62`, `Form::category` (`mod.rs:1245`), `gff_view` row
-  choices (`:209`), Advanced Search's `row_picker` (`search.rs:215`),
-  the 2DA editor's "a row of X.2da" (`table_view.rs:1825`) and the
-  portrait list (`situated.rs:165`) each have some of it. An item
-  property's subtypes (Cast Spell: hundreds of rows) come unfiltered in
-  the table's order. The "row name, else `(n)`" text is written ten
-  times (`mod.rs:1002`, `:1242`, `situated.rs:617`, `encounter.rs:60`,
-  `creature.rs:704`, `levelup_view.rs:84`, `creature_lists.rs:629`,
-  `search.rs:242`, `store.rs:256`, `:314`). One `widgets::row_choice`
-  and `mg_rules::choice_text`. (M)
 - **The side editors' unsaved work, close and undo (hak, 2DA,
   tileset):** the "has unsaved changes" window three times
   (`hak_view.rs:768`, `table_view.rs:2101`, `tileset_view.rs:790`), with
@@ -2202,6 +2188,16 @@ of truth, and does each caller's difference matter.
 
 ### Smaller, each S
 
+- Left by the one row list (`widgets::row_choice`, 2026-10-21): it lays
+  out every row while open, where the 2DA editor's "a row of X.2da"
+  laid out only those in sight (a table of tens of thousands of rows,
+  not measured); Advanced Search's Value list goes by name past 12
+  rows, where the item editor's cost list keeps the numbers' order (+10
+  before +2 there); the Appearance and loading screen lists have no "≠"
+  mark for blueprints edited together, which the other fields' lists
+  have; and lists that had the table's order and now go by name (a
+  creature's classes, a door's generic appearance, an item property's
+  parameter, the portraits) were not held to Aurora's order.
 - The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
   sideways, which the area view's has (`model_view.rs:745`,
   `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
