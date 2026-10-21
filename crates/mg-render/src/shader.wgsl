@@ -312,6 +312,34 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     let nm_variant = draws[this_draw].maps2.w > 0.5;
     let surface_n = normalize(select(-in.normal_view, in.normal_view, front));
     let v = -normalize(in.pos_view);
+    // The tangent frame: the model's own tangents, else (and for those
+    // made for the game's shaders, light_count.w) the derivatives'.
+    var tsb = tangent_frame(surface_n, dp1, dp2, duv1, duv2);
+    let own_t = in.tangent_view.xyz;
+    if (in.tangent_view.w != 0.0 && dot(own_t, own_t) > 1e-12 && draws[this_draw].light_count.w == 0u) {
+        let tn = normalize(own_t);
+        let handed = select(-1.0, 1.0, in.tangent_view.w >= 0.0);
+        tsb = mat3x3<f32>(tn, cross(surface_n, tn) * handed, surface_n);
+    }
+    // The environment map's coordinates' derivatives, here too: the game
+    // samples the map with the roughness as a bias over the level they
+    // give (`inc_envmap`'s `texture2D(texUnitEnv, uv, bias)`), so a
+    // magnified map stays sharp however rough. Taken from the normal the
+    // normal map makes (the game's coordinates are the fragment normal's),
+    // before anything is discarded.
+    var n_env = surface_n;
+    if (normal_mapped) {
+        let t = textureSampleGrad(tex_normal, samp0, in.uv, duv1, duv2).rg * 2.0 - 1.0;
+        n_env = normalize(tsb * vec3<f32>(t, sqrt(max(1.0 - dot(t, t), 0.0))));
+    }
+    let env_uv = env_coords(n_env, in.pos_view);
+    let denv1 = dpdx(env_uv);
+    let denv2 = dpdy(env_uv);
+    let view_to_world =
+        transpose(mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz));
+    let env_dir = view_to_world * reflect(-v, n_env);
+    let ddir1 = dpdx(env_dir);
+    let ddir2 = dpdy(env_dir);
 
     // Tangent frame and parallax.
     var uv = in.uv;
@@ -343,21 +371,8 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
         let way = textureSampleLevel(tex_flow, samp0, in.uv, 0.0).rg * 2.0 - 1.0;
         uv = uv + way * (draws[this_draw].effect.y * frame.time.x);
     }
-    var tsb = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), surface_n);
-    if (normal_mapped || height_mapped) {
-        let t = in.tangent_view.xyz;
-        // (The model's own tangents; those made for the game's shaders,
-        // light_count.w, are not used here.)
-        if (in.tangent_view.w != 0.0 && dot(t, t) > 1e-12 && draws[this_draw].light_count.w == 0u) {
-            let tn = normalize(t);
-            let handed = select(-1.0, 1.0, in.tangent_view.w >= 0.0);
-            tsb = mat3x3<f32>(tn, cross(surface_n, tn) * handed, surface_n);
-        } else {
-            tsb = tangent_frame(surface_n, dp1, dp2, duv1, duv2);
-        }
-        if (height_mapped) {
-            uv = displace(uv, tsb, v, surface_n, in.pos_view, duv1, duv2);
-        }
+    if (height_mapped) {
+        uv = displace(uv, tsb, v, surface_n, in.pos_view, duv1, duv2);
     }
 
     // Every `discard` here is followed by a `return`: a discarded fragment
@@ -622,15 +637,18 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     let diffuse = acc.diffuse * draws[this_draw].diffuse.rgb;
     var specular = acc.specular * (r2 * 0.25) / (n_dot_v * (1.0 - k) + k);
     let env_spec = mix(fresnel(spec0, n_dot_v), spec0, sqrt(rough));
-    let lod = clamp(rough * 30.0 - 1.0, 0.0, 10.0);
+    // The roughness's bias over the derivatives' level (a bias of b is the
+    // derivatives times 2^b); none for a cube map, whose bias the game
+    // clamps to 0.
+    let bias = exp2(clamp(rough * 30.0 - 1.0, 0.0, 10.0));
     var env_sample: vec3<f32>;
     if (draws[this_draw].extra.x > 0.5) {
-        // Cube maps: the reflected view in world space, level 0.
-        let r = reflect(-v, n);
-        let to_world = transpose(mat3x3<f32>(frame.view[0].xyz, frame.view[1].xyz, frame.view[2].xyz));
-        env_sample = lin(textureSampleLevel(tex_env_cube, samp_env, to_world * r, 0.0).rgb);
+        // Cube maps: the reflected view in world space.
+        let r = view_to_world * reflect(-v, n);
+        env_sample = lin(textureSampleGrad(tex_env_cube, samp_env, r, ddir1, ddir2).rgb);
     } else {
-        env_sample = lin(textureSampleLevel(tex_env, samp_env, env_coords(n, in.pos_view), lod).rgb);
+        let at = env_coords(n, in.pos_view);
+        env_sample = lin(textureSampleGrad(tex_env, samp_env, at, denv1 * bias, denv2 * bias).rgb);
     }
     specular = specular + (ambient + diffuse) * env_sample * ao * env_spec;
     ambient = ambient * ao;

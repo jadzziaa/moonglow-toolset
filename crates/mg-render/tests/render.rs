@@ -2028,19 +2028,15 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
             failures.push(format!("{name}: nothing compared ({drawn:?})"));
         }
         // The tolerance: the same equations, in another language; 1 in
-        // 255 for rounding. Where the environment map shows (`_sm`, and the
-        // specular map's bright stripes of `_nm`), Moonglow's shader
-        // samples it at the roughness's level, where the game's
-        // `texture2D(texUnitEnv, uv, bias)` adds that to the level the
-        // derivatives give (a magnified map stays sharp): measured 2026-10-21,
-        // mean 0.73 / 99% 15 (`_sm`) and 1.11 / 11 (`_nm`) of 255, and
-        // 0.02 / 1 for `_sm` with the bias applied as GLSL applies it
-        // (`docs/deferred.md`).
-        let (mean, p99) = if name.contains("reflecting") || name.contains("normal") {
-            (2.0, 20)
-        } else {
-            (0.5, 1)
-        };
+        // 255 for rounding. The environment map is sampled as the game's
+        // `texture2D(texUnitEnv, uv, bias)` samples it, the roughness a
+        // bias over the level the derivatives give (M4: before, at the
+        // roughness's level outright, `_sm` differed by 0.73 / 99% 15 and
+        // `_nm` by 1.11 / 11 of 255; after, 0.00 / 0 and 0.08 / 2). `_nm`
+        // takes those derivatives from the normal map's normal before the
+        // parallax and the bend of a normal facing away, which the game
+        // takes after: 2 in 255 at the 99th percentile.
+        let (mean, p99) = if name.contains("normal") { (0.5, 3) } else { (0.5, 1) };
         if d.mean > mean || d.p99 > p99 {
             failures.push(format!("{name}: mean {:.2}, 99% {}, max {}", d.mean, d.p99, d.max));
         }
