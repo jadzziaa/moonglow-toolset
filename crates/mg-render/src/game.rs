@@ -982,12 +982,10 @@ impl std::hash::Hasher for Quick {
     }
 }
 
-/// What a draw's values are kept in: a stage's draws or lights.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-enum Kind {
-    Draw(usize),
-    Lights(usize),
-}
+/// Where a pipeline's values are kept ([`GameShaders::regions`]): the
+/// vertex program's draws and the fragment program's (0 and 1, by stage),
+/// then their lights (2 and 3).
+const LIGHTS_REGION: usize = 2;
 
 /// What a game draw draws.
 #[derive(Debug, Clone, Copy)]
@@ -1173,14 +1171,17 @@ pub(crate) struct GameShaders {
     /// zero (the bones of a draw without).
     bones: Blocks,
     zero_bones: u32,
-    /// The frame's draws' values and lights', by pipeline and kind: laid
-    /// out in `data` as the frame is uploaded.
-    regions: Fast<(u32, Kind), Region>,
+    /// The frame's draws' values and lights', by pipeline's values
+    /// ([`GamePipeline::values`], numbers from 1) and region (by stage, the
+    /// draws' then the lights'): laid out in `data` as the frame is
+    /// uploaded.
+    regions: Vec<[Region; 4]>,
     /// Each program pair's values' number ([`GamePipeline::values`]).
     value_ids: HashMap<(String, String, bool, bool), u32>,
-    /// The places of the lights' values written this frame, by pipeline,
-    /// stage and set.
-    light_places: Fast<(u32, usize, u32), u32>,
+    /// The places of the lights' values written this frame, by pipeline's
+    /// values, stage and set (its number plus one: the particles', with
+    /// none, `u32::MAX`, at 0); `u32::MAX` where not written.
+    light_places: Vec<[Vec<u32>; 2]>,
     /// What each material decides of a draw's values, by pipeline's
     /// values, stage, material and MTR parameters.
     templates: Fast<(u32, usize, u32, usize), Vec<u8>>,
@@ -1199,9 +1200,9 @@ pub(crate) struct GameShaders {
     /// Each pipeline's frame blocks, at a place of its own, written once a
     /// frame where the pipeline draws.
     frames: Blocks,
-    /// The frame each pipeline's frame blocks were last written in; the
-    /// frame's number; and the places written this frame.
-    filled: Fast<u32, u64>,
+    /// The frame each pipeline's frame blocks were last written in (by its
+    /// number); the frame's number; and the places written this frame.
+    filled: Vec<u64>,
     frame: u64,
     written: Vec<(u32, u32)>,
     /// Bumped when a buffer the groups bind is made anew.
@@ -1649,9 +1650,9 @@ impl GameShaders {
             zero,
             bones: Blocks::new(gpu, "game bones"),
             zero_bones: 0,
-            regions: Fast::default(),
+            regions: Vec::new(),
             value_ids: HashMap::new(),
-            light_places: Fast::default(),
+            light_places: Vec::new(),
             templates: Fast::default(),
             data: storage_buffer(gpu, "game draws' values", 1 << 16),
             order: Vec::new(),
@@ -1659,7 +1660,7 @@ impl GameShaders {
             lights: Vec::new(),
             light_table: storage_buffer(gpu, "game draws' lights", 1 << 12),
             frames: Blocks::new(gpu, "game frame blocks"),
-            filled: Fast::default(),
+            filled: Vec::new(),
             frame: 0,
             written: Vec::new(),
             generation: 0,
@@ -1843,10 +1844,12 @@ impl GameShaders {
         self.bones.bytes.clear();
         let zeros = self.zero_bones;
         self.bones.take(zeros, self.align);
-        for r in self.regions.values_mut() {
+        for r in self.regions.iter_mut().flatten() {
             r.bytes.clear();
         }
-        self.light_places.clear();
+        for p in self.light_places.iter_mut().flatten() {
+            p.clear();
+        }
         self.order.clear();
     }
 
@@ -1863,6 +1866,11 @@ impl GameShaders {
     ) -> GameDraw<'a> {
         self.fill_frame(&pipeline, f);
         let id = pipeline.values;
+        let at = id as usize;
+        if self.regions.len() <= at {
+            self.regions.resize_with(at + 1, Default::default);
+            self.light_places.resize_with(at + 1, Default::default);
+        }
         let mut places = [0u32; 4];
         for (stage, plan) in pipeline.stages.iter().enumerate() {
             if let Some(p) = &plan.draw {
@@ -1874,7 +1882,7 @@ impl GameShaders {
                     fill_members(&p.material, f, d, &mut t);
                     t
                 });
-                let r = self.regions.entry((id, Kind::Draw(stage))).or_default();
+                let r = &mut self.regions[at][stage];
                 r.stride = p.size;
                 let (at, out) = r.take();
                 out.copy_from_slice(template);
@@ -1883,16 +1891,20 @@ impl GameShaders {
             }
             if let Some(p) = &plan.lights {
                 // (Draws the same lights reach share their values.)
-                let key = (id, stage, d.lights);
-                places[2 + stage] = match self.light_places.get(&key) {
-                    Some(&at) => at,
-                    None => {
-                        let r = self.regions.entry((id, Kind::Lights(stage))).or_default();
+                let set = d.lights.wrapping_add(1) as usize;
+                let known = &mut self.light_places[at][stage];
+                places[LIGHTS_REGION + stage] = match known.get(set) {
+                    Some(&place) if place != u32::MAX => place,
+                    _ => {
+                        let r = &mut self.regions[at][LIGHTS_REGION + stage];
                         r.stride = p.size;
-                        let (at, out) = r.take();
+                        let (place, out) = r.take();
                         fill(p, f, d, out);
-                        self.light_places.insert(key, at);
-                        at
+                        if known.len() <= set {
+                            known.resize(set + 1, u32::MAX);
+                        }
+                        known[set] = place;
+                        place
                     }
                 };
             }
@@ -1921,7 +1933,11 @@ impl GameShaders {
     /// Writes a pipeline's frame blocks, the first time the frame draws
     /// with it.
     fn fill_frame(&mut self, pipeline: &GamePipeline, f: &FrameValues) {
-        if self.filled.insert(pipeline.id, self.frame) == Some(self.frame) {
+        let id = pipeline.id as usize;
+        if self.filled.len() <= id {
+            self.filled.resize(id + 1, 0);
+        }
+        if std::mem::replace(&mut self.filled[id], self.frame) == self.frame {
             return;
         }
         let none = DrawValues::default();
@@ -1947,12 +1963,8 @@ impl GameShaders {
         solid: &mut [GameDraw<'a>],
         blended: &mut [GameDraw<'a>],
     ) {
-        let mut keys: Vec<(u32, Kind)> =
-            self.regions.iter().filter(|(_, r)| !r.bytes.is_empty()).map(|(k, _)| *k).collect();
-        keys.sort();
         let mut end = 0u64;
-        for k in &keys {
-            let r = self.regions.get_mut(k).expect("listed");
+        for r in self.regions.iter_mut().flatten().filter(|r| !r.bytes.is_empty()) {
             let stride = u64::from(r.stride.max(16));
             let at = end.div_ceil(stride) * stride;
             r.base = (at / stride) as u32;
@@ -1962,24 +1974,17 @@ impl GameShaders {
             self.data = storage_buffer(gpu, "game draws' values", end.next_power_of_two());
             self.generation += 1;
         }
-        for k in &keys {
-            let r = &self.regions[k];
+        for r in self.regions.iter().flatten().filter(|r| !r.bytes.is_empty()) {
             let at = u64::from(r.base) * u64::from(r.stride.max(16));
             gpu.queue.write_buffer(&self.data, at, &r.bytes);
         }
-        let base = |regions: &Fast<(u32, Kind), Region>, id: u32, kind: Kind| {
-            regions.get(&(id, kind)).map_or(0, |r| r.base)
-        };
         for d in solid.iter_mut().chain(blended.iter_mut()) {
-            let id = d.pipeline.values;
             d.instance = self.order.len() as u32;
-            let r = &self.regions;
-            self.order.push([
-                base(r, id, Kind::Draw(0)) + d.places[0],
-                base(r, id, Kind::Draw(1)) + d.places[1],
-                base(r, id, Kind::Lights(0)) + d.places[2],
-                base(r, id, Kind::Lights(1)) + d.places[3],
-            ]);
+            // (A region with nothing written this frame: its base is
+            // stale, and no draw's place is in it.)
+            let base =
+                |k: usize| self.regions.get(d.pipeline.values as usize).map_or(0, |r| r[k].base);
+            self.order.push(std::array::from_fn(|k| base(k) + d.places[k]));
         }
         let table: &[u8] = bytemuck::cast_slice(&self.lights);
         if self.light_table.size() < table.len() as u64 {
