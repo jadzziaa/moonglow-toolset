@@ -99,7 +99,11 @@ const SIDE_MARGINS: f32 = 44.0;
 /// The longest name the side lists open wide enough for, characters.
 const LONG_NAME: usize = 44;
 
-/// Underlines (as editors mark errors) what is on a 0-based line.
+/// Underlines (as editors mark errors) what is on a 0-based line, from its
+/// first character that isn't a space to its last. (The job's sections
+/// are cut there: one section can run over several lines, as `append`
+/// joins tokens of one color, and the lines around the error were
+/// underlined with it.)
 fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) {
     let start = if line == 0 {
         0
@@ -107,13 +111,28 @@ fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) 
         text.match_indices('\n').nth(line - 1).map_or(text.len(), |(i, _)| i + 1)
     };
     let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
-    for s in &mut job.sections {
+    let own = &text[start..end];
+    let from = start + (own.len() - own.trim_start().len());
+    let to = start + own.trim_end().len();
+    if from >= to {
+        return;
+    }
+    let mut sections = Vec::with_capacity(job.sections.len() + 2);
+    for s in job.sections.drain(..) {
         let (a, b) = (usize::from(s.byte_range.start), usize::from(s.byte_range.end));
-        let overlaps = a < end && b > start;
-        if overlaps && !text[a..b].trim().is_empty() {
-            s.format.underline = egui::Stroke::new(1.5, color);
+        let mut cuts = vec![a];
+        cuts.extend([from, to].into_iter().filter(|&c| c > a && c < b));
+        cuts.push(b);
+        for pair in cuts.windows(2) {
+            let mut piece = s.clone();
+            piece.byte_range = egui::text::ByteIndex(pair[0])..egui::text::ByteIndex(pair[1]);
+            if pair[0] >= from && pair[1] <= to {
+                piece.format.underline = egui::Stroke::new(1.5, color);
+            }
+            sections.push(piece);
         }
     }
+    job.sections = sections;
 }
 
 impl ScriptBuffer {
@@ -184,6 +203,8 @@ impl ScriptBuffer {
 pub(crate) struct Palette {
     pub(crate) colors: [Color32; 8],
     pub(crate) size: f32,
+    /// The editor's ground; `None`: the theme's (its text fields').
+    pub(crate) background: Option<Color32>,
 }
 
 impl Palette {
@@ -223,7 +244,8 @@ impl Palette {
                 *c = Color32::from_rgb(r, g, b);
             }
         }
-        Palette { colors, size: f32::from(style.font_size.clamp(6, 48)) }
+        let background = style.background.map(|[r, g, b]| Color32::from_rgb(r, g, b));
+        Palette { colors, size: f32::from(style.font_size.clamp(6, 48)), background }
     }
 
     /// For a `Ui`: the app's style and the `Ui`'s theme.
@@ -600,12 +622,30 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
              Language (Windows-1250 for Polish), as the game reads a script's text",
         );
     });
-    // The error the latest check found, under the toolbar.
-    app.live_check(key, &ctx);
-    if let Some((line, text)) = app.live_error(key) {
-        let at = line.map_or_else(|| "in an include".to_string(), |l| format!("line {}", l + 1));
-        ui.colored_label(ui.visuals().error_fg_color, format!("⚠ {at}: {text}"))
-            .on_hover_text("Found as you type (the script is compiled when typing pauses)");
+    // The error the latest check found, under the toolbar, on a line of
+    // its own that is there with no error too: the text does not move as
+    // one comes and goes (Jasperre's report). One line, however long the
+    // message: the whole of it on hover.
+    if !app.settings.no_live_check {
+        app.live_check(key, &ctx);
+        let size = egui::vec2(ui.available_width(), ui.text_style_height(&egui::TextStyle::Body));
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        if let Some((line, text)) = app.live_error(key) {
+            let at = line.map_or_else(|| "in an include".into(), |l| format!("line {}", l + 1));
+            let said = format!("⚠ {at}: {}", text.replace(['\r', '\n'], " "));
+            let label =
+                egui::Label::new(egui::RichText::new(&said).color(ui.visuals().error_fg_color))
+                    .truncate();
+            let row = egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center));
+            ui.scope_builder(row, |ui| {
+                ui.add(label).on_hover_text(format!(
+                    "{said}\n\nFound as you type: the script is compiled when typing pauses \
+                     (Options › Script Editor)"
+                ))
+            });
+        }
     }
     ui.separator();
 
@@ -882,6 +922,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
 
     // The editor with line numbers.
     let palette = Palette::for_ui(&app.settings.script_style, ui);
+    let indent = tools::Indent::of(&app.settings.script_style);
     let error_line = app.live_error(key).and_then(|e| e.0);
     let error_color = ui.visuals().error_fg_color;
     let mut ctrl_click = None;
@@ -938,7 +979,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     }
     let mut page_scroll = None;
     // Tab on a selection of several lines indents them; Shift+Tab outdents
-    // the selected lines, or the cursor's.
+    // the selected lines, or the cursor's. Tab alone puts in a step of
+    // indentation (Options › Script Editor: four spaces, unless chosen),
+    // not the field's own tab.
     if script_tools.completion.is_none()
         && ui.memory(|m| m.has_focus(editor_id(key)))
         && let Some((a, b)) = cursor(&ctx, key)
@@ -946,12 +989,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         use egui::{Key, Modifiers};
         let lines = buf.text.chars().skip(a).take(b - a).any(|c| c == '\n');
         let outdent = ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Tab));
-        let indent =
-            !outdent && lines && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
-        if outdent || indent {
-            let (text, from, to) = tools::indent_lines(&buf.text, a, b, outdent);
+        let tab = !outdent && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
+        if outdent || (tab && lines) {
+            let (text, from, to) = tools::indent_lines(&buf.text, a, b, outdent, indent);
             buf.text = text;
             set_cursor(&ctx, key, from, to);
+        } else if tab {
+            insert(buf, &ctx, key, a, b, &indent.at(&buf.text, a));
         }
         // Enter begins the new line as far in as the line it is started
         // from (Aurora does; the field alone begins it at the margin).
@@ -1050,7 +1094,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 // not drawn (no color), and the field's ground and the
                 // selection go under its text.
                 let under = ui.painter().add(egui::Shape::Noop);
-                let ground = ui.visuals().text_edit_bg_color();
+                // (Options › Script Editor's, else the theme's.)
+                let ground =
+                    palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
                 let selected = std::mem::replace(
                     &mut ui.visuals_mut().selection.bg_fill,
                     egui::Color32::TRANSPARENT,
@@ -1685,6 +1731,28 @@ mod tests {
         assert!(html.matches("<span style=\"color:#").count() > 3, "{html}");
         assert_eq!(file_url(std::path::Path::new("/tmp/a b/c.html")), "file:///tmp/a%20b/c.html");
         assert_eq!(file_url(std::path::Path::new("C:\\x\\y.html")), "file:///C:/x/y.html");
+    }
+
+    /// An error's line alone is underlined, from its first character to
+    /// its last: tokens of one color run together over lines in one
+    /// section, and the lines around it were underlined with it.
+    #[test]
+    fn an_error_underlines_its_own_line() {
+        let text = "void main()\n{\n    int n = x;\n}\n";
+        let style = ScriptStyle::default();
+        let mut job = highlight(text, &Palette::new(&style, true, Color32::WHITE));
+        underline_line(&mut job, text, 2, Color32::RED);
+        let underlined: String = job
+            .sections
+            .iter()
+            .filter(|s| s.format.underline.width > 0.0)
+            .map(|s| &text[s.byte_range.start.0..s.byte_range.end.0])
+            .collect();
+        assert_eq!(underlined, "int n = x;");
+        assert_eq!(job.text, text);
+        let covered: usize =
+            job.sections.iter().map(|s| s.byte_range.end.0 - s.byte_range.start.0).sum();
+        assert_eq!(covered, text.len(), "every byte in one section");
     }
 
     #[test]

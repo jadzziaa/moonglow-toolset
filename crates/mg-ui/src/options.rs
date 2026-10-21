@@ -61,6 +61,7 @@ pub struct OptionsDraft {
     pub inventory_warning: bool,
     pub standard_warning: bool,
     pub auto_compile: bool,
+    pub live_check: bool,
     pub debug_info: bool,
     pub scripts_external: bool,
     pub scripts_external_only: bool,
@@ -154,6 +155,7 @@ impl OptionsDraft {
             inventory_warning: !s.no_inventory_warning,
             standard_warning: !s.no_standard_warning,
             auto_compile: s.auto_compile,
+            live_check: !s.no_live_check,
             debug_info: s.debug_info,
             scripts_external: s.scripts_external,
             scripts_external_only: s.scripts_external_only,
@@ -224,6 +226,7 @@ impl OptionsDraft {
             no_inventory_warning: !self.inventory_warning,
             no_standard_warning: !self.standard_warning,
             auto_compile: self.auto_compile,
+            no_live_check: !self.live_check,
             debug_info: self.debug_info,
             scripts_external: self.scripts_external,
             scripts_external_only: self.scripts_external_only,
@@ -837,6 +840,24 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                 "Generate Debug Information When Compiling Scripts",
                             )
                             .on_hover_text("Store a .ndb with each compiled script, for debuggers");
+                            ui.checkbox(&mut draft.live_check, "Check for errors as you type")
+                                .on_hover_text(
+                                    "Compile the script a moment after typing stops and show \
+                                     its first error under the toolbar, its line underlined",
+                                );
+                            ui.horizontal(|ui| {
+                                crate::widgets::field_label(ui, "Indent with");
+                                let style = &mut draft.script_style;
+                                ui.radio_value(&mut style.indent_tabs, false, "Spaces");
+                                ui.radio_value(&mut style.indent_tabs, true, "Tabs");
+                                ui.add_space(12.0);
+                                crate::widgets::field_label(ui, "Indent width");
+                                ui.add(egui::DragValue::new(&mut style.indent_width).range(1..=16))
+                                    .on_hover_text(
+                                        "The spaces Tab puts in (to the next multiple of it), \
+                                         and Shift+Tab takes off",
+                                    );
+                            });
                             ui.checkbox(
                                 &mut draft.scripts_together,
                                 "Open scripts as tabs of one window",
@@ -1003,13 +1024,29 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
             }
             ui.end_row();
         }
+        // The editor's ground.
+        let ground = ui.visuals().text_edit_bg_color();
+        crate::widgets::field_label(ui, "Background");
+        let mut custom = style.background.is_some();
+        if ui.checkbox(&mut custom, "Custom").changed() {
+            style.background = custom.then(|| [ground.r(), ground.g(), ground.b()]);
+        }
+        if let Some(rgb) = &mut style.background {
+            ui.color_edit_button_srgb(rgb);
+        } else {
+            ui.weak("theme");
+        }
+        ui.end_row();
     });
     if ui.button("Reset to defaults").clicked() {
-        *style = ScriptStyle::default();
+        // (The colors and the size: the indentation is not a look.)
+        let (indent_tabs, indent_width) = (style.indent_tabs, style.indent_width);
+        *style = ScriptStyle { indent_tabs, indent_width, ..ScriptStyle::default() };
     }
     let preview = "#include \"nw_i0_generic\"\n// A comment\nvoid main()\n{\n    int n = 12;\n    string s = \"text\";\n    object o = OBJECT_SELF; @\n}";
     let palette = Palette::for_ui(style, ui);
-    egui::Frame::group(ui.style()).show(ui, |ui| {
+    let fill = palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
+    egui::Frame::group(ui.style()).fill(fill).show(ui, |ui| {
         ui.label(crate::script_view::highlight(preview, &palette));
     });
 }
@@ -1250,7 +1287,10 @@ mod tests {
         (d.name_resrefs, d.palette_cr, d.light_theme) = (true, false, true);
         d.script_templates = " /tmp/templates ".into();
         d.scratch_dir = "/tmp/scratch".into();
+        assert!(d.live_check, "checked as you type unless asked");
+        d.live_check = false;
         let t = d.apply(&s);
+        assert!(t.no_live_check);
         assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
         assert!(t.area_names && !s.area_names, "areas by ResRef unless asked");
         assert!(t.categories_by_name && !s.categories_by_name, "the palette's order unless asked");

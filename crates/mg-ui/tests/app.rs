@@ -9478,10 +9478,32 @@ fn tab_indents_selected_lines_in_the_script_editor() {
     h.run();
     h.key_press(egui::Key::Tab);
     h.run();
+    // Four spaces, unless Options › Script Editor says otherwise.
+    assert_eq!(h.state().script_text(key).unwrap(), "    void main()\n    {\n}\n");
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n}\n");
+    // Tabs, chosen: a tab on each line.
+    h.state_mut().settings.script_style.indent_tabs = true;
+    h.key_press(egui::Key::Tab);
+    h.run();
     assert_eq!(h.state().script_text(key).unwrap(), "\tvoid main()\n\t{\n}\n");
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
     h.run();
     assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n}\n");
+    // Tab with no lines selected: the field's own tab no longer, but
+    // spaces to the next multiple of the width (two, here: from column 2).
+    h.state_mut().settings.script_style.indent_tabs = false;
+    h.state_mut().script_tools.jump = Some((key, 2));
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.event(egui::Event::Text("x".into()));
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), "vo  xid main()\n{\n}\n");
+    h.state_mut().settings.script_style.indent_tabs = true;
+    h.key_press(egui::Key::Tab);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), "vo  x\tid main()\n{\n}\n");
 }
 
 /// A CRLF script (BioWare's are, and Moonglow's new ones) in the editor:
@@ -13862,8 +13884,12 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     m.set_info(&info).unwrap();
     let inc = ResKey::parse("inc_util", ResType::NSS).unwrap();
     let main = ResKey::parse("main_a", ResType::NSS).unwrap();
-    m.set(inc, b"// Doubles a number.\nint Twice(int n) { return n * 2; }\n".to_vec());
-    m.set(main, b"#include \"inc_util\"\nvoid main()\n{\n    int x = Twice(2);\n}\n".to_vec());
+    // (CRLF, as BioWare's and Aurora's scripts are: the places found are
+    // in the editor's text, with plain newlines, and the rename keeps the
+    // files' line ends.)
+    m.set(inc, b"// Doubles a number.\r\nint Twice(int n) { return n * 2; }\r\n".to_vec());
+    let crlf = b"#include \"inc_util\"\r\nvoid main()\r\n{\r\n    int x = Twice(2);\r\n}\r\n";
+    m.set(main, crlf.to_vec());
     let path = dir.join("nav.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let install = mg_resman::GameInstall::new(&root, None, "en");
@@ -13903,12 +13929,24 @@ fn script_navigation_definition_references_rename_and_live_errors() {
         String::from_utf8(h.state().ws.as_ref().unwrap().module.get(&k).unwrap().to_vec()).unwrap()
     };
     assert!(text_of(&h, inc).contains("int Double(int n)"));
-    assert!(text_of(&h, main).contains("int x = Double(2);"));
+    assert_eq!(
+        text_of(&h, main),
+        "#include \"inc_util\"\r\nvoid main()\r\n{\r\n    int x = Double(2);\r\n}\r\n"
+    );
+    assert!(!text_of(&h, inc).replace("\r\n", "").contains('\n'), "CRLF kept");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Rename Twice to Double"));
 
     // Errors as you type: checked once typing pauses, the line shown.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(main)));
     h.run_steps(3);
+    // (Where the text begins: the error's line is kept for it, there or
+    // not, so the text does not move as one comes and goes; Jasperre's
+    // report.)
+    let editor = egui::Id::new(("script", main));
+    let top =
+        |h: &Harness<'_, Moonglow>| h.ctx.read_response(editor).expect("the editor").rect.top();
+    let before = top(&h);
+    assert!(h.state().script_error_for_test(main).is_none());
     h.state_mut().scripts_mut_for_test(
         main,
         "#include \"inc_util\"\nvoid main()\n{\n    int x = Double(2) +;\n}\n",
@@ -13919,6 +13957,13 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     let error = h.state().script_error_for_test(main);
     assert_eq!(error.as_ref().map(|e| e.0), Some(Some(3)), "{error:?}");
     h.get_by_label_contains("⚠ line 4:");
+    assert_eq!(top(&h), before, "the text stays where it was");
+    // Options › Script Editor: no checking as you type.
+    h.state_mut().settings.no_live_check = true;
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("⚠").is_none());
+    assert!(h.state().script_error_for_test(main).is_none(), "nor its underline");
+    assert!(top(&h) < before, "and no line kept for one");
 }
 
 #[test]

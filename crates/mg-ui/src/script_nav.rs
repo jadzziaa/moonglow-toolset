@@ -261,8 +261,12 @@ impl Moonglow {
         self.live_error(key).cloned()
     }
 
-    /// The error a script's latest check found.
+    /// The error a script's latest check found; none while checking as
+    /// you type is off (Options › Script Editor).
     pub(crate) fn live_error(&self, key: ResKey) -> Option<&(Option<usize>, String)> {
+        if self.settings.no_live_check {
+            return None;
+        }
         self.script_nav.live.get(&key)?.error.as_ref()
     }
 }

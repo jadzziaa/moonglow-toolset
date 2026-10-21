@@ -27,11 +27,25 @@ pub struct ScriptStyle {
     /// A colour (sRGB) for each of [`SCRIPT_ELEMENTS`]; `None` follows the
     /// light or dark theme.
     pub colors: [Option<[u8; 3]>; 8],
+    /// The editor's background (sRGB); `None` follows the theme (its text
+    /// fields' ground).
+    pub background: Option<[u8; 3]>,
+    /// Tab indents with a tab, rather than spaces (the default).
+    pub indent_tabs: bool,
+    /// How many spaces a step of indentation is (and the column a tab
+    /// counts to): four unless chosen.
+    pub indent_width: u8,
 }
 
 impl Default for ScriptStyle {
     fn default() -> ScriptStyle {
-        ScriptStyle { font_size: 13, colors: [None; 8] }
+        ScriptStyle {
+            font_size: 13,
+            colors: [None; 8],
+            background: None,
+            indent_tabs: false,
+            indent_width: 4,
+        }
     }
 }
 
@@ -253,6 +267,9 @@ pub struct Settings {
     pub no_standard_warning: bool,
     /// Options > Script Editor: Automatically Compile Scripts on Save.
     pub auto_compile: bool,
+    /// Options › Script Editor: Check for errors as you type, off (on by
+    /// default).
+    pub no_live_check: bool,
     /// Options > Script Editor: Generate Debug Information When Compiling
     /// Scripts (`.ndb` next to the `.ncs`).
     pub debug_info: bool,
@@ -542,6 +559,20 @@ mod tests {
         assert_eq!(s.script_style, ScriptStyle::default());
         let mut t = s;
         t.script_style.colors[3] = Some([1, 2, 3]);
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
+        assert_eq!(back, t);
+        // A style saved before the background, the indentation and the
+        // live check were: theirs are the defaults (four spaces, the
+        // theme's ground, checked as you type).
+        let old = r#"{"script_style":{"font_size":15,"colors":[null,null,null,null,null,null,null,null]}}"#;
+        let s: Settings = serde_json::from_str(old).unwrap();
+        assert_eq!(s.script_style.font_size, 15);
+        assert_eq!((s.script_style.indent_tabs, s.script_style.indent_width), (false, 4));
+        assert_eq!(s.script_style.background, None);
+        assert!(!s.no_live_check);
+        let mut t = s;
+        (t.script_style.background, t.script_style.indent_tabs) = (Some([9, 9, 9]), true);
+        t.no_live_check = true;
         let back: Settings = serde_json::from_str(&serde_json::to_string(&t).unwrap()).unwrap();
         assert_eq!(back, t);
     }
