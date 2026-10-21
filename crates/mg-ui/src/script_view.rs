@@ -16,11 +16,22 @@ use crate::text::{decode_script as decode, encode_script as encode, script_codep
 use crate::{Action, Moonglow, Tab};
 
 /// A script's text in its editor.
+///
+/// The editor's text has plain newlines (`\n`) for line ends, whatever the
+/// file has: a CRLF script (BioWare's, Aurora's, the new scripts' own)
+/// kept its `\r` at each line's end in the editor, where the cursor
+/// stopped on it, End went past it, and a copy took it along (Jasperre's
+/// report: what looked like a trailing space on every line). The file's
+/// line ends are put back as it is written ([`ScriptBuffer::bytes`]).
 #[derive(Debug, Clone)]
 pub(crate) struct ScriptBuffer {
     pub(crate) text: String,
     /// The text as last loaded or saved.
     pub(crate) saved: String,
+    /// The file's text as last loaded or saved, with its own line ends:
+    /// what an untouched text is written as, and whose line ends an
+    /// edited one takes ([`crate::text::with_line_ends`]).
+    raw: String,
     /// The module's bytes the text was last compared with (address and
     /// length), to decode them again only when they change.
     source: (usize, usize),
@@ -41,7 +52,8 @@ pub(crate) struct ScriptBuffer {
 }
 
 /// A script's text: what its editor holds (unsaved typing too), else the
-/// module's, else the game's, read in the scripts' codepage. Every view of
+/// module's, else the game's, read in the scripts' codepage, with plain
+/// newlines for line ends (as the editor has them). Every view of
 /// a script's text reads it here (the conversation editor's Script Preview
 /// read the module's in the game's codepage, and past an open editor).
 pub(crate) fn script_source(
@@ -53,8 +65,11 @@ pub(crate) fn script_source(
     if let Some(b) = scripts.get(key) {
         return Some(b.text.clone());
     }
+    // (With plain newlines, as an editor has it: positions in it are the
+    // editor's, whose script it is or will be.)
     ws.and_then(|w| w.module.get(key).map(decode))
         .or_else(|| game?.resman.get(key).ok().map(|d| decode(&d)))
+        .map(|raw| crate::text::to_editor(&raw).0)
 }
 
 impl Moonglow {
@@ -105,10 +120,12 @@ impl ScriptBuffer {
     /// A script's bytes in an editor, read in the script codepage.
     pub(crate) fn read(bytes: &[u8], source: (usize, usize)) -> ScriptBuffer {
         let codepage = script_codepage();
-        let text = codepage.decode(bytes).into_owned();
+        let raw = codepage.decode(bytes).into_owned();
+        let text = crate::text::to_editor(&raw).0;
         ScriptBuffer {
             text: text.clone(),
             saved: text,
+            raw,
             source,
             bookmarks: Default::default(),
             numbered: [None; 10],
@@ -117,13 +134,42 @@ impl ScriptBuffer {
         }
     }
 
+    /// Takes the file's text as it now is (`raw`, with its line ends) as
+    /// both the text and the text saved.
+    fn follow(&mut self, raw: String) {
+        let text = crate::text::to_editor(&raw).0;
+        self.text = text.clone();
+        self.saved = text;
+        self.raw = raw;
+    }
+
     pub(crate) fn is_dirty(&self) -> bool {
         self.text != self.saved
     }
 
-    /// The text as the script's bytes, in the codepage it was read in.
+    /// The text as the file has it: with the file's line ends (an
+    /// untouched text, the file's own text).
+    fn file_text(&self) -> std::borrow::Cow<'_, str> {
+        if self.text == self.saved {
+            std::borrow::Cow::Borrowed(&self.raw)
+        } else {
+            std::borrow::Cow::Owned(crate::text::with_line_ends(&self.text, &self.raw))
+        }
+    }
+
+    /// The text as the script's bytes, in the codepage it was read in and
+    /// with the file's line ends.
     pub(crate) fn bytes(&self) -> Vec<u8> {
-        self.codepage.encode_lossy(&self.text)
+        self.codepage.encode_lossy(&self.file_text())
+    }
+
+    /// Marks the text saved: the bytes it is saved as.
+    pub(crate) fn mark_saved(&mut self) -> Vec<u8> {
+        let raw = self.file_text().into_owned();
+        let bytes = self.codepage.encode_lossy(&raw);
+        self.raw = raw;
+        self.saved = self.text.clone();
+        bytes
     }
 
     /// The warning for characters of the text its codepage cannot write.
@@ -378,11 +424,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             if !buf.is_dirty() {
                 let module_text = codepage.decode(bytes).into_owned();
                 buf.codepage = codepage;
-                if buf.saved != module_text || buf.text != module_text {
-                    // Changed underneath (undo, import): follow the module.
-                    buf.text = module_text.clone();
-                    buf.saved = module_text;
-                }
+                // Changed underneath (undo, import): follow the module,
+                // its line ends too.
+                buf.follow(module_text);
             }
         }
     }
@@ -688,7 +732,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             .on_hover_text("Double-click to insert")
                             .double_clicked()
                         {
-                            insert_text = std::fs::read(path).ok().map(|b| decode(&b));
+                            insert_text = std::fs::read(path)
+                                .ok()
+                                .map(|b| crate::text::to_editor(&decode(&b)).0);
                         }
                     }
                 });
@@ -876,6 +922,19 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             if s.kind == SymbolKind::Function { format!("{}(", s.name) } else { s.name.clone() };
         let at = cursor(&ctx, key).map_or(c.start, |x| x.0);
         insert(buf, &ctx, key, c.start, at, &text);
+    }
+    // Text pasted has the editor's line ends, plain newlines (a copy from
+    // a Windows program has CRLF).
+    if ui.memory(|m| m.has_focus(editor_id(key))) {
+        ui.input_mut(|i| {
+            for e in &mut i.events {
+                if let egui::Event::Paste(s) | egui::Event::Text(s) = e
+                    && s.contains('\r')
+                {
+                    *s = s.replace("\r\n", "\n").replace('\r', "\n");
+                }
+            }
+        });
     }
     let mut page_scroll = None;
     // Tab on a selection of several lines indents them; Shift+Tab outdents
@@ -1113,8 +1172,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let buf = app.scripts.get_mut(&key).expect("open");
         let text = buf.text.clone();
         if buf.is_dirty() {
-            buf.saved = text.clone();
-            let (data, warning) = (buf.bytes(), buf.unwritable(key));
+            let (data, warning) = (buf.mark_saved(), buf.unwritable(key));
             app.actions.push(Action::Apply(Command::new(
                 format!("Edit {key}"),
                 vec![Edit::SetResource { key, data: Some(data) }],
@@ -1151,7 +1209,7 @@ fn project_file(app: &Moonglow, key: ResKey) -> Option<std::path::PathBuf> {
     let path = ws.module.file_of(&key)?.to_path_buf();
     let buf = app.scripts.get(&key)?;
     let on_disk = std::fs::read(&path).ok()?;
-    (!buf.is_dirty() && buf.codepage.decode(&on_disk) == buf.text).then_some(path)
+    (!buf.is_dirty() && on_disk == buf.bytes()).then_some(path)
 }
 
 /// Opens a script in the external editor alone, with no editor of
@@ -1256,7 +1314,7 @@ pub(crate) fn reload_external(app: &mut Moonglow, key: ResKey) {
     }
     *seen = modified;
     if let Ok(bytes) = std::fs::read(&*path) {
-        let text = buf.codepage.decode(&bytes).into_owned();
+        let text = crate::text::to_editor(&buf.codepage.decode(&bytes)).0;
         if text != buf.text {
             buf.text = text;
             app.log.info(format!("{key}: changed in the external editor"));
@@ -1553,6 +1611,33 @@ mod tests {
         scripts.insert(key, open);
         assert_eq!(read(&scripts).as_deref(), Some("// ą\nvoid main() {}\n"), "the editor's");
         crate::text::set_edit_language(Language::ENGLISH);
+    }
+
+    /// A CRLF script (BioWare's, the new scripts') is edited with plain
+    /// newlines, no `\r` for the cursor to stop on at each line's end
+    /// (Jasperre's report), and written back as it was: untouched, byte
+    /// for byte; edited, with CRLF on every line, the new ones too.
+    #[test]
+    fn a_crlf_script_is_edited_with_plain_newlines_and_saved_with_crlf() {
+        let file = NEW_SCRIPT.as_bytes();
+        let mut buf = ScriptBuffer::read(file, (0, 0));
+        assert_eq!(buf.text, "void main()\n{\n\n}\n");
+        assert!(!buf.is_dirty());
+        assert_eq!(buf.bytes(), file, "untouched: the file's bytes");
+        buf.text = "void main()\n{\n    int n;\n}\n".into();
+        assert!(buf.is_dirty());
+        let saved = buf.mark_saved();
+        assert_eq!(saved, b"void main()\r\n{\r\n    int n;\r\n}\r\n");
+        assert!(!buf.is_dirty());
+        assert_eq!(buf.bytes(), saved);
+        // A plain-newline script stays one.
+        let mut lf = ScriptBuffer::read(b"void main()\n{\n}\n", (0, 0));
+        lf.text.insert_str(0, "// x\n");
+        assert_eq!(lf.mark_saved(), b"// x\nvoid main()\n{\n}\n");
+        // The templates have no trailing spaces either.
+        for t in [NEW_SCRIPT, NEW_CONDITION] {
+            assert!(t.split("\r\n").all(|l| l.trim_end() == l), "{t:?}");
+        }
     }
 
     /// A selection is drawn to each line's last character: no wider than

@@ -9484,6 +9484,53 @@ fn tab_indents_selected_lines_in_the_script_editor() {
     assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n}\n");
 }
 
+/// A CRLF script (BioWare's are, and Moonglow's new ones) in the editor:
+/// no `\r` at the lines' ends for End to land after and typing to go
+/// past (Jasperre's report: "trailing spaces" on every line); untouched,
+/// the module keeps its bytes; edited and saved, CRLF everywhere (the
+/// line typed and the text pasted too), no bare newline.
+#[test]
+fn a_crlf_script_has_no_carriage_returns_in_its_editor() {
+    let dir = mg_testkit::scratch_dir("ui-script-crlf");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let file = b"void main()\r\n{\r\n    int n;\r\n}\r\n".to_vec();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, file.clone());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let module = |h: &Harness<'_, Moonglow>| {
+        h.state().ws.as_ref().unwrap().module.get(&key).map(<[u8]>::to_vec)
+    };
+    assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n    int n;\n}\n");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert_eq!(module(&h).unwrap(), file, "untouched: the same bytes");
+    let on_disk = Module::open(&path).unwrap().get(&key).map(<[u8]>::to_vec);
+    assert_eq!(on_disk.unwrap(), file, "and saved so");
+    // End on the first line, and a letter: at the line's end.
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("x".into()));
+    h.run();
+    assert!(h.state().script_text(key).unwrap().starts_with("void main()x\n{"));
+    // A new line, and a paste of Windows text.
+    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Paste("// a\r\n// b".into()));
+    h.run();
+    let text = h.state().script_text(key).unwrap();
+    assert!(!text.contains('\r'), "{text:?}");
+    h.get_by_label("Save").click();
+    h.run();
+    let saved = module(&h).unwrap();
+    assert_eq!(saved, b"void main()x\r\n// a\r\n// b\r\n{\r\n    int n;\r\n}\r\n");
+}
+
 #[test]
 fn page_keys_move_through_the_script_editor() {
     // Sacha's report: Page Up and Page Down did nothing in the script editor.

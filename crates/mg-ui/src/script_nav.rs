@@ -169,7 +169,10 @@ impl Moonglow {
         let mut edits = Vec::new();
         for (file, mut spans) in by_file {
             let Some(k) = tools::nss(&file) else { continue };
-            let Some(text) = ws.module.get(&k).map(decode) else { continue };
+            let Some(raw) = ws.module.get(&k).map(decode) else { continue };
+            // (The places are in the text as the editors have it, with
+            // plain newlines: written back with the file's line ends.)
+            let text = crate::text::to_editor(&raw).0;
             spans.sort_by_key(|s| s.start);
             let mut out = String::with_capacity(text.len());
             let mut at = 0;
@@ -179,6 +182,7 @@ impl Moonglow {
                 at = s.end;
             }
             out.push_str(&text[at..]);
+            let out = crate::text::with_line_ends(&out, &raw);
             edits.push(Edit::SetResource { key: k, data: Some(encode(&out)) });
         }
         let n = edits.len();

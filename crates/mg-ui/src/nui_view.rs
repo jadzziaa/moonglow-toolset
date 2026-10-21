@@ -289,8 +289,7 @@ fn build(app: &mut Moonglow, name: &str, export: bool) {
         if let Some(key) = ResKey::parse(&format!("{name}{suffix}"), ResType::NSS)
             && let Some(buf) = app.scripts.get_mut(&key).filter(|b| b.is_dirty())
         {
-            buf.saved = buf.text.clone();
-            let data = Some(buf.bytes());
+            let data = Some(buf.mark_saved());
             if let Err(e) = app
                 .apply(Command::new(format!("Edit {key}"), vec![Edit::SetResource { key, data }]))
             {

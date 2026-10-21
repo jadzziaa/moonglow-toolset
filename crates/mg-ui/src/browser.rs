@@ -417,9 +417,11 @@ impl Viewed {
                 },
             }
         } else if key.restype == ResType::NSS {
-            Content::Script(crate::text::decode_script(&data))
+            // (Shown and copied with plain newlines, as the script editor
+            // has them; Copy to Module and Save copy the bytes.)
+            Content::Script(crate::text::to_editor(&crate::text::decode_script(&data)).0)
         } else if is_text(key.restype, &data) {
-            Content::Text(codepage.decode(&data).into_owned())
+            Content::Text(crate::text::to_editor(&codepage.decode(&data)).0)
         } else if let Some(text) = model_text(key, &data) {
             Content::Text(text)
         } else {
