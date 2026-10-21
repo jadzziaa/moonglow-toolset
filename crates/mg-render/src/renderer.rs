@@ -297,6 +297,10 @@ pub enum DebugView {
     MaterialDiffuse,
 }
 
+/// A mesh's pipeline of the game's programs, and a see-through one's
+/// fringe's.
+type GamePipelines = (Arc<crate::game::GamePipeline>, Option<Arc<crate::game::GamePipeline>>);
+
 #[derive(Debug)]
 pub struct Renderer {
     pub debug: DebugView,
@@ -307,6 +311,10 @@ pub struct Renderer {
     /// default.
     pub game_shaders: bool,
     game: crate::game::GameShaders,
+    /// The pipelines of each mesh's slots ([`Renderer::game_pipelines`]): by
+    /// the slots (their place), whether it reflects, is skinned, and its
+    /// pass.
+    game_pipelines: HashMap<(usize, bool, bool, crate::game::GamePass), Option<GamePipelines>>,
     /// Each material's key, by its place among [`Renderer::groups`].
     material_keys: Vec<MaterialKey>,
     /// Draws of one mesh are drawn as instances of one draw (on; off,
@@ -771,6 +779,7 @@ impl Renderer {
             debug: DebugView::Lit,
             game_shaders: false,
             game: crate::game::GameShaders::new(gpu),
+            game_pipelines: HashMap::new(),
             material_keys: Vec::new(),
             instancing: true,
             color_format,
@@ -826,6 +835,7 @@ impl Renderer {
         self.material_keys.clear();
         self.surfaces.clear();
         self.game.clear();
+        self.game_pipelines.clear();
     }
 
     /// Whether a mesh is one the game's shaders draw (with them on): one
@@ -842,6 +852,41 @@ impl Renderer {
                 && slots.effect.is_none()
                 && surface.ripple.is_none()
                 && !surface.water)
+    }
+
+    /// The pipelines a mesh of these slots is drawn with by the game's
+    /// shaders (a see-through one's two parts: its fringe's second); kept
+    /// by the slots, so that a frame's draws look up no programs by name.
+    fn game_pipelines(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn Assets,
+        slots: &Arc<Slots>,
+        reflects: bool,
+        skinned: bool,
+        pass: crate::game::GamePass,
+    ) -> Option<GamePipelines> {
+        use crate::game::{GamePass, PipelineKey};
+        let at = (Arc::as_ptr(slots) as usize, reflects, skinned, pass);
+        if let Some(p) = self.game_pipelines.get(&at) {
+            return p.clone();
+        }
+        let (vs, fs, _) =
+            crate::game::program_pair(slots.custom.as_ref(), slots.normal_variant, reflects);
+        let key = PipelineKey { vs, fs, skinned, twosided: slots.twosided, pass };
+        let (format, samples) = (self.color_format, self.sample_count);
+        let p = match pass {
+            GamePass::Solid => {
+                let fringe = PipelineKey { pass: GamePass::Fringe, ..key.clone() };
+                self.game.pipeline(gpu, assets, &key, format, samples).and_then(|p| {
+                    let q = self.game.pipeline(gpu, assets, &fringe, format, samples);
+                    q.map(|q| (p, Some(q)))
+                })
+            }
+            _ => self.game.pipeline(gpu, assets, &key, format, samples).map(|p| (p, None)),
+        };
+        self.game_pipelines.insert(at, p.clone());
+        p
     }
 
     /// The game's shaders that couldn't be drawn ([`Renderer::game_shaders`]),
@@ -1260,7 +1305,9 @@ impl Renderer {
                 target: camera.target,
                 fov_y: camera.fov_y,
                 environment: scene.environment,
+                ..Default::default()
             }
+            .derive()
         });
         self.game.begin();
         // The solid meshes drawn with the game's shaders (drawn after
@@ -1432,35 +1479,14 @@ impl Renderer {
                     && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
                     && self.game_path(slots, surface)
                 {
-                    let (vs, fs, _) = crate::game::program_pair(
-                        slots.custom.as_ref(),
-                        slots.normal_variant,
+                    let pipelines = self.game_pipelines(
+                        gpu,
+                        assets,
+                        slots,
                         surface.reflects,
+                        mesh.skin.is_some(),
+                        game_pass,
                     );
-                    let key = crate::game::PipelineKey {
-                        vs,
-                        fs,
-                        skinned: mesh.skin.is_some(),
-                        twosided: slots.twosided,
-                        pass: game_pass,
-                    };
-                    let (format, samples) = (self.color_format, self.sample_count);
-                    let pipelines = match game_pass {
-                        crate::game::GamePass::Solid => {
-                            let fringe = crate::game::PipelineKey {
-                                pass: crate::game::GamePass::Fringe,
-                                ..key.clone()
-                            };
-                            self.game.pipeline(gpu, assets, &key, format, samples).and_then(|p| {
-                                let q = self.game.pipeline(gpu, assets, &fringe, format, samples);
-                                q.map(|q| (p, Some(q)))
-                            })
-                        }
-                        _ => self
-                            .game
-                            .pipeline(gpu, assets, &key, format, samples)
-                            .map(|p| (p, None)),
-                    };
                     if let Some((p, fringe)) = pipelines {
                         let light_positions: Vec<[f32; 4]> =
                             chosen.iter().map(|(_, _, i)| lights[*i as usize].pos).collect();
@@ -1822,6 +1848,9 @@ impl Renderer {
             let noise = self.texture(gpu, assets, "solid_noise");
             let env_sampler = self.env_sampler.clone();
             for d in game_draws.iter().chain(&game_blended) {
+                if self.game.prepared(d) {
+                    continue;
+                }
                 let key = self.material_keys[d.material as usize].clone();
                 let textures: Vec<Option<Arc<TextureEntry>>> = key
                     .0

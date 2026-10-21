@@ -276,6 +276,36 @@ pub(crate) struct FrameValues {
     pub(crate) fov_y: f32,
     /// The area's flags, wind and weather ([`crate::scene::Environment`]).
     pub(crate) environment: crate::scene::Environment,
+    /// Made of the above once a frame ([`FrameValues::derive`]).
+    pub(crate) derived: Derived,
+}
+
+/// What the frame's values make, worked out once a frame, not once a draw.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Derived {
+    proj_inv: Mat4,
+    view_inv: Mat4,
+    vp: Mat4,
+    vp_inv: Mat4,
+    pitch: f32,
+    yaw: f32,
+}
+
+impl FrameValues {
+    /// Works out what the values make (the inverses, the camera's angles).
+    pub(crate) fn derive(mut self) -> FrameValues {
+        let vp = self.proj * self.view;
+        let (pitch, yaw) = pitch_yaw(self.eye, self.target);
+        self.derived = Derived {
+            proj_inv: self.proj.inverse(),
+            view_inv: self.view.inverse(),
+            vp,
+            vp_inv: vp.inverse(),
+            pitch,
+            yaw,
+        };
+        self
+    }
 }
 
 /// One draw's own values.
@@ -335,11 +365,11 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         M => Val::M(d.world),
         Normal => Val::M(mv().inverse().transpose()),
         Proj => Val::M(f.proj),
-        ProjInv => Val::M(f.proj.inverse()),
+        ProjInv => Val::M(f.derived.proj_inv),
         View => Val::M(f.view),
-        ViewInv => Val::M(f.view.inverse()),
-        Vp => Val::M(f.proj * f.view),
-        VpInv => Val::M((f.proj * f.view).inverse()),
+        ViewInv => Val::M(f.derived.view_inv),
+        Vp => Val::M(f.derived.vp),
+        VpInv => Val::M(f.derived.vp_inv),
         TextureMatrix => Val::M(Mat4::IDENTITY),
         Bones => Val::Ms(d.bones),
         Skinmesh => Val::I(i32::from(!d.bones.is_empty())),
@@ -379,8 +409,8 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         ModuleDuskHour => Val::I(18),
         CameraPosition => Val::V(v3(f.eye, 0.0)),
         CameraFocus => Val::V(v3(f.target, 0.0)),
-        CameraPitch => Val::F(pitch_yaw(f.eye, f.target).0),
-        CameraYaw => Val::F(pitch_yaw(f.eye, f.target).1),
+        CameraPitch => Val::F(f.derived.pitch),
+        CameraYaw => Val::F(f.derived.yaw),
         CameraViewAngle => Val::F(f.fov_y.to_degrees()),
         PlayerPosition => Val::V(v3(f.target, 0.0)),
         PlayerCameraDist => Val::F(f.eye.distance(f.target)),
@@ -966,6 +996,12 @@ impl GameShaders {
         }
     }
 
+    /// Whether the bind groups `draw` needs are made ([`GameShaders::prepare`]).
+    pub(crate) fn prepared(&self, draw: &GameDraw<'_>) -> bool {
+        self.groups_generation == self.generation
+            && self.groups.contains_key(&(draw.pipeline.id, draw.material))
+    }
+
     /// Makes the bind groups a draw needs, where they aren't made yet.
     pub(crate) fn prepare(&mut self, gpu: &Gpu, draw: &GameDraw<'_>, views: &MaterialViews<'_>) {
         if self.groups_generation != self.generation {
@@ -1038,8 +1074,8 @@ impl GameShaders {
                 pipeline = Some(d.pipeline.id);
             }
             for (i, group) in groups.iter().enumerate() {
-                let offsets: Vec<u32> = d.offsets[i].into_iter().collect();
-                pass.set_bind_group(i as u32, group, &offsets);
+                let offset = d.offsets[i].map(|o| [o]);
+                pass.set_bind_group(i as u32, group, offset.as_ref().map_or(&[][..], |o| &o[..]));
             }
             match d.dynamic {
                 Some((from, to)) => pass.set_vertex_buffer(0, dynamic.slice(from..to)),
@@ -1269,7 +1305,8 @@ void main ()
             seconds: 2.5,
             environment: crate::scene::Environment::from_are(5, 2),
             ..Default::default()
-        };
+        }
+        .derive();
         let positions = [[1.0, 2.0, 3.0, 1.0], [4.0, 5.0, 6.0, 1.0]];
         let colors = [[0.5, 0.25, 0.125, 400.0], [1.0, 1.0, 1.0, -9.0]];
         let params = vec![
