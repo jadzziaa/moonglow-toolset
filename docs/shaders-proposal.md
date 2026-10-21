@@ -1,9 +1,9 @@
 ---
 type: Proposal
 title: 'The game''s own shaders in the area view: a proposal for 2.0'
-description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies.
+description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies; M3 built - the Shaders switch on by default, every view within 144 fps where Moonglow's own shader is (a large stock area zoomed out 5.97 ms on, 3.97 off; a synthetic TDoD area seen whole, over the budget either way, 54 ms on, 29 off), through uniforms split in IR into a draw's, its lights', the frame's and the bones', draws as instances of storage arrays, compiles on a worker thread and a disk cache.
 tags: [proposal, rendering, shaders, custom-content, renderer, release-2]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:42:54Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T17:50:05Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -39,6 +39,9 @@ sources:
   - id: m2
     resource: crates/mg-render/src/game.rs, renderer.rs, model.rs (made_tangents), crates/mg-shader/src/link.rs (keep_alpha, reads_uniform), crates/mg-ui (the Shaders switch), crates/mg-module/src/doctor.rs (shader-pair), crates/mg-corpus-tests/tests/game_shaders.rs, client_render.rs (tdod_custom_shaders_look), crates/mg-ui/tests/app.rs (tdod_s_wind_shaders_move_in_the_area_view), run 2026-10-21 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
     title: M2, tier A
+  - id: m3
+    resource: crates/mg-shader/src/spirv.rs (add_spare_blocks, add_draw_index), link.rs (split_uniforms), cache.rs, crates/mg-render/src/game.rs, renderer.rs, crates/mg-ui/src/settings.rs (GAME_SHADERS_BY_DEFAULT), crates/mg-ui/tests/frame_perf.rs (game_shaders_frames_at_144), crates/mg-render/tests/render.rs (an_authored_glsl_pair_draws_on_this_platform_s_gpu), run 2026-10-21 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
+    title: M3, the frame budget
   - id: wiki-shaders
     resource: ~/.local/opt/neverwinter/wiki/pages/NWN1/106856449-shaders-introduction-editing-a-textures-colour.md, 12027232-mtr.md
     title: 'nwn.wiki: Shaders Introduction (both programs needed), MTR (renderhint makes tangents)'
@@ -50,8 +53,9 @@ Status: accepted on 2026-10-21 (see [the owner's decisions](#the-owners-decision
 M0, the compiler, is built ([M0: the compiler](#m0-the-compiler-2026-10-21)), and
 M1, the stock lit programs drawn beside Moonglow's shader
 ([M1: one stock pair drawn](#m1-one-stock-pair-drawn-2026-10-21)), and M2, tier A
-behind a **Shaders** switch, off by default
-([M2: tier A](#m2-tier-a-2026-10-21)).
+behind a **Shaders** switch ([M2: tier A](#m2-tier-a-2026-10-21)), and M3,
+the switch within the frame budget and **on by default**
+([M3: the frame budget](#m3-the-frame-budget-2026-10-21)).
 
 Moonglow draws with one WGSL shader of its own that approximates EE's
 lighting ([the plan](PLAN.md) §5.5). This proposes that 2.0 draws with
@@ -562,6 +566,166 @@ game's shaders").
 [^m2]: M2: the files in the frontmatter's `m2` source, run 2026-10-21.
 [^wiki-shaders]: nwn.wiki, "Shaders Introduction: Editing A Textures Colour" (both programs needed) and "MTR" (Renderhint: tangents generated).
 
+## M3: the frame budget (2026-10-21)
+
+**The default is on** (`GAME_SHADERS_BY_DEFAULT`, owner's decision 3),
+by this rule: *with the switch on, every measured view that is within
+the 144 fps budget with it off stays within it*. Where the switch off is
+already over the budget, the switch on may cost more, and it does in one
+view. In the synthetic TDoD area below, seen whole while zooming out (33,000
+meshes of the densest custom tileset on screen at once), a frame takes
+**54 ms on against 29 ms off**, and the GPU 17.6 ms against 5.7. That
+view is 4× over the budget with Moonglow's own shader too. The owner can
+reverse the default with one constant; a builder's saved choice is
+kept.[^m3]
+
+**Measured** with `frame_perf`'s `game_shaders_frames_at_144` (release
+build; Ryzen 7 5800X3D and RX 9070 at 3440×1400; the view with the
+pointer moving, left alone, and zooming out with the wheel). There are
+two areas. The first is stock: *Tyrants of the Moonsea*'s largest,
+`area092`, with 784 tiles, 61 objects and 749 lights. The second is
+synthetic, The Domains of Dread's, because TDoD's own module has no
+large area yet: 24 by 24 of its `mst04` tiles (every tile of the set in
+turn, the wind shaders' trees, plants and grass), 400 of its
+`tdod_p_tap`/`tdod_p_ham` placeables, its shader haks attached, and no
+lights. The median CPU time of a frame, before M3 (M2 as committed) and
+after, switch off and on (worst of the frames in brackets where it
+matters):
+
+| View | Off | On, before | On, after |
+|---|---|---|---|
+| area092, overview, wheel | 3.97 ms | 12.37 ms | **5.97** (6.34) |
+| area092, turning, wheel | 4.21 | 10.97 | **5.01** (6.06) |
+| area092, turning, pointer | 1.95 | 1.88 | 1.70 |
+| area092, close, pointer | 1.74 | 2.40 | 1.88 |
+| TDoD woods, close, pointer | 3.88 | 8.01 | **5.35** |
+| TDoD woods, close, wheel | 4.06 | 7.43 | 4.83 |
+| TDoD woods, turning, pointer | 6.05 | 4.99 | 3.56 |
+| TDoD woods, overview, wheel | 29.4 | 124.9 | 54.2 (GPU 17.6; off 5.7) |
+| TDoD woods, turning, wheel | 45.5 | 118.2 | 52.6 |
+
+The renderer's frame taken apart (`area_parts`: the area at 3000×1250,
+seen whole from above, 4× MSAA; the time to make and encode the draws):
+
+| | Off | On, before | On, after |
+|---|---|---|---|
+| area092: encoded | 2.57 ms (1,028 draws) | 10.34 ms (3,236 game draws, each its own) | **4.01 ms** (3,236 game meshes in 1,807 draws) |
+| area092: GPU | 0.96 | 1.15 | 1.00 |
+| TDoD: encoded | 28.75 (27,990 draws) | 131.3 (33,170) | **38.25** (33,170 in 33,198 draws) |
+| TDoD: GPU | 9.50 | 18.35 | 9.75 |
+| TDoD close: encoded | 3.03 | 6.03 | 3.94 |
+
+**What was done, step by step**, with the encoding time of area092's
+overview and of TDoD's:
+
+| Step | area092 | TDoD | Kept |
+|---|---|---|---|
+| M2: a draw's whole block (5–9 KB) written each frame, two bind groups a draw | 10.3 | 131 | |
+| a mesh's pipelines kept by its slots; the inverses and the camera's angles once a frame | 9.4 | | yes |
+| **the block split in IR** into the draw's, the frame's (written once a frame per pipeline) and the bones' | 6.6 | | yes |
+| members a program never reads left out (`vslit`'s draw block 1,392 → 80 bytes), the contract's unfilled uniforms the frame's, a mesh bound once for its draws in a row | 5.1 | 60 | yes |
+| the lights in a fourth dynamic block, shared by draws of one set of lights | 5.7 | 60 | no: one more dynamic offset a draw cost more than the KB it saved |
+| compiles off the UI thread, the disk cache | 5.2 | 62 | yes (no change a frame) |
+| **draws as instances**: a draw's values and its lights' in storage arrays its place picks, no bind group a draw | 5.7 | 68 | yes, with what follows |
+| a see-through mesh's two parts sharing their values; a quicker hasher; samplers a program never reads left out of its layout | 4.7 | 56 | yes |
+| what the game's draws bound kept from one see-through draw to the next | 4.0 | 39.9 | yes |
+| what a material decides of a draw written once into a template | 4.0 | 38.9 | yes |
+
+**Opening an area.** Before M3, the first frame with the switch on
+compiled the area's programs on the UI thread. In a fresh renderer that
+frame took 195 ms where it took 153 ms off for area092, and 5.8 s where
+it took 5.2 s off for TDoD. Now no frame waits for them. A mesh draws with
+Moonglow's shader until its pipeline is ready, and the area view draws
+again as its animations step. Opened in a new window with the switch on,
+area092's module opened in 141 ms. Its longest frame was 262 ms
+(loading its models; 286 ms with the switch off), and the game's
+programs drew it 7 ms after it showed. The worker's time:
+
+| | Programs compiled / read | Pipelines | Worker's time, cache empty | Cache filled |
+|---|---|---|---|---|
+| area092 | 4 | 8 | 50–113 ms | 28–40 ms |
+| TDoD woods | 22 | 25 | 250–277 ms | 123–146 ms |
+
+(With a filled cache, what remains is naga reading the words and the
+driver making the pipelines.) TDoD's opening is hidden in its module's:
+the module opens its one area itself, in 5.9 s.
+
+**Decided:**
+
+- **The split is in IR, prepared in SPIR-V.** naga requires an
+  expression's operands to come before it. A new global's expression,
+  appended to a function, couldn't be the base of the accesses already
+  there. naga's SPIR-V reader gives every function an expression for
+  each global variable first, so the SPIR-V pass declares the
+  variables the IR needs: two spare blocks of the uniform block's type
+  (the frame's and the bones'), storage arrays of `vec4`s for the draws'
+  and the lights' values, and, at each function's start, the reads of
+  the draw's places and pointers to its elements. In the IR,
+  `Program::split_uniforms` then gives each its type (each part laid out
+  anew, std140's alignments, validated) and moves each member access to
+  its part, by the contract's classification (`game::part`; mg-shader
+  doesn't know the contract).
+- **Instances through storage, as Moonglow's own draws.** The vertex
+  program reads the order of draws at `instance_index` (four places a
+  draw: its own and its lights', for each stage) and hands the fragment
+  program its places as flat varyings. Each pipeline's values lie in one
+  buffer, in a region at a multiple of their size, so a place is a whole
+  index and group 2 is bound once a pipeline. The bones stay a dynamic
+  block (group 3), bound a draw only by pipelines of skinned meshes.
+  Inputs Moonglow has no data for read one zero buffer at stride 0.
+- **Persistent slices** (the proposal's first answer) don't apply.
+  `m_mv`, `m_mvp`, `m_normal` and the lights' view-space positions
+  change whenever the camera moves, and that is the only case over the
+  budget. A still view is drawn again only as its animations step.
+- **One worker thread** compiles and makes the pipelines: glslang's
+  compiler is the process's one. The UI's thread assembles the programs,
+  since it has the assets. A picture drawn once (a thumbnail, a preview,
+  `render_image`, the tests) waits for them
+  (`Renderer::game_background` off), so it is never left drawn with the
+  fallback. A waker asks the window for a frame when a pipeline is ready.
+- **The cache** is `mg_module::build::cache_dir()`'s `shaders/`
+  (`$XDG_CACHE_HOME/moonglow`, `~/Library/Caches/Moonglow`,
+  `%LOCALAPPDATA%\Moonglow\cache`). An entry holds the words after
+  Moonglow's passes and the inputs' and outputs' names. Its name is a
+  128-bit hash of the assembled text (the preamble is its first lines),
+  the stage, mg-shader's version and the passes' format, and a checksum
+  closes it. An entry that is cut short, damaged or another program's is
+  passed over and written anew.
+
+**Pictures looked at.** The off and on overviews of both areas. The stock
+area's are alike: its lit programs match Moonglow's within 1 of 255. TDoD's
+are darker on, under its own `inc_lighting`, as M2 found against the
+client. The same overviews with the whole block and with the split, and
+before and after instancing, differ only where things move with the clock
+(water, the swaying grass). The TDoD fountain, grass and roof pictures of
+`game_shaders.rs` look as before, and the wind test's area view as well.
+The oracle (`the_game_s_lit_shaders_match_moonglow_s`) still holds the
+lit path within 1 of 255.
+
+**Cross-platform.** CI has no game install. To exercise the game path
+there, `an_authored_glsl_pair_draws_on_this_platform_s_gpu`
+(`mg-render/tests/render.rs`) compiles an authored pair. It has loose
+uniforms in the draw's, the frame's and the lights' parts, a `sampler2D`
+passed to a function, varyings, an include and a zero input. The test
+draws three instances of one mesh in one call and checks their pixels.
+It prints the adapter it ran on past the harness's capture (`game path:
+… (Vulkan, DiscreteGpu) …` here), so the Windows and macOS logs say
+whether Direct3D 12 and Metal drew it or no adapter was found.
+
+**Tests:** mg-shader (the split into four parts with members never read
+left out, the scaffolding's varyings and bindings, `place_named`, the
+cache read back and every damaged entry compiled again); mg-render (the
+programs made while frames go on, the waker, the cache read by another
+renderer, the platform test); mg-ui (the switches start from the
+default; the area view tests that compare Moonglow's own pictures choose
+it off); the shader corpus splits every program: 65 of 65 stock, 102 of
+102 with TDoD's haks.
+
+What M3 leaves is in [the deferred list](deferred.md) ("The frame
+budget of the game's shaders").
+
+[^m3]: M3: the files in the frontmatter's `m3` source, measured 2026-10-21.
+
 ## Two tiers
 
 - **Tier A, custom shaders.** A mesh whose MTR names
@@ -651,7 +815,8 @@ Decided on 2026-10-21:[^decisions]
    them is settled in M0: glslang-rs, with SPIRV-Tools' one pass done in
    Rust instead ([M0](#m0-the-compiler-2026-10-21)).
 3. **On by default** once M3 meets the frame budget. The switch stays for
-   comparing and for a machine where compiling fails.
+   comparing and for a machine where compiling fails. (Done in M3, by the
+   rule written there.)
 4. **A program that doesn't compile falls back** to Moonglow's own shader
    and is reported in Verify (file, line, glslang's message). No magenta.
 5. **The tabled note** is in `develop` (deprecated, pointing here), and

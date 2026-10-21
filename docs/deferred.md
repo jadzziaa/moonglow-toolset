@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:49:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T17:50:38Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1206,11 +1206,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     (M2); additive ones, the sky and its fade, decals, unlit markers,
     water and ripples (unless their material names a pair), and skins of
     more than 64 bones stay with the WGSL shader. (M4, M5)
-  - Each game draw is a draw of its own (no instancing: GLSL has no
-    instance index for the batcher's order buffer), its two blocks
-    (4.6 and 8.7 KB for `fslit`/`vslit`) written anew every frame into
-    one buffer; programs are compiled on the UI thread on first use
-    (5–30 ms each) and pipelines built then. (M3)
+  - ~~Each game draw a draw of its own, its blocks written anew every
+    frame, programs compiled on the UI thread.~~ Done in M3: blocks split
+    in IR, draws as instances of storage arrays, compiles on a worker,
+    a disk cache (see "The frame budget of the game's shaders").
   - `NO_DISCARD` is 0 for every material (alpha-tested, as Moonglow's
     shader draws them); the engine's choice per material is not known
     (notes §M.10). Keyholing is compiled out (`KEYHOLING_ENABLED 0`):
@@ -1246,11 +1245,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Tier A of the game's shaders (M2 of [the shaders
   proposal](shaders-proposal.md)):** what the Shaders switch leaves out
   or unchecked. (from M2, 2026-10-21)
-  - **Off by default**, by the owner's decision until M3 (per-draw blocks
-    kept from frame to frame, compiles off the UI thread, cached on disk)
-    meets the 144 fps budget: `GAME_SHADERS_BY_DEFAULT`. Not measured with
-    `frame_perf` with the switch on; opening an area compiles its programs
-    on the UI thread (5–30 ms each, two pipelines a see-through pair). (M3)
+  - ~~Off by default until M3.~~ On by default since M3, measured with
+    `frame_perf` (see "The frame budget of the game's shaders").
   - **Water, particles, the sky** stay Moonglow's own: a fountain's shiny
     water (`ttr01_water01`) is the client's `fswater` with the
     framebuffer, see-through to the basin's floor, and Moonglow's blue
@@ -1296,6 +1292,46 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     discard `keep_alpha` adds to a fragment program is naga's `Kill`,
     with Metal's discarded fragments writing depth unchecked (M1's note
     above). (S)
+- **The frame budget of the game's shaders (M3 of [the shaders
+  proposal](shaders-proposal.md)):** what the Shaders switch, on by
+  default, leaves over the budget or unchecked. (from M3, 2026-10-21)
+  - **A dense area seen whole is slower with the switch on.** TDoD's
+    synthetic woods (24 by 24 `mst04` tiles, 400 placeables, 33,000
+    meshes on screen) zoomed out: 54 ms a frame on, 29 off, and the GPU
+    17.6 ms against 5.7 (at the fixed overview of `area_parts` the GPU is
+    9.75 against 9.50, so it is the count of what is drawn, not the
+    pixels). The bar to clear: on no slower than about off where off is
+    over the budget. Where to look: `NO_DISCARD` 0 for every material
+    (notes §M.10: no early depth for opaque meshes), the CPU's ~1.2 µs a
+    game draw against ~1 µs a draw of Moonglow's (`fill`'s member by
+    member writing; draws of a mesh in a row are merged only when solid
+    and unskinned; see-through draws are one call each). (M)
+  - **Moonglow's own shader is over the budget there too** (29 ms zoomed
+    out, 45 ms turning while zooming): 28,000 draws, a quarter of them
+    batched. Not M3's; the WGSL path's. (M)
+  - **An area changes its look a moment after it opens**, the first time
+    its programs are compiled (stock: 50–113 ms of the worker's; TDoD:
+    250–277 ms) and, with them cached, while naga reads them and the
+    driver makes the pipelines (28–40 and 123–146 ms): Moonglow's own
+    shader draws until they are ready. Making the pipelines of the
+    programs a module needs when it opens, or keeping the drivers'
+    pipeline caches (wgpu's `PipelineCache`), would shorten it. (S)
+  - `texNoiseBound` is zero (the contract leaves it unfilled) while
+    `texUnitNoise` is bound to `solid_noise`; the game presumably sets it
+    to 1 where it binds the noise. (S to check in the client)
+  - `mg` and `mgv`'s previews compile the programs each run: no shader
+    cache is set outside the window (`Renderer::set_shader_cache`). (S)
+  - **Not yet run on Direct3D 12 or Metal:** the zero inputs read at
+    stride 0 as instance data, `first_instance` into the order of draws,
+    storage arrays read in the vertex stage and flat `u32` varyings.
+    `an_authored_glsl_pair_draws_on_this_platform_s_gpu` exercises each
+    and prints the adapter in CI's logs. (S, the next CI run)
+  - A program whose uniforms can't be split (its block used otherwise
+    than member by member: none of the 102 seen) falls back to
+    Moonglow's shader, reported, rather than drawing with one block. (S)
+  - The tests that compare pictures of the area view and the model
+    viewer choose the switch off; only the switch tests and TDoD's wind
+    test draw the game's shaders through the window. (S)
 - **A tileset's custom shader:** with the Shaders switch on (M2 above),
   the material's own programs draw it where their source is in the
   load order; off, Moonglow runs none (see Custom shader effects above).
