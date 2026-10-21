@@ -240,7 +240,7 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
             if !f.kinds[kind.index()] {
                 continue;
             }
-            let field = if kind == ObjectKind::Store { "ResRef" } else { "TemplateResRef" };
+            let field = kind.resref_field();
             for (index, s) in git.root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
                 let t = crate::text::decode(s.string("Tag").unwrap_or_default());
                 let bp = s.resref(field).map(|r| r.to_string()).unwrap_or_default();
@@ -273,7 +273,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
             ui.horizontal_wrapped(|ui| {
                 crate::widgets::field_label(ui, "Search For");
                 for kind in ObjectKind::ALL {
-                    ui.checkbox(&mut f.kinds[kind.index()], kind.plural());
+                    ui.checkbox(&mut f.kinds[kind.index()], kind.label());
                 }
             });
             egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
@@ -469,17 +469,10 @@ fn summary(app: &Moonglow, t: ResType, s: &mg_gff::Struct) -> Vec<(&'static str,
     let int = |label: &str| s.integer(label).map(|v| v.to_string()).unwrap_or_default();
     let yes =
         |label: &str| if s.integer(label).unwrap_or(0) != 0 { "yes" } else { "no" }.to_string();
-    let resref_field = if t == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+    let resref_field = ObjectKind::resref_field_of(t);
+    let name_field = ObjectKind::from_restype(t).map_or("LocName", ObjectKind::name_field);
     let mut out = vec![
-        (
-            "Name",
-            name(match t {
-                ResType::UTC => "FirstName",
-                ResType::UTI | ResType::UTW | ResType::UTT | ResType::UTE => "LocalizedName",
-                _ => "LocName",
-            })
-            .unwrap_or_default(),
-        ),
+        ("Name", name(name_field).unwrap_or_default()),
         ("Tag", text("Tag").unwrap_or_default()),
         ("Blueprint ResRef", s.resref(resref_field).map(|r| r.to_string()).unwrap_or_default()),
     ];

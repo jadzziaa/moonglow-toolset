@@ -28,7 +28,7 @@ fn key(name: &str) -> ResKey {
     ResKey::from_filename(name).unwrap()
 }
 
-/// A module with two creatures and two merchants.
+/// A module with two creatures and two stores.
 fn module() -> Module {
     let mut m = Module::new();
     m.set_info(&Gff::new(*b"IFO ")).unwrap();
@@ -90,7 +90,7 @@ fn every_example_registers_what_it_declares() {
         [
             "example.creature-report",
             "example.hello",
-            "example.merchant-markup",
+            "example.store-markup",
             "example.tag-conventions",
             "example.tileset-import"
         ]
@@ -151,8 +151,8 @@ fn tag_conventions_fixes_what_its_check_finds() {
 }
 
 #[test]
-fn merchant_markup_sets_what_its_form_says() {
-    let plugin = example("merchant-markup");
+fn store_markup_sets_what_its_form_says() {
+    let plugin = example("store-markup");
     let host = Rc::new(TestHost::default());
     let values = BTreeMap::from([
         ("sell".to_string(), serde_json::json!(200)),
@@ -162,7 +162,7 @@ fn merchant_markup_sets_what_its_form_says() {
     host.answers.borrow_mut().push_back(Some(Answer::Values(values)));
     let outcome = run_command(&plugin, "set-markup", input(&module()), host.clone()).unwrap();
     let Question::Form { title, fields } = &host.asked.borrow()[0] else { panic!("no form") };
-    assert_eq!(title, "Markup of 2 merchants");
+    assert_eq!(title, "Markup of 2 stores");
     assert_eq!(fields.len(), 3);
     let mut ws = Workspace::new(module());
     ws.apply(Command::new(outcome.label, outcome.edits)).unwrap();
@@ -173,17 +173,14 @@ fn merchant_markup_sets_what_its_form_says() {
     };
     assert_eq!(prices("smith.utm"), (Some(Value::Int(200)), Some(Value::Int(40))));
     assert_eq!(prices("fence.utm"), (Some(Value::Int(120)), Some(Value::Int(60))));
-    assert_eq!(
-        host.log.borrow().as_slice(),
-        ["1 of 2 merchants set to sell at 200% and buy at 40%"]
-    );
+    assert_eq!(host.log.borrow().as_slice(), ["1 of 2 stores set to sell at 200% and buy at 40%"]);
 
     // The form closed: nothing changes.
     let host = Rc::new(TestHost::default());
     let outcome = run_command(&plugin, "set-markup", input(&module()), host).unwrap();
     assert!(outcome.edits.is_empty());
 
-    // No merchants: it says so, and asks nothing more.
+    // No stores: it says so, and asks nothing more.
     let mut bare = Module::new();
     bare.set_info(&Gff::new(*b"IFO ")).unwrap();
     let host = Rc::new(TestHost::default());
@@ -191,7 +188,7 @@ fn merchant_markup_sets_what_its_form_says() {
     assert!(outcome.edits.is_empty());
     assert_eq!(
         host.asked.borrow().as_slice(),
-        [Question::Message("The module has no merchant blueprints.".into())]
+        [Question::Message("The module has no store blueprints.".into())]
     );
 }
 

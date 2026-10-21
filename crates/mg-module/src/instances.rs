@@ -27,7 +27,7 @@ use std::f32::consts::FRAC_PI_2;
 
 use mg_core::{LocString, ResRef, ResType};
 use mg_gff::{Struct, Value};
-use mg_rules::GameData;
+use mg_rules::{GameData, ObjectKind};
 
 /// Where an instance stands: a position in metres and its model's turn
 /// around Z in radians (its facing less 90°: 0 faces north, as Aurora
@@ -51,20 +51,10 @@ impl std::fmt::Debug for Placing<'_> {
     }
 }
 
-/// The GIT list a blueprint type's instances go in, and their struct id.
+/// The GIT list a blueprint type's instances go in, and their struct id
+/// ([`ObjectKind::list`], [`ObjectKind::struct_id`]).
 pub fn git_list(restype: ResType) -> Option<(&'static str, u32)> {
-    Some(match restype {
-        ResType::UTC => ("Creature List", 4),
-        ResType::UTD => ("Door List", 8),
-        ResType::UTE => ("Encounter List", 7),
-        ResType::UTI => ("List", 0),
-        ResType::UTP => ("Placeable List", 9),
-        ResType::UTS => ("SoundList", 6),
-        ResType::UTM => ("StoreList", 11),
-        ResType::UTT => ("TriggerList", 1),
-        ResType::UTW => ("WaypointList", 5),
-        _ => return None,
-    })
+    ObjectKind::from_restype(restype).map(|k| (k.list(), k.struct_id()))
 }
 
 /// How high above the ground Aurora puts a trigger's or encounter's
@@ -944,7 +934,7 @@ pub fn instance(
     at: Placement,
     outline: &[[f32; 3]],
 ) -> Option<Struct> {
-    let (_, id) = git_list(restype)?;
+    let id = ObjectKind::from_restype(restype)?.struct_id();
     let mut s = blueprint.clone();
     s.id = id;
     for label in ["PaletteID", "Comment"] {
@@ -1131,19 +1121,6 @@ fn arrange_as(restype: ResType, s: &mut Struct) {
     arrange(s, &order, &creature_parts());
 }
 
-/// A GIT's lists of placed objects and their blueprint types.
-pub const GIT_LISTS: [(&str, ResType); 9] = [
-    ("Creature List", ResType::UTC),
-    ("Door List", ResType::UTD),
-    ("Encounter List", ResType::UTE),
-    ("List", ResType::UTI),
-    ("Placeable List", ResType::UTP),
-    ("SoundList", ResType::UTS),
-    ("StoreList", ResType::UTM),
-    ("TriggerList", ResType::UTT),
-    ("WaypointList", ResType::UTW),
-];
-
 /// Where a placed object stands, as [`instance`] writes it (the inverse
 /// of its placement), and its outline (triggers' and encounters'
 /// `Geometry`, as stored).
@@ -1194,8 +1171,8 @@ pub fn update(
 ) -> Option<(Struct, usize)> {
     let mut out = git.clone();
     let mut count = 0;
-    for (list, restype) in GIT_LISTS {
-        let field = if restype == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+    for kind in ObjectKind::ALL {
+        let (list, restype, field) = (kind.list(), kind.restype(), kind.resref_field());
         let Some(items) = out.list_mut(list) else { continue };
         for (i, s) in items.iter_mut().enumerate() {
             if !which(list, i) {
@@ -1287,7 +1264,7 @@ fn walk_held(
 /// blueprint and its tag.
 pub fn held_items(git: &Struct, wanted: &dyn Fn(ResRef) -> bool) -> Vec<(Held, ResRef, String)> {
     let mut out = Vec::new();
-    for (list, _) in GIT_LISTS {
+    for list in ObjectKind::ALL.map(ObjectKind::list) {
         for (i, s) in git.list(list).unwrap_or(&[]).iter().enumerate() {
             let mut at: Held = vec![(list, i)];
             walk_held(s, list, &mut at, 0, &mut |at, item| {
@@ -1357,7 +1334,7 @@ pub fn update_held(
     }
     let mut out = git.clone();
     let mut count = 0;
-    for (list, _) in GIT_LISTS {
+    for list in ObjectKind::ALL.map(ObjectKind::list) {
         let Some(objects) = out.list_mut(list) else { continue };
         for (i, s) in objects.iter_mut().enumerate() {
             let mut at: Held = vec![(list, i)];
@@ -1371,7 +1348,7 @@ pub fn update_held(
 /// walk waypoints): from no blueprint, facing north, at `position`; `tag`
 /// in the module's codepage.
 pub fn walk_waypoint(tag: &[u8], position: [f32; 3]) -> Struct {
-    let (_, id) = git_list(ResType::UTW).expect("waypoints have a list");
+    let id = ObjectKind::Waypoint.struct_id();
     let mut s = Struct::new(id);
     let text = |t: &str| Value::String(t.as_bytes().to_vec());
     let none = || Value::LocString(LocString::default());

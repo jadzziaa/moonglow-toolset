@@ -3,13 +3,13 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:07:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
 ---
 
 # Blueprints
 
 A **blueprint** is a template for an object: a creature (`.utc`), door
-(`.utd`), encounter (`.ute`), item (`.uti`), merchant (`.utm`), placeable
+(`.utd`), encounter (`.ute`), item (`.uti`), store (`.utm`), placeable
 (`.utp`), sound (`.uts`), trigger (`.utt`) or waypoint (`.utw`). Placing
 one in an area makes an **instance**, a copy you can change on its own.
 
@@ -172,8 +172,8 @@ The palette's buttons:
 - **Preview**: show the blueprint in the model viewer. An item modeled
   lying (a sword) is stood up; a helmet and a shield show as worn, a
   shield from its front. A blueprint
-  without a model (a merchant, a sound, a trigger, a waypoint, an
-  encounter) shows its fields instead, and a merchant what it sells, page
+  without a model (a store, a sound, a trigger, a waypoint, an
+  encounter) shows its fields instead, and a store what it sells, page
   by page.
 - **Update Instances** (custom blueprints): remake the objects placed
   from the blueprint.
@@ -371,7 +371,7 @@ A domain or school left **Not set** is the game's to choose.
   module open after it. Equipping an item the
   creature lacks the feat for (a weapon proficiency, an armor weight)
   asks whether to give it the feat. Items can be marked droppable,
-  pickpocketable and infinite (merchants).
+  pickpocketable and infinite (stores).
 - The **Creature Wizard** makes a creature from a race, classes and levels,
   gender, appearance, portrait, faction and name, leveled as the game's
   packages level it. Its appearances are pictures, narrowed by **Find**;
@@ -425,18 +425,18 @@ Scripts, Advanced, Visuals, Comments. Encounters: Basic (difficulty, spawn optio
 respawns), **Creature List** (from the creature palette, with unique
 creatures marked), Scripts, Advanced, Comments.
 
-### Merchants
+### Stores
 
 Basic (name, sell markup and buy markdown, identify price, stolen goods,
 the most it pays for an item, its gold),
-Advanced, **Restrictions** (base items the merchant will not buy, or will
+Advanced, **Restrictions** (base items the store will not buy, or will
 only buy), Comments, and the **Inventory** in its store pages (Armor,
 Weapons, Potions & Scrolls, Rings & Amulets, Miscellaneous), each item
 optionally infinite, and listed with what the store sells it for: its
 cost at the store's sell mark up, as Aurora lists it (a buyer's Appraise
 is the game's to add).
 
-Wherever items are added from the item palette (a merchant's or a
+Wherever items are added from the item palette (a store's or a
 placeable's inventory, a creature's backpack), the item chosen in the
 palette is shown beside it before you add it: its icon, base item, cost,
 weight, damage or armor class, the level and Lore it needs, and its

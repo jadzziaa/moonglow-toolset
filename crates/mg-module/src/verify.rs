@@ -6,6 +6,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use mg_core::ResType;
 use mg_resman::{ResKey, ResMan};
+use mg_rules::ObjectKind;
 
 use crate::Module;
 use crate::refs::{RefKind, Reference, references};
@@ -35,20 +36,9 @@ impl Category {
     /// instances belong to their object type).
     pub fn of(r: &Reference) -> Category {
         let list = r.path.split('/').nth(1).unwrap_or_default();
-        let by_list = |l: &str| match l.split('[').next().unwrap_or_default() {
-            "Creature List" => Some(Category::Creatures),
-            "Door List" => Some(Category::Doors),
-            "Encounter List" => Some(Category::Encounters),
-            "List" => Some(Category::Items),
-            "Placeable List" => Some(Category::Placeables),
-            "SoundList" => Some(Category::Sounds),
-            "StoreList" => Some(Category::Stores),
-            "TriggerList" => Some(Category::Triggers),
-            "WaypointList" => Some(Category::Waypoints),
-            _ => None,
-        };
+        let list = list.split('[').next().unwrap_or_default();
         match r.from.restype {
-            ResType::GIT => by_list(list).unwrap_or(Category::Areas),
+            ResType::GIT => ObjectKind::from_list(list).map_or(Category::Areas, Category::from),
             t => Category::of_type(t),
         }
     }
@@ -57,18 +47,26 @@ impl Category {
         match t {
             ResType::IFO => Category::Module,
             ResType::ARE | ResType::GIT | ResType::GIC => Category::Areas,
-            ResType::UTC => Category::Creatures,
-            ResType::UTD => Category::Doors,
-            ResType::UTE => Category::Encounters,
-            ResType::UTI => Category::Items,
-            ResType::UTP => Category::Placeables,
-            ResType::UTS => Category::Sounds,
-            ResType::UTM => Category::Stores,
-            ResType::UTT => Category::Triggers,
-            ResType::UTW => Category::Waypoints,
             ResType::DLG => Category::Conversations,
             ResType::NSS | ResType::NCS => Category::Scripts,
-            _ => Category::Other,
+            t => ObjectKind::from_restype(t).map_or(Category::Other, Category::from),
+        }
+    }
+}
+
+impl From<ObjectKind> for Category {
+    /// A type of placed object's or blueprint's category.
+    fn from(kind: ObjectKind) -> Category {
+        match kind {
+            ObjectKind::Creature => Category::Creatures,
+            ObjectKind::Door => Category::Doors,
+            ObjectKind::Encounter => Category::Encounters,
+            ObjectKind::Item => Category::Items,
+            ObjectKind::Placeable => Category::Placeables,
+            ObjectKind::Sound => Category::Sounds,
+            ObjectKind::Store => Category::Stores,
+            ObjectKind::Trigger => Category::Triggers,
+            ObjectKind::Waypoint => Category::Waypoints,
         }
     }
 }
@@ -208,6 +206,29 @@ mod tests {
     use mg_schema::{StructExt, git, ifo};
 
     use super::*;
+
+    #[test]
+    fn a_placed_object_is_in_its_blueprints_category() {
+        for k in ObjectKind::ALL {
+            let r = Reference {
+                from: ResKey::parse("area1", ResType::GIT).unwrap(),
+                path: format!("/{}[2]/OnClick", k.list()),
+                kind: RefKind::Script,
+                target: rr("x"),
+            };
+            assert_eq!(Category::of(&r), Category::of_type(k.restype()), "{k:?}");
+            assert_eq!(format!("{:?}", Category::from(k)), k.label(), "as Aurora's filters");
+        }
+        let area = Reference {
+            from: ResKey::parse("area1", ResType::GIT).unwrap(),
+            path: "/AreaProperties/MusicDay".into(),
+            kind: RefKind::Script,
+            target: rr("x"),
+        };
+        assert_eq!(Category::of(&area), Category::Areas);
+        assert_eq!(Category::of_type(ResType::NCS), Category::Scripts);
+        assert_eq!(Category::of_type(ResType::TWODA), Category::Other);
+    }
 
     fn rr(s: &str) -> ResRef {
         ResRef::from_str(s).unwrap()

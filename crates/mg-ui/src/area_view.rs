@@ -1606,12 +1606,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
 /// start location's marker.
 fn shown_of(hidden: &[String]) -> ([bool; 9], bool) {
     let shown = |name: &str| !hidden.iter().any(|h| h == name);
-    (ObjectKind::ALL.map(|k| shown(k.plural())), shown("Start"))
+    // Stores were Merchants in 1.35 and before.
+    let kind = |k: ObjectKind| shown(k.label()) && (k != ObjectKind::Store || shown("Merchants"));
+    (ObjectKind::ALL.map(kind), shown("Start"))
 }
 
 /// [`shown_of`] the other way round.
 fn hidden_of(show: [bool; 9], show_start: bool) -> Vec<String> {
-    let kinds = ObjectKind::ALL.into_iter().filter(|k| !show[k.index()]).map(|k| k.plural());
+    let kinds = ObjectKind::ALL.into_iter().filter(|k| !show[k.index()]).map(|k| k.label());
     kinds.chain((!show_start).then_some("Start")).map(String::from).collect()
 }
 
@@ -1634,9 +1636,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         for kind in ObjectKind::ALL {
             ui.toggle_value(
                 &mut view.show[kind.index()],
-                labelled(icons::object(kind), kind.plural()),
+                labelled(icons::object(kind), kind.label()),
             )
-            .on_hover_text(format!("Show {}", kind.plural()));
+            .on_hover_text(format!("Show {}", kind.label()));
         }
         ui.toggle_value(&mut view.show_start, labelled(icons::START, "Start")).on_hover_text(
             "Show the start location's marker (a blue ring with a red arrow). To set it: \
@@ -2644,7 +2646,7 @@ fn overlays(
         }
         // What the scene draws (models, marker models, the arrow) is hidden
         // by what stands in front of it. Without a scene (no GPU), waypoints
-        // and merchants are a yellow arrow along their facing, over the
+        // and stores are a yellow arrow along their facing, over the
         // view.
         let in_scene = scene.is_some_and(|s| s.draws(shown, i));
         if o.kind.has_arrow() && !selected && !in_scene {
@@ -5394,6 +5396,22 @@ pub(crate) fn stats_window(app: &mut Moonglow, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The toolbar's hidden kinds, saved in the settings by name: Stores
+    /// were saved as Merchants before they were renamed, and stay hidden.
+    #[test]
+    fn stores_hidden_as_merchants_stay_hidden() {
+        let store = ObjectKind::Store.index();
+        let hidden =
+            |names: &[&str]| shown_of(&names.iter().map(|n| n.to_string()).collect::<Vec<_>>());
+        let (shown, start) = hidden(&["Merchants"]);
+        assert!(!shown[store] && start);
+        assert_eq!(shown.iter().filter(|s| !**s).count(), 1);
+        assert!(!hidden(&["Stores"]).0[store]);
+        // Saved again, under the new name.
+        assert_eq!(hidden_of(hidden(&["Merchants", "Start"]).0, false), ["Stores", "Start"]);
+        assert!(hidden(&[]).0.iter().all(|s| *s));
+    }
 
     /// Nothing drawn over an area's view is a closed line or a polygon
     /// with a stroke: egui joins such a stroke's edges with mitered

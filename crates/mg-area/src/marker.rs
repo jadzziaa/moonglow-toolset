@@ -1,5 +1,5 @@
 //! Moonglow's own marker: the yellow arrow along an object's facing that
-//! stands for a merchant, and for a waypoint or merchant whose marker model
+//! stands for a store, and for a waypoint or store whose marker model
 //! the game lacks. A model in the scene, so what stands in front hides it.
 
 use glam::Vec3;

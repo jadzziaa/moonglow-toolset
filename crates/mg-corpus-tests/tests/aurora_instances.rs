@@ -92,7 +92,7 @@ fn placed_objects_match_aurora() {
         ] {
             let (list, _) = git_list(t).unwrap();
             for placed in git.root.list(list).unwrap_or(&[]) {
-                let field = if t == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+                let field = mg_rules::ObjectKind::resref_field_of(t);
                 let r = placed.resref(field).unwrap();
                 // Edited after placing (Add to Palette, Adjust Location,
                 // Create Waypoint): compared elsewhere.

@@ -89,7 +89,7 @@ fn resref(s: &str) -> ResRef {
 fn copy(game: &GameData, from: &str, name: &str, t: ResType) -> Gff {
     let data = game.resman.get(&ResKey::new(resref(from), t)).unwrap();
     let mut g = Gff::read(&data).unwrap();
-    let field = if t == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+    let field = mg_rules::ObjectKind::resref_field_of(t);
     g.root.set(field, Value::resref(resref(name)));
     let tag = format!("MG_{}", t.extension().unwrap_or_default().to_uppercase());
     g.root.set("Tag", Value::String(tag.into_bytes()));

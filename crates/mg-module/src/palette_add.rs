@@ -16,7 +16,7 @@
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_resman::ResKey;
-use mg_rules::GameData;
+use mg_rules::{GameData, ObjectKind};
 
 /// What Add to Palette makes.
 #[derive(Debug, Clone, PartialEq)]
@@ -96,7 +96,7 @@ pub fn add_to_palette(
 ) -> Option<Added> {
     let mut blueprints: Vec<(ResKey, Gff)> = Vec::new();
     let mut new_instance = instance.clone();
-    let template_field = if restype == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+    let template_field = ObjectKind::resref_field_of(restype);
     let resref = {
         let used = |name: &str, blueprints: &[(ResKey, Gff)]| {
             let key = ResKey::parse(name, restype);
@@ -227,7 +227,7 @@ fn blueprint_fields(
     for label in placement_fields(restype) {
         s.remove(label);
     }
-    let template_field = if restype == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+    let template_field = ObjectKind::resref_field_of(restype);
     s.set(template_field, Value::resref(resref));
     // A portrait the old blueprint named by resref: its row.
     if s.integer("PortraitId") == Some(0)

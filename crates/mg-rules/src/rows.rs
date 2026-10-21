@@ -7,9 +7,9 @@
 //! doortypes.2da for a door, waypoint.2da for a waypoint), found from the
 //! file's type and the lists the field is under.
 
-use mg_core::StrRef;
+use mg_core::{ResType, StrRef};
 
-use crate::GameData;
+use crate::{GameData, ObjectKind};
 
 /// The field a door's generic appearance (a genericdoors.2da row, for a
 /// door whose `Appearance` is 0) is read from: Enhanced Edition's
@@ -53,18 +53,31 @@ enum Kind {
     Other,
 }
 
+impl Kind {
+    /// The kind of a placed object's or blueprint's fields. Sounds and
+    /// stores have no field that names a row.
+    fn of(object: ObjectKind) -> Kind {
+        match object {
+            ObjectKind::Creature => Kind::Creature,
+            ObjectKind::Door => Kind::Door,
+            ObjectKind::Encounter => Kind::Encounter,
+            ObjectKind::Item => Kind::Item,
+            ObjectKind::Placeable => Kind::Placeable,
+            ObjectKind::Trigger => Kind::Trigger,
+            ObjectKind::Waypoint => Kind::Waypoint,
+            ObjectKind::Sound | ObjectKind::Store => Kind::Other,
+        }
+    }
+}
+
 /// The kind a file of this type describes at its root.
 fn file_kind(file_type: &str) -> Kind {
-    match file_type.trim().to_ascii_uppercase().as_str() {
-        "ARE" => Kind::Area,
-        "UTC" | "BIC" => Kind::Creature,
-        "UTD" => Kind::Door,
-        "UTE" => Kind::Encounter,
-        "UTI" => Kind::Item,
-        "UTP" => Kind::Placeable,
-        "UTT" => Kind::Trigger,
-        "UTW" => Kind::Waypoint,
-        _ => Kind::Other,
+    match file_type.trim().to_ascii_lowercase().as_str() {
+        "are" => Kind::Area,
+        "bic" => Kind::Creature,
+        t => ResType::from_extension(t)
+            .and_then(ObjectKind::from_restype)
+            .map_or(Kind::Other, Kind::of),
     }
 }
 
@@ -74,14 +87,13 @@ fn file_kind(file_type: &str) -> Kind {
 fn child_kind(label: &str) -> Option<Kind> {
     Some(match label {
         "AreaProperties" => Kind::Audio,
-        "Creature List" => Kind::Creature,
-        "Door List" => Kind::Door,
-        "Encounter List" => Kind::Encounter,
-        "List" | "ItemList" | "Equip_ItemList" => Kind::Item,
-        "Placeable List" => Kind::Placeable,
-        "TriggerList" => Kind::Trigger,
-        "WaypointList" => Kind::Waypoint,
-        _ => return None,
+        "ItemList" | "Equip_ItemList" => Kind::Item,
+        // Sounds and stores: their parent's (no field of theirs names a
+        // row).
+        l => match Kind::of(ObjectKind::from_list(l)?) {
+            Kind::Other => return None,
+            k => k,
+        },
     })
 }
 
@@ -223,6 +235,10 @@ mod tests {
         assert_eq!(table("GIT ", &["WaypointList"], "Appearance"), Some("waypoint"));
         assert_eq!(table("GIT ", &["Placeable List"], "Appearance"), Some("placeables"));
         assert_eq!(table("UTS ", &[], "Appearance"), None);
+        assert_eq!(table("GIT ", &["SoundList"], "Appearance"), None);
+        assert_eq!(table("GIT ", &["StoreList", "ItemList"], "BaseItem"), Some("baseitems"));
+        assert_eq!(table("BIC ", &[], "Race"), Some("racialtypes"));
+        assert_eq!(table("GIT ", &["List"], "BaseItem"), Some("baseitems"));
         // A creature's lists; the items it carries are items.
         assert_eq!(table("UTC ", &["FeatList"], "Feat"), Some("feat"));
         assert_eq!(table("utc", &["ClassList", "KnownList0"], "Spell"), Some("spells"));

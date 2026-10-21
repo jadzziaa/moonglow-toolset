@@ -292,7 +292,7 @@ places and turns around it.
   **Turn On**. Triggers and encounters: **Redraw Polygon**; encounters:
   **Add Spawn Point** (at the point you right-clicked).
 - **Conversation**, **Inventory** (creatures, placeables with an
-  inventory, merchants), **Variables…**.
+  inventory, stores), **Variables…**.
 - **Add to Palette**: the instance as a new custom blueprint.
 - **Test From Here**: starts the game at the point you right-clicked,
   facing the way the camera looks, with the module as it is now (see

@@ -166,7 +166,7 @@ fn preview_of(app: &Moonglow, source: &Source) -> Result<Preview, String> {
         ResType::UTI => mg_preview::item_on(game, &object, app.armor_on_woman),
         ResType::UTP => mg_preview::placeable(game, &object),
         ResType::UTD => mg_preview::door(game, &object),
-        // The flag the area view draws. (A merchant's and a sound's markers
+        // The flag the area view draws. (A store's and a sound's markers
         // are the same for every one: no picture to tell them by.)
         ResType::UTW => mg_preview::waypoint(game, &object),
         t => return Err(format!("{source}: no preview for {t:?}")),

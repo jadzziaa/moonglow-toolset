@@ -1122,7 +1122,7 @@ fn new_label(kind: BlueprintKind) -> &'static str {
         BlueprintKind::Item => "New Item…",
         BlueprintKind::Placeable => "New Placeable…",
         BlueprintKind::Sound => "New Sound…",
-        BlueprintKind::Store => "New Merchant…",
+        BlueprintKind::Store => "New Store…",
         BlueprintKind::Trigger => "New Trigger…",
         BlueprintKind::Waypoint => "New Waypoint…",
     }

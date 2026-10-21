@@ -3,7 +3,7 @@ type: Guide
 title: 'Plugins: for authors'
 description: Starting point for plugin authors - the example plugins, the editor type file, the API changes, where the manual covers plugins, and the mg plugin commands for checking, running and packing one.
 tags: [plugins, authors, examples]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T05:31:18Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
 ---
 
 # Plugins: for authors
@@ -22,7 +22,7 @@ What a plugin author needs besides the manual:
   - [`tag-conventions`](examples/tag-conventions): a team's rule as a
     check for Verify Module and a command that applies it, sharing the
     rule from a second file.
-  - [`merchant-markup`](examples/merchant-markup): a batch edit with a
+  - [`store-markup`](examples/store-markup): a batch edit with a
     form and progress.
   - [`creature-report`](examples/creature-report): reading the game's
     data (a 2DA and the talk table).

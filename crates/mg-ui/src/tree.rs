@@ -27,9 +27,9 @@ pub(crate) const GROUPS: &[(&str, &[ResType])] = &[
     ("Doors", &[ResType::UTD]),
     ("Encounters", &[ResType::UTE]),
     ("Items", &[ResType::UTI]),
-    ("Merchants", &[ResType::UTM]),
     ("Placeables", &[ResType::UTP]),
     ("Sounds", &[ResType::UTS]),
+    ("Stores", &[ResType::UTM]),
     ("Triggers", &[ResType::UTT]),
     ("Waypoints", &[ResType::UTW]),
     ("Journal and factions", &[ResType::JRL, ResType::FAC]),
@@ -300,9 +300,9 @@ fn contents_ui(
                 order.clone()
             };
             let title = if filtered {
-                format!("{} ({} of {})", kind.plural(), shown.len(), rows.len())
+                format!("{} ({} of {})", kind.label(), shown.len(), rows.len())
             } else {
-                format!("{} ({})", kind.plural(), rows.len())
+                format!("{} ({})", kind.label(), rows.len())
             };
             if shown.is_empty() {
                 if !filtered {

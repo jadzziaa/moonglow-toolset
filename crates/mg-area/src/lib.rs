@@ -115,101 +115,7 @@ pub struct DoorHook {
 }
 
 /// What an object in an area is: the GIT list it is in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ObjectKind {
-    Creature,
-    Door,
-    Encounter,
-    Item,
-    Placeable,
-    Sound,
-    Store,
-    Trigger,
-    Waypoint,
-}
-
-impl ObjectKind {
-    pub const ALL: [ObjectKind; 9] = [
-        ObjectKind::Creature,
-        ObjectKind::Door,
-        ObjectKind::Encounter,
-        ObjectKind::Item,
-        ObjectKind::Placeable,
-        ObjectKind::Sound,
-        ObjectKind::Store,
-        ObjectKind::Trigger,
-        ObjectKind::Waypoint,
-    ];
-
-    /// Its position in [`ObjectKind::ALL`].
-    pub fn index(self) -> usize {
-        self as usize
-    }
-
-    /// What the toolset calls it (plural, as in its filters).
-    pub fn plural(self) -> &'static str {
-        match self {
-            ObjectKind::Creature => "Creatures",
-            ObjectKind::Door => "Doors",
-            ObjectKind::Encounter => "Encounters",
-            ObjectKind::Item => "Items",
-            ObjectKind::Placeable => "Placeables",
-            ObjectKind::Sound => "Sounds",
-            ObjectKind::Store => "Merchants",
-            ObjectKind::Trigger => "Triggers",
-            ObjectKind::Waypoint => "Waypoints",
-        }
-    }
-
-    /// The kind placed from a blueprint type.
-    pub fn from_restype(t: ResType) -> Option<ObjectKind> {
-        ObjectKind::ALL.into_iter().find(|k| k.restype() == t)
-    }
-
-    /// Its blueprint type.
-    pub fn restype(self) -> ResType {
-        match self {
-            ObjectKind::Creature => ResType::UTC,
-            ObjectKind::Door => ResType::UTD,
-            ObjectKind::Encounter => ResType::UTE,
-            ObjectKind::Item => ResType::UTI,
-            ObjectKind::Placeable => ResType::UTP,
-            ObjectKind::Sound => ResType::UTS,
-            ObjectKind::Store => ResType::UTM,
-            ObjectKind::Trigger => ResType::UTT,
-            ObjectKind::Waypoint => ResType::UTW,
-        }
-    }
-
-    /// The GIT list its instances are in.
-    pub fn list(self) -> &'static str {
-        mg_module::instances::git_list(self.restype()).map_or("", |(list, _)| list)
-    }
-
-    /// Whether it is placed by `X`, `Y`, `Z` and `Bearing` (doors and
-    /// placeables) rather than by position and orientation fields.
-    pub fn has_bearing(self) -> bool {
-        matches!(self, ObjectKind::Door | ObjectKind::Placeable)
-    }
-
-    /// Whether its model is the toolset's marker for it, not something
-    /// the game shows: a waypoint's flag, a merchant's sign, a sound's
-    /// speaker.
-    pub fn is_marker(self) -> bool {
-        matches!(self, ObjectKind::Waypoint | ObjectKind::Store | ObjectKind::Sound)
-    }
-
-    /// Whether it is drawn as an arrow along its facing when it has no
-    /// marker model (or, a merchant, when arrows are preferred).
-    pub fn has_arrow(self) -> bool {
-        matches!(self, ObjectKind::Waypoint | ObjectKind::Store)
-    }
-
-    /// Whether it has an outline (`Geometry`) around its position.
-    pub fn has_outline(self) -> bool {
-        matches!(self, ObjectKind::Trigger | ObjectKind::Encounter)
-    }
-}
+pub use mg_rules::ObjectKind;
 
 /// An EE visual transform (scale, rotation in degrees and translation of
 /// the model, not of the object): `VisTransformList`'s entry for scope 0,
@@ -283,7 +189,7 @@ pub struct AreaObject {
     /// `ResRef`).
     pub template: Option<ResRef>,
     /// Its models: creatures, doors, items, placeables, and the markers of
-    /// waypoints (their flags) and merchants. `None` for the others (drawn as markers) and when its
+    /// waypoints (their flags) and stores. `None` for the others (drawn as markers) and when its
     /// appearance cannot be shown (see `problem`).
     pub preview: Option<Preview>,
     /// Why a creature, door, item or placeable has no preview.
@@ -352,7 +258,7 @@ impl AreaObject {
             // A waypoint without a flag (no appearance) is drawn as a
             // marker: nothing is wrong with it.
             ObjectKind::Waypoint => mg_preview::waypoint(game, s).ok().map(Ok),
-            // A merchant's marker; without the game's model, drawn as one.
+            // A store's marker; without the game's model, drawn as one.
             ObjectKind::Store => mg_preview::store(game).ok().map(Ok),
             ObjectKind::Sound => mg_preview::sound(game, s).ok().map(Ok),
             _ => None,
@@ -362,7 +268,7 @@ impl AreaObject {
             Some(Err(e)) => (None, Some(e.to_string())),
             None => (None, None),
         };
-        let template_field = if kind == ObjectKind::Store { "ResRef" } else { "TemplateResRef" };
+        let template_field = kind.resref_field();
         let laid = if kind == ObjectKind::Item { mg_preview::ground_turn(game, s) } else { 0 };
         AreaObject {
             laid,

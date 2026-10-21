@@ -666,10 +666,10 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  With Shift held, two rings that tilt their models \
                                  and arrows that move them along one axis",
                             );
-                            ui.checkbox(&mut draft.merchant_signs, "Show merchants as $ signs")
+                            ui.checkbox(&mut draft.merchant_signs, "Show stores as $ signs")
                                 .on_hover_text(
-                                    "The game's marker for a merchant, as Aurora shows them, \
-                                 rather than an arrow along the merchant's facing",
+                                    "The game's marker for a store, as Aurora shows them, \
+                                 rather than an arrow along the store's facing",
                                 );
                         }
                         OptionsPage::Verify => verify(ui, draft),
@@ -1259,7 +1259,7 @@ mod tests {
         let s = Settings::default();
         let mut d = OptionsDraft::from_settings(&s);
         assert!(d.spawn_markers && d.door_arrows, "on by default, as in Aurora");
-        assert!(!d.merchant_signs, "merchants are arrows unless asked");
+        assert!(!d.merchant_signs, "stores are arrows unless asked");
         assert!(d.turn_ring, "the turning ring shows unless switched off");
         assert_eq!(d.area_background, None, "the fog color by default");
         (d.spawn_markers, d.area_background) = (false, Some([192, 192, 192]));

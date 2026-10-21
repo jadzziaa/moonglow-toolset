@@ -91,7 +91,7 @@ pub fn summary(dir: Option<&std::path::Path>, name: &str) -> Result<String, Stri
         .iter()
         .zip(counts)
         .filter(|(_, n)| *n > 0)
-        .map(|(k, n)| format!("{n} {}", k.plural().to_lowercase()))
+        .map(|(k, n)| format!("{n} {}", k.label().to_lowercase()))
         .collect();
     if kinds.is_empty() {
         return Err("no objects".into());

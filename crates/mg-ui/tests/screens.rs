@@ -1519,8 +1519,8 @@ fn areas_by_name_and_area_properties() {
 
 #[test]
 #[ignore]
-fn merchant_markers() {
-    // A merchant among what stands around it: its arrow, or the game's
+fn store_markers() {
+    // A store among what stands around it: its arrow, or the game's
     // sign, is in the scene, hidden by what is in front of it.
     mg_testkit::gpu::hold();
     let root = mg_testkit::corpus!();
@@ -1558,11 +1558,11 @@ fn merchant_markers() {
         }
     }
     h.run_steps(5);
-    shoot(&mut h, &dir, "merchant-arrow");
+    shoot(&mut h, &dir, "store-arrow");
     // Options › Area: the game's $ sign.
     h.state_mut().settings.merchant_signs = true;
     h.run_steps(5);
-    shoot(&mut h, &dir, "merchant-sign");
+    shoot(&mut h, &dir, "store-sign");
 }
 
 #[test]

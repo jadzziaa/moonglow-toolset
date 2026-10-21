@@ -197,7 +197,7 @@ pub struct AreaScene {
     failed: RefCell<std::collections::HashSet<usize>>,
     /// Moonglow's arrow ([`crate::marker`]).
     arrow: Option<Arc<GpuModel>>,
-    /// Merchants as the game's marker for one (a $) rather than as arrows.
+    /// Stores as the game's marker for one (a $) rather than as arrows.
     pub merchant_signs: bool,
     /// The game's marker for an encounter's spawn point (`spawnpoint`).
     spawn_point: Option<Arc<GpuModel>>,
@@ -266,7 +266,7 @@ impl AreaScene {
     }
 
     /// Whether `object` (its models `shown`, if any) is drawn as the
-    /// arrow: a waypoint or merchant without a marker model, and merchants
+    /// arrow: a waypoint or store without a marker model, and stores
     /// unless their signs are asked for.
     fn as_arrow(&self, object: &AreaObject, shown: Option<&Arc<Shown>>) -> bool {
         object.kind.has_arrow()
@@ -795,7 +795,7 @@ impl AreaScene {
             }
             let Some(shown) = shown else { continue };
             let c = &shown.composed;
-            // A waypoint's flag, a merchant's sign and a sound's speaker
+            // A waypoint's flag, a store's sign and a sound's speaker
             // are markers: in their own colours, unlit.
             let unlit = o.kind.is_marker();
             let time = if view.animate { view.time } else { 0.0 };

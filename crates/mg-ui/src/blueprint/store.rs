@@ -1,4 +1,4 @@
-//! Merchant Properties (`TdlgStoreEdit`): Basic (name, pricing, stolen
+//! Store Properties (`TdlgStoreEdit`): Basic (name, pricing, stolen
 //! goods, gold), Advanced, Restrictions (base items the store will not, or
 //! will only, buy), Comments; and the store's inventory (Aurora's
 //! Inventory… dialog) as its own page.

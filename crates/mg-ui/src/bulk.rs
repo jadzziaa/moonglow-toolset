@@ -6,10 +6,11 @@
 use std::collections::HashSet;
 
 use egui::Context;
+use mg_area::ObjectKind;
 use mg_core::{ResRef, ResType};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::Struct;
-use mg_module::instances::{Held, Placing, git_list, held_items, update, update_held};
+use mg_module::instances::{Held, Placing, held_items, update, update_held};
 use mg_resman::ResKey;
 
 use crate::{Action, Moonglow};
@@ -45,22 +46,7 @@ pub struct UpdateDraft {
 
 /// The kind of object a GIT list holds, for people.
 fn kind_name(list: &str) -> &'static str {
-    match list {
-        "Creature List" => "creature",
-        "Door List" => "door",
-        "Encounter List" => "encounter",
-        "List" => "item",
-        "Placeable List" => "placeable",
-        "SoundList" => "sound",
-        "StoreList" => "store",
-        "TriggerList" => "trigger",
-        _ => "waypoint",
-    }
-}
-
-/// The blueprint field that names a placed object's blueprint.
-fn template_field(restype: ResType) -> &'static str {
-    if restype == ResType::UTM { "ResRef" } else { "TemplateResRef" }
+    ObjectKind::from_list(list).map_or("object", ObjectKind::name)
 }
 
 impl Moonglow {
@@ -74,9 +60,10 @@ impl Moonglow {
         for area in ws.module.areas().unwrap_or_default() {
             let Ok(git) = ws.doc(&ResKey::new(area, ResType::GIT)) else { continue };
             for restype in wanted.iter().map(|k| k.restype).collect::<HashSet<_>>() {
-                let Some((list, _)) = git_list(restype) else { continue };
+                let Some(kind) = ObjectKind::from_restype(restype) else { continue };
+                let list = kind.list();
                 for (index, s) in git.root.list(list).unwrap_or(&[]).iter().enumerate() {
-                    let Some(r) = s.resref(template_field(restype)) else { continue };
+                    let Some(r) = s.resref(kind.resref_field()) else { continue };
                     if !wanted.contains(&ResKey::new(r, restype)) {
                         continue;
                     }
@@ -171,7 +158,7 @@ impl Moonglow {
                 continue;
             }
             total += n;
-            for (list, _) in mg_module::instances::GIT_LISTS {
+            for list in ObjectKind::ALL.map(ObjectKind::list) {
                 if new.get(list) != git.get(list) {
                     edits.push(Edit::SetField {
                         key,

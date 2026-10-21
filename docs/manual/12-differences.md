@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:26:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
 ---
 
 # Differences from Aurora
@@ -17,6 +17,13 @@ it differs, it is on purpose:
 - **Tabs and windows, not dialogs**: every editor is a tab or a window
   that stays open beside the others; areas stay in the main pane.
 - **The Welcome tab** is the start page, not a dialog at start.
+- **Stores are Stores everywhere**: the area view's filters, the module
+  tree, the palettes, Verify, Find Instance, the wizards and the
+  options. Aurora says Merchants on some of these (its area filters,
+  Paint Merchants on its palette's buttons, the Script Wizard's Start a
+  Merchant) and Stores on others; the game's Merchant faction and the
+  palette's Merchants category, the game's own names, are as it has
+  them.
 - **Module folders** and archives open the same way; there is no "always
   open module directories" option.
 - **Recovery copies** of unsaved work are offered back after a crash
@@ -37,8 +44,8 @@ it differs, it is on purpose:
 - **Waypoints** are the flags of their appearance (blue, red, green,
   yellow), **sounds** the game's markers for them (a note: heard from
   where it stands, from a random position, or everywhere in the area)
-  and **merchants** a yellow arrow along their facing, or the game's $
-  sign (Tools › Options › Area › Show merchants as $ signs). All are in
+  and **stores** a yellow arrow along their facing, or the game's $
+  sign (Tools › Options › Area › Show stores as $ signs). All are in
   their own colors whatever the area's light, and hidden by what stands
   in front of them.
 - **Locked objects** carry a field of Moonglow's (`MG_Locked`), which the

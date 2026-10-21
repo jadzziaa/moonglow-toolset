@@ -67,8 +67,8 @@ pub fn waypoint(game: &GameData, utw: &Struct) -> Result<Preview, PreviewError> 
     Ok(Preview::model(&model))
 }
 
-/// A merchant's marker, as Aurora shows one: the game's `gi_store` model
-/// (a merchant has no appearance).
+/// A store's marker, as Aurora shows one: the game's `gi_store` model
+/// (a store has no appearance).
 pub fn store(game: &GameData) -> Result<Preview, PreviewError> {
     const MARKER: &str = "gi_store";
     if !(Lookup { game }).has_model(MARKER) {

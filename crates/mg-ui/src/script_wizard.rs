@@ -872,7 +872,7 @@ fn action_page(app: &mut Moonglow, ui: &mut Ui, w: &mut ScriptWizard, page: usiz
                 if ui.radio(w.perform == Perform::Attack, "Attack").clicked() {
                     w.perform = Perform::Attack;
                 }
-                if ui.radio(store, "Start a Merchant").clicked() && !store {
+                if ui.radio(store, "Open a Store").clicked() && !store {
                     w.perform = Perform::Store { tag: String::new(), appraise: true };
                 }
                 let (mut tag, mut appraise) = match &w.perform {

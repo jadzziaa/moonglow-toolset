@@ -15,10 +15,9 @@ use mg_core::{Codepage, ResRef, ResType};
 use mg_gff::{FieldAt, Gff, Struct, Value};
 use mg_resman::ResKey;
 use mg_rules::rows::{RowTable, list_table, row_table};
-use mg_rules::{Choice, ChoiceColumns, GameData, ItemProperty};
+use mg_rules::{Choice, ChoiceColumns, GameData, ItemProperty, ObjectKind};
 
 use crate::Module;
-use crate::instances::GIT_LISTS;
 use crate::query::glob;
 use crate::refs::{RefKind, gff_references};
 pub use crate::vars::VarType;
@@ -208,7 +207,7 @@ impl Hit {
             return None;
         }
         let (list, index) = item(self.path.strip_prefix('/')?.split('/').next()?)?;
-        GIT_LISTS.iter().any(|(l, _)| *l == list).then_some((list, index))
+        ObjectKind::from_list(list).map(|_| (list, index))
     }
 
     /// The place, as Find References names one (to go there).
@@ -245,8 +244,8 @@ fn object_type(key: ResKey, steps: &[&str]) -> ResType {
     for (i, step) in steps.iter().enumerate() {
         let Some((list, _)) = item(step) else { continue };
         if key.restype == ResType::GIT && i == 0 {
-            if let Some((_, r)) = GIT_LISTS.iter().find(|(l, _)| *l == list) {
-                t = *r;
+            if let Some(k) = ObjectKind::from_list(list) {
+                t = k.restype();
             }
         } else if ITEM_LISTS.contains(&list) {
             t = ResType::UTI;
@@ -273,18 +272,7 @@ fn object_name(s: &Struct, index: usize, cp: Codepage) -> String {
 
 /// The kind of a placed object's list, for people.
 fn git_kind(list: &str) -> &'static str {
-    match list {
-        "Creature List" => "creature",
-        "Door List" => "door",
-        "Encounter List" => "encounter",
-        "List" => "item",
-        "Placeable List" => "placeable",
-        "SoundList" => "sound",
-        "StoreList" => "store",
-        "TriggerList" => "trigger",
-        "WaypointList" => "waypoint",
-        _ => "object",
-    }
+    ObjectKind::from_list(list).map_or("object", ObjectKind::name)
 }
 
 /// The object a path is in, for people: `keep › creature GUARD › item
@@ -294,11 +282,11 @@ fn place(key: ResKey, gff: &Gff, path: &str, cp: Codepage) -> String {
     let name = key.resref.to_lowercase().to_string();
     let first = path.trim_start_matches('/').split('/').next().and_then(item);
     let mut out = match key.restype {
-        ResType::GIT if first.is_some_and(|(l, _)| GIT_LISTS.iter().any(|(g, _)| *g == l)) => name,
+        ResType::GIT if first.is_some_and(|(l, _)| ObjectKind::from_list(l).is_some()) => name,
         ResType::GIT => return format!("{name} (area)"),
         ResType::ARE => return format!("{name} (area)"),
         ResType::IFO => return "Module".to_string(),
-        t if GIT_LISTS.iter().any(|(_, r)| *r == t) => key.to_string(),
+        t if ObjectKind::from_restype(t).is_some() => key.to_string(),
         _ => return crate::rename::describe(key, Some(gff), path),
     };
     let mut s = &gff.root;
@@ -569,7 +557,7 @@ fn wanted(q: &Query, h: &Hit) -> bool {
     let placed_ok = match q.placed {
         None => true,
         Some(true) => h.placed(),
-        Some(false) => GIT_LISTS.iter().any(|(_, t)| *t == h.key.restype),
+        Some(false) => ObjectKind::from_restype(h.key.restype).is_some(),
     };
     placed_ok && (q.types.is_empty() || q.types.contains(&h.object))
 }
@@ -590,7 +578,7 @@ pub fn search(m: &Module, q: &Query, game: Option<&GameData>, cp: Codepage) -> V
     for key in keys {
         let Some(Ok(gff)) = m.gff(&key) else { continue };
         let hits = resource_hits(key, &gff, q, game, cp);
-        let blueprint = GIT_LISTS.iter().any(|(_, t)| *t == key.restype);
+        let blueprint = ObjectKind::from_restype(key.restype).is_some();
         if carrying && blueprint {
             for r in gff_references(key, &gff) {
                 if r.kind == RefKind::Blueprint(ResType::UTI) {

@@ -898,7 +898,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The start location's marker** is still drawn over the view, not
   hidden by what is in front of it, as the selection's boxes and the
   outlines of triggers and encounters are by design. (S)
-- **Marker models against Aurora:** merchants, sounds and waypoints use
+- **Marker models against Aurora:** stores, sounds and waypoints use
   the game's marker models in their materials' colors, unlit; that Aurora
   draws them so was not captured. Waypoints' flags are drawn unlit so
   their colors tell apart in a dark area; how Aurora lights them was
@@ -2108,18 +2108,16 @@ of truth, and does each caller's difference matter.
   repeat a movable variant with no helper; `creature_wizard.rs:257`
   and `situated.rs:247` (an `egui::Modal`) are two more styles, and
   centering is done two ways. A `widgets::modal`. (S)
-- **The GIT's lists, spelled out about ten times:** `instances.rs:54`
-  and `:1135` (in one file), `refs.rs:103`, `verify.rs:38`,
-  `doctor.rs:1239` (a subset), `rename.rs:460`, `search.rs:308`,
-  `bulk.rs:48` (singular names; bulk falls back to "waypoint", the
-  others to "object"), `mg-rules rows.rs:65` (no sounds or stores, as
-  its kinds); three kind enums for the nine types (`ObjectKind`,
-  `BlueprintKind`, `verify::Category`); mg-schema has the lists with
-  their struct ids. And `if UTM { "ResRef" } else { "TemplateResRef" }`
-  eight times beside `BlueprintKind::resref_field` (`query.rs:112`,
-  `instances.rs:1198`, `palette_add.rs:99`, `:230`, `mg-area lib.rs:365`,
-  `bulk.rs:63`, `area_tools.rs:243`, `:473`). One table of (list,
-  type, struct id, name) and one kind. (M)
+- **The placed objects' kind, still spelled out in the window:** the
+  GIT's lists and the nine types are one `mg_rules::ObjectKind` now
+  (`mg_area::ObjectKind` and `mg_module::palette::BlueprintKind` are
+  that type under the names their callers use), but mg-ui keeps tables
+  of its own that the merge with the editors' work in progress left
+  alone: Advanced Search's kinds (`search.rs:58`), the module tree's
+  categories (`tree.rs:22`) and its New wizard per type
+  (`tree.rs:1280`), the palettes' New menu items (`palette_view.rs:1117`),
+  the tabs' kind names (`tabs.rs:116`, five types), `icons::blueprint`
+  (a kind turned into itself). (S)
 - **A localized string's text, without the toolset's language or the
   talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
   `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside
