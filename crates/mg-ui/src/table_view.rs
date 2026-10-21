@@ -730,7 +730,160 @@ pub fn references(app: &Moonglow, name: &str, own: &TwoDa, row: usize) -> Vec<Re
 }
 
 const CELL: f32 = 116.0;
-const NUMBER: f32 = 54.0;
+pub(crate) const NUMBER: f32 = 54.0;
+/// The narrowest and the widest a column is made.
+const NARROWEST: f32 = 24.0;
+const WIDEST: f32 = 1600.0;
+/// How many tables' column widths are kept.
+const WIDTHS_KEPT: usize = 200;
+
+/// Each column's width: the one given it (by dragging the edge of its
+/// name, in this table or another of its name), else `default`.
+pub(crate) fn column_widths(
+    settings: &crate::settings::Settings,
+    table: &str,
+    columns: &[String],
+    default: f32,
+) -> Vec<f32> {
+    let kept = settings.table_widths.iter().find(|(t, _)| t.eq_ignore_ascii_case(table));
+    let kept = kept.map_or(&[][..], |(_, w)| w.as_slice());
+    columns
+        .iter()
+        .map(|c| {
+            let given = kept.iter().find(|(k, _)| k.eq_ignore_ascii_case(c));
+            given.map_or(default, |(_, w)| *w as f32)
+        })
+        .collect()
+}
+
+/// Gives a column of the table `table` its width, kept for the tables of
+/// that name (and between runs, with the settings).
+pub(crate) fn set_column_width(
+    settings: &mut crate::settings::Settings,
+    table: &str,
+    column: &str,
+    width: f32,
+) {
+    let width = width.clamp(NARROWEST, WIDEST).round() as u32;
+    let kept = &mut settings.table_widths;
+    let at = kept.iter().position(|(t, _)| t.eq_ignore_ascii_case(table));
+    let mut entry = match at {
+        Some(at) => kept.remove(at),
+        None => (table.to_ascii_lowercase(), Vec::new()),
+    };
+    match entry.1.iter_mut().find(|(c, _)| c.eq_ignore_ascii_case(column)) {
+        // (As it was: nothing changes, nor which table was changed last.)
+        Some((_, w)) if *w == width && at == Some(0) => {
+            kept.insert(0, entry);
+            return;
+        }
+        Some((_, w)) => *w = width,
+        None => entry.1.push((column.to_string(), width)),
+    }
+    kept.insert(0, entry);
+    kept.truncate(WIDTHS_KEPT);
+}
+
+/// A column renamed keeps its width.
+fn rename_column_width(
+    settings: &mut crate::settings::Settings,
+    table: &str,
+    from: &str,
+    to: &str,
+) {
+    let kept = settings.table_widths.iter_mut().find(|(t, _)| t.eq_ignore_ascii_case(table));
+    if let Some((_, widths)) = kept {
+        widths.retain(|(c, _)| !c.eq_ignore_ascii_case(to));
+        if let Some((c, _)) = widths.iter_mut().find(|(c, _)| c.eq_ignore_ascii_case(from)) {
+            *c = to.to_string();
+        }
+    }
+}
+
+/// What was done to the edge at the right of a column's name.
+pub(crate) enum Edge {
+    /// Dragged: the column's width now.
+    Width(f32),
+    /// Double-clicked: as wide as its widest cell.
+    Fit,
+}
+
+/// The edge at the right of a column's name (`rect`, the name's place):
+/// dragged, it sets the column's width; double-clicked, it fits the column
+/// to its widest cell. (Over the name's own right end, and the gap to the
+/// next: a drag begun on the rest of the name is the name's.)
+pub(crate) fn column_edge(
+    ui: &mut Ui,
+    id: egui::Id,
+    rect: egui::Rect,
+    column: &str,
+) -> Option<Edge> {
+    let gap = ui.spacing().item_spacing.x;
+    let x = rect.right() + gap / 2.0;
+    let zone = egui::Rect::from_x_y_ranges(rect.right() - 4.0..=rect.right() + gap, rect.y_range());
+    let r = ui.interact(zone, id, egui::Sense::click_and_drag());
+    r.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Other, true, format!("Width of {column}"))
+    });
+    if r.hovered() || r.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+        let stroke = egui::Stroke::new(2.0, ui.visuals().selection.bg_fill);
+        ui.painter().vline(x, rect.y_range(), stroke);
+    }
+    if r.double_clicked() {
+        return Some(Edge::Fit);
+    }
+    // (The edge follows the pointer from where it was taken hold of.)
+    let pointer = ui.input(|i| (i.pointer.press_origin(), i.pointer.interact_pos()));
+    if r.drag_started()
+        && let Some(origin) = pointer.0
+    {
+        ui.data_mut(|d| d.insert_temp(id, origin.x - rect.right()));
+    }
+    let held: f32 = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    match pointer.1.filter(|_| r.dragged()) {
+        Some(at) if (at.x - held - rect.right()).abs() > 0.1 => {
+            Some(Edge::Width(at.x - held - rect.left()))
+        }
+        _ => None,
+    }
+}
+
+/// The width that shows a column's name and its longest cell (`cells`,
+/// as shown: in the monospace font) whole.
+pub(crate) fn fit_width(ui: &Ui, name: &str, cells: impl Iterator<Item = String>) -> f32 {
+    let longest = cells.max_by_key(|s| s.chars().count()).unwrap_or_default();
+    let color = ui.visuals().text_color();
+    let wide = |text: String, style: egui::TextStyle| {
+        ui.painter().layout_no_wrap(text, style.resolve(ui.style()), color).size().x
+    };
+    let widest = wide(name.to_string(), egui::TextStyle::Body)
+        .max(wide(longest, egui::TextStyle::Monospace));
+    // (The cell's margins, and a little to spare.)
+    (widest + 12.0).clamp(NARROWEST, WIDEST)
+}
+
+/// What a cell shows: its talk-table string (`strref`, a column of them),
+/// its value's name (`named`, a column described as a list or flags), or
+/// its value. And the text shown in place of the value, and whether that
+/// is a name.
+fn cell_shows(
+    raw: Option<&str>,
+    strref: bool,
+    named: Option<&Kind>,
+    game: Option<&mg_rules::GameData>,
+) -> (String, Option<String>, bool) {
+    let text = raw
+        .filter(|_| strref)
+        .and_then(|v| v.parse::<u32>().ok())
+        .and_then(|n| game?.string(mg_core::StrRef(n)));
+    // (A value by its name, where the description gives it one.)
+    let name = raw.zip(named).and_then(|(v, k)| k.named(v));
+    let was_named = name.is_some();
+    let text = text.or(name);
+    let label = text.clone().unwrap_or_else(|| raw.unwrap_or("****").into());
+    (label, text, was_named)
+}
 
 /// The tab of a table.
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
@@ -1200,9 +1353,23 @@ fn grid(
     faults: &[CellFault],
 ) {
     let game = app.game.clone();
+    let settings = &mut app.settings;
     let doc = &mut app.tables[at];
     let rows = shown_rows(doc);
     let columns: Vec<String> = doc.edit.table().columns().to_vec();
+    let table_name = doc.name();
+    let widths = column_widths(settings, &table_name, &columns, CELL);
+    // Where each column begins, from the first's left.
+    let lefts: Vec<f32> = widths
+        .iter()
+        .scan(0.0, |x, w| {
+            let left = *x;
+            *x += w + ui.spacing().item_spacing.x;
+            Some(left)
+        })
+        .collect();
+    // The edge of a column's name dragged or double-clicked.
+    let mut edge = None;
     let description = doc.description();
     let described = |c: &str| description.as_deref().and_then(|d| d.column(c));
     let kind_of = |c: &str| {
@@ -1223,7 +1390,6 @@ fn grid(
         .collect();
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 6.0;
     let pitch = row_height + ui.spacing().item_spacing.y;
-    let step = CELL + ui.spacing().item_spacing.x;
     let reveal = std::mem::take(&mut doc.reveal);
     let selected = doc.selected;
     let area = doc.area().filter(|a| (a.0, a.2) != (a.1, a.3));
@@ -1264,7 +1430,7 @@ fn grid(
                     for (index, c) in columns.iter().enumerate() {
                         let text = egui::RichText::new(c).strong();
                         let (rect, r) = ui.allocate_exact_size(
-                            egui::vec2(CELL, row_height),
+                            egui::vec2(widths[index], row_height),
                             egui::Sense::click_and_drag(),
                         );
                         // Dragged by its name to another column's place.
@@ -1326,14 +1492,35 @@ fn grid(
                         };
                         r.on_hover_text(
                             about
-                                + "\nDrag: move the column. Right-click: rename, move or remove it",
+                                + "\nDrag: move the column. Drag its right edge: its width \
+                                   (double click there: as wide as its widest cell). \
+                                   Right-click: rename, move or remove it",
                         );
+                        // (On top of the name: its right end is the edge's.)
+                        let edge_id = egui::Id::new(("table-edge", id, index));
+                        if doc.moving.is_none()
+                            && let Some(act) = column_edge(ui, edge_id, rect, c)
+                        {
+                            edge = Some((index, act));
+                        }
                     }
                     // (Room for the rows' own scroll bar at the right.)
                     ui.add_space(ui.spacing().scroll.bar_width + 12.0);
                 });
             });
     });
+    match edge {
+        Some((c, Edge::Width(w))) => set_column_width(settings, &table_name, &columns[c], w),
+        Some((c, Edge::Fit)) => {
+            let t = doc.edit.table();
+            let cells = rows
+                .iter()
+                .map(|&r| cell_shows(t.cell(r, c), strref[c], named[c], game.as_deref()).0);
+            let w = fit_width(ui, &columns[c], cells);
+            set_column_width(settings, &table_name, &columns[c], w);
+        }
+        None => {}
+    }
     if released {
         // (Let go over another column's name: moved there.)
         if let (Some(from), Some(to)) = (doc.moving.take(), over_column) {
@@ -1387,7 +1574,9 @@ fn grid(
             list = list.vertical_scroll_offset((place as f32 * pitch - above).max(0.0));
         }
         // Sideways only where the cell is out of sight.
-        let (left, width) = (column as f32 * step, ui.available_width() - NUMBER);
+        let left = lefts.get(column).copied().unwrap_or_default();
+        let step = widths.get(column).copied().unwrap_or(CELL) + ui.spacing().item_spacing.x;
+        let width = ui.available_width() - NUMBER;
         if left < scroll_x || left + step > scroll_x + width {
             list = list.horizontal_scroll_offset((left - width / 2.0).max(0.0));
         }
@@ -1418,6 +1607,7 @@ fn grid(
                     for &r in &rows[range] {
                         ui.horizontal(|ui| {
                             for (c, is_strref) in strref.iter().copied().enumerate() {
+                                let width = widths[c];
                                 let here = selected == Some((r, c));
                                 if here && let Some(text) = doc.typing.as_mut() {
                                     let edit = egui::TextEdit::singleline(text)
@@ -1427,7 +1617,7 @@ fn grid(
                                         .vertical_align(egui::Align::Center);
                                     // (In the cell's own place, as wide.)
                                     let (rect, _) = ui.allocate_exact_size(
-                                        egui::vec2(CELL, row_height),
+                                        egui::vec2(width, row_height),
                                         egui::Sense::hover(),
                                     );
                                     // (A place of its own: what the field takes beyond
@@ -1449,17 +1639,8 @@ fn grid(
                                 }
                                 let raw = doc.edit.table().cell(r, c);
                                 let fault = faults.iter().find(|f| f.row == r && f.column == c);
-                                let text = raw
-                                    .filter(|_| is_strref)
-                                    .and_then(|v| v.parse::<u32>().ok())
-                                    .and_then(|n| game.as_deref()?.string(mg_core::StrRef(n)));
-                                // (A value by its name, where the description
-                                // gives it one.)
-                                let name = raw.zip(named[c]).and_then(|(v, k)| k.named(v));
-                                let was_named = name.is_some();
-                                let text = text.or(name);
-                                let label =
-                                    text.clone().unwrap_or_else(|| raw.unwrap_or("****").into());
+                                let (label, text, was_named) =
+                                    cell_shows(raw, is_strref, named[c], game.as_deref());
                                 let mut rich = egui::RichText::new(label).monospace();
                                 if raw.is_none() {
                                     rich = rich.weak();
@@ -1468,7 +1649,7 @@ fn grid(
                                     rich = rich.color(wrong);
                                 }
                                 let (rect, cell) = ui.allocate_exact_size(
-                                    egui::vec2(CELL, row_height),
+                                    egui::vec2(width, row_height),
                                     egui::Sense::click_and_drag(),
                                 );
                                 if cell.drag_started() {
@@ -1838,6 +2019,7 @@ fn row_choice(
 
 /// Add Column…: its name.
 fn column_window(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
+    let settings = &mut app.settings;
     let doc = &mut app.tables[at];
     let Some(mut name) = doc.new_column.clone() else { return };
     let mut open = true;
@@ -1876,7 +2058,14 @@ fn column_window(app: &mut Moonglow, ctx: &egui::Context, at: usize) {
     );
     if add {
         let done = match renaming {
-            Some(column) => doc.edit.rename_column(column, name.trim()).map(|_| ()),
+            Some(column) => {
+                let was = doc.edit.table().columns()[column].clone();
+                let done = doc.edit.rename_column(column, name.trim());
+                if done.is_ok() {
+                    rename_column_width(settings, &doc.name(), &was, name.trim());
+                }
+                done.map(|_| ())
+            }
             None => doc.edit.add_column(name.trim()),
         };
         match done {

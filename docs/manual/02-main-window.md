@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:30:49Z }
 ---
 
 # The main window
@@ -319,9 +319,15 @@ gives the list the keys too. The **Find** fields of the hak editor, the
 tileset editor and the Appearance Gallery take Ctrl+F and Escape the
 same way.
 
-A 2DA shows the copy the game reads, with its StrRef columns (Name,
-Description, StrRef and the like) as their text; **StrRefs as numbers**
-shows the numbers. When several layers have the table (a hak's copy over
+A 2DA shows the copy the game reads, read-only, with its StrRef columns
+(Name, Description, StrRef and the like) as their text; **StrRefs as
+numbers** shows the numbers. Its rows scroll as the 2DA editor's do, with
+scroll bars at the right and the bottom, the column names staying at the
+top and the rows' numbers at the left; a column's width is set by
+dragging the edge at the right of its name (a double click there: as
+wide as its widest cell), and is the 2DA editor's for that table too.
+**Edit…** opens the table in the 2DA editor (see
+[the 2DA editor](03-modules.md#the-2da-editor)). When several layers have the table (a hak's copy over
 the game's), the view adds:
 - a **From** column with the layer each row comes from: the lowest one
   it has come down from unchanged;

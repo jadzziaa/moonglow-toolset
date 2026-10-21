@@ -206,6 +206,91 @@ fn table_editor() {
     shoot(&mut h, &dir, "table-editor-edit-menu");
 }
 
+/// The game's spells.2da read in the resource browser (not editable): its
+/// scroll bars, as it opens and scrolled down and to the right; and the
+/// 2DA editor on a copy of appearance.2da, a column widened by dragging
+/// the edge of its name.
+#[test]
+#[ignore]
+fn table_read_only_and_column_widths() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-table-widths");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let file = dir.join("appearance.2da");
+    let t = game.table("appearance").unwrap();
+    std::fs::write(&file, t.to_bytes(mg_core::Codepage::default()).unwrap()).unwrap();
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let key = ResKey::parse("spells", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "2da-read-only");
+    // The wheel over the rows: down, and sideways.
+    let at = h.get_by_label("Acid_Fog").rect().center();
+    h.hover_at(at);
+    for delta in [egui::vec2(0.0, -2000.0), egui::vec2(-1500.0, 0.0)] {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta,
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(60);
+    }
+    shoot(&mut h, &dir, "2da-read-only-scrolled");
+    let tab = h.state().dock.find_tab(&mg_ui::Tab::Resource(key)).unwrap();
+    h.state_mut().dock.remove_tab(tab);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(6);
+    h.state_mut().tables.iter_mut().find(|d| d.id == id).unwrap().go_to(4, 1);
+    h.run_steps(4);
+    shoot(&mut h, &dir, "table-editor-widths");
+    // The edge at the right of STRING_REF's name dragged 120 points on.
+    let edge = h.get_by_label("Width of STRING_REF").rect().center();
+    h.hover_at(edge);
+    h.run_steps(2);
+    h.drag_at(edge);
+    h.run_steps(1);
+    for step in 1..=6 {
+        h.hover_at(edge + egui::vec2(20.0 * step as f32, 0.0));
+        h.run_steps(1);
+    }
+    h.drop_at(edge + egui::vec2(120.0, 0.0));
+    h.run_steps(4);
+    shoot(&mut h, &dir, "table-editor-widened");
+    // A double click on the edge of NAME's: as wide as its widest cell,
+    // the pointer still over the edge.
+    let edge = h.get_by_label("Width of NAME").rect().center();
+    h.hover_at(edge);
+    h.run_steps(2);
+    // (Two clicks, a frame each.)
+    for pressed in [true, false, true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: edge,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(1);
+    }
+    h.run_steps(3);
+    h.hover_at(h.get_by_label("Width of NAME").rect().center());
+    h.run_steps(2);
+    shoot(&mut h, &dir, "table-editor-fitted");
+    // The same table read in the resource browser: as wide as made here.
+    let key = ResKey::parse("appearance", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Resource(key)));
+    h.run_steps(5);
+    shoot(&mut h, &dir, "2da-read-only-widths");
+}
+
 /// A table with a description beside it: values by name, a cell that is
 /// none of its list, and a flags cell being ticked (the flags are the
 /// game's own `DAMAGE_TYPE_` constants, read from `nwscript`).

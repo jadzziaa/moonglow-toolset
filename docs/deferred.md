@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:08:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:30:49Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -698,6 +698,20 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - A table open in the editor is not read again when what it was read
     from changes under it (the module's Undo taking its save back, the
     hak's table replaced, the file changed outside). (S)
+  - Column widths (dansen9191's report, 2026-10-21) are kept by the
+    table's name and the column's, in the settings (the last 200
+    tables): two different tables of one name (two haks' `custom.2da`)
+    share them, and there is no way to put a column back to its first
+    width but to drag it there. The resource browser's **From** column
+    (the layer a row comes from) keeps its width. A double click on an
+    edge fits the column to its rows as shown then (Find's rows, the
+    strings as text or not), not to all of them. (S each)
+  - The resource browser's read-only view (with its scroll bars since
+    2026-10-21) has no keys of its own: no cell to select, nor the
+    arrows to move with, nor Find. It is drawn by code of its own beside
+    the editor's grid, which it copies (the column names and rows'
+    numbers that follow the scroll); one grid for both, with the editing
+    left out, would serve. (M)
   - Large tables were not timed while edited (a persistent world's
     `appearance.2da`); Find looks through every cell at each frame
     (Take Rows reads the copies once, and works the rows out once for
