@@ -22,11 +22,59 @@ pub struct GameInstall {
     /// user's, its `hak/` and `tlk/` after the user's. Off unless asked
     /// for: the other tools and the game started outside Steam don't.
     pub workshop: bool,
+    /// The haks the user's `userpatch.ini` names are read as well, from
+    /// the folder `nwn.ini` aliases as `PATCH` (`patch/` in the user
+    /// directory), between the module and `override/` as the game reads
+    /// them ([`GameInstall::userpatch_haks`]). Aurora doesn't read them;
+    /// off unless asked for.
+    pub userpatch: bool,
 }
 
 impl GameInstall {
     pub fn new(root: impl Into<PathBuf>, user_dir: Option<PathBuf>, language: &str) -> GameInstall {
-        GameInstall { root: root.into(), user_dir, language: language.to_string(), workshop: false }
+        GameInstall {
+            root: root.into(),
+            user_dir,
+            language: language.to_string(),
+            workshop: false,
+            userpatch: false,
+        }
+    }
+
+    /// The haks `userpatch.ini` (in the user directory) names, highest
+    /// first, each with its file in the `PATCH` folder if it is there:
+    /// `PatchFile000=name` and on, the highest number winning, as the game
+    /// reads them. The folder is `nwn.ini`'s `[Alias]` `PATCH=`, else
+    /// `patch/` in the user directory. Empty without the file, or with
+    /// [`GameInstall::userpatch`] off.
+    pub fn userpatch_haks(&self) -> Vec<(String, Option<PathBuf>)> {
+        let Some(user) = self.user_dir.as_ref().filter(|_| self.userpatch) else {
+            return Vec::new();
+        };
+        let read = |name: &str| {
+            std::fs::read(user.join(name)).map(|b| b.iter().map(|&c| c as char).collect::<String>())
+        };
+        let Ok(ini) = read("userpatch.ini") else { return Vec::new() };
+        let folder = read("nwn.ini")
+            .ok()
+            .and_then(|nwn| ini_value(&nwn, "alias", "patch"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| user.join("patch"));
+        let mut haks: Vec<(u32, String)> = ini_section(&ini, "patch")
+            .into_iter()
+            .filter_map(|(k, v)| {
+                let n = k.to_ascii_lowercase().strip_prefix("patchfile")?.parse().ok()?;
+                let name = v.strip_suffix(".hak").unwrap_or(&v).to_string();
+                (!name.is_empty()).then_some((n, name))
+            })
+            .collect();
+        haks.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
+        haks.into_iter()
+            .map(|(_, name)| {
+                let path = Some(folder.join(format!("{name}.hak"))).filter(|p| p.is_file());
+                (name, path)
+            })
+            .collect()
     }
 
     /// Whether a directory looks like a game install.
@@ -54,7 +102,13 @@ impl GameInstall {
             .map(PathBuf::from)
             .or_else(default_user_dir)
             .filter(|p| p.is_dir());
-        Some(GameInstall { root, user_dir, language: "en".into(), workshop: false })
+        Some(GameInstall {
+            root,
+            user_dir,
+            language: "en".into(),
+            workshop: false,
+            userpatch: false,
+        })
     }
 
     /// `lang/<language>/data`.
@@ -226,6 +280,34 @@ fn steam_libraries(vdf: &str) -> Vec<PathBuf> {
     out
 }
 
+/// The `key=value` lines of an INI file's `[section]` (names compared
+/// without case), in order; comments (`;`, `#`) and blank lines left out.
+fn ini_section(text: &str, section: &str) -> Vec<(String, String)> {
+    let mut inside = false;
+    let mut out = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            inside = name.trim().eq_ignore_ascii_case(section);
+        } else if inside
+            && !line.starts_with(';')
+            && !line.starts_with('#')
+            && let Some((k, v)) = line.split_once('=')
+        {
+            out.push((k.trim().to_string(), v.trim().to_string()));
+        }
+    }
+    out
+}
+
+/// One value of an INI file's section, by name (without case).
+fn ini_value(text: &str, section: &str, key: &str) -> Option<String> {
+    ini_section(text, section)
+        .into_iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(key))
+        .map(|(_, v)| v)
+        .filter(|v| !v.is_empty())
+}
+
 /// The player's NWN folder where the game puts it on this system.
 pub fn default_user_dir() -> Option<PathBuf> {
     if cfg!(windows) {
@@ -273,6 +355,14 @@ impl ResMan {
         dir(priority::MUSIC_USER, "user music", install.user("music"));
         dir(priority::AMBIENT, "ambient", Some(data.join("amb")));
         dir(priority::MUSIC, "music", Some(data.join("mus")));
+        // userpatch.ini's haks, under the module and its haks, over
+        // `override/`; the highest first (an archive that can't be read is
+        // left out, as a missing one is).
+        for (name, path) in install.userpatch_haks() {
+            if let Some(c) = path.and_then(|p| ErfContainer::open(&p).ok()) {
+                rm.add(priority::USERPATCH, format!("userpatch:{name}"), LayerClass::Erf, c);
+            }
+        }
 
         let lang_data = install.lang_data();
         for key in ["nwn_retail_loc", "nwn_retail", "nwn_base_loc", "nwn_base"] {
@@ -381,5 +471,65 @@ mod install_tests {
         let elsewhere = GameInstall { root: lib.join("game"), ..install };
         assert!(elsewhere.workshop_items().is_empty());
         let _ = std::fs::remove_dir_all(&lib);
+    }
+
+    /// userpatch.ini's haks are read when asked for, the highest number
+    /// winning, from `nwn.ini`'s PATCH folder, over `override/`.
+    #[test]
+    fn userpatch_haks_are_read_when_asked_for() {
+        let dir = env::temp_dir().join(format!("moonglow-userpatch-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let root = dir.join("game");
+        let user = dir.join("user");
+        let patches = dir.join("elsewhere");
+        for d in [root.join("data"), user.join("override"), user.join("patch"), patches.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let hak = |at: &Path, text: &str| {
+            let mut w = mg_erf::ErfWriter::new(*b"HAK ");
+            for n in ["mg_both", &format!("mg_{text}")] {
+                w.add(
+                    mg_core::ResRef::from_str(n).unwrap(),
+                    mg_core::ResType::TWODA,
+                    text.as_bytes(),
+                )
+                .unwrap();
+            }
+            std::fs::write(at, w.to_bytes().unwrap()).unwrap();
+        };
+        hak(&user.join("patch/low.hak"), "low");
+        hak(&user.join("patch/high.hak"), "high");
+        std::fs::write(user.join("override/mg_low.2da"), "override").unwrap();
+        // Comments, blank lines, any case, the extension or none, a hak
+        // that isn't there and another section's keys.
+        std::fs::write(
+            user.join("userpatch.ini"),
+            "; mine\r\n[Other]\r\nPatchFile009=nope\r\n\r\n[PATCH]\r\nPatchFile000=low\r\n\
+             patchfile002=high.hak\r\nPatchFile001=gone\r\n",
+        )
+        .unwrap();
+        let key = |n: &str| crate::ResKey::parse(n, mg_core::ResType::TWODA).unwrap();
+        let mut install = GameInstall::new(&root, Some(user.clone()), "en");
+        assert!(install.userpatch_haks().is_empty(), "off unless asked for");
+        assert!(!ResMan::for_game(&install).unwrap().contains(&key("mg_high")));
+        install.userpatch = true;
+        let names: Vec<_> =
+            install.userpatch_haks().into_iter().map(|(n, p)| (n, p.is_some())).collect();
+        assert_eq!(names, [("high".into(), true), ("gone".into(), false), ("low".into(), true)]);
+        let rm = ResMan::for_game(&install).unwrap();
+        assert_eq!(&*rm.get(&key("mg_both")).unwrap(), b"high", "the highest number wins");
+        assert_eq!(&*rm.get(&key("mg_low")).unwrap(), b"low", "over override/");
+        assert_eq!(rm.origin(&key("mg_high")), Some("userpatch:high"));
+        // nwn.ini's PATCH alias names the folder.
+        std::fs::rename(user.join("patch/high.hak"), patches.join("high.hak")).unwrap();
+        std::fs::write(
+            user.join("nwn.ini"),
+            format!("[Alias]\nTLK=x\nPATCH={}\n[Game Options]\nPATCH=no\n", patches.display()),
+        )
+        .unwrap();
+        let found: Vec<_> =
+            install.userpatch_haks().into_iter().filter(|(_, p)| p.is_some()).collect();
+        assert_eq!(found, [("high".into(), Some(patches.join("high.hak")))]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

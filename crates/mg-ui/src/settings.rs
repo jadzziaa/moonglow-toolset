@@ -289,9 +289,15 @@ pub struct Settings {
     /// Options > Script Editor: External Script Editor, a program given the
     /// script's file.
     pub external_editor: Option<PathBuf>,
-    /// Options > General: Read Steam Workshop content, off (the default:
-    /// read, as the game started through Steam reads it).
-    pub no_workshop: bool,
+    /// Options > General: Read Steam Workshop content, as the game
+    /// started through Steam reads it. Off by default, as Aurora: an item
+    /// subscribed to for play is not the module's (builders' asks; the
+    /// setting was `no_workshop`, on by default, until 1.38, and is read
+    /// anew, so it is off for everyone until turned on).
+    pub read_workshop: bool,
+    /// Options > General: Read userpatch.ini's haks, as the game reads
+    /// them. Off by default, as Aurora (the same reason).
+    pub read_userpatch: bool,
     /// Options > Script Editor: External Script Compiler, a program that
     /// compiles scripts in place of the built-in compiler (`None`: the
     /// built-in one), and its line of arguments (empty: the program's own).
@@ -448,7 +454,8 @@ impl Settings {
             .filter(|c| root.join("lang").join(c).join("data/dialog.tlk").is_file())
             .unwrap_or("en");
         let mut install = GameInstall::new(root, user_dir, code);
-        install.workshop = !self.no_workshop;
+        install.workshop = self.read_workshop;
+        install.userpatch = self.read_userpatch;
         Some(install)
     }
 }
@@ -456,6 +463,17 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Workshop items and userpatch.ini's haks are not read unless asked
+    /// for, as in Aurora (builders' asks); settings saved when the
+    /// Workshop was read by default (`no_workshop: false`) don't read it.
+    #[test]
+    fn workshop_and_userpatch_are_off_until_asked_for() {
+        let s = Settings::default();
+        assert!(!s.read_workshop && !s.read_userpatch);
+        let old: Settings = serde_json::from_str(r#"{"no_workshop":false}"#).unwrap();
+        assert!(!old.read_workshop);
+    }
 
     /// The game's text is read in the language edited, where the install
     /// has that language.

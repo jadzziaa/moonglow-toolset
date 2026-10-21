@@ -369,7 +369,7 @@ fn check(
         let mut n = 0;
         for m in missing.iter().filter(|m| w.missing_of.get(&m.category).copied().unwrap_or(true)) {
             n += 1;
-            let what = if m.uncompiled { "is not compiled" } else { "is missing" };
+            let what = format!("is {}", m.what());
             out.push(line(
                 format!(
                     "{:?}: {:?} {} ({} {}) {what}",

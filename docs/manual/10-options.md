@@ -3,14 +3,14 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T20:38:28Z }
 ---
 
 # Options
 
 **Tools › Options…** has Aurora's pages, in a window that docks and
 tabs with the others. **OK** applies the changes; the module stays open.
-**Cancel**, closing the window or Escape discards them. Only another game or user folder, the Workshop switch (the Folders page) or a language the game has installed (the Language page)
+**Cancel**, closing the window or Escape discards them. Only another game or user folder, the Workshop and userpatch switches or a language the game has installed (the Language page)
 has the game's data read again: unsaved work is asked about first, and
 the module is opened again from its file.
 
@@ -101,12 +101,24 @@ the module is opened again from its file.
   tree and the palettes). Areas are by name in Find Instance and the
   area transition's destinations too.
 - **Show challenge ratings in the creature palette**: on by default.
-- **Read Steam Workshop content**: on by default. The Steam Workshop
-  items you are subscribed to are read with the game's data, as the game
-  started through Steam reads them: each item's `override` under your
-  own, its haks and talk tables found by name. Aurora doesn't read them;
-  turn this off to see the module as a player without them would.
-  Changing it reads the game's data again.
+- **Read Steam Workshop content**: off by default, as in Aurora: an item
+  you subscribed to for play is not your module's, and a module that
+  needs it works only for players who have it too. On, the Steam
+  Workshop items you are subscribed to are read with the game's data, as
+  the game started through Steam reads them: each item's `override`
+  under your own, its haks and talk tables found by name. Changing it
+  reads the game's data again.
+- **Read userpatch.ini's haks**: off by default, as in Aurora, for the
+  same reason. On, the haks your
+  `userpatch.ini` names (`PatchFile000=…` and on, the highest number
+  winning), from the `patch` folder in your user folder (or the folder
+  `nwn.ini` names as `PATCH`), are read under the module and its haks
+  and over `override`, as the game reads them: the HD Pack and the like
+  show in the area view and the previews. Aurora doesn't read them. A
+  module that needs what only they provide works only for players who
+  have them too, so Verify warns of each such reference ("only in
+  userpatch.ini's haks"). Their own files are not checked as the
+  module's custom content. Changing it reads the game's data again.
 - **Reload haks, override and development when they change**: on by
   default. Moonglow checks every few seconds and rereads what changed
   (see [Build, verify and test](09-build-and-test.md)). The same switch
