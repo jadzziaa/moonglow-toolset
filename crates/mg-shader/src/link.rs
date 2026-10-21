@@ -1021,7 +1021,7 @@ void main ()
         assert_eq!(p.reflection.uniforms[0].part, Part::Whole);
         let part = |m: &crate::Member| match m.name.as_str() {
             "m_bones" => Part::Bones,
-            "lightColor" | "lightPosition" | "numLights" => Part::Lights,
+            "lightColor" | "lightPosition" | "numLights" | crate::LIGHT_INDEX => Part::Lights,
             "m_mv" | "materialFrontDiffuse" | "skinmesh" => Part::Draw,
             _ => Part::Frame,
         };
@@ -1050,8 +1050,10 @@ void main ()
         // (Declared and not read: in none.)
         assert!(r.uniform("lightColor").is_none());
         assert_eq!(r.uniforms[2].size, 256);
-        assert_eq!(names(&r.uniforms[3]), s(&[("lightPosition", 0), ("numLights", 128)]));
-        assert_eq!(r.uniforms[3].size, 144);
+        // The lights by their places in the frame's (8 lights: two
+        // `uvec4`s of places), the arrays read nowhere then.
+        assert_eq!(names(&r.uniforms[3]), s(&[("numLights", 0), ("mg_lightIndex", 16)]));
+        assert_eq!(r.uniforms[3].size, 48);
         // Each its own binding.
         let mut b: Vec<u32> = r.uniforms.iter().map(|b| b.binding).collect();
         b.sort();
@@ -1077,6 +1079,72 @@ void main ()
         .into();
         let mut p = compile("fs_plain", Stage::Fragment, &Preamble::default(), &src).unwrap();
         assert!(!p.split_uniforms(part).unwrap());
+    }
+
+    /// The engine's lights read through the frame's (`spirv::index_lights`):
+    /// an element, a component of one, at a constant index and at a loop's;
+    /// a program that copies a whole array keeps its arrays.
+    #[test]
+    fn the_lights_are_read_by_their_places_in_the_frame_s() {
+        let part = |m: &crate::Member| match m.name.as_str() {
+            "lightColor" | "lightPosition" | "numLights" | crate::LIGHT_INDEX => Part::Lights,
+            _ => Part::Frame,
+        };
+        let src: BTreeMap<String, String> = [
+            (
+                "fs_lights".to_string(),
+                r#"
+#define SHADER_TYPE 2
+uniform vec4 lightColor[MAX_NUM_LIGHTS];
+uniform vec4 lightPosition[MAX_NUM_LIGHTS];
+uniform int numLights;
+varying vec3 vPos;
+void main ()
+{
+    vec3 c = lightPosition[1].xyz;
+    for (int i = 0; i < numLights; i++)
+        if (lightColor[i].a > 0.0) c += lightColor[i].rgb / length(lightPosition[i].xyz - vPos);
+    // (A vector constant, as the stock programs have: its type isn't it.)
+    gl_FragColor = vec4(c, 1.0) * vec4(0.5, 0.5, 0.5, 1.0);
+}
+"#
+                .to_string(),
+            ),
+            (
+                "fs_whole".to_string(),
+                r#"
+#define SHADER_TYPE 2
+uniform vec4 lightColor[4];
+uniform vec4 lightPosition[4];
+vec4 first(vec4 l[4]) { return l[0]; }
+void main () { gl_FragColor = first(lightPosition) + lightColor[1]; }
+"#
+                .to_string(),
+            ),
+        ]
+        .into();
+        let mut p = compile("fs_lights", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(p.split_uniforms(part).unwrap());
+        let lights = p.reflection.uniforms.iter().find(|b| b.part == Part::Lights).unwrap();
+        let names: Vec<&str> = lights.members.iter().map(|m| m.name.as_str()).collect();
+        assert_eq!(names, ["numLights", crate::LIGHT_INDEX]);
+        // (The preamble's 32 lights: eight `uvec4`s of places.)
+        let index = lights.member(crate::LIGHT_INDEX).unwrap();
+        assert_eq!(index.ty, crate::ValueType::Vector(4, crate::Scalar::Uint));
+        assert_eq!((index.count, index.stride), (Some(8), 16));
+        assert!(p.place_named(crate::LIGHT_TABLE, 2, 7).unwrap());
+        let wgsl = naga::back::wgsl::write_string(
+            &p.module,
+            &p.info,
+            naga::back::wgsl::WriterFlags::empty(),
+        )
+        .unwrap();
+        assert!(wgsl.contains("@group(2) @binding(7)"), "{wgsl}");
+        assert!(wgsl.contains(&format!("var<storage> {}", crate::LIGHT_TABLE)), "{wgsl}");
+        let mut p = compile("fs_whole", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(p.split_uniforms(part).unwrap());
+        assert!(p.reflection.uniform("lightPosition").is_some());
+        assert!(p.reflection.uniform(crate::LIGHT_INDEX).is_none());
     }
 
     #[test]

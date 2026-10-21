@@ -153,6 +153,9 @@ pub(crate) enum Key {
     NumLights,
     LightPosition,
     LightColor,
+    /// The draw's lights' places in the frame's ([`mg_shader::LIGHT_INDEX`],
+    /// which the programs read `lightPosition` and `lightColor` through).
+    LightIndex,
     LightAreaAmbient,
     LightAreaDiffuse,
     LightAreaDirection,
@@ -230,6 +233,7 @@ pub(crate) fn key(name: &str) -> Key {
         "numLights" => NumLights,
         "lightPosition" => LightPosition,
         "lightColor" => LightColor,
+        mg_shader::LIGHT_INDEX => LightIndex,
         "lightAreaAmbient" => LightAreaAmbient,
         "lightAreaDiffuse" => LightAreaDiffuse,
         "lightAreaDiffuseDirection" => LightAreaDirection,
@@ -404,6 +408,9 @@ enum Val<'a> {
     /// Of the frame's lights, those of an index, the position (0) or the
     /// colour (1) of each.
     Lights(&'a [u32], &'a [[[f32; 4]; 2]], usize),
+    /// Lights' places in the frame's table ([`GameShaders::light_table`]),
+    /// four to a vector: each light's place there, past the zeros at 0.
+    Places(&'a [u32]),
     Zero,
 }
 
@@ -423,6 +430,7 @@ impl<'a> Val<'a> {
         match self {
             Val::Ms(l) => l.len(),
             Val::Lights(chosen, ..) => chosen.len(),
+            Val::Places(chosen) => chosen.len().div_ceil(4),
             _ => 1,
         }
     }
@@ -482,6 +490,7 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>, mv: &mut Option<Mat
         NumLights => Val::I(d.light_index.len() as i32),
         LightPosition => Val::Lights(d.light_index, d.frame_lights, 0),
         LightColor => Val::Lights(d.light_index, d.frame_lights, 1),
+        LightIndex => Val::Places(d.light_index),
         LightAreaAmbient => Val::V(v3(f.area_ambient, 0.0)),
         LightAreaDiffuse => Val::V(v3(f.area_diffuse, 0.0)),
         LightAreaDirection => Val::V(v3(f.area_direction, 0.0)),
@@ -669,6 +678,17 @@ fn put_array(out: &mut [u8], m: &Member, v: &Val<'_>, n: usize) -> bool {
                 }
             }
         }
+        Val::Places(chosen) => {
+            // (Four to an element of the member's stride; a place past the
+            // draw's lights 0, the table's zeros.)
+            let stride = m.stride.max(16) as usize;
+            for (j, &i) in chosen.iter().enumerate().take(4 * n) {
+                let at = at + (j / 4) * stride + (j % 4) * 4;
+                if let Some(slot) = out.get_mut(at..at + 4) {
+                    slot.copy_from_slice(&(i + 1).to_le_bytes());
+                }
+            }
+        }
         _ => return false,
     }
     true
@@ -713,7 +733,7 @@ pub(crate) fn part(m: &Member) -> Part {
         Mv | Mvp | M | Normal | TextureMatrix | Skinmesh | BboxMin | BboxMax | MaterialAmbient
         | MaterialDiffuse | MaterialEmissive | GlobalColor | TextureBound(_) | AlphaDiscard
         | EnvMapCube | TexEnvBound | TexEnvCubeBound | BlendMode => Part::Draw,
-        NumLights | LightPosition | LightColor => Part::Lights,
+        NumLights | LightPosition | LightColor | LightIndex => Part::Lights,
         Bones => Part::Bones,
         Param(name) if unfilled(&name) => Part::Frame,
         // (An MTR's parameter is one value, a float, a vector or an int:
@@ -755,12 +775,14 @@ const BONES_GROUP: u32 = 3;
 
 /// The storage buffers of group 2: the variable's name, the stage, the
 /// binding.
-const STORAGE: [(&str, usize, u32); 5] = [
+const STORAGE: [(&str, usize, u32); 7] = [
     (mg_shader::ORDER, 0, 0),
     (mg_shader::DRAWS, 0, 1),
     (mg_shader::LIGHTS, 0, 2),
     (mg_shader::DRAWS, 1, 3),
     (mg_shader::LIGHTS, 1, 4),
+    (mg_shader::LIGHT_TABLE, 0, 5),
+    (mg_shader::LIGHT_TABLE, 1, 6),
 ];
 
 /// A block, bound: its binding and what fills it.
@@ -1167,6 +1189,13 @@ pub(crate) struct GameShaders {
     /// draw, the fragment program's, their lights).
     order: Vec<[u32; 4]>,
     order_buffer: wgpu::Buffer,
+    /// The frame's lights, as the programs read `lightPosition` and
+    /// `lightColor` through a draw's places ([`mg_shader::LIGHT_TABLE`]):
+    /// zeros first (what a place past a draw's lights reads, as the
+    /// arrays had), then each light's position and colour. Written once a
+    /// frame.
+    lights: Vec<[[f32; 4]; 2]>,
+    light_table: wgpu::Buffer,
     /// Each pipeline's frame blocks, at a place of its own, written once a
     /// frame where the pipeline draws.
     frames: Blocks,
@@ -1437,6 +1466,7 @@ impl Worker {
             .map(|&(name, stage, binding)| {
                 let size = match name {
                     n if n == mg_shader::ORDER => 16,
+                    n if n == mg_shader::LIGHT_TABLE => 32,
                     n if n == mg_shader::LIGHTS => stages[stage].stride(true),
                     _ => stages[stage].stride(false),
                 };
@@ -1626,6 +1656,8 @@ impl GameShaders {
             data: storage_buffer(gpu, "game draws' values", 1 << 16),
             order: Vec::new(),
             order_buffer: storage_buffer(gpu, "game draws' order", 1 << 12),
+            lights: Vec::new(),
+            light_table: storage_buffer(gpu, "game draws' lights", 1 << 12),
             frames: Blocks::new(gpu, "game frame blocks"),
             filled: Fast::default(),
             frame: 0,
@@ -1801,8 +1833,11 @@ impl GameShaders {
         true
     }
 
-    /// Starts a frame's blocks.
-    pub(crate) fn begin(&mut self) {
+    /// Starts a frame's blocks, with the frame's lights.
+    pub(crate) fn begin(&mut self, lights: &[[[f32; 4]; 2]]) {
+        self.lights.clear();
+        self.lights.push([[0.0; 4]; 2]);
+        self.lights.extend_from_slice(lights);
         self.frame += 1;
         self.written.clear();
         self.bones.bytes.clear();
@@ -1946,6 +1981,13 @@ impl GameShaders {
                 base(r, id, Kind::Lights(1)) + d.places[3],
             ]);
         }
+        let table: &[u8] = bytemuck::cast_slice(&self.lights);
+        if self.light_table.size() < table.len() as u64 {
+            let size = (table.len() as u64).next_power_of_two();
+            self.light_table = storage_buffer(gpu, "game draws' lights", size);
+            self.generation += 1;
+        }
+        gpu.queue.write_buffer(&self.light_table, 0, table);
         let order: &[u8] = bytemuck::cast_slice(&self.order);
         if self.order_buffer.size() < order.len() as u64 {
             let size = (order.len() as u64).next_power_of_two();
@@ -1992,10 +2034,10 @@ impl GameShaders {
                 .iter()
                 .map(|&(name, _, binding)| wgpu::BindGroupEntry {
                     binding,
-                    resource: if name == mg_shader::ORDER {
-                        self.order_buffer.as_entire_binding()
-                    } else {
-                        self.data.as_entire_binding()
+                    resource: match name {
+                        n if n == mg_shader::ORDER => self.order_buffer.as_entire_binding(),
+                        n if n == mg_shader::LIGHT_TABLE => self.light_table.as_entire_binding(),
+                        _ => self.data.as_entire_binding(),
                     },
                 })
                 .collect();
@@ -2690,6 +2732,12 @@ void main ()
         assert_eq!(f32_at(&out, lc.offset + 12), 400.0);
         assert_eq!(f32_at(&out, lc.offset + lc.stride + 12), -9.0);
         assert_eq!(f32_at(&out, lp.offset + 2 * lp.stride), 0.0);
+        // The same lights by their places in the frame's table (past its
+        // zeros: the third light 3), what the programs read them through.
+        let places = m(mg_shader::LIGHT_INDEX);
+        assert_eq!(i32_at(&out, places.offset), 3);
+        assert_eq!(i32_at(&out, places.offset + 4), 1);
+        assert_eq!(i32_at(&out, places.offset + 8), 0);
         // Ints, a vec3, floats.
         assert_eq!(i32_at(&out, m("numLights").offset), 2);
         assert_eq!(i32_at(&out, m("texture0Bound").offset), 1);

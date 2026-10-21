@@ -22,7 +22,7 @@ use crate::{Program, ShaderError};
 
 /// The passes' format: changed when what they make of the same words does
 /// (an entry of another format is never read).
-const FORMAT: u32 = 2;
+const FORMAT: u32 = 3;
 
 const MAGIC: &[u8; 8] = b"MGSHDSPV";
 

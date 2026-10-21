@@ -1470,7 +1470,6 @@ impl Renderer {
         });
         // (What the worker made since the last frame is drawn from now.)
         self.game.poll();
-        self.game.begin();
         // The solid meshes drawn with the game's shaders (drawn after
         // Moonglow's own solid ones), and the see-through ones' two parts
         // (each in `draws`, sorted with the rest).
@@ -1498,6 +1497,7 @@ impl Renderer {
             &lights,
             std::mem::size_of::<LightUniform>(),
         );
+        self.game.begin(bytemuck::cast_slice(&lights));
 
         // Draws.
         // The sky first, around the camera.

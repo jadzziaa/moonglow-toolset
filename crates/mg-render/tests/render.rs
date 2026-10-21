@@ -1670,8 +1670,19 @@ void main ()
         transform: Mat4::from_translation(Vec3::new(x, 0.0, 0.0)) * quad.transform,
         ..quad.clone()
     };
+    // Lights that reach the quad on the left (one) and the one on the
+    // right (two), each its own green: the program reads each instance's
+    // lights through its places in the frame's (`mg_shader::LIGHT_TABLE`).
+    let light = |x: f32, green: f32| mg_render::PointLight {
+        position: Vec3::new(x, -1.0, 1.0),
+        color: Vec3::new(0.0, green, 0.0),
+        cutoff: 1.0,
+        ambient_only: false,
+        priority: 1,
+    };
     let scene = Scene {
         instances: vec![beside(-3.0), quad.clone(), beside(3.0)],
+        lights: vec![light(3.0, 0.5), light(-3.0, 0.25), light(3.0, 0.25)],
         background: [0.0, 0.0, 0.0],
         ..Default::default()
     };
@@ -1692,10 +1703,12 @@ void main ()
     assert_eq!((r.drawn.game, r.drawn.batches), (3, 1), "{:?}", r.drawn);
     save(&img, &mg_testkit::scratch_dir("render-platform").join("game_platform.png"));
     // The texture's red (bound, through the function), the material's
-    // white, no lights, and the frame's width as blue: in the middle and
-    // in each instance beside it.
-    for x in [32, 9, 55] {
-        assert_eq!(img.pixel(x, 32), [255, 0, 255, 255], "{x}");
+    // white, the lights' green (none in the middle), and the frame's width
+    // as blue: in the middle and in each instance beside it.
+    for (x, green) in [(32, 0), (9, 64), (55, 191)] {
+        let p = img.pixel(x, 32);
+        assert_eq!([p[0], p[2], p[3]], [255, 255, 255], "{x}: {p:?}");
+        assert!(p[1].abs_diff(green) <= 1, "{x}: {p:?}, green {green}");
     }
     // Between and around the quads, the background.
     for (x, y) in [(1, 1), (20, 32), (44, 32)] {

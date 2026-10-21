@@ -43,7 +43,7 @@ pub use assemble::{
 pub use cache::{Cached, ProgramCache};
 pub use link::AlphaKeep;
 pub use reflect::{Member, Part, Reflection, Scalar, Texture, UniformBlock, ValueType, Varying};
-pub use spirv::{DRAWS, LIGHTS, ORDER};
+pub use spirv::{DRAWS, LIGHT_ARRAYS, LIGHT_INDEX, LIGHT_TABLE, LIGHTS, ORDER};
 
 /// A message about a program, where it applies.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -144,6 +144,7 @@ pub fn compile_assembled(a: &Assembled) -> Result<Program, ShaderError> {
 pub(crate) fn to_words(a: &Assembled) -> Result<(Vec<u32>, Vec<spirv::Io>), ShaderError> {
     let words = glsl::compile(a)?;
     let words = spirv::split_samplers(&words)?;
+    let words = spirv::index_lights(&words)?;
     let words = spirv::add_spare_blocks(&words)?;
     let words = spirv::add_draw_index(&words)?;
     spirv::assign_locations(&words)
@@ -300,7 +301,8 @@ void main ()
         assert_eq!(outputs, [("compat_glFragColor", 0)]);
         assert!(r.uniform("fSwaySpeed").is_some() && r.uniform("lightPosition").is_some());
         // Every resource has a binding of its own (the two spare blocks a
-        // split takes and the draws' and lights' storage last).
+        // split takes, the draws' and lights' storage and the frame's
+        // lights last).
         let mut b: Vec<u32> = p
             .module
             .global_variables
@@ -308,7 +310,7 @@ void main ()
             .filter_map(|(_, g)| g.binding.map(|b| b.binding))
             .collect();
         b.sort();
-        assert_eq!(b, (0..11).collect::<Vec<_>>());
+        assert_eq!(b, (0..12).collect::<Vec<_>>());
         // And the module writes as WGSL, as wgpu would take it.
         naga::back::wgsl::write_string(&p.module, &p.info, naga::back::wgsl::WriterFlags::empty())
             .unwrap();

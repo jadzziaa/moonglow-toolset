@@ -41,7 +41,9 @@ fn programs(rm: &ResMan, keys: impl IntoIterator<Item = ResKey>) -> Vec<(String,
 /// Compiles each program and splits its uniforms as a renderer does (M3:
 /// the draw's, the frame's, the bones'; here by a rough rule of names, as
 /// what is split is the program, not the rule); the failures, one line
-/// each.
+/// each. (And how many read the engine's lights by their places in the
+/// frame's, `mg_shader::LIGHT_INDEX`, in `INDEXED`; how many read the
+/// lights' arrays as they are, in `UNINDEXED`.)
 fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
     let pre = Preamble::default();
     let part = |m: &mg_shader::Member| match m.name.as_str() {
@@ -55,7 +57,15 @@ fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
         .filter_map(|(name, stage)| {
             let split = compile(name, *stage, &pre, rm).and_then(|mut p| {
                 let had = !p.reflection.uniforms.is_empty();
+                let direct = mg_shader::LIGHT_ARRAYS.iter().any(|a| p.reads_uniform(a));
                 let split = p.split_uniforms(part)?;
+                if p.reflection.uniform(mg_shader::LIGHT_INDEX).is_some() {
+                    INDEXED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                if direct {
+                    eprintln!("{name}: its lights read as arrays, not by index");
+                    UNINDEXED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
                 Ok(if had && !split { Some("its uniforms not split".to_string()) } else { None })
             });
             match split {
@@ -69,6 +79,10 @@ fn compile_all(rm: &ResMan, list: &[(String, Stage)]) -> Vec<String> {
         })
         .collect()
 }
+
+/// The programs [`compile_all`] found reading the lights by index.
+static INDEXED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static UNINDEXED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// The game alone: no user directory (its `override` would win).
 fn game(root: &Path) -> ResMan {
@@ -92,11 +106,27 @@ fn every_stock_program_compiles() {
     let rm = game(&root);
     let all = stock(&rm);
     assert!(all.len() >= 60, "{} stock programs", all.len());
-    let list = sweep(all, ONE_IN);
+    // (`fslit` and its kind, which the area views draw most: their lights
+    // read by index, in a sample too.)
+    let mut list = sweep(all, ONE_IN);
+    if !list.iter().any(|(n, _)| n == "fslit") {
+        list.push(("fslit".into(), Stage::Fragment));
+    }
+    use std::sync::atomic::Ordering::Relaxed;
+    let (before, before_not) = (INDEXED.load(Relaxed), UNINDEXED.load(Relaxed));
     let failed = compile_all(&rm, &list);
+    let indexed = INDEXED.load(Relaxed) - before;
+    // (A program the pass passes over draws a kilobyte of lights a draw:
+    // none of the stock ones.)
+    assert_eq!(
+        UNINDEXED.load(Relaxed) - before_not,
+        0,
+        "stock programs read their lights as arrays"
+    );
     assert!(failed.is_empty(), "{} of {} failed:\n{}", failed.len(), list.len(), failed.join("\n"));
     assert!(list.len() >= at_least(65, ONE_IN), "{} compiled", list.len());
-    eprintln!("{} stock programs compiled", list.len());
+    assert!(indexed >= 1, "no stock program reads its lights by index");
+    eprintln!("{} stock programs compiled, {indexed} reading the lights by index", list.len());
 }
 
 #[test]
@@ -140,8 +170,19 @@ fn every_program_in_the_installed_haks_compiles() {
             list.dedup();
         }
         let list = sweep(list, ONE_IN);
+        let (indexed, unindexed) = (
+            INDEXED.load(std::sync::atomic::Ordering::Relaxed),
+            UNINDEXED.load(std::sync::atomic::Ordering::Relaxed),
+        );
         let f = compile_all(&rm, &list);
-        eprintln!("{}: {} programs, {} failed", dir.display(), list.len(), f.len());
+        eprintln!(
+            "{}: {} programs, {} failed, {} reading the lights by index, {} as arrays",
+            dir.display(),
+            list.len(),
+            f.len(),
+            INDEXED.load(std::sync::atomic::Ordering::Relaxed) - indexed,
+            UNINDEXED.load(std::sync::atomic::Ordering::Relaxed) - unindexed,
+        );
         compiled += list.len() - f.len();
         failed.extend(f.into_iter().map(|f| format!("{}: {f}", dir.display())));
     }
