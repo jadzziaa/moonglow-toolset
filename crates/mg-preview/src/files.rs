@@ -25,13 +25,6 @@ pub struct ContentFile {
     pub stock: bool,
 }
 
-/// The resource a model names: cut to a resource's 16 characters, as the
-/// game reads it.
-fn named(name: &str) -> Option<ResRef> {
-    let cut = name.char_indices().nth(16).map_or(name, |(i, _)| &name[..i]);
-    ResRef::from_str(cut).ok().filter(|r| !r.is_empty())
-}
-
 struct Gathered<'a> {
     rm: &'a ResMan,
     out: Vec<ContentFile>,
@@ -59,7 +52,7 @@ impl Gathered<'_> {
     /// MTR and what that names, its image (as the game picks it, and a PLT
     /// of the name), its TXI and what that names.
     fn texture(&mut self, name: &str, depth: u8) {
-        let Some(resref) = named(name) else { return };
+        let Some(resref) = ResRef::cut(name) else { return };
         if name.eq_ignore_ascii_case("null") || depth > 4 {
             return;
         }
@@ -73,7 +66,7 @@ impl Gathered<'_> {
                 }
             }
             for shader in [&mtr.shader_vs, &mtr.shader_fs, &mtr.shader_gs].into_iter().flatten() {
-                if let Some(s) = named(shader) {
+                if let Some(s) = ResRef::cut(shader) {
                     self.add(s, ResType::SHD);
                 }
             }
@@ -99,7 +92,7 @@ impl Gathered<'_> {
     /// `.dwk`), its textures, the models its emitters throw, and the
     /// model its animations come from.
     fn model(&mut self, name: &str, depth: u8) {
-        let Some(resref) = named(name) else { return };
+        let Some(resref) = ResRef::cut(name) else { return };
         if depth > 8 || self.seen.contains(&ResKey::new(resref, ResType::MDL)) {
             return;
         }

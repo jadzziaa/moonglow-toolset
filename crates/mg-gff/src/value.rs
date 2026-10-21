@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use mg_core::{LocString, ResRef};
+use mg_core::{Codepage, Gender, Language, LocString, ResRef};
 use thiserror::Error;
 
 /// A field label: at most 16 bytes.
@@ -192,6 +192,75 @@ pub enum Value {
 }
 
 impl Value {
+    /// `text`, as typed on a command line or in a field, as a value of type
+    /// `ty`: a whole number (decimal, or hexadecimal after `0x`) within the
+    /// type's range, a finite number, text in `codepage` (as the game reads
+    /// a module's strings), a resource name, or a localized string's
+    /// English (the rest of `old`'s kept; empty text takes it away). The
+    /// one reading of typed text `mg set`, `mg areas` and the Variables
+    /// window go through: `mg areas` wrote UTF-8, and took any float.
+    pub fn from_text(
+        ty: FieldType,
+        text: &str,
+        old: Option<&Value>,
+        codepage: Codepage,
+    ) -> Result<Value, String> {
+        let t = text.trim();
+        let encoded = || {
+            codepage
+                .encode(text)
+                .map(|b| b.into_owned())
+                .ok_or_else(|| format!("{text:?} has characters the codepage cannot hold"))
+        };
+        let float = || -> Result<f64, String> {
+            match t.parse::<f64>() {
+                Ok(v) if v.is_finite() => Ok(v),
+                _ => Err(format!("{text:?} is not a number")),
+            }
+        };
+        Ok(match ty {
+            FieldType::Byte
+            | FieldType::Char
+            | FieldType::Word
+            | FieldType::Short
+            | FieldType::Dword
+            | FieldType::Int
+            | FieldType::Dword64
+            | FieldType::Int64 => {
+                let (min, max) = ty.int_range().expect("an integer type");
+                let v = match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+                    Some(hex) => i128::from_str_radix(hex, 16).ok(),
+                    None => t.parse::<i128>().ok(),
+                };
+                let v = v.ok_or_else(|| format!("{text:?} is not a whole number"))?;
+                ty.int_value(v).ok_or_else(|| {
+                    format!("{v} does not fit a {} ({min} to {max})", ty.json_name())
+                })?
+            }
+            FieldType::Float => Value::Float(float()? as f32),
+            FieldType::Double => Value::Double(float()?),
+            FieldType::String => Value::String(encoded()?),
+            FieldType::ResRef => Value::resref(
+                ResRef::from_str(t).map_err(|e| format!("{text:?} is not a resource name: {e}"))?,
+            ),
+            FieldType::LocString => {
+                let mut s = match old {
+                    Some(Value::LocString(s)) => s.clone(),
+                    _ => LocString::default(),
+                };
+                if text.is_empty() {
+                    s.remove(Language::ENGLISH, Gender::Male);
+                } else {
+                    s.set(Language::ENGLISH, Gender::Male, encoded()?);
+                }
+                Value::LocString(s)
+            }
+            FieldType::Void | FieldType::Struct | FieldType::List => {
+                return Err(format!("a {} isn't set from text", ty.json_name()));
+            }
+        })
+    }
+
     pub fn field_type(&self) -> FieldType {
         match self {
             Value::Byte(_) => FieldType::Byte,
@@ -456,6 +525,24 @@ impl Struct {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Typed text as a field's value: text in the codepage (`café` as
+    /// Windows-1252's one byte for é, not UTF-8's two), whole numbers
+    /// within the type, hexadecimal, no NaN.
+    #[test]
+    fn typed_text_becomes_a_value_of_the_field_s_type() {
+        let cp = Codepage::WINDOWS_1252;
+        let of = |ty, text: &str| Value::from_text(ty, text, None, cp);
+        assert_eq!(of(FieldType::String, "café"), Ok(Value::String(b"caf\xe9".to_vec())));
+        assert_eq!(of(FieldType::Byte, " 255 "), Ok(Value::Byte(255)));
+        assert_eq!(of(FieldType::Byte, "256"), Err("256 does not fit a byte (0 to 255)".into()));
+        assert_eq!(of(FieldType::Dword, "0x10"), Ok(Value::Dword(16)));
+        assert_eq!(of(FieldType::Dword64, &u64::MAX.to_string()), Ok(Value::Dword64(u64::MAX)));
+        assert!(of(FieldType::Float, "NaN").is_err());
+        assert_eq!(of(FieldType::Float, "1.5"), Ok(Value::Float(1.5)));
+        assert!(of(FieldType::String, "日本").is_err(), "not in Windows-1252");
+        assert!(of(FieldType::List, "x").is_err());
+    }
 
     #[test]
     fn set_replaces_in_place_and_remove_drops_duplicates() {

@@ -80,8 +80,8 @@ impl Moonglow {
                     if !wanted.contains(&ResKey::new(r, restype)) {
                         continue;
                     }
-                    let tag = String::from_utf8_lossy(s.string("Tag").unwrap_or_default());
-                    let tag = if tag.is_empty() { format!("#{}", index + 1) } else { tag.into() };
+                    let tag = crate::text::decode(s.string("Tag").unwrap_or_default());
+                    let tag = if tag.is_empty() { format!("#{}", index + 1) } else { tag };
                     let label = format!("{area} › {} {tag} ({r})", kind_name(list));
                     objects.push(Affected { area, list, index, held: Vec::new(), label, on: true });
                 }
@@ -93,9 +93,9 @@ impl Moonglow {
                 let (list, index) = held[0];
                 let holder = git.root.list(list).and_then(|l| l.get(index));
                 let holder_tag = holder
-                    .map(|s| String::from_utf8_lossy(s.string("Tag").unwrap_or_default()))
+                    .map(|s| crate::text::decode(s.string("Tag").unwrap_or_default()))
                     .filter(|t| !t.is_empty())
-                    .map_or_else(|| format!("#{}", index + 1), |t| t.into_owned());
+                    .unwrap_or_else(|| format!("#{}", index + 1));
                 let tag = if tag.is_empty() { r.to_string() } else { tag };
                 let how = if held.iter().any(|(l, _)| *l == "Equip_ItemList") {
                     "equipped"

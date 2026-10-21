@@ -45,6 +45,7 @@ pub mod text;
 pub mod tileset;
 pub mod tlk_alloc;
 pub mod transfer;
+pub mod vars;
 pub mod verify;
 
 use std::path::{Path, PathBuf};

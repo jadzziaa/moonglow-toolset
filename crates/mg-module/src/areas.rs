@@ -7,11 +7,12 @@
 //! the type it has; one an area lacks takes the type the game's areas have
 //! for it.
 
-use mg_core::{Language, ResRef, ResType};
+use mg_core::{Codepage, Language, ResRef, ResType};
 use mg_gff::{FieldType, Struct, Value};
 use mg_resman::ResKey;
 
 use crate::Module;
+use crate::vars::VarType;
 
 /// ARE `Flags` bits.
 pub const INTERIOR: u32 = 0x1;
@@ -245,10 +246,11 @@ pub struct Changed {
     pub to: Option<String>,
 }
 
-/// A value as `mg areas` prints it.
-fn shown(v: &Value) -> String {
+/// A value as `mg areas` prints it (text in `codepage`).
+fn shown(v: &Value, codepage: Codepage) -> String {
     match v {
-        Value::String(b) | Value::ResRef(b) => String::from_utf8_lossy(b).into_owned(),
+        Value::String(b) => codepage.decode(b).into_owned(),
+        Value::ResRef(b) => String::from_utf8_lossy(b).into_owned(),
         Value::Byte(i) => i.to_string(),
         Value::Char(i) => i.to_string(),
         Value::Word(i) => i.to_string(),
@@ -263,16 +265,6 @@ fn shown(v: &Value) -> String {
     }
 }
 
-/// A whole number: decimal, or `0x` and hexadecimal (colours are
-/// `0xBBGGRR`).
-fn integer(text: &str) -> Option<i64> {
-    let t = text.trim();
-    match t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
-        Some(hex) => i64::from_str_radix(hex, 16).ok(),
-        None => t.parse().ok(),
-    }
-}
-
 /// `yes` or `no` (`1`, `true`, `on`; `0`, `false`, `off`).
 pub fn yes_no(text: &str) -> Option<bool> {
     match text.trim().to_ascii_lowercase().as_str() {
@@ -282,52 +274,29 @@ pub fn yes_no(text: &str) -> Option<bool> {
     }
 }
 
-/// `text` as a value of type `t`.
-fn typed(field: &str, t: FieldType, text: &str) -> Result<Value, String> {
-    let int = |min: i64, max: i64| {
-        integer(text)
-            .filter(|v| (min..=max).contains(v))
-            .ok_or_else(|| format!("{field}: {text:?} is not a whole number from {min} to {max}"))
-    };
-    Ok(match t {
-        FieldType::Byte => Value::Byte(int(0, 255)? as u8),
-        FieldType::Char => Value::Char(int(-128, 127)? as i8),
-        FieldType::Word => Value::Word(int(0, 65535)? as u16),
-        FieldType::Short => Value::Short(int(-32768, 32767)? as i16),
-        FieldType::Dword => Value::Dword(int(0, i64::from(u32::MAX))? as u32),
-        FieldType::Int => Value::Int(int(i64::from(i32::MIN), i64::from(i32::MAX))? as i32),
-        FieldType::Dword64 => Value::Dword64(int(0, i64::MAX)? as u64),
-        FieldType::Int64 => Value::Int64(int(i64::MIN, i64::MAX)?),
-        FieldType::Float => Value::Float(
-            text.trim().parse().map_err(|_| format!("{field}: {text:?} is not a number"))?,
-        ),
-        FieldType::Double => Value::Double(
-            text.trim().parse().map_err(|_| format!("{field}: {text:?} is not a number"))?,
-        ),
-        FieldType::String => Value::String(text.as_bytes().to_vec()),
-        FieldType::ResRef => Value::resref(
-            ResRef::from_str(text.trim()).map_err(|e| format!("{field}: {text:?}: {e}"))?,
-        ),
-        other => return Err(format!("{field} is a {other:?}: not a field this sets")),
-    })
-}
-
 /// Sets `field` of `s`, keeping its type (else `default`); what changed.
 fn set_field(
     s: &mut Struct,
     field: &str,
     default: Option<FieldType>,
     text: &str,
+    codepage: Codepage,
 ) -> Result<Option<(Option<String>, String)>, String> {
     let t = s
         .get(field)
         .map(Value::field_type)
         .or(default)
         .ok_or_else(|| format!("{field}: not a field of an area"))?;
-    let value = typed(field, t, text)?;
+    // (An area's name has every language: not one set as text here.)
+    if t == FieldType::LocString {
+        return Err(format!("{field} is a {}: not a field this sets", t.json_name()));
+    }
+    let value =
+        Value::from_text(t, text, s.get(field), codepage).map_err(|e| format!("{field}: {e}"))?;
     if s.get(field) == Some(&value) {
         return Ok(None);
     }
+    let shown = |v: &Value| shown(v, codepage);
     let from = s.get(field).map(shown);
     let to = shown(&value);
     s.set(field, value);
@@ -340,31 +309,24 @@ fn set_var(
     name: &str,
     kind: Option<u32>,
     text: &str,
+    codepage: Codepage,
 ) -> Result<Option<(Option<String>, String)>, String> {
-    let at = vars.iter().position(|v| v.string("Name") == Some(name.as_bytes()));
-    let kind = kind.or_else(|| at.and_then(|i| vars[i].dword("Type"))).unwrap_or_else(|| {
-        let t = text.trim();
-        if t.parse::<i32>().is_ok() {
-            1
-        } else if t.parse::<f32>().is_ok() {
-            2
-        } else {
-            3
-        }
-    });
-    let value = match kind {
-        1 => {
-            Value::Int(text.trim().parse().map_err(|_| format!("{name}: {text:?} is not an int"))?)
-        }
-        2 => Value::Float(
-            text.trim().parse().map_err(|_| format!("{name}: {text:?} is not a float"))?,
-        ),
-        3 => Value::String(text.as_bytes().to_vec()),
-        other => return Err(format!("{name} is a variable of type {other}: not one this sets")),
+    let named = codepage.encode_lossy(name);
+    let at = vars.iter().position(|v| v.string("Name") == Some(&named[..]));
+    let kind = kind.or_else(|| at.and_then(|i| vars[i].dword("Type")));
+    let kind = match kind {
+        Some(n) => VarType::of(n.into()),
+        None => Some(VarType::of_text(text)),
     };
+    let value = match kind {
+        Some(t) => t.value(text, codepage).map_err(|e| format!("{name}: {e}"))?,
+        None => return Err(format!("{name} is a variable of a type this doesn't set")),
+    };
+    let kind = kind.expect("valued").code();
     let mut var = at.map_or_else(|| Struct::new(0), |i| vars[i].clone());
+    let shown = |v: &Value| shown(v, codepage);
     let from = var.get("Value").map(shown);
-    var.set("Name", Value::String(name.as_bytes().to_vec()));
+    var.set("Name", Value::String(named));
     var.set("Type", Value::Dword(kind));
     var.set("Value", value.clone());
     match at {
@@ -378,8 +340,14 @@ fn set_var(
 /// Makes `changes` to each of `areas`, each area keeping what they don't
 /// name (its other flags and variables). Nothing is changed unless every
 /// change can be made to every area. Returns what changed (an area that
-/// already had a value isn't listed for it). The module isn't saved.
-pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec<Changed>, String> {
+/// already had a value isn't listed for it). The module isn't saved. Text
+/// is written in `codepage`, as the game reads a module's strings.
+pub fn apply(
+    m: &mut Module,
+    areas: &[ResRef],
+    changes: &[Change],
+    codepage: Codepage,
+) -> Result<Vec<Changed>, String> {
     let mut done = Vec::new();
     let mut write = Vec::new();
     for &area in areas {
@@ -443,14 +411,16 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
                             format!("{area} has no audio settings (its GIT lacks AreaProperties)")
                         })?;
                         if let Some((from, to)) =
-                            set_field(props, field, Some(FieldType::Int), value)?
+                            set_field(props, field, Some(FieldType::Int), value, codepage)?
                         {
                             git_changed = true;
                             note(field.clone(), from, Some(to));
                         }
                     } else {
                         let default = mg_schema::root_field_type(ResType::ARE, field);
-                        if let Some((from, to)) = set_field(&mut are.root, field, default, value)? {
+                        if let Some((from, to)) =
+                            set_field(&mut are.root, field, default, value, codepage)?
+                        {
                             are_changed = true;
                             note(field.clone(), from, Some(to));
                         }
@@ -459,7 +429,7 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
                 Change::Var { name, kind, value } => {
                     let Some(git) = git.as_mut() else { continue };
                     let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
-                    if let Some((from, to)) = set_var(&mut vars, name, *kind, value)? {
+                    if let Some((from, to)) = set_var(&mut vars, name, *kind, value, codepage)? {
                         git.root.set("VarTable", Value::List(vars));
                         git_changed = true;
                         note(format!("var {name}"), from, Some(to));
@@ -540,9 +510,10 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
                 Change::RemoveVar(name) => {
                     let Some(git) = git.as_mut() else { continue };
                     let mut vars = git.root.list("VarTable").unwrap_or(&[]).to_vec();
-                    let at = vars.iter().position(|v| v.string("Name") == Some(name.as_bytes()));
+                    let named = codepage.encode_lossy(name);
+                    let at = vars.iter().position(|v| v.string("Name") == Some(&named[..]));
                     if let Some(i) = at {
-                        let from = vars.remove(i).get("Value").map(shown);
+                        let from = vars.remove(i).get("Value").map(|v| shown(v, codepage));
                         git.root.set("VarTable", Value::List(vars));
                         git_changed = true;
                         note(format!("var {name}"), from, None);
@@ -568,6 +539,8 @@ mod tests {
     use super::*;
     use mg_core::{Gender, LocString};
     use mg_gff::Gff;
+
+    const CP: Codepage = Codepage::WINDOWS_1252;
 
     fn r(s: &str) -> ResRef {
         ResRef::from_str(s).unwrap()
@@ -653,10 +626,11 @@ mod tests {
             Change::parse_set("underground=no").unwrap(),
             Change::parse_var("nMusic=57").unwrap(),
             Change::parse_var("nDepth=4").unwrap(),
+            Change::parse_var("sGreeting=café").unwrap(),
             Change::RemoveVar("sHost".into()),
         ];
         let caves = [r("cave1"), r("cave2")];
-        let done = apply(&mut m, &caves, &changes).unwrap();
+        let done = apply(&mut m, &caves, &changes, CP).unwrap();
         for name in ["cave1", "cave2"] {
             let a = are(&m, name);
             assert_eq!(a.get("SunFogAmount"), Some(&Value::Byte(9)));
@@ -671,11 +645,20 @@ mod tests {
         assert_eq!(are(&m, "cave2").integer("Flags"), Some(0x1 | 0x100));
         assert_eq!(
             git(&m, "cave1").list("VarTable").unwrap(),
-            [var("nDepth", 1, Value::Int(4)), var("nMusic", 1, Value::Int(57))]
+            [
+                var("nDepth", 1, Value::Int(4)),
+                var("nMusic", 1, Value::Int(57)),
+                var("sGreeting", 3, Value::String(b"caf\xe9".to_vec())),
+            ],
+            "text in the codepage, not UTF-8"
         );
         assert_eq!(
             git(&m, "cave2").list("VarTable").unwrap(),
-            [var("nMusic", 1, Value::Int(57)), var("nDepth", 1, Value::Int(4))]
+            [
+                var("nMusic", 1, Value::Int(57)),
+                var("nDepth", 1, Value::Int(4)),
+                var("sGreeting", 3, Value::String(b"caf\xe9".to_vec())),
+            ]
         );
         assert_eq!(are(&m, "cave1").list("VarTable"), None, "moved from the ARE");
         // The inn wasn't named: its variable stays where it is.
@@ -686,7 +669,7 @@ mod tests {
         assert_eq!(fog.len(), 2);
         assert_eq!((fog[0].from.as_deref(), fog[0].to.as_deref()), (Some("2"), Some("9")));
         // Again: nothing to change.
-        assert!(apply(&mut m, &caves, &changes).unwrap().is_empty());
+        assert!(apply(&mut m, &caves, &changes, CP).unwrap().is_empty());
     }
 
     /// A placed placeable with these fields.
@@ -738,7 +721,7 @@ mod tests {
         assert_eq!((plan.already, plan.useable, plan.transformed, plan.active), (1, 1, 1, 3));
 
         let areas = [r("cave1"), r("inn")];
-        let done = apply(&mut m, &areas, &[Change::StaticPlaceables]).unwrap();
+        let done = apply(&mut m, &areas, &[Change::StaticPlaceables], CP).unwrap();
         let what: Vec<&str> = done.iter().map(|c| c.what.as_str()).collect();
         assert_eq!(what, ["placeable 0 ROCK Static", "placeable 4 UPRIGHT Static"]);
         assert!(done.iter().all(|c| c.area == r("inn")), "the cave has no placeables");
@@ -749,9 +732,9 @@ mod tests {
         assert!(!list[4].contains("VisTransformList"), "a static placeable has none");
         assert!(list[3].contains("VisTransformList"), "the leaning one keeps its tilt");
         // Again: nothing left to do.
-        assert_eq!(apply(&mut m, &areas, &[Change::StaticPlaceables]).unwrap(), []);
+        assert_eq!(apply(&mut m, &areas, &[Change::StaticPlaceables], CP).unwrap(), []);
         // And back: every static one, the wall that was static before too.
-        let done = apply(&mut m, &areas, &[Change::DynamicPlaceables]).unwrap();
+        let done = apply(&mut m, &areas, &[Change::DynamicPlaceables], CP).unwrap();
         assert_eq!(done.len(), 3);
         let git = m.gff(&key).unwrap().unwrap();
         let list = git.root.list("Placeable List").unwrap();
@@ -771,11 +754,11 @@ mod tests {
             Change::parse_var("nDepth:int=deep").unwrap(),
         ] {
             let ok = Change::parse_set("SunFogAmount=5").unwrap();
-            let e = apply(&mut m, &all, &[ok, bad.clone()]);
+            let e = apply(&mut m, &all, &[ok, bad.clone()], CP);
             assert!(e.is_err(), "{bad:?}");
             assert_eq!(["cave1", "cave2", "inn"].map(|n| are(&m, n)).to_vec(), before);
         }
-        assert!(apply(&mut m, &[r("nowhere")], &[]).is_err());
+        assert!(apply(&mut m, &[r("nowhere")], &[], CP).is_err());
         assert!(Change::parse_set("SunFogAmount").is_err());
         assert!(Change::parse_var("x:bool=1").is_err());
     }

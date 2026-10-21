@@ -1315,7 +1315,7 @@ fn walk_objects(
             if int("Appearance") == Some(0) {
                 check(
                     d,
-                    "GenericType",
+                    mg_rules::rows::generic_door_field(s),
                     GENERIC_DOOR_MODEL.0,
                     GENERIC_DOOR_MODEL.1,
                     "door appearance",
@@ -1466,6 +1466,20 @@ mod tests {
         let f = examine(&m, &rm, TalkTables { base: 100, custom: Some(1) });
         let object = f.iter().find(|x| x.check == "object-row").unwrap();
         assert!(object.message.contains("model plc_stool"), "{}", object.message);
+        // A generic door names its row in EE's GenericType_New (Moonglow's
+        // doors have no other): Verify read the older GenericType alone,
+        // and found nothing.
+        let doors = b"2DA V2.0\n\n   Label ModelName\n0  Wood door_wood\n";
+        let rm = resman(&[("genericdoors", ResType::TWODA, doors)]);
+        let mut m = Module::new();
+        let mut utd = Gff::new(*b"UTD ");
+        utd.root.set("Appearance", Value::Dword(0));
+        utd.root.set("GenericType_New", Value::Dword(0));
+        m.set_gff(key("gate", ResType::UTD), &utd).unwrap();
+        let f = examine(&m, &rm, TalkTables::default());
+        let door = f.iter().find(|x| x.check == "object-row").expect("the door's model");
+        assert_eq!(door.at, "gate.utd › GenericType_New");
+        assert!(door.message.contains("model door_wood"), "{}", door.message);
     }
 
     #[test]

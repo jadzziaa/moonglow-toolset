@@ -223,9 +223,8 @@ fn area_contents(ws: &mut Workspace, game: Option<&GameData>, area: ResRef) -> A
             let rows: Vec<ObjectRow> = (git.root.list(kind.list()).unwrap_or(&[]).iter())
                 .map(|o| {
                     let name = blueprint_name(game, o).trim().to_string();
-                    let tag = String::from_utf8_lossy(o.string("Tag").unwrap_or_default())
-                        .trim()
-                        .to_string();
+                    let tag = crate::text::decode(o.string("Tag").unwrap_or_default());
+                    let tag = tag.trim().to_string();
                     let sought = format!("{name}\n{tag}").to_lowercase();
                     let by_tag = kind == mg_area::ObjectKind::Waypoint;
                     let (text, other) = if by_tag { (tag, name) } else { (name, tag) };
@@ -1228,8 +1227,11 @@ fn tree_rows(app: &mut Moonglow, ui: &mut Ui, filter: &str, fold: Option<bool>) 
                 if let (Some(s), Some(game)) = (placed, app.game.as_deref()) {
                     let o = mg_area::AreaObject::read(game, kind, index, &s);
                     let anchor = o.position;
-                    app.object_clip =
-                        Some(crate::area_view::ObjectClip { objects: vec![(o, s, 0.0)], anchor });
+                    // (As high above the ground as it stands, where its
+                    // area's view knows the ground: it was pasted on it.)
+                    let lift = app.area_views.get(&area).map_or(0.0, |v| v.lift_of(&o));
+                    let objects = vec![(o, s, lift)];
+                    app.object_clip = Some(crate::area_view::ObjectClip { objects, anchor });
                     crate::widgets::mark_clipboard(ui.ctx(), "1 object");
                     app.log.info("1 object copied: paste it in an area (Ctrl+V)");
                 }

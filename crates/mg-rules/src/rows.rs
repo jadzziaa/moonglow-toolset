@@ -11,6 +11,15 @@ use mg_core::StrRef;
 
 use crate::GameData;
 
+/// The field a door's generic appearance (a genericdoors.2da row, for a
+/// door whose `Appearance` is 0) is read from: Enhanced Edition's
+/// `GenericType_New` where the door has it, else the older byte
+/// `GenericType`. Verify read the older alone, which EE's doors (and
+/// Moonglow's own) lack.
+pub fn generic_door_field(utd: &mg_gff::Struct) -> &'static str {
+    if utd.get("GenericType_New").is_some() { "GenericType_New" } else { "GenericType" }
+}
+
 /// A 2DA whose rows a field names, and where a row's name is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RowTable {

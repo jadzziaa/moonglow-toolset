@@ -242,8 +242,7 @@ pub(crate) fn search(app: &mut Moonglow, f: &FindInstance) -> Vec<Found> {
             }
             let field = if kind == ObjectKind::Store { "ResRef" } else { "TemplateResRef" };
             for (index, s) in git.root.list(kind.list()).unwrap_or(&[]).iter().enumerate() {
-                let t = s.string("Tag").map(|t| String::from_utf8_lossy(t).into_owned());
-                let t = t.unwrap_or_default();
+                let t = crate::text::decode(s.string("Tag").unwrap_or_default());
                 let bp = s.resref(field).map(|r| r.to_string()).unwrap_or_default();
                 if t.to_lowercase().contains(&tag) && bp.contains(&template) {
                     out.push(Found { kind, index, area, tag: t, template: bp });
@@ -462,7 +461,7 @@ pub(crate) fn blueprint(app: &Moonglow, key: ResKey) -> Option<mg_gff::Gff> {
 /// The Preview window's fields for a blueprint (as Aurora's).
 fn summary(app: &Moonglow, t: ResType, s: &mg_gff::Struct) -> Vec<(&'static str, String)> {
     let game = app.game.as_deref();
-    let text = |label: &str| s.string(label).map(|v| String::from_utf8_lossy(v).into_owned());
+    let text = |label: &str| s.string(label).map(crate::text::decode);
     let name = |label: &str| {
         let ls = s.locstring(label)?;
         game.and_then(|g| g.locstring(ls))

@@ -107,6 +107,8 @@ impl Moonglow {
             return self.rename_nui(from, to, literals);
         }
         self.store_script_text();
+        // (Compiled as the module's builds are: Options › Script Editor.)
+        let (external, debug) = (self.external_compiler(), self.settings.debug_info);
         let Some(ws) = &mut self.ws else { return };
         if let Err(e) = ws.flush() {
             self.log.error(e.to_string());
@@ -125,19 +127,13 @@ impl Moonglow {
         if !report.recompile.is_empty() {
             match &self.game {
                 Some(game) => {
-                    // (Those that had a debug file get one again.)
-                    let mut results = mg_module::build::compile_named_with(
+                    let results = rename::recompile(
                         &mut staged,
                         &game.resman,
-                        &report.debug,
-                        None,
-                        true,
+                        &report,
+                        external.as_ref(),
+                        debug,
                     );
-                    results.extend(mg_module::build::compile_scripts(
-                        &mut staged,
-                        &game.resman,
-                        mg_module::build::ScriptSelection::Uncompiled,
-                    ));
                     for r in &results {
                         if let Err(e) = &r.result
                             && report
@@ -468,12 +464,7 @@ impl Moonglow {
 
     /// Opens a script at a line (1-based).
     fn go_to_line(&mut self, key: ResKey, line: usize) {
-        let text = self
-            .scripts
-            .get(&key)
-            .map(|b| b.text.clone())
-            .or_else(|| self.ws.as_ref()?.module.get(&key).map(crate::text::decode_script))
-            .unwrap_or_default();
+        let text = self.script_source(&key).unwrap_or_default();
         self.script_tools.jump =
             Some((key, crate::script_tools::line_start(&text, line.saturating_sub(1))));
         self.actions.push(Action::OpenTab(Tab::Script(key)));

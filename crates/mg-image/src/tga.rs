@@ -7,6 +7,25 @@ use mg_core::bin::Reader;
 
 use crate::{ImageError, Rgba, Texture, check_size};
 
+/// Reads a TGA as a picture shows it (a NUI window's image, a plugin's):
+/// rows from the top and columns from the left, by the origin its header
+/// declares. ([`read`] keeps them as stored, as the game takes a model's
+/// texture; a plugin's copy turned every file over, a top-left one upside
+/// down.)
+pub fn read_picture(data: &[u8]) -> Result<Rgba, ImageError> {
+    let mut rgba = read(data)?.to_rgba();
+    let descriptor = data.get(17).copied().unwrap_or(0);
+    if descriptor & 0x20 == 0 {
+        rgba = rgba.top_down();
+    }
+    if descriptor & 0x10 != 0 {
+        for row in rgba.data.chunks_exact_mut(rgba.width as usize * 4) {
+            row.as_chunks_mut::<4>().0.reverse();
+        }
+    }
+    Ok(rgba)
+}
+
 /// Reads a TGA into a single RGBA level, rows bottom first.
 pub fn read(data: &[u8]) -> Result<Texture, ImageError> {
     let mut r = Reader::new(data);
@@ -167,6 +186,29 @@ mod tests {
         assert_eq!(img.pixel(0, 0), [255, 0, 0, 255]);
         assert_eq!(img.pixel(0, 1), [0, 0, 255, 128]);
         assert_eq!(img.pixel(1, 1), [0, 255, 0, 64]);
+    }
+
+    /// As a picture: top first and left first by the origin declared,
+    /// whichever it is.
+    #[test]
+    fn a_picture_is_read_by_the_origin_its_header_declares() {
+        let pixels = [[1u8, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4]].concat();
+        // The same picture (1 2 over 3 4) stored from each corner.
+        for (descriptor, stored) in
+            [(0x20, [1, 2, 3, 4]), (0x00, [3, 4, 1, 2]), (0x10, [4, 3, 2, 1]), (0x30, [2, 1, 4, 3])]
+        {
+            let mut f = header(2, 2, 2, 24, descriptor);
+            for i in stored {
+                f.extend_from_slice(&pixels[(i - 1) * 3..i * 3]);
+            }
+            let img = read_picture(&f).unwrap();
+            let grey = |x, y| img.pixel(x, y)[0];
+            assert_eq!(
+                [grey(0, 0), grey(1, 0), grey(0, 1), grey(1, 1)],
+                [1, 2, 3, 4],
+                "{descriptor:#x}"
+            );
+        }
     }
 
     #[test]

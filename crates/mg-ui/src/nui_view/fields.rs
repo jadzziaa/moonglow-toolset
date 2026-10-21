@@ -121,7 +121,7 @@ fn text_field(ui: &mut Ui, text: &mut String, width: f32) -> Option<egui::Respon
     let id = ui.next_auto_id().with("nui-text");
     let held = egui::Id::new("nui-fields-typed");
     let mut typed = ui.data_mut(|d| d.remove_temp::<Typed>(held)).unwrap_or_default();
-    let set = crate::widgets::commit_text_in(&mut typed.0, ui, id, text, None, width);
+    let set = crate::widgets::commit_text_in(&mut typed.0, ui, id, text, None, width, None);
     let has_keys = ui.memory(|m| m.has_focus(id));
     match set {
         Some(set) => *text = set,

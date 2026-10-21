@@ -15,44 +15,12 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// The game install to test against, if one can be found.
-///
-/// `NWN_ROOT` wins; otherwise the usual Steam locations for the platform are
-/// tried. A directory counts as an install if it has `data/nwn_base.key`.
+/// The game install to test against, if one can be found: where the
+/// toolset finds it ([`mg_resman::GameInstall::find_root`]: `NWN_ROOT`,
+/// else each Steam library, then GOG's). This kept a shorter list of its
+/// own, and tests skipped on an install the toolset found.
 pub fn nwn_root() -> Option<PathBuf> {
-    if let Some(root) = env::var_os("NWN_ROOT") {
-        let root = PathBuf::from(root);
-        return is_install(&root).then_some(root);
-    }
-    candidate_roots().into_iter().find(|p| is_install(p))
-}
-
-fn is_install(p: &Path) -> bool {
-    p.join("data").join("nwn_base.key").is_file()
-}
-
-fn candidate_roots() -> Vec<PathBuf> {
-    let mut v = Vec::new();
-    let home = env::var_os("HOME").map(PathBuf::from);
-    let game = Path::new("steamapps").join("common").join("Neverwinter Nights");
-    if cfg!(target_os = "linux") {
-        if let Some(h) = &home {
-            v.push(h.join(".local/share/Steam").join(&game));
-            v.push(h.join(".steam/steam").join(&game));
-            v.push(h.join(".var/app/com.valvesoftware.Steam/.local/share/Steam").join(&game));
-        }
-    } else if cfg!(target_os = "macos") {
-        if let Some(h) = &home {
-            v.push(h.join("Library/Application Support/Steam").join(&game));
-        }
-    } else if cfg!(windows) {
-        for pf in ["ProgramFiles(x86)", "ProgramFiles"] {
-            if let Some(p) = env::var_os(pf) {
-                v.push(PathBuf::from(p).join("Steam").join(&game));
-            }
-        }
-    }
-    v
+    mg_resman::GameInstall::find_root()
 }
 
 /// Whether a missing corpus should fail tests instead of skipping them.
@@ -260,7 +228,7 @@ mod tests {
     #[test]
     fn corpus_macro_skips_or_returns_an_install() {
         let root = corpus!();
-        assert!(is_install(&root));
+        assert!(mg_resman::GameInstall::is_install(&root));
         assert!(!bundled_modules(&root).is_empty());
     }
 

@@ -7,6 +7,7 @@ use egui::Ui;
 use mg_core::{Gender, Language, LocString, LocStringKey, ResRef, ResType, StrRef};
 use mg_edit::{Command, Edit, GffPath};
 use mg_gff::{Struct, Value};
+use mg_module::vars::VarType;
 use mg_resman::ResKey;
 
 use crate::text::{decode, encode, from_editor, to_editor};
@@ -245,13 +246,10 @@ impl VarTableEdit {
             if r.name.trim().is_empty() {
                 return Some(format!("Variable {} has no name", i + 1));
             }
-            let ok = match r.kind {
-                1 => r.value.trim().parse::<i32>().is_ok(),
-                2 => r.value.trim().parse::<f32>().is_ok(),
-                _ => true,
-            };
-            if !ok {
-                return Some(format!("{}: {:?} is not a {}", r.name, r.value, kind_name(r.kind)));
+            if let Some(t @ (VarType::Int | VarType::Float)) = VarType::of(r.kind.into())
+                && let Err(e) = t.value(&r.value, crate::text::game_codepage())
+            {
+                return Some(format!("{}: {e}", r.name));
             }
             if self.rows[..i].iter().any(|o| o.name == r.name) {
                 return Some(format!("{} is defined twice", r.name));
@@ -273,25 +271,27 @@ impl VarTableEdit {
                 }
                 s.set("Name", Value::String(encode(&r.name)));
                 s.set("Type", Value::Dword(r.kind));
-                let value = match r.kind {
-                    1 => Value::Int(r.value.trim().parse().unwrap_or(0)),
-                    2 => Value::Float(r.value.trim().parse().unwrap_or(0.0)),
-                    _ => Value::String(encode(&r.value)),
+                let cp = crate::text::game_codepage();
+                let value = match VarType::of(r.kind.into()) {
+                    // (Text the codepage lacks as `?`, as every field takes it.)
+                    Some(VarType::String) => Some(Value::String(encode(&r.value))),
+                    Some(t @ (VarType::Int | VarType::Float)) => t.value(&r.value, cp).ok(),
+                    // An object's or a location's, which the window doesn't
+                    // edit, as it was: it wrote them as strings.
+                    _ => None,
                 };
-                s.set("Value", value);
+                if let Some(value) = value {
+                    s.set("Value", value);
+                }
                 s
             })
             .collect()
     }
 }
 
+/// A variable's type as the window names it.
 fn kind_name(kind: u32) -> &'static str {
-    match kind {
-        1 => "int",
-        2 => "float",
-        3 => "string",
-        _ => "value",
-    }
+    VarType::of(kind.into()).map_or("value", VarType::name)
 }
 
 /// The Select Resource window, for a field identified by `id`.
@@ -540,14 +540,22 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                         .min_size(egui::vec2(width, 0.0))
                                 };
                                 ui.add(wide(&mut r.name, name_width));
-                                egui::ComboBox::from_id_salt(("var-type", i))
-                                    .selected_text(kind_name(r.kind))
-                                    .show_ui(ui, |ui| {
-                                        for k in 1..=3 {
-                                            ui.selectable_value(&mut r.kind, k, kind_name(k));
-                                        }
-                                    });
-                                ui.add(wide(&mut r.value, value_width));
+                                // An object's or a location's is shown, not
+                                // edited (it isn't set from text).
+                                let edits = VarType::of(r.kind.into())
+                                    .is_some_and(|t| t.field_type().is_some());
+                                ui.add_enabled_ui(edits, |ui| {
+                                    egui::ComboBox::from_id_salt(("var-type", i))
+                                        .selected_text(kind_name(r.kind))
+                                        .show_ui(ui, |ui| {
+                                            for t in [VarType::Int, VarType::Float, VarType::String]
+                                            {
+                                                let (k, name) = (t.code(), t.name());
+                                                ui.selectable_value(&mut r.kind, k, name);
+                                            }
+                                        });
+                                });
+                                ui.add_enabled(edits, wide(&mut r.value, value_width));
                                 if ui.small_button("Delete").clicked() {
                                     remove = Some(i);
                                 }
@@ -605,10 +613,13 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                         let r = ui.add(egui::TextEdit::singleline(name).desired_width(180.0));
                         crate::widgets::autofocus(ui, &r);
                         let ok = crate::prefabs::valid_name(name);
+                        // (Enter in the name is the name's, not the window's OK.)
+                        let entered = r.lost_focus()
+                            && ui.input_mut(|i| {
+                                i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                            });
                         save = ui.add_enabled(ok, egui::Button::new("Save")).clicked()
-                            || (ok
-                                && r.lost_focus()
-                                && ui.input(|i| i.key_pressed(egui::Key::Enter)));
+                            || (ok && entered);
                         cancel = ui.button("Cancel").clicked();
                     });
                     if save && let Some(dir) = app.var_set_dir.clone() {
@@ -712,13 +723,12 @@ pub(crate) fn resref_field(
 ) -> Option<ResRef> {
     let mut out = app.take_pick(id).filter(|r| *r != current);
     ui.horizontal(|ui| {
-        let buf = app.buffers.entry(id).or_insert_with(|| current.to_string());
-        let r = ui.add(egui::TextEdit::singleline(buf).id(id).desired_width(160.0).char_limit(16));
-        if !has_keys(&r) && !r.lost_focus() && *buf != current.to_string() {
-            *buf = current.to_string();
-        }
-        if r.lost_focus() && *buf != current.to_string() {
-            match ResRef::from_str(buf.trim()) {
+        // (A name typed is set when a click takes the field away, another
+        // page's tab or its window's close button: it was lost.)
+        let shown = current.to_string();
+        let typed = commit_text_in(&mut app.buffers, ui, id, &shown, None, 160.0, Some(16));
+        if let Some(text) = typed {
+            match ResRef::from_str(text.trim()) {
                 Ok(v) => out = Some(v),
                 Err(e) => app.log.error(e.to_string()),
             }
@@ -906,11 +916,14 @@ pub(crate) fn commit_text(
     multiline: bool,
     width: f32,
 ) -> Option<String> {
-    commit_text_in(&mut app.buffers, ui, id, current, multiline.then_some(6), width)
+    commit_text_in(&mut app.buffers, ui, id, current, multiline.then_some(6), width, None)
 }
 
 /// [`commit_text`] with the buffers what is typed is kept in until then:
-/// several lines (`rows` of them shown) or one, `width` wide.
+/// several lines (`rows` of them shown) or one, `width` wide, of at most
+/// `limit` characters. Every text field that sets its text when the
+/// keyboard leaves it goes through here, so that what was typed is set when
+/// a click elsewhere takes the field away ([`leaves_at_a_press`]).
 pub(crate) fn commit_text_in(
     buffers: &mut std::collections::HashMap<egui::Id, String>,
     ui: &mut Ui,
@@ -918,12 +931,17 @@ pub(crate) fn commit_text_in(
     current: &str,
     rows: Option<usize>,
     width: f32,
+    limit: Option<usize>,
 ) -> Option<String> {
     let (shown, crlf) = to_editor(current);
     let buf = buffers.entry(id).or_insert_with(|| shown.clone());
     let edit = match rows {
         Some(rows) => egui::TextEdit::multiline(buf).desired_rows(rows),
         None => egui::TextEdit::singleline(buf),
+    };
+    let edit = match limit {
+        Some(n) => edit.char_limit(n),
+        None => edit,
     };
     let r = ui.add(edit.id(id).desired_width(width));
     leaves_at_a_press(ui.ctx(), &r);
@@ -1483,10 +1501,14 @@ pub(crate) fn picture_tile(
 /// when nothing else has the keyboard: after typing in a one-line field
 /// (which lets go of it on Enter), or with nothing focused. Not while a
 /// multi-line field (where Enter starts a line) or a button (which Enter
-/// presses) has it.
+/// presses) has it. The press is taken, so one Enter does one thing: a
+/// wizard's Next and its Finish both asked, and an Enter on the page
+/// before the last went on and finished at once.
 pub(crate) fn enter(ui: &egui::Ui) -> bool {
-    ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.is_none())
-        && ui.memory(|m| m.focused().is_none())
+    ui.memory(|m| m.focused().is_none())
+        && ui.input_mut(|i| {
+            i.modifiers.is_none() && i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+        })
 }
 
 /// Gives a dialog's main field the keyboard when it appears (the dialog
@@ -1652,6 +1674,44 @@ pub(crate) fn edit_script_button(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An object's or a location's variable, which the Variables window
+    /// doesn't edit, is written back as it was: OK wrote every variable
+    /// not an int or a float as a string (a code review's finding).
+    #[test]
+    fn variables_the_window_does_not_edit_keep_their_values() {
+        let var = |name: &[u8], kind: u32, value: Value| {
+            let mut s = Struct::new(0);
+            s.set("Name", Value::String(name.to_vec()));
+            s.set("Type", Value::Dword(kind));
+            s.set("Value", value);
+            s
+        };
+        let mut place = Struct::new(1);
+        place.set("Area", Value::Dword(7));
+        let list = vec![
+            var(b"oGuard", 4, Value::Dword(0x7f00_0001)),
+            var(b"lHome", 5, Value::Struct(place)),
+            var(b"nCount", 1, Value::Int(3)),
+        ];
+        let target = FieldTarget {
+            key: ResKey::parse("inn", ResType::GIT).unwrap(),
+            path: GffPath::root(),
+            label: "VarTable".into(),
+            also: Vec::new(),
+        };
+        let mut edit = VarTableEdit::new(target, &list);
+        assert_eq!(edit.list(), list, "untouched, written as it was");
+        let count = edit.rows.iter_mut().find(|r| r.name == "nCount").unwrap();
+        count.value = "4".into();
+        assert_eq!(edit.problem(), None);
+        let written = edit.list();
+        assert_eq!(written[..2], list[..2], "the object and the location kept");
+        assert_eq!(written[2].get("Value"), Some(&Value::Int(4)));
+        let count = edit.rows.iter_mut().find(|r| r.name == "nCount").unwrap();
+        count.value = "four".into();
+        assert!(edit.problem().is_some_and(|p| p.starts_with("nCount: ")));
+    }
 
     /// Polish has tokens of its own (the game's `lang/pl` table); a
     /// language without a table has the game's.

@@ -201,9 +201,11 @@ impl Lookup<'_> {
     }
 
     /// Whether a texture name resolves to anything (MTR, DDS, TGA, PLT),
-    /// by the game's lists.
+    /// by the game's lists: cut to 16 characters, as the renderer and the
+    /// game find it (a longer name was taken for none here, and another
+    /// texture put in its place).
     fn has_texture(&self, name: &str) -> bool {
-        let Ok(r) = ResRef::from_str(name) else { return false };
+        let Some(r) = ResRef::cut(name) else { return false };
         [ResType::DDS, ResType::TGA, ResType::PLT, ResType::MTR]
             .iter()
             .any(|&t| self.game.resman.contains(&mg_resman::ResKey::new(r, t)))
@@ -310,6 +312,7 @@ mod tests {
             key("old", ResType::TGA),
             key("skin", ResType::PLT),
             key("metal", ResType::MTR),
+            key("c_drgdeep_hed_ne", ResType::DDS),
         ]);
         let mut rm = mg_resman::ResMan::new();
         rm.add(mg_resman::priority::HAK_USER, "hak:x", mg_resman::LayerClass::Erf, listed);
@@ -320,6 +323,8 @@ mod tests {
         for texture in ["c_orc", "old", "skin", "metal"] {
             assert!(lk.has_texture(texture), "{texture}");
         }
-        assert!(!lk.has_texture("none") && !lk.has_texture("a name too long for a resource"));
+        assert!(!lk.has_texture("none"));
+        // A longer name, as the game reads it: its first 16 characters.
+        assert!(lk.has_texture("c_drgdeep_hed_new"));
     }
 }

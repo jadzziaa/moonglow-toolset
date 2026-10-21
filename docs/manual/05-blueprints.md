@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:46:55Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:07:07Z }
 ---
 
 # Blueprints
@@ -261,7 +261,9 @@ Shared parts:
 - **Variables…**: local variables the object starts with, in a window
   whose edges are dragged to size it, listed by name (each case alike;
   one added goes at the bottom, and they are saved in the order they
-  were made). A placed object's opens from its right-click menu too, in
+  were made). Ints, floats and strings are edited; an object's or a
+  location's variable (which only scripts set) is shown as it is and
+  kept. A placed object's opens from its right-click menu too, in
   the area or the module tree. **Save Set…**
   keeps them under a name. **Add Set** adds a saved set to any object's
   or blueprint's variables, in any module; a variable of the same name

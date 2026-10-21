@@ -1242,18 +1242,7 @@ fn script_with_params(
         ui.ctx().data_mut(|d| d.remove_temp::<Vec<(String, String)>>(buf_id));
     }
     if !current.is_empty() {
-        let source = app
-            .ws
-            .as_ref()
-            .and_then(|w| w.module.get(&ResKey::new(current, ResType::NSS)).map(decode))
-            .or_else(|| {
-                app.game
-                    .as_ref()?
-                    .resman
-                    .get(&ResKey::new(current, ResType::NSS))
-                    .ok()
-                    .map(|d| decode(&d))
-            });
+        let source = app.script_source(&ResKey::new(current, ResType::NSS));
         ui.separator();
         ui.label("Script Preview");
         match source {

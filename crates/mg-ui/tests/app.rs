@@ -4832,6 +4832,26 @@ fn text_typed_in_a_properties_field_is_kept_when_its_page_is_left() {
     let now = format!("{tag}_X");
     assert_eq!(field(&mut h, &key).string("Tag"), Some(now.as_bytes()), "kept");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Tag"));
+    // A script's name, typed in, and another page clicked: it was lost
+    // (the script fields kept no part of the fix above).
+    h.get_by_label("Scripts").click();
+    h.run_steps(3);
+    let is = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::TextInput
+            && n.value().as_deref() == Some("nw_o2_classlow")
+    };
+    let at = h.get_all(egui_kittest::kittest::by().predicate(is)).next().unwrap().rect().center();
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("_x".into()));
+    h.run_steps(2);
+    h.get_by_label("Lock").click();
+    h.run_steps(4);
+    let scripts = ["OnOpen", "OnDeath"].map(|l| field(&mut h, &key).resref(l).unwrap().to_string());
+    assert!(scripts.contains(&"nw_o2_classlow_x".to_string()), "kept: {scripts:?}");
     // The description, typed in, and the window closed.
     h.get_by_label("Description").click();
     h.run_steps(3);
@@ -6443,8 +6463,12 @@ fn item_wizard_makes_a_weapon_with_its_cost() {
     h.get_by_label("Next >").click();
     h.run();
     type_into_hint(&mut h, "Name", "Wizard Sword");
-    h.get_by_label("Next >").click();
-    h.run();
+    // Enter is Next, and only Next: it went on and finished at once, in
+    // category 0, with the page before the last's Enter.
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert!(module_gff(&mut h, "wizardsword", ResType::UTI).is_none(), "not finished yet");
+    assert!(h.state().blueprint_wizard.is_some());
     for branch in ["Weapons", "Bladed"] {
         h.get_by_label(branch).click();
         h.run();
@@ -7237,6 +7261,24 @@ fn adjust_location_and_find_instance() {
     }
     h.run_steps(4);
     assert_eq!(h.state().area_views[&area].selection, [(ObjectKind::Waypoint, 1)]);
+    // A tag in the game's codepage (é, one byte in Windows-1252) is found
+    // as typed: it was read as UTF-8, and matched nothing.
+    let edit = mg_edit::Edit::SetField {
+        key: ResKey::new(area, ResType::GIT),
+        path: mg_edit::GffPath::root().item("WaypointList", 1),
+        label: "Tag".into(),
+        value: Some(mg_gff::Value::String(b"Caf\xe9".to_vec())),
+    };
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Tag", vec![edit])));
+    h.run_steps(2);
+    let f = h.state_mut().find_instance.as_mut().unwrap();
+    f.tag = "café".into();
+    h.run_steps(2);
+    h.get_by_label("Search").click();
+    h.run_steps(2);
+    let found = h.state().find_instance.as_ref().unwrap().results.clone();
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!((found[0].index, found[0].tag.as_str()), (1, "Café"));
 }
 
 #[test]
@@ -12538,6 +12580,45 @@ fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
     assert!(h.state().settings.hidden_in_areas.is_empty());
 }
 
+/// Delete with a text field holding the keyboard is the field's: the
+/// selected objects of the area under the pointer are not deleted too (a
+/// code review's finding; the tile selection's Delete had the check).
+#[test]
+fn delete_typed_in_a_field_deletes_no_object_under_the_pointer() {
+    use mg_area::ObjectKind;
+    let Some((mut h, area)) = area_harness("delete-typing") else { return };
+    let count = |h: &mut Harness<'_, Moonglow>| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        let git = ws.doc(&ResKey::new(area, ResType::GIT)).unwrap();
+        git.root.list("WaypointList").map_or(0, <[_]>::len)
+    };
+    assert_eq!(count(&mut h), 2);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    // The module tree's filter takes the keyboard, with text to delete.
+    let filter = h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap();
+    filter.click();
+    h.run_steps(2);
+    h.get_all_by_role(egui::accesskit::Role::TextInput).next().unwrap().type_text("ab");
+    h.run_steps(2);
+    h.key_press(egui::Key::Home);
+    h.run_steps(1);
+    // The pointer over the area's view, and Delete.
+    let at = screen(&h, area, glam::Vec3::new(25.0, 25.0, 0.0));
+    h.hover_at(at);
+    h.run_steps(2);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert_eq!(count(&mut h), 2, "the waypoint stays");
+    // The field let go of, Delete deletes it.
+    h.ctx.memory_mut(egui::Memory::stop_text_input);
+    h.run_steps(2);
+    h.state_mut().area_views.get_mut(&area).unwrap().selection = vec![(ObjectKind::Waypoint, 0)];
+    h.run_steps(1);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(3);
+    assert_eq!(count(&mut h), 1);
+}
+
 /// Expand All and Collapse All open and close every group of the module
 /// tree at once.
 #[test]
@@ -12692,7 +12773,10 @@ fn the_module_tree_lists_what_is_placed_in_an_area() {
     // What is placed later is listed too.
     let ws = h.state_mut().ws.as_mut().unwrap();
     let git = ResKey::new(area, ResType::GIT);
-    let copy = ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].clone();
+    let mut copy = ws.doc(&git).unwrap().root.list("WaypointList").unwrap()[0].clone();
+    // (Standing 1.5 m above the ground, as on a table.)
+    let z = copy.float("ZPosition").unwrap();
+    copy.set("ZPosition", mg_gff::Value::Float(z + 1.5));
     let edit = mg_edit::Edit::InsertItem {
         key: git,
         path: mg_edit::GffPath::root(),
@@ -12727,6 +12811,10 @@ fn the_module_tree_lists_what_is_placed_in_an_area() {
     };
     menu(&mut h, rows[2], "Copy");
     assert_eq!(h.state().object_clip.as_ref().map(|c| c.objects.len()), Some(1));
+    // As high above the ground as it stood, as Copy in the area's view
+    // keeps it: it was pasted on the ground.
+    let lift = h.state().object_clip.as_ref().unwrap().objects[0].2;
+    assert!((lift - 1.5).abs() < 0.05, "lift {lift}");
     menu(&mut h, rows[2], "Delete");
     h.get_by_label("Waypoints (2)");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Delete"));
@@ -19135,6 +19223,18 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     // A cell a 2DA cannot hold is refused, and said.
     let doc = h.state_mut().tables.iter_mut().find(|d| d.id == loose).unwrap();
     assert!(doc.edit.set(0, 0, Some("a \"b\"".into())).is_err());
+    // A cell being typed is unsaved too: closing the tab asked nothing,
+    // and what was typed was lost.
+    (doc.selected, doc.typing) = (Some((0, 1)), Some("Bun".into()));
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(loose)]));
+    h.run_steps(3);
+    h.get_by_label("loose.2da has unsaved changes.");
+    h.get_all_by_label("Save").last().unwrap().click();
+    h.run_steps(3);
+    assert!(std::fs::read_to_string(&file).unwrap().contains("Bun"), "saved what was typed");
+    let loose = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(3);
+    let doc = h.state_mut().tables.iter_mut().find(|d| d.id == loose).unwrap();
     // Closing a table with unsaved changes asks first.
     doc.edit.set(0, 0, Some("Loaf".into())).unwrap();
     h.run_steps(2);

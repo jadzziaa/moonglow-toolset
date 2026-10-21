@@ -399,6 +399,15 @@ pub fn find(text: &str, needle: &str, from: usize, o: &SearchOptions) -> Option<
     pick.map(|b| (char_index(text, *b), char_index(text, b + pat.len())))
 }
 
+/// Whether the characters `start..end` of `text` are a match of `needle`
+/// as [`find`] finds one (its case and whole-word rules): what Replace
+/// replaces. (Replace compared the selection itself, A to Z alone and
+/// whole words or not, and refused what Find had found: "É" for "é".)
+pub fn is_match_at(text: &str, needle: &str, start: usize, end: usize, o: &SearchOptions) -> bool {
+    let forward = SearchOptions { backwards: false, ..o.clone() };
+    start != end && find(text, needle, start, &forward) == Some((start, end))
+}
+
 /// Every line containing `needle`: (0-based line, the line's text).
 pub fn find_lines(text: &str, needle: &str, o: &SearchOptions) -> Vec<(usize, String)> {
     text.lines()
@@ -528,6 +537,14 @@ mod tests {
             replace_all(t, "foo", "x", &SearchOptions { whole_word: true, ..o }),
             ("x x food x".into(), 3)
         );
+        // A selection is replaced when it is what Find finds there: by its
+        // case rule (É for é, as Find takes it) and whole words.
+        let accents = "Été été";
+        assert_eq!(find(accents, "été", 0, &o), Some((0, 3)));
+        assert!(is_match_at(accents, "été", 0, 3, &o));
+        assert!(!is_match_at(t, "foo", 8, 11, &SearchOptions { whole_word: true, ..o }), "food");
+        assert!(is_match_at(t, "foo", 8, 11, &o));
+        assert!(!is_match_at(t, "foo", 0, 3, &SearchOptions { match_case: true, ..o }));
     }
 
     #[test]

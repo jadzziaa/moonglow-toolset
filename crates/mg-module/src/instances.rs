@@ -1368,8 +1368,9 @@ pub fn update_held(
 }
 
 /// The waypoint Aurora's Create Waypoint makes for a creature (one of its
-/// walk waypoints): from no blueprint, facing north, at `position`.
-pub fn walk_waypoint(tag: &str, position: [f32; 3]) -> Struct {
+/// walk waypoints): from no blueprint, facing north, at `position`; `tag`
+/// in the module's codepage.
+pub fn walk_waypoint(tag: &[u8], position: [f32; 3]) -> Struct {
     let (_, id) = git_list(ResType::UTW).expect("waypoints have a list");
     let mut s = Struct::new(id);
     let text = |t: &str| Value::String(t.as_bytes().to_vec());
@@ -1378,7 +1379,7 @@ pub fn walk_waypoint(tag: &str, position: [f32; 3]) -> Struct {
         ("Appearance", Value::Byte(1)),
         ("LinkedTo", text("")),
         ("TemplateResRef", Value::resref(ResRef::EMPTY)),
-        ("Tag", text(tag)),
+        ("Tag", Value::String(tag.to_vec())),
         ("LocalizedName", none()),
         ("Description", none()),
         ("HasMapNote", Value::Byte(0)),

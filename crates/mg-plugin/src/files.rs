@@ -327,12 +327,15 @@ fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(u32, u32, Vec<u8>), Strin
         None => "tga",
     };
     if kind != "png" {
-        let restype = if kind == "dds" { ResType::DDS } else { ResType::TGA };
-        let texture = mg_image::read(restype, bytes).map_err(|e| e.to_string())?;
-        if u64::from(texture.width) * u64::from(texture.height) > MAX_PIXELS {
+        let rgba = match kind {
+            "dds" => mg_image::read(ResType::DDS, bytes).map(|t| t.to_rgba().top_down()),
+            // (By the origin its header declares, as a NUI window's.)
+            _ => mg_image::tga::read_picture(bytes),
+        };
+        let rgba = rgba.map_err(|e| e.to_string())?;
+        if u64::from(rgba.width) * u64::from(rgba.height) > MAX_PIXELS {
             return Err("the picture is too large".into());
         }
-        let rgba = texture.to_rgba().top_down();
         return Ok((rgba.width, rgba.height, rgba.data));
     }
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));

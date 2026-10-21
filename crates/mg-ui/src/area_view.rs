@@ -778,6 +778,19 @@ impl AreaView {
             .collect()
     }
 
+    /// How high above the ground under it an object stands (a placeable
+    /// on a table): kept when it is moved, copied and pasted. Creatures
+    /// stand on the ground, and so does anything where the view has no
+    /// ground yet.
+    pub(crate) fn lift_of(&self, o: &mg_area::AreaObject) -> f32 {
+        let ground =
+            self.ground.as_ref().and_then(|g| g.height(o.position.truncate(), o.position.z));
+        match o.kind {
+            ObjectKind::Creature => 0.0,
+            _ => ground.map_or(0.0, |z| o.position.z - z),
+        }
+    }
+
     /// Where an object moved by `offset` stands: at the same height above
     /// the ground as before (on it, for most; creatures always on it).
     /// Outlines keep their height.
@@ -785,11 +798,7 @@ impl AreaView {
         let to = o.position.truncate() + offset;
         let ground = self.ground.as_ref().filter(|_| !o.kind.has_outline());
         let Some(g) = ground else { return to.extend(o.position.z) };
-        let ground_z = g.height(o.position.truncate(), o.position.z);
-        let lift = match o.kind {
-            ObjectKind::Creature => 0.0,
-            _ => ground_z.map_or(0.0, |z| o.position.z - z),
-        };
+        let lift = self.lift_of(o);
         let near = o.position.z - lift;
         g.height(to, near).map_or(to.extend(o.position.z), |z| to.extend(z + lift))
     }
@@ -3585,7 +3594,13 @@ fn input(app: &mut Moonglow, ui: &egui::Ui, view: &mut AreaView, response: &egui
             drop_onto_objects(app, view);
         }
     }
-    if hovered && !view.selection.is_empty() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
+    // (Delete in a text field is the field's, as the tile selection has it:
+    // it deleted the selection under the pointer too.)
+    if hovered
+        && !typing
+        && !view.selection.is_empty()
+        && ui.input(|i| i.key_pressed(egui::Key::Delete))
+    {
         delete(app, view);
     }
     // Escape with nothing in hand (no drag, brush or paste, which it drops
@@ -4290,13 +4305,7 @@ fn copy_selection(app: &mut Moonglow, view: &AreaView) -> Option<ObjectClip> {
         else {
             continue;
         };
-        let ground =
-            view.ground.as_ref().and_then(|g| g.height(o.position.truncate(), o.position.z));
-        let lift = match o.kind {
-            ObjectKind::Creature => 0.0,
-            _ => ground.map_or(0.0, |z| o.position.z - z),
-        };
-        objects.push((o.clone(), s.clone(), lift));
+        objects.push((o.clone(), s.clone(), view.lift_of(o)));
     }
     let anchor = objects.first()?.0.position;
     Some(ObjectClip { objects, anchor })
@@ -5205,7 +5214,7 @@ fn waypoint_tags(app: &mut Moonglow) -> Vec<String> {
         let Ok(git) = ws.doc(&ResKey::new(a, ResType::GIT)) else { continue };
         for w in git.root.list(ObjectKind::Waypoint.list()).unwrap_or(&[]) {
             if let Some(t) = w.string("Tag") {
-                tags.push(String::from_utf8_lossy(t).into_owned());
+                tags.push(crate::text::decode(t));
             }
         }
     }
@@ -5224,11 +5233,11 @@ fn create_waypoint(app: &mut Moonglow, view: &mut AreaView, creature: usize, at:
         .list(ObjectKind::Creature.list())
         .and_then(|l| l.get(creature))
         .and_then(|c| c.string("Tag"))
-        .map(|t| String::from_utf8_lossy(t).into_owned())
+        .map(crate::text::decode)
         .unwrap_or_default();
     let index = doc.root.list(ObjectKind::Waypoint.list()).map_or(0, <[_]>::len);
     let tag = mg_module::instances::set_tag(&format!("WP_{tag}"), &tags);
-    let item = mg_module::instances::walk_waypoint(&tag, at.to_array());
+    let item = mg_module::instances::walk_waypoint(&crate::text::encode(&tag), at.to_array());
     let edit = mg_edit::Edit::insert_item(
         git,
         mg_edit::GffPath::root(),

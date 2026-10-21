@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:26:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:07:07Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -2052,6 +2052,237 @@ unless it says so.
   `Reader::data` and `Reader::pos`, `Txi::alpha_mean`,
   `SetFile::is_empty`. A `pub` item of a crate Moonglow Viewer builds on
   may be in use there: `plt::LAYERS` is. (S each)
+
+## Written more than once (the review of 2026-10-21)
+
+Five reviewers read the workspace for logic written more than once, a
+builder having said that AI-written code "reimplements a lot of stuff in
+minorly different ways instead of building one source of truth". Where
+copies had drifted into a wrong result, the fix went through one place
+with a test (the log, 2026-10-21). This is what is left: places by file
+and line as they were that day, found by reading, not by running unless
+it says so. One question settles most of them: which copy is the source
+of truth, and does each caller's difference matter.
+
+### To build once (the structure the copies want)
+
+- **A 2DA row's dropdown, six times:** `Form::choice_shown`
+  (`blueprint/mod.rs:989`) has the filter past 30 rows, the sort by name,
+  the scroll to the chosen row, Aurora's arrow keys and the "≠" mark;
+  `situated::pick_with` (`:605`), `creature::optional_pick` (`:692`),
+  `encounter.rs:62`, `Form::category` (`mod.rs:1245`), `gff_view` row
+  choices (`:209`), Advanced Search's `row_picker` (`search.rs:215`),
+  the 2DA editor's "a row of X.2da" (`table_view.rs:1825`) and the
+  portrait list (`situated.rs:165`) each have some of it. An item
+  property's subtypes (Cast Spell: hundreds of rows) come unfiltered in
+  the table's order. The "row name, else `(n)`" text is written ten
+  times (`mod.rs:1002`, `:1242`, `situated.rs:617`, `encounter.rs:60`,
+  `creature.rs:704`, `levelup_view.rs:84`, `creature_lists.rs:629`,
+  `search.rs:242`, `store.rs:256`, `:314`). One `widgets::row_choice`
+  and `mg_rules::choice_text`. (M)
+- **The side editors' unsaved work, close and undo (hak, 2DA,
+  tileset):** the "has unsaved changes" window three times
+  (`hak_view.rs:768`, `table_view.rs:2101`, `tileset_view.rs:790`), with
+  three `*_closing` fields, three arms of `may_close`, three
+  `unsaved`/`save_all` pairs; one slot each, so Close All with two
+  changed haks asks of the last only; they say Discard where the
+  module's says Don't Save. Undo: the talk table's goes through
+  `Action::Undo` and the keymap; the 2DA grid reads Ctrl+Z and Ctrl+Y by
+  hand (`table_view.rs:1100`: a key set in Options › Keyboard and
+  Ctrl+Shift+Z don't reach it); the hak and tileset editors have buttons
+  alone, and Ctrl+Z over them undoes the module's last change. A
+  `SideDoc` trait, one closing window with a queue, and one
+  `local_undo`. (M)
+- **Dialog windows built by hand:** `widgets::window` and
+  `widgets::dialog` exist; `script_wizard.rs:916`, `module_props.rs:690`,
+  `palette_categories.rs:194`, `hak_view.rs:718`, `:777`, `outside.rs:363`,
+  `references.rs:681`, `table_view.rs:2110`, `model_view.rs:270`,
+  `tileset_view.rs:799` are one of them by hand, and six more
+  (`store_wizard.rs:141`, `:348`, `levelup_view.rs:87`,
+  `faction_view.rs:257`, `:290`, `NameWindow` at `widgets.rs:1268`)
+  repeat a movable variant with no helper; `creature_wizard.rs:257`
+  and `situated.rs:247` (an `egui::Modal`) are two more styles, and
+  centering is done two ways. A `widgets::modal`. (S)
+- **The GIT's lists, spelled out about ten times:** `instances.rs:54`
+  and `:1135` (in one file), `refs.rs:103`, `verify.rs:38`,
+  `doctor.rs:1239` (a subset), `rename.rs:460`, `search.rs:308`,
+  `bulk.rs:48` (singular names; bulk falls back to "waypoint", the
+  others to "object"), `mg-rules rows.rs:65` (no sounds or stores, as
+  its kinds); three kind enums for the nine types (`ObjectKind`,
+  `BlueprintKind`, `verify::Category`); mg-schema has the lists with
+  their struct ids. And `if UTM { "ResRef" } else { "TemplateResRef" }`
+  eight times beside `BlueprintKind::resref_field` (`query.rs:112`,
+  `instances.rs:1198`, `palette_add.rs:99`, `:230`, `mg-area lib.rs:365`,
+  `bulk.rs:63`, `area_tools.rs:243`, `:473`). One table of (list,
+  type, struct id, name) and one kind. (M)
+- **A localized string's text, without the toolset's language or the
+  talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
+  `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside
+  `GameData::locstring`): `mg find --name` doesn't match a name in
+  French alone or in the talk table, and `mg areas` names an area
+  otherwise than the module tree. A `LocString::shown_in(language,
+  codepage)` for where there is no game. (M)
+- **The module's areas, two ways:** the IFO's list (`Module::areas`:
+  `query.rs:168`, `bulk.rs:74`, `mg update-instances`) and the AREs
+  (areas, the doctor, search, the module tree); an ARE missing from the
+  IFO is seen by half the tools. And areas listed and filtered three
+  times (`areas.rs:40`, `tree.rs:105`, `area_props.rs:706`, the last
+  without the tag). (M)
+- **Where an object stands:** visual transforms read two ways
+  (`areas.rs:191`: any entry; `mg-area lib.rs:233`: scope 0, else the
+  first), and placement fields (X/Y/Z and Bearing, or XPosition and
+  orientation; PointX or X) read and written in six places
+  (`instances.rs:1149`, `mg-area lib.rs:323`, `reshape.rs:92`,
+  `edit.rs:50`, `query.rs:114`, `palette_add.rs:58`). (M)
+- **GFF paths as strings:** two `Step` enums (`mg-module text.rs:77`,
+  `mg-edit lib.rs:36`), hand parsers (`search.rs:255`, `rename.rs:83`,
+  `:436`, `verify.rs:38`, `references.rs:489`), hand walkers beside
+  `Struct::walk_fields` (`rename.rs:192`, `:209`, `text.rs:207`,
+  `doctor.rs:1250`). `GffPath` into mg-gff, carried by `Reference`,
+  `Usage` and `Hit`. (L, mechanical)
+- **Six ways to match a filter:** the palettes' `Find` (words, then
+  letters in order: `palette_view.rs:1150`), the Tiles tab (sharing the
+  palettes' filter text, `terrain_mode.rs:1249`), the module tree
+  (`tree.rs:504`, `:752`), the Appearance Gallery, Transfer, the tileset
+  editor, Find Instance: "sword iron" finds Iron Sword in the palettes
+  alone. Ctrl+F read by hand in four places (`palette_view.rs:497`,
+  `tree.rs:468`, `widgets.rs:1111`, `browser.rs:112`) beside the
+  keymap's `Find`; the search field with its clear button twice. One
+  matcher and a `widgets::search_field`. (M)
+- **Module Properties and the journal redo `Form` by hand**
+  (`module_props.rs`, `journal_view.rs:296`): a tag's 32 characters held
+  three ways (the module's not at all), the module's XP slider adds an
+  empty undo step when a drag ends where it began, neither keeps typing
+  as `hold_text` does; the "…" button for every language seven times.
+  (M)
+- **The game data for a module, three times in `mg`**
+  (`search.rs:98`, `plugins.rs:34`, `main.rs:2671`, with the custom
+  talk table found three more ways: `main.rs:2713`, `nwsync.rs:122`,
+  `mg-ui lib.rs:2184`), each warning differently. A
+  `Module::game_data`. (M)
+- **A blueprint's preview, three times** (`mg model-files`,
+  `model_view.rs:164`, `mg-area lib.rs:347`): `mg model-files` has no
+  waypoint. A `mg_preview::of_object`. (M)
+- **The blueprint-to-instance pipeline four times** (`area_view.rs:3944`,
+  `:3784`, `paint_mode.rs:559`, `bulk.rs:144`; the paint stroke's cache
+  is deliberate). (M)
+
+### Settled in the engine or Aurora first
+
+- **A valid resource name, three rules:** ASCII of 16 (`mg-plugin
+  tables.rs:253`), letters, digits and `_` (`talk.rs:237`), those and
+  `-` (`hak_edit.rs:114`, `mg-plugin files.rs:247`), lower case alone
+  (`mg-nui lib.rs:209`, `talk_view.rs:332`); also `talk.rs:82`,
+  `attach.rs:72`, `grass.rs:222`, `doctor.rs:708`,
+  `tileset_view.rs:142`. A plugin can write a sound `mg tlk` refuses.
+  Which the game takes, by an engine test. (S)
+- **A palette node's name, four readers:** `palette.rs:430` (NAME, then
+  STRREF, then DELETE_ME), `:323`, `new.rs:242`, and the tile palette's
+  `mg-area terrain.rs:119` (STRREF first, no DELETE_ME, NAME as UTF-8).
+  Aurora's order, by a capture. (S)
+- **A copy's resref:** `copy_resref` (`palette_view.rs:320`, keeps
+  `nw_`) and `new_resref` (`palette_add.rs:37`, drops it and goes on
+  from the template's number), with three more generators
+  (`store_setup.rs:27`, `blueprints.rs:35`, `dialog_view.rs:1612`) and
+  two from a file's stem (`dialog_view.rs:1608`, `nui_view/images.rs:91`).
+  Aurora's Copy against its Add to Palette, by a capture. (S)
+- **The two portrait filters:** the Creature Wizard's
+  (`creature_wizard.rs:92`: the gender chosen, then rows of both or
+  none, Plot rows left out, not the module's portraits) and Select
+  Portrait's (`situated.rs:228`: the gender exactly, the module's too):
+  Outsider and Male shows nothing in Select Portrait. Aurora's, by a
+  capture. (S)
+- **The module's codepage, four ways** (`mg main.rs:2661` builds a
+  ResMan for it; `mg-plugin runtime.rs:950`, `mg plugins.rs:414`,
+  `mg-ui text.rs:23`; `mg-plugin terrain.rs:65`): the same on an English
+  game; with a partial `encoding.2da` on another, to be checked. (S)
+- **The terrain brush's cancel** leaves out the right click
+  (`terrain_mode.rs:543`), where five others take it: a right click
+  turns a group there. (S)
+
+### Smaller, each S
+
+- The model viewer's wheel lacks Ctrl and pinch zoom and Shift's
+  sideways, which the area view's has (`model_view.rs:745`,
+  `area_view.rs:3657`), and its orbit is `area_view::Orbit` again.
+- Area Summary names a creature by its first name (`area_tools.rs:476`;
+  `tree.rs:82` and `query.rs:104` join both).
+- "The pointer over the view, not under a window" three times
+  (`paint_mode.rs:379`, `area_view.rs:2043`, `:3993`), missing at the
+  tile paste outline (`tile_select.rs:765`), the paste outline
+  (`area_view.rs:2703`) and the coordinates (`:2215`): to be seen in a
+  picture before it is changed.
+- The gallery rows' four-line prelude three times; `group_pictures`
+  (`terrain_mode.rs:1434`) lacks the `set_max_width` the palette's
+  comment says keeps pictures in the pane (not seen in a picture yet).
+- Escape or a right click to cancel, six times (`paint_mode.rs:483`,
+  `:495`, `tile_select.rs:217`, `area_view.rs:3107`, `:3123`, `:3155`;
+  `:4093` without `hovered`).
+- A tileset read by hand where it is open: `tile_view.rs:19`,
+  `model_view.rs:1208`, `tabs.rs:396`, `area_grass.rs:266`,
+  `area_reshape.rs:146`, `area_props.rs:261`. One `Moonglow::tileset`.
+- The eight corners of a box five times (`model_view.rs:441`, `:459`,
+  `area_view.rs:3898`, `mg-preview compose.rs:546`, `mg-render
+  renderer.rs:1709`); lightcolor.2da's toolset colors twice
+  (`tile_select.rs:375`, `area_view.rs:5080`).
+- A module's hak list read four ways (`Module::haks`, `lib.rs:3658`,
+  `nui_view/images.rs:29` with no fallback, `module_props.rs:351`);
+  `hak_dir` and `hak_folder` the same (`hak_view.rs:194`,
+  `nui_view/images.rs:44`); a hak's file found by hand five times
+  (`install.rs:299` and four `hak_dirs().find`).
+- Scripts opened past Options' external editor: Open Script, Save As,
+  New Script and the NUI Creator's openers push the tab themselves
+  (`script_view.rs:1695`, `:1852`, `:1877`, `nui_view.rs:743`,
+  `nui_view/events.rs:144`); whether they mean to, to be asked.
+- Compile Models' report twice (`hak_view.rs:650`, `lib.rs:3195`), the
+  "Files Already in…" window twice (`hak_view.rs:710`,
+  `model_view.rs:264`), "A, B and N more" by hand five times beside
+  `transfer::listed`, and the 2DA and talk-table file dialogs with no
+  kind of their own (`FileKind::Any`).
+- NWSync publishing on a thread of its own, without the jobs' cancel
+  and panic handling (`nwsync_view.rs:113`).
+- Compile reads an include's module copy, the live check the open
+  editor's (`script_view.rs:1295`, `script_nav.rs:230`): an include
+  with unsaved changes passes one and fails the other.
+- `DialogSearch` keeps its own match options and rebuilds
+  `SearchOptions` twice (`dialog_view.rs:138`, `:1464`, `:1547`).
+- The wizards' "choices of a table, none without a game" six times,
+  each copying the kept list (`area_props.rs:25`, `creature_wizard.rs:85`,
+  `creature.rs:115`, `levelup_view.rs:77`, `situated.rs:207`,
+  `Form::choices`); the Variables button three times (`Form::variables`,
+  `widgets::variables_button`, `area_props.rs:645`); the model-number
+  scan and `set_part` twice (`item.rs:244`, `:308`, `creature.rs:405`,
+  `:451`; the creature's drops the three-digit check); `var_sets::list`
+  and `prefabs::list` alike; the autosave and backup default of five
+  minutes in four places; `ui.label` where `field_label` is meant
+  (`wizards.rs:67`, `:86`, `:106`, `faction_view.rs:263`,
+  `store_wizard.rs:355`, `:358`, `widgets.rs:369`, `:604`).
+- A value as a whole number or text, three times each (`search.rs:415`,
+  `gff_view.rs:41`, `new.rs:178` without the 64-bit types;
+  `areas.rs:249`, `query.rs:84`, `search.rs:396`); a 2DA row's name
+  through the talk table (`rows.rs:146` filters `****` labels,
+  `choice_list` doesn't) and some ten `game.string(StrRef(..))` by hand.
+- `#include` read three ways (`refs.rs:217` by line, `rename.rs:693` by
+  byte, `mg-script outline.rs:318` by token, the only one that knows
+  comments); `rename`'s `usages`, `tag_usages` and `mentions` restate
+  what `UsageIndex` answers.
+- In mg-mdl: `compile.rs:93` `tangents` has no caller (a different
+  normalize from `engine_tangents`); `sub`, `dot` and `cross` three
+  times; `PartNumbers::read` (`binary_write.rs:296`) walks nodes beside
+  `Bin`. PLT coloring twice (`mg-render assets.rs:119`,
+  `images.rs:221`).
+- In `mg`: JSON-lines events three ways (`serve`'s `ended` has `how`,
+  `watch`'s doesn't), `mg lsp` finds the user folder its own way
+  (`main.rs:1799`), `scratch_dir` twice (`test.rs:41`, `serve.rs:90`),
+  `--types` parsed twice (`search.rs:208`, `main.rs:2420`).
+- Making placeables static, twice (`areas.rs:466`, `mg-ui
+  lib.rs:3544`); the other grass mutations (`mg_module::grass` and
+  `mg_area::grass`) agree now but are still two (the edits wanted by
+  the area view against the module's mutations).
+- The plugin's PNG reading differs from the NUI skin's (16-bit samples
+  cut against rounded, limits by pixels against bytes and sides:
+  `mg-plugin files.rs`, `nui_view/skin.rs:342`); the TGA's are one
+  since 2026-10-21.
 
 ## Release and packaging
 

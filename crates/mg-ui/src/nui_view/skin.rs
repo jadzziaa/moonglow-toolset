@@ -319,18 +319,7 @@ fn read_tga(bytes: &[u8]) -> Result<egui::ColorImage, String> {
     if side(12).is_some_and(|w| w > MAX_SIDE) || side(14).is_some_and(|h| h > MAX_SIDE) {
         return Err(format!("image exceeds {MAX_SIDE} pixels a side"));
     }
-    let t = mg_image::read(ResType::TGA, bytes).map_err(|e| e.to_string())?;
-    let descriptor = bytes.get(17).copied().unwrap_or(0);
-    let mut rgba = t.to_rgba();
-    if descriptor & 0x20 == 0 {
-        rgba = rgba.top_down();
-    }
-    if descriptor & 0x10 != 0 {
-        for row in rgba.data.chunks_exact_mut(rgba.width as usize * 4) {
-            let (pixels, _) = row.as_chunks_mut::<4>();
-            pixels.reverse();
-        }
-    }
+    let rgba = mg_image::tga::read_picture(bytes).map_err(|e| e.to_string())?;
     Ok(egui::ColorImage::from_rgba_unmultiplied(
         [rgba.width as usize, rgba.height as usize],
         &rgba.data,

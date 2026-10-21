@@ -21,40 +21,7 @@ use crate::Module;
 use crate::instances::GIT_LISTS;
 use crate::query::glob;
 use crate::refs::{RefKind, gff_references};
-
-/// The type of a local variable (`VarTable` `Type`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum VarType {
-    Int = 1,
-    Float = 2,
-    String = 3,
-    Object = 4,
-    Location = 5,
-}
-
-impl VarType {
-    pub const ALL: [VarType; 5] =
-        [VarType::Int, VarType::Float, VarType::String, VarType::Object, VarType::Location];
-
-    /// `int`, `float`, `string`, `object`, `location`.
-    pub fn name(self) -> &'static str {
-        match self {
-            VarType::Int => "int",
-            VarType::Float => "float",
-            VarType::String => "string",
-            VarType::Object => "object",
-            VarType::Location => "location",
-        }
-    }
-
-    pub fn from_name(name: &str) -> Option<VarType> {
-        VarType::ALL.into_iter().find(|t| t.name().eq_ignore_ascii_case(name.trim()))
-    }
-
-    fn of(n: i64) -> Option<VarType> {
-        VarType::ALL.into_iter().find(|t| *t as i64 == n)
-    }
-}
+pub use crate::vars::VarType;
 
 /// What an appearance is of: the field and table it is a row of.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

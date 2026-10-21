@@ -1468,7 +1468,7 @@ impl Moonglow {
             self.haks.retain(|d| d.id != id);
         }
         if let Tab::Table(id) = *tab {
-            if self.tables.iter().any(|d| d.id == id && d.edit.is_dirty()) {
+            if self.tables.iter().any(|d| d.id == id && d.has_unsaved()) {
                 self.table_closing = Some(id);
                 return false;
             }

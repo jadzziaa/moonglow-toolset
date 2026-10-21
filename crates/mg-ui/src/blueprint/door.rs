@@ -93,8 +93,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
         // The generic door's model (EE: GenericType_New; the old byte field
         // follows it where the blueprint has one).
         crate::widgets::field_label(ui, "Generic Appearance");
-        let current =
-            f.root.integer("GenericType_New").or(f.root.integer("GenericType")).unwrap_or(0);
+        let current = f.int(mg_rules::rows::generic_door_field(&f.root));
         ui.add_enabled_ui(f.int("Appearance") == 0, |ui| {
             if let Some(v) = situated::pick(ui, f.key, "generic", &generic, current) {
                 let mut fields = vec![("GenericType_New", v, FieldType::Dword)];

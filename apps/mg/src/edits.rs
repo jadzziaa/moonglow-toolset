@@ -6,7 +6,7 @@ use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result, anyhow, bail};
-use mg_core::{Codepage, Gender, Language, LocString, ResRef};
+use mg_core::Codepage;
 use mg_edit::wire::{command_from_json, command_to_json, field_from_str};
 use mg_edit::{Command, Edit, Workspace};
 use mg_gff::{FieldType, Value};
@@ -86,7 +86,8 @@ pub(crate) fn set(
                      cexostring, resref, cexolocstring)"
                 )
             })?;
-        let value = typed(ty, text, old, codepage).with_context(|| field.to_string())?;
+        let value =
+            Value::from_text(ty, text, old, codepage).map_err(|e| anyhow!("{field}: {e}"))?;
         let place = mg_edit::wire::field_to_string(&path, &label);
         lines.push(match old {
             Some(old) => format!("{key} {place}: {} -> {}", shown(old), shown(&value)),
@@ -112,63 +113,6 @@ pub(crate) fn set(
         _ => format!("Set {} fields of {key}", edits.len()),
     };
     run(ws, Command::new(label, edits), dry_run, Some(lines), true, codepage)
-}
-
-/// `text` as a value of type `ty` (a localized string keeps what `old` has
-/// and takes the text as its English).
-fn typed(ty: FieldType, text: &str, old: Option<&Value>, codepage: Codepage) -> Result<Value> {
-    let int = |min: i128, max: i128| -> Result<i128> {
-        let v: i128 = text.trim().parse().with_context(|| format!("{text:?} is not a number"))?;
-        if v < min || v > max {
-            bail!("{v} does not fit a {} ({min} to {max})", ty.json_name());
-        }
-        Ok(v)
-    };
-    let float = || -> Result<f64> {
-        let v: f64 = text.trim().parse().with_context(|| format!("{text:?} is not a number"))?;
-        if !v.is_finite() {
-            bail!("{text:?} is not a finite number");
-        }
-        Ok(v)
-    };
-    let encoded =
-        || codepage.encode(text).map(|b| b.into_owned()).context("text the codepage cannot hold");
-    Ok(match ty {
-        FieldType::Byte
-        | FieldType::Char
-        | FieldType::Word
-        | FieldType::Short
-        | FieldType::Dword
-        | FieldType::Int
-        | FieldType::Dword64
-        | FieldType::Int64 => {
-            let (min, max) = ty.int_range().expect("an integer type");
-            ty.int_value(int(min, max)?).expect("within the type's range")
-        }
-        FieldType::Float => Value::Float(float()? as f32),
-        FieldType::Double => Value::Double(float()?),
-        FieldType::String => Value::String(encoded()?),
-        FieldType::ResRef => {
-            let r = ResRef::from_str(text)
-                .map_err(|e| anyhow!("{text:?} is not a resource name: {e}"))?;
-            Value::resref(r)
-        }
-        FieldType::LocString => {
-            let mut s = match old {
-                Some(Value::LocString(s)) => s.clone(),
-                _ => LocString::default(),
-            };
-            if text.is_empty() {
-                s.remove(Language::ENGLISH, Gender::Male);
-            } else {
-                s.set(Language::ENGLISH, Gender::Male, encoded()?);
-            }
-            Value::LocString(s)
-        }
-        FieldType::Void | FieldType::Struct | FieldType::List => {
-            bail!("a {} is set with mg apply", ty.json_name())
-        }
-    })
 }
 
 /// Applies a command (all of it or none) and saves, or with `dry_run`

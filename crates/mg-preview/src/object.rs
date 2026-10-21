@@ -106,8 +106,7 @@ pub fn door(game: &GameData, utd: &Struct) -> Result<Preview, PreviewError> {
             .to_ascii_lowercase()
     } else {
         let t = game.table("genericdoors")?;
-        let row =
-            ["GenericType_New", "GenericType"].iter().find_map(|f| utd.integer(f)).unwrap_or(0);
+        let row = utd.integer(mg_rules::rows::generic_door_field(utd)).unwrap_or(0);
         cell(&t, row.max(0) as usize, "ModelName")
             .ok_or(PreviewError::NoRow { table: "genericdoors", row })?
             .to_ascii_lowercase()

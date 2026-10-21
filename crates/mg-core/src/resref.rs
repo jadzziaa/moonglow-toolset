@@ -55,6 +55,14 @@ impl ResRef {
         Self::from_bytes(s.as_bytes())
     }
 
+    /// The resource a model's text names (a texture, a supermodel): cut
+    /// to a resource's 16 characters, as the game reads it (`bitmap
+    /// c_drgdeep_hed_new` finds `c_drgdeep_hed_ne`); `None` for no name.
+    pub fn cut(name: &str) -> Option<ResRef> {
+        let cut = name.char_indices().nth(Self::MAX_LEN).map_or(name, |(i, _)| &name[..i]);
+        Self::from_str(cut).ok().filter(|r| !r.is_empty())
+    }
+
     /// The name's bytes, in their original case.
     pub fn as_bytes(&self) -> &[u8] {
         &self.buf[..self.len as usize]
@@ -164,6 +172,15 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+
+    #[test]
+    fn a_model_s_long_name_is_cut_to_a_resource_s_sixteen_characters() {
+        let name = |n: &str| ResRef::cut(n).map(|r| r.to_string());
+        assert_eq!(name("c_drgdeep_hed_new").as_deref(), Some("c_drgdeep_hed_ne"));
+        assert_eq!(name("c_drgdeep_hed").as_deref(), Some("c_drgdeep_hed"));
+        assert_eq!(name("sixteen_chars_ok").as_deref(), Some("sixteen_chars_ok"));
+        assert_eq!(name(""), None);
+    }
 
     #[test]
     fn case_insensitive_identity_keeps_original_case() {

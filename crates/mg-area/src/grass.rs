@@ -77,7 +77,9 @@ fn item_for(root: &Struct, material: u32) -> Option<usize> {
 
 /// The edits that make the GIT whose root is `root` grow `o` on its
 /// material: the item it has for the material, changed where it differs
-/// (what else the item holds stays), else a new one.
+/// (what else the item holds stays), else a new one; the others for the
+/// material go, as `mg_module::grass::set_in` (`mg areas`) leaves it (they
+/// stayed, the area's grass differing by how it was set).
 pub fn set_override(git: ResKey, root: &Struct, o: &GrassOverride) -> Vec<Edit> {
     let Some(index) = item_for(root, o.material) else { return add_override(git, root, o) };
     let list = (root.child(PROPERTIES).and_then(|p| p.child(OVERRIDES)))
@@ -86,7 +88,7 @@ pub fn set_override(git: ResKey, root: &Struct, o: &GrassOverride) -> Vec<Edit> 
     let there = &list[index];
     let mut fields = o.fields();
     fields.push((TEXTURE, Value::String(o.look.texture.as_bytes().to_vec())));
-    fields
+    let mut edits: Vec<Edit> = fields
         .into_iter()
         .filter(|(label, v)| there.get(label) != Some(v))
         .map(|(label, value)| Edit::SetField {
@@ -95,7 +97,13 @@ pub fn set_override(git: ResKey, root: &Struct, o: &GrassOverride) -> Vec<Edit> 
             label: label.into(),
             value: Some(value),
         })
-        .collect()
+        .collect();
+    // (The item is the last for its material: the others are before it,
+    // taken out last first after its fields are set.)
+    let same = |s: &Struct| GrassOverride::read(s).is_some_and(|t| t.material == o.material);
+    let others = list[..index].iter().enumerate().rev().filter(|(_, s)| same(s));
+    edits.extend(others.map(|(i, _)| remove_item(git, i)));
+    edits
 }
 
 /// The edits that move the grass the GIT whose root is `root` grows on
@@ -344,6 +352,13 @@ mod tests {
         let list = root.child(PROPERTIES).unwrap().child(OVERRIDES).unwrap().list(LIST).unwrap();
         assert_eq!(list[0].integer("MgUnknown"), Some(7));
         assert!(set_override(key, &root, &denser).is_empty());
+        // Two for one material (a module's own, or an older Moonglow's):
+        // the last is changed and the other goes, as `mg areas` leaves it.
+        let mut twice = git_with(vec![denser.item(), wood.item(), denser.item()], None);
+        let thinner = GrassOverride { material: 3, look: look("grass", 1.0) };
+        let edits = set_override(key, &twice, &thinner);
+        apply(&mut twice, &edits);
+        assert_eq!(AreaGrass::read(&twice).overrides, [wood.clone(), thinner]);
         // Moved to wood's material: in place of wood's grass.
         let edits = move_override(key, &root, 3, 5);
         apply(&mut root, &edits);

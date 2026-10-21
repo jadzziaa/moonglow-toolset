@@ -1854,14 +1854,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut compile = json!(null);
             if !report.recompile.is_empty() {
                 let rm = module_resman(&install(cli)?, &m, &mut out)?;
-                // (Those that had a debug file get one again.)
-                let mut results =
-                    mg_module::build::compile_named_with(&mut m, &rm, &report.debug, None, true);
-                results.extend(mg_module::build::compile_scripts(
-                    &mut m,
-                    &rm,
-                    mg_module::build::ScriptSelection::Uncompiled,
-                ));
+                let results = mg_module::rename::recompile(&mut m, &rm, &report, None, false);
                 compile = compiled(&mut out, &results);
             }
             m.save()?;
@@ -2124,7 +2117,9 @@ fn run(cli: &Cli) -> Result<Output> {
                 bail!("name areas or give a filter, or pass --all to change every area");
             }
             let resrefs: Vec<mg_core::ResRef> = chosen.iter().map(|a| a.resref).collect();
-            let done = areas::apply(&mut m, &resrefs, &changes).map_err(anyhow::Error::msg)?;
+            let codepage = module_codepage(cli, &m);
+            let done =
+                areas::apply(&mut m, &resrefs, &changes, codepage).map_err(anyhow::Error::msg)?;
             let mut out = Output::default();
             let kinds = |flags: u32| {
                 let word = |bit: u32, yes: &'static str, no: &'static str| {

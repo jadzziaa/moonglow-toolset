@@ -164,7 +164,7 @@ fn waypoints_show_their_flags() {
     let root = corpus!();
     let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let flag = |appearance: u8| {
-        let mut w = mg_module::instances::walk_waypoint("WP", [0.0; 3]);
+        let mut w = mg_module::instances::walk_waypoint(b"WP", [0.0; 3]);
         w.set("Appearance", mg_gff::Value::Byte(appearance));
         let o = mg_area::AreaObject::read(&game, ObjectKind::Waypoint, 0, &w);
         assert_eq!(o.problem, None);

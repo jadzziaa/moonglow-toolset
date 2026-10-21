@@ -137,7 +137,7 @@ fn create_waypoint_and_set_match_aurora() {
     let position = [f("XPosition"), f("YPosition"), f("ZPosition")];
     let creature_tag = mg_module::instances::set_tag("WP_MGP_UTC", &[]);
     assert_eq!(creature_tag, "WP_MGP_UTC_01");
-    let made = mg_module::instances::walk_waypoint(&creature_tag, position);
+    let made = mg_module::instances::walk_waypoint(creature_tag.as_bytes(), position);
     // Create Set renames it.
     let mut set = made;
     set.set("Tag", Value::String(mg_module::instances::set_tag("Patrol", &[]).into_bytes()));

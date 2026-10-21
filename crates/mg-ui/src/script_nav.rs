@@ -59,13 +59,7 @@ fn source<'a>(
     game: Option<&'a mg_rules::GameData>,
 ) -> impl FnMut(&str) -> Option<Arc<str>> + 'a {
     move |name: &str| {
-        let k = tools::nss(name)?;
-        if let Some(b) = scripts.get(&k) {
-            return Some(Arc::from(b.text.as_str()));
-        }
-        let text = ws
-            .and_then(|w| w.module.get(&k).map(decode))
-            .or_else(|| game?.resman.get(&k).ok().map(|d| decode(&d)))?;
+        let text = crate::script_view::script_source(scripts, ws, game, &tools::nss(name)?)?;
         Some(Arc::from(text.as_str()))
     }
 }
@@ -112,12 +106,7 @@ impl Moonglow {
         });
         self.script_tools.info = InfoTab::Help;
         if self.ws.as_ref().is_some_and(|w| w.module.contains(&k)) {
-            let text = self
-                .scripts
-                .get(&k)
-                .map(|b| b.text.clone())
-                .or_else(|| self.ws.as_ref()?.module.get(&k).map(decode))
-                .unwrap_or_default();
+            let text = self.script_source(&k).unwrap_or_default();
             self.script_tools.jump = Some((k, tools::char_index(&text, d.at.span.start)));
             self.actions.push(Action::OpenTab(Tab::Script(k)));
         } else {

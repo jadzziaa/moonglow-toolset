@@ -6,7 +6,7 @@
 
 use mg_core::{Gender, Language, ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
-use mg_resman::ResKey;
+use mg_resman::{ResKey, ResMan};
 use mg_script::lex::{TokenKind, tokenize};
 
 use crate::Module;
@@ -559,6 +559,31 @@ pub struct RenameReport {
     /// one again. A renamed script that had one is among them, changed or
     /// not: its debug file names it as it was.
     pub debug: Vec<ResKey>,
+}
+
+/// Compiles what a rename left without compiled code
+/// ([`RenameReport::recompile`]): those that had a debug file with one
+/// again, then the module's scripts without compiled code, by `external`
+/// when it is given and with debug files when `debug` asks, as the
+/// module's other builds. What each compile gave. (The toolset's Rename
+/// and `mg rename` each had a copy, which took the built-in compiler.)
+pub fn recompile(
+    module: &mut Module,
+    resman: &ResMan,
+    report: &RenameReport,
+    external: Option<&crate::external_compiler::ExternalCompiler>,
+    debug: bool,
+) -> Vec<crate::build::ScriptResult> {
+    use crate::build::{ScriptSelection, compile_named_with, compile_scripts_with};
+    let mut results = compile_named_with(module, resman, &report.debug, external, true);
+    results.extend(compile_scripts_with(
+        module,
+        resman,
+        ScriptSelection::Uncompiled,
+        external,
+        debug,
+    ));
+    results
 }
 
 /// Renames `from` (with its family: a script's `.ncs` and `.ndb`, an area's

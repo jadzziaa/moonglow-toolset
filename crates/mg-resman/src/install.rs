@@ -34,14 +34,21 @@ impl GameInstall {
         root.join("data").join("nwn_base.key").is_file()
     }
 
+    /// The game's folder: `NWN_ROOT`, else the first install in the
+    /// usual places (each Steam library, then GOG's). The tests find the
+    /// game here too, so that they run where the toolset finds it.
+    pub fn find_root() -> Option<PathBuf> {
+        match env::var_os("NWN_ROOT") {
+            Some(r) => Some(PathBuf::from(r)).filter(|p| Self::is_install(p)),
+            None => candidate_roots().into_iter().find(|p| Self::is_install(p)),
+        }
+    }
+
     /// Finds the install (`NWN_ROOT`, then the usual Steam locations) and the
     /// user directory (`NWN_HOME`, `NWN_USER_DIRECTORY`, then the platform
     /// default), in English.
     pub fn detect() -> Option<GameInstall> {
-        let root = match env::var_os("NWN_ROOT") {
-            Some(r) => Some(PathBuf::from(r)).filter(|p| Self::is_install(p)),
-            None => candidate_roots().into_iter().find(|p| Self::is_install(p)),
-        }?;
+        let root = Self::find_root()?;
         let user_dir = env::var_os("NWN_HOME")
             .or_else(|| env::var_os("NWN_USER_DIRECTORY"))
             .map(PathBuf::from)

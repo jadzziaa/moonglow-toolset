@@ -59,21 +59,13 @@ pub fn split_colors(name: &str) -> (&str, Option<[u8; 10]>) {
     (base, <[u8; 10]>::try_from(values).ok())
 }
 
-/// The resource a model names: a name longer than a resource's 16
-/// characters is cut to them, as the game reads it (a model's `bitmap
-/// c_drgdeep_hed_new` finds `c_drgdeep_hed_ne`).
-fn named(name: &str) -> Option<ResRef> {
-    let cut = name.char_indices().nth(16).map_or(name, |(i, _)| &name[..i]);
-    ResRef::from_str(cut).ok()
-}
-
 impl Assets for ResMan {
     fn texture(&self, name: &str) -> Option<LoadedTexture> {
         let (name, colors) = split_colors(name);
-        let resref = named(name)?;
+        let resref = ResRef::cut(name)?;
         let mtr = self.get(&ResKey::new(resref, ResType::MTR)).ok().map(|d| Mtr::parse(&d));
         let image = match mtr.as_ref().and_then(|m| m.textures[0].clone()) {
-            Some(t) if !t.eq_ignore_ascii_case(name) => named(&t)?,
+            Some(t) if !t.eq_ignore_ascii_case(name) => ResRef::cut(&t)?,
             _ => resref,
         };
         let txi =
@@ -99,17 +91,17 @@ impl Assets for ResMan {
     }
 
     fn material(&self, name: &str) -> Option<Mtr> {
-        let resref = named(name)?;
+        let resref = ResRef::cut(name)?;
         self.get(&ResKey::new(resref, ResType::MTR)).ok().map(|d| Mtr::parse(&d))
     }
 
     fn txi(&self, name: &str) -> Option<Txi> {
-        let resref = named(name)?;
+        let resref = ResRef::cut(name)?;
         self.get(&ResKey::new(resref, ResType::TXI)).ok().map(|d| Txi::parse(&d))
     }
 
     fn shader(&self, name: &str) -> Option<String> {
-        let resref = named(name)?;
+        let resref = ResRef::cut(name)?;
         let data = self.get(&ResKey::new(resref, ResType::SHD)).ok()?;
         Some(String::from_utf8_lossy(&data).into_owned())
     }
@@ -135,18 +127,5 @@ pub struct NoAssets;
 impl Assets for NoAssets {
     fn texture(&self, _name: &str) -> Option<LoadedTexture> {
         None
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_long_name_is_cut_to_a_resource_s_sixteen_characters() {
-        let name = |n: &str| named(n).map(|r| r.to_string());
-        assert_eq!(name("c_drgdeep_hed_new").as_deref(), Some("c_drgdeep_hed_ne"));
-        assert_eq!(name("c_drgdeep_hed").as_deref(), Some("c_drgdeep_hed"));
-        assert_eq!(name("sixteen_chars_ok").as_deref(), Some("sixteen_chars_ok"));
     }
 }

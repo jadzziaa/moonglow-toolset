@@ -72,7 +72,7 @@ fn edit_field(
 ) -> Option<String> {
     let id = egui::Id::new(("ifo", id));
     let (rows, width) = if multiline { (Some(12), f32::INFINITY) } else { (None, 320.0) };
-    crate::widgets::commit_text_in(&mut app.buffers, ui, id, current, rows, width)
+    crate::widgets::commit_text_in(&mut app.buffers, ui, id, current, rows, width, None)
 }
 
 /// A number with a range, committed when it changes (a drag: when released).

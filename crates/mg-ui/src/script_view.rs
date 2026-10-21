@@ -40,6 +40,30 @@ pub(crate) struct ScriptBuffer {
     pub(crate) codepage: mg_core::Codepage,
 }
 
+/// A script's text: what its editor holds (unsaved typing too), else the
+/// module's, else the game's, read in the scripts' codepage. Every view of
+/// a script's text reads it here (the conversation editor's Script Preview
+/// read the module's in the game's codepage, and past an open editor).
+pub(crate) fn script_source(
+    scripts: &std::collections::HashMap<ResKey, ScriptBuffer>,
+    ws: Option<&mg_edit::Workspace>,
+    game: Option<&mg_rules::GameData>,
+    key: &ResKey,
+) -> Option<String> {
+    if let Some(b) = scripts.get(key) {
+        return Some(b.text.clone());
+    }
+    ws.and_then(|w| w.module.get(key).map(decode))
+        .or_else(|| game?.resman.get(key).ok().map(|d| decode(&d)))
+}
+
+impl Moonglow {
+    /// [`script_source`] of the app's editors, module and game.
+    pub(crate) fn script_source(&self, key: &ResKey) -> Option<String> {
+        script_source(&self.scripts, self.ws.as_ref(), self.game.as_deref(), key)
+    }
+}
+
 /// The laid-out text of a script editor, reused while the text, width and
 /// colours stay the same (a large script takes milliseconds to highlight and
 /// lay out).
@@ -369,13 +393,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let text = &app.scripts[&key].text;
         let (game, ws) = (&app.game, &app.ws);
         let mut source = |name: &str| -> Option<String> {
-            let k = tools::nss(name)?;
-            if let Some(b) = app.scripts.get(&k) {
-                return Some(b.text.clone());
-            }
-            ws.as_ref()
-                .and_then(|w| w.module.get(&k).map(decode))
-                .or_else(|| game.as_ref()?.resman.get(&k).ok().map(|d| decode(&d)))
+            script_source(&app.scripts, ws.as_ref(), game.as_deref(), &tools::nss(name)?)
         };
         app.script_tools.symbols_for(
             key,
@@ -1046,12 +1064,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 script_tools.jump = Some((key, at));
             }
             Some(k) if app.ws.as_ref().is_some_and(|w| w.module.contains(&k)) => {
-                let text = app
-                    .scripts
-                    .get(&k)
-                    .map(|b| b.text.clone())
-                    .or_else(|| app.ws.as_ref()?.module.get(&k).map(decode))
-                    .unwrap_or_default();
+                let text = app.script_source(&k).unwrap_or_default();
                 app.script_tools.jump = Some((k, tools::line_start(&text, line.saturating_sub(1))));
                 app.actions.push(Action::OpenTab(Tab::Script(k)));
             }
@@ -1493,6 +1506,28 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// A script's text as every view reads it: its editor's (typing not
+    /// yet saved too), else the module's in the scripts' codepage (Polish:
+    /// Windows-1250, where 0xB9 is ą), not the game's text codepage, which
+    /// the conversation editor's Script Preview read it in.
+    #[test]
+    fn a_script_s_text_is_its_editor_s_else_the_module_s_in_the_scripts_codepage() {
+        use mg_core::Language;
+        crate::text::set_edit_language(Language::POLISH);
+        let key = ResKey::parse("hello", ResType::NSS).unwrap();
+        let mut m = mg_module::Module::new();
+        m.set(key, b"// \xb9\n".to_vec());
+        let ws = mg_edit::Workspace::new(m);
+        let mut scripts = std::collections::HashMap::new();
+        let read = |scripts: &_| script_source(scripts, Some(&ws), None, &key);
+        assert_eq!(read(&scripts).as_deref(), Some("// ą\n"));
+        let mut open = ScriptBuffer::read(b"// \xb9\n", (0, 0));
+        open.text.push_str("void main() {}\n");
+        scripts.insert(key, open);
+        assert_eq!(read(&scripts).as_deref(), Some("// ą\nvoid main() {}\n"), "the editor's");
+        crate::text::set_edit_language(Language::ENGLISH);
+    }
+
     /// A selection is drawn to each line's last character: no wider than
     /// the line (the field's own drew a selected line end as more of the
     /// line), with a sliver on an empty line.
@@ -1779,13 +1814,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             // Replace the selection when it is a match, then find the next.
             if let Some((a, b)) = cursor(&ctx, k) {
                 let buf = app.scripts.get_mut(&k).expect("open");
-                let selected: String = buf.text.chars().skip(a).take(b - a).collect();
-                let same = if s.options.match_case {
-                    selected == s.find
-                } else {
-                    selected.eq_ignore_ascii_case(&s.find)
-                };
-                if a != b && same {
+                if tools::is_match_at(&buf.text, &s.find, a, b, &s.options) {
                     insert(buf, &ctx, k, a, b, &s.replace);
                 }
             }
@@ -1807,12 +1836,7 @@ pub(crate) fn windows(app: &mut Moonglow, ui: &mut Ui) {
             keys.sort();
             let mut results = Vec::new();
             for k in keys {
-                let text = app
-                    .scripts
-                    .get(&k)
-                    .map(|b| b.text.clone())
-                    .or_else(|| ws.module.get(&k).map(decode))
-                    .unwrap_or_default();
+                let text = script_source(&app.scripts, Some(ws), None, &k).unwrap_or_default();
                 for (line, t) in tools::find_lines(&text, &s.find, &s.options) {
                     results.push((k, line, t));
                 }

@@ -101,7 +101,7 @@ impl Ctx<'_> {
     fn text(&mut self, ui: &mut Ui, id: egui::Id, current: &str) -> Option<String> {
         // (As the editor shows it: a lone CR is a line break there too.)
         let rows = to_editor(current).0.contains('\n').then_some(3);
-        crate::widgets::commit_text_in(self.buffers, ui, id, current, rows, 280.0)
+        crate::widgets::commit_text_in(self.buffers, ui, id, current, rows, 280.0, None)
     }
 }
 

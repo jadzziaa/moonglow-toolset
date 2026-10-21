@@ -439,7 +439,7 @@ fn tags(
             .and_then(|w| w.module.get(&k).map(<[u8]>::to_vec))
             .or_else(|| game.resman.get(&k).ok().map(|d| d.into_owned()))?;
         let g = Gff::read(&data).ok()?;
-        Some(String::from_utf8_lossy(g.root.string("Tag")?).into_owned())
+        Some(crate::text::decode(g.root.string("Tag")?))
     };
     let tags: HashMap<ResRef, String> = palette
         .blueprints()

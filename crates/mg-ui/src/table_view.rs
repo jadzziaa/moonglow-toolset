@@ -203,6 +203,12 @@ impl TableDoc {
         self.references = None;
     }
 
+    /// Whether it has changes not saved where it lives: a cell being typed
+    /// too (closing the tab took no notice of one, and it was lost).
+    pub(crate) fn has_unsaved(&self) -> bool {
+        self.edit.is_dirty() || self.typing.is_some()
+    }
+
     /// Sets the selected cell from what was typed.
     fn commit(&mut self) {
         let (Some((row, column)), Some(text)) = (self.selected, self.typing.take()) else { return };
@@ -536,18 +542,13 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
 
 /// Whether a table in the editor has changes not saved where it lives.
 pub(crate) fn unsaved(app: &Moonglow) -> bool {
-    app.tables.iter().any(|d| d.edit.is_dirty() || d.typing.is_some())
+    app.tables.iter().any(TableDoc::has_unsaved)
 }
 
 /// Saves every table with unsaved changes where it lives (with the
 /// module's Save).
 pub(crate) fn save_all(app: &mut Moonglow) {
-    let ids: Vec<u32> = app
-        .tables
-        .iter()
-        .filter(|d| d.edit.is_dirty() || d.typing.is_some())
-        .map(|d| d.id)
-        .collect();
+    let ids: Vec<u32> = app.tables.iter().filter(|d| d.has_unsaved()).map(|d| d.id).collect();
     for id in ids {
         save(app, id);
     }
