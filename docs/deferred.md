@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T14:41:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:43:29Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -355,10 +355,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 ## EE fields Aurora hides
 
 - **Custom shader effects:** shader parameters and the extra area flags
-  are saved and the game reads them. Moonglow's renderer doesn't run
-  custom shaders, so they don't change what the area view shows. What
-  running them would take, and a plan for 2.0: [the shaders
-  proposal](shaders-proposal.md). (L)
+  are saved and the game reads them. With the area view's Shaders switch
+  on, a material's custom shaders draw with its parameters and the area's
+  flags and wind (M2 of [the shaders proposal](shaders-proposal.md));
+  off (the default for now), they don't change what the area view shows.
+  (M3)
 - **Item costs:** Additional Cost keeps Aurora's limit. The game prices a
   created item itself, as Moonglow computes the stored Cost (see
   [Findings](findings.md#created-items-are-priced-anew)), so nothing seemed
@@ -1182,8 +1183,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     links `mg-module` (about 40 s of C++ on a cold build, once).
 - **The game's lit shaders drawn (M1 of [the shaders
   proposal](shaders-proposal.md)):** what `Renderer::game_shaders` leaves
-  out. It is off, and nothing turns it on yet: no switch in the UI, the
-  area view, the previews or `mgv` (M2). (from M1, 2026-10-21)
+  out. M2 turns it on with the Shaders switch in the area view and the
+  model viewer (off by default); `mgv` and Moonglow Viewer have none (M6).
+  (from M1, 2026-10-21)
   - **The WGSL port samples the environment map at the wrong level**,
     found by the comparison with the stock shaders
     (`the_game_s_lit_shaders_match_moonglow_s`): `inc_envmap`'s
@@ -1200,12 +1202,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     `discard`. Fixing it changes every reflecting mesh's look, so it
     waits for a verdict; the test's tolerance for those two scenes says
     why it is looser. (S)
-  - Only solid (opaque-pass) lit meshes go through the game's programs:
-    see-through ones (Moonglow's two-part blend, its fringe pass),
-    additive ones, the sky and its fade, decals, unlit markers, water,
-    meshes with a known custom shader's effect (`vertexalpha`, `mzlm`)
-    and skins of more than 64 bones stay with the WGSL shader. The
-    material's own custom shaders (tier A) are M2. (M2)
+  - Solid and see-through lit meshes go through the game's programs
+    (M2); additive ones, the sky and its fade, decals, unlit markers,
+    water and ripples (unless their material names a pair), and skins of
+    more than 64 bones stay with the WGSL shader. (M4, M5)
   - Each game draw is a draw of its own (no instancing: GLSL has no
     instance index for the batcher's order buffer), its two blocks
     (4.6 and 8.7 KB for `fslit`/`vslit`) written anew every frame into
@@ -1224,8 +1224,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - Values the editor has no source for are the game's defaults or
     zero: `vColor`, `vStaticLightDir` (`staticLighting` 0), the module's
     clock (12:00, 2 minutes an hour, dawn 6, dusk 18, not the module's
-    IFO), the area's flags, wind and weather (zero: the sway shaders
-    stand still until M2 reads the ARE), wind sources, targeting,
+    IFO), the weather (clear; M2 reads the area's flags and wind from the
+    ARE), wind sources, targeting,
     `scriptable*`. The camera's `cameraPitch` and `cameraYaw` are taken
     as degrees from straight down and from east, not checked in the
     client. (M2)
@@ -1238,14 +1238,61 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - One uniform block per stage; a program with more, storage buffers,
     3D or array textures, or more than 16 textures a stage (wgpu's
     default limit) falls back. A failure is reported once on stderr and
-    by `Renderer::game_shader_failures`, not in the UI. (M2)
+    by `Renderer::game_shader_failures`, and (M2) in the log pane. (S)
   - Not run on Windows or macOS (the renderer's CI branch): naga's
     `discard` from the game's `discard` on Metal, where a discarded
     fragment that runs on writes its depth (`a_shader_returns_where_it_discards`
     holds Moonglow's own shader to returning), is unchecked. (S)
-- **A tileset's custom shader:** Moonglow runs none (see Custom shader
-  effects above, and [the shaders proposal](shaders-proposal.md) for
-  running them). Two it knows by name are drawn by its own shader instead.
+- **Tier A of the game's shaders (M2 of [the shaders
+  proposal](shaders-proposal.md)):** what the Shaders switch leaves out
+  or unchecked. (from M2, 2026-10-21)
+  - **Off by default**, by the owner's decision until M3 (per-draw blocks
+    kept from frame to frame, compiles off the UI thread, cached on disk)
+    meets the 144 fps budget: `GAME_SHADERS_BY_DEFAULT`. Not measured with
+    `frame_perf` with the switch on; opening an area compiles its programs
+    on the UI thread (5–30 ms each, two pipelines a see-through pair). (M3)
+  - **Water, particles, the sky** stay Moonglow's own: a fountain's shiny
+    water (`ttr01_water01`) is the client's `fswater` with the
+    framebuffer, see-through to the basin's floor, and Moonglow's blue
+    (`tdod_custom_shaders_look`). `texFBColor`/`texFBDepth` are white, so
+    a material's `sample_framebuffer` (TDoD's flow MTR has one) draws
+    without what is behind it. (M5)
+  - **Additive meshes** and **an instance drawn see-through** (a
+    blueprint about to be placed, a tile preview) draw with Moonglow's
+    shader even when their material names a pair: the ghost would need a
+    depth-only pipeline of the game's programs. (S)
+  - `texture8`–`texture15` of a material are white to its programs
+    (Moonglow keeps eight slots); no TDoD shader reads past `texUnit6`.
+    (S)
+  - The two-part see-through split is Moonglow's, not the engine's (one
+    blended draw); a custom shader that writes an alpha it means
+    otherwise (not opacity) would be cut at 0.95. (S to check)
+  - Tangents are made for every mesh without them (as the engine does for
+    a material with a render hint, and is not known to do without one);
+    the engine's way of making them (per face, weighted?) is not known:
+    a seam may shade otherwise. (S to check in the client)
+  - `areaGlobalWind`'s direction is taken from TDoD's shader comments
+    ((0.707, 0.707, 0) for a medium wind), not read from the client; the
+    weather is always clear; wind sources are none. (S to check in the
+    client)
+  - The falling water's flow and the grass's sway are not compared with
+    the client frame by frame: `worldtimerTimeOfDay`'s origin is not
+    known (it is the phase). (S)
+  - Verify's `shader-pair` reports a material naming one program alone;
+    whether the engine also ignores a lone `customshaderGS`, and what it
+    does with a geometry program at all, is not checked (no content has
+    one). (S)
+  - The model viewer's area for the shaders is outdoors without wind
+    (`areaFlags` 0): an interior-only effect (TDoD's roofs) shows as
+    outdoors there. (S)
+  - Not run on Windows or macOS (the renderer's CI branch): the alpha
+    discard `keep_alpha` adds to a fragment program is naga's `Kill`,
+    with Metal's discarded fragments writing depth unchecked (M1's note
+    above). (S)
+- **A tileset's custom shader:** with the Shaders switch on (M2 above),
+  the material's own programs draw it where their source is in the
+  load order; off, Moonglow runs none (see Custom shader effects above).
+  Two it knows by name are drawn by its own shader instead.
   The `mzlm_vs`/`mzlm_fs` pair that NWN Mapper's exports name: a
   lightmap (`texture7`, on the second texture coordinates) multiplied in
   where `LightmapON` is set. That one's source was not at hand (the tool

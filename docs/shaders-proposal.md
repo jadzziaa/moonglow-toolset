@@ -1,9 +1,9 @@
 ---
 type: Proposal
 title: 'The game''s own shaders in the area view: a proposal for 2.0'
-description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client.
+description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies.
 tags: [proposal, rendering, shaders, custom-content, renderer, release-2]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T14:43:02Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:42:54Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -36,6 +36,12 @@ sources:
   - id: m1
     resource: crates/mg-shader/src/link.rs, crates/mg-render/src/game.rs, crates/mg-render/tests/render.rs (the_game_path_draws_opengl_s_clip_space_right, the_game_s_lit_shaders_match_moonglow_s), crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21
     title: M1, one stock pair drawn
+  - id: m2
+    resource: crates/mg-render/src/game.rs, renderer.rs, model.rs (made_tangents), crates/mg-shader/src/link.rs (keep_alpha, reads_uniform), crates/mg-ui (the Shaders switch), crates/mg-module/src/doctor.rs (shader-pair), crates/mg-corpus-tests/tests/game_shaders.rs, client_render.rs (tdod_custom_shaders_look), crates/mg-ui/tests/app.rs (tdod_s_wind_shaders_move_in_the_area_view), run 2026-10-21 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
+    title: M2, tier A
+  - id: wiki-shaders
+    resource: ~/.local/opt/neverwinter/wiki/pages/NWN1/106856449-shaders-introduction-editing-a-textures-colour.md, 12027232-mtr.md
+    title: 'nwn.wiki: Shaders Introduction (both programs needed), MTR (renderhint makes tangents)'
 ---
 
 # The game's own shaders in the area view: a proposal for 2.0
@@ -43,8 +49,9 @@ sources:
 Status: accepted on 2026-10-21 (see [the owner's decisions](#the-owners-decisions)).
 M0, the compiler, is built ([M0: the compiler](#m0-the-compiler-2026-10-21)), and
 M1, the stock lit programs drawn beside Moonglow's shader
-([M1: one stock pair drawn](#m1-one-stock-pair-drawn-2026-10-21)); nothing turns
-them on in the program yet.
+([M1: one stock pair drawn](#m1-one-stock-pair-drawn-2026-10-21)), and M2, tier A
+behind a **Shaders** switch, off by default
+([M2: tier A](#m2-tier-a-2026-10-21)).
 
 Moonglow draws with one WGSL shader of its own that approximates EE's
 lighting ([the plan](PLAN.md) §5.5). This proposes that 2.0 draws with
@@ -425,6 +432,136 @@ editor has no source for; Windows and macOS not run.
 
 [^m1]: M1: `crates/mg-shader/src/link.rs`, `crates/mg-render/src/game.rs`, the tests in `crates/mg-render/tests/render.rs` and `client_render.rs`, run 2026-10-21.
 
+## M2: tier A (2026-10-21)
+
+With **Shaders** on (the area view's toolbar and the model viewer: one
+setting, `Settings::game_shaders`, for the renderer every 3D view shares,
+thumbnails and blueprint previews among them), a mesh whose material names
+a program pair draws with it, and every other mesh the game path takes
+draws with M1's stock pair. Off by default: `GAME_SHADERS_BY_DEFAULT` in
+`mg-ui`'s settings is the one constant the owner's decision (on once M3
+meets the frame budget) changes; a builder's own choice is kept as
+`Some(bool)` and survives that change.[^m2]
+
+**What draws and moves** (The Domains of Dread's haks, `MOONGLOW_HAKS`;
+pictures looked at, before and after):
+
+| Content | Shader | Seen |
+|---|---|---|
+| `dd_tap_valete577` (grass placeable) | `dd_tap_wgrass_vs/fs` | sways: 2,481 pixels differ between 1.0 s and 1.7 s with the switch on, 0 off |
+| `dd_tap_stron1030`'s falling water | `dd_tap_flow_vs/fs` (flow map in `texture6`, `fSlideSpeed`) | slides: 2,658 of its 4,190 pixels differ between 1 s and 2 s, 0 off |
+| a stock crate under an authored MTR | `shd_roofky_vs/fs` (no TDoD material names it) | shown to a camera at 3 m in an interior area (18,808 pixels), hidden at 9 m and outdoors (0) |
+| `mst04` tiles 42 and 48 in the area view | `shd_windleaf`, `shd_windplant`, `shd_windgrass` | 150 of 300 meshes read the clock; 9,029 pixels move over half a second on, none off; the tiles' grass, kept under the walkmesh by the tileset, raised by `fTilesetMeshOffsetZ` as in the game |
+
+**Decided:**
+
+- **A pair or neither.** A material that names `customshaderVS` and
+  `customshaderFS` draws with them; one that names one alone draws with
+  the stock pair the engine would choose. The wiki says both are
+  needed,[^wiki-shaders] and the data agrees: 250 of TDoD's materials
+  (217 armor parts in `tdod_fbr`) name `fslit_nm`, a fragment program,
+  alone as `customshaderVS`; taken alone it would be compiled as a vertex
+  program and drawn magenta, which the game doesn't. A program named for
+  the other stage within a pair (it declares `SHADER_TYPE` of the other)
+  falls back and is reported, as does a material naming a geometry
+  program (`customshaderGS`: wgpu has no such stage). Verify follows:
+  `shader-compile` compiles a pair's programs only, and a new
+  `shader-pair` warning names, once a hak, the materials that name one
+  alone (it had compiled `fslit_nm` as a vertex program and called it
+  magenta).
+- **What the game path takes.** A material's pair is drawn whatever
+  Moonglow's own shader would do of its own (decal, ripples, water, a
+  known effect); the stock pair as in M1. Both in the solid pass (a
+  cut-out among them) and the see-through one; not additive meshes, the
+  sky and its fade, Moonglow's markers, the debug view, skins of more than
+  64 bones, or an instance drawn see-through (a blueprint about to be
+  placed lays its depth first, which the game's programs don't do).
+- **See-through meshes in Moonglow's two parts.** The engine draws a
+  blended mesh once; Moonglow draws its nearly opaque part (alpha 0.95 and
+  up) with depth, then the rest without, sorted with the other see-through
+  draws, which kept plants' soft edges from hiding the ground. A game
+  draw is split the same way: two pipelines of one program pair, the
+  fragment program given a discard on its color's alpha as it leaves
+  (`Program::keep_alpha`), the same uniform blocks for both. Each is a
+  draw of its own among `Renderer`'s see-through draws.
+- **`NO_DISCARD` stays 0** for every material, and `fAlphaDiscardValue`
+  0.2 (read back from the client for cut-outs too, `cutouts_look`). The
+  engine's choice per material is still not known (notes §M.10); 0 is the
+  superset (a discard that never fires on an opaque texture changes no
+  pixel), 1 would only keep early depth and double the programs.
+- **Tangents made where a model has none**, from its first texture
+  coordinates (`model::made_tangents`), as the engine makes them for a
+  material with a render hint:[^wiki-shaders] the stock normal-mapped
+  programs normalize the tangent as it comes, and TDoD's grass (a binary
+  model without tangents, its MTR asking for normal maps) drew black.
+  Moonglow's own shader keeps the derivative frame for those meshes (a
+  flag in the draw), so its look is unchanged.
+- **The clock.** `worldtimerTimeOfDay` and `sceneCurrentFrame` from the
+  scene's time as M1 has them (1000 and 60 a second). The area view
+  already draws its picture again every `ANIMATION_STEP` (0.04 s) while
+  it is on screen, so the shaders move at that rate; the model viewer's
+  clock runs while it plays, and it asks for a frame every 0.04 s while
+  a drawn program reads the clock (`Drawn::timed`). A program reads it
+  when its IR reads the member (`Program::reads_uniform`): glslang keeps
+  every declared uniform in the block, and every stock program declares
+  the timer.
+- **The area's values.** `areaFlags` is the ARE's `Flags`;
+  `areaGlobalWind` from its `WindPower` as (0, 0, 0), (0.707, 0.707, 0),
+  (1.414, 1.414, 0) (TDoD's wind shaders' comments give those for the
+  toolset's three; their lengths squared, 1 and 4, are notes §B.4's);
+  `areaWeatherType` clear (the game rolls the weather from the ARE's
+  chances as it runs). The model viewer's area is outdoors, without wind.
+- **Programs and pipelines** are kept for the session by name and stage
+  (one preamble), pipelines by pair, skin, sides and pass; Reload
+  Resources forgets them. A failure is said once in the log pane (and on
+  stderr), and again after a reload if it still fails.
+- **Fallbacks.** `vertexalpha` and `mzlm` stay as the hand ports where
+  their source isn't found (NWN Mapper ships none of `mzlm`'s: unreported)
+  and with the switch off; with it on and the source there, their own
+  programs draw.
+
+**Measured against the client** (`tdod_custom_shaders_look`,
+`client_render.rs`, by hand on the off-screen display; the reference
+room with TDoD's fountain five meters north of the player,
+`tdod_shaders`, `tdod_p_tap` and `tdod_top` linked into the scratch user
+folder's `hak`):
+
+| Region | Client | Shaders off | Shaders on |
+|---|---|---|---|
+| centre floor (mean RGB) | 73.5, 68.8, 64.0 | 87.9, 82.2, 76.7 | 73.4, 69.0, 64.8 |
+| left floor | 36.2, 33.4, 31.8 | 39.0, 35.9, 34.2 | 36.6, 33.9, 32.6 |
+| far floor | 55.0, 49.1, 46.6 | 55.2, 49.2, 46.8 | 54.0, 48.5, 46.4 |
+| the fountain's 7,082 pixels (mean difference of 255) | | 13.8 | 11.7 |
+
+The floor is the stock `tic01` tile under TDoD's `inc_lighting`: the
+game path draws it as the client does, Moonglow's port of the stock
+lighting can't. What is left on the fountain is its basin's water
+(`ttr01_water01`, the game's shiny water: `fswater` with the framebuffer
+in the client, see-through to the basin's floor; Moonglow's WGSL water,
+blue) and the falling water's phase (the client's timer's origin).
+Blueprint previews drawn by the stock programs match Moonglow's own
+within 0.15 of 255 on average (a creature in robe and cloak, a sword, an
+armoire).
+
+**Tests:** `mg-shader` (`keep_alpha`, `reads_uniform`), `mg-render` (the
+pair or neither, `custom_pair`; the area's flags, wind and MTR floats,
+vectors and ints in the block; made tangents; on the GPU, authored stand-ins
+for a custom pair: drawn with their parameters and moving with the clock,
+still with the switch off; one program alone drawn with the stock pair; a
+program of the wrong stage reported once; `vertexalpha` by its hand port
+without source and by its programs with; a see-through mesh's two parts,
+mutation-checked: drawn as one part, the water under the ground shows
+through the plant's edge), `mg-preview`, `mg-ui` (the area view's and the
+model viewer's switch, kept in the settings), `mg-module` (`shader-pair`),
+and with `MOONGLOW_HAKS` the TDoD tests above (`mg-corpus-tests` `models`
+group, `game_shaders.rs`; `mg-ui`'s `tdod_s_wind_shaders_move_in_the_area_view`).
+
+What M2 leaves is in [the deferred list](deferred.md) ("Tier A of the
+game's shaders").
+
+[^m2]: M2: the files in the frontmatter's `m2` source, run 2026-10-21.
+[^wiki-shaders]: nwn.wiki, "Shaders Introduction: Editing A Textures Colour" (both programs needed) and "MTR" (Renderhint: tangents generated).
+
 ## Two tiers
 
 - **Tier A, custom shaders.** A mesh whose MTR names
@@ -527,7 +664,7 @@ Decided on 2026-10-21:[^decisions]
   hour or day: notes §B.4).
 - How the engine chooses `_sm` and plain programs, and when it uses
   `fswater` (notes §M.12; needed for M4).
-- How the engine sets `NO_DISCARD` per material (notes §M.10).
+- How the engine sets `NO_DISCARD` per material (notes §M.10; M2 keeps 0).
 - What the toolset itself runs with: `FRAGMENT_LIGHTING`, quality,
   `MAX_NUM_LIGHTS` (notes §M.5). This only matters if Aurora's look is ever
   wanted rather than the game's.

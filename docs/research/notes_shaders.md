@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T14:41:50Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:43:46Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -111,6 +111,8 @@ Naming key ([WIKI] + [SRC]):
 
 ### A.4 How a mesh's program is chosen
 1. **MTR** (`materialname` in the MDL, or an MTR whose name matches `bitmap`/`texture0`) with `customshaderVS` + `customshaderFS`: both must be given ([WIKI]). `customShaderGS` also exists ([ENG]).
+   - [INF] One named alone is ignored: the mesh gets the stock pair of step 2. Evidence (shaders proposal, M2): 250 of The Domains of Dread's materials (217 armor parts in `tdod_fbr`) name `fslit_nm`, a fragment program, alone as `customshaderVS`; compiled as a vertex program it fails, and the game would draw those parts magenta, which it doesn't. Moonglow draws them so, and Verify's `shader-pair` warns.
+   - With a render hint (MDL or MTR) the engine makes tangents for a mesh that has none ([WIKI] MTR); a binary model compiled without them gets them too [INF: TDoD's grass, binary without tangents, MTR `renderhint NormalAndSpecMapped`, would be black in the stock `_nm` programs otherwise: `SetupTSB` normalizes the tangent as it comes].
 2. Otherwise the engine picks a stock pair from mesh traits:
    - lit or not
    - has UVs or not
@@ -248,7 +250,7 @@ Time (both `int`; measured in the client, `client_render.rs` `time_uniforms_in_t
 Area and weather:
 - `areaFlags` (1 interior, 2 underground, 4 natural)
 - `areaWeatherType` (0 clear, 1 rain, 2 snow), `areaWeatherDensity`
-- `areaGlobalWind` (vec3, magnitude²: 1 medium, 4 strong)
+- `areaGlobalWind` (vec3, magnitude²: 1 medium, 4 strong). From the ARE's `WindPower` 0/1/2 as (0, 0, 0), (0.707, 0.707, 0), (1.414, 1.414, 0) by The Domains of Dread's wind shaders' comments (`shd_windgrass_vs`: "Toolset Mid wind (0.707, 0.707, 0)"), which Moonglow uploads (M2) [INF: not read back from the client]. `areaFlags` is the ARE's `Flags`.
 
 Wind sources (`MAX_WINDS=32`):
 - `windPointSourcesCount`

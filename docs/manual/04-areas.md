@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:08:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:41:59Z }
 ---
 
 # Areas
@@ -56,6 +56,26 @@ looking straight down at their middle, north up, as in Aurora.
   view looks (the game draws it within about 24 m of its camera, which
   the editor's views are farther off than). Switched off, in every area
   view; it stays as you leave it.
+- **🎨 Shaders**: draws with the game's own shaders, compiled on your
+  machine from the game and the module's haks, as the game draws: a
+  material's custom shaders (its MTR's `customshaderVS` and
+  `customshaderFS`: grass and leaves that sway in the wind, water that
+  flows, roofs that show only to a low camera indoors), and the game's
+  lit shaders for the rest, with a hak's changes to them (a hak that
+  replaces `inc_lighting` lights every surface its way). What moves by
+  itself moves while the view is open. The wind is the area's (Area
+  Properties › Wind Power), the indoor and outdoor flags its own. Off,
+  Moonglow draws with its own shader, which looks like the game's stock
+  lighting and moves no custom shader's mesh (two that builders' tilesets
+  use, `vertexalpha` and NWN Mapper's `mzlm`, it draws its own way). A
+  program that doesn't compile is drawn with Moonglow's shader and named
+  in the log, once (the game draws it magenta; Verify names its file and
+  line). A material that names one custom program alone is drawn with
+  the game's lit shaders, as the game draws it. Water, particles and the
+  sky are always Moonglow's. Off by default for now: opening an area
+  compiles its programs, a fraction of a second each the first time. It
+  is one switch for every 3D view (the model viewer has it too) and it
+  stays as you leave it.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
   Areas opened later open as you left it.
