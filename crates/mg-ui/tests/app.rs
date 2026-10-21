@@ -8488,6 +8488,104 @@ fn find_and_replace_text_across_the_module() {
 }
 
 #[test]
+fn advanced_search_finds_objects_by_what_they_hold() {
+    use mg_edit::{Command, Edit};
+    use mg_gff::{Struct, Value};
+    let dir = mg_testkit::scratch_dir("ui-advanced-search");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    // An amulet with a variable, and a fighter placed in the area who
+    // carries one of his own.
+    let var = |name: &str| {
+        let mut v = Struct::new(0);
+        v.set("Name", Value::String(name.as_bytes().to_vec()));
+        v.set("Type", Value::Dword(1));
+        v.set("Value", Value::Int(3));
+        v
+    };
+    let amulet = ResKey::parse("amulet", ResType::UTI).unwrap();
+    let mut uti = Gff::new(*b"UTI ");
+    uti.root.set("Tag", Value::String(b"AMULET".to_vec()));
+    uti.root.set("VarTable", Value::List(vec![var("sDeidad")]));
+    let mut own = Struct::new(0);
+    own.set("Tag", Value::String(b"OLD_AMULET".to_vec()));
+    own.set("VarTable", Value::List(vec![var("sDeidadOld")]));
+    let mut class = Struct::new(2);
+    class.set("Class", Value::Int(4));
+    class.set("ClassLevel", Value::Short(5));
+    let mut guard = Struct::new(4);
+    guard.set("Tag", Value::String(b"GUARD".to_vec()));
+    guard.set("ClassList", Value::List(vec![class]));
+    guard.set("ItemList", Value::List(vec![own]));
+    let mut git = Gff::new(*b"GIT ");
+    git.root.set("Creature List", Value::List(vec![guard]));
+    let set = |key: ResKey, g: &Gff| Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) };
+    let start = ResKey::parse("start", ResType::GIT).unwrap();
+    let edits = vec![set(amulet, &uti), set(start, &git)];
+    app.ws.as_mut().unwrap().apply(Command::new("setup", edits)).unwrap();
+    // The game's classes, to name them.
+    let mut mem = mg_resman::MemContainer::new();
+    mem.insert(
+        ResKey::parse("classes", ResType::TWODA).unwrap(),
+        &b"2DA V2.0\n\n Label Name\n0 Barbarian ****\n1 Bard ****\n2 Cleric ****\n3 Druid ****\n4 Fighter 1\n"[..],
+    );
+    let mut rm = mg_resman::ResMan::new();
+    rm.add(mg_resman::priority::KEY, "mem", mg_resman::LayerClass::Key, mem);
+    let mut tlk = mg_tlk::Tlk::new(Language::ENGLISH);
+    tlk.entries.push(mg_tlk::TlkEntry::text("Bad Strref"));
+    tlk.entries.push(mg_tlk::TlkEntry::text("Fighter"));
+    app.game = Some(std::sync::Arc::new(mg_rules::GameData::new(rm, tlk)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Edit").click();
+    h.run_steps(2);
+    h.get_by_label("Advanced Search…").click();
+    h.run_steps(2);
+    assert!(
+        h.state().dock.find_tab(&Tab::AdvancedSearch).is_some(),
+        "Edit › Advanced Search… opens its tab"
+    );
+    // Variables by a wildcard name: the amulet, and the one the guard
+    // carries.
+    type_into_hint(&mut h, "e.g. *sDeidad* (* for any characters)", "*sdeidad*");
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("2 found:");
+    h.get_by_label("start › creature GUARD › item OLD_AMULET");
+    h.get_by_label("sDeidad (int) = 3");
+    // A click opens the object.
+    h.get_by_label("amulet.uti").click();
+    h.run_steps(3);
+    assert!(h.state().dock.find_tab(&Tab::Blueprint(amulet)).is_some());
+    // The search's tab, brought back, has kept what it found (the
+    // amulet's window closed: in this small screen it lies over the
+    // search's).
+    h.state_mut().actions.push(mg_ui::Action::CloseTab(Tab::Blueprint(amulet)));
+    h.run_steps(2);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AdvancedSearch));
+    h.run_steps(2);
+    h.get_by_label("2 found:");
+    // Creatures by class, named as the game names them.
+    {
+        let d = &mut h.state_mut().advanced_search;
+        d.kind = mg_ui::search::Kind::Class;
+        d.row = Some(4);
+    }
+    h.run();
+    h.get_by_label("Find again for what's asked now.");
+    h.get_by_label("Find").click();
+    h.run();
+    h.get_by_label("1 found:");
+    h.get_by_label("Class: Fighter, level 5");
+    // Nothing chosen: nothing to find yet.
+    h.state_mut().advanced_search.row = None;
+    h.run();
+    h.get_by_label("Choose a class");
+}
+
+#[test]
 fn build_module_compiles_and_reports() {
     use mg_edit::{Command, Edit, GffPath};
     let Some((mut h, area)) = area_harness("build") else { return };

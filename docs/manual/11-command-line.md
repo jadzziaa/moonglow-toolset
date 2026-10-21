@@ -60,6 +60,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | --- | --- |
 | `mg info MODULE` | the module's name, tag, entry area, areas, haks, talk table, game version and resources by type |
 | `mg find MODULE` | blueprints and objects placed in the areas: `--type utc,utp`, `--tag` (`*` matches any run), `--name` (words it contains), `--resref` (a placed object's blueprint), `--area`, `--placed` or `--blueprints`, and `--where Label=Value` (a field's value, `*` as in tags; `Label` alone: has the field), each as often as needed |
+| `mg search MODULE` | blueprints, placed objects (and the items they hold), areas and conversations by what they hold, one kind at a time: `--var NAME` (`*` matches any run; with `--var-type int` and `--value`), `--property TYPE` (with `--subtype`, `--value`, `--param`), `--class`, `--feat`, `--spell`, `--skill` (with `--min-rank N`), `--appearance ROW` (with `--of creature`, `placeable`, `door`, `generic-door`, `waypoint` or `item`), `--script NAME`, or any field by `--field LABEL`, `--int N` or `--text TEXT`. A row is its number or its name in the game's 2DAs and talk table (the module's haks' too): `--property "skill bonus" --subtype hide`. `--type uti,utc` and `--placed` or `--blueprints` narrow it as in `mg find`; an item blueprint found is also found in the inventories of the blueprints that carry it |
 | `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops |
 | `mg roundtrip MODULE [--keep COPY.mod]` | checks that Moonglow keeps the module as it is: saves a copy (a temporary one; the module is not touched), reads it back and compares every resource byte for byte, then writes every GFF and 2DA anew and compares what it reads back (the same fields and cells, the fields it has no name for too); lists what differs and fails if anything does |
 | `mg model-files WHAT FOLDER [--module MODULE] [--all] [--force] [--dry-run]` | writes the files the game draws a model (`plc_a08`) or a blueprint (`chest.utp`; also `.utd`, `.uti`, `.utc`) with into a folder: models, walkmeshes, textures, materials, from the module's haks and wherever else they are; the game's own are left out unless all are (or `--all`); files already in the folder are not written over without `--force` |
@@ -104,6 +105,14 @@ no OnSpawn script set, in the area `keep`:
 
 ```text
 mg find mymodule.mod --type utc --placed --area keep --tag 'GUARD*' --where ScriptSpawn=
+```
+
+And every item, in a blueprint, placed or carried, with a variable whose
+name has `sDeidad` in it, then every one giving a bonus to Hide:
+
+```text
+mg search mymodule.mod --var '*sDeidad*' --type uti
+mg search mymodule.mod --property 'skill bonus' --subtype hide
 ```
 
 ## Setting fields, and edit files

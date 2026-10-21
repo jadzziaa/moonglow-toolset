@@ -67,6 +67,8 @@ pub enum Tab {
     Manual,
     /// Find References: where something is used.
     References,
+    /// Advanced Search: objects by what they hold.
+    AdvancedSearch,
     /// The Placeable Gallery: every placeable appearance as a picture.
     PlaceableGallery,
     /// Tools › Options.
@@ -125,6 +127,7 @@ impl Tab {
             Tab::Instances { .. } | Tab::Instance { .. } => "instance",
             Tab::Manual => "manual",
             Tab::References => "references",
+            Tab::AdvancedSearch => "advanced-search",
             Tab::PlaceableGallery => "placeable-gallery",
             Tab::Options => "options",
             Tab::TileProperties => "tile-properties",
@@ -316,6 +319,7 @@ impl Viewer<'_> {
             }
             Tab::Manual => crate::manual::ui(self.app, ui),
             Tab::References => crate::references::ui(self.app, ui),
+            Tab::AdvancedSearch => crate::search::ui(self.app, ui),
             Tab::PlaceableGallery => crate::appearance_gallery::ui(self.app, ui),
             Tab::Options => crate::options::ui(self.app, ui),
             Tab::TileProperties => crate::tile_select::ui(self.app, ui),
@@ -384,6 +388,7 @@ impl TabViewer for Viewer<'_> {
             }
             Tab::Manual => "User Manual".into(),
             Tab::References => "References".into(),
+            Tab::AdvancedSearch => "Advanced Search".into(),
             Tab::PlaceableGallery => "Appearance Gallery".into(),
             Tab::Options => "Options".into(),
             Tab::TileProperties => "Tile Properties".into(),

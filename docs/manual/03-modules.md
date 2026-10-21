@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Modules
-description: Modules - opening and saving, where things are used and renaming, find and replace, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
+description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T22:55:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:51:33Z }
 ---
 
 # Modules
@@ -106,7 +106,48 @@ module's names, descriptions, conversation lines, the journal and the rest
 
 Text from the game's talk table (a string number with no text of the
 module's own) isn't searched: it isn't the module's to change. Scripts
-have their own **Find in Files**.
+have their own **Find in Files**; tags, variables and the rest are found
+by **Advanced Search** (below).
+
+## Advanced Search
+
+**Edit › Advanced Search…** finds the module's blueprints, placed
+objects, areas and conversations by what they hold, not by their tag or
+name. It opens as a tab of its own, which docks beside the others as
+any tab does and keeps what it found while you go to each. Choose what
+to look for:
+- **Variables:** by name, `*` matching any run of letters (`*Deidad*`
+  finds `sDeidad` and `nDeidadBonus`), case ignored; and, if given, by
+  type and value.
+- **Item properties:** a property (Skill Bonus), and if chosen its
+  subtype (Hide), value (+5) and parameter, named as the game names them.
+- **Creatures by class, feat, spell or skill:** a class (with the
+  level each has), a feat, a spell known, memorized or used as a special
+  ability, a skill with at least so many ranks.
+- **Appearances:** of creatures, placeables, tileset doors, generic
+  doors, waypoints, or items' base types.
+- **Scripts attached:** by name, `*` as in variables: objects' and
+  areas' events, the module's, conversation lines' conditions and
+  actions.
+- **Any field:** by label (`*` as in variables), by value, or both. A
+  value is text that strings, resrefs and every language of names and
+  descriptions contain, or with **Whole number** ticked a number that
+  fields of every integer type hold exactly: `103` finds every field
+  holding 103, an appearance, a portrait or a conversation's link alike.
+
+**Look at** keeps the search to one kind of object (Items include
+those in inventories, equipment and stores) and to blueprints or placed
+objects. The lists come from the game's 2DAs and the module's haks; with
+no game data loaded, choose rows by number.
+
+What's found is listed by place, as in Find References: `keep ›
+creature GUARD_01 › item OLD_SWORD`, `sword.uti`, `keep (area)`, with
+what matched beside it (`Skill Bonus: Hide +5`, `sDeidad (string) =
+"Ezra"`). Click one to go there. A creature, placeable or store
+blueprint's inventory names its items' blueprints: an item blueprint
+found is also listed where they carry it (`chest.utp › carries
+sword.uti`). The command line has the same: `mg search`
+([Command-line tools](11-command-line.md)).
 
 ## nasher projects (version control)
 

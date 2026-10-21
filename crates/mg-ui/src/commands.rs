@@ -37,6 +37,7 @@ pub enum Id {
     EditAreasTogether,
     ReplaceText,
     FindReferences,
+    AdvancedSearch,
     AreaWizard,
     CreatureWizard,
     /// A blueprint wizard (the kinds of `blueprint_wizard::KINDS`).
@@ -155,6 +156,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::EditAreasTogether),
             Do(Id::ReplaceText),
             Do(Id::FindReferences),
+            Do(Id::AdvancedSearch),
         ],
     ),
     (
@@ -314,6 +316,12 @@ impl Id {
                 "find-references",
                 "Find References…",
                 "Where a script, area, conversation, blueprint or tag is used",
+            ),
+            Id::AdvancedSearch => (
+                "advanced-search",
+                "Advanced Search…",
+                "Blueprints and placed objects by their variables, item properties, classes, \
+                 feats, spells, skills, appearance, scripts or any field",
             ),
             Id::AreaWizard => ("area-wizard", "Area Wizard…", ""),
             Id::CreatureWizard => ("creature-wizard", "Creature Wizard…", ""),
@@ -599,6 +607,7 @@ impl Id {
             | Id::EditAreasTogether
             | Id::ReplaceText
             | Id::FindReferences
+            | Id::AdvancedSearch
             | Id::AreaWizard
             | Id::CreatureWizard
             | Id::Wizard(_)
@@ -635,6 +644,7 @@ impl Id {
             Id::Redo => Action::Redo,
             Id::ModuleProperties => Action::OpenTab(Tab::ModuleProperties),
             Id::FindReferences => Action::OpenTab(Tab::References),
+            Id::AdvancedSearch => Action::OpenTab(Tab::AdvancedSearch),
             Id::AreaWizard => Action::AreaWizard,
             Id::Factions => Action::OpenTab(Tab::Factions),
             Id::Journal => Action::OpenTab(Tab::Journal),

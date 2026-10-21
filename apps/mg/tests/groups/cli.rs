@@ -36,6 +36,8 @@ mod plugins;
 mod replace;
 #[path = "../roundtrip.rs"]
 mod roundtrip;
+#[path = "../search.rs"]
+mod search;
 #[path = "../serve.rs"]
 mod serve;
 #[path = "../test_cmd.rs"]

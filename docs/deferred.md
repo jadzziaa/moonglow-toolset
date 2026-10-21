@@ -512,17 +512,40 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Choosing areas by more:** the chooser filters by name, ResRef,
   tileset and the three kinds; not by a property's value (areas with a
   given music or variable), and its choice isn't kept as a named set.
-  (S–M)
+  Advanced Search finds such areas (a variable, any field's value), but
+  the chooser can't take what it found. (S–M)
 - **`mg areas` and lighting schemes:** the command sets fields, flags
   and variables; it doesn't apply a lighting scheme (environment.2da,
   which also picks each tile's lights, and needs the game's data), nor
   set names or list fields. Nor does Give Every Area This Page's
   Settings: it copies the fields the page shows, not the tiles' lights
   a lighting scheme sets (GitHub issue 6). (S)
-- **Find and Replace beyond strings players read:** tags, resrefs and
-  other plain text fields aren't searched (Find References covers tags,
-  Find in Files covers scripts), and there are no regular expressions.
-  (S–M)
+- **Find and Replace beyond strings players read:** tags, resrefs,
+  variables and other plain fields are found (Advanced Search, `mg
+  search`) but not replaced, and neither has regular expressions (`*`
+  only). (S–M)
+- **Advanced Search, what it doesn't do** (from builders' asks on
+  Discord, October 2026):
+  - It finds; it doesn't change what it found (set or remove a
+    variable, a property, a script on all of them), nor pass its results
+    to Edit Together or the area chooser. (M)
+  - One kind of thing at a time: no "Fighters with Alertness", no
+    class by level, no spell by the class that knows it, no number
+    ranges or floats. (S–M)
+  - The module only: blueprints in haks and the game's own palettes
+    aren't searched. An item blueprint found is followed into the
+    inventories of the module's blueprints, one step only (a chest
+    blueprint holding a bag blueprint that holds it isn't listed); a
+    creature blueprint found isn't followed into the encounters that
+    spawn it. (S)
+  - Each search reads every GFF of the module again, on the window's
+    thread (Chapter One, 5271 resources: under a second; a persistent
+    world's thousands of blueprints: longer, with the window waiting).
+    Find References keeps an index; this doesn't yet. (S)
+  - Appearance covers the 2DA rows a field names (creatures,
+    placeables, doors, waypoints, items' base types); items' model
+    parts and colors, portraits and sound sets are found through Any
+    field. (S)
 - **Prefabs in the palette:** listed by name, placed with a click,
   renamed and deleted from their menu; what one holds is told in words on
   hover (kinds and tags), not shown as a picture; no folders. (S)

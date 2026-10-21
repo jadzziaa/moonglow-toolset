@@ -34,6 +34,7 @@ pub mod refs;
 pub mod rename;
 pub mod script_set;
 pub mod script_wizard;
+pub mod search;
 pub mod store_setup;
 pub mod table_desc;
 pub mod table_edit;

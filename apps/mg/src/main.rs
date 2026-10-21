@@ -10,6 +10,7 @@ mod edits;
 mod lsp;
 mod nui;
 mod plugins;
+mod search;
 mod serve;
 mod test;
 mod tlk_alloc;
@@ -682,6 +683,10 @@ enum Cmd {
         #[arg(long = "where")]
         fields: Vec<String>,
     },
+    /// Find a module's blueprints, placed objects, areas and the rest by
+    /// what they hold: variables, item properties, classes, feats, spells,
+    /// skills, appearances, scripts, or any field's label or value.
+    Search(search::Args),
     /// What a module is: its name, tag, areas, haks, talk table and
     /// resources by type.
     Info { module: PathBuf },
@@ -2591,6 +2596,7 @@ fn run(cli: &Cli) -> Result<Output> {
             let gi = install(cli)?;
             model_files(&gi, what, out, module.as_deref(), *all, *force, *dry_run)?
         }
+        Cmd::Search(args) => search::run(cli, args)?,
         Cmd::Info { module } => {
             let m = Module::open(module)?;
             let mut i = mg_module::query::info(&m)?;

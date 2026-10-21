@@ -49,6 +49,7 @@ pub mod script_nav;
 pub mod script_tools;
 mod script_view;
 pub mod script_wizard;
+pub mod search;
 pub mod settings;
 pub mod store_wizard;
 pub mod table_view;
@@ -539,6 +540,8 @@ pub struct Moonglow {
     pub(crate) area_chooser: Option<area_props::AreaChooser>,
     /// The Find and Replace Text window.
     pub text_replace: Option<bulk::TextReplace>,
+    /// The Advanced Search tab's state.
+    pub advanced_search: search::AdvancedSearch,
     /// Where prefabs are kept (the app sets Moonglow's data folder's
     /// `prefabs`; none: prefabs can't be saved).
     pub prefab_dir: Option<PathBuf>,
@@ -784,6 +787,7 @@ impl Moonglow {
             scaled: false,
             area_chooser: None,
             text_replace: None,
+            advanced_search: Default::default(),
             prefab_dir: None,
             prefab_deleted: None,
             var_set_dir: None,

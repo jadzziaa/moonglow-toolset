@@ -2846,3 +2846,45 @@ fn nui_saved_windows() {
     }
     assert_eq!(std::fs::read(&path).unwrap(), before, "the module is not written");
 }
+
+/// The Advanced Search tab on a copy of the Original Campaign's first
+/// chapter: the items giving a bonus to Set Trap, then its fighters.
+#[test]
+#[ignore]
+fn advanced_search() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let scratch = mg_testkit::scratch_dir("screens-advanced-search");
+    let path = scratch.join("chapter1.mod");
+    std::fs::copy(root.join("data/nwm/Chapter1.nwm"), &path).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AdvancedSearch));
+    h.run_steps(3);
+    let mut d = mg_ui::search::AdvancedSearch {
+        kind: mg_ui::search::Kind::ItemProperty,
+        row: Some(52),
+        subtype: Some(15),
+        ..Default::default()
+    };
+    h.state_mut().advanced_search(&mut d);
+    h.state_mut().advanced_search = d;
+    shoot(&mut h, &dir, "advanced-search-property");
+    let mut d = mg_ui::search::AdvancedSearch {
+        kind: mg_ui::search::Kind::Class,
+        row: Some(4),
+        placed: Some(true),
+        ..Default::default()
+    };
+    h.state_mut().advanced_search(&mut d);
+    h.state_mut().advanced_search = d;
+    shoot(&mut h, &dir, "advanced-search-class");
+}
