@@ -48,6 +48,7 @@ pub enum Check {
     MdlText,
     MtrName,
     ShaderCompile,
+    ShaderPair,
     TwoDaRow,
     TwoDaRead,
     TwoDaLimit,
@@ -60,7 +61,7 @@ pub enum Check {
 }
 
 impl Check {
-    pub const ALL: [Check; 23] = [
+    pub const ALL: [Check; 24] = [
         Check::CustomTlk,
         Check::ErfSize,
         Check::SetRead,
@@ -75,6 +76,7 @@ impl Check {
         Check::MdlText,
         Check::MtrName,
         Check::ShaderCompile,
+        Check::ShaderPair,
         Check::TwoDaRow,
         Check::TwoDaRead,
         Check::TwoDaLimit,
@@ -102,6 +104,7 @@ impl Check {
             Check::MdlText => "mdl-text",
             Check::MtrName => "mtr-name",
             Check::ShaderCompile => "shader-compile",
+            Check::ShaderPair => "shader-pair",
             Check::TwoDaRow => "2da-row",
             Check::TwoDaRead => "2da-read",
             Check::TwoDaLimit => "2da-limit",
@@ -140,6 +143,10 @@ impl Check {
                 "a shader program of the module's content compiles (the game draws one that \
                  doesn't magenta; Moonglow draws with its own shader instead)"
             }
+            Check::ShaderPair => {
+                "a material that names a custom shader names both its programs \
+                 (`customshaderVS` and `customshaderFS`: the game takes the two or neither)"
+            }
             Check::TwoDaRow => "a 2DA row has no more cells than the table has columns",
             Check::TwoDaRead => "a 2DA can be read",
             Check::TwoDaLimit => "a 2DA has no more rows than the game or Aurora takes",
@@ -166,7 +173,9 @@ impl Check {
             | Check::SetData
             | Check::TileFaces
             | Check::MdlRead => Group::Tilesets,
-            Check::MdlText | Check::MtrName | Check::ShaderCompile => Group::Models,
+            Check::MdlText | Check::MtrName | Check::ShaderCompile | Check::ShaderPair => {
+                Group::Models
+            }
             Check::TwoDaRow
             | Check::TwoDaRead
             | Check::TwoDaLimit
@@ -738,20 +747,37 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
     // A program, and where it was asked for: source, resource, field.
     let mut wanted: BTreeMap<(String, Stage), (String, ResKey, &str)> = BTreeMap::new();
     let mut replaces_stock = false;
+    // Materials that name one program alone, by source: the field and name.
+    let mut lone: BTreeMap<String, Vec<(ResKey, &str, String)>> = BTreeMap::new();
     for (key, &layer) in custom {
         let source = &layers[layer].label;
         let Ok(data) = d.rm.get(key) else { continue };
         match key.restype {
             ResType::MTR => {
                 let mtr = mg_image::mtr::Mtr::parse(&data);
+                let name = |n: Option<String>| {
+                    n.map(|n| n.trim().to_ascii_lowercase())
+                        .filter(|n| !n.is_empty() && n != "null")
+                };
                 let named = [
-                    (mtr.shader_vs, Stage::Vertex, "customshaderVS"),
-                    (mtr.shader_fs, Stage::Fragment, "customshaderFS"),
+                    (name(mtr.shader_vs), Stage::Vertex, "customshaderVS"),
+                    (name(mtr.shader_fs), Stage::Fragment, "customshaderFS"),
                 ];
-                for (name, stage, field) in named {
-                    if let Some(name) = name {
-                        wanted.entry((name, stage)).or_insert((source.clone(), *key, field));
+                match named {
+                    // A pair: the game compiles both (one that doesn't
+                    // compile, or isn't there, is drawn magenta).
+                    [(Some(_), ..), (Some(_), ..)] => {
+                        for (name, stage, field) in named {
+                            let name = name.expect("named");
+                            wanted.entry((name, stage)).or_insert((source.clone(), *key, field));
+                        }
                     }
+                    // One alone: the game draws the mesh with its stock
+                    // programs (Moonglow likewise; docs/shaders-proposal.md M2).
+                    [(Some(n), _, field), (None, ..)] | [(None, ..), (Some(n), _, field)] => {
+                        lone.entry(source.clone()).or_default().push((*key, field, n))
+                    }
+                    _ => {}
                 }
             }
             ResType::SHD => {
@@ -818,6 +844,24 @@ fn shaders(d: &mut Doctor, custom: &BTreeMap<ResKey, usize>) {
                 record(e, format!("{name} ({stage})"), (&source, key, ""));
             }
         }
+    }
+    for (source, materials) in lone {
+        let Some((key, field, name)) = materials.first() else { continue };
+        let more = match materials.len() {
+            1 => String::new(),
+            n => format!(" (and {} more materials)", n - 1),
+        };
+        d.push(
+            Severity::Warning,
+            Check::ShaderPair,
+            &source,
+            *key,
+            (*field).to_string(),
+            format!(
+                "names {field} {name} alone{more}: the game takes a custom shader's two \
+                 programs or neither, and draws these with its stock ones"
+            ),
+        );
     }
     for ((source, resource, at, message), programs) in found {
         let which = match programs.as_slice() {
@@ -1494,8 +1538,32 @@ mod tests {
         let mut rm = ResMan::new();
         rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
         let f = examine(&Module::new(), &rm, TalkTables::default());
-        assert_eq!(checks(&f), [("shader-compile", "customshaderFS".to_string())]);
-        assert!(f[0].message.contains("fs_gone"), "{}", f[0].message);
+        assert_eq!(checks(&f), [("shader-pair", "customshaderFS".to_string())]);
+        assert!(f[0].message.contains("fs_gone alone"), "{}", f[0].message);
+        // A pair naming one that isn't there: magenta in the game.
+        let mut hak = MemContainer::new();
+        hak.insert(
+            key("lost", ResType::MTR),
+            b"customshaderVS vs_gone\ncustomshaderFS fs_gone\n".to_vec(),
+        );
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        let got = checks(&f);
+        assert!(got.iter().all(|(c, _)| *c == "shader-compile") && got.len() == 2, "{got:?}");
+        // Materials that name a program alone (The Domains of Dread's
+        // `customshadervs fslit_nm`): one warning for the hak, not compiled
+        // for the stage named.
+        let mut hak = MemContainer::new();
+        for n in ["a_feet", "a_shin", "a_hand"] {
+            hak.insert(key(n, ResType::MTR), b"customshadervs fslit_nm\n".to_vec());
+        }
+        let mut rm = ResMan::new();
+        rm.add(priority::HAK_USER, "my.hak", LayerClass::Erf, hak);
+        let f = examine(&Module::new(), &rm, TalkTables::default());
+        assert_eq!(checks(&f), [("shader-pair", "customshaderVS".to_string())]);
+        assert!(f[0].message.contains("fslit_nm alone (and 2 more materials)"), "{}", f[0].message);
+        assert_eq!(f[0].severity, Severity::Warning);
     }
 
     #[test]
