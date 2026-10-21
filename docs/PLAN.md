@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:03:11Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:10:56Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -231,14 +231,19 @@ The renderer also runs offscreen for image tests (§7, L5): reference scenes are
 compared, within a tolerance, with screenshots of the same area, camera and
 time of day taken in the real client (`nwmain` with a test user directory).
 
-Running the game's own shaders was not chosen, and exact stock-shader parity
-is not a goal. It stays possible: a spike
-(2026-09-30) showed that the stock `vslit`/`fslit` pair, assembled with the
-engine preamble and verbatim `#include` splicing (`tools/shaders/assemble.py`),
-compiles to Vulkan SPIR-V under glslang's relaxed rules, and naga accepts it once
-SPIRV-Tools splits the combined image samplers and the resource bindings are
-rewritten. This would bring hak custom shaders and MTR `customshaderVS/FS`
-along, at the cost of native glslang/SPIRV-Tools dependencies.
+Running the game's own shaders was not chosen for 1.x, and exact
+stock-shader parity is not a goal of the WGSL shader. For 2.0 it is
+chosen ([the shaders proposal](shaders-proposal.md), accepted
+2026-10-21): every mesh draws with the program the engine would choose,
+compiled on the user's machine from the install's and the haks' `.shd`
+files (a hak's override of a stock include, and the custom shaders MTRs
+name, included), by native glslang (relaxed Vulkan rules) and SPIRV-Tools
+into naga. The WGSL shader stays as the fallback: for a program still
+compiling, for one that doesn't compile (reported by Verify, not drawn
+magenta) and with the view's Shaders switch off. The switch is on by
+default once the frame budget is met. A spike (2026-10-21) took all 102
+programs on the development machine to valid shader modules; nothing is
+drawn with them yet.
 
 ### 5.6 Tile painting
 

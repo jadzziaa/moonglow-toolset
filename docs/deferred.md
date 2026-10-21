@@ -356,7 +356,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 - **Custom shader effects:** shader parameters and the extra area flags
   are saved and the game reads them. Moonglow's renderer doesn't run
-  custom shaders, so they don't change what the area view shows. (L)
+  custom shaders, so they don't change what the area view shows. What
+  running them would take, and a plan for 2.0: [the shaders
+  proposal](shaders-proposal.md). (L)
 - **Item costs:** Additional Cost keeps Aurora's limit. The game prices a
   created item itself, as Moonglow computes the stored Cost (see
   [Findings](findings.md#created-items-are-priced-anew)), so nothing seemed
@@ -1156,8 +1158,8 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   compared with the client. (S)
   (from builders' reports after 1.14.1)
 - **A tileset's custom shader:** Moonglow runs none (see Custom shader
-  effects above, and the `shaders` branch's note for what running them
-  would take). Two it knows by name are drawn by its own shader instead.
+  effects above, and [the shaders proposal](shaders-proposal.md) for
+  running them). Two it knows by name are drawn by its own shader instead.
   The `mzlm_vs`/`mzlm_fs` pair that NWN Mapper's exports name: a
   lightmap (`texture7`, on the second texture coordinates) multiplied in
   where `LightmapON` is set. That one's source was not at hand (the tool

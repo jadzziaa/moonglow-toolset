@@ -1,0 +1,7 @@
+[package]
+name = "nagacheck"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+naga = { version = "=30.0.1", features = ["spv-in", "wgsl-out", "msl-out", "hlsl-out"] }
+[workspace]
