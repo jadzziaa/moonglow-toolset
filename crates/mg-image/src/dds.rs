@@ -120,7 +120,12 @@ fn standard(data: &[u8]) -> Result<Texture, ImageError> {
             height,
             format,
             mips,
-            has_alpha: !matches!(format, Format::Bc4 | Format::Bc5),
+            // (DXT1's one-bit alpha the game ignores: its transparent
+            // texels are drawn black, the mesh opaque; read from the
+            // client, `program_choice_in_the_client` in
+            // `mg-corpus-tests`' `client_render.rs`. DXT3 and DXT5 have
+            // alpha, whatever their texels hold.)
+            has_alpha: !matches!(format, Format::Bc1 | Format::Bc4 | Format::Bc5),
             alpha_mean: None,
         });
     }

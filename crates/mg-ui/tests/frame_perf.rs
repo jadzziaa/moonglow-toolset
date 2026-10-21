@@ -480,6 +480,11 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
             let mut camera = mg_render::Camera::orbit(target, distance, yaw, pitch);
             camera.far = camera.far.max(distance * 4.0 + 400.0);
             wait();
+            // (The last frame lists what the game's shaders drew: how many
+            // with NO_DISCARD 1.)
+            if on && n == count + 3 {
+                renderer.game_programs = Some(Vec::new());
+            }
             let t0 = Instant::now();
             let mut frame = scene.scene(&model, &view);
             let t1 = Instant::now();
@@ -517,6 +522,10 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
         }
         let (instances, meshes, lights, quads) = counts;
         let did = renderer.drawn;
+        if let Some(programs) = renderer.game_programs.take() {
+            let solid = programs.iter().filter(|p| p.no_discard).count();
+            println!("      NO_DISCARD 1 for {solid} of the game's {} meshes", programs.len());
+        }
         let what = if on { format!("{what}, Shaders on") } else { what.to_string() };
         println!(
             // (The GPU's least times too: with another program drawing,

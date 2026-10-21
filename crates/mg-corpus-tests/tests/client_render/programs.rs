@@ -39,7 +39,7 @@ const fn card(name: &'static str, bitmap: &'static str, extra: &'static str) -> 
 }
 
 /// The cards, west to east, in rows of twelve from the ground up.
-const CARDS: [Card; 32] = [
+const CARDS: [Card; 36] = [
     card("plain", "mgp_plain", ""),
     card("alpha", "mgp_alpha", ""),
     card("opaque32", "mgp_opq32", ""),
@@ -72,6 +72,10 @@ const CARDS: [Card; 32] = [
     card("decal red", "mgp_decalr", ""),
     card("decal red diffuse 0.5", "mgp_decalr", "  diffuse 0.5 0.5 0.5\n"),
     card("decal red alpha 0.5", "mgp_decalr", "  alpha 0.5\n"),
+    card("dds dxt1 opaque", "mgp_d1o", ""),
+    card("dds dxt1 cut", "mgp_d1c", ""),
+    card("dds dxt5 opaque", "mgp_d5o", ""),
+    card("dds dxt5 alpha", "mgp_d5a", ""),
 ];
 
 /// The cards without texture coordinates are a model of their own
@@ -222,6 +226,62 @@ fn checker(x: u32, y: u32) -> [u8; 4] {
     if ((x / 8) + (y / 8)) % 2 == 0 { [200, 190, 170, 255] } else { [90, 100, 110, 255] }
 }
 
+/// A standard DDS of 64 by 64 texels with all its levels (the client reads
+/// past a single level: what it drew was noise), in `fourcc`'s blocks:
+/// `block(x, of)` for each block, `x` of the level's `of` blocks a row.
+fn dds(fourcc: &[u8; 4], block: impl Fn(u32, u32) -> Vec<u8>) -> Vec<u8> {
+    let block = &block;
+    let mut blocks = Vec::new();
+    for level in 0..7u32 {
+        let of = (16 >> level).max(1);
+        blocks.extend((0..of).flat_map(|_| (0..of).flat_map(move |x| block(x, of))));
+    }
+    let top = block(0, 16).len() as u32 * 256;
+    let mut h = b"DDS ".to_vec();
+    let mut u = |v: u32| h.extend(v.to_le_bytes());
+    // (Size; flags: caps, height, width, pixel format, levels, linear
+    // size; the first level's size; levels.)
+    u(124);
+    u(0x1 | 0x2 | 0x4 | 0x1000 | 0x2_0000 | 0x8_0000);
+    u(64);
+    u(64);
+    u(top);
+    u(0);
+    u(7);
+    for _ in 0..11 {
+        u(0);
+    }
+    // The pixel format: a four-character code.
+    u(32);
+    u(0x4);
+    u(u32::from_le_bytes(*fourcc));
+    for _ in 0..5 {
+        u(0);
+    }
+    // (A texture with levels.)
+    u(0x1000 | 0x8 | 0x40_0000);
+    for _ in 0..4 {
+        u(0);
+    }
+    h.extend(blocks);
+    h
+}
+
+/// A DXT1 block: red, opaque (four colors); or wholly see-through (three
+/// colors and transparent, every texel the transparent one).
+fn dxt1(see_through: bool) -> Vec<u8> {
+    let (red, blue) = (0xF800u16, 0x001Fu16);
+    let (c0, c1, bits) = if see_through { (blue, red, u32::MAX) } else { (red, blue, 0) };
+    [c0.to_le_bytes(), c1.to_le_bytes()].concat().into_iter().chain(bits.to_le_bytes()).collect()
+}
+
+/// A DXT5 block: alpha 255 or 0 throughout, over an opaque DXT1 block.
+fn dxt5(alpha: u8) -> Vec<u8> {
+    let mut b = vec![alpha, alpha, 0, 0, 0, 0, 0, 0];
+    b.extend(dxt1(false));
+    b
+}
+
 /// The textures, their TXIs, and the materials.
 fn write_textures(over: &Path) {
     let w = |name: &str, bytes: Vec<u8>| std::fs::write(over.join(name), bytes).unwrap();
@@ -232,6 +292,11 @@ fn write_textures(over: &Path) {
     w("mgp_amean.tga", tga(true, checker));
     w("mgp_puncho.tga", tga(false, checker));
     w("mgp_decalr.tga", tga(false, |_, _| [200, 40, 40, 255]));
+    // DDS: opaque and see-through in the west half, DXT1 and DXT5.
+    w("mgp_d1o.dds", dds(b"DXT1", |_, _| dxt1(false)));
+    w("mgp_d1c.dds", dds(b"DXT1", |x, of| dxt1(x * 2 < of)));
+    w("mgp_d5o.dds", dds(b"DXT5", |_, _| dxt5(255)));
+    w("mgp_d5a.dds", dds(b"DXT5", |x, of| dxt5(if x * 2 < of { 0 } else { 255 })));
     for name in ["mgp_alpha", "mgp_punch", "mgp_enva", "mgp_bumpa", "mgp_decala"] {
         w(&format!("{name}.tga"), disc_tga());
     }
