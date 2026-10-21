@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:29:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:04:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1195,10 +1195,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     bend of a normal facing away, which the game takes after (2 of 255 at
     the 99th percentile). (S)
   - Solid and see-through lit meshes go through the game's programs
-    (M2), decals too (`vsvt`/`fst`, M4); additive ones, the sky and its
-    fade, unlit markers, water and ripples (unless their material names a
-    pair), and skins of more than 64 bones stay with the WGSL shader.
-    (M5)
+    (M2), decals too (`vsvt`/`fst`, M4), and since M5 additive meshes,
+    the skybox, the area's grass and particles; the sky's fade, unlit
+    markers, shiny water (M5's decision: "The special surfaces" below),
+    rippling textures (unless their material names a pair), and skins of
+    more than 64 bones stay with the WGSL shader. (S)
   - ~~Each game draw a draw of its own, its blocks written anew every
     frame, programs compiled on the UI thread.~~ Done in M3: blocks split
     in IR, draws as instances of storage arrays, compiles on a worker,
@@ -1208,10 +1209,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     (`KEYHOLING_ENABLED 0`): the editor has no player. (S)
   - `gl_FragCoord.y` counts from the top in wgpu and from the bottom in
     OpenGL: not flipped. No program the game path draws reads it: of the
-    stock ones keyholing (off), `fswater`, `fs_shadowplane`, `fsparticle`
-    and `fs_cg_btn_col` (none drawn by it), and none of The Domains of
-    Dread's 37 (checked in M4). A screen-space custom shader would see it
-    upside down. (S)
+    stock ones keyholing (off), `fs_shadowplane` and `fs_cg_btn_col` (not
+    drawn), `fswater` (drawn only with `Renderer::game_water`, M5) and
+    `fsparticle` (drawn since M5, but it reads it only where
+    `particleSoftness` is above 0, which Moonglow leaves 0), and none of
+    The Domains of Dread's 37 (checked in M4). A screen-space custom
+    shader would see it upside down. (S)
   - ~~`m_texture` is the identity~~ Done in M4: a tile's `rotatetexture`
     meshes have their texture turned by the tile's turn, in both paths
     (read from the client: a placeable's never). The height map's
@@ -1246,16 +1249,15 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   or unchecked. (from M2, 2026-10-21)
   - ~~Off by default until M3.~~ On by default since M3, measured with
     `frame_perf` (see "The frame budget of the game's shaders").
-  - **Water, particles, the sky** stay Moonglow's own: a fountain's shiny
-    water (`ttr01_water01`) is the client's `fswater` with the
-    framebuffer, see-through to the basin's floor, and Moonglow's blue
-    (`tdod_custom_shaders_look`). `texFBColor`/`texFBDepth` are white, so
-    a material's `sample_framebuffer` (TDoD's flow MTR has one) draws
-    without what is behind it. (M5)
-  - **Additive meshes** and **an instance drawn see-through** (a
-    blueprint about to be placed, a tile preview) draw with Moonglow's
-    shader even when their material names a pair: the ghost would need a
-    depth-only pipeline of the game's programs. (S)
+  - ~~**Water, particles, the sky** stay Moonglow's own~~ M5 draws
+    particles and the sky with the game's programs; water stays Moonglow's
+    (see "The special surfaces" below). `texFBColor`/`texFBDepth` are
+    white, so a material's `sample_framebuffer` (TDoD's flow MTR has one)
+    draws without what is behind it. (L: the framebuffer, out of 2.0)
+  - **An instance drawn see-through** (a blueprint about to be placed, a
+    tile preview) draws with Moonglow's shader even when its material
+    names a pair: the ghost would need a depth-only pipeline of the game's
+    programs. (Additive meshes are the game's since M5.) (S)
   - `texture8`–`texture15` of a material are white to its programs
     (Moonglow keeps eight slots); no TDoD shader reads past `texUnit6`,
     and none of its 18,146 materials, nor the game's 7, names one
@@ -1352,11 +1354,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     1: alpha), not read from the client: 22 of the game's 3,717
     four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
     drawn solid. (S to check in the client)
-  - Not read: an additive mesh's program (blended, the marker can't be
-    read), a decal with an environment map (`vsvt_sm`/`fst_sm`?
-    Moonglow draws `vsvt`/`fst`), an item's environment map (Moonglow's
-    previews give items `chrome1`), `fswater` (water stays Moonglow's,
-    M5), what `cameraFocus` holds (read back as (34.31, 20, 0) once). (S)
+  - ~~Not read: an additive mesh's program, a decal with an environment
+    map, `fswater`~~ read in M5 (`vslit`/`fslit` as any mesh;
+    `vsvt_sm`/`fst_sm`, which Moonglow now chooses; `vswater`/`fswater`).
+    Still not read: which map an item on the ground reflects (it draws
+    `_sm`, as Moonglow's `chrome1` has it; the band didn't reach it), what
+    `cameraFocus` holds (read back as (34.31, 20, 0) once). (S)
   - **What Moonglow's own shader now draws otherwise** (both paths, as
     the client draws): a texture's `bumpyshinytexture` reflects nothing
     (33 of the game's TXIs name one; water keeps it for Moonglow's own
@@ -1393,6 +1396,62 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     its next bump: `Instance::tile`, `Material::rotate_texture` and
     `uvs`, `Environment::clock` (`ModuleClock`), `Renderer::game_programs`
     (`GameProgram`); a struct literal without `..` stops compiling. (M6)
+- **The special surfaces (M5 of [the shaders
+  proposal](shaders-proposal.md)):** water, grass, the sky, additive
+  meshes and particles, read in the client (`surfaces_in_the_client`)
+  and drawn with the game's programs or kept Moonglow's. (from M5,
+  2026-10-21)
+  - **Shiny water stays Moonglow's.** The client draws it with
+    `vswater`/`fswater` (Moonglow chooses them: `game::stock_pair`), whose
+    colour is mostly the refraction of what lies under the water, read
+    from the framebuffer (`texFBColor`, `texFBDepth`), out of 2.0. Without
+    it `fswater` draws the water opaque and pale: TDoD's fountain 16.4 of
+    255 from the client against Moonglow's own 11.7, a rural lake 19.4
+    against 12.6 (a standing card of water, content no area has, 38.3
+    against 55.6: there Moonglow's own is too dark). `Renderer::game_water` draws it for comparing
+    (`FRAME_GAME_WATER=1` in `frame_perf`). Its waves match the client's
+    pattern better than Moonglow's own ripples: porting `fswater`'s waves
+    (`GetWavesOffset`, `areaGlobalWind`) into Moonglow's water, or giving
+    the game's programs a copy of the picture and its depth drawn so far
+    (a second pass after the solid meshes), would bring it closer. (M–L)
+  - **Soft particles** (`particleSoftness`, above 0 in the client) fade
+    where a particle meets what is behind it, through `texFBDepth`:
+    Moonglow's particles don't, by either path. (with the framebuffer)
+  - **The sky's fade** (the horizon's band in the fog's colour) stays
+    Moonglow's: what the engine draws it with and gives it (`globalColor`,
+    its blending) wasn't read; the skybox is the game's `vsvt`/`fst`. (S)
+  - **How the engine blends an additive mesh** (one and one, or by its
+    alpha) is not read: Moonglow adds its colour whole by either path, as
+    before; the same for an opaque texture. A Lighten particle is added by
+    its alpha (`fsparticle` fades it by its alpha into the fog). (S)
+  - **Particles drawn as round blobs:** a still emitter of an 8×8 white
+    TGA draws a jagged disc (a Lighten one a turned square) in Moonglow,
+    by either path, and a square in the client (`surfaces_in_the_client`'s
+    pictures, `close_off.png` and `close_on.png`). Not looked into. (S)
+  - **The grass** is the game's program on Moonglow's tufts: their places,
+    sizes and count are Moonglow's (the field's mean colour 0.1 of 255
+    from the client's, but per pixel 17.6 against Moonglow's own 17.0:
+    the blades stand elsewhere). How the engine fades its grass in, and
+    the material colours it uploads (`.set` [GRASS]'s, linearised as
+    Moonglow does), are not read. (S)
+  - **Cube maps have one level** (`GpuTexture::upload_cube`): the level
+    Moonglow's shader works out for them since the Metal fix
+    (`cube_level`) and the bias the game's add come to level 0 either
+    way. (S)
+  - `Instance::grass`, `game::Traits`' `water`, `grass` and `sky`, and
+    `Renderer::game_water`: Moonglow Viewer meets them at its next bump (a
+    struct literal without `..` stops compiling). (M6)
+  - **A view dense in lights over the budget with the switch on:**
+    `frame_perf`'s water area (16 by 16 of ttr01, half water, 160 fires
+    with their lights) zooming out takes 7.5 ms a frame on, 5.6 off (7.9
+    on at M4: M5 batched the see-through game draws). What is left is a
+    game draw's values: its lights' block is 32 lights' places (a
+    kilobyte) for every set of lights and pipeline, written and uploaded
+    whole where a mesh has a few. Places counted by `vec4` rather than by
+    block (the lights packed, `numLights` of them), or a set's block shared
+    by the pipelines of one lights layout, would cut it. TDoD's woods seen
+    whole are about 5% slower than at M4 (the batcher's work for 30,000
+    see-through draws; over the budget either way). (M)
 - **A tileset's custom shader:** with the Shaders switch on (M2 above),
   the material's own programs draw it where their source is in the
   load order; off, Moonglow runs none (see Custom shader effects above).

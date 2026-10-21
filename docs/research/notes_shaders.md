@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:29:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:04:00Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -11,6 +11,9 @@ sources:
   - id: program-choice
     resource: crates/mg-corpus-tests/tests/client_render/programs.rs (program_choice_in_the_client), run 2026-10-21 on 89.8193.37-17
     title: Every stock program marked in the client's override; the pair, NO_DISCARD and the uniforms read per kind of mesh
+  - id: surfaces
+    resource: crates/mg-corpus-tests/tests/client_render/programs.rs (surfaces_in_the_client, runs marked, black, sky, waterband, unmarked), run 2026-10-21 on 89.8193.37-17
+    title: The special surfaces marked in the client - water, grass, the skybox, additive meshes, decals with an envmap, particles of the three blends, items on the ground
 ---
 
 # NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)
@@ -79,9 +82,10 @@ FS only: #define gl_FragColor compat_glFragColor / out vec4 compat_glFragColor;
 | `vsglu` | `fsglu` | debug lines/solids (GL utility) | outputs `RevertColorSpace(globalColor)` |
 
 Other programs loaded by name elsewhere ([ENG]):
-- `vsgrass` + `fsgrass`: walkmesh grass.
-- `vsparticle` + `fsparticle`: emitter particles. Chunk emitters do not use this pair ([WIKI]).
-- `vswater` + `fswater`: "fancy/shiny water", chosen when the texture's TXI has `bumpmaptexture shinywater` and `graphics.water.shiny` is on. [INF] from [WIKI]+[DATA]: 22 base water TXIs carry this, and `fswater` sits beside `vswater` in the string table.
+- `vsgrass` + `fsgrass`: walkmesh grass. [CLIENT] `NO_DISCARD` 0, `FRAGMENT_LIGHTING` 0 (§J).
+- `vsparticle` + `fsparticle`: emitter particles. Chunk emitters do not use this pair ([WIKI]). [CLIENT] every blend (§J).
+- `vswater` + `fswater`: "fancy/shiny water", chosen when the texture's TXI has `bumpmaptexture shinywater` (22 base water TXIs carry it). [CLIENT] On a water tile and on a placeable's mesh whose TXI says so alike, `NO_DISCARD` 1, with the client's default settings (`graphics.water.shiny` not set).
+- [CLIENT] The **skybox** draws with `vsvt`/`fst` (`NO_DISCARD` 1), as the wiki says; nothing else was marked over the sky (the horizon's fade, if drawn, is `fst` too or unmarked).
 - `vs_shadowvol` + `fs_shadowvol` (stencil shadow volumes), `vs_shadowplane` + `fs_shadowplane` (shadow darkening plane), `vs_beamvol` + `fs_beamvol` (light-shaft "beaming" volumes).
 - `vs_pltgen` + `fs_pltgen`: PLT → RGBA on the GPU (`graphics.experimental.generate-plt-with-shaders`).
 - `vsfbpostpr` + `fsfbpostpr`: the single post-process pass, which always runs ([CL] .35).
@@ -134,7 +138,13 @@ Naming key ([WIKI] + [SRC]):
    | `texture1` (MDL or MTR) or an MTR's `texture2`, **without** a render hint | `vslit`/`fslit`: the maps are not read | 1 |
    | placeables.2da `Reflection` `PLC_G_ENV` or `default` (treasure, mirror); appearance `ENVMAP` `default` (human) or `evmap_irrid` (diamond golem, mesh alpha 0.8: `NO_DISCARD` 0) | `vslit_sm`/`fslit_sm` | 1 |
    | `Reflection`/`ENVMAP` none (armoire, badger); the tileset's floor under its `EnvMap` | `vslit`/`fslit` | 1 |
-   | `TXI blending additive` | blended: not readable this way | |
+   | TXI `blending additive` | read over a board painted black (M5): as any other mesh, `vslit`/`fslit`; `vslit_sm`/`fslit_sm` with an `envmaptexture`; `vsvt`/`fst` as a decal [the decal read black over black: `fst`] | 1 |
+   | TXI `decal 1` and `envmaptexture chrome1` | `vsvt_sm`/`fst_sm` (M5) | 1 |
+   | TXI `bumpmaptexture shinywater` (a water tile, or a placeable's mesh) | `vswater`/`fswater` (M5) | 1 (whatever the texture's alpha) |
+   | an area's grass (`graphics.grass` mode 2) | `vsgrass`/`fsgrass`, `FRAGMENT_LIGHTING` 0 (M5) | 0 |
+   | the skybox (ARE `SkyBox`) | `vsvt`/`fst` (M5) | 1 |
+   | particles, `Normal` / `Lighten` / `Punch-Through` | `vsparticle`/`fsparticle`, `blendMode` 0 / 1 / 2, `particleSoftness` above 0 (M5) | 1 / 1 / 0 |
+   | an item on the ground (a short sword, a small shield) | `vslit_sm`/`fslit_sm` on their meshes (M5; which map is not read) | 1 |
 
    - **`vslitc*` are never chosen** (vertex colors draw `vslit`), nor `vsv`, `vsvc`, `vsvtc`, `vsvt_sm` for any content mesh; `vsvt`/`fst` is also the GUI's.
    - **A tileset's `EnvMap` doesn't choose `_sm`** (§M.12): it is the map bound to `texUnitEnv` for every lit mesh without one of its own (read as its mean colour through the band: the floor's and a placeable's `texUnitEnv` were `tcn01__ref01`'s, not `chrome1`'s), and `default` (2DA `Reflection`/`ENVMAP`, TXI `envmaptexture default`) means it too. `bumpyshinytexture` changes nothing (not the program, not the map bound).
@@ -142,7 +152,7 @@ Naming key ([WIKI] + [SRC]):
    - **Static placeables** (`Static 1`): the plain and `transparencyhint` cards of a static copy came out `NO_DISCARD` 0, next to the `alpha 0.5` card of the same texture: since .37 static geometry is baked into buckets, and a see-through mesh among them seems to make the bucket alpha-tested [INF]. Moonglow draws per mesh and doesn't follow this (open, §M).
    - The stock DDS reader reads past a single-level standard DDS (a 64² DXT1 with `mipMapCount` 0 drew noise at a distance); with all its levels it drew right.
    - Moonglow implements this (`mg-render` `game::stock_pair`, `game::no_discard`, `Renderer::slots`/`surface`; the test asserts Moonglow's choice for each card read).
-   - water TXI → `fswater` [INF from [WIKI]+[DATA]: not read here; water is still Moonglow's own, M5]
+   - water TXI → `vswater`/`fswater`, read in M5 (`surfaces_in_the_client`). Moonglow knows the choice (`game::stock_pair`) but draws water its own way (`GAME_WATER`, §J).
 3. The old TXI way of naming shaders is deprecated ([WIKI] TXI/MTR).
 4. Engine-side variant keys beyond the file: `NO_DISCARD` (above), plus the global quality and lighting defines (the client here: `FRAGMENT_LIGHTING` 1, `KEYHOLING_ENABLED` 0 with keyholing off, quality 2). Base-game MTRs (7 in total):
    - ice (`tti01_*`): `vslit_sm/fslit_sm` with Metallicness 0.001, Specularity 0.0179
@@ -696,6 +706,8 @@ FS (if camOffset < 0, i.e. fragment is in front of the player):
 
 ### Water (`vswater` + `fswater` via `inc_water`)
 Triggered by a texture TXI with `bumpmaptexture shinywater` (+ `bumpyshinytexture <tileset>__env` cubemap, + `proceduretype arturo distort 1` for the legacy look). Forced settings: `FRAGMENT_LIGHTING 1`, `ENVIRONMENT_MAP 1`, `POSITION_WORLD 1`, spec colour white, metal 0.
+- [CLIENT] (M5, `surfaces_in_the_client`, the `waterband` run: the band of uniforms over a water tile) the map bound is the **tileset's 2D `EnvMap`** (`texUnitEnv`'s mean 0.322, 0.318, 0.259: `ttr01__ref01`'s 0.312, 0.314, 0.268), `envMapCube` 0, `texEnvBound` 1: the TXI's `bumpyshinytexture` cube is not what it reflects. `areaGlobalWind` (1.414, 1.414, 0) for a strong wind, `areaFlags` 4.
+- **What it does without the framebuffer** (M5: Moonglow binds white for `texFBColor` and `texFBDepth`, as for every unfilled sampler): `GetDepth` reads `far` everywhere, so the depth under the surface is huge; the main wave's amplitude is full (`SetupWind`), the refraction's transparency `exp2(−depth·…)` is 0, and the reflection's ray finds no intersection (`fReflectionMod` 0: `ColorReflection` is the surface's own specular-lit colour). It draws the water **opaque**: `WaterBaseColor × SubsurfaceLight` plus the Fresnel reflection of the area's map, with the client's wave pattern (the main wave's streaks show where the client's do). The client's water is darker and see-through to what lies under it (TDoD's fountain basin shows its floor): its colour is mostly the refraction of `texFBColor`. Measured against the client: a rural lake (ttr01 water tiles, the far water's mean) 19.4 of 255 away with `fswater`, 12.6 with Moonglow's own water; TDoD's fountain 16.4 against 11.7 (a standing card of water, content no area has, 38.3 against 55.6). Moonglow keeps its own water (`mg-render` `GAME_WATER`, `Renderer::game_water` to compare).
 - `WaterBaseColor = lin(texture(texUnit0, (0.5,0.5), bias 20))`: the smallest mip, i.e. average colour + alpha = opacity.
 - specularity 0.02; roughness `0.00025 + 0.00025·dist` (GGX).
 - **Waves**:
@@ -712,6 +724,7 @@ Triggered by a texture TXI with `bumpmaptexture shinywater` (+ `bumpyshinytextur
 
 ### Grass (`vsgrass/fsgrass`)
 - `FORCE_VERTEX_LIGHTING`, `LIGHT_FORCE_INDIRECTIONAL`: lights add `C·att` with no N·L, then diffuse × 1/π. No specular. FS = texture × vertex light. Fog + keyhole.
+- [CLIENT] (M5) `vsgrass`/`fsgrass` with `NO_DISCARD` 0 (cut at its alpha) and `FRAGMENT_LIGHTING` 0. Its inputs are `vPos`, `vNormal`, `vTcIn` (`vColor` only with `staticLighting` 1): Moonglow's tufts feed them as they are (`Instance::grass`). The field's mean colour from the fitted camera: client (50.1, 48.9, 26.4), Moonglow's own shader 1.4 of 255 away, `vsgrass`/`fsgrass` 0.1 away; per pixel the tufts lie elsewhere than the engine's (17.0 against 17.6 of 255 over the field).
 - Engine-generated quads on walkmesh faces with material 3 (grass), sorted by distance, fading in, render distance `graphics.grass.render-distance` (900).
 - Wind sway is CPU-side [INF].
 - Tileset `.set [GRASS]`:
@@ -771,6 +784,11 @@ The result is a normal RGBA texture fed to `texUnit0`. The game can do this on t
 - `VertexColor × tex`; alpha discard.
 - Soft particles: `a *= sqr(clamp((sceneDepth − fragDepth)·particleSoftness, 0, 1))`.
 - Additive: `a *= 1 − fog`; others: normal fog.
+- `vsparticle` reads `vPos` (world space), `vTcIn` and `vColor`: the particle's colour and alpha, gamma space (`VertexColor = vColor`, not linearised).
+- [CLIENT] (M5, the marked fragment program painting `blendMode` and `particleSoftness > 0`): `Normal` `blendMode` 0 `NO_DISCARD` 1 (no cut), `Lighten` 1 and 1, `Punch-Through` 2 and 0 (cut at `fAlphaDiscardValue`, 0.2 as measured before); `particleSoftness` is above 0 for all three. Lighten particles that overlap add up (a still emitter's few particles in one place are white). Without `texFBDepth` (white, the far plane) the softness fades nothing: as with `particleSoftness` 0. Moonglow draws them so (M5), `Lighten` added by its alpha.
+
+### The skybox (`vsvt`/`fst`)
+- [CLIENT] (M5) The skybox draws with `vsvt`/`fst`, `NO_DISCARD` 1: its texture times `globalColor`, unlit, no fog. Moonglow draws it so, at the far plane around the camera as before (`Program::at_far_plane`: the position's depth `w·0.99999` in IR); its horizon fade stays Moonglow's (what the engine gives the fade, `globalColor` or blending, is not read). The sky's mean colour from the fitted camera: identical to the client's with either path.
 
 ---------------------------------------------------------------------------------------------------
 

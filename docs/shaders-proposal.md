@@ -1,9 +1,9 @@
 ---
 type: Proposal
 title: 'The game''s own shaders in the area view: a proposal for 2.0'
-description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies; M3 built - the Shaders switch on by default, every view within 144 fps where Moonglow's own shader is (a large stock area zoomed out 5.97 ms on, 3.97 off; a synthetic TDoD area seen whole, over the budget either way, 54 ms on, 29 off), through uniforms split in IR into a draw's, its lights', the frame's and the bones', draws as instances of storage arrays, compiles on a worker thread and a disk cache; M4 built - every mesh drawn with the program the engine chooses for it and its material's NO_DISCARD, read from the client by marking every stock program (36 kinds of mesh, Moonglow choosing as the client for each), the WGSL shader's environment map sampled as the game's (`_sm` 0.73 to 0.00 of 255 from the stock programs), a hak's inc_lighting through the load order (TDoD's area view), and the client's reference scenes compared with the switch off and on.
+description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies; M3 built - the Shaders switch on by default, every view within 144 fps where Moonglow's own shader is (a large stock area zoomed out 5.97 ms on, 3.97 off; a synthetic TDoD area seen whole, over the budget either way, 54 ms on, 29 off), through uniforms split in IR into a draw's, its lights', the frame's and the bones', draws as instances of storage arrays, compiles on a worker thread and a disk cache; M4 built - every mesh drawn with the program the engine chooses for it and its material's NO_DISCARD, read from the client by marking every stock program (36 kinds of mesh, Moonglow choosing as the client for each), the WGSL shader's environment map sampled as the game's (`_sm` 0.73 to 0.00 of 255 from the stock programs), a hak's inc_lighting through the load order (TDoD's area view), and the client's reference scenes compared with the switch off and on; M5 built - the special surfaces read in the client (water vswater/fswater with the tileset's 2D map, grass vsgrass/fsgrass, the skybox vsvt/fst, additive meshes as any mesh, a decal with an envmap vsvt_sm/fst_sm, particles vsparticle/fsparticle by blend) and drawn with the game's programs - the sky at the far plane, grass, additive meshes, particles - but water, kept Moonglow's because fswater without the framebuffer is farther from the client (TDoD's fountain 16.4 of 255 against 11.7); see-through game draws batched as Moonglow's own; M4's macOS failure (a cube map read with gradients) fixed.
 tags: [proposal, rendering, shaders, custom-content, renderer, release-2]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:18:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:04:00Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -45,6 +45,9 @@ sources:
   - id: m4
     resource: crates/mg-corpus-tests/tests/client_render/programs.rs (program_choice_in_the_client), client_render.rs (reference_scenes_match_the_client, the look tests off and on, tdod_custom_shaders_look), crates/mg-render/src/game.rs (stock_pair, no_discard), renderer.rs, shader.wgsl, crates/mg-render/tests/render.rs (the_game_s_lit_shaders_match_moonglow_s), crates/mg-ui/tests/app.rs (tdod_s_inc_lighting_changes_the_area_view_through_the_load_order), frame_perf.rs, run 2026-10-21 on 89.8193.37-17 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
     title: M4, the engine's choice
+  - id: m5
+    resource: crates/mg-corpus-tests/tests/client_render/programs.rs (surfaces_in_the_client), client_render.rs (tdod_custom_shaders_look), crates/mg-render/src/game.rs, renderer.rs, shader.wgsl (cube_level), crates/mg-shader/src/link.rs (at_far_plane), crates/mg-render/tests/render.rs, crates/mg-ui/tests/frame_perf.rs (FRAME_AREA=water), run 2026-10-21 on 89.8193.37-17 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
+    title: M5, the special surfaces
   - id: wiki-shaders
     resource: ~/.local/opt/neverwinter/wiki/pages/NWN1/106856449-shaders-introduction-editing-a-textures-colour.md, 12027232-mtr.md
     title: 'nwn.wiki: Shaders Introduction (both programs needed), MTR (renderhint makes tangents)'
@@ -60,7 +63,9 @@ behind a **Shaders** switch ([M2: tier A](#m2-tier-a-2026-10-21)), and M3,
 the switch within the frame budget and **on by default**
 ([M3: the frame budget](#m3-the-frame-budget-2026-10-21)), and M4, every
 mesh with the program the engine would choose, settled in the client
-([M4: the engine's choice](#m4-the-engines-choice-2026-10-21)).
+([M4: the engine's choice](#m4-the-engines-choice-2026-10-21)), and M5,
+the special surfaces each drawn the game's way or kept Moonglow's with
+the reason ([M5: the special surfaces](#m5-the-special-surfaces-2026-10-21)).
 
 Moonglow draws with one WGSL shader of its own that approximates EE's
 lighting ([the plan](PLAN.md) §5.5). This proposes that 2.0 draws with
@@ -925,6 +930,186 @@ choice of program").
 
 [^m4]: M4: the files in the frontmatter's `m4` source, run 2026-10-21.
 
+## M5: the special surfaces (2026-10-21)
+
+With **Shaders** on, the skybox, the area's grass, additive meshes and
+particles draw with the programs the client draws them with. Shiny water
+stays Moonglow's: the game's program needs the framebuffer, which 2.0
+leaves out, and without it the water is farther from the client than
+Moonglow's own.[^m5]
+
+**How it was read** (`surfaces_in_the_client`, `client_render.rs`,
+ignored): M4's marked programs, on a rural area (`ttr01`) with its grass
+on (`graphics.grass` mode 2), its north row of tiles water (tile 20, all
+water), a skybox, cards of water, additive and decal textures in front of
+a decal board, still particles of the three blends, and a sword and a
+shield on the ground. `fsparticle`'s mark carries its `blendMode` and
+whether `particleSoftness` is above 0. Further runs: `black`, the board's
+`fst` painting black, so what is added over it reads as its own mark (the
+additive cards, a Lighten particle, one at a time: a few of them in one
+place add up to white); `sky`, the camera raised once the player is in
+(from the OnClientEnter it doesn't move); `waterband`, water under the
+band of uniforms (the maps `fswater` is given); `unmarked`, the scene as
+it looks, which Moonglow's pictures are compared with. The test holds
+Moonglow's choice to the client's for every surface.
+
+| Surface | The client | `NO_DISCARD` | Moonglow, Shaders on |
+|---|---|---|---|
+| shiny water (a tile's; a placeable's mesh whose TXI says `shinywater`) | `vswater`/`fswater`, the tileset's 2D `EnvMap` bound (`envMapCube` 0), not the `bumpyshinytexture` cube | 1 | its own water (chosen as the client, not drawn: below) |
+| the area's grass | `vsgrass`/`fsgrass`, `FRAGMENT_LIGHTING` 0 | 0 | the same, on Moonglow's tufts (`Instance::grass`) |
+| the skybox | `vsvt`/`fst` | 1 | the same, at the far plane (`Program::at_far_plane`) |
+| the horizon's fade | (not marked apart) | | Moonglow's |
+| an additive mesh | as any mesh: `vslit`/`fslit`, `_sm` with an envmap, `vsvt`/`fst` as a decal | 1 | the same, added as Moonglow's own adds it |
+| a decal with an envmap | `vsvt_sm`/`fst_sm` | 1 | the same (M4 drew `vsvt`/`fst`) |
+| particles: Normal, Lighten, Punch-Through | `vsparticle`/`fsparticle`, `blendMode` 0, 1, 2; `particleSoftness` above 0 | 1, 1, 0 | the same; softness 0 |
+| an item on the ground | `vslit_sm`/`fslit_sm` | 1 | the same (`chrome1`, as before; the client's map not read) |
+
+**Against the client** (the `unmarked` run: each region's mean colour,
+the mean difference per channel of 255; the fitted camera; Moonglow's
+pictures off, on, and on with the game's water):
+
+| Region | Switch off | Switch on | On, the game's water |
+|---|---|---|---|
+| the sky | 0.0 | 0.0 | 0.0 |
+| the far water (four ttr01 water tiles) | 12.6 | 12.6 | 19.4 |
+| the water card (a placeable's mesh, standing) | 55.6 | 55.6 | 38.3 |
+| the grass field | 1.4 | 0.1 | 0.1 |
+| the decal board | 0.2 | 0.2 | 0.2 |
+| particles: Normal, Punch-Through, Lighten | 0.5, 0.2, 14.4 | 0.5, 0.2, 14.4 | |
+| cards: additive, additive decal, additive envmap, decal envmap, plain | 17.0, 3.5, 6.2, 5.0, 1.0 | 17.2, 3.5, 6.2, 5.0, 1.0 | |
+| the picture (away from the GUI) | 17.97 | 18.49 | 19.10 |
+| TDoD's fountain room: the fountain's 7,091 pixels | 13.7 | 11.7 | 16.4 |
+
+On is as close as off, within 0.2 of 255, for every surface's region,
+and closer on the grass. The whole picture is 0.5 farther on: the grass,
+whose blades Moonglow grows in other places than the engine. Over the
+field its mean colour is closer (0.1 against 1.4), and per pixel a
+little farther (17.6 against 17.0), as `vsgrass` lights its blades at
+their corners with more contrast than Moonglow's shader. The particles'
+and the cards' differences are the same by either path (Moonglow draws
+the still particles of an 8×8 white texture as jagged discs and a turned
+square, the client as squares: not M5's). The cards are partly hidden by the grass, which sways: their
+numbers move by a few from run to run. A standing water card is the one
+place `fswater` comes closer (38.3 against 55.6: Moonglow's own draws it
+dark blue, the client light), on content no area has.
+
+**Water: what `fswater` does without the framebuffer.** Its
+`texFBColor` and `texFBDepth` are white, as every sampler Moonglow has
+nothing for. Then `GetDepth` is the far plane everywhere and the water
+infinitely deep: the main wave at its full height, the refraction's
+transparency 0, and the reflection's ray finds nothing, falling back to
+the surface's own specular-lit colour. The water is drawn **opaque**,
+its base colour times the subsurface light plus the Fresnel reflection of
+the area's map, with the client's wave pattern (its long streaks are
+where the client's are). The client's is darker and see-through to what
+lies under it, and its colour is mostly that refraction: TDoD's basin
+shows its floor. Measured, `fswater` is farther from the client than
+Moonglow's own water (the lake 19.4 against 12.6, the fountain 16.4
+against 11.7). So water stays Moonglow's (`GAME_WATER`; the switch
+`Renderer::game_water` draws it for comparing). A framebuffer copy (the
+picture and its depth after the solid meshes, a second pass) would let it
+draw as the client does; that is the uniform contract's out-of-2.0 row.
+
+**Decided:**
+
+- **The sky at the far plane in IR.** Moonglow draws the skybox around
+  the camera, beyond the far plane, without depth. `vsvt` would have it
+  clipped, so `Program::at_far_plane` sets the position's depth to
+  `w·0.99999` as it leaves (after the depth range's remap), and the sky's
+  pipeline writes no depth and culls nothing. The fade stays Moonglow's.
+- **Passes of the game's programs.** `GamePass` gained `Additive` (one
+  and one, no depth written, as Moonglow's own), `Sky`, and
+  `Particles(blend)`: Normal alpha-blended, Punch-Through solid (cut at
+  0.2, with depth), Lighten added by its alpha (`fsparticle` fades it by
+  its alpha into the fog). Additive and sky draws are draws of their own
+  among Moonglow's, in their places.
+- **Particles' vertices by name** from `ParticleVertex`: `vPos`, `vTcIn`,
+  and `vColor` the particle's colour (gamma, as `vsparticle` takes it). A
+  game draw's geometry is a mesh or a range of the particle buffer
+  (`Geometry`), drawn without indices. `blendMode` is a draw's uniform;
+  `particleSoftness` is left 0 (with white for `texFBDepth` it would fade
+  nothing either).
+- **Grass** is marked on its instance (`Instance::grass`), chosen by
+  `Traits::grass`; its vertex program reads the draw's lights (the
+  vertex stage's lights part, M3's).
+- **Water's map** for `fswater` is the area's (`Surface::water_material`),
+  where Moonglow's own water keeps reflecting its `bumpyshinytexture`.
+- **See-through game draws batched.** A see-through, additive or sky draw
+  of the game's had been a draw of its own; it is now placed with the
+  others of its pipeline, material and mesh where they don't meet on the
+  screen, as Moonglow's own are (the batcher's key holds the pipeline),
+  and the game's draws are laid out in the order they are drawn, so a
+  batch's are instances in a row. Floats are written a vector at a time,
+  and the light sets and pipelines looked up with the quick hasher.
+
+**Measured** (`frame_perf`, `game_shaders_frames_at_144`, release build,
+this machine; a new view, `FRAME_AREA=water`: 16 by 16 of ttr01, half of
+it water, its grass, a skybox, 160 braziers, campfires and flames with
+their particles and lights):
+
+The median CPU time of a frame, ms (M4's on rebuilt in this session for
+the baseline; the machine shared with another session's server and
+builds, load 3 to 6, so a run's numbers move by about 5%, and each was
+run twice or more):
+
+| View | Off | M4, on | M5, on | M5, on with the game's water |
+|---|---|---|---|---|
+| water area, overview, wheel | 5.6 | 7.9 | **7.5** | 7.8 |
+| water area, turning, wheel | 5.9 | 7.8 | 7.5 | 7.7 |
+| water area, close, pointer (GPU) | 3.9 (8.0) | | 4.5 (3.0) | 4.4 (4.0) |
+| water area, parts: encoded / GPU | 2.7 / 1.7 | 4.5 / 1.4 | 4.3 / 1.4 | 4.5 / 1.7 |
+| area092, overview, wheel | 4.0 | 6.2 | **5.8** | |
+| area092, turning, wheel | 4.4 | 5.5 | 5.1 | |
+| TDoD woods, overview, wheel | 29.9 | 56.4 | 59 to 66 | |
+| TDoD woods, close, pointer | 3.8 | 5.2 | 5.4 | |
+
+- **The water area is over the budget with the switch on, and was at
+  M4** (7.9 ms, off 5.6): its 160 fires' lights and 2,400 game meshes,
+  more than half see-through. M5 brought it from 7.9 to 7.5 (see-through
+  game draws batched: 1,347 calls to 391; floats written a vector at a
+  time); what is left is a game draw's values, its lights' block (32
+  lights' places, a kilobyte, for each set of lights and pipeline) above
+  all, as M3 found. The surfaces M5 added cost little of it: the
+  particles' game draws 0.27 ms of encoding, the grass's and the sky's
+  less. Recorded in [the deferred list](deferred.md).
+- **The game's water** costs the GPU 0.9 ms more close up (3,440 by
+  1,400: `fswater`'s waves are sampled 3 times 3 iterations a fragment,
+  its two ray marches run against white) and the CPU nothing to speak of;
+  it is out for its look, not its cost.
+- **area092 is quicker** (overview 6.3 to 5.8 ms, the batching alone
+  measured back to back: 6.3 against 5.8) and within the budget. **TDoD's
+  woods seen whole** were over the budget either way and are about 5%
+  slower (the batcher's work for 30,000 see-through draws); close up they
+  stay within it (5.4 ms, 5.2 at M4).
+- Opening area092 compiles 14 programs (8 at M4: the sky's, the
+  particles', `fst_sm`) and makes 17 pipelines, 120 ms of the worker's
+  (58 with the cache filled).
+
+**The macOS failure of M4's CI.** M4 read the reflecting cube map with
+`textureSampleGrad`, which naga 30's Metal backend writes with 2D
+gradients (`metal::gradient2d` of `float3`s); Metal refused the whole lit
+pipeline, so every test that draws a lit mesh failed there. The cube's
+level is now worked out in the shader from the direction's derivatives on
+the face it points at (`cube_level`) and read with `textureSampleLevel`;
+the 2D map keeps its gradients. A test holds the WGSL sources to no cube
+read with gradients or a bias, another writes them for Metal with naga's
+`msl-out` and finds no cube sampled with 2D gradients (both fail on M4's
+line), and the stock-program oracle gained a sphere reflecting a cube map
+(0.00 / 0 of 255 from `fslit_sm`). Cube maps are uploaded with one level,
+so both paths read level 0 for now.
+
+**Tests:** `mg-shader` (`at_far_plane`); `mg-render` (the engine's
+choices for the new surfaces; on the GPU, authored stand-ins under the
+stock names: the sky beyond the far plane, an additive mesh added, the
+grass, the three particle blends with their `blendMode`, see-through game
+draws as instances of one draw; each mutation-checked); the client tests
+above, which hold Moonglow's choice to the client's.
+
+What M5 leaves is in [the deferred list](deferred.md) ("The special
+surfaces").
+
+[^m5]: M5: the files in the frontmatter's `m5` source, run 2026-10-21.
+
 ## Two tiers
 
 - **Tier A, custom shaders.** A mesh whose MTR names
@@ -1027,8 +1212,8 @@ Decided on 2026-10-21:[^decisions]
   milliseconds; its value follows the module's minutes an hour, not its
   hour or day: notes §B.4).
 - ~~How the engine chooses `_sm` and plain programs~~ and ~~how it sets
-  `NO_DISCARD`~~: read from the client in M4 (notes §A.4). Still open:
-  when it uses `fswater` (M5), and a static placeable's meshes baked
+  `NO_DISCARD`~~: read from the client in M4 (notes §A.4); ~~when it uses
+  `fswater`~~ read in M5. Still open: a static placeable's meshes baked
   together.
 - What the toolset itself runs with: `FRAGMENT_LIGHTING`, quality,
   `MAX_NUM_LIGHTS` (notes §M.5). This only matters if Aurora's look is ever
