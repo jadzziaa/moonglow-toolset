@@ -2739,8 +2739,9 @@ fn compile_errors_go_to_their_line() {
     let message = h.state().script_tools.messages.last().cloned().expect("a compiler message");
     assert!(message.error);
     assert_eq!(message.location, Some(("hello".to_string(), 4)));
-    // The message is in the log too; the Compiler tab's comes after it.
-    h.get_all_by_label(&message.text).last().unwrap().click();
+    // The message is in the log too; the Compiler tab's begins with its
+    // time.
+    h.get_by_label(&format!("{} {}", message.at, message.text)).click();
     h.run();
     h.run();
     let line4 = text.match_indices('\n').nth(2).unwrap().0 + 1;

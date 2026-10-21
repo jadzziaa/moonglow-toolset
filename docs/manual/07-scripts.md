@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:18:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:15:09Z }
 ---
 
 # Scripts
@@ -24,7 +24,27 @@ lists:
 - **Templates**: code templates, the game's and those in your Code
   Templates Directory (Options › Script Editor). Double-click to insert.
 
+**Help** shows the documentation as the source has it: the comment
+lines above the declaration with their `//` and their spacing, in the
+editor's font and colors, then the declaration itself, so the aligned
+lists in `nwscript.nss`'s comments line up as they do in the file.
+
 Below the text are the **Compiler** messages: click one to go to its line.
+Each starts with the time it was written (`14:03:27`), so two compiles
+in a row are easy to tell apart. When **Save** saves without compiling
+(Automatically Compile Scripts on Save is off), the Compiler tab says
+so instead of keeping the last compile's message.
+
+The editor works with plain line ends. A script saved with Windows line
+ends (CRLF, as BioWare's scripts and Moonglow's new ones are) has no
+hidden character at the end of each line for the cursor to stop on, End
+goes to the line's last character, and copied text has no `\r`. Text
+you paste is turned into plain line ends too. When the script is saved,
+it gets its own line ends back: a script you didn't change is written
+byte for byte as it was, and in a changed one the new lines use the
+file's line ends (CRLF for a CRLF script). In a file that mixes both,
+the lines before and after the change keep their own, and the changed
+ones take the kind most of the file's lines have.
 
 | Keys | Do |
 | --- | --- |
@@ -33,7 +53,8 @@ Below the text are the **Compiler** messages: click one to go to its line.
 | Ctrl+R | Replace |
 | F2, Ctrl+Space | complete the word at the cursor (functions, constants, variables) |
 | Enter | a new line, begun as far in as the line it is started from |
-| Tab, Shift+Tab | indent the selected lines; outdent them, or the cursor's line |
+| Tab | one step of indentation at the cursor: four spaces (to the next multiple of four), or a tab (Options › Script Editor › Indent with); on several selected lines, indent each one a step (empty lines stay empty) |
+| Shift+Tab | outdent the selected lines, or the cursor's line, a step: a tab, or up to the indent width in spaces |
 | Page Down, Page Up | a page down or up, the text with the cursor; with Shift, selecting |
 | Ctrl+Z, Ctrl+Y | take back and give again what was done in the editor (typing, a new line, an indent, a completion, a replacement), while it has the keyboard |
 | F12, Ctrl+click | go to the definition of the name at the cursor |
@@ -101,7 +122,11 @@ With that:
 
 **Errors as you type**: half a second after you stop typing, Moonglow
 compiles the script (an include file needs no `main`). The first error
-shows under the toolbar and its line is underlined.
+shows under the toolbar and its line is underlined. That line under the
+toolbar is kept whether or not there is an error, so the text doesn't
+move as errors come and go; a long message is cut to fit (hover over it
+for all of it). **Options › Script Editor › Check for errors as you
+type** turns this off.
 
 Struct members (`p.nX`) aren't followed. Other editors get the same
 features through `mg lsp` (see [Command-line tools](11-command-line.md)).

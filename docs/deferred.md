@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T20:38:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:15:09Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -140,6 +140,29 @@ Size: S (an hour or two), M (a day or so), L (several days).
   lines (descriptions, a conversation line's text, the talk table's
   strings, comments) are egui's own field, which has none. Their texts
   are short. (S)
+- **A script with both kinds of line end** (CRLF and plain): untouched,
+  it is written byte for byte; edited, the lines before the first change
+  and after the last keep their own line ends, and every line between
+  takes the kind most of the file's lines have, even an unchanged line
+  between two changes. A real diff of lines would keep those too. No
+  shipped script mixes them, as far as looked. (S) (Jasperre's report,
+  2026-10-21)
+- **Line ends in the other text fields:** the script editor and the
+  resource browser's read-only scripts and text show plain line ends;
+  the other fields of several lines (a conversation line's text,
+  descriptions, the talk table's strings) were not looked at for a
+  CRLF's `\r`. (S) (Jasperre's report, 2026-10-21)
+- **Indentation by file:** Tab's indentation (four spaces, or a tab) is
+  one setting for every script; it isn't guessed from the script open
+  (BioWare's use spaces and tabs both), and Enter copies the line's own
+  leading spaces and tabs as they are. Converting a script's
+  indentation is not offered. (S) (Jasperre's report, 2026-10-21)
+- **Times in the log:** the Compiler tab's messages carry the time they
+  were said; the log's lines don't. (S) (Jasperre's report, 2026-10-21)
+- **Help for block comments:** Help shows the `//` lines directly above
+  a declaration, as the source has them; a `/* … */` comment above one
+  is not taken as its documentation (as before). (S) (Jasperre's
+  report, 2026-10-21)
 
 ## nasher projects
 
