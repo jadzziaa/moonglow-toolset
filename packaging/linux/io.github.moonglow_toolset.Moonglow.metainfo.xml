@@ -45,6 +45,14 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.36.0" date="2026-10-21">
+      <description>
+        <p>An area's lighting copied from another or kept under a name,
+        windows that move by their tab bar, every list of a table's rows
+        filtered and sorted alike, and a dozen fixes where copies of the
+        same logic had drifted apart.</p>
+      </description>
+    </release>
     <release version="1.35.0" date="2026-10-20">
       <description>
         <p>An area's grass set in Area Properties and drawn in the area
