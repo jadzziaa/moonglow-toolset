@@ -7217,7 +7217,7 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
     let names = ["tdod_shaders", "tdod_t_tap"];
     for name in names {
         let file = format!("{name}.hak");
-        std::os::unix::fs::symlink(haks.join(&file), user.join("hak").join(&file)).unwrap();
+        mg_testkit::link_or_copy(&haks.join(&file), &user.join("hak").join(&file)).unwrap();
     }
     // A module on a stock tileset, made Medieval Rural's field of TDoD's
     // `mst04` tiles 42 and 48 (trees and plants of the wind shaders).

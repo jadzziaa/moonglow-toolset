@@ -2105,7 +2105,7 @@ fn tdod_custom_shaders_look() {
     let names = ["tdod_shaders", "tdod_p_tap", "tdod_top"];
     for name in names {
         let file = format!("{name}.hak");
-        std::os::unix::fs::symlink(haks.join(&file), dir.join("user/hak").join(&file)).unwrap();
+        mg_testkit::link_or_copy(&haks.join(&file), &dir.join("user/hak").join(&file)).unwrap();
     }
     let mut game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
     for name in names.iter().rev() {

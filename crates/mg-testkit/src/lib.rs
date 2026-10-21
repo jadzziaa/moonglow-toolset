@@ -159,6 +159,20 @@ pub fn scratch_dir(name: &str) -> PathBuf {
     dir
 }
 
+/// Puts `from` at `to` for a test's scratch user folder (a builder's hak
+/// in its `hak`): a symbolic link where the platform makes one without
+/// asking (Unix), else a copy.
+pub fn link_or_copy(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(from, to)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::copy(from, to).map(|_| ())
+    }
+}
+
 /// A directory under `target/test-output/` that is kept as it is: for
 /// output that several tests add to (the pictures of `screens.rs`), which
 /// [`scratch_dir`] would empty under them.
