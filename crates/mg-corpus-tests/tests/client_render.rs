@@ -18,7 +18,8 @@
 //! onto the view.
 //!
 //! Compared: mean colours of floor, wall and armoire regions away from the
-//! game's GUI.
+//! game's GUI, Moonglow drawing with the Shaders switch off (its own
+//! shader) and on (the game's).
 //!
 //! `light_uniforms_match_the_client` reads the client's lighting uniforms
 //! back instead: a debug copy of the game's own `inc_standard.shd` (patched

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:26:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:29:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1348,6 +1348,10 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     Moonglow decides it per mesh. Not worked out: which meshes share a
     bucket, whether tiles' do (they are baked too). (S to check in the
     client)
+  - A BioWare DDS's alpha is taken from its header's alpha mean (below
+    1: alpha), not read from the client: 22 of the game's 3,717
+    four-channel ones have a mean of 1 (roofs, bark, flagstones) and are
+    drawn solid. (S to check in the client)
   - Not read: an additive mesh's program (blended, the marker can't be
     read), a decal with an environment map (`vsvt_sm`/`fst_sm`?
     Moonglow draws `vsvt`/`fst`), an item's environment map (Moonglow's

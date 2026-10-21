@@ -3,7 +3,7 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:26:25Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:29:14Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
@@ -316,7 +316,7 @@ Script-driven:
 
 - `textureNBound` (int) exists per unit 0–10. Stock code checks 0–5 (a "not bound" slot may hold stale data [WIKI]).
 - `texNoiseBound` [CLIENT] 1 (read through a program including `inc_random`, which only keyholing, water and the post passes include).
-- The texture's alpha [CLIENT]: a TGA's by its texels (a 32-bit picture all opaque is opaque), a standard DDS's by its format (DXT1 none: its transparent texels are drawn black, opaque; DXT3/5 alpha whatever their texels), a TXI `alphamean` below 1 marking alpha (§A.4).
+- The texture's alpha [CLIENT]: a TGA's by its texels (a 32-bit picture all opaque is opaque), a standard DDS's by its format (DXT1 none: its transparent texels are drawn black, opaque; DXT3/5 alpha whatever their texels), a TXI `alphamean` below 1 marking alpha (§A.4). A BioWare DDS (4 channels) by its header's alpha mean below 1 [INF: not read from the client; of the game's 3,717 four-channel BioWare DDS, 22 have a mean of 1 (roofs, bark, flagstones: `trm02_roof02`, `tcm02_bark02b`), which Moonglow takes as opaque].
 - MTR `textureN` overrides MDL `bitmap`/`textureN`. `null` skips a slot. An MTR takes precedence over TGA/DDS/PLT of the same name.
 - For PLT, omit `texture0` in the MTR.
 
