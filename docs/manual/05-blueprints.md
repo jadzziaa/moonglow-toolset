@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:32:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
 ---
 
 # Blueprints
@@ -311,7 +311,7 @@ Shared parts:
 
 ### Creatures
 
-Basic (name, race, gender, portrait, appearance, faction, conversation;
+Basic (name, race, gender, portrait, appearance, conversation;
 the races are those of racialtypes.2da with a name, as in Aurora: a row
 with only a label, `DELETED` or CEP's `CEP_RESERVED`, is not listed),
 **Statistics** (abilities, saves, armor class, hit points, speed; the
@@ -439,6 +439,21 @@ Transition** (doors: to a door or waypoint in another area), Scripts,
 Advanced, Visuals, Description, Comments. A placeable with an inventory
 has an **Inventory** page. It can have one without being usable: players
 can't open it, but scripts can reach what it holds.
+
+A placeable's Advanced page has **Illuminated**: whether its light is on
+when the game loads it, the state scripts read and change with
+`GetPlaceableIllumination` and `SetPlaceableIllumination`. Aurora doesn't
+show it; the game keeps it in a field of its own (`LightState`), which
+Moonglow writes only once the box is changed, so a placeable left as it
+is stays lit, as it always was. Only an appearance with a light (a
+brazier, a lamp post) has one to turn off; for the others the box is
+grayed. The area view and the preview draw the light either way.
+
+The faction lists (a creature's, a placeable's, a door's, a trigger's and
+an encounter's Advanced page) leave out the PC faction: it is the
+players' alone, and the game puts a creature of it in Hostile. An object
+that already has it keeps it, shown as "PC (not for objects)", until
+another is picked; Verify Module warns of it.
 
 ### Triggers and encounters
 

@@ -3,7 +3,7 @@ type: Research Note
 title: NWN:EE GFF resources authored by the toolset + EE toolset changelog — research notes for Moonglow Toolset
 description: Field reference for the GFF resource types the toolset authors (NWN:EE 89.8193.37), toolset-only data in a module, the EE-added fields, and the EE toolset's changes in order and by topic, with citations and open questions.
 tags: [gff, fields, ee, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:09:03Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
 ---
 
 # NWN:EE GFF resources authored by the toolset + EE toolset changelog — research notes for Moonglow Toolset
@@ -149,7 +149,9 @@ Nested instance inventories (creature `Equip_ItemList`/`ItemList`, placeable `It
 - 1.79-1.8x format [D WCoC door, ToM placeable]: `VisualTransform` St (struct id 6) {ScaleX, ScaleY, ScaleZ F (…other members presumably only when non-default)}. Current toolset still **reads** this label [T].
 - Current format [D DoIWD, T, S]: `VisTransformList` L (struct id 6), one element per scope: `Scope` I (OBJECT_VISUAL_TRANSFORM_DATA_SCOPE_*: 0 base; creature 254 head, 253 tail, 252 wings, 243 cloak; item parts 255-251 [nwscript.nss]), then structs (id 0) `AnimationSpeed`, `ScaleX`, `ScaleY`, `ScaleZ`, `RotateX`, `RotateY`, `RotateZ`, `TranslateX`, `TranslateY`, `TranslateZ`, each {`TimerType` I, `ValueTo` F, `LerpType` I (OBJECT_VISUAL_TRANSFORM_LERP_* 0-7)} plus, per [T] writer, `ValueFrom` F, `LerpDuration`, `LerpProgress` when a lerp is in progress (not seen in data). Lerps added 1.83.8193.21 [Doc]. The version that switched VisualTransform → VisTransformList (scopes) is not stated in the changelogs (between 2021-10 and 2025).
 
-Engine-only instance labels [S] (runtime, savegames/ObjectToJson; preserve): Material, ShaderParams {Float1-4}, TextureReplace {OldTexture, NewTexture}, AnimationReplace {OldAnimation, NewAnimation}, MiscVisuals, MouseCursor, HiliteColorR/G/B, VisibleDistance, UiDiscoverMask, TextBubbleType/Text, SecretDoorDC, OnDialog, TrapRecoverable/Active/Faction/Creator, DieWhenEmpty, GroundPile, LightState, IsBodyBag, ExpressionList…, UsesPerDay.
+Engine-only instance labels [S] (runtime, savegames/ObjectToJson; preserve): Material, ShaderParams {Float1-4}, TextureReplace {OldTexture, NewTexture}, AnimationReplace {OldAnimation, NewAnimation}, MiscVisuals, MouseCursor, HiliteColorR/G/B, VisibleDistance, UiDiscoverMask, TextBubbleType/Text, SecretDoorDC, OnDialog, TrapRecoverable/Active/Faction/Creator, DieWhenEmpty, GroundPile, LightState (but see below), IsBodyBag, ExpressionList…, UsesPerDay.
+
+`LightState` B (placeables) is read from a module too, not only from savegames [engine: `engine_light_state.rs`, 2026-10-21; Jasperre's report]: from a placed placeable's GIT entry and from a UTP created by script; 0 off, nonzero on, absent on (`GetPlaceableIllumination`); a placeable whose placeables.2da row has no `LightColor` is never lit. Aurora neither shows nor writes it; Moonglow's placeable Advanced page has it (**Illuminated**), written only when changed. See `findings.md`.
 
 ### B4. GIC — area instance comments (`<area>.gic`). FileType `GIC `. Toolset-only.
 Same 9 lists as GIT, same struct IDs, one struct per GIT instance **in the same order**: `Comment` Str. SoundList structs also carry `PlayInToolset` B (preview sound in the area editor) — write order PlayInToolset, Comment. Encounter List structs are **empty** (encounter comments live in the GIT) [D DoIWD]. `List[]` (ground items) Comment appears only in newer files [D].

@@ -39,6 +39,8 @@ mod engine_grass;
 mod engine_item_cost;
 #[path = "../engine_journal.rs"]
 mod engine_journal;
+#[path = "../engine_light_state.rs"]
+mod engine_light_state;
 #[path = "../engine_locked.rs"]
 mod engine_locked;
 #[path = "../engine_modules.rs"]

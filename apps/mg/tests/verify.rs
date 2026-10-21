@@ -88,6 +88,48 @@ fn verify_finds_area_variables_the_game_does_not_read() {
     assert!(f["message"].as_str().unwrap().contains("iNoMap"), "{f}");
 }
 
+/// A placed creature of faction 0, the PC faction (Jasperre's report: the
+/// game puts it in Hostile, `engine_factions.rs`): a warning, so Verify
+/// still passes; `mg checks` lists the check.
+#[test]
+fn verify_warns_of_an_object_of_the_pc_faction() {
+    let root = mg_testkit::corpus!();
+    let chess = root.join("data/mod/Neverwinter Chess.mod");
+    let dir = mg_testkit::scratch_dir("mg-verify-pc-faction");
+    let mut m = Module::open(&chess).unwrap();
+    let git = ResKey::new(ResRef::from_str("chess").unwrap(), ResType::GIT);
+    let mut g = m.gff(&git).unwrap().unwrap();
+    let mut creatures = g.root.list("Creature List").unwrap_or(&[]).to_vec();
+    let mut c = creatures.first().cloned().expect("a creature in the chess area");
+    c.set("FactionID", Value::Word(0));
+    c.set("Tag", Value::String(b"MG_PC_GUARD".to_vec()));
+    creatures.push(c);
+    g.root.set("Creature List", Value::List(creatures));
+    m.set_gff(git, &g).unwrap();
+    let path = dir.join("pc-faction.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let found: Vec<&serde_json::Value> = json["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| f["check"] == "pc-faction")
+        .collect();
+    assert_eq!(found.len(), 1, "{json}");
+    assert_eq!(found[0]["severity"], "warning");
+    assert!(found[0]["at"].as_str().unwrap().contains("MG_PC_GUARD"), "{}", found[0]);
+    let checks = crate::mg().args(["--json", "checks"]).output().unwrap();
+    let checks: serde_json::Value = serde_json::from_slice(&checks.stdout).unwrap();
+    let check = checks["checks"].as_array().unwrap().iter().find(|c| c["id"] == "pc-faction");
+    assert!(check.is_some_and(|c| c["group"] == "objects"), "{checks}");
+}
+
 /// A module naming a talk table the game can't find doesn't load: Verify
 /// fails on it. The table in the module's own resources is found, as the
 /// game finds it there (`tests/engine_tlk.rs`).

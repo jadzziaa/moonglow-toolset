@@ -209,7 +209,26 @@ impl ObjectKind {
     pub fn has_outline(self) -> bool {
         matches!(self, ObjectKind::Trigger | ObjectKind::Encounter)
     }
+
+    /// The field with the faction (a `repute.fac` row) it belongs to, for
+    /// the kinds that belong to one.
+    pub fn faction_field(self) -> Option<&'static str> {
+        match self {
+            ObjectKind::Creature => Some("FactionID"),
+            ObjectKind::Door
+            | ObjectKind::Encounter
+            | ObjectKind::Placeable
+            | ObjectKind::Trigger => Some("Faction"),
+            _ => None,
+        }
+    }
 }
+
+/// Faction 0, the PC faction: player characters' alone, not to be given
+/// an object (Jasperre's report). In the game a creature of it is put in
+/// faction 1, Hostile, as it loads; a placeable, door or trigger keeps it,
+/// and creatures regard it as they regard players (`engine_factions.rs`).
+pub const PC_FACTION: i64 = 0;
 
 #[cfg(test)]
 mod tests {

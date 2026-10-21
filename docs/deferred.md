@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T20:38:29Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -382,6 +382,28 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   properties keep an item off wasn't looked into. (S–M)
 - **The Classes page in a narrow window:** the second domain picker
   sits at the window's edge. (S)
+- **A placeable's illumination, drawn:** **Illuminated** (`LightState`)
+  is saved and the server reads it (`engine_light_state.rs`), but the
+  area view and the preview draw a placeable's light whatever it says
+  (`mg-preview/src/object.rs` `placeable`). Whether the client draws a
+  placeable loaded with 0 without its light (and without its glow: the
+  model's own animation state is the separate Initial State) was not
+  looked at in the client; once seen, the preview can leave the light
+  out. Which `LightColor` the engine counts as a light (Moonglow: a row
+  above 0, as the preview) was checked on one row (6). (S) (Jasperre's
+  report, October 2026)
+- **The PC faction, what's left:** the faction lists, the Store Wizard
+  and Verify (`pc-faction`) keep objects out of faction 0. Not done:
+  `mg set` and the raw fields view still write 0 if told to (Verify
+  reports it after); Verify
+  doesn't report an object with no faction field (the engine's reading of
+  a missing one wasn't measured); Aurora's own faction lists were not
+  captured (whether they offer PC is not known), and Aurora writes
+  faction 0 for a trigger whose blueprint has none (`instances.rs`
+  `TRIGGER`), which Moonglow copies when placing. How an object of faction
+  0 regards a player, or a player it, was not measured (no player joins
+  a headless server); an encounter's creatures were not looked at. (S)
+  (Jasperre's report, October 2026)
 
 ## Blueprint editors and inventories
 

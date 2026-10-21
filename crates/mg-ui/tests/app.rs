@@ -6362,6 +6362,91 @@ fn placeable_editor_fills_its_inventory() {
     assert!(h.get_by_label("Has Inventory").accesskit_node().is_disabled());
 }
 
+/// A placeable's illumination (`LightState`, which Aurora doesn't show;
+/// Jasperre's report): a brazier without the field is lit, and keeps no
+/// field until the box is unticked (0) or ticked again (1), one undoable
+/// change each. A chest, whose appearance has no light, can't be lit.
+#[test]
+fn a_placeable_s_illumination_is_written_only_when_changed() {
+    let Some((mut h, key)) = blueprint_harness("plc_brazier", "brazier_light", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Advanced").click();
+    h.run();
+    let state =
+        |h: &Harness<'_, Moonglow>| h.get_by_label("Illuminated").accesskit_node().toggled();
+    assert_eq!(state(&h), Some(egui::accesskit::Toggled::True));
+    assert!(!h.get_by_label("Illuminated").accesskit_node().is_disabled());
+    assert_eq!(field(&mut h, &key).get("LightState"), None, "shown, not written");
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("copy"));
+    h.get_by_label("Illuminated").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).get("LightState"), Some(&mg_gff::Value::Byte(0)));
+    assert_eq!(state(&h), Some(egui::accesskit::Toggled::False));
+    h.get_by_label("Illuminated").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).get("LightState"), Some(&mg_gff::Value::Byte(1)));
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run();
+    assert_eq!(field(&mut h, &key).get("LightState"), None, "undone, the field is gone");
+
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_light", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Advanced").click();
+    h.run();
+    let node = h.get_by_label("Illuminated");
+    assert!(node.accesskit_node().is_disabled());
+    assert_eq!(node.accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
+    assert_eq!(field(&mut h, &key).get("LightState"), None);
+}
+
+/// The PC faction is the players' alone (Jasperre's report; the game puts
+/// a creature of it in Hostile): an object's faction list doesn't offer
+/// it. A creature whose file has it keeps it, shown as such, until
+/// another is picked.
+#[test]
+fn an_object_s_factions_leave_out_the_pc_faction() {
+    let Some((mut h, key)) = blueprint_harness("nw_bandit001", "pc_faction", ResType::UTC) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Advanced").click();
+    h.run();
+    let shown = field(&mut h, &key).integer("FactionID").unwrap();
+    let name = mg_module::factions::STANDARD[shown as usize];
+    h.get_by_value(name).click();
+    h.run();
+    for other in &mg_module::factions::STANDARD[1..] {
+        assert!(h.query_by_label(other).is_some(), "{other} is offered");
+    }
+    assert!(h.query_by_label("PC").is_none(), "PC is not offered");
+    h.key_press(egui::Key::Escape);
+    h.run();
+
+    // A file with faction 0: kept, and shown as the PC faction.
+    let mut g = Gff::new(*b"UTC ");
+    g.root = field(&mut h, &key);
+    g.root.set("FactionID", mg_gff::Value::Word(0));
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "pc",
+        vec![mg_edit::Edit::SetResource { key, data: Some(g.to_bytes().unwrap()) }],
+    )));
+    h.run();
+    assert_eq!(field(&mut h, &key).integer("FactionID"), Some(0));
+    h.get_by_value("PC (not for objects)").click();
+    h.run();
+    assert!(h.query_by_label("PC").is_none(), "PC is not offered");
+    h.get_by_label("Commoner").click();
+    h.run();
+    assert_eq!(field(&mut h, &key).get("FactionID"), Some(&mg_gff::Value::Word(2)));
+    assert!(h.query_by_value("PC (not for objects)").is_none());
+}
+
 #[test]
 fn visuals_page_sets_replacements_and_misc_visuals() {
     let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_visuals", ResType::UTP) else {

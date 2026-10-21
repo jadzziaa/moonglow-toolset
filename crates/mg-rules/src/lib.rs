@@ -23,6 +23,7 @@ pub mod items;
 pub mod levelup;
 pub mod names;
 pub mod objects;
+pub mod placeables;
 pub mod rows;
 pub mod spell_warnings;
 pub use challenge::Challenge;

@@ -3,7 +3,7 @@ type: Manual Page
 title: Journal and factions
 description: The Journal Editor and the Faction Editor.
 tags: [manual, journal, factions]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-05T19:05:31Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:41:16Z }
 ---
 
 # Journal and factions
@@ -44,4 +44,8 @@ Faction…** makes a faction that starts with a parent's attitudes;
 member, all the others turn too.
 
 Creatures, doors, placeables, triggers and encounters belong to a faction
-(their Basic page).
+(their Advanced page). The PC faction isn't offered there: it is the
+players' alone, and the game puts a creature of it in Hostile as it
+loads (a placeable, door or trigger keeps it, and is regarded as players
+are). An object whose file has it keeps it, shown as "PC (not for
+objects)", until another is picked, and Verify Module warns of it.
