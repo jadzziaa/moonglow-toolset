@@ -346,12 +346,6 @@ impl<'a> Doctor<'a> {
         let Some(t) = self.table(table) else { return true };
         usize::try_from(row).ok().and_then(|r| t.get(r, column)).is_some()
     }
-
-    /// A cell of a 2DA row, if there is one.
-    fn cell(&mut self, table: &str, row: i64, column: &str) -> Option<String> {
-        let t = self.table(table)?;
-        usize::try_from(row).ok().and_then(|r| t.get(r, column)).map(str::to_string)
-    }
 }
 
 /// Examines the module's custom content. `resman` has the module and its
@@ -1252,78 +1246,30 @@ fn walk_objects(
     path: &str,
     out: &mut Vec<(String, String)>,
 ) {
-    let int = |label: &str| s.integer(label);
-    // A row the object names must exist; with `model`, the model its
-    // column names must too (a missing one crashes Aurora's area view).
-    let mut check = |d: &mut Doctor,
-                     label: &str,
-                     table: &str,
-                     column: &str,
-                     what: &str,
-                     model: bool| {
-        let Some(v) = int(label) else { return };
-        match d.cell(table, v, column) {
-            None => out.push((format!("{path}/{label}"), format!("{what} {v} isn't a {table}.2da row"))),
-            Some(m) if model && m.eq_ignore_ascii_case("USER") => out.push((
-                format!("{path}/{label}"),
-                format!("{what} {v} is a reserved {table}.2da row (its model is USER), so it has no appearance"),
-            )),
-            Some(m) if model && !d.model_exists(&m) => out.push((
-                format!("{path}/{label}"),
-                format!("{what} {v} is model {m} ({table}.2da {column}), which isn't in the haks or the game"),
-            )),
-            Some(_) => {}
+    // The row the object's appearance names must exist, and the model its
+    // column names too (a missing one crashes Aurora's area view), as the
+    // previews and the Properties' warnings judge it
+    // (`mg_rules::appearance`).
+    let object = kind.and_then(mg_rules::ObjectKind::from_restype);
+    if let Some(at) = object.and_then(|k| mg_rules::appearance::AppearanceRow::of(k, s)) {
+        let rm = d.rm;
+        if let Err(e) = at.model(d.table(at.table), rm) {
+            out.push((format!("{path}/{}", at.field), e.to_string()));
         }
-    };
-    match kind {
-        Some(ResType::UTC) => {
-            check(d, "Appearance_Type", "appearance", "LABEL", "appearance", false);
-            // Single-model creatures name their model; part-based ones a prefix.
-            if let Some(v) = int("Appearance_Type")
-                && d.cell("appearance", v, "MODELTYPE")
-                    .is_some_and(|t| !t.eq_ignore_ascii_case("P"))
+    }
+    if kind == Some(ResType::UTC)
+        && let Some(Value::List(classes)) = s.get("ClassList")
+    {
+        for (i, c) in classes.iter().enumerate() {
+            if let Some(Value::Int(v)) = c.get("Class")
+                && !d.row_has("classes", i64::from(*v), "Label")
             {
-                check(
-                    d,
-                    "Appearance_Type",
-                    APPEARANCE_MODEL.0,
-                    APPEARANCE_MODEL.1,
-                    "appearance",
-                    true,
-                );
-            }
-            if let Some(Value::List(classes)) = s.get("ClassList") {
-                for (i, c) in classes.iter().enumerate() {
-                    if let Some(Value::Int(v)) = c.get("Class")
-                        && !d.row_has("classes", i64::from(*v), "Label")
-                    {
-                        out.push((
-                            format!("{path}/ClassList[{i}]/Class"),
-                            format!("class {v} isn't a classes.2da row; Aurora and the game crash"),
-                        ));
-                    }
-                }
+                out.push((
+                    format!("{path}/ClassList[{i}]/Class"),
+                    format!("class {v} isn't a classes.2da row; Aurora and the game crash"),
+                ));
             }
         }
-        Some(ResType::UTP) => {
-            check(d, "Appearance", PLACEABLE_MODEL.0, PLACEABLE_MODEL.1, "appearance", true)
-        }
-        Some(ResType::UTI) => check(d, "BaseItem", "baseitems", "label", "base item", false),
-        Some(ResType::UTD) => {
-            if int("Appearance") == Some(0) {
-                check(
-                    d,
-                    mg_rules::rows::generic_door_field(s),
-                    GENERIC_DOOR_MODEL.0,
-                    GENERIC_DOOR_MODEL.1,
-                    "door appearance",
-                    true,
-                );
-            } else {
-                check(d, "Appearance", DOOR_MODEL.0, DOOR_MODEL.1, "door appearance", true);
-            }
-        }
-        _ => {}
     }
     for f in &s.fields {
         let label = f.label.to_string_lossy();
@@ -1463,7 +1409,11 @@ mod tests {
         m.set_gff(key("stool", ResType::UTP), &utp).unwrap();
         let f = examine(&m, &rm, TalkTables { base: 100, custom: Some(1) });
         let object = f.iter().find(|x| x.check == "object-row").unwrap();
-        assert!(object.message.contains("model plc_stool"), "{}", object.message);
+        assert!(
+            object.message.contains("No model: plc_stool (placeables.2da row 1, ModelName)"),
+            "{}",
+            object.message
+        );
         // A generic door names its row in EE's GenericType_New (Moonglow's
         // doors have no other): Verify read the older GenericType alone,
         // and found nothing.
@@ -1477,7 +1427,11 @@ mod tests {
         let f = examine(&m, &rm, TalkTables::default());
         let door = f.iter().find(|x| x.check == "object-row").expect("the door's model");
         assert_eq!(door.at, "gate.utd › GenericType_New");
-        assert!(door.message.contains("model door_wood"), "{}", door.message);
+        assert!(
+            door.message.contains("No model: door_wood (genericdoors.2da row 0"),
+            "{}",
+            door.message
+        );
     }
 
     #[test]

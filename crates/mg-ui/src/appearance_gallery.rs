@@ -97,6 +97,16 @@ impl Kind {
         }
     }
 
+    /// Why row `row` has no model to draw, if it has none
+    /// ([`mg_rules::appearance`], as the Properties and Verify say it).
+    fn problem(self, game: &mg_rules::GameData, row: usize) -> Option<String> {
+        let mut object = mg_gff::Struct::default();
+        for (label, value) in self.fields(row as i64) {
+            object.set(label, value);
+        }
+        game.appearance_problem(self.object(), &object).map(|p| p.to_string())
+    }
+
     fn object(self) -> mg_area::ObjectKind {
         match self {
             Kind::Placeable => mg_area::ObjectKind::Placeable,
@@ -236,7 +246,27 @@ pub(crate) fn grid(
                     if let (true, Some(k)) = (seen, key) {
                         shown.push(k);
                     }
-                    let r = r.on_hover_text(format!("{} ({name}.2da row {})", c.text, c.row));
+                    // (Marked where it has no model: a builder chose such
+                    // rows and saw nothing say why.)
+                    let problem = if seen { kind.problem(&game, c.row) } else { None };
+                    let mut about = format!("{} ({name}.2da row {})", c.text, c.row);
+                    if let Some(p) = &problem {
+                        let red = ui.visuals().error_fg_color;
+                        let stroke = egui::Stroke::new(1.5, red);
+                        ui.painter().rect_stroke(r.rect, 3.0, stroke, egui::StrokeKind::Inside);
+                        ui.painter().text(
+                            r.rect.left_top() + egui::vec2(5.0, 4.0),
+                            egui::Align2::LEFT_TOP,
+                            "No model",
+                            egui::TextStyle::Body.resolve(ui.style()),
+                            red,
+                        );
+                        about = format!(
+                            "{about}
+{p}"
+                        );
+                    }
+                    let r = r.on_hover_text(about);
                     if r.clicked() {
                         pick = Some(c.row as i64);
                     }

@@ -80,6 +80,7 @@ fn basic(f: &mut Form<'_>, ui: &mut Ui) {
             f.gallery_button(ui, crate::appearance_gallery::Kind::Placeable);
         });
         ui.end_row();
+        f.model_warning(ui, mg_rules::ObjectKind::Placeable);
         crate::widgets::field_label(ui, "Category");
         f.category(ui, BlueprintKind::Placeable);
         ui.end_row();

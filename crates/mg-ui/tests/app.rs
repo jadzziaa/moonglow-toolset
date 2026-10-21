@@ -6054,6 +6054,126 @@ fn door_editor_sets_appearance_lock_and_transition() {
     assert_eq!(field(&mut h, &key).integer("Interruptable"), Some(0));
 }
 
+/// A placeable given an appearance whose model is nowhere is told so under
+/// its Appearance Type, naming the model and the table's row (a builder's
+/// report: the preview was empty, and nothing said why; Aurora's area view
+/// often crashes on one), as is a reserved row (`USER`); one with a model
+/// is not.
+#[test]
+fn a_placeable_s_appearance_without_a_model_is_said() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    // (With a GPU: the preview beside the fields says it too.)
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let dir = mg_testkit::scratch_dir("ui-bp-no-model");
+    let path = sample_module(&dir);
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    // The game's placeables.2da in the module, with a row more: a model
+    // no one has.
+    let (chest, row) = {
+        let game = app.game.as_deref().unwrap();
+        let mut table = game.resman.get_named("placeables", ResType::TWODA).unwrap().into_owned();
+        let row = game.table("placeables").unwrap().len();
+        if !table.ends_with(b"\n") {
+            table.extend_from_slice(b"\r\n");
+        }
+        table.extend_from_slice(format!("{row} Missing_Thing **** plc_x99\r\n").as_bytes());
+        let mut m = Module::open(&path).unwrap();
+        m.set(ResKey::parse("placeables", ResType::TWODA).unwrap(), table);
+        m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+        (game.resman.get_named("plc_chest1", ResType::UTP).unwrap().into_owned(), row)
+    };
+    app.open_module(&path);
+    let key = ResKey::parse("my_crate", ResType::UTP).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "copy",
+        vec![mg_edit::Edit::SetResource { key, data: Some(chest) }],
+    )));
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Blueprint(key)));
+    close_tab(&mut app, &Tab::ModuleProperties);
+    app.open_palette = false;
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1100.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let shots = mg_testkit::scratch_dir("ui-bp-no-model-shot");
+    h.render().expect("render").save(shots.join("chest.png")).unwrap();
+    let warning = "No model: ";
+    assert!(h.query_by_label_contains(warning).is_none(), "the chest has its model");
+
+    // Chosen in the Appearance Type dropdown (it shows "Chest").
+    let combo = egui_kittest::kittest::by().role(egui::accesskit::Role::ComboBox);
+    let at = h
+        .query_all(combo)
+        .find(|n| n.accesskit_node().value().is_some_and(|v| v.starts_with("Chest")))
+        .map(|n| n.rect().center())
+        .expect("the Appearance Type dropdown");
+    h.hover_at(at);
+    press(&h, at, true, egui::Modifiers::NONE);
+    press(&h, at, false, egui::Modifiers::NONE);
+    h.run_steps(2);
+    // (Typed into its Filter: frames are stepped, as the preview plays.)
+    let filter = |n: &egui_kittest::kittest::AccessKitNode<'_>| n.placeholder() == Some("Filter");
+    h.get(egui_kittest::kittest::by().predicate(filter)).click();
+    h.run_steps(2);
+    h.get(egui_kittest::kittest::by().predicate(filter)).type_text("Missing_Thing");
+    h.run_steps(2);
+    let choice = h.get_by_label("Missing_Thing").rect().center();
+    h.hover_at(choice);
+    press(&h, choice, true, egui::Modifiers::NONE);
+    press(&h, choice, false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    h.render().expect("render").save(shots.join("no-model.png")).unwrap();
+    assert_eq!(field(&mut h, &key).integer("Appearance"), Some(row as i64));
+    let said = format!(
+        "No model: plc_x99 (placeables.2da row {row}, ModelName) isn't in the module, its haks \
+         or the game"
+    );
+    assert!(h.query_by_label(&said).is_some(), "the warning under the field");
+    let pane = format!("my_crate.utp: {said}");
+    assert!(h.query_by_label(&pane).is_some(), "the preview says it, not the chest");
+
+    // A reserved row (the game's 1000 on are USER), then the chest again.
+    let set = |h: &mut Harness<'_, Moonglow>, v: u32| {
+        let edit = mg_edit::Edit::SetField {
+            key,
+            path: mg_edit::GffPath::root(),
+            label: "Appearance".into(),
+            value: Some(mg_gff::Value::Dword(v)),
+        };
+        h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Set", vec![edit])));
+        h.run_steps(3);
+    };
+    set(&mut h, 1000);
+    let reserved = "No model: placeables.2da row 1000 is reserved (its ModelName is USER)";
+    assert!(h.query_by_label(reserved).is_some(), "a reserved row is said");
+    set(&mut h, 1);
+    assert!(h.query_by_label_contains(warning).is_none(), "a row with a model says nothing");
+    let pane = h.query_by_label_contains("my_crate.utp: No model");
+    assert!(pane.is_none(), "the preview shows the model again");
+    // The Appearance Gallery marks the row (a picture to look at).
+    h.get_by_label("Gallery…").click();
+    h.run_steps(3);
+    h.state_mut().placeable_gallery.as_mut().unwrap().filter = "Missing_Thing".into();
+    h.run_steps(10);
+    h.render().expect("render").save(shots.join("gallery.png")).unwrap();
+    let tile = |n: &egui_kittest::Node<'_>| n.rect().height() > 90.0;
+    assert!(h.get_all_by_label("Missing_Thing").any(|n| tile(&n)), "its picture in the gallery");
+}
+
 #[test]
 fn placeable_editor_fills_its_inventory() {
     let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_copy", ResType::UTP) else {

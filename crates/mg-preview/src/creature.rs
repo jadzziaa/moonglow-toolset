@@ -144,6 +144,8 @@ pub fn creature(
     let lk = Lookup { game };
     let appearance = game.table("appearance")?;
     let row = number(utc, "Appearance_Type");
+    // (A model of its own, where the row names one, that is there.)
+    crate::appearance(game, mg_rules::ObjectKind::Creature, utc)?;
     let r = usize::try_from(row).map_err(|_| PreviewError::NoRow { table: "appearance", row })?;
     let race =
         cell(&appearance, r, "RACE").ok_or(PreviewError::NoRow { table: "appearance", row })?;

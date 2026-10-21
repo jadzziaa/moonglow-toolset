@@ -16,6 +16,7 @@ use mg_resman::{GameInstall, ResError, ResKey, ResMan};
 use mg_tlk::Tlk;
 use thiserror::Error;
 
+pub mod appearance;
 pub mod challenge;
 pub mod creatures;
 pub mod items;

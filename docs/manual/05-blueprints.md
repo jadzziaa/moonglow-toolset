@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:32:06Z }
 ---
 
 # Blueprints
@@ -138,7 +138,10 @@ The palette's buttons:
   for the appearance, of no blueprint. **Find** narrows it by name, and the
   slider sets how large the pictures are at least: they grow to fill the
   tab's width (the palette's Gallery has the same slider, and the size is
-  kept). A model the palettes don't offer can be chosen here.
+  kept). A model the palettes don't offer can be chosen here. A picture
+  framed in red, marked **No model**, is a row with no model to draw (see
+  "An appearance with no model" below); the pointer resting on it says
+  why.
 - **Gallery…** beside the appearance in a placeable's, creature's or
   door's Properties (a blueprint's, or a placed one's) opens the gallery
   at that object's
@@ -175,6 +178,19 @@ The palette's buttons:
   an item's Appearance page show the model beside their fields, in a
   window wide enough for both (a creature's Appearance page always has
   it). A change shows as you make it.
+- **An appearance with no model**: when the row an appearance names (a
+  placeable's `placeables.2da` row, a door's `doortypes.2da` row or a
+  generic door's `genericdoors.2da` row, a creature's `appearance.2da`
+  row) has no model to draw, a line in red under the field says why, and
+  the model's place in the page says it too: the row isn't in the table,
+  it names no model, it is reserved (its model is `USER`: rows a table
+  keeps for builders), or the model it names is in neither the module,
+  its haks nor the game, as in "No model: plc_x99 (placeables.2da row
+  451, ModelName) isn't in the module, its haks or the game". The game
+  draws nothing for such an object, and Aurora's area view often crashes
+  on one: choose another appearance, or add the model to a hak. An
+  item's Base Type Name says so when it isn't a `baseitems.2da` row.
+  Verify (Build › Verify) reports the same objects by the same rule.
 - **Preview**: show the blueprint in the model viewer. An item modeled
   lying (a sword) is stood up; a helmet and a shield show as worn, a
   shield from its front. A blueprint
