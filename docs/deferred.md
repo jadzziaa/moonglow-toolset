@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:15:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:20:19Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -157,6 +157,10 @@ Size: S (an hour or two), M (a day or so), L (several days).
   (BioWare's use spaces and tabs both), and Enter copies the line's own
   leading spaces and tabs as they are. Converting a script's
   indentation is not offered. (S) (Jasperre's report, 2026-10-21)
+- **"Saved, not compiled" on the module's save:** the script editor's
+  Save says it in the Compiler tab when compiling on save is off; File ›
+  Save (Ctrl+S), which stores the editors' unsaved text too, doesn't.
+  (S) (Jasperre's report, 2026-10-21)
 - **Times in the log:** the Compiler tab's messages carry the time they
   were said; the log's lines don't. (S) (Jasperre's report, 2026-10-21)
 - **Help for block comments:** Help shows the `//` lines directly above
