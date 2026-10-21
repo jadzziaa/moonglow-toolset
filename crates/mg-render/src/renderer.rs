@@ -1403,6 +1403,9 @@ impl Renderer {
         let mut chosen = Vec::new();
         // (A game draw's lights, as its blocks take them.)
         let (mut light_positions, mut light_colors) = (Vec::new(), Vec::new());
+        // (The sets of lights the game's draws are lit by, each numbered.)
+        let mut light_sets: HashMap<Box<[u32]>, u32> = HashMap::new();
+        let mut light_set: Vec<u32> = Vec::new();
         let scene_env = scene.env_map.as_deref();
         let scene_env_id = self.name_id(scene_env);
         let mut hidden = 0;
@@ -1535,10 +1538,20 @@ impl Renderer {
                     if let Some((p, fringe)) = pipelines {
                         light_positions.clear();
                         light_colors.clear();
+                        light_set.clear();
                         for (_, _, i) in &chosen {
                             light_positions.push(lights[*i as usize].pos);
                             light_colors.push(lights[*i as usize].color);
+                            light_set.push(*i);
                         }
+                        let next = light_sets.len() as u32;
+                        let lights_id = match light_sets.get(&light_set[..]) {
+                            Some(&n) => n,
+                            None => {
+                                light_sets.insert(light_set.clone().into_boxed_slice(), next);
+                                next
+                            }
+                        };
                         let d = crate::game::DrawValues {
                             world,
                             bones: &bones[bone_base as usize..],
@@ -1550,8 +1563,10 @@ impl Renderer {
                             alpha_discard: ALPHA_DISCARD,
                             light_positions: &light_positions,
                             light_colors: &light_colors,
+                            lights: lights_id,
                             bbox: (mesh.min, mesh.max),
                             params: &slots.params,
+                            material: surface.material,
                         };
                         timed += usize::from(p.timed);
                         let draw = self.game.push(p, surface.material, mesh, dynamic_range, f, &d);
@@ -1769,7 +1784,8 @@ impl Renderer {
         }
         let (starts, order) = crate::batch::in_order(&batch_of, batcher.batches());
         self.batcher = batcher;
-        self.drawn.batches = starts.len() - 1 + game_draws.len();
+        // (And the game's solid draws', as they are drawn.)
+        self.drawn.batches = starts.len() - 1;
         // (Each instance's uniforms, by its number.)
         let named: Vec<u32> = order.iter().map(|&d| draws[d as usize].uniform).collect();
         upload(
@@ -1893,7 +1909,7 @@ impl Renderer {
         // pipeline and material, each set once for its draws.
         game_draws.sort_by_key(|d| d.order());
         if !game_draws.is_empty() || !game_blended.is_empty() {
-            self.game.upload(gpu);
+            self.game.upload(gpu, &mut game_draws, &mut game_blended);
             let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
             let noise = self.texture(gpu, assets, "solid_noise");
             let env_sampler = self.env_sampler.clone();
@@ -1965,21 +1981,31 @@ impl Renderer {
             let mut materials = 0;
             // The game's shaders' draws, after the solid ones of Moonglow's.
             let mut game_drawn = game_draws.is_empty();
+            // (What the game's draws left bound, and whether Moonglow's own
+            // must bind its frame again before it draws.)
+            let mut game_bound = crate::game::Bound3::default();
+            let mut own_lost = false;
             for batch in starts.windows(2) {
                 // (A batch's draws are of one mesh and one material.)
                 let d = &draws[order[batch[0] as usize] as usize];
                 if !game_drawn && !matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
-                    self.game.draw(&mut pass, &game_draws, &self.dynamic_buffer);
+                    let dynamic = &self.dynamic_buffer;
+                    self.drawn.batches +=
+                        self.game.draw(&mut pass, &game_draws, dynamic, &mut game_bound);
                     game_drawn = true;
-                    pass.set_bind_group(0, &frame_group, &[]);
-                    (pipeline, material) = (None, None);
+                    own_lost = true;
                 }
                 if let Some(i) = d.game {
                     let draw = std::slice::from_ref(&game_blended[i as usize]);
-                    self.game.draw(&mut pass, draw, &self.dynamic_buffer);
+                    let _ = self.game.draw(&mut pass, draw, &self.dynamic_buffer, &mut game_bound);
+                    own_lost = true;
+                    continue;
+                }
+                if own_lost {
                     pass.set_bind_group(0, &frame_group, &[]);
                     (pipeline, material) = (None, None);
-                    continue;
+                    game_bound = crate::game::Bound3::default();
+                    own_lost = false;
                 }
                 let key = (d.pass, d.mesh.skin.is_some(), d.twosided);
                 if pipeline != Some(key) {
@@ -2004,7 +2030,9 @@ impl Renderer {
                 pass.draw_indexed(0..d.mesh.index_count, 0, batch[0]..batch[1]);
             }
             if !game_drawn {
-                self.game.draw(&mut pass, &game_draws, &self.dynamic_buffer);
+                let dynamic = &self.dynamic_buffer;
+                self.drawn.batches +=
+                    self.game.draw(&mut pass, &game_draws, dynamic, &mut game_bound);
             }
             self.drawn.materials = materials;
             if !particle_draws.is_empty() {

@@ -1609,10 +1609,12 @@ varying vec4 vTint;
 #include "inc_platform"
 attribute vec4 vPos;
 attribute vec2 vTcIn;
+// (The engine's baked light: Moonglow has none, its zeros.)
+attribute vec4 vColor;
 void main ()
 {
     vUv = mat2(m_texture) * vTcIn;
-    vTint = materialFrontDiffuse;
+    vTint = materialFrontDiffuse + vColor;
     gl_Position = m_proj * (m_mv * vPos);
 }
 "#;
@@ -1644,8 +1646,15 @@ void main ()
         near: 0.1,
         far: 100.0,
     };
+    // One quad, and the same mesh twice more to its sides: three
+    // instances of one draw, each in its own place.
+    let quad = standing_quad(&gpu, "red", Vec3::new(0.0, 0.0, 1.0), 1.0);
+    let beside = |x: f32| crate::Instance {
+        transform: Mat4::from_translation(Vec3::new(x, 0.0, 0.0)) * quad.transform,
+        ..quad.clone()
+    };
     let scene = Scene {
-        instances: vec![standing_quad(&gpu, "red", Vec3::new(0.0, 0.0, 1.0), 3.0)],
+        instances: vec![beside(-3.0), quad.clone(), beside(3.0)],
         background: [0.0, 0.0, 0.0],
         ..Default::default()
     };
@@ -1663,12 +1672,18 @@ void main ()
         img.pixel(32, 32),
     );
     assert_eq!(r.game_shader_failures(), &[]);
-    assert_eq!(r.drawn.game, 1, "{:?}", r.drawn);
+    assert_eq!((r.drawn.game, r.drawn.batches), (3, 1), "{:?}", r.drawn);
+    save(&img, &mg_testkit::scratch_dir("render-platform").join("game_platform.png"));
     // The texture's red (bound, through the function), the material's
-    // white, no lights, and the frame's width as blue.
-    assert_eq!(img.pixel(32, 32), [255, 0, 255, 255]);
-    // Around the quad, the background.
-    assert_eq!(img.pixel(1, 1), [0, 0, 0, 255]);
+    // white, no lights, and the frame's width as blue: in the middle and
+    // in each instance beside it.
+    for x in [32, 9, 55] {
+        assert_eq!(img.pixel(x, 32), [255, 0, 255, 255], "{x}");
+    }
+    // Between and around the quads, the background.
+    for (x, y) in [(1, 1), (20, 32), (44, 32)] {
+        assert_eq!(img.pixel(x, y), [0, 0, 0, 255], "{x}, {y}");
+    }
 }
 
 /// A program that doesn't compile is drawn with Moonglow's own shader

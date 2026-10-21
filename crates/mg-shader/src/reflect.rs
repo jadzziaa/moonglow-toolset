@@ -47,7 +47,7 @@ pub struct Member {
 
 /// Which of a program's uniforms a block holds: all of them (glslang's
 /// one block, as compiled), or, split by [`crate::Program::split_uniforms`],
-/// a draw's own, the frame's, or the bones'.
+/// a draw's own, the frame's, the bones' or the lights'.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Part {
     #[default]
@@ -55,6 +55,7 @@ pub enum Part {
     Draw,
     Frame,
     Bones,
+    Lights,
 }
 
 /// A uniform block: glslang's `gl_DefaultUniformBlock` holds the loose
@@ -68,6 +69,10 @@ pub struct UniformBlock {
     /// [`crate::Program::place_block`]).
     pub group: u32,
     pub binding: u32,
+    /// An array of these in a storage buffer, a draw's own picked by its
+    /// place (the draw's and the lights' parts of a split program); the
+    /// size is then an element's.
+    pub array: bool,
     /// Its size in bytes (`span`), which arrays set (`m_bones`: 4 KB).
     pub size: u32,
     pub members: Vec<Member>,
@@ -206,6 +211,7 @@ pub(crate) fn bind(module: &mut Module, io: &[crate::spirv::Io]) -> Reflection {
             part: Part::Whole,
             group: 0,
             binding,
+            array: false,
             size,
             members,
         });

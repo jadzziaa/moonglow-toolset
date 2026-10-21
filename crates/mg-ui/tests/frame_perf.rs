@@ -368,6 +368,15 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
         h.run_steps(1);
         opening.push(t.elapsed());
     }
+    // (The game's programs, made while the frames go on: what is timed
+    // after is the view as it stays.)
+    let start = Instant::now();
+    while h.state().viewport.as_ref().is_some_and(|v| v.renderer.drawn.game_pending > 0)
+        && start.elapsed() < Duration::from_secs(60)
+    {
+        std::thread::sleep(Duration::from_millis(5));
+        h.run_steps(1);
+    }
     if !r.shots {
         let longest = opening.iter().max().copied().unwrap_or_default();
         let all: Duration = opening.iter().sum();

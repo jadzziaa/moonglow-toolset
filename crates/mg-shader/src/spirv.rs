@@ -50,6 +50,13 @@ const OP_LOAD: u16 = 61;
 const OP_DECORATE: u16 = 71;
 const OP_MEMBER_DECORATE: u16 = 72;
 const OP_SAMPLED_IMAGE: u16 = 86;
+const OP_ENTRY_POINT: u16 = 15;
+const OP_TYPE_RUNTIME_ARRAY: u16 = 29;
+const OP_FUNCTION: u16 = 54;
+const OP_FUNCTION_END: u16 = 56;
+const OP_STORE: u16 = 62;
+const OP_ACCESS_CHAIN: u16 = 65;
+const OP_LABEL: u16 = 248;
 
 const DECORATION_BUILTIN: u32 = 11;
 const DECORATION_LOCATION: u32 = 30;
@@ -57,6 +64,13 @@ const DECORATION_BINDING: u32 = 33;
 const DECORATION_DESCRIPTOR_SET: u32 = 34;
 
 const DECORATION_BLOCK: u32 = 2;
+const DECORATION_BUFFER_BLOCK: u32 = 3;
+const DECORATION_ARRAY_STRIDE: u32 = 6;
+const DECORATION_FLAT: u32 = 14;
+const DECORATION_NON_WRITABLE: u32 = 24;
+const DECORATION_OFFSET: u32 = 35;
+const BUILTIN_INSTANCE_INDEX: u32 = 43;
+const MODEL_VERTEX: u32 = 0;
 
 const STORAGE_UNIFORM_CONSTANT: u32 = 0;
 const STORAGE_UNIFORM: u32 = 2;
@@ -374,6 +388,298 @@ pub(crate) fn add_spare_blocks(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
     }
     m.insts = out;
     Ok(m.words())
+}
+
+/// The storage buffers and inputs [`add_draw_index`] declares, by name: a
+/// draw's own values, its lights', the vertex program's order of draws, and
+/// the draw's and its lights' places passed to the fragment program.
+pub const DRAWS: &str = "mg_draws";
+pub const LIGHTS: &str = "mg_lights";
+pub const ORDER: &str = "mg_order";
+pub(crate) const DRAW_VARYING: &str = "mg_draw";
+pub(crate) const LIGHT_VARYING: &str = "mg_light";
+
+/// Declares what lets a renderer draw many draws of a program with one
+/// call, each with its own values: storage buffers of a draw's values and
+/// of its lights (arrays of `vec4`, given their element types in the IR by
+/// [`crate::Program::split_uniforms`]), and in the vertex program the
+/// order of draws, read at the instance's index for the draw's place in
+/// each (the vertex program's draw and lights, the fragment program's,
+/// handed to it as flat varyings). At the start of every function, the
+/// places are read and a pointer taken to the draw's element of each array:
+/// naga keeps those expressions before the function's own, so that the IR
+/// can take every access to the program's uniforms there.
+pub(crate) fn add_draw_index(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
+    let mut m = Module::parse(words)?;
+    let entry = m.insts.iter().find(|i| i.op == OP_ENTRY_POINT).cloned();
+    let Some(entry) = entry else { return Ok(words.to_vec()) };
+    let vertex = entry.arg(0)? == MODEL_VERTEX;
+    let main = entry.arg(1)?;
+    // The types there are, and those to add.
+    let mut decls: Vec<Inst> = Vec::new();
+    let have = |m: &mut Module, decls: &mut Vec<Inst>, op: u16, rest: Vec<u32>| match find_in(
+        m, decls, op, &rest,
+    ) {
+        Some(id) => id,
+        None => {
+            let id = m.new_id();
+            let mut a = vec![id];
+            a.extend(rest);
+            decls.push(Inst::new(op, a));
+            id
+        }
+    };
+    let u32_t = have(&mut m, &mut decls, OP_TYPE_INT, vec![32, 0]);
+    let f32_t = have(&mut m, &mut decls, OP_TYPE_FLOAT, vec![32]);
+    let vec4 = have(&mut m, &mut decls, OP_TYPE_VECTOR, vec![f32_t, 4]);
+    let uvec4 = have(&mut m, &mut decls, OP_TYPE_VECTOR, vec![u32_t, 4]);
+    let consts: Vec<u32> = (0..4)
+        .map(|v| {
+            let id = m.new_id();
+            decls.push(Inst::new(OP_CONSTANT, vec![u32_t, id, v]));
+            id
+        })
+        .collect();
+    let mut annotations: Vec<Inst> = Vec::new();
+    let mut names: Vec<Inst> = Vec::new();
+    let name = |names: &mut Vec<Inst>, id: u32, text: &str| {
+        let mut a = vec![id];
+        a.extend(string_words(text));
+        names.push(Inst::new(OP_NAME, a));
+    };
+    // A storage buffer: a struct of one runtime array of `element`.
+    let mut buffer = |m: &mut Module, decls: &mut Vec<Inst>, element: u32| {
+        let (array, block) = (m.new_id(), m.new_id());
+        decls.push(Inst::new(OP_TYPE_RUNTIME_ARRAY, vec![array, element]));
+        decls.push(Inst::new(OP_TYPE_STRUCT, vec![block, array]));
+        annotations.push(Inst::new(OP_DECORATE, vec![array, DECORATION_ARRAY_STRIDE, 16]));
+        annotations.push(Inst::new(OP_DECORATE, vec![block, DECORATION_BUFFER_BLOCK]));
+        annotations.push(Inst::new(OP_MEMBER_DECORATE, vec![block, 0, DECORATION_OFFSET, 0]));
+        annotations.push(Inst::new(OP_MEMBER_DECORATE, vec![block, 0, DECORATION_NON_WRITABLE]));
+        block
+    };
+    let draws_t = buffer(&mut m, &mut decls, vec4);
+    let order_t = buffer(&mut m, &mut decls, uvec4);
+    let ptr = |m: &mut Module, decls: &mut Vec<Inst>, class: u32, to: u32| {
+        let id = m.new_id();
+        decls.push(Inst::new(OP_TYPE_POINTER, vec![id, class, to]));
+        id
+    };
+    let draws_ptr = ptr(&mut m, &mut decls, STORAGE_UNIFORM, draws_t);
+    let order_ptr = ptr(&mut m, &mut decls, STORAGE_UNIFORM, order_t);
+    let vec4_ptr = ptr(&mut m, &mut decls, STORAGE_UNIFORM, vec4);
+    let u32_ptr = ptr(&mut m, &mut decls, STORAGE_UNIFORM, u32_t);
+    let in_ptr = ptr(&mut m, &mut decls, STORAGE_INPUT, u32_t);
+    let out_ptr = ptr(&mut m, &mut decls, STORAGE_OUTPUT, u32_t);
+    let var = |m: &mut Module,
+               decls: &mut Vec<Inst>,
+               names: &mut Vec<Inst>,
+               ty: u32,
+               class: u32,
+               text: &str| {
+        let id = m.new_id();
+        decls.push(Inst::new(OP_VARIABLE, vec![ty, id, class]));
+        name(names, id, text);
+        id
+    };
+    let draws = var(&mut m, &mut decls, &mut names, draws_ptr, STORAGE_UNIFORM, DRAWS);
+    let lights = var(&mut m, &mut decls, &mut names, draws_ptr, STORAGE_UNIFORM, LIGHTS);
+    for v in [draws, lights] {
+        annotations.push(Inst::new(OP_DECORATE, vec![v, DECORATION_DESCRIPTOR_SET, 0]));
+        annotations.push(Inst::new(OP_DECORATE, vec![v, DECORATION_BINDING, 0]));
+    }
+    // The places: (in the vertex program) read from the order at the
+    // instance's index, the fragment program's passed on; (in the
+    // fragment program) as they come.
+    let mut interface = Vec::new();
+    let mut start: Vec<Inst> = Vec::new();
+    let mut at_main: Vec<Inst> = Vec::new();
+    let (draw_at, light_at);
+    if vertex {
+        let order = var(&mut m, &mut decls, &mut names, order_ptr, STORAGE_UNIFORM, ORDER);
+        annotations.push(Inst::new(OP_DECORATE, vec![order, DECORATION_DESCRIPTOR_SET, 0]));
+        annotations.push(Inst::new(OP_DECORATE, vec![order, DECORATION_BINDING, 0]));
+        // (glslang may have declared the instance's index: `gl_InstanceID`
+        // is it, less the first instance.)
+        let declared = m
+            .insts
+            .iter()
+            .find(|i| {
+                i.op == OP_DECORATE
+                    && i.args.get(1) == Some(&DECORATION_BUILTIN)
+                    && i.args.get(2) == Some(&BUILTIN_INSTANCE_INDEX)
+            })
+            .map(|i| i.args[0]);
+        let (instance, instance_t) = match declared {
+            Some(v) => {
+                // Its type: the pointee of its variable's pointer.
+                let ptr = m
+                    .insts
+                    .iter()
+                    .find(|i| i.op == OP_VARIABLE && i.args.get(1) == Some(&v))
+                    .map(|i| i.arg(0))
+                    .ok_or_else(|| bad("the instance's index isn't a variable"))??;
+                let t = m
+                    .insts
+                    .iter()
+                    .find(|i| i.op == OP_TYPE_POINTER && i.args.first() == Some(&ptr))
+                    .map(|i| i.arg(2))
+                    .ok_or_else(|| bad("the instance's index has no type"))??;
+                (v, t)
+            }
+            None => {
+                let v = var(&mut m, &mut decls, &mut names, in_ptr, STORAGE_INPUT, "mg_instance");
+                annotations.push(Inst::new(
+                    OP_DECORATE,
+                    vec![v, DECORATION_BUILTIN, BUILTIN_INSTANCE_INDEX],
+                ));
+                interface.push(v);
+                (v, u32_t)
+            }
+        };
+        let outs: Vec<u32> = [DRAW_VARYING, LIGHT_VARYING]
+            .iter()
+            .map(|n| {
+                let v = var(&mut m, &mut decls, &mut names, out_ptr, STORAGE_OUTPUT, n);
+                annotations.push(Inst::new(OP_DECORATE, vec![v, DECORATION_FLAT]));
+                v
+            })
+            .collect();
+        interface.extend(&outs);
+        let i = m.new_id();
+        start.push(Inst::new(OP_LOAD, vec![instance_t, i, instance]));
+        let place = |m: &mut Module, start: &mut Vec<Inst>, which: usize| {
+            let (p, v) = (m.new_id(), m.new_id());
+            start.push(Inst::new(
+                OP_ACCESS_CHAIN,
+                vec![u32_ptr, p, order, consts[0], i, consts[which]],
+            ));
+            start.push(Inst::new(OP_LOAD, vec![u32_t, v, p]));
+            v
+        };
+        // (Each a draw's: the vertex program's draw and lights, the
+        // fragment program's draw and lights.)
+        let (vd, vl, fd, fl) = (
+            place(&mut m, &mut start, 0),
+            place(&mut m, &mut start, 2),
+            place(&mut m, &mut start, 1),
+            place(&mut m, &mut start, 3),
+        );
+        at_main.push(Inst::new(OP_STORE, vec![outs[0], fd]));
+        at_main.push(Inst::new(OP_STORE, vec![outs[1], fl]));
+        (draw_at, light_at) = (vd, vl);
+    } else {
+        let ins: Vec<u32> = [DRAW_VARYING, LIGHT_VARYING]
+            .iter()
+            .map(|n| {
+                let v = var(&mut m, &mut decls, &mut names, in_ptr, STORAGE_INPUT, n);
+                annotations.push(Inst::new(OP_DECORATE, vec![v, DECORATION_FLAT]));
+                v
+            })
+            .collect();
+        interface.extend(&ins);
+        let (d, l) = (m.new_id(), m.new_id());
+        start.push(Inst::new(OP_LOAD, vec![u32_t, d, ins[0]]));
+        start.push(Inst::new(OP_LOAD, vec![u32_t, l, ins[1]]));
+        (draw_at, light_at) = (d, l);
+    }
+    let (pd, pl) = (m.new_id(), m.new_id());
+    start.push(Inst::new(OP_ACCESS_CHAIN, vec![vec4_ptr, pd, draws, consts[0], draw_at]));
+    start.push(Inst::new(OP_ACCESS_CHAIN, vec![vec4_ptr, pl, lights, consts[0], light_at]));
+
+    // Placed: names before the annotations, annotations before the
+    // declarations, the new declarations after the others; the reads at
+    // the start of each function (after its variables); ids in each
+    // function its own (the reads' results renumbered per function).
+    let first_annotation = m
+        .insts
+        .iter()
+        .position(|i| matches!(i.op, OP_DECORATE | OP_MEMBER_DECORATE) || i.is_declaration())
+        .unwrap_or(m.insts.len());
+    let first_decl = m.insts.iter().position(Inst::is_declaration).unwrap_or(m.insts.len());
+    let first_fn = m.insts.iter().position(|i| i.op == OP_FUNCTION).unwrap_or(m.insts.len());
+    let mut out = Vec::with_capacity(m.insts.len() + decls.len() + 64);
+    let insts = std::mem::take(&mut m.insts);
+    let mut in_fn: Option<u32> = None;
+    let mut labelled = false;
+    let mut placed = false;
+    for (n, inst) in insts.into_iter().enumerate() {
+        if n == first_annotation {
+            out.append(&mut names);
+        }
+        if n == first_decl {
+            out.append(&mut annotations);
+        }
+        if n == first_fn {
+            out.append(&mut decls);
+        }
+        match inst.op {
+            OP_ENTRY_POINT => {
+                let mut inst = inst;
+                inst.args.extend(&interface);
+                out.push(inst);
+                continue;
+            }
+            OP_FUNCTION => {
+                in_fn = Some(inst.arg(1)?);
+                (labelled, placed) = (false, false);
+            }
+            OP_LABEL if in_fn.is_some() && !labelled => {
+                labelled = true;
+                out.push(inst);
+                continue;
+            }
+            OP_FUNCTION_END => in_fn = None,
+            _ => {}
+        }
+        if labelled && !placed && inst.op != OP_VARIABLE {
+            placed = true;
+            // (Each function its own ids for the reads.)
+            let mut map: HashMap<u32, u32> = HashMap::new();
+            let fresh = |m: &mut Module, map: &mut HashMap<u32, u32>, id: u32| {
+                *map.entry(id).or_insert_with(|| m.new_id())
+            };
+            let renumber = |m: &mut Module, map: &mut HashMap<u32, u32>, i: &Inst| {
+                let mut i = i.clone();
+                match i.op {
+                    OP_LOAD | OP_ACCESS_CHAIN => {
+                        i.args[1] = fresh(m, map, i.args[1]);
+                        for a in i.args.iter_mut().skip(2) {
+                            if let Some(&n) = map.get(a) {
+                                *a = n;
+                            }
+                        }
+                    }
+                    OP_STORE => {
+                        if let Some(&n) = map.get(&i.args[1]) {
+                            i.args[1] = n;
+                        }
+                    }
+                    _ => {}
+                }
+                i
+            };
+            let mine: Vec<Inst> = start.iter().map(|i| renumber(&mut m, &mut map, i)).collect();
+            out.extend(mine);
+            if in_fn == Some(main) {
+                let stores: Vec<Inst> =
+                    at_main.iter().map(|i| renumber(&mut m, &mut map, i)).collect();
+                out.extend(stores);
+            }
+        }
+        out.push(inst);
+    }
+    m.insts = out;
+    Ok(m.words())
+}
+
+/// A type among the module's declarations and those to add.
+fn find_in(m: &Module, decls: &[Inst], op: u16, rest: &[u32]) -> Option<u32> {
+    m.insts
+        .iter()
+        .chain(decls)
+        .find(|i| i.op == op && i.args.get(1..) == Some(rest))
+        .map(|i| i.args[0])
 }
 
 /// How many locations a type takes (32-bit types: one per vector, column

@@ -43,6 +43,7 @@ pub use assemble::{
 pub use cache::{Cached, ProgramCache};
 pub use link::AlphaKeep;
 pub use reflect::{Member, Part, Reflection, Scalar, Texture, UniformBlock, ValueType, Varying};
+pub use spirv::{DRAWS, LIGHTS, ORDER};
 
 /// A message about a program, where it applies.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -144,6 +145,7 @@ pub(crate) fn to_words(a: &Assembled) -> Result<(Vec<u32>, Vec<spirv::Io>), Shad
     let words = glsl::compile(a)?;
     let words = spirv::split_samplers(&words)?;
     let words = spirv::add_spare_blocks(&words)?;
+    let words = spirv::add_draw_index(&words)?;
     spirv::assign_locations(&words)
 }
 
@@ -268,7 +270,8 @@ void main ()
         assert_eq!(pos.ty, ValueType::Vector(4, Scalar::Float));
         let mut outputs: Vec<_> = r.outputs.iter().map(|v| v.name.as_str()).collect();
         outputs.sort();
-        assert_eq!(outputs, ["vNormalView", "vTexCoord"]);
+        // (And the draw's places for the fragment program, flat.)
+        assert_eq!(outputs, ["mg_draw", "mg_light", "vNormalView", "vTexCoord"]);
         assert!(r.textures.is_empty());
         let names: Vec<_> = p.files.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names, ["(preamble)", "vs_test", "inc_test", "inc_test"]);
@@ -292,12 +295,12 @@ void main ()
         assert!(r.textures.iter().all(|t| t.binding > 0 && t.sampler == Some(t.binding + 1)));
         let mut inputs: Vec<_> = r.inputs.iter().map(|v| v.name.as_str()).collect();
         inputs.sort();
-        assert_eq!(inputs, ["vNormalView", "vTexCoord"]);
+        assert_eq!(inputs, ["mg_draw", "mg_light", "vNormalView", "vTexCoord"]);
         let outputs: Vec<_> = r.outputs.iter().map(|v| (v.name.as_str(), v.location)).collect();
         assert_eq!(outputs, [("compat_glFragColor", 0)]);
         assert!(r.uniform("fSwaySpeed").is_some() && r.uniform("lightPosition").is_some());
         // Every resource has a binding of its own (the two spare blocks a
-        // split takes last).
+        // split takes and the draws' and lights' storage last).
         let mut b: Vec<u32> = p
             .module
             .global_variables
@@ -305,7 +308,7 @@ void main ()
             .filter_map(|(_, g)| g.binding.map(|b| b.binding))
             .collect();
         b.sort();
-        assert_eq!(b, (0..9).collect::<Vec<_>>());
+        assert_eq!(b, (0..11).collect::<Vec<_>>());
         // And the module writes as WGSL, as wgpu would take it.
         naga::back::wgsl::write_string(&p.module, &p.info, naga::back::wgsl::WriterFlags::empty())
             .unwrap();
