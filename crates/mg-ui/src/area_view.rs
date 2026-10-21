@@ -1520,8 +1520,9 @@ impl Fade {
 
 pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     let mut view = app.area_views.remove(&area).unwrap_or_else(|| {
-        // Lighting and Sound Ranges as they were last left.
+        // Lighting, Sound Ranges and what is shown as they were last left.
         let mut view = AreaView::new(area);
+        (view.show, view.show_start) = shown_of(&app.settings.hidden_in_areas);
         view.lit = !app.settings.unlit_areas;
         view.sound_ranges = app.settings.sound_ranges;
         view.fade = Fade::of(app.settings.fade_geometry);
@@ -1591,7 +1592,34 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut egui::Ui, area: ResRef) {
     app.area_views.insert(area, view);
 }
 
+/// What the area view's toolbar shows, from the kinds it hides
+/// ([`crate::settings::Settings::hidden_in_areas`]): each kind, and the
+/// start location's marker.
+fn shown_of(hidden: &[String]) -> ([bool; 9], bool) {
+    let shown = |name: &str| !hidden.iter().any(|h| h == name);
+    (ObjectKind::ALL.map(|k| shown(k.plural())), shown("Start"))
+}
+
+/// [`shown_of`] the other way round.
+fn hidden_of(show: [bool; 9], show_start: bool) -> Vec<String> {
+    let kinds = ObjectKind::ALL.into_iter().filter(|k| !show[k.index()]).map(|k| k.plural());
+    kinds.chain((!show_start).then_some("Start")).map(String::from).collect()
+}
+
+/// What `view` shows, made what every area view shows, as in Aurora: the
+/// other open ones and those opened later. (`view` is out of
+/// `app.area_views` while it is drawn.)
+fn share_shown(app: &mut Moonglow, view: &AreaView) {
+    app.settings.hidden_in_areas = hidden_of(view.show, view.show_start);
+    for other in app.area_views.values_mut() {
+        (other.show, other.show_start) = (view.show, view.show_start);
+        let show = other.show;
+        other.selection.retain(|(k, _)| show[k.index()]);
+    }
+}
+
 fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
+    let was = (view.show, view.show_start);
     ui.horizontal_wrapped(|ui| {
         use crate::icons::{self, labelled};
         for kind in ObjectKind::ALL {
@@ -1612,6 +1640,9 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         if ui.button("None").on_hover_text("Show None").clicked() {
             view.show = [false; 9];
             view.show_start = false;
+        }
+        if (view.show, view.show_start) != was {
+            share_shown(app, view);
         }
         // Hidden objects cannot stay selected.
         let show = view.show;
@@ -4969,7 +5000,10 @@ fn set_start_location(app: &mut Moonglow, view: &mut AreaView, at: Vec3, facing:
     edits.extend(start_at(at));
     edits.extend(start_facing(facing));
     app.actions.push(Action::Apply(Command::new("Set start location", edits)));
-    view.show_start = true;
+    if !view.show_start {
+        view.show_start = true;
+        share_shown(app, view);
+    }
 }
 
 /// Moves the start location to `at`, in the area it is in (a drag of its

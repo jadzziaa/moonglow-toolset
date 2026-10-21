@@ -98,6 +98,11 @@ enum Cmd {
         /// of plugins.
         #[arg(long)]
         plugins: Vec<PathBuf>,
+        /// Leave a group out of the report (repeatable): references,
+        /// tilesets, models, 2das, objects, module or plugins (`mg checks`
+        /// names each check's group).
+        #[arg(long, value_name = "GROUP", value_parser = verify_group)]
+        skip: Vec<mg_module::doctor::Group>,
     },
     /// Plugins: list them, check them, run one's command on a module.
     Plugin {
@@ -1253,8 +1258,8 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             out
         }
-        Cmd::Verify { module, unused, plugins } => {
-            verify(&install(cli)?, module, *unused, plugins)?
+        Cmd::Verify { module, unused, plugins, skip } => {
+            verify(&install(cli)?, module, *unused, plugins, skip)?
         }
         Cmd::Plugin { cmd } => match cmd {
             PluginCmd::List { folders } => plugins::list(folders)?,
@@ -1303,11 +1308,11 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut out = Output::new(json!({
                 "checks": Check::ALL
                     .iter()
-                    .map(|c| json!({ "id": c.id(), "about": c.about() }))
+                    .map(|c| json!({ "id": c.id(), "group": c.group().id(), "about": c.about() }))
                     .collect::<Vec<_>>(),
             }));
             for c in Check::ALL {
-                out.line(format!("{}\t{}", c.id(), c.about()));
+                out.line(format!("{}\t{}\t{}", c.id(), c.group().id(), c.about()));
             }
             out
         }
@@ -2678,7 +2683,22 @@ fn module_resman(gi: &GameInstall, m: &Module, out: &mut Output) -> Result<ResMa
     Ok(rm)
 }
 
-fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf]) -> Result<Output> {
+/// A group of `mg verify --skip`, by its id.
+fn verify_group(id: &str) -> std::result::Result<mg_module::doctor::Group, String> {
+    use mg_module::doctor::Group;
+    Group::from_id(id).ok_or_else(|| {
+        let ids: Vec<&str> = Group::ALL.iter().map(|g| g.id()).collect();
+        format!("not a group: {id} (one of {})", ids.join(", "))
+    })
+}
+
+fn verify(
+    gi: &GameInstall,
+    path: &Path,
+    show_unused: bool,
+    plugins: &[PathBuf],
+    skip: &[mg_module::doctor::Group],
+) -> Result<Output> {
     let m = Module::open(path)?;
     let mut out = Output::default();
     let rm = module_resman(gi, &m, &mut out)?;
@@ -2686,7 +2706,7 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf])
     let references = mg_module::verify::module_references(&m);
     let unused =
         if show_unused { mg_module::verify::unused_of(&m, &references) } else { Vec::new() };
-    let missing = mg_module::verify::missing_of(&m, &rm, references);
+    let mut missing = mg_module::verify::missing_of(&m, &rm, references);
     let count = |data: Vec<u8>| mg_tlk::Tlk::read(&data).map(|t| t.entries.len()).ok();
     let base = std::fs::read(gi.talk_table(false)).ok().and_then(count).unwrap_or(0);
     let custom = m.custom_tlk().ok().flatten().and_then(|name| {
@@ -2696,6 +2716,7 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf])
         mg_module::doctor::examine(&m, &rm, mg_module::doctor::TalkTables { base, custom });
     // The plugins' checks, beside the doctor's.
     findings.extend(plugins::findings(gi, &m, plugins, &mut out)?);
+    let left = mg_module::doctor::leave_out(&mut missing, &mut findings, skip);
     let errors = missing.iter().filter(|x| x.is_error()).count()
         + findings.iter().filter(|f| f.severity == mg_module::doctor::Severity::Error).count();
     let warnings = findings.len() + missing.len() - errors;
@@ -2725,6 +2746,7 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf])
             "message": f.message,
         })).collect::<Vec<_>>(),
         "unused": unused.iter().map(|k| k.to_string()).collect::<Vec<_>>(),
+        "skipped": left.iter().map(|(g, n)| (g.id().to_string(), serde_json::json!(n))).collect::<serde_json::Map<_, _>>(),
     });
     for x in &missing {
         let what = if x.uncompiled { "not compiled" } else { "missing" };
@@ -2750,6 +2772,9 @@ fn verify(gi: &GameInstall, path: &Path, show_unused: bool, plugins: &[PathBuf])
         ));
     }
     out.line(format!("{} content problems", findings.len()));
+    for (g, n) in &left {
+        out.line(format!("left out\t{}: {n}", g.id()));
+    }
     if show_unused {
         for k in &unused {
             out.line(format!("unused\t{k}"));

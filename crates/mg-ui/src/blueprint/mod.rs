@@ -1227,7 +1227,13 @@ impl Form<'_> {
             let data = game.resman.get(&kind.skeleton_key()).ok()?;
             mg_gff::Gff::read(&data).ok()
         });
-        let categories = skeleton.map(|g| Palette::read(&g).categories(game)).unwrap_or_default();
+        let mut categories =
+            skeleton.map(|g| Palette::read(&g).categories(game)).unwrap_or_default();
+        // In the palette's order (its tree's, as Palette › Categories…
+        // sets it), or alphabetical (Options › General).
+        if self.app.settings.categories_by_name {
+            categories.sort_by_cached_key(|(id, name)| (name.to_lowercase(), *id));
+        }
         let label = kind.palette_field();
         let current = self.int(label);
         let shown = categories

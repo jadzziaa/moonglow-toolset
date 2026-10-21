@@ -41,6 +41,20 @@ fn verify_fails_on_errors_and_names_them_in_json() {
     assert!(
         f["at"].as_str().unwrap().eq_ignore_ascii_case("chess › placeable BROKEN › Appearance")
     );
+    // Its group left out (`--skip`): it passes, and says how many it left
+    // out.
+    let out = crate::mg()
+        .args(["--root", root.to_str().unwrap(), "--no-user-dir", "verify", "--json"])
+        .args(["--skip", "objects", "--skip", "tilesets"])
+        .arg(&broken)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let json: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["errors"], 0);
+    assert_eq!(json["skipped"], serde_json::json!({ "objects": 1, "tilesets": 0 }));
+    let wrong = crate::mg().args(["verify", "--skip", "tiles"]).arg(&broken).output().unwrap();
+    assert!(String::from_utf8_lossy(&wrong.stderr).contains("one of references, tilesets"));
 }
 
 /// Variables in an area's ARE, which the game does not read (it reads an

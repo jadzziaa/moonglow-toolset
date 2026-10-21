@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T20:39:09Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:26:14Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -223,6 +223,13 @@ Size: S (an hour or two), M (a day or so), L (several days).
   tile" as an Aurora crash cause, but the game's own tiles reach 10 m
   out and work. The real cause is unknown, so there's no check.
   Finding it would mean crashing Aurora on purpose with test tiles. (M)
+- **Verify's groups, not its checks:** Options › Verify and `mg verify
+  --skip` leave out a group (seven: missing references, tilesets, models
+  and materials, 2DAs, objects' rows and variables, talk table and
+  archives, plugins), not one check, one hak or one tileset; a group
+  left out is still looked for (its problems counted in the summary),
+  and Build Module's Missing Resources has its own categories, apart
+  from these. (S) (Taro49's report, October 2026)
 
 ## Test loop
 
@@ -583,6 +590,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Palettes
 
+- **Category lists alphabetical, by lower case:** Options › General ›
+  List a blueprint's categories alphabetically sorts by the names in
+  lower case, character by character, as the module tree does: an
+  accented first letter (`Árboles`) comes after `z`, not beside `a`; a
+  group's path (`Oficios / Herrero`) sorts by its group first. (S)
+  (Sacha's report, October 2026)
+
 - **The palette's header, not as drawn in the issue:** "More" is a
   word, and the clear button "×" and the Gallery's "⊞" are the glyphs
   egui's fonts have (the mock-up's were boxes); the icons are the
@@ -822,6 +836,13 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   blueprint of its own. (S) (GitHub issue 7)
 
 ## Area visibility
+
+- **What the toolbar hides, kept between runs:** the kinds hidden in the
+  area views are kept in the settings, as Lighting and Sound Ranges are,
+  so an area can open looking empty in the next run; Aurora was not
+  checked for whether it keeps them past a restart (they stay from area
+  to area there, the builder's report says). Set Start Location shows
+  the marker again in every view. (S) (Sacha's report, October 2026)
 
 - **Grass in patches:** the client's tufts gather in patches across a
   field (dark clumps, seen in `client_render.rs` grass_overrides_look);

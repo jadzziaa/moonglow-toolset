@@ -389,6 +389,11 @@ fn options_window() {
     shoot(&mut h, &dir, "options-general");
     h.get_by_label("Script Editor").click();
     shoot(&mut h, &dir, "options-script-editor");
+    // (A line in the log, beside its Clear.)
+    h.state_mut().log.info("Verify: 0 error(s), 0 warning(s)");
+    h.state_mut().options.as_mut().unwrap().verify_skip = vec!["tilesets".into()];
+    h.get_by_label("Verify").click();
+    shoot(&mut h, &dir, "options-verify");
     h.get_by_label("Keyboard").click();
     h.run();
     let draft = h.state_mut().options.as_mut().unwrap();

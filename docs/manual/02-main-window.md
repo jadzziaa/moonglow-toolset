@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:27:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:46:55Z }
 ---
 
 # The main window
@@ -21,7 +21,7 @@ close it, **Palettes** on the toolbar brings it back.
 | --- | --- |
 | File | New Module…, Open Module…, Open Folder…, Recent Modules, Save, Save As…, Save As nasher Project…, Import…, Export…, Import Conversation…, Close, Exit |
 | Edit | Undo, Redo (each names what it undoes), Module Properties, Resize Area…, Rotate Area…, Find Instance…, Prefabs, Edit Areas Together…, Find and Replace Text…, Find References… |
-| View | Module Tree, Palettes Panel, Log (each ticked while shown), Hide All Panels, Reset Layout |
+| View | Module Tree, Palettes Panel, Log (each ticked while shown), Clear Log, Hide All Panels, Reset Layout |
 | Wizards | Area Wizard…, Creature Wizard…, and a wizard for each other blueprint type (Door, Encounter, Item, Placeable, Sound, Store, Trigger, Waypoint) |
 | Tools | New Conversation…, Faction Editor, Journal Editor, Talk Table, 2DA File…, New Script…, Palettes, Appearance Gallery…, Resource Browser, Tilesets (New Tileset…, Open Tileset…), Haks (New Hak, Open Hak…, Build Hak from Folder…), Reload Resources, Options… |
 | Build | Compile All Scripts, Compile Models, Build Module…, Publish to NWSync…, Verify Module, Test Module, Test Module, Choose Character, Pack *file* (nasher projects), Area Statistics |
@@ -334,3 +334,5 @@ play its animations, including those from its supermodels.
 
 Messages go to the log at the bottom: what was opened or saved, compiler
 errors, warnings about missing resources. Warnings are yellow, errors red.
+**Clear**, in its right corner (or View › Clear Log), empties it: a
+second Verify's report isn't then mistaken for the first's.

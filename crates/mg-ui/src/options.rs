@@ -22,6 +22,7 @@ pub enum OptionsPage {
     ScriptEditor,
     ConversationEditor,
     Sounds,
+    Verify,
     Language,
     Keyboard,
 }
@@ -37,6 +38,7 @@ pub struct OptionsDraft {
     pub build_on_save: bool,
     pub mod_beside_folder: bool,
     pub area_names: bool,
+    pub categories_by_name: bool,
     pub last_area: bool,
     pub tabs_by_recent: bool,
     pub ask_before_closing: bool,
@@ -79,6 +81,8 @@ pub struct OptionsDraft {
     /// Height and Width, tenths of a metre.
     pub spawn_marker_size: (u8, u8),
     pub door_arrows: bool,
+    /// Verify: the groups left out of its report, by id.
+    pub verify_skip: Vec<String>,
     pub merchant_signs: bool,
     pub turn_ring: bool,
     pub dialog_npc_color: Option<[u8; 3]>,
@@ -126,6 +130,7 @@ impl OptionsDraft {
             build_on_save: s.build_on_save,
             mod_beside_folder: !s.no_mod_beside_folder,
             area_names: s.area_names,
+            categories_by_name: s.categories_by_name,
             last_area: !s.no_last_area,
             tabs_by_recent: s.tabs_by_recent,
             ask_before_closing: !s.close_without_asking,
@@ -166,6 +171,7 @@ impl OptionsDraft {
             spawn_markers: !s.no_spawn_markers,
             spawn_marker_size: s.spawn_marker_size.unwrap_or(crate::area_view::SPAWN_MARKER),
             door_arrows: !s.no_door_arrows,
+            verify_skip: s.verify_skip.clone(),
             merchant_signs: s.merchant_signs,
             turn_ring: !s.no_turn_ring,
             dialog_npc_color: s.dialog_npc_color,
@@ -191,6 +197,7 @@ impl OptionsDraft {
             build_on_save: self.build_on_save,
             no_mod_beside_folder: !self.mod_beside_folder,
             area_names: self.area_names,
+            categories_by_name: self.categories_by_name,
             no_last_area: !self.last_area,
             tabs_by_recent: self.tabs_by_recent,
             close_without_asking: !self.ask_before_closing,
@@ -233,6 +240,7 @@ impl OptionsDraft {
             spawn_marker_size: (self.spawn_marker_size != crate::area_view::SPAWN_MARKER)
                 .then_some(self.spawn_marker_size),
             no_door_arrows: !self.door_arrows,
+            verify_skip: self.verify_skip.clone(),
             merchant_signs: self.merchant_signs,
             no_turn_ring: !self.turn_ring,
             dialog_npc_color: self.dialog_npc_color,
@@ -343,6 +351,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                             (OptionsPage::ScriptEditor, "Script Editor"),
                             (OptionsPage::ConversationEditor, "Conversation Editor"),
                             (OptionsPage::Sounds, "Sounds"),
+                            (OptionsPage::Verify, "Verify"),
                             (OptionsPage::Language, "Language"),
                             (OptionsPage::Keyboard, "Keyboard"),
                         ] {
@@ -518,6 +527,14 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                     "In the module tree, by their names rather than their ResRefs \
                                  (in the names' order; the ResRef shows on hover)",
                                 );
+                            ui.checkbox(
+                                &mut draft.categories_by_name,
+                                "List a blueprint's categories alphabetically",
+                            )
+                            .on_hover_text(
+                                "A blueprint's Category list in alphabetical order; off, in the \
+                                 palette's (Palette › Categories… sets it)",
+                            );
                             ui.checkbox(&mut draft.name_resrefs, "Show ResRefs beside names")
                                 .on_hover_text(
                                     "Name (resref) in the module tree's lists by name and in \
@@ -642,6 +659,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
                                  rather than an arrow along the merchant's facing",
                                 );
                         }
+                        OptionsPage::Verify => verify(ui, draft),
                         OptionsPage::Language => {
                             ui.label("The language text is shown and edited in:");
                             let mut default = draft.edit_language.is_none();
@@ -969,6 +987,35 @@ fn script_style(ui: &mut Ui, style: &mut ScriptStyle) {
     });
 }
 
+/// Options › Verify: what Build › Verify Module reports, by group (a
+/// builder's tileset errors nobody is going to fix hid the missing
+/// references among them).
+fn verify(ui: &mut Ui, draft: &mut OptionsDraft) {
+    use mg_module::doctor::{Check, Group};
+    ui.label("What Verify Module reports:");
+    for group in Group::ALL {
+        let mut on = !draft.verify_skip.iter().any(|id| id == group.id());
+        let checks: Vec<&str> =
+            Check::ALL.iter().filter(|c| c.group() == group).map(|c| c.about()).collect();
+        let tip = match group {
+            Group::References => {
+                "Scripts, conversations, blueprints, areas and other resources the module names \
+                 that neither it, its haks nor the game has"
+                    .to_string()
+            }
+            Group::Plugins => "The checks of the enabled plugins".to_string(),
+            _ => format!("That {}", checks.join("; that ")),
+        };
+        if ui.checkbox(&mut on, group.title()).on_hover_text(tip).changed() {
+            draft.verify_skip.retain(|id| id != group.id());
+            if !on {
+                draft.verify_skip.push(group.id().to_string());
+            }
+        }
+    }
+    ui.weak("What is left out is counted in the log's summary line.");
+}
+
 /// Options › Keyboard: each command's keys, to add to (the next key
 /// pressed), take away or reset; keys two commands share are named.
 fn keyboard(ui: &mut Ui, draft: &mut OptionsDraft) {
@@ -1171,7 +1218,7 @@ mod tests {
         let mut d = OptionsDraft::from_settings(&s);
         (d.build_on_save, d.minimize_on_test, d.auto_compile, d.debug_info) =
             (true, true, true, true);
-        d.area_names = true;
+        (d.area_names, d.categories_by_name) = (true, true);
         d.ui_scale = 125;
         (d.name_resrefs, d.palette_cr, d.light_theme) = (true, false, true);
         d.script_templates = " /tmp/templates ".into();
@@ -1179,6 +1226,7 @@ mod tests {
         let t = d.apply(&s);
         assert!(t.build_on_save && t.minimize_on_test && t.auto_compile && t.debug_info);
         assert!(t.area_names && !s.area_names, "areas by ResRef unless asked");
+        assert!(t.categories_by_name && !s.categories_by_name, "the palette's order unless asked");
         assert_eq!((t.ui_scale, s.ui_scale), (Some(125), None), "the usual size unless asked");
         assert!(t.name_resrefs && t.palette_no_cr && t.light_theme);
         // Unless asked: names alone, challenge ratings shown, the dark theme.

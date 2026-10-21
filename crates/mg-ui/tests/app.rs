@@ -3503,6 +3503,51 @@ fn text_without_an_encoding_table_is_windows_1252() {
     assert_eq!(field(&mut h, &key).string("Tag").unwrap(), b"\xc9p\xe9e ?");
 }
 
+/// A blueprint's Category list is in the palette's order, or in
+/// alphabetical order when Options › General asks (a builder's report:
+/// "the dropdown list is not ordered").
+#[test]
+fn a_blueprint_s_categories_are_listed_alphabetically_if_asked() {
+    use mg_module::palette::{BlueprintKind, Palette};
+    let Some((mut h, key)) = blueprint_harness("plc_chest1", "chest_category", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    let names: Vec<String> = {
+        let game = h.state().game.clone().unwrap();
+        let skeleton = game.resman.get(&BlueprintKind::Placeable.skeleton_key()).unwrap();
+        Palette::read(&Gff::read(&skeleton).unwrap()).categories(&game).into_iter()
+    }
+    .map(|(_, name)| name)
+    .collect();
+    let mut sorted = names.clone();
+    sorted.sort_by_key(|n| n.to_lowercase());
+    assert_ne!(names[0], sorted[0], "the game's palette isn't in alphabetical order");
+    let id = field(&mut h, &key).integer("PaletteID").unwrap();
+    let game = h.state().game.clone().unwrap();
+    let skeleton = game.resman.get(&BlueprintKind::Placeable.skeleton_key()).unwrap();
+    let all = Palette::read(&Gff::read(&skeleton).unwrap()).categories(&game);
+    let current = all.iter().find(|(c, _)| i64::from(*c) == id).unwrap().1.clone();
+    // The first row of the list, opened: the one highest up of those named.
+    let first_row = |h: &mut Harness<'_, Moonglow>| {
+        h.get_all_by_value(&current).last().expect("the Category list").click();
+        h.run();
+        let top = |name: &String| {
+            h.query_all_by_label(name).map(|n| n.rect().top()).fold(f32::NAN, f32::max)
+        };
+        let first =
+            names.iter().filter(|n| !top(n).is_nan()).min_by(|a, b| top(a).total_cmp(&top(b)));
+        let first = first.unwrap().clone();
+        h.key_press(egui::Key::Escape);
+        h.run();
+        first
+    };
+    assert_eq!(first_row(&mut h), names[0], "the palette's order");
+    h.state_mut().settings.categories_by_name = true;
+    h.run();
+    assert_eq!(first_row(&mut h), sorted[0], "alphabetical");
+}
+
 /// Export Files, on a placeable's picture: the files the game draws it
 /// with, written into a folder (a chest of the game's own: all of them).
 #[test]
@@ -12391,6 +12436,50 @@ fn the_start_location_is_dragged_and_turned_in_the_view() {
     assert_eq!(entry(&mut h).0, x, "not moved");
 }
 
+/// What the area view's toolbar hides stays hidden in every area view,
+/// as in Aurora (a builder's report): in the other open ones, and in one
+/// opened later (from the settings, so in the next run too).
+#[test]
+fn what_the_area_toolbar_hides_is_hidden_in_every_area() {
+    use mg_area::ObjectKind;
+    use mg_module::new::{AreaSpec, add_area};
+    let Some((mut h, first)) = area_harness("shown-together") else { return };
+    let second = {
+        let app = h.state_mut();
+        let game = app.game.clone().unwrap();
+        let spec = AreaSpec {
+            name: "Second".into(),
+            tileset: ResRef::from_str("ttr01").unwrap(),
+            width: 4,
+            height: 4,
+        };
+        let ws = app.ws.as_mut().unwrap();
+        add_area(&mut ws.module, &game, &spec, &mut fastrand::Rng::with_seed(9)).unwrap()
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(second)));
+    h.run_steps(3);
+    let shown = |h: &Harness<'_, Moonglow>, area: ResRef, kind: ObjectKind| {
+        h.state().area_views[&area].show[kind.index()]
+    };
+    assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
+    h.get_by_label("⚡ Triggers").click();
+    h.run_steps(2);
+    assert!(!shown(&h, second, ObjectKind::Trigger), "hidden where it was clicked");
+    assert!(!shown(&h, first, ObjectKind::Trigger), "and in the other open area");
+    assert!(shown(&h, first, ObjectKind::Encounter), "the rest shown");
+    assert_eq!(h.state().settings.hidden_in_areas, ["Triggers"]);
+    // An area view made anew (closed and opened again) hides them too.
+    h.state_mut().area_views.remove(&first);
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Area(first)));
+    h.run_steps(3);
+    assert!(!shown(&h, first, ObjectKind::Trigger));
+    // Show All: everywhere, and nothing kept hidden.
+    h.get_by_label("All").click();
+    h.run_steps(2);
+    assert!(shown(&h, first, ObjectKind::Trigger) && shown(&h, second, ObjectKind::Trigger));
+    assert!(h.state().settings.hidden_in_areas.is_empty());
+}
+
 /// Expand All and Collapse All open and close every group of the module
 /// tree at once.
 #[test]
@@ -14651,6 +14740,25 @@ fn a_plugin_s_checks_run_with_verify() {
     // A check that breaks the rules is an error of its own, not a crash.
     assert!(
         log.iter().any(|(l, m)| *l == mg_ui::Level::Error && m.contains("a check only reads")),
+        "{log:#?}"
+    );
+    // The log's Clear empties it, before a second Verify.
+    h.get_by_label("Clear Log").click();
+    h.run();
+    assert!(h.state().log.entries.is_empty());
+    // The plugins' checks left out (Options › Verify): neither what they
+    // found nor what they said is reported, and the summary counts them.
+    h.state_mut().settings.verify_skip = vec!["plugins".into()];
+    h.state_mut().actions.push(mg_ui::Action::Verify);
+    h.run();
+    let log = &h.state().log.entries;
+    assert!(
+        !log.iter().any(|(_, m)| m.contains("gate_guard") || m.contains("a check only reads")),
+        "{log:#?}"
+    );
+    assert!(
+        log.iter().any(|(_, m)| m.starts_with("Verify: ")
+            && m.contains("; left out (Options › Verify): Plugins' checks ")),
         "{log:#?}"
     );
 }

@@ -2045,6 +2045,15 @@ impl Moonglow {
         if fold.on_hover_text("Fold the log away").clicked() {
             self.show_panel(commands::Id::ViewLog, false);
         }
+        // And one to empty it, so that a second Verify's report isn't
+        // mistaken for the first's.
+        let at = egui::Rect::from_min_size(corner + egui::vec2(-48.0, 0.0), egui::vec2(44.0, 18.0));
+        let clear = ui.put(at, egui::Button::new("Clear").small());
+        clear
+            .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Clear Log"));
+        if clear.on_hover_text("Empty the log (View › Clear Log)").clicked() {
+            self.log.entries.clear();
+        }
     }
 
     /// Opens a module: the workspace, and the game data with the module's
@@ -3750,6 +3759,13 @@ impl Moonglow {
             .filter(|p| !p.manifest.checks.is_empty())
             .cloned()
             .collect();
+        // The groups left out (Options › Verify).
+        let skip: Vec<mg_module::doctor::Group> = self
+            .settings
+            .verify_skip
+            .iter()
+            .filter_map(|id| mg_module::doctor::Group::from_id(id))
+            .collect();
         self.start_job(
             "Verify Module",
             move |job| {
@@ -3767,12 +3783,18 @@ impl Moonglow {
                     custom: game.custom_tlk().map(|t| t.entries.len()),
                 };
                 let mut findings = mg_module::doctor::examine(&job.module, &game.resman, tlk);
-                let (found, said) = plugins::check_findings(&plugins, job);
+                let (found, mut said) = plugins::check_findings(&plugins, job);
                 findings.extend(found);
-                Some((missing, findings, said))
+                // (What the plugins said of themselves goes with them.)
+                if skip.contains(&mg_module::doctor::Group::Plugins) {
+                    said.clear();
+                }
+                let mut missing = missing;
+                let left = mg_module::doctor::leave_out(&mut missing, &mut findings, &skip);
+                Some((missing, findings, said, left))
             },
             |app, made| {
-                let Some((missing, findings, said)) = made else { return };
+                let Some((missing, findings, said, left)) = made else { return };
                 app.log.entries.extend(said);
                 for (level, text) in verify_report(&missing, &findings) {
                     match level {
@@ -3793,9 +3815,10 @@ impl Moonglow {
                     n => format!("; {n} object(s) placed from blueprints the module no longer has"),
                 };
                 app.log.info(format!(
-                    "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s){gone})",
+                    "Verify: {errors} error(s), {warnings} warning(s) ({} missing reference(s), {} content problem(s){gone}){}",
                     missing.len(),
-                    findings.len()
+                    findings.len(),
+                    left_out(&left),
                 ));
             },
         );
@@ -3933,6 +3956,16 @@ pub(crate) use mg_module::build::user_content;
 
 pub(crate) fn exclusive(game: &mut Option<Arc<GameData>>) -> Option<&mut GameData> {
     game.as_mut().and_then(Arc::get_mut)
+}
+
+/// What Verify's summary says it left out: each group and how many it
+/// had, and where to have them back.
+fn left_out(left: &[(mg_module::doctor::Group, usize)]) -> String {
+    if left.is_empty() {
+        return String::new();
+    }
+    let groups: Vec<String> = left.iter().map(|(g, n)| format!("{} {n}", g.title())).collect();
+    format!("; left out (Options › Verify): {}", groups.join(", "))
 }
 
 /// How a line of Verify's report is said.

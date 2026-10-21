@@ -145,6 +145,116 @@ impl Check {
             Check::AreaVariables => "an area's variables are in its GIT, where the game reads them",
         }
     }
+
+    /// The group it is reported in.
+    pub fn group(self) -> Group {
+        match self {
+            Check::SetRead
+            | Check::SetCount
+            | Check::SetModel
+            | Check::SetDoor
+            | Check::SetGroup
+            | Check::SetTransition
+            | Check::SetData
+            | Check::TileFaces
+            | Check::MdlRead => Group::Tilesets,
+            Check::MdlText | Check::MtrName => Group::Models,
+            Check::TwoDaRow
+            | Check::TwoDaRead
+            | Check::TwoDaLimit
+            | Check::TwoDaShadow
+            | Check::TwoDaStrRef
+            | Check::TwoDaRef
+            | Check::TwoDaDescribed => Group::Tables,
+            Check::ObjectRow | Check::AreaVariables => Group::Objects,
+            Check::CustomTlk | Check::ErfSize => Group::Module,
+        }
+    }
+}
+
+/// What Verify reports, in groups a builder can leave out (a tileset of a
+/// hak that has errors nobody is going to fix hides the rest): the missing
+/// references ([`crate::verify::Missing`]), the doctor's checks by what
+/// they examine, and the plugins' checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Group {
+    References,
+    Tilesets,
+    Models,
+    Tables,
+    Objects,
+    Module,
+    Plugins,
+}
+
+impl Group {
+    pub const ALL: [Group; 7] = [
+        Group::References,
+        Group::Tilesets,
+        Group::Models,
+        Group::Tables,
+        Group::Objects,
+        Group::Module,
+        Group::Plugins,
+    ];
+
+    /// Its id, as the settings keep it and `mg verify --skip` takes it.
+    pub fn id(self) -> &'static str {
+        match self {
+            Group::References => "references",
+            Group::Tilesets => "tilesets",
+            Group::Models => "models",
+            Group::Tables => "2das",
+            Group::Objects => "objects",
+            Group::Module => "module",
+            Group::Plugins => "plugins",
+        }
+    }
+
+    /// Its name, as a checkbox has it.
+    pub fn title(self) -> &'static str {
+        match self {
+            Group::References => "Missing references",
+            Group::Tilesets => "Tilesets",
+            Group::Models => "Models and materials",
+            Group::Tables => "2DAs",
+            Group::Objects => "Objects' and areas' 2DA rows and variables",
+            Group::Module => "Talk table and archives",
+            Group::Plugins => "Plugins' checks",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Group> {
+        Group::ALL.into_iter().find(|g| g.id() == id)
+    }
+
+    /// The group of a finding: its check's, or the plugins' for a check
+    /// that isn't the doctor's.
+    pub fn of(f: &Finding) -> Group {
+        Check::ALL.into_iter().find(|c| c.id() == f.check).map_or(Group::Plugins, Check::group)
+    }
+}
+
+/// Takes what the groups in `skip` found out of Verify's report: each of
+/// those groups, in [`Group::ALL`]'s order, with how many it had (none
+/// too), for the report to say what it leaves out.
+pub fn leave_out(
+    missing: &mut Vec<crate::verify::Missing>,
+    findings: &mut Vec<Finding>,
+    skip: &[Group],
+) -> Vec<(Group, usize)> {
+    let mut left: BTreeMap<Group, usize> = skip.iter().map(|g| (*g, 0)).collect();
+    if let Some(n) = left.get_mut(&Group::References) {
+        *n = std::mem::take(missing).len();
+    }
+    findings.retain(|f| match left.get_mut(&Group::of(f)) {
+        Some(n) => {
+            *n += 1;
+            false
+        }
+        None => true,
+    });
+    left.into_iter().collect()
 }
 
 /// One problem, where it is.
@@ -1271,6 +1381,39 @@ mod tests {
         let ids: HashSet<&str> = Check::ALL.iter().map(|c| c.id()).collect();
         assert_eq!(ids.len(), Check::ALL.len());
         assert!(Check::ALL.iter().all(|c| !c.about().is_empty()));
+    }
+
+    /// The groups Verify can leave out: kept by id in the settings, so the
+    /// ids are these for good; a finding of a check that isn't the
+    /// doctor's is a plugin's.
+    #[test]
+    fn findings_fall_into_groups_kept_by_id() {
+        let ids: Vec<&str> = Group::ALL.iter().map(|g| g.id()).collect();
+        assert_eq!(
+            ids,
+            ["references", "tilesets", "models", "2das", "objects", "module", "plugins"]
+        );
+        assert!(Group::ALL.iter().all(|g| Group::from_id(g.id()) == Some(*g)));
+        let finding = |check: &'static str| Finding {
+            severity: Severity::Error,
+            check: check.into(),
+            source: "hak".into(),
+            resource: key("tdm01", ResType::SET),
+            at: String::new(),
+            message: String::new(),
+        };
+        assert_eq!(Group::of(&finding("set-model")), Group::Tilesets);
+        assert_eq!(Group::of(&finding("2da-row")), Group::Tables);
+        assert_eq!(Group::of(&finding("my-plugin-check")), Group::Plugins);
+        // Every check is in one of the doctor's groups.
+        let theirs = [Group::References, Group::Plugins];
+        assert!(Check::ALL.iter().all(|c| !theirs.contains(&c.group())));
+        // Left out: counted, the rest kept in order.
+        let mut findings = vec![finding("set-model"), finding("2da-row"), finding("set-door")];
+        let mut missing = Vec::new();
+        let left = leave_out(&mut missing, &mut findings, &[Group::Tilesets, Group::Models]);
+        assert_eq!(left, [(Group::Tilesets, 2), (Group::Models, 0)]);
+        assert_eq!(checks(&findings), [("2da-row", String::new())]);
     }
 
     /// A module kept as a folder: its table with a description beside it

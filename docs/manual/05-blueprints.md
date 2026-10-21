@@ -3,7 +3,7 @@ type: Manual Page
 title: Blueprints
 description: Blueprints - palettes, the blueprint editors and wizards, and instances.
 tags: [manual, blueprints, palettes]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:27:30Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:46:55Z }
 ---
 
 # Blueprints
@@ -57,7 +57,9 @@ follow it.
   while you hold it. The
   module's own categories show in the order you give them, in the
   palette and in the blueprints' Category lists (the game's show by
-  name, as in Aurora).
+  name, as in Aurora). With **Options › General › List a blueprint's
+  categories alphabetically** on, the Category lists are in alphabetical
+  order instead; the palette keeps yours.
 - A renamed category keeps its blueprints; one with blueprints of the
   module in it isn't removed until they are given another.
 - A name is written as the game reads text in its language (Options ›

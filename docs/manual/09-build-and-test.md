@@ -3,7 +3,7 @@ type: Manual Page
 title: Build, verify and test
 description: Build Module, publishing to NWSync, long work, Verify Module, Test Module, reloading haks and 2DAs, and Area Statistics.
 tags: [manual, build, verify, test, nwsync]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:49:01Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:46:55Z }
 ---
 
 # Build, verify and test
@@ -67,7 +67,11 @@ result.
 ## Verify Module
 
 **Build › Verify Module** writes to the log, as errors and warnings, what
-is missing and what is wrong with the module's custom content.
+is missing and what is wrong with the module's custom content. To leave
+some of it out (a hak's tileset errors you are not going to fix),
+untick its group in **Options › Verify**; the summary line says what
+was left out and how many problems it had. **Clear**, in the log's
+corner, empties the log before a second run.
 
 **Missing resources** are things something names that exist nowhere.
 - **Errors:** scripts, conversations and areas named by areas, placed
@@ -124,7 +128,9 @@ scripts) become part of Verify Module.
 JSON for a build pipeline (`mg --json verify`; see [Command-line
 tools](11-command-line.md)). There each problem carries the id of the
 check that found it (`set-model`, `2da-row`…); `mg checks` lists the
-checks.
+checks and the group each is in, and `mg verify --skip GROUP` leaves a
+group out (`references`, `tilesets`, `models`, `2das`, `objects`,
+`module`, `plugins`; the JSON's `skipped` counts what it left out).
 
 **Models kept as text.** A model in a hak, the override or the module
 that is text (ASCII, not compiled) is read as the game would read it

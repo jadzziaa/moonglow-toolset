@@ -3,7 +3,7 @@ type: Manual Page
 title: Command-line tools
 description: The mg command-line tool - archives and files, the game's resources, modules, setting fields and edit files, several areas at once, JSON output, nasher projects and NWScript in other editors.
 tags: [manual, command-line, mg]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:09:03Z }
 ---
 
 # Command-line tools
@@ -64,7 +64,8 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg verify MODULE [--unused]` | missing resources and problems in the custom content (and, with `--unused`, unused resources); fails if there are errors, so a build pipeline stops |
 | `mg roundtrip MODULE [--keep COPY.mod]` | checks that Moonglow keeps the module as it is: saves a copy (a temporary one; the module is not touched), reads it back and compares every resource byte for byte, then writes every GFF and 2DA anew and compares what it reads back (the same fields and cells, the fields it has no name for too); lists what differs and fails if anything does |
 | `mg model-files WHAT FOLDER [--module MODULE] [--all] [--force] [--dry-run]` | writes the files the game draws a model (`plc_a08`) or a blueprint (`chest.utp`; also `.utd`, `.uti`, `.utc`) with into a folder: models, walkmeshes, textures, materials, from the module's haks and wherever else they are; the game's own are left out unless all are (or `--all`); files already in the folder are not written over without `--force` |
-| `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON) and what it holds to be true |
+| `mg checks` | the checks `mg verify` makes of custom content: each one's id (a finding's `check` in the JSON), its group and what it holds to be true |
+| `mg verify MODULE --skip GROUP` | leave a group out of the report (repeatable): `references` (missing resources), `tilesets`, `models`, `2das`, `objects`, `module` or `plugins`; the JSON's `skipped` says how many problems each had, and only the rest count toward failing |
 | `mg verify MODULE --plugins DIR` | also run the checks of the plugins in `DIR` (a plugin's folder, or a folder of plugins); their problems count with the rest |
 | `mg plugin list DIR…` | the plugins in the folders and what each adds: its commands and checks |
 | `mg plugin check DIR…` | check plugins: the manifest reads, and the code registers what it declares; fails if not. A file is a plugin's archive: checked as the installer checks it, and its code as it is in the archive |

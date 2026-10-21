@@ -1,9 +1,9 @@
 ---
 type: Manual Page
 title: Options
-description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, language, keyboard) and where the settings are kept.
+description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:46:55Z }
 ---
 
 # Options
@@ -89,6 +89,9 @@ the module is opened again from its file.
   the `logs` folder of its data folder, a file for each start; on
   unless you switch it off (see
   [Troubleshooting](13-troubleshooting.md)).
+- **List a blueprint's categories alphabetically**: a blueprint's
+  Category list in alphabetical order, rather than in the palette's
+  (the order Palette › Categories… gives them).
 - **List areas and blueprints by name** in the module tree, rather than
   by ResRef, and **Show ResRefs beside names** (`Name (resref)`, in the
   tree and the palettes). Areas are by name in Find Instance and the
@@ -182,6 +185,18 @@ the module is opened again from its file.
   **Play ambient music in area**: what plays when an area view opens (the
   area viewer's toolbar also turns each on and off).
 - **Ambient music volume**.
+
+## Verify
+
+What **Build › Verify Module** reports, in groups to leave out (a hak's
+tileset errors you are not going to fix, say, that hide the rest):
+**Missing references**, **Tilesets**, **Models and materials**,
+**2DAs**, **Objects' and areas' 2DA rows and variables**, **Talk table
+and archives** and **Plugins' checks**. Hover over one for the checks it
+holds. The log's summary line after a Verify names what it left out and
+how many problems each group had, so a module isn't taken to be clean
+for what wasn't reported. `mg verify --skip` does the same from a
+terminal.
 
 ## Language
 

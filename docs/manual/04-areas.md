@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-19T19:49:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:26:14Z }
 ---
 
 # Areas
@@ -16,7 +16,10 @@ looking straight down at their middle, north up, as in Aurora.
 ## The toolbar
 
 - **Creatures, Doors, … Waypoints, Start**: show or hide each kind of
-  object and the start location marker; **All** and **None**.
+  object and the start location marker; **All** and **None**. What you
+  hide is hidden in every area view, as in Aurora: the other open ones,
+  those you open later, and the next time Moonglow starts (an area that
+  looks empty may have its kinds hidden: **All** brings them back).
 - **The start location** (where a player's character enters the module)
   is marked as in Aurora: a blue ring on the ground with a red arrow the
   way the character faces. To set it, right-click the ground where it

@@ -121,6 +121,14 @@ pub struct Settings {
     /// The area view's Grass switch is off: no grass is drawn (in every
     /// area view).
     pub no_grass: bool,
+    /// The kinds of objects the area view's toolbar hides (`Triggers`,
+    /// `Encounters`…, as [`mg_area::ObjectKind::plural`] names them, and
+    /// `Start` for the start location's marker): every area view, the
+    /// open ones and those opened from now on, hides them, as in Aurora.
+    pub hidden_in_areas: Vec<String>,
+    /// Options › Verify: the groups Verify Module leaves out of its report
+    /// (by [`mg_module::doctor::Group::id`]).
+    pub verify_skip: Vec<String>,
     /// The folder each hak was built from (the hak's path, the folder's),
     /// most recent first: Update from Folder reads it again.
     pub hak_folders: Vec<(PathBuf, PathBuf)>,
@@ -198,6 +206,9 @@ pub struct Settings {
     /// (and their tabs are titled) by their names rather than their
     /// ResRefs.
     pub area_names: bool,
+    /// Options > General: a blueprint's Category list is in alphabetical
+    /// order, rather than in the palette's (Palette › Categories…).
+    pub categories_by_name: bool,
     /// Options > General: Minimize Toolset on test module.
     pub minimize_on_test: bool,
     /// Options > General: Start a Steam copy through Steam for a test is

@@ -96,6 +96,8 @@ pub enum Id {
     ViewTree,
     ViewPalettes,
     ViewLog,
+    /// View › Clear Log: the log emptied.
+    ClearLog,
     HidePanels,
     ResetLayout,
 }
@@ -165,6 +167,7 @@ pub const MENUS: [(&str, &[Item]); 8] = [
             Do(Id::ViewTree),
             Do(Id::ViewPalettes),
             Do(Id::ViewLog),
+            Do(Id::ClearLog),
             Separator,
             Do(Id::GoToStart),
             Separator,
@@ -440,6 +443,7 @@ impl Id {
                 ("view-palettes", "Palettes Panel", "Show the palettes, or fold them away")
             }
             Id::ViewLog => ("view-log", "Log", "Show the log, or fold it away"),
+            Id::ClearLog => ("clear-log", "Clear Log", "Empty the log"),
             Id::HidePanels => (
                 "hide-panels",
                 "Hide All Panels",
@@ -576,6 +580,7 @@ impl Id {
             | Id::PreviousTab => true,
             Id::NextPane | Id::PreviousPane => open,
             Id::ViewLog | Id::ResetLayout => true,
+            Id::ClearLog => !app.log.entries.is_empty(),
             Id::ViewTree | Id::HidePanels => open,
             Id::ViewPalettes => open && app.game.is_some(),
             Id::CloseTab => app.front_tab().is_some(),
@@ -775,6 +780,7 @@ impl Id {
                 return;
             }
             Id::ResetLayout => return app.reset_layout(ctx),
+            Id::ClearLog => return app.log.entries.clear(),
         };
         app.actions.push(action);
     }
