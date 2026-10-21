@@ -5,7 +5,7 @@
 use std::collections::{BTreeSet, HashSet};
 
 use mg_core::ResType;
-use mg_resman::{ResKey, ResMan};
+use mg_resman::{ResKey, ResMan, priority};
 use mg_rules::ObjectKind;
 
 use crate::Module;
@@ -79,6 +79,9 @@ pub struct Missing {
     /// For scripts: the source exists but not the compiled script, which the
     /// game needs.
     pub uncompiled: bool,
+    /// It is there, but only in the haks the user's `userpatch.ini` names:
+    /// a player without them has nothing in its place.
+    pub only_userpatch: bool,
 }
 
 impl Missing {
@@ -99,7 +102,22 @@ impl Missing {
             && matches!(r.kind, RefKind::Blueprint(_))
     }
 
+    /// What is wrong with it, after its name: "missing", "not compiled",
+    /// or found only in userpatch.ini's haks.
+    pub fn what(&self) -> &'static str {
+        if self.only_userpatch {
+            "only in userpatch.ini's haks (players without them won't have it)"
+        } else if self.uncompiled {
+            "not compiled"
+        } else {
+            "missing"
+        }
+    }
+
     pub fn is_error(&self) -> bool {
+        if self.only_userpatch {
+            return false;
+        }
         let r = &self.reference;
         // A missing sound, portrait or movie leaves silence or a blank.
         if matches!(r.kind, RefKind::Sound | RefKind::Portrait | RefKind::Movie) {
@@ -120,7 +138,8 @@ pub fn module_references(module: &Module) -> Vec<Reference> {
 
 /// References that neither the module nor `resman` (the game, haks, and
 /// usually the module layer too) can satisfy. Scripts need their compiled
-/// form; one with only a source is reported as uncompiled.
+/// form; one with only a source is reported as uncompiled. A reference
+/// only userpatch.ini's haks satisfy is reported too, as such (a warning).
 pub fn missing(module: &Module, resman: &ResMan) -> Vec<Missing> {
     missing_of(module, resman, module_references(module))
 }
@@ -129,17 +148,32 @@ pub fn missing(module: &Module, resman: &ResMan) -> Vec<Missing> {
 /// ([`module_references`]: every GFF read; [`unused_of`] takes them too).
 pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) -> Vec<Missing> {
     let has = |k: &ResKey| module.contains(k) || resman.contains(k);
+    // Found, but only in userpatch.ini's haks (the player's own, not the
+    // module's): nothing else in the stack has it.
+    let patched = resman.layers().iter().any(|l| l.priority == priority::USERPATCH);
+    let only_userpatch = |k: &ResKey| {
+        patched
+            && !module.contains(k)
+            && resman.find(k).is_some_and(|i| resman.layers()[i].priority == priority::USERPATCH)
+            && !resman
+                .layers()
+                .iter()
+                .any(|l| l.priority != priority::USERPATCH && l.container.contains(k))
+    };
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     for r in references {
         let candidates = r.candidates();
         // The game runs compiled scripts; a source alone does not satisfy a
         // script reference (but is reported as uncompiled, not missing).
-        let satisfied = match r.kind {
-            RefKind::Script => candidates.iter().any(|k| k.restype == ResType::NCS && has(k)),
-            _ => candidates.iter().any(has),
+        let satisfying: Vec<&ResKey> = match r.kind {
+            RefKind::Script => {
+                candidates.iter().filter(|k| k.restype == ResType::NCS && has(k)).collect()
+            }
+            _ => candidates.iter().filter(|k| has(k)).collect(),
         };
-        if candidates.is_empty() || satisfied {
+        let patch_only = !satisfying.is_empty() && satisfying.iter().all(|k| only_userpatch(k));
+        if candidates.is_empty() || (!satisfying.is_empty() && !patch_only) {
             continue;
         }
         // Each missing target once per referencing resource (a dialog may
@@ -147,9 +181,15 @@ pub fn missing_of(module: &Module, resman: &ResMan, references: Vec<Reference>) 
         if !seen.insert((r.from, r.kind, r.target)) {
             continue;
         }
-        let uncompiled = r.kind == RefKind::Script
+        let uncompiled = !patch_only
+            && r.kind == RefKind::Script
             && candidates.iter().any(|k| k.restype == ResType::NSS && has(k));
-        out.push(Missing { category: Category::of(&r), reference: r, uncompiled });
+        out.push(Missing {
+            category: Category::of(&r),
+            reference: r,
+            uncompiled,
+            only_userpatch: patch_only,
+        });
     }
     out
 }
@@ -280,6 +320,31 @@ mod tests {
         );
         let unused: Vec<String> = unused(&m).iter().map(|k| k.to_string()).collect();
         assert_eq!(unused, ["lonely.ncs", "spare_bp.utc"]);
+    }
+
+    /// What only userpatch.ini's haks have is said, as a warning: a player
+    /// without them has nothing there. What the game has too is not.
+    #[test]
+    fn a_reference_only_a_userpatch_hak_has_is_a_warning() {
+        let mut m = Module::new();
+        let mut ifo = Gff::new(*b"IFO ");
+        ifo.root.write(&ifo::MOD_ON_MOD_LOAD, rr("patch_only"));
+        ifo.root.write(&ifo::MOD_ON_HEARTBEAT, rr("both"));
+        m.set_info(&ifo).unwrap();
+        let mut patch = MemContainer::new();
+        let mut base = MemContainer::new();
+        for n in ["patch_only", "both"] {
+            patch.insert(key(n, ResType::NCS), Vec::new());
+        }
+        base.insert(key("both", ResType::NCS), Vec::new());
+        let mut rm = ResMan::new();
+        rm.add(priority::KEY, "base", LayerClass::Key, base);
+        rm.add(priority::USERPATCH, "userpatch:hd", LayerClass::Erf, patch);
+        let miss = missing(&m, &rm);
+        assert_eq!(miss.len(), 1, "{miss:?}");
+        assert_eq!(miss[0].reference.target.to_string(), "patch_only");
+        assert!(miss[0].only_userpatch && !miss[0].is_error());
+        assert!(miss[0].what().starts_with("only in userpatch.ini's haks"));
     }
 
     #[test]

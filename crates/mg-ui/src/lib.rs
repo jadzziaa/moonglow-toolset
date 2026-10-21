@@ -3972,7 +3972,7 @@ pub fn verify_report(
 ) -> Vec<(LogLevel, String)> {
     use mg_module::doctor::Severity;
     let reference = |m: &mg_module::verify::Missing| {
-        let what = if m.uncompiled { "is not compiled" } else { "is missing" };
+        let what = format!("is {}", m.what());
         format!(
             "{:?}: {}{} → {} {} {what}",
             m.category,

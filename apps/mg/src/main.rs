@@ -2732,6 +2732,7 @@ fn verify(
             "kind": x.reference.kind.name(),
             "target": x.reference.target.to_string(),
             "uncompiled": x.uncompiled,
+            "only_userpatch": x.only_userpatch,
         })).collect::<Vec<_>>(),
         "findings": findings.iter().map(|f| serde_json::json!({
             "severity": severity(f.severity),
@@ -2745,7 +2746,7 @@ fn verify(
         "skipped": left.iter().map(|(g, n)| (g.id().to_string(), serde_json::json!(n))).collect::<serde_json::Map<_, _>>(),
     });
     for x in &missing {
-        let what = if x.uncompiled { "not compiled" } else { "missing" };
+        let what = x.what();
         let sev = if x.is_error() { "error" } else { "warning" };
         out.line(format!(
             "{sev}\t{:?}\t{}{}\t{} {} {what}",

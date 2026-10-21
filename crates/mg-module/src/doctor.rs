@@ -288,7 +288,6 @@ fn is_custom(layer: &Layer) -> bool {
     matches!(
         layer.priority,
         priority::OVERRIDE
-            | priority::USERPATCH
             | priority::MODULE
             | priority::HAK_USER
             | priority::NWSYNC

@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T20:38:29Z }
 ---
 
 # Differences from Aurora
@@ -34,6 +34,10 @@ it differs, it is on purpose:
 - **Spell Checking**: Enhanced Edition ships no dictionary, so Aurora's
   spell check finds nothing; Moonglow has none yet (Build Module shows
   the box, switched off, as "Not yet").
+- **userpatch.ini's haks** (the HD Pack and the like) and **Steam
+  Workshop content** can be read as the game reads them (Options ›
+  General, both off by default as in Aurora, which can't read them);
+  Verify warns of a reference only userpatch.ini's haks satisfy.
 - **Environment maps** on creatures and items are always drawn, as the
   game draws them.
 - **Grass** is drawn in the area viewer, which Aurora does not draw: the

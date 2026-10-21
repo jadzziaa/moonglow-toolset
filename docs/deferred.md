@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:18:58Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T20:38:29Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1992,6 +1992,15 @@ contribution itself states as not done or not checked.
 
 ## The install, starting and crashes
 
+- **userpatch.ini's haks** are read (Options › General, off by default), at the
+  game's priority for them as the wiki's load order gives it (13: under
+  the module, over `override/`); not measured in the client. Not done:
+  `mg` doesn't read them (as it doesn't read the Workshop: a flag would
+  do); Verify warns of a reference only they satisfy, but not of one
+  only the user's `override/` or a Workshop item satisfies, which a
+  player lacks just as much; their talk tables, music and ambient are
+  not looked for apart from the haks' own resources. (S each) (El
+  Grillo's question, 2026-10-21)
 - **Steam Workshop content** is read (Options › General): each item's
   `override` folder as a layer under the user's own, its `hak` and `tlk`
   folders searched. Which of two items' overrides wins in the game isn't
