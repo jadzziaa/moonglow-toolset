@@ -1306,6 +1306,9 @@ pub fn from_ink(source: &str) -> Result<Gff, String> {
             let mut tags = tags;
             if let Some(i) = tags.iter().position(|t| t.starts_with("if:")) {
                 let call = tags.remove(i)["if:".len()..].trim().to_string();
+                if tags.iter().any(|t| t.starts_with("if:")) {
+                    return Err(format!("line {at}: a choice has one condition, one # if:"));
+                }
                 cond = Some(with_params(at, cond.as_deref(), call)?);
             }
             let (text, after) = match rest.strip_prefix('[') {
@@ -1534,6 +1537,7 @@ mod tests {
         for (bad, line) in [
             ("-> a\n=== a ===\nHi\n+ {c_x} [Go] # if:c_z n=1 -> END\n", "line 4:"),
             ("-> a\n=== a ===\nHi\n+ [Go] # if:c_z n=1 -> END\n", "line 4:"),
+            ("-> a\n=== a ===\nHi\n+ {c_x} [Go] # if:c_x n=1 # if:c_x n=2 -> END\n", "line 4:"),
             ("-> s\n=== s ===\n# if:c_x n=1\n-> a\n=== a ===\nHi\n", "line 3:"),
             ("-> s\n=== s ===\n# if:c_x n=1\n", "line 3:"),
             ("-> a\n=== a ===\nHi\n+ {c_x} [Go] # if:c_x n=\"1 -> END\n", "doesn't end"),
