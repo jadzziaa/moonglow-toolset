@@ -3111,3 +3111,73 @@ fn advanced_search() {
     h.state_mut().advanced_search = d;
     shoot(&mut h, &dir, "advanced-search-class");
 }
+
+/// Right-click menus, Properties last in each (Aurora's order): a
+/// placed waypoint's in the area view, and the area's row in the module
+/// tree.
+#[test]
+#[ignore]
+fn context_menus() {
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Menus", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let bp = game.resman.get(&ResKey::parse("nw_waypoint001", ResType::UTW).unwrap()).unwrap();
+    let bp = mg_gff::Gff::read(&bp).unwrap();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let none = |_: mg_core::ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [20.0, 20.0, 0.0], rotation: 0.3 };
+    let waypoint = instance(&placing, ResType::UTW, &bp.root, at, &[]).unwrap();
+    git.root.set("WaypointList", mg_gff::Value::List(vec![waypoint]));
+    m.set_gff(git_key, &git).unwrap();
+    let path = dir.join("context-menus.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(5);
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    let on_it = h.state().area_views[&area].screen_pos(glam::Vec3::new(20.0, 20.0, 0.0));
+    right_click(&mut h, on_it.expect("in view"));
+    shoot(&mut h, &dir, "menu-area-object");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    let row = h.get_all_by_label_contains(&area.to_string()).last().unwrap().rect().center();
+    right_click(&mut h, row);
+    shoot(&mut h, &dir, "menu-tree-area");
+}

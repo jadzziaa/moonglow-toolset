@@ -267,10 +267,6 @@ pub(crate) fn context_menu(
     if !view.tile_selection.contains(&t) {
         view.tile_selection = vec![t];
     }
-    if ui.button("Tile Properties…").clicked() {
-        open_properties(app, view);
-        ui.close();
-    }
     if ui.button("Next Variant").on_hover_text("Shift + right click").clicked() {
         next_variant(app, view, t, false);
         ui.close();
@@ -281,6 +277,12 @@ pub(crate) fn context_menu(
     }
     if ui.button("Delete").on_hover_text("Delete: crossers and group tiles go").clicked() {
         delete(app, view);
+        ui.close();
+    }
+    // Properties last, as in Aurora's menus.
+    ui.separator();
+    if ui.button("Tile Properties…").clicked() {
+        open_properties(app, view);
         ui.close();
     }
 }

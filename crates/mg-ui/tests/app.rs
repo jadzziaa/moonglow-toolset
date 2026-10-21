@@ -20270,3 +20270,127 @@ fn grass_is_set_in_area_properties_and_grown_in_the_view() {
     assert_eq!(saved, stored(&mut h));
     assert!(saved.default_disabled && saved.overrides[0].material == 1);
 }
+
+/// The items of the open right-click menu whose last item is `last`, top
+/// to bottom: the buttons of the popup `last` is in (the menu, drawn
+/// above the rest, is the last listed).
+fn menu_items(h: &Harness<'_, Moonglow>, last: &str) -> Vec<String> {
+    use egui_kittest::kittest::AccessKitNode;
+    let item = h.get_all_by_label(last).last().expect("the menu's item");
+    // The popup: the nearest of its containers with a place on the screen.
+    let mut menu = item.accesskit_node().parent();
+    while let Some(n) = menu.filter(|n| n.bounding_box().is_none()) {
+        menu = n.parent();
+    }
+    fn buttons(n: AccessKitNode<'_>, into: &mut Vec<(f64, String)>) {
+        if n.role() == egui::accesskit::Role::Button {
+            let top = n.bounding_box().map_or(0.0, |b| b.y0);
+            into.push((top, n.label().unwrap_or_default()));
+        }
+        for child in n.children() {
+            buttons(child, into);
+        }
+    }
+    let mut items = Vec::new();
+    buttons(menu.expect("in a popup"), &mut items);
+    items.sort_by(|a, b| a.0.total_cmp(&b.0));
+    items.into_iter().map(|(_, label)| label).collect()
+}
+
+/// Properties is the last item of every right-click menu that has one,
+/// with Variables just before it where the menu has that, as Aurora's
+/// menus end (a builder's ask: Jasperre's): a placed object's, a tile's,
+/// a placed object's row in the module tree and an area's row there.
+#[test]
+fn properties_is_the_last_item_of_the_area_and_tree_menus() {
+    use glam::Vec3;
+    let Some((mut h, area)) = area_harness("properties-last") else { return };
+    let right_click = |h: &mut Harness<'_, Moonglow>, at: egui::Pos2| {
+        h.hover_at(at);
+        for pressed in [true, false] {
+            h.event(egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Secondary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            });
+        }
+        h.run_steps(3);
+    };
+    let tail = |items: &[String], n: usize| items[items.len().saturating_sub(n)..].to_vec();
+    // A waypoint in the area view.
+    let on_it = screen(&h, area, Vec3::new(20.0, 20.0, 0.0));
+    right_click(&mut h, on_it);
+    let items = menu_items(&h, "Properties");
+    assert_eq!(tail(&items, 2), ["Variables…", "Properties"], "{items:?}");
+    assert!(items.contains(&"Delete".to_string()), "{items:?}");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // Its row in the module tree.
+    h.state_mut().area_views.get_mut(&area).unwrap().selection =
+        vec![(mg_area::ObjectKind::Waypoint, 0)];
+    h.run_steps(6);
+    let row = h.query_all_by_label_contains("WAYPOINT").next().expect("a waypoint's row").rect();
+    right_click(&mut h, row.center());
+    let items = menu_items(&h, "Properties");
+    // (A waypoint has no Preview.)
+    assert_eq!(items, ["Go To", "Copy", "Delete", "Variables…", "Properties"]);
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // The area's row in the module tree (left of the area's tab).
+    let name = area.to_string();
+    let row =
+        h.get_all_by_label(&name).map(|n| n.rect()).min_by(|a, b| a.left().total_cmp(&b.left()));
+    right_click(&mut h, row.expect("the area's row").center());
+    let items = menu_items(&h, "Properties");
+    assert_eq!(items.last().map(String::as_str), Some("Properties"), "{items:?}");
+    assert!(items.contains(&"View Area".to_string()), "the area's menu: {items:?}");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // A tile, in tile mode.
+    h.get_by_label("⛶ Select Tiles").click();
+    h.run_steps(2);
+    let tile = screen(&h, area, Vec3::new(15.0, 15.0, 0.0));
+    right_click(&mut h, tile);
+    let items = menu_items(&h, "Tile Properties…");
+    assert_eq!(items, ["Next Variant", "Previous Variant", "Delete", "Tile Properties…"]);
+}
+
+/// An inventory row's right-click menu ends with Properties, as Aurora's
+/// menus do (Jasperre's ask).
+#[test]
+fn properties_is_the_last_item_of_an_inventory_row_s_menu() {
+    let Some((mut h, _)) = blueprint_harness("plc_chest1", "chest_last", ResType::UTP) else {
+        return;
+    };
+    h.run();
+    h.get_by_label("Inventory…").click();
+    h.run();
+    type_into_hint(&mut h, "Find", "nw_it_torch001");
+    let torch = |n: &egui_kittest::kittest::AccessKitNode<'_>| {
+        n.role() == egui::accesskit::Role::Button && n.label().is_some_and(|l| l == "Torch")
+    };
+    h.get(egui_kittest::kittest::by().predicate(torch)).click();
+    h.run();
+    h.get_by_label("Add Item").click();
+    h.run();
+    // (The palette's row is the leftmost "Torch"; the list's is right of it.)
+    let row = h
+        .get_all_by_label("Torch")
+        .filter(|n| n.accesskit_node().role() == egui::accesskit::Role::Button)
+        .map(|n| n.rect())
+        .max_by(|a, b| a.left().total_cmp(&b.left()))
+        .unwrap();
+    h.hover_at(row.center());
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: row.center(),
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        });
+    }
+    h.run();
+    let items = menu_items(&h, "Properties");
+    assert_eq!(items, ["Copy", "Paste", "Remove", "Properties"]);
+}

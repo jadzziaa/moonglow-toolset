@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:30:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:52:42Z }
 ---
 
 # The main window
@@ -114,10 +114,11 @@ by tag instead, as Aurora lists them (they often share a name, and their
 tags are what scripts and transitions go by); the pointer resting on a
 row shows the other. Click an object to go to it in the area's view,
 selected (the tree stays still, so a second click makes a double click);
-double-click for its Properties; right-click for those, for
-**Variables…** (its variables' window, as Aurora's list has it), for
+double-click for its Properties; right-click for **Go To**, for
 **Preview** (creatures, doors, items and placeables, as placed),
-**Copy** (pasted in any area with Ctrl+V) and **Delete**. The Filter
+**Copy** (pasted in any area with Ctrl+V) and **Delete**, and last, as
+in Aurora, **Variables…** (its variables' window, as Aurora's list has
+it) and **Properties**. The Filter
 narrows an opened area's objects to those it finds by name or tag.
 **Edit** on the right-click menu of any other row (a conversation, a
 script, a blueprint) opens it, as a double click does; a blueprint's
@@ -133,9 +134,9 @@ and has a × to clear it.
 
 A double click opens a resource in its editor. A blueprint dragged onto an
 area's view is placed there, as from the palette. A right click on an area
-offers **View Area**, **Properties** (Area Properties) and the raw fields
-of its `.are` and `.git` files; on a script, area, conversation or
-blueprint, **Find References** and **Rename…** (see
+offers **View Area** and the raw fields of its `.are` and `.git` files,
+and last, as in Aurora, **Properties** (Area Properties); on a script,
+area, conversation or blueprint, **Find References** and **Rename…** (see
 [Modules](03-modules.md)); on any resource, **Copy…**, **Delete…**,
 **Export…**, **Export as Files…** and **Copy to Scratch Folder**.
 
