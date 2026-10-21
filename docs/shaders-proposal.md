@@ -287,6 +287,16 @@ wgpu.
   haks attached to a scratch copy: none; with a line of `inc_lighting`
   broken, one finding at its line, 58 programs.
 
+- **Builds** (2026-10-21, commit `031e7dc` on a temporary branch): CI
+  green on ubuntu, windows and macos
+  ([run](https://github.com/jadzziaa/moonglow-toolset/actions/runs/39611319085)),
+  and the packages built by the Release workflow run by hand: the
+  AppImage, the Windows installer and the macOS disk image
+  ([run](https://github.com/jadzziaa/moonglow-toolset/actions/runs/39611328333)).
+  The Flatpak built offline on the development machine
+  (`packaging/flatpak/build-flatpak.sh`, glslang compiled in the
+  sandbox), and its `mg checks` lists `shader-compile`.
+
 ## Two tiers
 
 - **Tier A, custom shaders.** A mesh whose MTR names
