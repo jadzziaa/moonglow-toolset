@@ -21,6 +21,9 @@ wgpu.workspace = true
 
 [dev-dependencies]
 mg-testkit.workspace = true
+# (Moonglow's own shaders written for Metal in a test: what its backend
+# refuses shows on every platform.)
+naga = { workspace = true, features = ["wgsl-in", "msl-out"] }
 png.workspace = true
 
 [lints]

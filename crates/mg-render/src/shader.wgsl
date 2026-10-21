@@ -219,6 +219,42 @@ fn env_coords(n: vec3<f32>, pos_view: vec3<f32>) -> vec2<f32> {
     return 0.5 * e + vec2<f32>(0.5, 0.25);
 }
 
+// The level of detail a cube map of `size` texels a side is read at for
+// the direction `r` whose screen derivatives are `d1` and `d2`: the
+// derivatives of the coordinates on the face `r` points at (its other two
+// components over the major one), as the graphics APIs define it.
+fn cube_level(r: vec3<f32>, d1: vec3<f32>, d2: vec3<f32>, size: f32) -> f32 {
+    let a = abs(r);
+    var m = r.z;
+    var c = r.xy;
+    var c1 = d1.xy;
+    var c2 = d2.xy;
+    var m1 = d1.z;
+    var m2 = d2.z;
+    if (a.x >= a.y && a.x >= a.z) {
+        m = r.x;
+        c = r.yz;
+        c1 = d1.yz;
+        c2 = d2.yz;
+        m1 = d1.x;
+        m2 = d2.x;
+    } else if (a.y >= a.z) {
+        m = r.y;
+        c = r.xz;
+        c1 = d1.xz;
+        c2 = d2.xz;
+        m1 = d1.y;
+        m2 = d2.y;
+    }
+    let mm = max(m * m, 1e-12);
+    // (Face coordinates from 0 to 1 are half of c / m, so `size` texels
+    // span 2 of c / m.)
+    let g1 = (c1 * m - c * m1) / mm * (0.5 * size);
+    let g2 = (c2 * m - c * m2) / mm * (0.5 * size);
+    let rho = max(length(g1), length(g2));
+    return max(log2(max(rho, 1e-8)), 0.0);
+}
+
 // "Legacy balanced" colour clamp: values above 1 desaturate towards white.
 fn color_clamp(c: vec3<f32>) -> vec3<f32> {
     let m = max(c.r, max(c.g, c.b));
@@ -661,8 +697,13 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var env_sample: vec3<f32>;
     if (draws[this_draw].extra.x > 0.5) {
         // Cube maps: the reflected view in world space.
+        // (At the level the direction's derivatives give, worked out here:
+        // `textureSampleGrad` on a cube map is written for Metal with 2D
+        // gradients, which it refuses.)
         let r = view_to_world * reflect(-v, n);
-        env_sample = lin(textureSampleGrad(tex_env_cube, samp_env, r, ddir1, ddir2).rgb);
+        let size = f32(textureDimensions(tex_env_cube).x);
+        let level = cube_level(r, ddir1, ddir2, size);
+        env_sample = lin(textureSampleLevel(tex_env_cube, samp_env, r, level).rgb);
     } else {
         let at = env_coords(n, in.pos_view);
         env_sample = lin(textureSampleGrad(tex_env, samp_env, at, denv1 * bias, denv2 * bias).rgb);

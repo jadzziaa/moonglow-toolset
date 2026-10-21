@@ -1908,6 +1908,22 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         "mgenv".into(),
         mg_image::Rgba { width: 32, height: 32, data: env }.into_texture(false),
     );
+    // A cube map: six faces of 64 texels, each a checker of its own
+    // colours (so that the level it is read at shows).
+    own.txis.insert("mgcube".into(), mg_image::txi::Txi::parse(b"cube 1\nfilerange 6\n"));
+    for face in 0..6u8 {
+        let face_data: Vec<u8> = (0..64 * 64u32)
+            .flat_map(|i| {
+                let check = ((i % 64) / 4 + (i / 64) / 4) % 2 == 0;
+                let c = 40 + face * 35;
+                if check { [c, 255 - c, 120, 255] } else { [220, c / 2, 255 - c, 255] }
+            })
+            .collect();
+        own.textures.insert(
+            format!("mgcube{face}"),
+            mg_image::Rgba { width: 64, height: 64, data: face_data }.into_texture(false),
+        );
+    }
     // A normal map of ridges along u, and a specular map of stripes.
     let normal: Vec<u8> = (0..w * h)
         .flat_map(|i| {
@@ -1978,6 +1994,10 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
         Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0)),
     );
     shiny.env_map = Some("mgenv".into());
+    // (The same reflecting a cube map: its level worked out in Moonglow's
+    // shader, as Metal can't be given a cube's gradients. Cube maps are
+    // uploaded with one level, so both read it at 0 for now.)
+    let shiny_cube = Instance { env_map: Some("mgcube".into()), ..shiny.clone() };
     let mut bumpy = sphere("mgchecker", 24, 48);
     if let NodeKind::Mesh(m) = &mut bumpy.nodes[1].kind {
         m.textures[1] = Some("mgnormal".into());
@@ -2038,6 +2058,7 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
     let mut scenes = vec![
         ("sphere", sphere_scene, camera),
         ("reflecting", Scene { instances: vec![shiny], ..base.clone() }, close),
+        ("reflecting_cube", Scene { instances: vec![shiny_cube], ..base.clone() }, close),
         ("normal_mapped", Scene { instances: vec![bumpy], ..base.clone() }, close),
         ("decal", Scene { instances: vec![decal], ..base.clone() }, close),
         ("no_uvs", Scene { instances: vec![bare], ..base.clone() }, close),

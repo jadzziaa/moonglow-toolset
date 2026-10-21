@@ -2341,6 +2341,84 @@ mod tests {
         assert!((falloff - 136.31).abs() < 0.1, "{falloff}");
     }
 
+    /// The WGSL shaders' cube maps, by their names.
+    fn cube_maps(source: &str) -> Vec<String> {
+        source
+            .lines()
+            .filter(|l| l.contains("texture_cube"))
+            .filter_map(|l| l.split("var ").nth(1)?.split(':').next())
+            .map(|n| n.trim().to_string())
+            .collect()
+    }
+
+    /// No cube map is read with gradients or a bias: naga writes
+    /// `textureSampleGrad` on a cube for Metal with 2D gradients
+    /// (`metal::gradient2d` of `float3`s), which Metal refuses, and the
+    /// whole lit pipeline wasn't made there (M4's CI on macOS).
+    #[test]
+    fn no_cube_map_is_read_with_gradients() {
+        for (name, source) in [
+            ("shader.wgsl", include_str!("shader.wgsl")),
+            ("particle.wgsl", include_str!("particle.wgsl")),
+            ("line.wgsl", include_str!("line.wgsl")),
+        ] {
+            let cubes = cube_maps(source);
+            for (i, line) in source.lines().enumerate() {
+                for cube in &cubes {
+                    for call in ["textureSampleGrad(", "textureSampleBias("] {
+                        let used = line.replace(' ', "").contains(&format!("{call}{cube},"));
+                        assert!(!used, "{name}:{}: {call} on the cube map {cube}", i + 1);
+                    }
+                }
+            }
+        }
+        assert_eq!(cube_maps(include_str!("shader.wgsl")), ["tex_env_cube"]);
+    }
+
+    /// The shaders as naga writes them for Metal: no cube map sampled with
+    /// 2D gradients.
+    #[test]
+    fn the_shaders_written_for_metal_sample_cube_maps_as_cubes() {
+        for (name, source) in [
+            ("shader.wgsl", include_str!("shader.wgsl")),
+            ("particle.wgsl", include_str!("particle.wgsl")),
+            ("line.wgsl", include_str!("line.wgsl")),
+        ] {
+            let module =
+                naga::front::wgsl::parse_str(source).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let info = naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap_or_else(|e| panic!("{name}: {e:?}"));
+            let options = naga::back::msl::Options {
+                lang_version: (2, 1),
+                fake_missing_bindings: true,
+                ..Default::default()
+            };
+            let pipeline = naga::back::msl::PipelineOptions::default();
+            let (msl, _) = naga::back::msl::write_string(&module, &info, &options, &pipeline)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let cubes: Vec<&str> = msl
+                .lines()
+                .filter(|l| l.contains("metal::texturecube<"))
+                .filter_map(|l| l.split('>').nth(1)?.split_whitespace().next())
+                .collect();
+            if name == "shader.wgsl" {
+                assert!(!cubes.is_empty(), "no cube map found in the Metal source");
+            }
+            for line in msl.lines().filter(|l| l.contains("gradient2d")) {
+                for cube in &cubes {
+                    assert!(
+                        !line.contains(&format!("{cube}.sample(")),
+                        "{name}: a cube map with 2D gradients: {line}"
+                    );
+                }
+            }
+        }
+    }
+
     /// A fragment shader stops where it discards. On Metal a discarded
     /// fragment that goes on running writes its depth: a see-through mesh's
     /// solid part hid what was behind the whole of it there (the tests of
