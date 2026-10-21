@@ -2864,8 +2864,7 @@ impl Moonglow {
         }
         let mut edits = Vec::new();
         for (key, buf) in self.scripts.iter_mut().filter(|(_, b)| b.is_dirty()) {
-            buf.saved = buf.text.clone();
-            edits.push(mg_edit::Edit::SetResource { key: *key, data: Some(buf.bytes()) });
+            edits.push(mg_edit::Edit::SetResource { key: *key, data: Some(buf.mark_saved()) });
             if let Some(w) = buf.unwritable(*key) {
                 self.log.warn(w);
             }

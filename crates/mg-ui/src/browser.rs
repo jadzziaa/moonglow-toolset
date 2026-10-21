@@ -417,9 +417,11 @@ impl Viewed {
                 },
             }
         } else if key.restype == ResType::NSS {
-            Content::Script(crate::text::decode_script(&data))
+            // (Shown and copied with plain newlines, as the script editor
+            // has them; Copy to Module and Save copy the bytes.)
+            Content::Script(crate::text::to_editor(&crate::text::decode_script(&data)).0)
         } else if is_text(key.restype, &data) {
-            Content::Text(codepage.decode(&data).into_owned())
+            Content::Text(crate::text::to_editor(&codepage.decode(&data)).0)
         } else if let Some(text) = model_text(key, &data) {
             Content::Text(text)
         } else {
@@ -547,7 +549,12 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         Content::TwoDa(_) => {}
         Content::Script(text) => {
             let job = crate::script_view::highlight(text, &palette);
-            ui.label(job);
+            // (On the script editor's background, where one is chosen:
+            // its colors are chosen for it.)
+            match palette.background {
+                Some(fill) => _ = egui::Frame::new().fill(fill).show(ui, |ui| ui.label(job)),
+                None => _ = ui.label(job),
+            }
         }
         Content::Text(text) | Content::Binary(text) => {
             ui.monospace(text);

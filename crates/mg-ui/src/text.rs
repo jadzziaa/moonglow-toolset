@@ -197,6 +197,58 @@ pub(crate) fn from_editor(text: &str, crlf: bool) -> String {
     if crlf { text.replace("\r\n", "\n").replace('\n', "\r\n") } else { text.to_string() }
 }
 
+/// Whether a text's line ends are CRLF, as most of its are (BioWare's
+/// scripts and Aurora's are); one with none, too, as Aurora writes.
+pub(crate) fn uses_crlf(text: &str) -> bool {
+    let all = text.matches('\n').count();
+    all == 0 || text.matches("\r\n").count() * 2 >= all
+}
+
+/// An editor's text (plain newlines, [`to_editor`]) with the line ends of
+/// `original`, the file's text it was read from: the lines before and
+/// after those changed keep their own ends, and the others take the
+/// file's ([`uses_crlf`]). An untouched text is the original again, byte
+/// for byte, whatever its line ends; a file with both kinds keeps them
+/// but on the lines changed.
+pub(crate) fn with_line_ends(text: &str, original: &str) -> String {
+    let crlf = uses_crlf(original);
+    let old: Vec<&str> = original.split('\n').collect();
+    let new: Vec<&str> = text.split('\n').collect();
+    let (m, n) = (old.len(), new.len());
+    // (Each segment but the last ends a line: its "\r", if any, is the
+    // line end's, as `to_editor` took it.)
+    let content =
+        |k: usize| if k + 1 < m { old[k].strip_suffix('\r').unwrap_or(old[k]) } else { old[k] };
+    let mut prefix = 0;
+    while prefix + 1 < n && prefix + 1 < m && new[prefix] == content(prefix) {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < n - prefix
+        && suffix < m - prefix
+        && new[n - 1 - suffix] == content(m - 1 - suffix)
+    {
+        suffix += 1;
+    }
+    let mut out = String::with_capacity(text.len() + n);
+    for (k, line) in new.iter().enumerate() {
+        out.push_str(line);
+        if k + 1 == n {
+            break;
+        }
+        let kept = if k < prefix {
+            Some(k)
+        } else if k >= n - suffix {
+            Some(k + m - n)
+        } else {
+            None
+        };
+        let end_crlf = kept.map_or(crlf, |o| old[o].ends_with('\r'));
+        out.push_str(if end_crlf { "\r\n" } else { "\n" });
+    }
+    out
+}
+
 /// A localized string with its text in the editing language replaced (or
 /// set; English unless Options › Language chooses another).
 pub(crate) fn with_english(mut s: LocString, text: &str) -> LocString {
@@ -242,6 +294,38 @@ mod tests {
         assert_eq!((shown.as_str(), crlf), ("a\nb", true));
         assert_eq!(from_editor("a\nb\nc", true), "a\r\nb\r\nc");
         assert_eq!(from_editor("a\nb", false), "a\nb");
+    }
+
+    /// An editor's text goes back with the file's line ends: untouched,
+    /// byte for byte (both kinds, a stray `\r`); edited, the lines kept
+    /// keep theirs and the others take the file's (most of its lines').
+    #[test]
+    fn edited_text_takes_the_file_s_line_ends() {
+        for file in [
+            "void main()\r\n{\r\n}\r\n",
+            "void main()\n{\n}\n",
+            "a\r\nb\nc\r\nd",
+            "a\r\r\nb\r",
+            "",
+            "\r\n",
+            "x",
+        ] {
+            assert_eq!(with_line_ends(&to_editor(file).0, file), file, "{file:?}");
+        }
+        // CRLF everywhere, the new line too; LF stays LF.
+        let crlf = "void main()\r\n{\r\n\r\n}\r\n";
+        let typed = "void main()\n{\n    int n;\n    n = 1;\n}\n";
+        assert_eq!(
+            with_line_ends(typed, crlf),
+            "void main()\r\n{\r\n    int n;\r\n    n = 1;\r\n}\r\n"
+        );
+        assert_eq!(with_line_ends(typed, &crlf.replace('\r', "")), typed);
+        // Both kinds: the lines before and after the change keep theirs.
+        let mixed = "a\r\nb\nc\r\nd\r\n";
+        assert_eq!(with_line_ends("a\nb\nX\nY\nd\n", mixed), "a\r\nb\nX\r\nY\r\nd\r\n");
+        // No line ends at all: CRLF, as Aurora writes.
+        assert!(uses_crlf("void main() {}"));
+        assert!(!uses_crlf("a\nb\r\nc\n"));
     }
 
     #[test]

@@ -2739,8 +2739,9 @@ fn compile_errors_go_to_their_line() {
     let message = h.state().script_tools.messages.last().cloned().expect("a compiler message");
     assert!(message.error);
     assert_eq!(message.location, Some(("hello".to_string(), 4)));
-    // The message is in the log too; the Compiler tab's comes after it.
-    h.get_all_by_label(&message.text).last().unwrap().click();
+    // The message is in the log too; the Compiler tab's begins with its
+    // time.
+    h.get_by_label(&format!("{} {}", message.at, message.text)).click();
     h.run();
     h.run();
     let line4 = text.match_indices('\n').nth(2).unwrap().0 + 1;
@@ -9478,10 +9479,151 @@ fn tab_indents_selected_lines_in_the_script_editor() {
     h.run();
     h.key_press(egui::Key::Tab);
     h.run();
+    // Four spaces, unless Options › Script Editor says otherwise.
+    assert_eq!(h.state().script_text(key).unwrap(), "    void main()\n    {\n}\n");
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n}\n");
+    // Tabs, chosen: a tab on each line.
+    h.state_mut().settings.script_style.indent_tabs = true;
+    h.key_press(egui::Key::Tab);
+    h.run();
     assert_eq!(h.state().script_text(key).unwrap(), "\tvoid main()\n\t{\n}\n");
     h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Tab);
     h.run();
     assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n}\n");
+    // Tab with no lines selected: the field's own tab no longer, but
+    // spaces to the next multiple of the width (two, here: from column 2).
+    h.state_mut().settings.script_style.indent_tabs = false;
+    h.state_mut().script_tools.jump = Some((key, 2));
+    h.run();
+    h.key_press(egui::Key::Tab);
+    h.event(egui::Event::Text("x".into()));
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), "vo  xid main()\n{\n}\n");
+    h.state_mut().settings.script_style.indent_tabs = true;
+    h.key_press(egui::Key::Tab);
+    h.run();
+    assert_eq!(h.state().script_text(key).unwrap(), "vo  x\tid main()\n{\n}\n");
+}
+
+/// A CRLF script (BioWare's are, and Moonglow's new ones) in the editor:
+/// no `\r` at the lines' ends for End to land after and typing to go
+/// past (Jasperre's report: "trailing spaces" on every line); untouched,
+/// the module keeps its bytes; edited and saved, CRLF everywhere (the
+/// line typed and the text pasted too), no bare newline.
+#[test]
+fn a_crlf_script_has_no_carriage_returns_in_its_editor() {
+    let dir = mg_testkit::scratch_dir("ui-script-crlf");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let file = b"void main()\r\n{\r\n    int n;\r\n}\r\n".to_vec();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, file.clone());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    let module = |h: &Harness<'_, Moonglow>| {
+        h.state().ws.as_ref().unwrap().module.get(&key).map(<[u8]>::to_vec)
+    };
+    assert_eq!(h.state().script_text(key).unwrap(), "void main()\n{\n    int n;\n}\n");
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run();
+    assert_eq!(module(&h).unwrap(), file, "untouched: the same bytes");
+    let on_disk = Module::open(&path).unwrap().get(&key).map(<[u8]>::to_vec);
+    assert_eq!(on_disk.unwrap(), file, "and saved so");
+    // End on the first line, and a letter: at the line's end.
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    h.key_press(egui::Key::End);
+    h.event(egui::Event::Text("x".into()));
+    h.run();
+    assert!(h.state().script_text(key).unwrap().starts_with("void main()x\n{"));
+    // A new line, and a paste of Windows text.
+    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Paste("// a\r\n// b".into()));
+    h.run();
+    let text = h.state().script_text(key).unwrap();
+    assert!(!text.contains('\r'), "{text:?}");
+    h.get_by_label("Save").click();
+    h.run();
+    let saved = module(&h).unwrap();
+    assert_eq!(saved, b"void main()x\r\n// a\r\n// b\r\n{\r\n    int n;\r\n}\r\n");
+}
+
+/// Save with compiling on save off says so in the Compiler tab, once, at
+/// the time it was said (Jasperre's report: the last compile's "compiled"
+/// read as the saved text's, and two compiles in a row looked alike).
+#[test]
+fn a_save_that_does_not_compile_says_so() {
+    let dir = mg_testkit::scratch_dir("ui-script-save-note");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, b"void main()\n{\n}\n".to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    assert!(!h.state().settings.auto_compile);
+    for letter in ["a", "b"] {
+        h.state_mut().script_tools.jump = Some((key, 0));
+        h.run();
+        h.event(egui::Event::Text(letter.into()));
+        h.run();
+        h.get_by_label("Save").click();
+        h.run();
+    }
+    let said: Vec<_> = h.state().script_tools.messages.iter().filter(|m| m.script == key).collect();
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(said[0].text.contains("saved, not compiled"), "{}", said[0].text);
+    assert!(said[0].text.contains("Automatically Compile Scripts on Save"));
+    let at = said[0].at.as_bytes();
+    assert!(
+        at.len() == 8
+            && at[2] == b':'
+            && at[5] == b':'
+            && at.iter().filter(|b| b.is_ascii_digit()).count() == 6,
+        "HH:MM:SS: {:?}",
+        said[0].at
+    );
+    h.get_by_label_contains("saved, not compiled");
+    assert_eq!(h.state().script_tools.info, mg_ui::script_tools::InfoTab::Compiler);
+}
+
+/// Help shows a function's documentation as the source has it: the
+/// comment lines with their `//` and their columns, then the declaration
+/// (Jasperre's report: lists in nwscript.nss's comments lost their
+/// alignment, the `//` and each line's indentation stripped).
+#[test]
+fn help_shows_documentation_as_the_source_has_it() {
+    let dir = mg_testkit::scratch_dir("ui-script-help");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text = "// Adds.\r\n// - nA:    the first\r\n//           (any)\r\nint Add(int nA) { return nA; }\r\nvoid main() { Add(1); }\r\n";
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.as_bytes().to_vec());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.get_by_label("Add").click();
+    h.run();
+    assert_eq!(h.state().script_tools.info, mg_ui::script_tools::InfoTab::Help);
+    let shown = h.get_by_label_contains("// - nA:").accesskit_node().value().unwrap_or_default();
+    assert_eq!(
+        shown, "// Adds.\n// - nA:    the first\n//           (any)\nint Add(int nA)",
+        "as written, then the declaration"
+    );
 }
 
 #[test]
@@ -13815,8 +13957,12 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     m.set_info(&info).unwrap();
     let inc = ResKey::parse("inc_util", ResType::NSS).unwrap();
     let main = ResKey::parse("main_a", ResType::NSS).unwrap();
-    m.set(inc, b"// Doubles a number.\nint Twice(int n) { return n * 2; }\n".to_vec());
-    m.set(main, b"#include \"inc_util\"\nvoid main()\n{\n    int x = Twice(2);\n}\n".to_vec());
+    // (CRLF, as BioWare's and Aurora's scripts are: the places found are
+    // in the editor's text, with plain newlines, and the rename keeps the
+    // files' line ends.)
+    m.set(inc, b"// Doubles a number.\r\nint Twice(int n) { return n * 2; }\r\n".to_vec());
+    let crlf = b"#include \"inc_util\"\r\nvoid main()\r\n{\r\n    int x = Twice(2);\r\n}\r\n";
+    m.set(main, crlf.to_vec());
     let path = dir.join("nav.mod");
     m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
     let install = mg_resman::GameInstall::new(&root, None, "en");
@@ -13856,12 +14002,24 @@ fn script_navigation_definition_references_rename_and_live_errors() {
         String::from_utf8(h.state().ws.as_ref().unwrap().module.get(&k).unwrap().to_vec()).unwrap()
     };
     assert!(text_of(&h, inc).contains("int Double(int n)"));
-    assert!(text_of(&h, main).contains("int x = Double(2);"));
+    assert_eq!(
+        text_of(&h, main),
+        "#include \"inc_util\"\r\nvoid main()\r\n{\r\n    int x = Double(2);\r\n}\r\n"
+    );
+    assert!(!text_of(&h, inc).replace("\r\n", "").contains('\n'), "CRLF kept");
     assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Rename Twice to Double"));
 
     // Errors as you type: checked once typing pauses, the line shown.
     h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Script(main)));
     h.run_steps(3);
+    // (Where the text begins: the error's line is kept for it, there or
+    // not, so the text does not move as one comes and goes; Jasperre's
+    // report.)
+    let editor = egui::Id::new(("script", main));
+    let top =
+        |h: &Harness<'_, Moonglow>| h.ctx.read_response(editor).expect("the editor").rect.top();
+    let before = top(&h);
+    assert!(h.state().script_error_for_test(main).is_none());
     h.state_mut().scripts_mut_for_test(
         main,
         "#include \"inc_util\"\nvoid main()\n{\n    int x = Double(2) +;\n}\n",
@@ -13872,6 +14030,13 @@ fn script_navigation_definition_references_rename_and_live_errors() {
     let error = h.state().script_error_for_test(main);
     assert_eq!(error.as_ref().map(|e| e.0), Some(Some(3)), "{error:?}");
     h.get_by_label_contains("⚠ line 4:");
+    assert_eq!(top(&h), before, "the text stays where it was");
+    // Options › Script Editor: no checking as you type.
+    h.state_mut().settings.no_live_check = true;
+    h.run_steps(2);
+    assert!(h.query_by_label_contains("⚠").is_none());
+    assert!(h.state().script_error_for_test(main).is_none(), "nor its underline");
+    assert!(top(&h) < before, "and no line kept for one");
 }
 
 #[test]

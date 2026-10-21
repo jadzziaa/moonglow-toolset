@@ -16,11 +16,22 @@ use crate::text::{decode_script as decode, encode_script as encode, script_codep
 use crate::{Action, Moonglow, Tab};
 
 /// A script's text in its editor.
+///
+/// The editor's text has plain newlines (`\n`) for line ends, whatever the
+/// file has: a CRLF script (BioWare's, Aurora's, the new scripts' own)
+/// kept its `\r` at each line's end in the editor, where the cursor
+/// stopped on it, End went past it, and a copy took it along (Jasperre's
+/// report: what looked like a trailing space on every line). The file's
+/// line ends are put back as it is written ([`ScriptBuffer::bytes`]).
 #[derive(Debug, Clone)]
 pub(crate) struct ScriptBuffer {
     pub(crate) text: String,
     /// The text as last loaded or saved.
     pub(crate) saved: String,
+    /// The file's text as last loaded or saved, with its own line ends:
+    /// what an untouched text is written as, and whose line ends an
+    /// edited one takes ([`crate::text::with_line_ends`]).
+    raw: String,
     /// The module's bytes the text was last compared with (address and
     /// length), to decode them again only when they change.
     source: (usize, usize),
@@ -41,7 +52,8 @@ pub(crate) struct ScriptBuffer {
 }
 
 /// A script's text: what its editor holds (unsaved typing too), else the
-/// module's, else the game's, read in the scripts' codepage. Every view of
+/// module's, else the game's, read in the scripts' codepage, with plain
+/// newlines for line ends (as the editor has them). Every view of
 /// a script's text reads it here (the conversation editor's Script Preview
 /// read the module's in the game's codepage, and past an open editor).
 pub(crate) fn script_source(
@@ -53,8 +65,11 @@ pub(crate) fn script_source(
     if let Some(b) = scripts.get(key) {
         return Some(b.text.clone());
     }
+    // (With plain newlines, as an editor has it: positions in it are the
+    // editor's, whose script it is or will be.)
     ws.and_then(|w| w.module.get(key).map(decode))
         .or_else(|| game?.resman.get(key).ok().map(|d| decode(&d)))
+        .map(|raw| crate::text::to_editor(&raw).0)
 }
 
 impl Moonglow {
@@ -84,7 +99,11 @@ const SIDE_MARGINS: f32 = 44.0;
 /// The longest name the side lists open wide enough for, characters.
 const LONG_NAME: usize = 44;
 
-/// Underlines (as editors mark errors) what is on a 0-based line.
+/// Underlines (as editors mark errors) what is on a 0-based line, from its
+/// first character that isn't a space to its last. (The job's sections
+/// are cut there: one section can run over several lines, as `append`
+/// joins tokens of one color, and the lines around the error were
+/// underlined with it.)
 fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) {
     let start = if line == 0 {
         0
@@ -92,23 +111,40 @@ fn underline_line(job: &mut LayoutJob, text: &str, line: usize, color: Color32) 
         text.match_indices('\n').nth(line - 1).map_or(text.len(), |(i, _)| i + 1)
     };
     let end = text[start..].find('\n').map_or(text.len(), |i| start + i);
-    for s in &mut job.sections {
+    let own = &text[start..end];
+    let from = start + (own.len() - own.trim_start().len());
+    let to = start + own.trim_end().len();
+    if from >= to {
+        return;
+    }
+    let mut sections = Vec::with_capacity(job.sections.len() + 2);
+    for s in job.sections.drain(..) {
         let (a, b) = (usize::from(s.byte_range.start), usize::from(s.byte_range.end));
-        let overlaps = a < end && b > start;
-        if overlaps && !text[a..b].trim().is_empty() {
-            s.format.underline = egui::Stroke::new(1.5, color);
+        let mut cuts = vec![a];
+        cuts.extend([from, to].into_iter().filter(|&c| c > a && c < b));
+        cuts.push(b);
+        for pair in cuts.windows(2) {
+            let mut piece = s.clone();
+            piece.byte_range = egui::text::ByteIndex(pair[0])..egui::text::ByteIndex(pair[1]);
+            if pair[0] >= from && pair[1] <= to {
+                piece.format.underline = egui::Stroke::new(1.5, color);
+            }
+            sections.push(piece);
         }
     }
+    job.sections = sections;
 }
 
 impl ScriptBuffer {
     /// A script's bytes in an editor, read in the script codepage.
     pub(crate) fn read(bytes: &[u8], source: (usize, usize)) -> ScriptBuffer {
         let codepage = script_codepage();
-        let text = codepage.decode(bytes).into_owned();
+        let raw = codepage.decode(bytes).into_owned();
+        let text = crate::text::to_editor(&raw).0;
         ScriptBuffer {
             text: text.clone(),
             saved: text,
+            raw,
             source,
             bookmarks: Default::default(),
             numbered: [None; 10],
@@ -117,13 +153,42 @@ impl ScriptBuffer {
         }
     }
 
+    /// Takes the file's text as it now is (`raw`, with its line ends) as
+    /// both the text and the text saved.
+    fn follow(&mut self, raw: String) {
+        let text = crate::text::to_editor(&raw).0;
+        self.text = text.clone();
+        self.saved = text;
+        self.raw = raw;
+    }
+
     pub(crate) fn is_dirty(&self) -> bool {
         self.text != self.saved
     }
 
-    /// The text as the script's bytes, in the codepage it was read in.
+    /// The text as the file has it: with the file's line ends (an
+    /// untouched text, the file's own text).
+    fn file_text(&self) -> std::borrow::Cow<'_, str> {
+        if self.text == self.saved {
+            std::borrow::Cow::Borrowed(&self.raw)
+        } else {
+            std::borrow::Cow::Owned(crate::text::with_line_ends(&self.text, &self.raw))
+        }
+    }
+
+    /// The text as the script's bytes, in the codepage it was read in and
+    /// with the file's line ends.
     pub(crate) fn bytes(&self) -> Vec<u8> {
-        self.codepage.encode_lossy(&self.text)
+        self.codepage.encode_lossy(&self.file_text())
+    }
+
+    /// Marks the text saved: the bytes it is saved as.
+    pub(crate) fn mark_saved(&mut self) -> Vec<u8> {
+        let raw = self.file_text().into_owned();
+        let bytes = self.codepage.encode_lossy(&raw);
+        self.raw = raw;
+        self.saved = self.text.clone();
+        bytes
     }
 
     /// The warning for characters of the text its codepage cannot write.
@@ -138,6 +203,8 @@ impl ScriptBuffer {
 pub(crate) struct Palette {
     pub(crate) colors: [Color32; 8],
     pub(crate) size: f32,
+    /// The editor's ground; `None`: the theme's (its text fields').
+    pub(crate) background: Option<Color32>,
 }
 
 impl Palette {
@@ -177,7 +244,8 @@ impl Palette {
                 *c = Color32::from_rgb(r, g, b);
             }
         }
-        Palette { colors, size: f32::from(style.font_size.clamp(6, 48)) }
+        let background = style.background.map(|[r, g, b]| Color32::from_rgb(r, g, b));
+        Palette { colors, size: f32::from(style.font_size.clamp(6, 48)), background }
     }
 
     /// For a `Ui`: the app's style and the `Ui`'s theme.
@@ -378,11 +446,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             if !buf.is_dirty() {
                 let module_text = codepage.decode(bytes).into_owned();
                 buf.codepage = codepage;
-                if buf.saved != module_text || buf.text != module_text {
-                    // Changed underneath (undo, import): follow the module.
-                    buf.text = module_text.clone();
-                    buf.saved = module_text;
-                }
+                // Changed underneath (undo, import): follow the module,
+                // its line ends too.
+                buf.follow(module_text);
             }
         }
     }
@@ -556,12 +622,30 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
              Language (Windows-1250 for Polish), as the game reads a script's text",
         );
     });
-    // The error the latest check found, under the toolbar.
-    app.live_check(key, &ctx);
-    if let Some((line, text)) = app.live_error(key) {
-        let at = line.map_or_else(|| "in an include".to_string(), |l| format!("line {}", l + 1));
-        ui.colored_label(ui.visuals().error_fg_color, format!("⚠ {at}: {text}"))
-            .on_hover_text("Found as you type (the script is compiled when typing pauses)");
+    // The error the latest check found, under the toolbar, on a line of
+    // its own that is there with no error too: the text does not move as
+    // one comes and goes (Jasperre's report). One line, however long the
+    // message: the whole of it on hover.
+    if !app.settings.no_live_check {
+        app.live_check(key, &ctx);
+        let size = egui::vec2(ui.available_width(), ui.text_style_height(&egui::TextStyle::Body));
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        if let Some((line, text)) = app.live_error(key) {
+            let at = line.map_or_else(|| "in an include".into(), |l| format!("line {}", l + 1));
+            let said = format!("⚠ {at}: {}", text.replace(['\r', '\n'], " "));
+            let label =
+                egui::Label::new(egui::RichText::new(&said).color(ui.visuals().error_fg_color))
+                    .truncate();
+            let row = egui::UiBuilder::new()
+                .max_rect(rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center));
+            ui.scope_builder(row, |ui| {
+                ui.add(label).on_hover_text(format!(
+                    "{said}\n\nFound as you type: the script is compiled when typing pauses \
+                     (Options › Script Editor)"
+                ))
+            });
+        }
     }
     ui.separator();
 
@@ -688,7 +772,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             .on_hover_text("Double-click to insert")
                             .double_clicked()
                         {
-                            insert_text = std::fs::read(path).ok().map(|b| decode(&b));
+                            insert_text = std::fs::read(path)
+                                .ok()
+                                .map(|b| crate::text::to_editor(&decode(&b)).0);
                         }
                     }
                 });
@@ -740,6 +826,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         });
 
     // Compiler, Help, Bookmarks, Search Results.
+    let palette = Palette::for_ui(&app.settings.script_style, ui);
     let mut jump: Option<(ResKey, usize)> = None;
     let mut open_other: Option<(String, usize)> = None;
     // (At most three fifths of the editor: the text keeps its room.)
@@ -760,10 +847,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                     ui.selectable_value(&mut t.info, tab, label);
                 }
             });
-            egui::ScrollArea::vertical()
-                .id_salt("script-info-rows")
-                .auto_shrink([false, false])
-                .show(ui, |ui| match t.info {
+            // (Help sideways too: its lines are as long as the source's.)
+            let area = match t.info {
+                InfoTab::Help => egui::ScrollArea::both(),
+                _ => egui::ScrollArea::vertical(),
+            };
+            area.id_salt("script-info-rows").auto_shrink([false, false]).show(ui, |ui| {
+                match t.info {
                     InfoTab::Compiler => {
                         for m in t.messages.iter().filter(|m| m.script == key) {
                             let color = if m.error {
@@ -771,25 +861,46 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             } else {
                                 ui.visuals().text_color()
                             };
+                            // (When it was said, before it: two compiles
+                            // in a row read as two.)
+                            let text = format!("{} {}", m.at, m.text);
                             let r = ui.add(
                                 egui::Label::new(
-                                    egui::RichText::new(&m.text).monospace().color(color),
+                                    egui::RichText::new(text).monospace().color(color),
                                 )
                                 .sense(egui::Sense::click()),
                             );
-                            if r.on_hover_text("Click to go to the line").clicked()
+                            let r = match m.location {
+                                Some(_) => r.on_hover_text("Click to go to the line"),
+                                None => r,
+                            };
+                            if r.clicked()
                                 && let Some((file, line)) = &m.location
                             {
                                 open_other = Some((file.clone(), *line));
                             }
                         }
                     }
+                    // As the source has it, in the editor's colors and
+                    // font: the comment above, `//`, columns and all
+                    // (nwscript.nss lines up its lists), then the
+                    // declaration. Not wrapped (the pane scrolls).
                     InfoTab::Help => match &t.help {
                         Some(h) => {
-                            ui.monospace(&h.signature);
-                            if !h.doc.is_empty() {
-                                ui.label(&h.doc);
-                            }
+                            let source = if h.doc.is_empty() {
+                                h.signature.clone()
+                            } else {
+                                format!("{}\n{}", h.doc, h.signature)
+                            };
+                            let mut job = highlight(&source, &palette);
+                            job.wrap.max_width = f32::INFINITY;
+                            let ground = palette
+                                .background
+                                .unwrap_or_else(|| ui.visuals().text_edit_bg_color());
+                            egui::Frame::new().fill(ground).inner_margin(4.0).show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.add(egui::Label::new(job).extend());
+                            });
                         }
                         None => {
                             ui.weak("Select a function or constant, or put the cursor on one.");
@@ -831,11 +942,12 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                             }
                         }
                     }
-                });
+                }
+            });
         });
 
     // The editor with line numbers.
-    let palette = Palette::for_ui(&app.settings.script_style, ui);
+    let indent = tools::Indent::of(&app.settings.script_style);
     let error_line = app.live_error(key).and_then(|e| e.0);
     let error_color = ui.visuals().error_fg_color;
     let mut ctrl_click = None;
@@ -877,9 +989,24 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let at = cursor(&ctx, key).map_or(c.start, |x| x.0);
         insert(buf, &ctx, key, c.start, at, &text);
     }
+    // Text pasted has the editor's line ends, plain newlines (a copy from
+    // a Windows program has CRLF).
+    if ui.memory(|m| m.has_focus(editor_id(key))) {
+        ui.input_mut(|i| {
+            for e in &mut i.events {
+                if let egui::Event::Paste(s) | egui::Event::Text(s) = e
+                    && s.contains('\r')
+                {
+                    *s = s.replace("\r\n", "\n").replace('\r', "\n");
+                }
+            }
+        });
+    }
     let mut page_scroll = None;
     // Tab on a selection of several lines indents them; Shift+Tab outdents
-    // the selected lines, or the cursor's.
+    // the selected lines, or the cursor's. Tab alone puts in a step of
+    // indentation (Options › Script Editor: four spaces, unless chosen),
+    // not the field's own tab.
     if script_tools.completion.is_none()
         && ui.memory(|m| m.has_focus(editor_id(key)))
         && let Some((a, b)) = cursor(&ctx, key)
@@ -887,12 +1014,13 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         use egui::{Key, Modifiers};
         let lines = buf.text.chars().skip(a).take(b - a).any(|c| c == '\n');
         let outdent = ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::Tab));
-        let indent =
-            !outdent && lines && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
-        if outdent || indent {
-            let (text, from, to) = tools::indent_lines(&buf.text, a, b, outdent);
+        let tab = !outdent && ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
+        if outdent || (tab && lines) {
+            let (text, from, to) = tools::indent_lines(&buf.text, a, b, outdent, indent);
             buf.text = text;
             set_cursor(&ctx, key, from, to);
+        } else if tab {
+            insert(buf, &ctx, key, a, b, &indent.at(&buf.text, a));
         }
         // Enter begins the new line as far in as the line it is started
         // from (Aurora does; the field alone begins it at the margin).
@@ -991,7 +1119,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
                 // not drawn (no color), and the field's ground and the
                 // selection go under its text.
                 let under = ui.painter().add(egui::Shape::Noop);
-                let ground = ui.visuals().text_edit_bg_color();
+                // (Options › Script Editor's, else the theme's.)
+                let ground =
+                    palette.background.unwrap_or_else(|| ui.visuals().text_edit_bg_color());
                 let selected = std::mem::replace(
                     &mut ui.visuals_mut().selection.bg_fill,
                     egui::Color32::TRANSPARENT,
@@ -1112,9 +1242,25 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
     if save || compile || to_scratch {
         let buf = app.scripts.get_mut(&key).expect("open");
         let text = buf.text.clone();
+        // Saved alone (compiling on save is off): the Compiler tab says
+        // so, in place of what it said before, or a builder takes the last
+        // compile's "compiled" for this text's (Jasperre's report).
+        if save && !compile && !to_scratch && !app.settings.auto_compile && buf.is_dirty() {
+            let tools = &mut app.script_tools;
+            tools.messages.retain(|m| m.script != key);
+            tools.messages.push(Message::new(
+                key,
+                format!(
+                    "{key}: saved, not compiled (Options › Script Editor › Automatically \
+                     Compile Scripts on Save is off)"
+                ),
+                None,
+                false,
+            ));
+            tools.info = InfoTab::Compiler;
+        }
         if buf.is_dirty() {
-            buf.saved = text.clone();
-            let (data, warning) = (buf.bytes(), buf.unwritable(key));
+            let (data, warning) = (buf.mark_saved(), buf.unwritable(key));
             app.actions.push(Action::Apply(Command::new(
                 format!("Edit {key}"),
                 vec![Edit::SetResource { key, data: Some(data) }],
@@ -1151,7 +1297,7 @@ fn project_file(app: &Moonglow, key: ResKey) -> Option<std::path::PathBuf> {
     let path = ws.module.file_of(&key)?.to_path_buf();
     let buf = app.scripts.get(&key)?;
     let on_disk = std::fs::read(&path).ok()?;
-    (!buf.is_dirty() && buf.codepage.decode(&on_disk) == buf.text).then_some(path)
+    (!buf.is_dirty() && on_disk == buf.bytes()).then_some(path)
 }
 
 /// Opens a script in the external editor alone, with no editor of
@@ -1256,7 +1402,7 @@ pub(crate) fn reload_external(app: &mut Moonglow, key: ResKey) {
     }
     *seen = modified;
     if let Ok(bytes) = std::fs::read(&*path) {
-        let text = buf.codepage.decode(&bytes).into_owned();
+        let text = crate::text::to_editor(&buf.codepage.decode(&bytes)).0;
         if text != buf.text {
             buf.text = text;
             app.log.info(format!("{key}: changed in the external editor"));
@@ -1485,12 +1631,7 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
     if !mg_script::outline::has_entry_point(&encode(text)) {
         let said = format!("{key}: an include file (no main or StartingConditional), not compiled");
         app.log.info(said.clone());
-        app.script_tools.messages.push(Message {
-            script: key,
-            text: said,
-            location: None,
-            error: false,
-        });
+        app.script_tools.messages.push(Message::new(key, said, None, false));
         return false;
     }
     let external = app.external_compiler();
@@ -1507,23 +1648,14 @@ fn compile_one(app: &mut Moonglow, key: ResKey, text: &str) -> bool {
             }
             app.actions.push(Action::Apply(Command::new(format!("Compile {key}"), edits)));
             app.log.info(format!("{key}: compiled"));
-            app.script_tools.messages.push(Message {
-                script: key,
-                text: format!("{key}: compiled"),
-                location: None,
-                error: false,
-            });
+            let said = format!("{key}: compiled");
+            app.script_tools.messages.push(Message::new(key, said, None, false));
             true
         }
         Err(e) => {
             app.log.error(e.message.clone());
             let location = e.location();
-            app.script_tools.messages.push(Message {
-                script: key,
-                text: e.message,
-                location,
-                error: true,
-            });
+            app.script_tools.messages.push(Message::new(key, e.message, location, true));
             false
         }
     }
@@ -1553,6 +1685,33 @@ mod tests {
         scripts.insert(key, open);
         assert_eq!(read(&scripts).as_deref(), Some("// ą\nvoid main() {}\n"), "the editor's");
         crate::text::set_edit_language(Language::ENGLISH);
+    }
+
+    /// A CRLF script (BioWare's, the new scripts') is edited with plain
+    /// newlines, no `\r` for the cursor to stop on at each line's end
+    /// (Jasperre's report), and written back as it was: untouched, byte
+    /// for byte; edited, with CRLF on every line, the new ones too.
+    #[test]
+    fn a_crlf_script_is_edited_with_plain_newlines_and_saved_with_crlf() {
+        let file = NEW_SCRIPT.as_bytes();
+        let mut buf = ScriptBuffer::read(file, (0, 0));
+        assert_eq!(buf.text, "void main()\n{\n\n}\n");
+        assert!(!buf.is_dirty());
+        assert_eq!(buf.bytes(), file, "untouched: the file's bytes");
+        buf.text = "void main()\n{\n    int n;\n}\n".into();
+        assert!(buf.is_dirty());
+        let saved = buf.mark_saved();
+        assert_eq!(saved, b"void main()\r\n{\r\n    int n;\r\n}\r\n");
+        assert!(!buf.is_dirty());
+        assert_eq!(buf.bytes(), saved);
+        // A plain-newline script stays one.
+        let mut lf = ScriptBuffer::read(b"void main()\n{\n}\n", (0, 0));
+        lf.text.insert_str(0, "// x\n");
+        assert_eq!(lf.mark_saved(), b"// x\nvoid main()\n{\n}\n");
+        // The templates have no trailing spaces either.
+        for t in [NEW_SCRIPT, NEW_CONDITION] {
+            assert!(t.split("\r\n").all(|l| l.trim_end() == l), "{t:?}");
+        }
     }
 
     /// A selection is drawn to each line's last character: no wider than
@@ -1600,6 +1759,28 @@ mod tests {
         assert!(html.matches("<span style=\"color:#").count() > 3, "{html}");
         assert_eq!(file_url(std::path::Path::new("/tmp/a b/c.html")), "file:///tmp/a%20b/c.html");
         assert_eq!(file_url(std::path::Path::new("C:\\x\\y.html")), "file:///C:/x/y.html");
+    }
+
+    /// An error's line alone is underlined, from its first character to
+    /// its last: tokens of one color run together over lines in one
+    /// section, and the lines around it were underlined with it.
+    #[test]
+    fn an_error_underlines_its_own_line() {
+        let text = "void main()\n{\n    int n = x;\n}\n";
+        let style = ScriptStyle::default();
+        let mut job = highlight(text, &Palette::new(&style, true, Color32::WHITE));
+        underline_line(&mut job, text, 2, Color32::RED);
+        let underlined: String = job
+            .sections
+            .iter()
+            .filter(|s| s.format.underline.width > 0.0)
+            .map(|s| &text[s.byte_range.start.0..s.byte_range.end.0])
+            .collect();
+        assert_eq!(underlined, "int n = x;");
+        assert_eq!(job.text, text);
+        let covered: usize =
+            job.sections.iter().map(|s| s.byte_range.end.0 - s.byte_range.start.0).sum();
+        assert_eq!(covered, text.len(), "every byte in one section");
     }
 
     #[test]

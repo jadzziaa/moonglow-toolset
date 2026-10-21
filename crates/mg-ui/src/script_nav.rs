@@ -101,7 +101,7 @@ impl Moonglow {
             name: d.name.clone(),
             kind: tools::SymbolKind::Function,
             signature: d.signature.clone(),
-            doc: d.doc.clone(),
+            doc: d.doc_source.clone(),
             custom: d.at.file != NWSCRIPT,
         });
         self.script_tools.info = InfoTab::Help;
@@ -169,7 +169,10 @@ impl Moonglow {
         let mut edits = Vec::new();
         for (file, mut spans) in by_file {
             let Some(k) = tools::nss(&file) else { continue };
-            let Some(text) = ws.module.get(&k).map(decode) else { continue };
+            let Some(raw) = ws.module.get(&k).map(decode) else { continue };
+            // (The places are in the text as the editors have it, with
+            // plain newlines: written back with the file's line ends.)
+            let text = crate::text::to_editor(&raw).0;
             spans.sort_by_key(|s| s.start);
             let mut out = String::with_capacity(text.len());
             let mut at = 0;
@@ -179,6 +182,7 @@ impl Moonglow {
                 at = s.end;
             }
             out.push_str(&text[at..]);
+            let out = crate::text::with_line_ends(&out, &raw);
             edits.push(Edit::SetResource { key: k, data: Some(encode(&out)) });
         }
         let n = edits.len();
@@ -257,8 +261,12 @@ impl Moonglow {
         self.live_error(key).cloned()
     }
 
-    /// The error a script's latest check found.
+    /// The error a script's latest check found; none while checking as
+    /// you type is off (Options › Script Editor).
     pub(crate) fn live_error(&self, key: ResKey) -> Option<&(Option<usize>, String)> {
+        if self.settings.no_live_check {
+            return None;
+        }
         self.script_nav.live.get(&key)?.error.as_ref()
     }
 }

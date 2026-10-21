@@ -27,6 +27,8 @@ pub struct Symbol {
     pub kind: SymbolKind,
     /// The declaration as shown in Help.
     pub signature: String,
+    /// Its documentation, the comment lines above it as the source has
+    /// them (`//`, spaces and columns), shown so in Help.
     pub doc: String,
     /// Declared by the script or its includes (not `nwscript.nss`); Aurora
     /// shows these in bold.
@@ -61,6 +63,27 @@ pub struct Message {
     /// Script name (an include when the error is in one) and 1-based line.
     pub location: Option<(String, usize)>,
     pub error: bool,
+    /// When it was said, the local time of day (`14:03:27`): two
+    /// compiles in a row read as two (Jasperre's report).
+    pub at: String,
+}
+
+impl Message {
+    /// A message said now.
+    pub fn new(
+        script: ResKey,
+        text: String,
+        location: Option<(String, usize)>,
+        error: bool,
+    ) -> Self {
+        Message { script, text, location, error, at: clock() }
+    }
+}
+
+/// The local time of day, `HH:MM:SS` (UTC where the system's time zone
+/// can't be read).
+pub fn clock() -> String {
+    jiff::Zoned::now().strftime("%H:%M:%S").to_string()
 }
 
 /// Find / Replace options.
@@ -170,7 +193,7 @@ fn from_spec(spec: &Spec) -> Vec<Symbol> {
             name: f.name.clone(),
             kind: SymbolKind::Function,
             signature: f.signature(),
-            doc: f.doc.clone(),
+            doc: f.doc_source.clone(),
             custom: false,
         })
         .collect();
@@ -178,7 +201,7 @@ fn from_spec(spec: &Spec) -> Vec<Symbol> {
         name: c.name.clone(),
         kind: SymbolKind::Constant,
         signature: format!("{} {} = {}", c.ty, c.name, c.value),
-        doc: c.doc.clone(),
+        doc: c.doc_source.clone(),
         custom: false,
     }));
     out
@@ -205,7 +228,7 @@ pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>
                 name: f.name.clone(),
                 kind: SymbolKind::Function,
                 signature: format!("{} {}({})", f.return_type, f.name, params.join(", ")),
-                doc: f.doc.clone(),
+                doc: f.doc_source.clone(),
                 custom: true,
             });
         }
@@ -220,7 +243,7 @@ pub fn script_symbols(text: &str, source: &mut dyn FnMut(&str) -> Option<String>
                     g.ty,
                     g.name
                 ),
-                doc: g.doc.clone(),
+                doc: g.doc_source.clone(),
                 custom: true,
             });
         }
@@ -331,10 +354,6 @@ pub fn word_before(text: &str, chars: usize) -> (usize, String) {
     (start, before[start..].iter().collect())
 }
 
-/// Indents (a tab before each) or outdents (one leading tab, or up to four
-/// spaces, off each) the lines a selection touches, as Tab and Shift+Tab do
-/// in the script editor. Character indexes in and out; the selection
-/// returned covers the lines, from the first's start.
 /// What a new line begins with, started at character `at`: the spaces and
 /// tabs its line begins with (those before `at`), so that the new line is
 /// as far in as the one it is started from, as in Aurora.
@@ -344,7 +363,54 @@ pub fn new_line_indent(text: &str, at: usize) -> String {
     line.chars().take_while(|c| *c == ' ' || *c == '\t').collect()
 }
 
-pub fn indent_lines(text: &str, from: usize, to: usize, outdent: bool) -> (String, usize, usize) {
+/// One step of indentation, as Options › Script Editor has it: a tab, or
+/// `width` spaces (four unless chosen).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Indent {
+    pub tabs: bool,
+    pub width: usize,
+}
+
+impl Indent {
+    /// The style's: [`ScriptStyle`](crate::settings::ScriptStyle)'s.
+    pub fn of(style: &crate::settings::ScriptStyle) -> Indent {
+        Indent { tabs: style.indent_tabs, width: usize::from(style.indent_width.clamp(1, 16)) }
+    }
+
+    /// One step: a tab, or the width's spaces.
+    pub fn unit(self) -> String {
+        if self.tabs { "\t".into() } else { " ".repeat(self.width) }
+    }
+
+    /// What Tab puts in at character `at`: a tab, or spaces to the next
+    /// column that is a multiple of the width (a tab before it counted to
+    /// its own).
+    pub fn at(self, text: &str, at: usize) -> String {
+        if self.tabs {
+            return "\t".into();
+        }
+        let before: String = text.chars().take(at).collect();
+        let line = before.rsplit('\n').next().unwrap_or_default();
+        let column = line.chars().fold(0, |col, c| {
+            if c == '\t' { (col / self.width + 1) * self.width } else { col + 1 }
+        });
+        " ".repeat(self.width - column % self.width)
+    }
+}
+
+/// Indents (one step before each line that has anything on it) or
+/// outdents (one leading tab, or up to a step's spaces, off each) the
+/// lines a selection touches, as Tab and Shift+Tab do in the script
+/// editor. Character indexes in and out; the selection returned covers the
+/// lines, from the first's start.
+pub fn indent_lines(
+    text: &str,
+    from: usize,
+    to: usize,
+    outdent: bool,
+    indent: Indent,
+) -> (String, usize, usize) {
+    let unit = indent.unit();
     let chars: Vec<char> = text.chars().collect();
     let (from, to) = (from.min(chars.len()), to.min(chars.len()).max(from.min(chars.len())));
     let start = chars[..from].iter().rposition(|&c| c == '\n').map_or(0, |i| i + 1);
@@ -355,13 +421,14 @@ pub fn indent_lines(text: &str, from: usize, to: usize, outdent: bool) -> (Strin
     let lines: Vec<String> = block
         .split('\n')
         .map(|line| {
+            // (An empty line is left empty: no trailing spaces.)
             if !outdent {
-                return format!("\t{line}");
+                return if line.is_empty() { String::new() } else { format!("{unit}{line}") };
             }
             if let Some(rest) = line.strip_prefix('\t') {
                 return rest.to_string();
             }
-            let spaces = line.chars().take(4).take_while(|&c| c == ' ').count();
+            let spaces = line.chars().take(indent.width).take_while(|&c| c == ' ').count();
             line[spaces..].to_string()
         })
         .collect();
@@ -522,17 +589,33 @@ mod tests {
 
     #[test]
     fn tab_indents_and_shift_tab_outdents_the_selected_lines() {
+        use super::Indent;
+        let tab = Indent { tabs: true, width: 4 };
         let text = "a\nb\nc\n";
         // From inside "a" to inside "b": lines a and b.
-        let (t, from, to) = super::indent_lines(text, 0, 3, false);
+        let (t, from, to) = super::indent_lines(text, 0, 3, false, tab);
         assert_eq!(t, "\ta\n\tb\nc\n");
         assert_eq!((from, to), (0, 5));
-        let (back, _, _) = super::indent_lines(&t, from, to, true);
+        let (back, _, _) = super::indent_lines(&t, from, to, true, tab);
         assert_eq!(back, text);
         // A selection ending at a line's start leaves that line alone.
-        assert_eq!(super::indent_lines(text, 0, 2, false).0, "\ta\nb\nc\n");
-        // Up to four spaces come off.
-        assert_eq!(super::indent_lines("      x", 2, 2, true).0, "  x");
+        assert_eq!(super::indent_lines(text, 0, 2, false, tab).0, "\ta\nb\nc\n");
+        // Up to a step's spaces come off.
+        assert_eq!(super::indent_lines("      x", 2, 2, true, tab).0, "  x");
+        // Spaces, the default: four (or as many as chosen) on, as many off,
+        // or a tab; an empty line stays empty.
+        let four = Indent { tabs: false, width: 4 };
+        let (t, from, to) = super::indent_lines("a\n\nb", 0, 4, false, four);
+        assert_eq!(t, "    a\n\n    b");
+        assert_eq!(super::indent_lines(&t, from, to, true, four).0, "a\n\nb");
+        let two = Indent { tabs: false, width: 2 };
+        assert_eq!(super::indent_lines("     x\n\ty", 0, 8, true, two).0, "   x\ny");
+        // Tab alone: to the next multiple of the width, or a tab.
+        assert_eq!(four.at("ab", 2), "  ");
+        assert_eq!(four.at("abcd", 4), "    ");
+        assert_eq!(four.at("x\n\ta", 4), "   ", "the tab counts to column 4");
+        assert_eq!(two.at("", 0), "  ");
+        assert_eq!(tab.at("abc", 1), "\t");
         // A new line begins as far in as the line it is started from.
         let text = "void main()\n{\n    int n;\n\tint m;\n}\n";
         let at = |part: &str| text.find(part).unwrap() + part.len();

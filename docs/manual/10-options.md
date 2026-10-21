@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T20:38:28Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:14:22Z }
 ---
 
 # Options
@@ -145,6 +145,13 @@ the module is opened again from its file.
 - **Generate Debug Information When Compiling Scripts** (`.ndb` files):
   for the script compiled in its editor, and for Compile All Scripts,
   which compiles again a script that has no debug file yet.
+- **Check for errors as you type**: on by default. The script is
+  compiled a moment after you stop typing, and its first error shows
+  under the toolbar, its line underlined (see [Scripts](07-scripts.md)).
+  Off, there is no check and no line kept for it.
+- **Indent with** Spaces (the default) or Tabs, and **Indent width**
+  (4): what Tab puts in, and Shift+Tab takes off. With spaces, Tab goes
+  to the next multiple of the width.
 - **Open scripts as tabs of one window**: on by default. A script opens
   as a tab of the window scripts are open in already; off, each in a
   window of its own. (Scripts docked in the main pane open there either
@@ -176,7 +183,9 @@ the module is opened again from its file.
   `{haks}` (the module's haks, comma-separated). An option whose place
   has nothing to give is left out. Generate Debug Information adds `-g`
   to the usual lines.
-- The editor's **font size** and syntax **colors**.
+- The editor's **font size**, syntax **colors** and **Background**
+  (the theme's unless Custom is ticked), with a preview. **Reset to
+  defaults** sets these back; it leaves the indentation alone.
 
 ## Conversation Editor
 

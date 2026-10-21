@@ -512,6 +512,7 @@ fn options_window() {
     let dir = mg_testkit::scratch_dir("screens-options");
     let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
     app.settings.script_style.colors[3] = Some([255, 128, 0]);
+    app.settings.script_style.background = Some([24, 32, 48]);
     app.options = Some(mg_ui::OptionsDraft::from_settings(&app.settings));
     let mut h = Harness::builder()
         .with_size(egui::vec2(1100.0, 900.0))
@@ -523,6 +524,9 @@ fn options_window() {
     shoot(&mut h, &dir, "options-general");
     h.get_by_label("Script Editor").click();
     shoot(&mut h, &dir, "options-script-editor");
+    // Further down: the colors, the background and the preview.
+    h.get_by_label("Reset to defaults").scroll_to_me();
+    shoot(&mut h, &dir, "options-script-editor-colors");
     // (A line in the log, beside its Clear.)
     h.state_mut().log.info("Verify: 0 error(s), 0 warning(s)");
     h.state_mut().options.as_mut().unwrap().verify_skip = vec!["tilesets".into()];
@@ -1110,6 +1114,84 @@ fn script_editor() {
     h.run();
     h.run();
     shoot(&mut h, &dir, "script-editor");
+}
+
+/// The script editor with no error and with one found as you type: the
+/// error's line is there either way, so the text does not move (Jasperre's
+/// report: it jumped down as an error came and went).
+#[test]
+#[ignore]
+fn script_error_line() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-error");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let good = ResKey::parse("good", ResType::NSS).unwrap();
+    let bad = ResKey::parse("bad", ResType::NSS).unwrap();
+    m.set(good, b"void main()\r\n{\r\n    int n = 1;\r\n}\r\n".to_vec());
+    let long = "x".repeat(300);
+    let text = format!("void main()\r\n{{\r\n    int n = {long};\r\n}}\r\n");
+    m.set(bad, text.into_bytes());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 600.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    for (key, name) in [(good, "script-error-none"), (bad, "script-error-shown")] {
+        h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+        h.run();
+        h.run();
+        shoot(&mut h, &dir, name);
+    }
+    // A background of the builder's own (Options › Script Editor).
+    h.state_mut().settings.script_style.background = Some([24, 32, 48]);
+    shoot(&mut h, &dir, "script-background");
+}
+
+/// Help as `nwscript.nss` has it: the comment with its `//` and columns,
+/// in the editor's colors and font, then the declaration; and the
+/// Compiler tab's lines with their times.
+#[test]
+#[ignore]
+fn script_help() {
+    use egui_kittest::kittest::Queryable;
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::scratch_dir("screens-script-help");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, b"void main()\r\n{\r\n    int n = ;\r\n}\r\n".to_vec());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app =
+        Moonglow::new(Some(GameInstall::new(&root, None, "en")), Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.state_mut().script_tools.filter = "GetFirstObjectInShape".into();
+    h.run();
+    h.run();
+    h.get_by_label("GetFirstObjectInShape").click();
+    shoot(&mut h, &dir, "script-help");
+    // Compile twice: two lines, each with its time.
+    h.get_by_label("Compile").click();
+    h.run();
+    shoot(&mut h, &dir, "script-compiler");
 }
 
 /// A selection in the script editor: whole lines (to their line ends),

@@ -38,7 +38,10 @@ pub struct Global {
     pub is_const: bool,
     pub value: Option<String>,
     pub span: Range<usize>,
+    /// The `//` comment lines directly above, without `//`.
     pub doc: String,
+    /// The same lines as written ([`comment_as_written`]).
+    pub doc_source: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +54,27 @@ pub struct FunctionDecl {
     pub name_span: Range<usize>,
     /// The body `{ ... }` of a definition; `None` for a prototype.
     pub body: Option<Range<usize>>,
+    /// The `//` comment lines directly above, without `//`.
     pub doc: String,
+    /// The same lines as written ([`comment_as_written`]).
+    pub doc_source: String,
+}
+
+/// A `//` comment as written on its line (`span`, a line comment's
+/// token): with the spaces and tabs before it where nothing else is
+/// before it, so that a block of them keeps its columns, and without the
+/// line's end.
+pub fn comment_as_written<'a>(text: &'a str, span: &Range<usize>) -> &'a str {
+    let line_start = text[..span.start].rfind('\n').map_or(0, |i| i + 1);
+    let before = &text[line_start..span.start];
+    let from = if before.chars().all(|c| c == ' ' || c == '\t') { line_start } else { span.start };
+    text[from..span.end].trim_end_matches(['\r', '\n'])
+}
+
+/// A comment line as documentation: without its `//` and the spaces
+/// around it.
+pub(crate) fn comment_text(written: &str) -> &str {
+    written.trim_start().trim_start_matches('/').trim()
 }
 
 /// A source's top-level declarations.
@@ -101,9 +124,10 @@ impl<'a> Parser<'a> {
         self.pos >= self.sig.len()
     }
 
-    /// The `//` comment lines directly above significant token `k`.
-    fn doc_before(&self, k: usize) -> String {
-        let Some(&raw) = self.sig.get(k) else { return String::new() };
+    /// The `//` comment lines directly above significant token `k`:
+    /// without their `//`, and as written ([`comment_as_written`]).
+    fn doc_before(&self, k: usize) -> (String, String) {
+        let Some(&raw) = self.sig.get(k) else { return Default::default() };
         let mut lines = Vec::new();
         let mut i = raw;
         while i > 0 {
@@ -111,13 +135,14 @@ impl<'a> Parser<'a> {
             let t = &self.toks[i];
             let s = &self.text[t.span.clone()];
             match t.kind {
-                TokenKind::LineComment => lines.push(s.trim_start_matches('/').trim().to_string()),
+                TokenKind::LineComment => lines.push(comment_as_written(self.text, &t.span)),
                 TokenKind::Whitespace if s.matches('\n').count() <= 1 => {}
                 _ => break,
             }
         }
         lines.reverse();
-        lines.join("\n")
+        let doc: Vec<&str> = lines.iter().map(|l| comment_text(l)).collect();
+        (doc.join("\n"), lines.join("\n"))
     }
 
     /// Skips to just after the next `;` at bracket depth 0, or to (and
@@ -361,7 +386,7 @@ impl<'a> Parser<'a> {
             if is_const {
                 self.pos += 1;
             }
-            let doc = self.doc_before(start_k);
+            let (doc, doc_source) = self.doc_before(start_k);
             let Some(ty) = self.parse_type() else {
                 self.recover();
                 continue;
@@ -395,6 +420,7 @@ impl<'a> Parser<'a> {
                     name_span,
                     body,
                     doc,
+                    doc_source,
                 });
                 continue;
             }
@@ -414,6 +440,7 @@ impl<'a> Parser<'a> {
                     value,
                     span: start..self.span_end(self.pos.saturating_sub(1)),
                     doc: doc.clone(),
+                    doc_source: doc_source.clone(),
                 });
                 if self.peek() == "," && self.kind(self.pos + 1) == Some(TokenKind::Ident) {
                     name = Some(self.text_at(self.pos + 1).to_string());
@@ -536,10 +563,16 @@ void main()
             ]
         );
         assert_eq!(o.functions[0].doc, "Returns a greeting.\nTwo lines of doc.");
+        assert_eq!(o.functions[0].doc_source, "// Returns a greeting.\n// Two lines of doc.");
         assert_eq!(o.functions[0].params[0].default.as_deref(), Some("OBJECT_SELF"));
         assert_eq!(o.functions[2].params[0].default.as_deref(), Some("[0.0,1.0,2.0]"));
         assert_eq!(&SRC[o.functions[3].name_span.clone()], "main");
         assert!(SRC[o.functions[3].body.clone().unwrap()].contains("PrintString"));
+        // As written: the spaces before a comment line, not its line's end
+        // (CRLF); a comment after code on its line, the comment alone.
+        let o = outline(b"int a; // A.\r\n    //   B, in.\r\nint F();\r\n");
+        assert_eq!(o.functions[0].doc_source, "// A.\n    //   B, in.");
+        assert_eq!(o.functions[0].doc, "A.\nB, in.");
     }
 
     #[test]
