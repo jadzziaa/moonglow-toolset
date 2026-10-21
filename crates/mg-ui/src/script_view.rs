@@ -877,6 +877,7 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         let at = cursor(&ctx, key).map_or(c.start, |x| x.0);
         insert(buf, &ctx, key, c.start, at, &text);
     }
+    let mut page_scroll = None;
     // Tab on a selection of several lines indents them; Shift+Tab outdents
     // the selected lines, or the cursor's.
     if script_tools.completion.is_none()
@@ -899,6 +900,29 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             let start = format!("\n{}", tools::new_line_indent(&buf.text, a));
             insert(buf, &ctx, key, a, b, &start);
             script_tools.scroll = Some(key);
+        }
+        // Page Down and Page Up move the cursor by the lines in sight, and
+        // the text with it (the field alone has no page keys); with Shift,
+        // the selection.
+        let row = ui.fonts_mut(|f| f.row_height(&palette.font()));
+        let page = ((ui.available_height() / row).floor() as isize - 1).max(1);
+        for (k, lines) in [(Key::PageDown, page), (Key::PageUp, -page)] {
+            let select = ui.input_mut(|i| i.consume_key(Modifiers::SHIFT, k));
+            if !select && !ui.input_mut(|i| i.consume_key(Modifiers::NONE, k)) {
+                continue;
+            }
+            let id = editor_id(key);
+            let mut state = egui::text_edit::TextEditState::load(&ctx, id).unwrap_or_default();
+            let Some(r) = state.cursor.char_range() else { continue };
+            let to = tools::line_moved(&buf.text, r.primary.index.into(), lines);
+            let anchor = if select { r.secondary } else { egui::text::CCursor::new(to) };
+            state.cursor.set_char_range(Some(egui::text::CCursorRange {
+                primary: egui::text::CCursor::new(to),
+                secondary: anchor,
+                h_pos: None,
+            }));
+            state.store(&ctx, id);
+            page_scroll = Some(lines as f32 * row);
         }
     }
     let pending = script_tools.jump.take_if(|(k, _)| *k == key).or(jump).map(|(_, at)| at);
@@ -952,6 +976,9 @@ fn editor(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
             // The editor fills the room down to the pane under it, however
             // short the script.
             let room = ui.available_height();
+            if let Some(d) = page_scroll {
+                ui.scroll_with_delta(egui::vec2(0.0, -d));
+            }
             ui.horizontal_top(|ui| {
                 ui.add(
                     egui::Label::new(egui::RichText::new(numbers).font(palette.font()).weak())

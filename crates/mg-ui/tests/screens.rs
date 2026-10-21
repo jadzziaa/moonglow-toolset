@@ -1157,6 +1157,41 @@ fn script_selection() {
 
 #[test]
 #[ignore]
+fn script_page_down() {
+    // The text follows the cursor a page at a time.
+    mg_testkit::gpu::hold();
+    let dir = mg_testkit::scratch_dir("screens-script-page");
+    let mut m = mg_module::Module::new();
+    let mut info = mg_gff::Gff::new(*b"IFO ");
+    info.root.set("Mod_Name", mg_gff::Value::String(b"x".to_vec()));
+    m.set_info(&info).unwrap();
+    let text: String = (0..200).map(|n| format!("// line {n}\n")).collect();
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    m.set(key, text.into_bytes());
+    let path = dir.join("s.mod");
+    m.save_as(&mg_module::ModuleLocation::Archive(path.clone())).unwrap();
+    let mut app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    app.open_module(&path);
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 420.0))
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Script(key)));
+    h.run();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    shoot(&mut h, &dir, "script-page-0");
+    for n in 1..=3 {
+        h.key_press(egui::Key::PageDown);
+        shoot(&mut h, &dir, &format!("script-page-{n}"));
+    }
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::PageUp);
+    shoot(&mut h, &dir, "script-page-shift-up");
+}
+
+#[test]
+#[ignore]
 fn creature_wizard() {
     use egui_kittest::kittest::Queryable;
     mg_testkit::gpu::hold();

@@ -3,7 +3,7 @@ type: Manual Page
 title: Scripts
 description: Scripts - the script editor, finding your way in code, and the compiler.
 tags: [manual, scripts, nwscript]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-16T23:42:27Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:18:38Z }
 ---
 
 # Scripts
@@ -34,6 +34,7 @@ Below the text are the **Compiler** messages: click one to go to its line.
 | F2, Ctrl+Space | complete the word at the cursor (functions, constants, variables) |
 | Enter | a new line, begun as far in as the line it is started from |
 | Tab, Shift+Tab | indent the selected lines; outdent them, or the cursor's line |
+| Page Down, Page Up | a page down or up, the text with the cursor; with Shift, selecting |
 | Ctrl+Z, Ctrl+Y | take back and give again what was done in the editor (typing, a new line, an indent, a completion, a replacement), while it has the keyboard |
 | F12, Ctrl+click | go to the definition of the name at the cursor |
 | Shift+F12 | list where the name at the cursor is used |

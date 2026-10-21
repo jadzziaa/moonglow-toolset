@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:39:35Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T13:18:58Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -135,6 +135,11 @@ Size: S (an hour or two), M (a day or so), L (several days).
 - **Find In Currently Open Scripts** searches the scripts whose editors
   hold their text, which includes one closed with text typed and not
   saved. (S) (from builders' reports after 1.16.2)
+- **Page keys elsewhere:** Page Down and Page Up work in the script
+  editor (Sacha's report, 2026-10-21); the other text fields of several
+  lines (descriptions, a conversation line's text, the talk table's
+  strings, comments) are egui's own field, which has none. Their texts
+  are short. (S)
 
 ## nasher projects
 

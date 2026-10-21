@@ -9485,6 +9485,62 @@ fn tab_indents_selected_lines_in_the_script_editor() {
 }
 
 #[test]
+fn page_keys_move_through_the_script_editor() {
+    // Sacha's report: Page Up and Page Down did nothing in the script editor.
+    let dir = mg_testkit::scratch_dir("ui-script-page");
+    let path = sample_module(&dir);
+    let key = ResKey::parse("hello", ResType::NSS).unwrap();
+    let text: String = (0..200).map(|n| format!("// line {n}\n")).collect();
+    let mut m = Module::open(&path).unwrap();
+    m.set(key, text.into_bytes());
+    m.save().unwrap();
+    let mut app = app_with(Vec::new());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Script(key)));
+    let mut h = Harness::new_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    h.state_mut().script_tools.jump = Some((key, 0));
+    h.run();
+    let line_of = |h: &Harness<'_, Moonglow>, mark: &str| {
+        let t = h.state().script_text(key).unwrap();
+        t.lines().position(|l| l.starts_with(mark)).expect(mark)
+    };
+    // Two pages down: as many lines on, at the start of a line.
+    h.key_press(egui::Key::PageDown);
+    h.run();
+    h.key_press(egui::Key::PageDown);
+    h.run();
+    h.event(egui::Event::Text("X".into()));
+    h.run();
+    let down = line_of(&h, "X");
+    assert!(down >= 10 && down % 2 == 0, "two pages down: line {down}");
+    // A page up from before the "X": half way back, in the same column.
+    h.key_press(egui::Key::ArrowLeft);
+    h.key_press(egui::Key::PageUp);
+    h.run();
+    h.event(egui::Event::Text("Y".into()));
+    h.run();
+    assert_eq!(line_of(&h, "Y"), down / 2);
+    // Shift selects: a page down from there, typed over, takes the lines
+    // between with it.
+    h.key_press(egui::Key::ArrowLeft);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::PageDown);
+    h.run();
+    h.event(egui::Event::Text("Z".into()));
+    h.run();
+    let t = h.state().script_text(key).unwrap();
+    assert!(!t.contains('Y') && t.lines().nth(down / 2).unwrap().starts_with("ZX"), "{t:.200}");
+    // Past the first line, the start of the text.
+    for _ in 0..5 {
+        h.key_press(egui::Key::PageUp);
+        h.run();
+    }
+    h.event(egui::Event::Text("W".into()));
+    h.run();
+    assert!(h.state().script_text(key).unwrap().starts_with("W// line 0"));
+}
+
+#[test]
 fn setup_store_makes_the_conversation_script_and_store() {
     use mg_module::instances::{Placement, Placing, instance};
     use mg_module::new::{AreaSpec, add_area, new_module};
