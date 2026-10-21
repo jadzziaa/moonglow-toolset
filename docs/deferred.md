@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:08:37Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:39:35Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -590,8 +590,11 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   One interface over the three, words underlined in the text fields. (M–L)
 - **Other languages in exports:** Twine, Ink and CSV carry the English
   text only. A CSV could carry a column per language for translators. (S)
-- **Parameters, animations and delays** don't go to Twine or Ink.
-  Conditions and actions go by script name only. (S–M)
+- **Animations, comments and delays** don't go to Twine or Ink (script
+  parameters do, since dansen9191's report). Parameters on a link with
+  no condition script, or a line with no action script, are dropped (the
+  game reads none of them); the CSV's condition and action columns name
+  the script only. (S–M)
 - **Articy:draft** isn't read; its JSON export could map like Twine. (M)
 - **Ink beyond the subset** (stitches, gathers, inline logic) is refused,
   not converted. (M)
