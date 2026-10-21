@@ -433,6 +433,11 @@ pub struct Lighting {
     /// The tileset's environment map (`default` textures reflect it).
     pub env_map: Option<String>,
     pub shadow_opacity: u8,
+    /// The ARE's `Flags` (1 interior, 2 underground, 4 natural) and
+    /// `WindPower` (0 to 2): what the game's shaders read of the area
+    /// (`areaFlags`, `areaGlobalWind`: wind-swayed grass and leaves).
+    pub flags: u32,
+    pub wind_power: i64,
 }
 
 impl Lighting {
@@ -449,6 +454,8 @@ impl Lighting {
                 .map(|e| e.to_ascii_lowercase())
                 .filter(|e| !e.is_empty()),
             shadow_opacity: are.integer("ShadowOpacity").unwrap_or(0).clamp(0, 100) as u8,
+            flags: are.integer("Flags").unwrap_or(0).clamp(0, i64::from(u32::MAX)) as u32,
+            wind_power: are.integer("WindPower").unwrap_or(0),
         }
     }
 

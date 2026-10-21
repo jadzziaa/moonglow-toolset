@@ -40,6 +40,10 @@ pub fn attenuation_params() -> (f32, f32) {
 /// MTR or without: the client's `fAlphaDiscardValue`, read from it
 /// (`cutouts_look` with `MG_DISCARD=1` in `client_render.rs`).
 const ALPHA_DISCARD: f32 = 0.2;
+/// The alpha from which a see-through mesh's texel is drawn with its solid
+/// part (`SOLID_ALPHA` in `shader.wgsl`): [`Pass::Blend`], hiding what is
+/// behind it; below, with the rest ([`Pass::Fringe`]).
+pub(crate) const SOLID_ALPHA: f32 = 0.95;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -185,6 +189,13 @@ struct Slots {
     transparency: bool,
     /// The MTR's `parameter`s, which the game's shaders take by name.
     params: Vec<(String, mg_image::mtr::Param)>,
+    /// The program pair the MTR names (`customshaderVS` and `FS`, both):
+    /// drawn with it where the game's shaders are on
+    /// ([`Renderer::game_shaders`]).
+    custom: Option<(String, String)>,
+    /// The MTR names a geometry program (`customshaderGS`), which wgpu has
+    /// no stage for: drawn with Moonglow's own shader.
+    geometry: Option<String>,
     /// The MTR's `twosided`: its faces are drawn from behind too. Nothing
     /// else shows a face's back in the game: not a cut-out texture
     /// (`blending punchthrough`), not `decal` (seen in the client:
@@ -265,6 +276,9 @@ struct Draw<'a> {
     /// Replaced vertices: their bytes in the frame's dynamic buffer, from
     /// and to.
     dynamic: Option<(u64, u64)>,
+    /// Drawn with the game's shaders: which of the frame's see-through
+    /// game draws it is.
+    game: Option<u32>,
     /// Its box in the scene (`None` for a mesh that leaves its box: a
     /// skinned or animated one, and the sky), and which of the frame's
     /// instances it is of: for putting draws of one mesh together
@@ -363,8 +377,14 @@ pub struct Drawn {
     /// before it.
     pub materials: usize,
     /// The meshes drawn with the game's own shaders
-    /// ([`Renderer::game_shaders`]), each a draw of its own.
+    /// ([`Renderer::game_shaders`]), each a draw of its own (two for a
+    /// see-through one).
     pub game: usize,
+    /// Of those, the meshes whose programs read the clock
+    /// (`worldtimerTimeOfDay`, `sceneCurrentFrame`): they move by
+    /// themselves, and a view that shows them draws them again as time
+    /// passes.
+    pub timed: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -808,6 +828,22 @@ impl Renderer {
         self.game.clear();
     }
 
+    /// Whether a mesh is one the game's shaders draw (with them on): one
+    /// whose material names a program pair; else a lit one Moonglow's
+    /// shader does nothing of its own for (no decal, no known custom
+    /// shader's effect, no ripples, no water), with the stock pair.
+    fn game_path(&mut self, slots: &Slots, surface: &Surface) -> bool {
+        if let Some(g) = &slots.geometry {
+            self.game.fail(g, "it is a geometry program, which wgpu has no stage for".into());
+            return false;
+        }
+        slots.custom.is_some()
+            || (!surface.decal
+                && slots.effect.is_none()
+                && surface.ripple.is_none()
+                && !surface.water)
+    }
+
     /// The game's shaders that couldn't be drawn ([`Renderer::game_shaders`]),
     /// as `vs/fs` pairs or programs, and why: drawn with Moonglow's own.
     pub fn game_shader_failures(&self) -> &[(String, String)] {
@@ -852,6 +888,13 @@ impl Renderer {
             out.displacement_multiplier = f("DisplacementMultiplier");
             out.specular_color = custom_specular(mtr);
             out.params = mtr.params.clone();
+            out.custom =
+                crate::game::custom_pair(mtr.shader_vs.as_deref(), mtr.shader_fs.as_deref());
+            out.geometry = mtr
+                .shader_gs
+                .as_deref()
+                .map(|g| g.trim().to_ascii_lowercase())
+                .filter(|g| !g.is_empty() && g != "null");
             let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
             let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
             out.transparency = mtr.transparency;
@@ -866,12 +909,21 @@ impl Renderer {
                 lightmap: if mapper { f("LightmapON") > 0.5 } else { f("fLightmapMode") > 0.5 },
                 blend: mtr.transparency,
             });
+            if known
+                && let Some((vs, fs)) = &out.custom
+                && (assets.shader(vs).is_none() || assets.shader(fs).is_none())
+            {
+                // (Its source isn't there: NWN Mapper ships none of
+                // `mzlm`'s. The hand-ported effect draws it, as with the
+                // game's shaders off.)
+                out.custom = None;
+            }
             if mapper {
                 // Its lightmap is where the other pair has its flow map.
                 out.names[6] = out.names[7].take();
             }
         }
-        if out.effect.is_none() {
+        if out.effect.is_none() && out.custom.is_none() {
             // (A custom shader's own slots mean nothing to the stock ones.)
             for name in &mut out.names[STOCK_SLOTS..] {
                 *name = None;
@@ -1207,10 +1259,16 @@ impl Renderer {
                 eye: camera.eye,
                 target: camera.target,
                 fov_y: camera.fov_y,
+                environment: scene.environment,
             }
         });
         self.game.begin();
+        // The solid meshes drawn with the game's shaders (drawn after
+        // Moonglow's own solid ones), and the see-through ones' two parts
+        // (each in `draws`, sorted with the rest).
         let mut game_draws: Vec<crate::game::GameDraw<'_>> = Vec::new();
+        let mut game_blended: Vec<crate::game::GameDraw<'_>> = Vec::new();
+        let mut timed = 0;
 
         // Lights in view space.
         let lights: Vec<LightUniform> = scene
@@ -1353,28 +1411,57 @@ impl Renderer {
                 for (j, (_, _, i)) in chosen.iter().enumerate() {
                     light_index[j / 4][j % 4] = *i;
                 }
-                // The game's own shaders, where they can draw it: a lit,
-                // solid mesh Moonglow's shader does nothing of its own for.
+                // The game's own shaders, where they can draw it: a mesh
+                // whose material names a program pair, with that pair; else
+                // a lit one Moonglow's shader does nothing of its own for,
+                // with the stock pair the engine would choose. Solid, or
+                // see-through in two parts as Moonglow draws it.
+                let game_pass = match pass {
+                    Pass::Opaque => Some(crate::game::GamePass::Opaque),
+                    Pass::Blend => Some(crate::game::GamePass::Solid),
+                    _ => None,
+                };
                 if let Some(f) = &game_frame
-                    && pass == Pass::Opaque
+                    && let Some(game_pass) = game_pass
                     && !is_sky
                     && !inst.unlit
-                    && !surface.decal
-                    && slots.effect.is_none()
-                    && surface.ripple.is_none()
-                    && !surface.water
+                    // (A blueprint about to be placed, see-through, is
+                    // Moonglow's: it lays its depth first.)
+                    && inst.opacity >= 1.0
                     && self.debug == DebugView::Lit
                     && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
+                    && self.game_path(slots, surface)
                 {
-                    let (vs, fs) = crate::game::lit_pair(slots.normal_variant, surface.reflects);
+                    let (vs, fs, _) = crate::game::program_pair(
+                        slots.custom.as_ref(),
+                        slots.normal_variant,
+                        surface.reflects,
+                    );
                     let key = crate::game::PipelineKey {
-                        vs: vs.into(),
-                        fs: fs.into(),
+                        vs,
+                        fs,
                         skinned: mesh.skin.is_some(),
                         twosided: slots.twosided,
+                        pass: game_pass,
                     };
                     let (format, samples) = (self.color_format, self.sample_count);
-                    if let Some(p) = self.game.pipeline(gpu, assets, &key, format, samples) {
+                    let pipelines = match game_pass {
+                        crate::game::GamePass::Solid => {
+                            let fringe = crate::game::PipelineKey {
+                                pass: crate::game::GamePass::Fringe,
+                                ..key.clone()
+                            };
+                            self.game.pipeline(gpu, assets, &key, format, samples).and_then(|p| {
+                                let q = self.game.pipeline(gpu, assets, &fringe, format, samples);
+                                q.map(|q| (p, Some(q)))
+                            })
+                        }
+                        _ => self
+                            .game
+                            .pipeline(gpu, assets, &key, format, samples)
+                            .map(|p| (p, None)),
+                    };
+                    if let Some((p, fringe)) = pipelines {
                         let light_positions: Vec<[f32; 4]> =
                             chosen.iter().map(|(_, _, i)| lights[*i as usize].pos).collect();
                         let light_colors: Vec<[f32; 4]> =
@@ -1393,8 +1480,34 @@ impl Renderer {
                             bbox: (mesh.min, mesh.max),
                             params: &slots.params,
                         };
+                        timed += usize::from(p.timed);
                         let draw = self.game.push(p, surface.material, mesh, dynamic_range, f, &d);
-                        game_draws.push(draw);
+                        match fringe {
+                            None => game_draws.push(draw),
+                            Some(q) => {
+                                // Its two parts, among the see-through
+                                // meshes (the same blocks for both).
+                                let rest = draw.with_pipeline(q);
+                                let at = game_blended.len() as u32;
+                                game_blended.push(draw);
+                                game_blended.push(rest);
+                                let draw = Draw {
+                                    pass: Pass::Blend,
+                                    twosided: slots.twosided,
+                                    depth: -view.transform_point3(centre).z,
+                                    hint: mat.transparency_hint,
+                                    uniform: 0,
+                                    material: surface.material,
+                                    mesh,
+                                    dynamic: dynamic_range,
+                                    game: Some(at),
+                                    bounds,
+                                    instance: instance as u32,
+                                };
+                                draws.push(draw);
+                                draws.push(Draw { pass: Pass::Fringe, game: Some(at + 1), ..draw });
+                            }
+                        }
                         continue;
                     }
                 }
@@ -1487,6 +1600,7 @@ impl Renderer {
                     material: surface.material,
                     mesh,
                     dynamic: dynamic_range,
+                    game: None,
                     bounds,
                     instance: instance as u32,
                 };
@@ -1516,7 +1630,8 @@ impl Renderer {
         self.drawn = Drawn {
             meshes: draws.len() + game_draws.len(),
             hidden,
-            game: game_draws.len(),
+            game: game_draws.len() + game_blended.len(),
+            timed,
             ..Drawn::default()
         };
         // Opaque (any order), then blended back to front by hint then depth,
@@ -1558,8 +1673,12 @@ impl Renderer {
                 // sixteenth of it and a hundredth of a pixel.)
                 if solid { batcher.pass(10.0, 1e-3) } else { batcher.pass(0.125, 1e-5) }
             }
-            let key = (std::ptr::from_ref(d.mesh) as usize, d.material, d.dynamic);
-            let batch = if !self.instancing {
+            let key = match d.game {
+                // (A game draw is a draw of its own.)
+                Some(i) => (usize::MAX - i as usize, u32::MAX, None),
+                None => (std::ptr::from_ref(d.mesh) as usize, d.material, d.dynamic),
+            };
+            let batch = if !self.instancing || d.game.is_some() {
                 batcher.place(key, None, None)
             } else if solid {
                 // (A model's own meshes in the order they came in.)
@@ -1695,12 +1814,12 @@ impl Renderer {
             0,
         );
         // The game's shaders' blocks and bind groups.
-        if !game_draws.is_empty() {
+        if !game_draws.is_empty() || !game_blended.is_empty() {
             self.game.upload(gpu);
             let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
             let noise = self.texture(gpu, assets, "solid_noise");
             let env_sampler = self.env_sampler.clone();
-            for d in &game_draws {
+            for d in game_draws.iter().chain(&game_blended) {
                 let key = self.material_keys[d.material as usize].clone();
                 let textures: Vec<Option<Arc<TextureEntry>>> = key
                     .0
@@ -1773,6 +1892,13 @@ impl Renderer {
                     game_drawn = true;
                     pass.set_bind_group(0, &frame_group, &[]);
                     (pipeline, material) = (None, None);
+                }
+                if let Some(i) = d.game {
+                    let draw = std::slice::from_ref(&game_blended[i as usize]);
+                    self.game.draw(&mut pass, draw, &self.dynamic_buffer);
+                    pass.set_bind_group(0, &frame_group, &[]);
+                    (pipeline, material) = (None, None);
+                    continue;
                 }
                 let key = (d.pass, d.mesh.skin.is_some(), d.twosided);
                 if pipeline != Some(key) {

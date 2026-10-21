@@ -842,6 +842,7 @@ impl AreaScene {
             // (Water ripples whether or not the objects' animations play,
             // as the tiles' animations go on.)
             time: view.time,
+            environment: mg_render::Environment::from_are(l.flags, l.wind_power),
         }
     }
 

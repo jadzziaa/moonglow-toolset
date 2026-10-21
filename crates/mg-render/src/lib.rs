@@ -23,5 +23,5 @@ pub use renderer::{
     DEPTH_FORMAT, DebugView, Drawn, MAX_LIGHTS, Renderer, Targets, attenuation_params, tint_light,
 };
 pub use scene::{
-    AreaLight, Camera, Fog, Instance, Line, MeshOverride, MeshState, PointLight, Scene,
+    AreaLight, Camera, Environment, Fog, Instance, Line, MeshOverride, MeshState, PointLight, Scene,
 };

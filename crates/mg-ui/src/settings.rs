@@ -121,6 +121,11 @@ pub struct Settings {
     /// The area view's Grass switch is off: no grass is drawn (in every
     /// area view).
     pub no_grass: bool,
+    /// The 3D views' Shaders switch (the area view's toolbar, the model
+    /// view's): the game's own shaders draw what they can, a material's
+    /// custom ones among them (`docs/shaders-proposal.md`). `None`: as
+    /// [`GAME_SHADERS_BY_DEFAULT`] has it, until the switch is used.
+    pub game_shaders: Option<bool>,
     /// The kinds of objects the area view's toolbar hides (`Triggers`,
     /// `Encounters`…, as [`mg_area::ObjectKind::label`] names them, and
     /// `Start` for the start location's marker; `Merchants`, as 1.35 and
@@ -381,7 +386,18 @@ pub struct Settings {
     pub dialog_backup_minutes: Option<u32>,
 }
 
+/// Whether the game's shaders draw the 3D views where the Shaders switch
+/// was never used. Off until the per-draw blocks and the compiles off the
+/// UI thread (the shaders proposal's M3) keep a large area at the frame
+/// budget; the owner's decision is on by default then.
+pub const GAME_SHADERS_BY_DEFAULT: bool = false;
+
 impl Settings {
+    /// The Shaders switch: the game's own shaders draw the 3D views.
+    pub fn game_shaders(&self) -> bool {
+        self.game_shaders.unwrap_or(GAME_SHADERS_BY_DEFAULT)
+    }
+
     /// Puts a module at the top of the recent list.
     pub fn remember(&mut self, path: &Path) {
         self.recent.retain(|p| p != path);

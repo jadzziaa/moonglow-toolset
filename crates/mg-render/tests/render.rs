@@ -1930,3 +1930,269 @@ fn the_game_s_lit_shaders_match_moonglow_s() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+// Materials' own programs (`docs/shaders-proposal.md`, M2): authored
+// stand-ins for a custom shader pair (the game's and The Domains of Dread's
+// are read only from an install and its haks, in `mg-corpus-tests`).
+
+/// A vertex program that sways a mesh along x by the clock and an MTR
+/// parameter, and a fragment program that draws the texture, or an MTR's
+/// color where an int parameter says so, with the texture's alpha.
+fn authored_custom_pair(assets: &mut TestAssets) {
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+uniform mat4 m_m;
+uniform int worldtimerTimeOfDay;
+uniform float fSwayStrength;
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+varying vec2 vUv;
+void main ()
+{
+    vUv = vTcIn;
+    vec4 p = vPos;
+    p.x += sin(float(worldtimerTimeOfDay) * 0.001) * fSwayStrength;
+    gl_Position = m_proj * (m_mv * p) + vec4(0.0 * (m_m * vPos).y);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+uniform vec4 vOverrideColor;
+uniform int iForceOverrideColor;
+varying vec2 vUv;
+void main ()
+{
+    vec4 t = texture2D(texUnit0, vUv);
+    vec3 c = iForceOverrideColor == 1 ? vOverrideColor.rgb : t.rgb;
+    gl_FragColor = vec4(c, t.a);
+}
+"#;
+    assets.shaders.insert("vs_sway".into(), vs.into());
+    assets.shaders.insert("fs_tint".into(), fs.into());
+}
+
+/// A material that names a program pair is drawn with it, its parameters
+/// filled by name (a float, a vector, an int), and moves with the clock:
+/// two times, two pictures. With the game's shaders off, Moonglow's own
+/// draws it, and it stands still.
+#[test]
+fn a_material_s_own_programs_draw_it_and_move_with_the_clock() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    authored_custom_pair(&mut assets);
+    assets.opaque("swaying", [255, 0, 0]);
+    let mtr = "customshadervs vs_sway\ncustomshaderfs fs_tint\n\
+        parameter float fSwayStrength 0.5\nparameter float vOverrideColor 0.0 1.0 0.0 1.0\n\
+        parameter int iForceOverrideColor 1\n";
+    assets.materials.insert("swaying".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let shot = |r: &mut Renderer, time: f32| {
+        let scene = Scene {
+            instances: vec![standing_quad(&gpu, "swaying", Vec3::new(0.0, 0.0, 1.0), 1.0)],
+            background: [0.0, 0.0, 0.0],
+            time,
+            ..Default::default()
+        };
+        r.render_image(&gpu, &assets, &scene, &camera, 64, 64)
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let still = shot(&mut r, 0.0);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!((r.drawn.game, r.drawn.timed), (1, 1), "{:?}", r.drawn);
+    // The MTR's color, by its int parameter.
+    assert_eq!(still.pixel(32, 32), [0, 255, 0, 255]);
+    // At 1.5 s it has swayed by half its width (sin 1.5 · 0.5 of its 2 m).
+    let swayed = shot(&mut r, 1.5);
+    save(&still, &mg_testkit::scratch_dir("render").join("game_custom_still.png"));
+    save(&swayed, &mg_testkit::scratch_dir("render").join("game_custom_swayed.png"));
+    let green = |img: &mg_image::Rgba| {
+        (0..64)
+            .flat_map(|y| (0..64).map(move |x| (x, y)))
+            .filter(|&(x, y)| img.pixel(x, y)[1] > 128)
+            .map(|(x, _)| x as f32)
+            .sum::<f32>()
+    };
+    assert_ne!(still.data, swayed.data);
+    assert!(green(&swayed) > green(&still), "it moved towards +x");
+
+    // Off: Moonglow's own shader, the texture's red, still.
+    let mut own = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let (a, b) = (shot(&mut own, 0.0), shot(&mut own, 1.5));
+    assert_eq!((own.drawn.game, own.drawn.timed), (0, 0));
+    let p = a.pixel(32, 32);
+    assert!(p[0] > 60 && p[1] < 40, "{p:?}");
+    assert_eq!(a.data, b.data);
+}
+
+/// A material that names one program alone is drawn with the stock pair
+/// (the engine takes a pair or neither); one whose program is of the other
+/// stage (`customshaderVS fslit`) falls back to Moonglow's own shader and is
+/// reported once, never drawn magenta.
+#[test]
+fn a_material_s_pair_needs_both_programs_of_their_stages() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    authored_custom_pair(&mut assets);
+    let (scene, camera) = clip_space_scene(&gpu);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    // One alone: the stock pair (authored `vslit`/`fslit`), all three drawn.
+    let alone = "customshadervs vs_sway\n";
+    assets.materials.insert("red".into(), mg_image::mtr::Mtr::parse(alone.as_bytes()));
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!((r.drawn.game, r.drawn.timed), (3, 0), "{:?}", r.drawn);
+    assert_eq!(img.pixel(32, 12), [255, 0, 0, 255]);
+
+    // Of the wrong stage: the red quad is Moonglow's, reported once.
+    let wrong = "customshadervs fslit\ncustomshaderfs fs_tint\n";
+    assets.materials.insert("red".into(), mg_image::mtr::Mtr::parse(wrong.as_bytes()));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.drawn.game, 2, "{:?}", r.drawn);
+    let failures = r.game_shader_failures();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert!(failures[0].1.contains("fragment program"), "{failures:?}");
+    let p = img.pixel(32, 12);
+    assert!(p[0] > 60 && p[1] < 40, "{p:?}");
+}
+
+/// A known custom shader (`vertexalpha`) is drawn by its hand port without
+/// its source, unreported, and by its own programs where its source is
+/// there.
+#[test]
+fn a_known_custom_shader_is_its_programs_where_they_are_there() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    let named = "customshadervs vertexalpha_vs\ncustomshaderfs vertexalpha_fs\n";
+    assets.materials.insert("red".into(), mg_image::mtr::Mtr::parse(named.as_bytes()));
+    let (scene, camera) = clip_space_scene(&gpu);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 2, "the hand port draws the red quad: {:?}", r.drawn);
+
+    authored_custom_pair(&mut assets);
+    let vs = assets.shaders["vs_sway"].clone();
+    let fs = assets.shaders["fs_tint"].clone();
+    assets.shaders.insert("vertexalpha_vs".into(), vs);
+    assets.shaders.insert("vertexalpha_fs".into(), fs);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!((r.drawn.game, r.drawn.timed), (3, 1), "{:?}", r.drawn);
+}
+
+/// A see-through mesh drawn by the game's programs is drawn in Moonglow's
+/// two parts, among the other see-through meshes: its soft edge doesn't
+/// hide the ground behind it (as `a_see_through_edge_does_not_hide_the_
+/// ground_behind_it` holds Moonglow's own shader to), and what is solid of
+/// it hides what is behind.
+#[test]
+fn a_see_through_mesh_is_drawn_in_two_parts_by_its_programs() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_custom_pair(&mut assets);
+    authored_lit_pair(&mut assets);
+    let solid = |assets: &mut TestAssets, name: &str, rgba: [u8; 4], alpha: bool| {
+        let t = mg_image::Rgba { width: 4, height: 4, data: rgba.repeat(16) }.into_texture(alpha);
+        assets.textures.insert(name.into(), t);
+    };
+    solid(&mut assets, "water", [0, 0, 255, 255], false);
+    solid(&mut assets, "lava", [255, 255, 0, 255], false);
+    solid(&mut assets, "ground", [200, 0, 0, 255], true);
+    // Its edge half see-through, its middle solid.
+    let mut plant = Vec::new();
+    for y in 0..4 {
+        for x in 0..4 {
+            let edge = x == 0 || x == 3 || y == 0 || y == 3;
+            plant.extend_from_slice(&[0, 200, 0, if edge { 128 } else { 255 }]);
+        }
+    }
+    let t = mg_image::Rgba { width: 4, height: 4, data: plant }.into_texture(true);
+    assets.textures.insert("plant".into(), t);
+    let pair = "customshadervs vs_sway\ncustomshaderfs fs_tint\n";
+    assets.materials.insert("plant".into(), mg_image::mtr::Mtr::parse(pair.as_bytes()));
+    let model = |bitmap: &str| {
+        let mut m = quad();
+        let NodeKind::Mesh(mesh) = &mut m.nodes[1].kind else { unreachable!() };
+        mesh.uvs[0] = vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        mesh.source_uv = vec![0, 1, 2, 3];
+        mesh.textures[0] = Some(bitmap.into());
+        Arc::new(GpuModel::new(&gpu, Arc::new(m)))
+    };
+    let at = |p: Vec3, scale: f32| Mat4::from_translation(p) * Mat4::from_scale(Vec3::splat(scale));
+    let plant_at = Vec3::new(0.0, 0.0, 0.6);
+    let camera = Camera {
+        eye: Vec3::new(0.0, -8.0, 3.0),
+        target: plant_at,
+        fov_y: 0.6,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let mut shot = |under: &str, plant: bool| {
+        let mut instances = vec![
+            Instance::new(model(under), at(Vec3::ZERO, 20.0)),
+            Instance::new(model("ground"), at(Vec3::new(0.0, -5.5, 0.5), 6.0)),
+        ];
+        if plant {
+            instances.push(Instance::new(model("plant"), at(plant_at, 0.5)));
+        }
+        let scene = Scene {
+            instances,
+            area: AreaLight { ambient: Vec3::splat(1.0), ..Default::default() },
+            ..Default::default()
+        };
+        let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+        (img, r.drawn)
+    };
+    let (over_water, drawn) = shot("water", true);
+    let (over_lava, _) = shot("lava", true);
+    let (bare, _) = shot("water", false);
+    let (bare_lava, _) = shot("lava", false);
+    save(&over_water, &mg_testkit::scratch_dir("render").join("game_see_through.png"));
+    assert_eq!(r.game_shader_failures(), &[]);
+    // Water, ground (see-through: two parts each), plant (two parts).
+    assert_eq!(drawn.game, 2 + 2 + 1, "{drawn:?}");
+    let plant_px: Vec<(u32, u32)> = (0..64)
+        .flat_map(|y| (0..64).map(move |x| (x, y)))
+        .filter(|&(x, y)| over_water.pixel(x, y) != bare.pixel(x, y))
+        .collect();
+    assert!(plant_px.len() > 20, "the plant is drawn: {}", plant_px.len());
+    // What is under the ground makes no difference through the plant,
+    // where the ground is behind it.
+    for &(x, y) in plant_px.iter().filter(|&&(x, y)| bare.pixel(x, y) == bare_lava.pixel(x, y)) {
+        // (The solid part, from 0.95 opaque, blends with what was drawn
+        // before it: at most a twentieth of the water or the lava.)
+        let (a, b) = (over_water.pixel(x, y), over_lava.pixel(x, y));
+        let most = (0..3).map(|i| a[i].abs_diff(b[i])).max().unwrap_or(0);
+        assert!(most <= 13, "through the plant at {x},{y}: {a:?} {b:?}");
+    }
+    // Its solid middle is its own green; its edge the ground's red and its
+    // green blended.
+    let middle = over_water.pixel(32, 32);
+    assert!(middle[1] >= 190 && middle[0] < 15 && middle[2] < 15, "{middle:?}");
+    assert!(
+        plant_px.iter().any(|&(x, y)| {
+            let p = over_water.pixel(x, y);
+            p[0] > 60 && p[1] > 60
+        }),
+        "a blended edge"
+    );
+}

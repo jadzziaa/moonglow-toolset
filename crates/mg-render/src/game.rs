@@ -28,7 +28,8 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 use mg_image::mtr::Param as MtrParam;
 use mg_shader::{
-    Member, Preamble, Program, Reflection, Scalar, Sources, Stage, Texture, UniformBlock, ValueType,
+    AlphaKeep, Member, Preamble, Program, Reflection, Scalar, Sources, Stage, Texture,
+    UniformBlock, ValueType,
 };
 
 use crate::Gpu;
@@ -151,6 +152,11 @@ pub(crate) enum Key {
     CameraViewAngle,
     PlayerPosition,
     PlayerCameraDist,
+    // The area (notes §B.4).
+    AreaFlags,
+    AreaGlobalWind,
+    AreaWeatherType,
+    AreaWeatherDensity,
     /// The material's MTR `parameter` of this name, else zero: the
     /// material values (`Specularity`, `Roughness`, `Metallicness`,
     /// `CustomSpecularColor`, `DisplacementOffset`…) and a custom
@@ -213,6 +219,10 @@ pub(crate) fn key(name: &str) -> Key {
         "cameraViewAngle" => CameraViewAngle,
         "playerPosition" => PlayerPosition,
         "playerCameraDist" => PlayerCameraDist,
+        "areaFlags" => AreaFlags,
+        "areaGlobalWind" => AreaGlobalWind,
+        "areaWeatherType" => AreaWeatherType,
+        "areaWeatherDensity" => AreaWeatherDensity,
         _ => match name.strip_prefix("texture").and_then(|n| n.strip_suffix("Bound")) {
             Some(n) if n.parse::<u8>().is_ok_and(|n| n <= 15) => {
                 TextureBound(n.parse().unwrap_or_default())
@@ -264,6 +274,8 @@ pub(crate) struct FrameValues {
     pub(crate) eye: Vec3,
     pub(crate) target: Vec3,
     pub(crate) fov_y: f32,
+    /// The area's flags, wind and weather ([`crate::scene::Environment`]).
+    pub(crate) environment: crate::scene::Environment,
 }
 
 /// One draw's own values.
@@ -372,6 +384,10 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         CameraViewAngle => Val::F(f.fov_y.to_degrees()),
         PlayerPosition => Val::V(v3(f.target, 0.0)),
         PlayerCameraDist => Val::F(f.eye.distance(f.target)),
+        AreaFlags => Val::I(f.environment.flags as i32),
+        AreaGlobalWind => Val::V(v3(f.environment.wind, 0.0)),
+        AreaWeatherType => Val::I(i32::from(f.environment.weather)),
+        AreaWeatherDensity => Val::F(f.environment.weather_density),
         Param(name) => match d.params.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
             Some((_, MtrParam::Int(i))) => Val::I(*i),
             Some((_, MtrParam::Float(v))) if v.len() == 1 => Val::F(v[0]),
@@ -535,6 +551,19 @@ impl StagePlan {
     }
 }
 
+/// Which of the renderer's passes a game draw is in, and so how it blends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum GamePass {
+    /// Solid (a cut-out among them): not blended.
+    Opaque,
+    /// A see-through mesh's nearly opaque part: blended, its depth
+    /// written, the fragments below [`crate::renderer::SOLID_ALPHA`]
+    /// discarded.
+    Solid,
+    /// The rest of it: blended over everything solid, hiding nothing.
+    Fringe,
+}
+
 /// A pipeline of a program pair.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct PipelineKey {
@@ -542,6 +571,7 @@ pub(crate) struct PipelineKey {
     pub(crate) fs: String,
     pub(crate) skinned: bool,
     pub(crate) twosided: bool,
+    pub(crate) pass: GamePass,
 }
 
 /// A program pair ready to draw.
@@ -555,6 +585,9 @@ pub(crate) struct GamePipeline {
     /// The vertex buffer slot of the skin's data, and of the zeros.
     skin_slot: Option<u32>,
     zero_slot: Option<u32>,
+    /// A program reads the clock (`worldtimerTimeOfDay`,
+    /// `sceneCurrentFrame`): what it draws moves by itself.
+    pub(crate) timed: bool,
 }
 
 /// One draw through a program pair.
@@ -568,6 +601,14 @@ pub(crate) struct GameDraw<'a> {
     pub(crate) dynamic: Option<(u64, u64)>,
     /// Each stage's block's offset in the frame's buffer.
     offsets: [Option<u32>; 2],
+}
+
+impl<'a> GameDraw<'a> {
+    /// The same draw through another pipeline of the same programs (a
+    /// see-through mesh's other part): the same blocks.
+    pub(crate) fn with_pipeline(&self, pipeline: Arc<GamePipeline>) -> GameDraw<'a> {
+        GameDraw { pipeline, offsets: self.offsets, ..*self }
+    }
 }
 
 /// The textures a material binds, for the game's samplers.
@@ -665,7 +706,7 @@ impl GameShaders {
         self.failures.clear();
     }
 
-    fn fail(&mut self, what: &str, why: String) {
+    pub(crate) fn fail(&mut self, what: &str, why: String) {
         if !self.failures.iter().any(|(w, _)| w == what) {
             eprintln!(
                 "moonglow: the game's shader {what} is drawn with Moonglow's own instead: {why}"
@@ -684,6 +725,19 @@ impl GameShaders {
         self.programs
             .entry((name.to_string(), stage))
             .or_insert_with(|| {
+                // (A material may name a program for the other stage: an
+                // MTR's `customshaderVS fslit_nm`. The game would draw it
+                // magenta; it is drawn with Moonglow's own shader.)
+                let declared = assets
+                    .shader(&name.to_ascii_lowercase())
+                    .and_then(|text| mg_shader::Stage::declared(&text));
+                if let Some(other) = declared.filter(|d| *d != stage) {
+                    return Err(format!(
+                        "it is a {} program, named for the {} stage",
+                        other.id(),
+                        stage.id()
+                    ));
+                }
                 mg_shader::compile(name, stage, preamble, &AssetSources(assets))
                     .map(Arc::new)
                     .map_err(|e| e.to_string())
@@ -735,7 +789,22 @@ impl GameShaders {
             vs.read_input_as_uint("vIndex").map_err(|e| at(&key.vs, e.to_string()))?;
         }
         fs.link_inputs(&vs.reflection.outputs).map_err(|e| at(&key.fs, e.to_string()))?;
+        let keep = match key.pass {
+            GamePass::Opaque => None,
+            GamePass::Solid => Some(AlphaKeep::AtLeast(crate::renderer::SOLID_ALPHA)),
+            GamePass::Fringe => Some(AlphaKeep::Below(crate::renderer::SOLID_ALPHA)),
+        };
+        if let Some(keep) = keep {
+            fs.keep_alpha(keep).map_err(|e| at(&key.fs, e.to_string()))?;
+        }
         fs.set_group(1).map_err(|e| at(&key.fs, e.to_string()))?;
+        let timed = [&vs, &fs].iter().any(|p| {
+            p.reflection.uniforms.iter().any(|b| {
+                b.members
+                    .iter()
+                    .any(|m| matches!(self::key(&m.name), Key::WorldTimer | Key::SceneCurrentFrame))
+            })
+        });
         let stages = [
             StagePlan::new(&vs.reflection).map_err(|e| at(&key.vs, e))?,
             StagePlan::new(&fs.reflection).map_err(|e| at(&key.fs, e))?,
@@ -824,7 +893,7 @@ impl GameShaders {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: crate::DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
+                    depth_write_enabled: Some(key.pass != GamePass::Fringe),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
                     bias: Default::default(),
@@ -836,7 +905,8 @@ impl GameShaders {
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: color_format,
-                        blend: None,
+                        blend: (key.pass != GamePass::Opaque)
+                            .then_some(wgpu::BlendState::ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -845,7 +915,15 @@ impl GameShaders {
             })
         })?;
         self.next_id += 1;
-        Ok(GamePipeline { id: self.next_id, pipeline, layouts, stages, skin_slot, zero_slot })
+        Ok(GamePipeline {
+            id: self.next_id,
+            pipeline,
+            layouts,
+            stages,
+            skin_slot,
+            zero_slot,
+            timed,
+        })
     }
 
     /// Starts a frame's blocks.
@@ -1040,9 +1118,56 @@ pub(crate) fn lit_pair(normal_mapped: bool, reflects: bool) -> (&'static str, &'
     }
 }
 
+/// The program pair a material names (notes §A.4): its `customshaderVS`
+/// and `customshaderFS`, where it names both. One named alone is no pair:
+/// the engine draws the mesh with the stock pair it would choose then (the
+/// wiki has both needed; and of The Domains of Dread's materials, 250 name
+/// `fslit_nm`, a fragment program, alone as `customshaderVS`, which the
+/// game would draw magenta if it took one alone, and doesn't).
+pub(crate) fn custom_pair(vs: Option<&str>, fs: Option<&str>) -> Option<(String, String)> {
+    let name = |n: Option<&str>| {
+        n.map(|n| n.trim().to_ascii_lowercase()).filter(|n| !n.is_empty() && n != "null")
+    };
+    Some((name(vs)?, name(fs)?))
+}
+
+/// The pair a mesh is drawn with: its material's ([`custom_pair`]), else
+/// the stock lit pair ([`lit_pair`]); and whether it is the material's.
+pub(crate) fn program_pair(
+    custom: Option<&(String, String)>,
+    normal_mapped: bool,
+    reflects: bool,
+) -> (String, String, bool) {
+    match custom {
+        Some((vs, fs)) => (vs.clone(), fs.clone(), true),
+        None => {
+            let (vs, fs) = lit_pair(normal_mapped, reflects);
+            (vs.into(), fs.into(), false)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+
+    #[test]
+    fn a_material_names_a_pair_only_with_both_programs() {
+        let pair = |vs, fs| custom_pair(vs, fs);
+        assert_eq!(
+            pair(Some("shd_windgrass_vs"), Some(" SHD_WindGrass_FS ")),
+            Some(("shd_windgrass_vs".into(), "shd_windgrass_fs".into()))
+        );
+        // One alone (The Domains of Dread's `customshadervs fslit_nm`), or
+        // an empty name: the stock pair.
+        assert_eq!(pair(Some("fslit_nm"), None), None);
+        assert_eq!(pair(None, Some("fs_plt_hair")), None);
+        assert_eq!(pair(Some(""), Some("fslit")), None);
+        assert_eq!(pair(Some("null"), Some("fslit")), None);
+        let custom = ("vs_a".to_string(), "fs_a".to_string());
+        assert_eq!(program_pair(Some(&custom), false, true), ("vs_a".into(), "fs_a".into(), true));
+        assert_eq!(program_pair(None, true, false), ("vslit_nm".into(), "fslit_nm".into(), false));
+    }
 
     use super::*;
 
@@ -1105,11 +1230,16 @@ uniform float fSwaySpeed;
 uniform vec4 vOverrideColor;
 uniform float fNobodyKnows;
 uniform int worldtimerTimeOfDay;
+uniform int areaFlags;
+uniform vec3 areaGlobalWind;
+uniform float fSwayStrength;
+uniform int iRoofInterior;
 void main ()
 {
     vec4 c = m_mv * m_proj * m_texture * lightPosition[numLights] + lightColor[1];
     c.rgb += lightAreaAmbient * float(texture0Bound + texture1Bound + worldtimerTimeOfDay);
     c += fogParams * fAlphaDiscardValue * fSwaySpeed * fNobodyKnows + vOverrideColor;
+    c.xyz += areaGlobalWind * float(areaFlags + iRoofInterior) * fSwayStrength;
     gl_FragColor = c;
 }
 "#;
@@ -1141,6 +1271,7 @@ void main ()
             area_ambient: Vec3::new(0.1, 0.2, 0.3),
             fog: [1.0, 10.0, 40.0, 1.0 / 30.0],
             seconds: 2.5,
+            environment: crate::scene::Environment::from_are(5, 2),
             ..Default::default()
         };
         let positions = [[1.0, 2.0, 3.0, 1.0], [4.0, 5.0, 6.0, 1.0]];
@@ -1148,6 +1279,8 @@ void main ()
         let params = vec![
             ("fswayspeed".to_string(), MtrParam::Float(vec![0.75])),
             ("vOverrideColor".to_string(), MtrParam::Float(vec![0.1, 0.2, 0.3, 0.4])),
+            ("FSWAYSTRENGTH".to_string(), MtrParam::Float(vec![3.0])),
+            ("iRoofInterior".to_string(), MtrParam::Int(1)),
         ];
         let mut bound = [false; 16];
         bound[0] = true;
@@ -1195,5 +1328,12 @@ void main ()
         assert_eq!(f32_at(&out, m("fSwaySpeed").offset), 0.75);
         assert_eq!(f32_at(&out, m("vOverrideColor").offset + 12), 0.4);
         assert_eq!(f32_at(&out, m("fNobodyKnows").offset), 0.0);
+        assert_eq!(f32_at(&out, m("fSwayStrength").offset), 3.0);
+        assert_eq!(i32_at(&out, m("iRoofInterior").offset), 1);
+        // The area's flags and wind (a strong one).
+        assert_eq!(i32_at(&out, m("areaFlags").offset), 5);
+        let wind = m("areaGlobalWind").offset;
+        assert!((f32_at(&out, wind) - std::f32::consts::SQRT_2).abs() < 1e-5);
+        assert_eq!(f32_at(&out, wind + 8), 0.0);
     }
 }

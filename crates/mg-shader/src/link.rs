@@ -95,6 +95,14 @@ pub(crate) fn gl_depth_to_wgpu(module: &mut Module) -> Result<(), String> {
     Ok(())
 }
 
+/// Which fragments [`Program::keep_alpha`] keeps: those whose alpha is at
+/// least the value, or below it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AlphaKeep {
+    AtLeast(f32),
+    Below(f32),
+}
+
 fn naga_err(what: impl std::fmt::Display) -> ShaderError {
     ShaderError::Naga(what.to_string())
 }
@@ -214,6 +222,80 @@ impl Program {
             }
         }
         self.reflection.inputs.sort_by_key(|v| v.location);
+        self.revalidate()
+    }
+
+    /// Keeps only the fragments whose color (the output at location 0, the
+    /// game's `gl_FragColor`) has an alpha `keep` takes, discarding the
+    /// rest as they leave: one part of a see-through mesh drawn in two
+    /// (Moonglow's own split, `docs/shaders-proposal.md` M2: what is
+    /// nearly opaque of it first, hiding what is behind, then the rest).
+    pub fn keep_alpha(&mut self, keep: AlphaKeep) -> Result<(), ShaderError> {
+        let types = &self.module.types;
+        let ep = self
+            .module
+            .entry_points
+            .iter_mut()
+            .find(|e| e.stage == naga::ShaderStage::Fragment)
+            .ok_or_else(|| naga_err("no fragment entry point"))?;
+        let f = &mut ep.function;
+        let result = f.result.as_ref().ok_or_else(|| naga_err("the program writes no color"))?;
+        let is_color =
+            |b: &Option<Binding>| matches!(b, Some(Binding::Location { location: 0, .. }));
+        // The color: the result itself, or which member of it.
+        let (member, ty) = if is_color(&result.binding) {
+            (None, result.ty)
+        } else {
+            match &types[result.ty].inner {
+                TypeInner::Struct { members, .. } => {
+                    let i = members
+                        .iter()
+                        .position(|m| is_color(&m.binding))
+                        .ok_or_else(|| naga_err("the program writes no color at location 0"))?;
+                    (Some(i), members[i].ty)
+                }
+                _ => return Err(naga_err("the program writes no color at location 0")),
+            }
+        };
+        if !matches!(
+            types[ty].inner,
+            TypeInner::Vector { size: naga::VectorSize::Quad, scalar: naga::Scalar::F32 }
+        ) {
+            return Err(naga_err("the color isn't a vec4"));
+        }
+        let at = f
+            .body
+            .iter()
+            .rposition(|s| matches!(s, Statement::Return { value: Some(_) }))
+            .ok_or_else(|| naga_err("the fragment entry point returns nothing"))?;
+        let Statement::Return { value: Some(value) } = f.body[at] else { unreachable!() };
+        let e = &mut f.expressions;
+        let color = match member {
+            None => value,
+            Some(i) => match &e[value] {
+                Expression::Compose { components, .. } if components.len() > i => components[i],
+                _ => return Err(naga_err("the fragment entry point's result isn't composed")),
+            },
+        };
+        let (op, threshold) = match keep {
+            // (Discarded: what is below it.)
+            AlphaKeep::AtLeast(t) => (BinaryOperator::Less, t),
+            AlphaKeep::Below(t) => (BinaryOperator::GreaterEqual, t),
+        };
+        let limit = e.append(Expression::Literal(Literal::F32(threshold)), Span::UNDEFINED);
+        let mut emitter = Emitter::default();
+        emitter.start(e);
+        let alpha = e.append(Expression::AccessIndex { base: color, index: 3 }, Span::UNDEFINED);
+        let condition =
+            e.append(Expression::Binary { op, left: alpha, right: limit }, Span::UNDEFINED);
+        let mut statements: Vec<Statement> =
+            emitter.finish(e).map(|(s, _)| s).into_iter().collect();
+        statements.push(Statement::If {
+            condition,
+            accept: Block::from_vec(vec![Statement::Kill]),
+            reject: Block::new(),
+        });
+        f.body.splice(at..at, Block::from_vec(statements));
         self.revalidate()
     }
 
@@ -380,6 +462,38 @@ void main ()
             naga::back::wgsl::WriterFlags::empty(),
         )
         .unwrap();
+    }
+
+    /// A see-through mesh's two parts: the color's alpha tested as it
+    /// leaves, the fragment discarded below (or at and above) the value.
+    #[test]
+    fn fragments_are_kept_by_their_alpha() {
+        for (keep, op) in [
+            (AlphaKeep::AtLeast(0.95), BinaryOperator::Less),
+            (AlphaKeep::Below(0.95), BinaryOperator::GreaterEqual),
+        ] {
+            let mut fs = program("fs_link", Stage::Fragment);
+            fs.keep_alpha(keep).unwrap();
+            let f = &fs.module.entry_points[0].function;
+            let at = f.body.len() - 2;
+            let Statement::If { condition, accept, .. } = &f.body[at] else {
+                panic!("{:?}", f.body[at])
+            };
+            assert!(matches!(accept.first(), Some(Statement::Kill)));
+            let e = &f.expressions;
+            let Expression::Binary { op: o, left, right } = e[*condition] else { panic!() };
+            assert_eq!(o, op);
+            assert_eq!(e[right], Expression::Literal(Literal::F32(0.95)));
+            assert!(matches!(e[left], Expression::AccessIndex { index: 3, .. }));
+            naga::back::wgsl::write_string(
+                &fs.module,
+                &fs.info,
+                naga::back::wgsl::WriterFlags::empty(),
+            )
+            .unwrap();
+        }
+        // A vertex program has no color to test.
+        assert!(program("vs_link", Stage::Vertex).keep_alpha(AlphaKeep::Below(0.5)).is_err());
     }
 
     #[test]

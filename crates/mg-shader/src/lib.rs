@@ -39,6 +39,7 @@ pub use assemble::{
     Assembled, At, LineOrigin, Preamble, SourceFile, Sources, Stage, assemble, defines_main,
     program_stage,
 };
+pub use link::AlphaKeep;
 pub use reflect::{Member, Reflection, Scalar, Texture, UniformBlock, ValueType, Varying};
 
 /// A message about a program, where it applies.

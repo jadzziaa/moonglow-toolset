@@ -3252,6 +3252,46 @@ fn model_viewer_plays_animations() {
     assert!(img.width() > 0);
 }
 
+/// The model view's Shaders switch is the area view's (one setting for
+/// every 3D view): off by default; on, the game's lit shaders draw the
+/// model.
+#[test]
+fn the_model_view_s_shaders_switch_draws_with_the_game_s_shaders() {
+    let root = mg_testkit::corpus!();
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(900.0, 700.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    assert!(!h.state().settings.game_shaders());
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
+    assert_eq!(drawn(&h).game, 0);
+    h.get_by_label("Shaders").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.game_shaders, Some(true));
+    let vp = h.state().viewport.as_ref().unwrap();
+    assert_eq!(vp.renderer.game_shader_failures(), &[]);
+    assert!(drawn(&h).game > 0, "{:?}", drawn(&h));
+    h.get_by_label("Shaders").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.game_shaders, Some(false));
+    assert_eq!(drawn(&h).game, 0);
+}
+
 #[test]
 fn blueprint_previews_open() {
     let root = mg_testkit::corpus!();
@@ -7113,6 +7153,37 @@ fn area_harness_on(
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
     h.run_steps(3);
     Some((h, area))
+}
+
+/// The area view's Shaders switch: off by default (the setting not yet
+/// chosen); on, the area is drawn again with the game's own shaders (the
+/// stock lit programs for the tiles), and the choice is kept in the
+/// settings; off again, with Moonglow's own.
+#[test]
+fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
+    let Some((mut h, area)) = area_harness("shaders-switch") else { return };
+    assert_eq!(h.state().settings.game_shaders, None);
+    assert!(!h.state().settings.game_shaders());
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
+    let pictures = h.state().area_views[&area].pictures;
+    assert!(pictures > 0);
+    assert_eq!(drawn(&h).game, 0);
+    h.get_by_label("🎨 Shaders").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.game_shaders, Some(true));
+    assert!(h.state().area_views[&area].pictures > pictures, "drawn again");
+    let vp = h.state().viewport.as_ref().unwrap();
+    assert!(vp.renderer.game_shaders);
+    assert_eq!(vp.renderer.game_shader_failures(), &[]);
+    assert!(drawn(&h).game > 0, "{:?}", drawn(&h));
+    // Kept as the settings are.
+    let saved = serde_json::to_string(&h.state().settings).unwrap();
+    let read: mg_ui::Settings = serde_json::from_str(&saved).unwrap();
+    assert!(read.game_shaders());
+    h.get_by_label("🎨 Shaders").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.game_shaders, Some(false));
+    assert_eq!(drawn(&h).game, 0);
 }
 
 /// A waypoint's position in the workspace's GIT.

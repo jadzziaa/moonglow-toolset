@@ -184,8 +184,47 @@ pub struct Scene {
     /// Lines drawn after the meshes, hidden behind them (the area's tile
     /// grid), a pixel wide.
     pub lines: Vec<Line>,
-    /// Seconds, for what moves by itself: the game's water ripples.
+    /// Seconds, for what moves by itself: the game's water ripples, and
+    /// the game's shaders' clock (`worldtimerTimeOfDay`,
+    /// `sceneCurrentFrame`: wind-swayed grass, flowing water).
     pub time: f32,
+    /// What the game's shaders read of the area besides its light.
+    pub environment: Environment,
+}
+
+/// What the game's shaders read of an area besides its light
+/// (`docs/research/notes_shaders.md` §B.4): its flags, its wind and its
+/// weather. Nothing of it changes what Moonglow's own shader draws.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Environment {
+    /// `areaFlags`, the ARE's `Flags`: 1 interior, 2 underground, 4
+    /// natural.
+    pub flags: u32,
+    /// `areaGlobalWind`: its length squared 1 for a medium wind, 4 for a
+    /// strong one.
+    pub wind: Vec3,
+    /// `areaWeatherType`: 0 clear, 1 rain, 2 snow.
+    pub weather: u8,
+    /// `areaWeatherDensity`.
+    pub weather_density: f32,
+}
+
+impl Environment {
+    /// An area's, from its ARE's `Flags` and `WindPower` (0 none, 1
+    /// medium, 2 strong). Its weather is clear: the game rolls it from the
+    /// ARE's chances as it runs, and the editor runs none.
+    pub fn from_are(flags: u32, wind_power: i64) -> Environment {
+        Environment { flags, wind: wind(wind_power), weather: 0, weather_density: 0.0 }
+    }
+}
+
+/// `areaGlobalWind` for an ARE's `WindPower`: none, (0.707, 0.707, 0) and
+/// (1.414, 1.414, 0), as The Domains of Dread's wind shaders give the
+/// toolset's three (their comments, `shd_windgrass_vs`; a length squared of
+/// 1 and 4, as notes §B.4 has it).
+pub fn wind(power: i64) -> Vec3 {
+    let along = std::f32::consts::FRAC_1_SQRT_2 * power.clamp(0, 2) as f32;
+    Vec3::new(along, along, 0.0)
 }
 
 /// A line in the scene ([`Scene::lines`]).
@@ -243,6 +282,17 @@ mod tests {
 
     /// The client's uniforms for these lights (read back through a debug
     /// shader): colour and cutoff.
+    #[test]
+    fn wind_is_the_ares_power() {
+        assert_eq!(wind(0), Vec3::ZERO);
+        assert!((wind(1).length_squared() - 1.0).abs() < 1e-6);
+        assert!((wind(2).length_squared() - 4.0).abs() < 1e-5);
+        assert_eq!(wind(7), wind(2));
+        let e = Environment::from_are(5, 1);
+        assert_eq!((e.flags, e.weather), (5, 0));
+        assert!(e.wind.x == e.wind.y && e.wind.z == 0.0 && e.wind.x > 0.7);
+    }
+
     #[test]
     fn lights_convert_like_the_game() {
         let close = |a: Vec3, b: Vec3| (a - b).abs().max_element() < 1e-3;

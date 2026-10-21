@@ -26,6 +26,11 @@ use crate::Moonglow;
 /// Multisampling for 3D views.
 const SAMPLES: u32 = 4;
 
+/// How often a model the game's shaders move by the clock (wind-swayed
+/// grass, flowing water) is drawn again, seconds: as the area view's
+/// animations step.
+const CLOCK_STEP: f32 = 0.04;
+
 /// The GPU and renderer the 3D views share, from the window's wgpu state.
 pub struct Viewport3d {
     pub render_state: egui_wgpu::RenderState,
@@ -593,6 +598,21 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         }
         ui.checkbox(&mut view.model_lights, "Lights")
             .on_hover_text("Light the model with its own light nodes");
+        let mut shaders = app.settings.game_shaders();
+        if ui
+            .checkbox(&mut shaders, "Shaders")
+            .on_hover_text(
+                "Draw with the game's own shaders, compiled from the game and the module's haks: \
+                 a material's custom shaders (swaying grass and leaves, flowing water) and the \
+                 game's lit shaders; off, with Moonglow's own (in every 3D view)",
+            )
+            .changed()
+        {
+            app.settings.game_shaders = Some(shaders);
+            if let Some(vp) = app.viewport.as_mut() {
+                vp.renderer.game_shaders = shaders;
+            }
+        }
         if embedded {
             pop_out =
                 ui.button("Pop Out").on_hover_text("Show it in a window of its own").clicked();
@@ -712,6 +732,8 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         particles: batches,
         area: AreaLight::default(),
         background: [0.16, 0.18, 0.21],
+        // (The game's shaders' clock: wind sways while the view plays.)
+        time: view.time,
         ..Default::default()
     };
     let resman = app.game.as_deref().map(|g| &g.resman);
@@ -729,6 +751,11 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         &targets.depth,
         (w, h),
     );
+    // A program of the game's that reads the clock moves what it draws:
+    // drawn again as the area view's animations step, while the view plays.
+    if vp.renderer.drawn.timed > 0 && view.playing {
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
+    }
     let response = ui.add(
         egui::Image::new(egui::load::SizedTexture::new(*id, size))
             .sense(egui::Sense::click_and_drag()),

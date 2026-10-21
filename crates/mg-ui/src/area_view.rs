@@ -481,6 +481,8 @@ struct Drawn {
     merchant_signs: bool,
     spawn_markers: bool,
     follows: bool,
+    /// The Shaders switch.
+    shaders: bool,
 }
 
 /// How long the area's picture is kept while nothing but its animations
@@ -1715,6 +1717,18 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.no_grass = !grass;
         }
+        let mut shaders = app.settings.game_shaders();
+        if ui
+            .toggle_value(&mut shaders, labelled(icons::SHADERS, "Shaders"))
+            .on_hover_text(
+                "Draw with the game's own shaders, compiled from the game and the module's haks: \
+                 a material's custom shaders (swaying grass and leaves, flowing water) and the \
+                 game's lit shaders; off, with Moonglow's own (in every 3D view)",
+            )
+            .changed()
+        {
+            app.settings.game_shaders = Some(shaders);
+        }
         ui.toggle_value(&mut view.grid, labelled(icons::GRID, "Grid"))
             .on_hover_text("Display Grid");
         // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
@@ -2125,6 +2139,7 @@ fn viewport(
         merchant_signs: scene.merchant_signs,
         spawn_markers: scene.spawn_markers,
         follows,
+        shaders: app.settings.game_shaders(),
     };
     let since = view.drawn.as_ref().map(|(_, at)| view.time - at);
     let kept = !follows
@@ -2186,6 +2201,9 @@ fn viewport(
             frame.background = [r, g, b].map(|c| f32::from(c) / 255.0);
         }
         let camera = orbit.camera();
+        // (As the picture's key has it: the switch may have changed this
+        // frame.)
+        vp.renderer.game_shaders = from.shaders;
         vp.renderer.render(
             &vp.gpu,
             &game.resman,

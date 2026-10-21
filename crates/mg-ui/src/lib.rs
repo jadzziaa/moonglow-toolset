@@ -349,6 +349,10 @@ pub struct Moonglow {
     pub ws: Option<Workspace>,
     pub dock: DockState<Tab>,
     pub log: Log,
+    /// The game's shader programs the log was told couldn't be drawn
+    /// (the renderer's [`mg_render::Renderer::game_shader_failures`]): told
+    /// once each.
+    shader_failures_told: Vec<String>,
     pub actions: Vec<Action>,
     pub dialogs: Box<dyn Dialogs>,
     /// Where sounds play: [`audio::Silence`] until the desktop app gives
@@ -714,6 +718,7 @@ impl Moonglow {
             ws: None,
             dock: DockState::new(vec![Tab::Welcome]),
             log,
+            shader_failures_told: Vec::new(),
             actions: Vec::new(),
             dialogs,
             speaker: Box::new(audio::Silence::default()),
@@ -940,6 +945,25 @@ impl Moonglow {
                  a report was written for the report of the problem (Help › User Manual, \
                  Troubleshooting)"
             ));
+        }
+        // The Shaders switch, for every 3D view (they share one renderer),
+        // and the game's programs that couldn't be drawn, said once each.
+        if let Some(vp) = self.viewport.as_mut() {
+            vp.renderer.game_shaders = self.settings.game_shaders();
+            // (Forgotten with the programs, when the resources are read
+            // again: told again if they still fail.)
+            if vp.renderer.game_shader_failures().is_empty() {
+                self.shader_failures_told.clear();
+            }
+            for (what, why) in vp.renderer.game_shader_failures() {
+                if !self.shader_failures_told.contains(what) {
+                    self.shader_failures_told.push(what.clone());
+                    self.log.warn(format!(
+                        "The game's shader {what} is drawn with Moonglow's own shader instead: \
+                         {why}"
+                    ));
+                }
+            }
         }
         // Options › General › Light theme (dark unless chosen).
         let theme = if self.settings.light_theme { egui::Theme::Light } else { egui::Theme::Dark };
