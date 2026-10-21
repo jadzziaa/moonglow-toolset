@@ -15,7 +15,7 @@ touches:
 ---
 
 ## Decided
-- Proposal for 2.0 in docs/shaders-proposal.md (draft, owner's decisions open): tier A (MTR customshaderVS/FS) on the way to tier B (stock programs for every mesh, hak include overrides included), WGSL shader kept as fallback.
+- Proposal for 2.0 in docs/shaders-proposal.md (accepted 2026-10-21): tier B, the stock programs for every mesh with hak include overrides, tier A (MTR customshaderVS/FS) on the way; native glslang + SPIRV-Tools; on by default once the frame budget is met; a program that fails falls back to the WGSL shader and Verify reports it (no magenta). The shaders branch is deleted; its note is docs/research/notes_custom_shaders.md (deprecated).
 - Route proven 2026-10-21 on 102 programs (65 stock + 37 TDoD custom): assemble (preamble + verbatim #include splicing, haks first) -> glslangValidator -V -R --amb --aml -S stage -> spirv-opt --split-combined-image-sampler -> naga 30 spv-in -> renumber every resource binding in naga IR -> validates, writes WGSL. tools/shaders/spike.py does the first two steps.
 ## Tried and ruled out
 - naga spv-in on raw glslang output: 41 fragment shaders fail "invalid id" (combined image samplers). Split alone: BindingCollision (split pair shares a binding).
