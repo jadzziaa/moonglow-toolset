@@ -3229,6 +3229,9 @@ fn model_viewer_plays_animations() {
     let install = mg_resman::GameInstall::new(&root, None, "en");
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
+    // (Moonglow's own shader: the view asks for frames while the game's
+    // programs are made, which `run` would wait out.)
+    app.settings.game_shaders = Some(false);
     let key = ResKey::parse("plc_a01", ResType::MDL).unwrap();
     app.actions.push(mg_ui::Action::OpenTab(Tab::Model(key)));
     let mut h = Harness::builder()
@@ -3253,8 +3256,8 @@ fn model_viewer_plays_animations() {
 }
 
 /// The model view's Shaders switch is the area view's (one setting for
-/// every 3D view): off by default; on, the game's lit shaders draw the
-/// model.
+/// every 3D view): on by default, the game's lit shaders drawing the model
+/// once its programs are made; off, Moonglow's own; on again.
 #[test]
 fn the_model_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     let root = mg_testkit::corpus!();
@@ -3276,16 +3279,13 @@ fn the_model_view_s_shaders_switch_draws_with_the_game_s_shaders() {
         .with_size(egui::vec2(900.0, 700.0))
         .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
         .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
-    h.run_steps(3);
-    assert!(!h.state().settings.game_shaders());
-    let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
-    assert_eq!(drawn(&h).game, 0);
-    h.get_by_label("Shaders").click();
     h.run_steps(1);
+    assert_eq!(h.state().settings.game_shaders, None);
+    assert!(h.state().settings.game_shaders());
+    let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
     // (Its programs made while the view goes on: Moonglow's shader first.)
     assert!(drawn(&h).game_pending > 0 || drawn(&h).game > 0, "{:?}", drawn(&h));
     until_the_game_draws(&mut h);
-    assert_eq!(h.state().settings.game_shaders, Some(true));
     let vp = h.state().viewport.as_ref().unwrap();
     assert_eq!(vp.renderer.game_shader_failures(), &[]);
     assert!(drawn(&h).game > 0, "{:?}", drawn(&h));
@@ -3293,6 +3293,10 @@ fn the_model_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     h.run_steps(3);
     assert_eq!(h.state().settings.game_shaders, Some(false));
     assert_eq!(drawn(&h).game, 0);
+    h.get_by_label("Shaders").click();
+    until_the_game_draws(&mut h);
+    assert_eq!(h.state().settings.game_shaders, Some(true));
+    assert!(drawn(&h).game > 0, "{:?}", drawn(&h));
 }
 
 #[test]
@@ -7146,6 +7150,9 @@ fn area_harness_on(
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
+    // (Moonglow's own shader, chosen: the area view tests' pictures don't
+    // change as the game's programs are made.)
+    app.settings.game_shaders = Some(false);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     // Frames a 60th of a second apart, so that clicks can be double clicks.
@@ -7177,16 +7184,21 @@ fn until_the_game_draws(h: &mut Harness<'_, Moonglow>) {
     }
 }
 
-/// The area view's Shaders switch: off by default (the setting not yet
-/// chosen); on, the area is drawn again with the game's own shaders (the
+/// The area view's Shaders switch: on by default (the setting not yet
+/// chosen: the other area view tests choose it off); off, Moonglow's own
+/// shader; on, the area is drawn again with the game's own shaders (the
 /// stock lit programs for the tiles), and the choice is kept in the
 /// settings; off again, with Moonglow's own.
 #[test]
 fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     let Some((mut h, area)) = area_harness("shaders-switch") else { return };
-    assert_eq!(h.state().settings.game_shaders, None);
-    assert!(!h.state().settings.game_shaders());
+    h.state_mut().settings.game_shaders = None;
+    assert!(h.state().settings.game_shaders());
     let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
+    until_the_game_draws(&mut h);
+    h.get_by_label("🎨 Shaders").click();
+    h.run_steps(3);
+    assert_eq!(h.state().settings.game_shaders, Some(false));
     let pictures = h.state().area_views[&area].pictures;
     assert!(pictures > 0);
     assert_eq!(drawn(&h).game, 0);
@@ -7280,6 +7292,8 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
     );
     let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
     app.set_render_state(rs.clone());
+    // (Off first, as the test compares the two.)
+    app.settings.game_shaders = Some(false);
     app.open_module(&path);
     app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
     let mut h = Harness::builder()

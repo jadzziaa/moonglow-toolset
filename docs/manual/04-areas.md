@@ -72,10 +72,13 @@ looking straight down at their middle, north up, as in Aurora.
   in the log, once (the game draws it magenta; Verify names its file and
   line). A material that names one custom program alone is drawn with
   the game's lit shaders, as the game draws it. Water, particles and the
-  sky are always Moonglow's. Off by default for now: opening an area
-  compiles its programs, a fraction of a second each the first time. It
-  is one switch for every 3D view (the model viewer has it too) and it
-  stays as you leave it.
+  sky are always Moonglow's. On by default. The programs are compiled
+  while the view goes on, the first time an area needs them (a fraction
+  of a second each), and kept in Moonglow's cache folder for the next
+  time: until they are ready, what they draw is drawn with Moonglow's own
+  shader, so an area may change its look a moment after it opens. It is
+  one switch for every 3D view (the model viewer has it too) and it stays
+  as you leave it: switched off, it stays off.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
   Areas opened later open as you left it.

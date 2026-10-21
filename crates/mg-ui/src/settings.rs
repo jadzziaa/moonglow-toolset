@@ -387,10 +387,11 @@ pub struct Settings {
 }
 
 /// Whether the game's shaders draw the 3D views where the Shaders switch
-/// was never used. Off until the per-draw blocks and the compiles off the
-/// UI thread (the shaders proposal's M3) keep a large area at the frame
-/// budget; the owner's decision is on by default then.
-pub const GAME_SHADERS_BY_DEFAULT: bool = false;
+/// was never used: on, by the owner's decision once the shaders
+/// proposal's M3 kept a large area at the frame budget (its values in
+/// arrays drawn as instances, its programs compiled off the UI thread and
+/// kept on disk). A builder's own choice is kept whatever this says.
+pub const GAME_SHADERS_BY_DEFAULT: bool = true;
 
 impl Settings {
     /// The Shaders switch: the game's own shaders draw the 3D views.

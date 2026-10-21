@@ -883,12 +883,13 @@ fn shaders_opening(
         app.set_render_state(rs.clone());
         app.shader_cache_dir = Some(cache.clone());
         app.settings.game_shaders = Some(true);
+        // (From the module's opening: it may open the area itself.)
+        let t0 = Instant::now();
         app.open_module(module);
-        // (From the module's first frame: it may open the area itself.)
         let mut h = harness(app, rs);
         let tab = Tab::Area(area);
         h.state_mut().actions.push(Action::OpenTab(tab.clone()));
-        let t0 = Instant::now();
+        let opened = t0.elapsed();
         let (mut longest, mut frames) = (Duration::ZERO, 0);
         let (mut shown_at, mut drawn_at) = (None, None);
         while t0.elapsed() < Duration::from_secs(60) {
@@ -913,9 +914,11 @@ fn shaders_opening(
             println!("  the game's shaders that couldn't be drawn: {failures:?}");
         }
         println!(
-            "  area {area} opened with the Shaders on, {run}: its longest frame {:.0} ms of {frames}; \
+            "  area {area} opened with the Shaders on, {run}: the module opened in {:.0} ms, then \
+             its longest frame {:.0} ms of {frames}; \
              shown after {:.0} ms, drawn by the game's programs after {:.0} ms ({} programs \
              compiled, {} read from the cache, {} pipelines made in {:.0} ms of the worker's)",
+            ms(opened),
             ms(longest),
             shown_at.map_or(f64::NAN, ms),
             drawn_at.map_or(f64::NAN, ms),
