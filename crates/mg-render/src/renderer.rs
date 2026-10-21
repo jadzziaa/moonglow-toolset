@@ -1519,11 +1519,13 @@ impl Renderer {
         let frustum = Frustum::new(proj * view);
         let mut reach = LightGrid::new(&scene.lights);
         let mut chosen = Vec::new();
-        // (A game draw's lights, as its blocks take them.)
-        let (mut light_positions, mut light_colors) = (Vec::new(), Vec::new());
-        // (The sets of lights the game's draws are lit by, each numbered.)
-        let mut light_sets: HashMap<Box<[u32]>, u32> = HashMap::new();
+        // (The lights as a game draw's blocks take them.)
+        let frame_lights: &[[[f32; 4]; 2]] = bytemuck::cast_slice(&lights);
+        // (The sets of lights the game's draws are lit by, each numbered;
+        // and the last draw's, which the next often shares.)
+        let mut light_sets: crate::game::Fast<Box<[u32]>, u32> = Default::default();
         let mut light_set: Vec<u32> = Vec::new();
+        let mut last_set: (Vec<u32>, u32) = (Vec::new(), u32::MAX);
         let scene_env = scene.env_map.as_deref();
         let scene_env_id = self.name_id(scene_env);
         let mut hidden = 0;
@@ -1690,21 +1692,22 @@ impl Renderer {
                         _ => (surface.material, surface.env_cube),
                     };
                     if let Some((p, fringe)) = pipelines {
-                        light_positions.clear();
-                        light_colors.clear();
                         light_set.clear();
-                        for (_, _, i) in &chosen {
-                            light_positions.push(lights[*i as usize].pos);
-                            light_colors.push(lights[*i as usize].color);
-                            light_set.push(*i);
-                        }
-                        let next = light_sets.len() as u32;
-                        let lights_id = match light_sets.get(&light_set[..]) {
-                            Some(&n) => n,
-                            None => {
-                                light_sets.insert(light_set.clone().into_boxed_slice(), next);
-                                next
-                            }
+                        light_set.extend(chosen.iter().map(|(_, _, i)| *i));
+                        let lights_id = if last_set.1 != u32::MAX && last_set.0 == light_set {
+                            last_set.1
+                        } else {
+                            let next = light_sets.len() as u32;
+                            let n = match light_sets.get(&light_set[..]) {
+                                Some(&n) => n,
+                                None => {
+                                    light_sets.insert(light_set.clone().into_boxed_slice(), next);
+                                    next
+                                }
+                            };
+                            last_set.0.clone_from(&light_set);
+                            last_set.1 = n;
+                            n
                         };
                         let d = crate::game::DrawValues {
                             world,
@@ -1715,8 +1718,8 @@ impl Renderer {
                             bound: std::array::from_fn(|i| bound.get(i).copied().unwrap_or(false)),
                             env_cube,
                             alpha_discard: ALPHA_DISCARD,
-                            light_positions: &light_positions,
-                            light_colors: &light_colors,
+                            frame_lights,
+                            light_index: &light_set,
                             lights: lights_id,
                             bbox: (mesh.min, mesh.max),
                             params: &slots.params,

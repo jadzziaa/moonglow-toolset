@@ -373,9 +373,11 @@ pub(crate) struct DrawValues<'a> {
     pub(crate) bound: [bool; 16],
     pub(crate) env_cube: bool,
     pub(crate) alpha_discard: f32,
-    /// View-space positions (w 1), and colours with ±cutoff² as alpha.
-    pub(crate) light_positions: &'a [[f32; 4]],
-    pub(crate) light_colors: &'a [[f32; 4]],
+    /// The frame's lights, each its view-space position (w 1) and its
+    /// colour with ±cutoff² as alpha; and those that light the draw, in
+    /// order, by their place there.
+    pub(crate) frame_lights: &'a [[[f32; 4]; 2]],
+    pub(crate) light_index: &'a [u32],
     /// Which lights those are, as a number the frame gives each set
     /// (draws of one number share their lights' values).
     pub(crate) lights: u32,
@@ -398,9 +400,32 @@ enum Val<'a> {
     I(i32),
     V([f32; 4]),
     M(Mat4),
-    Vs(&'a [[f32; 4]]),
     Ms(&'a [[[f32; 4]; 4]]),
+    /// Of the frame's lights, those of an index, the position (0) or the
+    /// colour (1) of each.
+    Lights(&'a [u32], &'a [[[f32; 4]; 2]], usize),
     Zero,
+}
+
+impl<'a> Val<'a> {
+    /// An array's element `index`, of vectors.
+    fn vector(&self, index: usize) -> Option<&'a [f32; 4]> {
+        match *self {
+            Val::Lights(chosen, all, k) => {
+                chosen.get(index).and_then(|&i| all.get(i as usize)).map(|l| &l[k])
+            }
+            _ => None,
+        }
+    }
+
+    /// How many elements an array's value has.
+    fn len(&self) -> usize {
+        match self {
+            Val::Ms(l) => l.len(),
+            Val::Lights(chosen, ..) => chosen.len(),
+            _ => 1,
+        }
+    }
 }
 
 fn v3(v: Vec3, w: f32) -> [f32; 4] {
@@ -419,9 +444,11 @@ fn pitch_yaw(eye: Vec3, target: Vec3) -> (f32, f32) {
     (pitch, yaw)
 }
 
-fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
+/// A member's value; `mv` the draw's model-view matrix once worked out
+/// (`m_mv`, `m_mvp` and `m_normal` all start from it).
+fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>, mv: &mut Option<Mat4>) -> Val<'a> {
     use Key::*;
-    let mv = || f.view * d.world;
+    let mut mv = || *mv.get_or_insert_with(|| f.view * d.world);
     match key {
         Mv => Val::M(mv()),
         Mvp => Val::M(f.proj * mv()),
@@ -452,9 +479,9 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         EnvMapCube | TexEnvCubeBound => Val::I(i32::from(d.env_cube)),
         TexEnvBound => Val::I(i32::from(!d.env_cube)),
         TexNoiseBound => Val::I(1),
-        NumLights => Val::I(d.light_positions.len() as i32),
-        LightPosition => Val::Vs(d.light_positions),
-        LightColor => Val::Vs(d.light_colors),
+        NumLights => Val::I(d.light_index.len() as i32),
+        LightPosition => Val::Lights(d.light_index, d.frame_lights, 0),
+        LightColor => Val::Lights(d.light_index, d.frame_lights, 1),
         LightAreaAmbient => Val::V(v3(f.area_ambient, 0.0)),
         LightAreaDiffuse => Val::V(v3(f.area_diffuse, 0.0)),
         LightAreaDirection => Val::V(v3(f.area_direction, 0.0)),
@@ -555,8 +582,8 @@ fn put_one(out: &mut [u8], at: u32, ty: ValueType, v: &Val<'_>, index: usize) {
         (ValueType::Vector(n, Scalar::Float), Val::V(c)) => {
             put_floats(out, at, &c[..usize::from(n).min(4)])
         }
-        (ValueType::Vector(n, Scalar::Float), Val::Vs(list)) => {
-            if let Some(c) = list.get(index) {
+        (ValueType::Vector(n, Scalar::Float), Val::Lights(..)) => {
+            if let Some(c) = v.vector(index) {
                 put_floats(out, at, &c[..usize::from(n).min(4)]);
             }
         }
@@ -565,8 +592,8 @@ fn put_one(out: &mut [u8], at: u32, ty: ValueType, v: &Val<'_>, index: usize) {
                 put_scalar(out, at + 4 * i as u32, kind, *x);
             }
         }
-        (ValueType::Vector(n, kind), Val::Vs(list)) => {
-            if let Some(c) = list.get(index) {
+        (ValueType::Vector(n, kind), Val::Lights(..)) => {
+            if let Some(c) = v.vector(index) {
                 for (i, x) in c.iter().take(usize::from(n)).enumerate() {
                     put_scalar(out, at + 4 * i as u32, kind, *x);
                 }
@@ -600,25 +627,51 @@ pub(crate) fn fill(plan: &Plan, f: &FrameValues, d: &DrawValues<'_>, out: &mut [
 
 /// Fills the members of a block's `members` for a draw.
 fn fill_members(members: &[(Member, Key)], f: &FrameValues, d: &DrawValues<'_>, out: &mut [u8]) {
+    let mut mv = None;
     for (m, key) in members {
-        let v = value(key, f, d);
+        let v = value(key, f, d, &mut mv);
         if matches!(v, Val::Zero) {
             continue;
         }
         match m.count {
             None => put_one(out, m.offset, m.ty, &v, 0),
             Some(n) => {
-                let len = match v {
-                    Val::Vs(l) => l.len(),
-                    Val::Ms(l) => l.len(),
-                    _ => 1,
-                };
-                for i in 0..(n as usize).min(len) {
-                    put_one(out, m.offset + i as u32 * m.stride, m.ty, &v, i);
+                let n = (n as usize).min(v.len());
+                if !put_array(out, m, &v, n) {
+                    for i in 0..n {
+                        put_one(out, m.offset + i as u32 * m.stride, m.ty, &v, i);
+                    }
                 }
             }
         }
     }
+}
+
+/// An array of `vec4`s or `mat4`s at their size's stride (the lights, the
+/// bones: most of what a frame writes), its first `n` elements copied a
+/// vector or a matrix at a time; `false` for any other.
+fn put_array(out: &mut [u8], m: &Member, v: &Val<'_>, n: usize) -> bool {
+    let at = m.offset as usize;
+    let vec4 = m.ty == ValueType::Vector(4, Scalar::Float) && m.stride == 16;
+    let mat4 = m.ty == ValueType::Matrix(4, 4) && m.stride == 64;
+    match *v {
+        Val::Ms(list) if mat4 => {
+            let bytes: &[u8] = bytemuck::cast_slice(&list[..n]);
+            if let Some(slot) = out.get_mut(at..at + bytes.len()) {
+                slot.copy_from_slice(bytes);
+            }
+        }
+        Val::Lights(chosen, all, k) if vec4 => {
+            let Some(slots) = out.get_mut(at..at + 16 * n) else { return true };
+            for (slot, &i) in slots.as_chunks_mut::<16>().0.iter_mut().zip(chosen) {
+                if let Some(l) = all.get(i as usize) {
+                    slot.copy_from_slice(bytemuck::bytes_of(&l[k]));
+                }
+            }
+        }
+        _ => return false,
+    }
+    true
 }
 
 /// Which of the renderer's textures a sampler of the game's reads.
@@ -877,9 +930,16 @@ impl std::hash::Hasher for Quick {
         self.0
     }
 
+    /// Eight bytes at a time (a draw's lights are a slice of numbers).
     fn write(&mut self, bytes: &[u8]) {
-        for b in bytes {
-            self.write_u64(u64::from(*b));
+        let (words, rest) = bytes.as_chunks::<8>();
+        for w in words {
+            self.write_u64(u64::from_le_bytes(*w));
+        }
+        if !rest.is_empty() {
+            let mut last = [0u8; 8];
+            last[..rest.len()].copy_from_slice(rest);
+            self.write_u64(u64::from_le_bytes(last));
         }
     }
 
@@ -2572,8 +2632,13 @@ void main ()
             ..Default::default()
         }
         .derive();
-        let positions = [[1.0, 2.0, 3.0, 1.0], [4.0, 5.0, 6.0, 1.0]];
-        let colors = [[0.5, 0.25, 0.125, 400.0], [1.0, 1.0, 1.0, -9.0]];
+        // (The frame's lights; the draw's are the third and the first, in
+        // that order.)
+        let frame_lights = [
+            [[4.0, 5.0, 6.0, 1.0], [1.0, 1.0, 1.0, -9.0]],
+            [[7.0, 7.0, 7.0, 1.0], [7.0, 7.0, 7.0, 7.0]],
+            [[1.0, 2.0, 3.0, 1.0], [0.5, 0.25, 0.125, 400.0]],
+        ];
         let params = vec![
             ("fswayspeed".to_string(), MtrParam::Float(vec![0.75])),
             ("vOverrideColor".to_string(), MtrParam::Float(vec![0.1, 0.2, 0.3, 0.4])),
@@ -2587,8 +2652,8 @@ void main ()
             world,
             bound,
             alpha_discard: 0.2,
-            light_positions: &positions,
-            light_colors: &colors,
+            frame_lights: &frame_lights,
+            light_index: &[2, 0],
             params: &params,
             ..Default::default()
         };
@@ -2620,6 +2685,7 @@ void main ()
         assert_eq!(f32_at(&out, m("m_proj").offset + 56), f.proj.w_axis.z);
         // Arrays at their stride; past the draw's lights, zeros.
         let (lp, lc) = (m("lightPosition"), m("lightColor"));
+        assert_eq!(f32_at(&out, lp.offset), 1.0);
         assert_eq!(f32_at(&out, lp.offset + lp.stride + 4), 5.0);
         assert_eq!(f32_at(&out, lc.offset + 12), 400.0);
         assert_eq!(f32_at(&out, lc.offset + lc.stride + 12), -9.0);
