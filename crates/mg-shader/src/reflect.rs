@@ -45,12 +45,28 @@ pub struct Member {
     pub size: u32,
 }
 
+/// Which of a program's uniforms a block holds: all of them (glslang's
+/// one block, as compiled), or, split by [`crate::Program::split_uniforms`],
+/// a draw's own, the frame's, or the bones'.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Part {
+    #[default]
+    Whole,
+    Draw,
+    Frame,
+    Bones,
+}
+
 /// A uniform block: glslang's `gl_DefaultUniformBlock` holds the loose
 /// uniforms, one block per program.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UniformBlock {
     /// The block's type name (`gl_DefaultUniformBlock`).
     pub name: String,
+    pub part: Part,
+    /// Its bind group ([`Reflection::group`], unless moved by
+    /// [`crate::Program::place_block`]).
+    pub group: u32,
     pub binding: u32,
     /// Its size in bytes (`span`), which arrays set (`m_bones`: 4 KB).
     pub size: u32,
@@ -129,7 +145,7 @@ fn value_type(module: &Module, inner: &TypeInner) -> ValueType {
     }
 }
 
-fn member(module: &Module, m: &naga::StructMember) -> Member {
+pub(crate) fn member(module: &Module, m: &naga::StructMember) -> Member {
     let inner = &module.types[m.ty].inner;
     let size = inner.size(module.to_ctx());
     let (count, stride) = match inner {
@@ -170,7 +186,9 @@ pub(crate) fn bind(module: &mut Module, io: &[crate::spirv::Io]) -> Reflection {
     let mut done = std::collections::HashSet::new();
     for &h in &handles {
         let g = &module.global_variables[h];
-        if g.space != AddressSpace::Uniform {
+        // (The spare blocks a split fills are bound after the rest.)
+        let spare = g.name.as_deref().is_some_and(|n| crate::spirv::SPARE_BLOCKS.contains(&n));
+        if g.space != AddressSpace::Uniform || spare {
             continue;
         }
         let ty = g.ty;
@@ -185,6 +203,8 @@ pub(crate) fn bind(module: &mut Module, io: &[crate::spirv::Io]) -> Reflection {
         };
         r.uniforms.push(UniformBlock {
             name: t.name.clone().unwrap_or_default(),
+            part: Part::Whole,
+            group: 0,
             binding,
             size,
             members,

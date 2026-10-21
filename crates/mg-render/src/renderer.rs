@@ -1513,7 +1513,7 @@ impl Renderer {
                             Some(q) => {
                                 // Its two parts, among the see-through
                                 // meshes (the same blocks for both).
-                                let rest = draw.with_pipeline(q);
+                                let rest = self.game.again(&draw, q, f);
                                 let at = game_blended.len() as u32;
                                 game_blended.push(draw);
                                 game_blended.push(rest);
@@ -1841,7 +1841,9 @@ impl Renderer {
             &line_vertices,
             0,
         );
-        // The game's shaders' blocks and bind groups.
+        // The game's shaders' blocks and bind groups; the solid draws by
+        // pipeline and material, each set once for its draws.
+        game_draws.sort_by_key(|d| d.order());
         if !game_draws.is_empty() || !game_blended.is_empty() {
             self.game.upload(gpu);
             let (white, white_cube) = (self.white.clone(), self.white_cube.clone());

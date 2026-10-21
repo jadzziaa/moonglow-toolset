@@ -28,7 +28,7 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 use mg_image::mtr::Param as MtrParam;
 use mg_shader::{
-    AlphaKeep, Member, Preamble, Program, Reflection, Scalar, Sources, Stage, Texture,
+    AlphaKeep, Member, Part, Preamble, Program, Reflection, Scalar, Sources, Stage, Texture,
     UniformBlock, ValueType,
 };
 
@@ -557,27 +557,77 @@ pub(crate) fn unit(name: &str) -> Unit {
     }
 }
 
+/// Which of a program's three blocks a uniform goes to
+/// ([`Program::split_uniforms`]): the draw's own (its transforms, material
+/// and lights, an MTR's parameters), the bones (a skinned draw's), or the
+/// frame's, written once a frame for every draw of the program (the
+/// projection, the fog, the clock, the camera, the area; and what the
+/// contract leaves zero, the wind sources' arrays among them).
+pub(crate) fn part(m: &Member) -> Part {
+    use Key::*;
+    match key(&m.name) {
+        Mv | Mvp | M | Normal | Skinmesh | BboxMin | BboxMax | MaterialAmbient
+        | MaterialDiffuse | MaterialEmissive | TextureBound(_) | AlphaDiscard | EnvMapCube
+        | TexEnvBound | TexEnvCubeBound | NumLights | LightPosition | LightColor => Part::Draw,
+        Bones => Part::Bones,
+        // (An MTR's parameter is one value, a float, a vector or an int:
+        // an array or a matrix of a name the contract doesn't know is
+        // zero for every draw.)
+        Param(_) if m.count.is_none() && !matches!(m.ty, ValueType::Matrix(..)) => Part::Draw,
+        _ => Part::Frame,
+    }
+}
+
+/// Group 2 (the draws' blocks): the vertex program's draw block and bones,
+/// the fragment program's.
+const DRAW_GROUP: u32 = 2;
+
+/// A block, bound: its binding and what fills it.
+#[derive(Debug, Clone)]
+struct Bound {
+    binding: u32,
+    plan: Plan,
+}
+
 /// A program's stage, as a pipeline binds it.
 #[derive(Debug, Clone)]
 struct StagePlan {
-    /// Its uniform block, if it has one.
-    block: Option<(u32, Plan)>,
+    /// The draw's block (in group 2; the whole block where the program
+    /// couldn't be split).
+    draw: Option<Bound>,
+    /// The frame's (in the stage's group, at the pipeline's place in the
+    /// frame's buffer).
+    frame: Option<Bound>,
+    /// The bones' (in group 2).
+    bones: Option<Bound>,
     textures: Vec<(Texture, Unit)>,
 }
 
 impl StagePlan {
     fn new(r: &Reflection) -> Result<StagePlan, String> {
-        if r.uniforms.len() > 1 {
-            return Err(format!("{} uniform blocks (one is drawn)", r.uniforms.len()));
+        let mut plan = StagePlan { draw: None, frame: None, bones: None, textures: Vec::new() };
+        for b in &r.uniforms {
+            // (A part with no members of its own holds nothing to bind.)
+            if b.members.is_empty() {
+                continue;
+            }
+            let slot = match b.part {
+                Part::Whole | Part::Draw => &mut plan.draw,
+                Part::Frame => &mut plan.frame,
+                Part::Bones => &mut plan.bones,
+            };
+            if slot.is_some() {
+                return Err(format!("{} uniform blocks (one is drawn)", r.uniforms.len()));
+            }
+            *slot = Some(Bound { binding: b.binding, plan: Plan::new(b) });
         }
-        let mut textures = Vec::new();
         for t in &r.textures {
             if !matches!(t.dim, naga::ImageDimension::D2 | naga::ImageDimension::Cube) {
                 return Err(format!("{} is a {:?} texture", t.name, t.dim));
             }
-            textures.push((t.clone(), unit(&t.name)));
+            plan.textures.push((t.clone(), unit(&t.name)));
         }
-        Ok(StagePlan { block: r.uniforms.first().map(|b| (b.binding, Plan::new(b))), textures })
+        Ok(plan)
     }
 }
 
@@ -609,15 +659,30 @@ pub(crate) struct PipelineKey {
 pub(crate) struct GamePipeline {
     id: u32,
     pipeline: wgpu::RenderPipeline,
-    /// Group 0 the vertex program's, 1 the fragment program's.
-    layouts: [wgpu::BindGroupLayout; 2],
+    /// Group 0 the vertex program's textures and frame block, 1 the
+    /// fragment program's, 2 the draws' blocks of both.
+    layouts: [wgpu::BindGroupLayout; 3],
     stages: [StagePlan; 2],
+    /// Each stage's frame block's place in the frame's buffer.
+    frame_at: [Option<u32>; 2],
     /// The vertex buffer slot of the skin's data, and of the zeros.
     skin_slot: Option<u32>,
     zero_slot: Option<u32>,
     /// A program reads the clock (`worldtimerTimeOfDay`,
     /// `sceneCurrentFrame`): what it draws moves by itself.
     pub(crate) timed: bool,
+}
+
+impl GamePipeline {
+    /// The draws' blocks of group 2 in the order of their bindings: the
+    /// vertex program's draw block and bones, the fragment program's.
+    fn draw_blocks(&self) -> impl Iterator<Item = (usize, bool, &Bound)> {
+        self.stages.iter().enumerate().flat_map(|(i, s)| {
+            [s.draw.as_ref().map(|b| (i, false, b)), s.bones.as_ref().map(|b| (i, true, b))]
+                .into_iter()
+                .flatten()
+        })
+    }
 }
 
 /// One draw through a program pair.
@@ -629,15 +694,17 @@ pub(crate) struct GameDraw<'a> {
     pub(crate) mesh: &'a crate::model::GpuMesh,
     /// Replaced vertices, in the frame's dynamic buffer: from, to.
     pub(crate) dynamic: Option<(u64, u64)>,
-    /// Each stage's block's offset in the frame's buffer.
-    offsets: [Option<u32>; 2],
+    /// Its blocks' offsets in the frame's buffer of draws' blocks, in the
+    /// order of group 2's bindings; how many.
+    offsets: [u32; 4],
+    count: u8,
 }
 
-impl<'a> GameDraw<'a> {
-    /// The same draw through another pipeline of the same programs (a
-    /// see-through mesh's other part): the same blocks.
-    pub(crate) fn with_pipeline(&self, pipeline: Arc<GamePipeline>) -> GameDraw<'a> {
-        GameDraw { pipeline, offsets: self.offsets, ..*self }
+impl GameDraw<'_> {
+    /// What its draws are best kept together by: the pipeline, then the
+    /// material.
+    pub(crate) fn order(&self) -> (u32, u32) {
+        (self.pipeline.id, self.material)
     }
 }
 
@@ -654,6 +721,49 @@ pub(crate) struct MaterialViews<'a> {
     pub(crate) env_sampler: &'a wgpu::Sampler,
 }
 
+/// A buffer of blocks bound at offsets, grown as it needs: its bytes as
+/// written, and on the GPU.
+#[derive(Debug)]
+struct Blocks {
+    bytes: Vec<u8>,
+    buffer: wgpu::Buffer,
+    label: &'static str,
+}
+
+impl Blocks {
+    fn new(gpu: &Gpu, label: &'static str) -> Blocks {
+        Blocks { bytes: Vec::new(), buffer: blocks_buffer(gpu, label, 1 << 16), label }
+    }
+
+    /// Room for `size` bytes at an offset aligned to `align`, zeroed: its
+    /// offset.
+    fn take(&mut self, size: u32, align: u32) -> u32 {
+        let align = align as usize;
+        let at = self.bytes.len().div_ceil(align) * align;
+        self.bytes.resize(at + size as usize, 0);
+        at as u32
+    }
+
+    /// Makes the buffer anew where the bytes outgrew it: whether it did.
+    fn fit(&mut self, gpu: &Gpu) -> bool {
+        let bytes = self.bytes.len() as u64;
+        if self.buffer.size() >= bytes {
+            return false;
+        }
+        self.buffer = blocks_buffer(gpu, self.label, bytes.next_power_of_two());
+        true
+    }
+}
+
+fn blocks_buffer(gpu: &Gpu, label: &str, size: u64) -> wgpu::Buffer {
+    gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
+        size,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 /// The game's programs, their pipelines and the frame's blocks.
 #[derive(Debug)]
 pub(crate) struct GameShaders {
@@ -663,12 +773,22 @@ pub(crate) struct GameShaders {
     /// What couldn't be drawn, and why: each reported once.
     pub(crate) failures: Vec<(String, String)>,
     zero: wgpu::Buffer,
-    /// The frame's blocks, each at an offset aligned for binding.
-    blocks: Vec<u8>,
-    buffer: wgpu::Buffer,
-    /// Bumped when `buffer` is made anew (the groups bind it).
+    /// The draws' blocks, made anew each frame; the first bytes zero (the
+    /// bones of a draw without).
+    draws: Blocks,
+    zero_bones: u32,
+    /// Each pipeline's frame blocks, at a place of its own, written once a
+    /// frame where the pipeline draws.
+    frames: Blocks,
+    /// The frame each pipeline's frame blocks were last written in; the
+    /// frame's number; and the places written this frame.
+    filled: HashMap<u32, u64>,
+    frame: u64,
+    written: Vec<(u32, u32)>,
+    /// Bumped when a buffer the groups bind is made anew.
     generation: u64,
     groups: HashMap<(u32, u32), [wgpu::BindGroup; 2]>,
+    draw_groups: HashMap<u32, wgpu::BindGroup>,
     groups_generation: u64,
     align: u32,
     next_id: u32,
@@ -699,15 +819,12 @@ fn checked<T>(gpu: &Gpu, f: impl FnOnce() -> T) -> Result<T, String> {
 
 impl GameShaders {
     pub(crate) fn new(gpu: &Gpu) -> GameShaders {
-        let buffer = |label, size, usage| {
-            gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size,
-                usage: usage | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        };
-        let zero = buffer("game zeros", ZERO_SIZE, wgpu::BufferUsages::VERTEX);
+        let zero = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("game zeros"),
+            size: ZERO_SIZE,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         gpu.queue.write_buffer(&zero, 0, &[0; ZERO_SIZE as usize]);
         GameShaders {
             // The game at its highest settings; no keyholing (the editor
@@ -718,10 +835,15 @@ impl GameShaders {
             pipelines: HashMap::new(),
             failures: Vec::new(),
             zero,
-            blocks: Vec::new(),
-            buffer: buffer("game blocks", 1 << 16, wgpu::BufferUsages::UNIFORM),
+            draws: Blocks::new(gpu, "game draws' blocks"),
+            zero_bones: 0,
+            frames: Blocks::new(gpu, "game frame blocks"),
+            filled: HashMap::new(),
+            frame: 0,
+            written: Vec::new(),
             generation: 0,
             groups: HashMap::new(),
+            draw_groups: HashMap::new(),
             groups_generation: 0,
             align: gpu.device.limits().min_uniform_buffer_offset_alignment.max(16),
             next_id: 0,
@@ -733,6 +855,10 @@ impl GameShaders {
         self.programs.clear();
         self.pipelines.clear();
         self.groups.clear();
+        self.draw_groups.clear();
+        self.filled.clear();
+        self.frames.bytes.clear();
+        self.zero_bones = 0;
         self.failures.clear();
     }
 
@@ -828,6 +954,24 @@ impl GameShaders {
             fs.keep_alpha(keep).map_err(|e| at(&key.fs, e.to_string()))?;
         }
         fs.set_group(1).map_err(|e| at(&key.fs, e.to_string()))?;
+        // Each program's uniforms in three: the draw's and the bones' in
+        // group 2 (the vertex program's at 0 and 1, the fragment
+        // program's at 2 and 3), the frame's where its stage's are. (A
+        // program that can't be split binds its one block as the draw's.)
+        for (p, first, name) in [(&mut vs, 0, &key.vs), (&mut fs, 2, &key.fs)] {
+            let split = p.split_uniforms(part).map_err(|e| at(name, e.to_string()))?;
+            let parts: &[(Part, u32)] = if split {
+                &[(Part::Draw, first), (Part::Bones, first + 1)]
+            } else {
+                &[(Part::Whole, first)]
+            };
+            for &(which, binding) in parts {
+                if p.reflection.uniforms.iter().any(|b| b.part == which) {
+                    p.place_block(which, DRAW_GROUP, binding)
+                        .map_err(|e| at(name, e.to_string()))?;
+                }
+            }
+        }
         let timed = [&vs, &fs].iter().any(|p| {
             p.reads_uniform("worldtimerTimeOfDay") || p.reads_uniform("sceneCurrentFrame")
         });
@@ -835,9 +979,21 @@ impl GameShaders {
             StagePlan::new(&vs.reflection).map_err(|e| at(&key.vs, e))?,
             StagePlan::new(&fs.reflection).map_err(|e| at(&key.fs, e))?,
         ];
+        let visibility = [wgpu::ShaderStages::VERTEX, wgpu::ShaderStages::FRAGMENT];
+        let draw_entries: Vec<wgpu::BindGroupLayoutEntry> = stages
+            .iter()
+            .zip(visibility)
+            .flat_map(|(s, v)| {
+                [&s.draw, &s.bones].into_iter().flatten().map(move |b| block_entry(b, v, true))
+            })
+            .collect();
         let layouts = [
-            layout(gpu, &stages[0], wgpu::ShaderStages::VERTEX),
-            layout(gpu, &stages[1], wgpu::ShaderStages::FRAGMENT),
+            layout(gpu, &stages[0], visibility[0]),
+            layout(gpu, &stages[1], visibility[1]),
+            gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("game draws"),
+                entries: &draw_entries,
+            }),
         ];
 
         // Vertex buffers: the vertex, the skin's, the zeros.
@@ -900,7 +1056,7 @@ impl GameShaders {
         let pipeline = checked(gpu, || {
             let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("game"),
-                bind_group_layouts: &[Some(&layouts[0]), Some(&layouts[1])],
+                bind_group_layouts: &[Some(&layouts[0]), Some(&layouts[1]), Some(&layouts[2])],
                 immediate_size: 0,
             });
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -940,12 +1096,24 @@ impl GameShaders {
                 cache: None,
             })
         })?;
+        // Its frame blocks' places, for good; and room for the bones of a
+        // draw without.
+        let mut frame_at = [None; 2];
+        for (s, at) in stages.iter().zip(&mut frame_at) {
+            if let Some(b) = &s.frame {
+                *at = Some(self.frames.take(b.plan.size, self.align));
+            }
+            if let Some(b) = &s.bones {
+                self.zero_bones = self.zero_bones.max(b.plan.size);
+            }
+        }
         self.next_id += 1;
         Ok(GamePipeline {
             id: self.next_id,
             pipeline,
             layouts,
             stages,
+            frame_at,
             skin_slot,
             zero_slot,
             timed,
@@ -954,10 +1122,15 @@ impl GameShaders {
 
     /// Starts a frame's blocks.
     pub(crate) fn begin(&mut self) {
-        self.blocks.clear();
+        self.frame += 1;
+        self.written.clear();
+        self.draws.bytes.clear();
+        let zeros = self.zero_bones;
+        self.draws.take(zeros, self.align);
     }
 
-    /// Writes a draw's blocks; the draw to make of it.
+    /// Writes a draw's blocks (and its pipeline's frame blocks, the first
+    /// time the frame draws with it); the draw to make of it.
     pub(crate) fn push<'a>(
         &mut self,
         pipeline: Arc<GamePipeline>,
@@ -967,32 +1140,72 @@ impl GameShaders {
         f: &FrameValues,
         d: &DrawValues<'_>,
     ) -> GameDraw<'a> {
-        let mut offsets = [None; 2];
-        for (stage, offset) in pipeline.stages.iter().zip(&mut offsets) {
-            let Some((_, plan)) = &stage.block else { continue };
-            let align = self.align as usize;
-            let at = self.blocks.len().div_ceil(align) * align;
-            self.blocks.resize(at + plan.size as usize, 0);
-            fill(plan, f, d, &mut self.blocks[at..]);
-            *offset = Some(at as u32);
+        self.fill_frame(&pipeline, f);
+        let mut offsets = [0u32; 4];
+        let mut count = 0;
+        for (_, bones, b) in pipeline.draw_blocks() {
+            let at = if bones && d.bones.is_empty() {
+                0
+            } else {
+                let at = self.draws.take(b.plan.size, self.align);
+                let end = (at + b.plan.size) as usize;
+                fill(&b.plan, f, d, &mut self.draws.bytes[at as usize..end]);
+                at
+            };
+            if let Some(o) = offsets.get_mut(count) {
+                *o = at;
+                count += 1;
+            }
         }
-        GameDraw { pipeline, material, mesh, dynamic, offsets }
+        GameDraw { pipeline, material, mesh, dynamic, offsets, count: count as u8 }
+    }
+
+    /// The same draw through another pipeline of the same programs (a
+    /// see-through mesh's other part): the same blocks of the draw's.
+    pub(crate) fn again<'a>(
+        &mut self,
+        draw: &GameDraw<'a>,
+        pipeline: Arc<GamePipeline>,
+        f: &FrameValues,
+    ) -> GameDraw<'a> {
+        self.fill_frame(&pipeline, f);
+        GameDraw { pipeline, ..*draw }
+    }
+
+    /// Writes a pipeline's frame blocks, the first time the frame draws
+    /// with it.
+    fn fill_frame(&mut self, pipeline: &GamePipeline, f: &FrameValues) {
+        if self.filled.insert(pipeline.id, self.frame) == Some(self.frame) {
+            return;
+        }
+        let none = DrawValues::default();
+        for (stage, at) in pipeline.stages.iter().zip(pipeline.frame_at) {
+            let (Some(b), Some(at)) = (&stage.frame, at) else { continue };
+            let size = b.plan.size;
+            if let Some(out) = self.frames.bytes.get_mut(at as usize..(at + size) as usize) {
+                out.fill(0);
+                fill(&b.plan, f, &none, out);
+                self.written.push((at, size));
+            }
+        }
     }
 
     /// Uploads the frame's blocks.
     pub(crate) fn upload(&mut self, gpu: &Gpu) {
-        let bytes = self.blocks.len() as u64;
-        if self.buffer.size() < bytes {
-            self.buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("game blocks"),
-                size: bytes.next_power_of_two(),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+        if self.draws.fit(gpu) {
             self.generation += 1;
         }
-        if !self.blocks.is_empty() {
-            gpu.queue.write_buffer(&self.buffer, 0, &self.blocks);
+        if self.frames.fit(gpu) {
+            self.generation += 1;
+            // (Made anew: every place written again.)
+            self.written = vec![(0, self.frames.bytes.len() as u32)];
+        }
+        if !self.draws.bytes.is_empty() {
+            gpu.queue.write_buffer(&self.draws.buffer, 0, &self.draws.bytes);
+        }
+        for &(at, size) in &self.written {
+            let bytes = &self.frames.bytes[at as usize..(at + size) as usize];
+            gpu.queue.write_buffer(&self.frames.buffer, u64::from(at), bytes);
         }
     }
 
@@ -1000,29 +1213,50 @@ impl GameShaders {
     pub(crate) fn prepared(&self, draw: &GameDraw<'_>) -> bool {
         self.groups_generation == self.generation
             && self.groups.contains_key(&(draw.pipeline.id, draw.material))
+            && self.draw_groups.contains_key(&draw.pipeline.id)
     }
 
     /// Makes the bind groups a draw needs, where they aren't made yet.
     pub(crate) fn prepare(&mut self, gpu: &Gpu, draw: &GameDraw<'_>, views: &MaterialViews<'_>) {
         if self.groups_generation != self.generation {
             self.groups.clear();
+            self.draw_groups.clear();
             self.groups_generation = self.generation;
         }
-        let key = (draw.pipeline.id, draw.material);
+        let p = &draw.pipeline;
+        if !self.draw_groups.contains_key(&p.id) {
+            let entries: Vec<wgpu::BindGroupEntry> = p
+                .draw_blocks()
+                .map(|(_, _, b)| wgpu::BindGroupEntry {
+                    binding: b.binding,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.draws.buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(u64::from(b.plan.size)),
+                    }),
+                })
+                .collect();
+            let group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("game draws"),
+                layout: &p.layouts[2],
+                entries: &entries,
+            });
+            self.draw_groups.insert(p.id, group);
+        }
+        let key = (p.id, draw.material);
         if self.groups.contains_key(&key) {
             return;
         }
-        let p = &draw.pipeline;
         let group = |i: usize| {
             let stage = &p.stages[i];
             let mut entries = Vec::new();
-            if let Some((binding, plan)) = &stage.block {
+            if let (Some(b), Some(at)) = (&stage.frame, p.frame_at[i]) {
                 entries.push(wgpu::BindGroupEntry {
-                    binding: *binding,
+                    binding: b.binding,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.buffer,
-                        offset: 0,
-                        size: wgpu::BufferSize::new(u64::from(plan.size)),
+                        buffer: &self.frames.buffer,
+                        offset: u64::from(at),
+                        size: wgpu::BufferSize::new(u64::from(b.plan.size)),
                     }),
                 });
             }
@@ -1066,17 +1300,25 @@ impl GameShaders {
         draws: &[GameDraw<'_>],
         dynamic: &wgpu::Buffer,
     ) {
-        let mut pipeline = None;
+        let (mut pipeline, mut material) = (None, None);
         for d in draws {
-            let Some(groups) = self.groups.get(&(d.pipeline.id, d.material)) else { continue };
-            if pipeline != Some(d.pipeline.id) {
+            let id = d.pipeline.id;
+            let (Some(groups), Some(blocks)) =
+                (self.groups.get(&(id, d.material)), self.draw_groups.get(&id))
+            else {
+                continue;
+            };
+            if pipeline != Some(id) {
                 pass.set_pipeline(&d.pipeline.pipeline);
-                pipeline = Some(d.pipeline.id);
+                pipeline = Some(id);
+                material = None;
             }
-            for (i, group) in groups.iter().enumerate() {
-                let offset = d.offsets[i].map(|o| [o]);
-                pass.set_bind_group(i as u32, group, offset.as_ref().map_or(&[][..], |o| &o[..]));
+            if material != Some(d.material) {
+                pass.set_bind_group(0, &groups[0], &[]);
+                pass.set_bind_group(1, &groups[1], &[]);
+                material = Some(d.material);
             }
+            pass.set_bind_group(DRAW_GROUP, blocks, &d.offsets[..usize::from(d.count)]);
             match d.dynamic {
                 Some((from, to)) => pass.set_vertex_buffer(0, dynamic.slice(from..to)),
                 None => pass.set_vertex_buffer(0, d.mesh.vertices.slice(..)),
@@ -1093,21 +1335,30 @@ impl GameShaders {
     }
 }
 
-/// A stage's bind group layout: its block at a dynamic offset, then its
-/// textures and samplers.
+/// A block's layout entry.
+fn block_entry(
+    b: &Bound,
+    visibility: wgpu::ShaderStages,
+    dynamic: bool,
+) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding: b.binding,
+        visibility,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: dynamic,
+            min_binding_size: wgpu::BufferSize::new(u64::from(b.plan.size)),
+        },
+        count: None,
+    }
+}
+
+/// A stage's bind group layout: its frame block, then its textures and
+/// samplers.
 fn layout(gpu: &Gpu, stage: &StagePlan, visibility: wgpu::ShaderStages) -> wgpu::BindGroupLayout {
     let mut entries = Vec::new();
-    if let Some((binding, plan)) = &stage.block {
-        entries.push(wgpu::BindGroupLayoutEntry {
-            binding: *binding,
-            visibility,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: true,
-                min_binding_size: wgpu::BufferSize::new(u64::from(plan.size)),
-            },
-            count: None,
-        });
+    if let Some(b) = &stage.frame {
+        entries.push(block_entry(b, visibility, false));
     }
     for (t, _) in &stage.textures {
         entries.push(wgpu::BindGroupLayoutEntry {

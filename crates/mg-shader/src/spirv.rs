@@ -9,6 +9,13 @@
 //!   `SetupOcclusionFromTexture` take one), each load a load of both and an
 //!   `OpSampledImage`. Arrays of samplers aren't split (no shader seen has
 //!   one): such a program is refused.
+//! - **Spare blocks** ([`add_spare_blocks`]): two more variables of the
+//!   uniform block's type, which [`crate::Program::split_uniforms`] makes
+//!   the frame's and the bones' blocks in the IR. (naga gives every
+//!   function an expression for each global variable as it reads the
+//!   module, before the function's own: declared here, the spare blocks'
+//!   come before every access the split takes to them, as naga's handles
+//!   must.)
 //! - **Locations** ([`assign_locations`]): every input and output without
 //!   a `Location` or `BuiltIn` gets the next free one, in the order glslang
 //!   declares them. M1 gives vertex inputs Moonglow's own locations and
@@ -49,7 +56,10 @@ const DECORATION_LOCATION: u32 = 30;
 const DECORATION_BINDING: u32 = 33;
 const DECORATION_DESCRIPTOR_SET: u32 = 34;
 
+const DECORATION_BLOCK: u32 = 2;
+
 const STORAGE_UNIFORM_CONSTANT: u32 = 0;
+const STORAGE_UNIFORM: u32 = 2;
 const STORAGE_INPUT: u32 = 1;
 const STORAGE_OUTPUT: u32 = 3;
 
@@ -295,6 +305,77 @@ pub(crate) fn split_samplers(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
     Ok(m.words())
 }
 
+/// The names of the spare blocks [`add_spare_blocks`] declares: the
+/// frame's, then the bones'.
+pub(crate) const SPARE_BLOCKS: [&str; 2] = ["mg_frame", "mg_bones"];
+
+/// Declares [`SPARE_BLOCKS`] beside the program's uniform block (glslang's
+/// `gl_DefaultUniformBlock`, the one `Uniform` variable of a `Block`
+/// struct): variables of its type, bound as it is. A program without one
+/// block of loose uniforms is left as it is.
+pub(crate) fn add_spare_blocks(words: &[u32]) -> Result<Vec<u32>, ShaderError> {
+    let mut m = Module::parse(words)?;
+    let blocks: HashSet<u32> = m
+        .insts
+        .iter()
+        .filter(|i| i.op == OP_DECORATE && i.args.get(1) == Some(&DECORATION_BLOCK))
+        .map(|i| i.arg(0))
+        .collect::<Result<_, _>>()?;
+    let pointers: HashSet<u32> = m
+        .insts
+        .iter()
+        .filter(|i| i.op == OP_TYPE_POINTER && i.args.get(1) == Some(&STORAGE_UNIFORM))
+        .filter(|i| i.args.get(2).is_some_and(|t| blocks.contains(t)))
+        .map(|i| i.arg(0))
+        .collect::<Result<_, _>>()?;
+    let vars: Vec<(u32, u32)> = m
+        .insts
+        .iter()
+        .filter(|i| i.op == OP_VARIABLE && i.args.first().is_some_and(|t| pointers.contains(t)))
+        .map(|i| Ok((i.arg(0)?, i.arg(1)?)))
+        .collect::<Result<_, ShaderError>>()?;
+    let [(ptr, var)] = vars[..] else { return Ok(words.to_vec()) };
+    let spares = [m.new_id(), m.new_id()];
+    let mut out = Vec::with_capacity(m.insts.len() + 8);
+    let mut named = false;
+    for inst in std::mem::take(&mut m.insts) {
+        let (op, first) = (inst.op, inst.args.first().copied());
+        let decoration = (op == OP_DECORATE && first == Some(var)).then(|| inst.args.clone());
+        out.push(inst);
+        match op {
+            OP_NAME if first == Some(var) => {
+                named = true;
+                for (id, name) in spares.iter().zip(SPARE_BLOCKS) {
+                    let mut a = vec![*id];
+                    a.extend(string_words(name));
+                    out.push(Inst::new(OP_NAME, a));
+                }
+            }
+            OP_VARIABLE if first == Some(ptr) => {
+                for id in spares {
+                    out.push(Inst::new(OP_VARIABLE, vec![ptr, id, STORAGE_UNIFORM]));
+                }
+            }
+            _ => {}
+        }
+        if let Some(args) = decoration
+            && matches!(args.get(1), Some(&(DECORATION_BINDING | DECORATION_DESCRIPTOR_SET)))
+        {
+            for id in spares {
+                let mut a = args.clone();
+                a[0] = id;
+                out.push(Inst::new(OP_DECORATE, a));
+            }
+        }
+    }
+    // (Unnamed, the spares couldn't be told apart in the IR: none.)
+    if !named {
+        return Ok(words.to_vec());
+    }
+    m.insts = out;
+    Ok(m.words())
+}
+
 /// How many locations a type takes (32-bit types: one per vector, column
 /// and element).
 fn slots(id: u32, types: &HashMap<u32, Inst>, consts: &HashMap<u32, u32>, depth: u32) -> u32 {
@@ -419,5 +500,11 @@ mod tests {
         assert!(split_samplers(&[MAGIC, 0x10000, 10, 0, 0, (1 << 16) | 27]).is_err());
         assert!(split_samplers(&[MAGIC, 0x10000, 10, 0, 0, (2 << 16) | 27, 3]).is_err());
         assert!(assign_locations(&[MAGIC, 0x10000, 10, 0, 0, (2 << 16) | 71, 3]).is_err());
+        // (Too short to be what the pass looks for: passed over, no panic.)
+        for op in [71, 32, 59, 5] {
+            let _ = add_spare_blocks(&[MAGIC, 0x10000, 10, 0, 0, (2 << 16) | op, 3]);
+        }
+        assert!(add_spare_blocks(&[1, 2]).is_err());
+        assert!(add_spare_blocks(&[MAGIC, 0x10000, 10, 0, 0, (9 << 16) | 59, 1]).is_err());
     }
 }

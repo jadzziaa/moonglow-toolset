@@ -12,7 +12,7 @@ use naga::{
     Statement, Type, TypeInner,
 };
 
-use crate::reflect::{Scalar, ValueType, Varying};
+use crate::reflect::{Part, Scalar, UniformBlock, ValueType, Varying};
 use crate::{Program, ShaderError};
 
 /// The game's shaders write OpenGL's clip space: depth from -w to w. wgpu's
@@ -339,8 +339,238 @@ impl Program {
             }
         }
         self.reflection.group = group;
+        for b in &mut self.reflection.uniforms {
+            b.group = group;
+        }
         self.revalidate()
     }
+
+    /// Splits the program's uniform block into three by what each member
+    /// is (`part_of`, which says [`Part::Draw`], [`Part::Frame`] or
+    /// [`Part::Bones`]): one a renderer writes for each draw, one written
+    /// once a frame (the projection, the fog, the clock: the same for
+    /// every draw), one of the bones (a skinned draw's). Each is laid out
+    /// anew, its members in the order they came in, so a draw's block is
+    /// as small as its own members make it (`vslit`'s whole block is 8.7
+    /// KB, 4 KB of it `m_bones`). A part with no members holds one unused
+    /// `vec4`. The draw's block keeps the block's binding; the frame's and
+    /// the bones' take the two that were kept for them (bound after the
+    /// rest).
+    ///
+    /// `false`, the program unchanged, where it has no one block to split
+    /// (no loose uniforms) or uses it otherwise than member by member.
+    pub fn split_uniforms(
+        &mut self,
+        part_of: impl Fn(&crate::Member) -> Part,
+    ) -> Result<bool, ShaderError> {
+        let mut module = self.module.clone();
+        let Some(blocks) = split_module(&mut module, &part_of)? else { return Ok(false) };
+        let info = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::default(),
+        )
+        .validate(&module)
+        .map_err(|e| naga_err(crate::chain(e.as_inner())))?;
+        let group = self.reflection.group;
+        let name = self.reflection.uniforms.first().map(|b| b.name.clone()).unwrap_or_default();
+        self.reflection.uniforms = blocks
+            .into_iter()
+            .map(|(part, h)| {
+                let g = &module.global_variables[h];
+                let (members, size) = match &module.types[g.ty].inner {
+                    TypeInner::Struct { members, span } => (
+                        members
+                            .iter()
+                            .map(|m| crate::reflect::member(&module, m))
+                            .filter(|m| m.name != PAD)
+                            .collect(),
+                        *span,
+                    ),
+                    _ => (Vec::new(), 16),
+                };
+                UniformBlock {
+                    name: name.clone(),
+                    part,
+                    group,
+                    binding: g.binding.map_or(0, |b| b.binding),
+                    size,
+                    members,
+                }
+            })
+            .collect();
+        self.module = module;
+        self.info = info;
+        Ok(true)
+    }
+
+    /// Binds the block of `part` at `group` and `binding` (a renderer's
+    /// own layout: the draws' blocks of both stages in one group).
+    pub fn place_block(&mut self, part: Part, group: u32, binding: u32) -> Result<(), ShaderError> {
+        let Some(b) = self.reflection.uniforms.iter_mut().find(|b| b.part == part) else {
+            return Err(naga_err(format!("no {part:?} block")));
+        };
+        let at = naga::ResourceBinding { group: b.group, binding: b.binding };
+        let g = self
+            .module
+            .global_variables
+            .iter_mut()
+            .find(|(_, g)| g.space == naga::AddressSpace::Uniform && g.binding == Some(at))
+            .ok_or_else(|| naga_err(format!("the {part:?} block isn't bound")))?
+            .1;
+        g.binding = Some(naga::ResourceBinding { group, binding });
+        (b.group, b.binding) = (group, binding);
+        self.revalidate()
+    }
+}
+
+/// The member a part with none holds.
+const PAD: &str = "mg_unused";
+
+/// [`Program::split_uniforms`] on a module: the three blocks' variables, or
+/// `None` where there is no one block to split.
+#[allow(clippy::type_complexity)]
+fn split_module(
+    module: &mut Module,
+    part_of: &dyn Fn(&crate::Member) -> Part,
+) -> Result<Option<Vec<(Part, naga::Handle<naga::GlobalVariable>)>>, ShaderError> {
+    use naga::{AddressSpace, Handle, StructMember};
+    let named = |name: &str| {
+        module
+            .global_variables
+            .iter()
+            .find(|(_, g)| g.space == AddressSpace::Uniform && g.name.as_deref() == Some(name))
+            .map(|(h, _)| h)
+    };
+    let [frame_name, bones_name] = crate::spirv::SPARE_BLOCKS;
+    let (Some(frame), Some(bones)) = (named(frame_name), named(bones_name)) else {
+        return Ok(None);
+    };
+    let blocks: Vec<Handle<naga::GlobalVariable>> = module
+        .global_variables
+        .iter()
+        .filter(|(h, g)| g.space == AddressSpace::Uniform && *h != frame && *h != bones)
+        .map(|(h, _)| h)
+        .collect();
+    let [block] = blocks[..] else { return Ok(None) };
+    let ty = module.global_variables[block].ty;
+    let TypeInner::Struct { members, .. } = module.types[ty].inner.clone() else {
+        return Ok(None);
+    };
+    let block_name = module.types[ty].name.clone().unwrap_or_default();
+    // Every use of the block is a member's access (as glslang writes them).
+    for f in module
+        .functions
+        .iter()
+        .map(|(_, f)| f)
+        .chain(module.entry_points.iter().map(|e| &e.function))
+    {
+        let mine: Vec<_> = f
+            .expressions
+            .iter()
+            .filter(|(_, e)| matches!(e, Expression::GlobalVariable(g) if *g == block))
+            .map(|(h, _)| h)
+            .collect();
+        let other = f.expressions.iter().any(|(_, e)| match e {
+            Expression::Load { pointer } => mine.contains(pointer),
+            Expression::Access { base, .. } => mine.contains(base),
+            _ => false,
+        });
+        if other {
+            return Ok(None);
+        }
+    }
+    // Each part's members, laid out anew.
+    let mut layouter = naga::proc::Layouter::default();
+    layouter.update(module.to_ctx()).map_err(naga_err)?;
+    let order = [Part::Draw, Part::Frame, Part::Bones];
+    let mut parts: [Vec<StructMember>; 3] = Default::default();
+    let mut ends = [0u32; 3];
+    let mut moved = Vec::with_capacity(members.len());
+    for m in &members {
+        let part = match part_of(&crate::reflect::member(module, m)) {
+            Part::Whole => Part::Draw,
+            p => p,
+        };
+        let k = order.iter().position(|p| *p == part).unwrap_or(0);
+        let inner = &module.types[m.ty].inner;
+        // (std140's: a vec2 by 8, a vec3, vec4, matrix or array by 16.)
+        let own = match inner {
+            TypeInner::Scalar(_) => 4,
+            TypeInner::Vector { size: naga::VectorSize::Bi, .. } => 8,
+            _ => 16,
+        };
+        let align = own.max(layouter[m.ty].alignment * 1);
+        let offset = ends[k].div_ceil(align) * align;
+        ends[k] = offset + inner.size(module.to_ctx());
+        moved.push((k, parts[k].len() as u32));
+        parts[k].push(StructMember { offset, ..m.clone() });
+    }
+    let vec4 = module.types.insert(
+        naga::Type {
+            name: None,
+            inner: TypeInner::Vector { size: naga::VectorSize::Quad, scalar: naga::Scalar::F32 },
+        },
+        Span::UNDEFINED,
+    );
+    let globals = [block, frame, bones];
+    for (k, list) in parts.into_iter().enumerate() {
+        let mut list = list;
+        if list.is_empty() {
+            list.push(StructMember { name: Some(PAD.into()), ty: vec4, binding: None, offset: 0 });
+            ends[k] = 16;
+        }
+        let span = ends[k].max(16).div_ceil(16) * 16;
+        let t = module.types.insert(
+            naga::Type {
+                name: Some(format!("{block_name}_{:?}", order[k]).to_ascii_lowercase()),
+                inner: TypeInner::Struct { members: list, span },
+            },
+            Span::UNDEFINED,
+        );
+        module.global_variables[globals[k]].ty = t;
+    }
+    // Each access to a member goes to its part's block.
+    let fns = module
+        .functions
+        .iter_mut()
+        .map(|(_, f)| f)
+        .chain(module.entry_points.iter_mut().map(|e| &mut e.function));
+    for f in fns {
+        let find = |g: Handle<naga::GlobalVariable>| {
+            f.expressions
+                .iter()
+                .find(|(_, e)| matches!(e, Expression::GlobalVariable(x) if *x == g))
+                .map(|(h, _)| h)
+        };
+        let olds: Vec<Handle<Expression>> = f
+            .expressions
+            .iter()
+            .filter(|(_, e)| matches!(e, Expression::GlobalVariable(x) if *x == block))
+            .map(|(h, _)| h)
+            .collect();
+        if olds.is_empty() {
+            continue;
+        }
+        let (Some(fe), Some(be)) = (find(frame), find(bones)) else {
+            return Err(naga_err("a function without the spare blocks' expressions"));
+        };
+        let bases = [olds[0], fe, be];
+        for (_, e) in f.expressions.iter_mut() {
+            if let Expression::AccessIndex { base, index } = e
+                && olds.contains(base)
+            {
+                let &(k, j) = moved
+                    .get(*index as usize)
+                    .ok_or_else(|| naga_err("an access past the block's members"))?;
+                // (The draw's part stays on the expression it was read by.)
+                if k != 0 {
+                    *base = bases[k];
+                }
+                *index = j;
+            }
+        }
+    }
+    Ok(Some(order.into_iter().zip(globals).collect()))
 }
 
 #[cfg(test)]
@@ -544,6 +774,88 @@ void main ()
         assert!(p.reads_uniform("vColor"));
         assert!(!p.reads_uniform("sceneCurrentFrame"));
         assert!(!p.reads_uniform("nothing"));
+    }
+
+    /// The block in three: a draw's members, the frame's, the bones', each
+    /// laid out anew from 0; every access taken to its part's block.
+    #[test]
+    fn a_block_is_split_into_the_draw_s_the_frame_s_and_the_bones() {
+        let src: BTreeMap<String, String> = [(
+            "vs_split".to_string(),
+            r#"
+#define SHADER_TYPE 1
+uniform mat4 m_proj;
+uniform mat4 m_mv;
+uniform mat4 m_bones[4];
+uniform float fogEnd;
+uniform vec3 lightAreaAmbient;
+uniform vec4 materialFrontDiffuse;
+uniform int skinmesh;
+attribute vec4 vPos;
+attribute vec4 vIndex;
+varying vec4 vColor;
+void main ()
+{
+    vec4 p = vPos;
+    if (skinmesh != 0) p = m_bones[int(vIndex.x)] * p;
+    vColor = materialFrontDiffuse * fogEnd + vec4(lightAreaAmbient, 0.0);
+    gl_Position = m_proj * m_mv * p;
+}
+"#
+            .to_string(),
+        )]
+        .into();
+        let mut p = compile("vs_split", Stage::Vertex, &Preamble::default(), &src).unwrap();
+        // As compiled: one block, the spare ones out of the reflection.
+        assert_eq!(p.reflection.uniforms.len(), 1);
+        assert_eq!(p.reflection.uniforms[0].part, Part::Whole);
+        let part = |m: &crate::Member| match m.name.as_str() {
+            "m_bones" => Part::Bones,
+            "m_mv" | "materialFrontDiffuse" | "skinmesh" => Part::Draw,
+            _ => Part::Frame,
+        };
+        assert!(p.split_uniforms(part).unwrap());
+        let r = &p.reflection;
+        let parts: Vec<Part> = r.uniforms.iter().map(|b| b.part).collect();
+        assert_eq!(parts, [Part::Draw, Part::Frame, Part::Bones]);
+        let names = |b: &UniformBlock| {
+            b.members.iter().map(|m| (m.name.clone(), m.offset)).collect::<Vec<_>>()
+        };
+        let s = |v: &[(&str, u32)]| v.iter().map(|(n, o)| (n.to_string(), *o)).collect::<Vec<_>>();
+        assert_eq!(
+            names(&r.uniforms[0]),
+            s(&[("m_mv", 0), ("materialFrontDiffuse", 64), ("skinmesh", 80)])
+        );
+        assert_eq!(r.uniforms[0].size, 96);
+        assert_eq!(
+            names(&r.uniforms[1]),
+            s(&[("m_proj", 0), ("fogEnd", 64), ("lightAreaAmbient", 80)])
+        );
+        assert_eq!(names(&r.uniforms[2]), s(&[("m_bones", 0)]));
+        assert_eq!(r.uniforms[2].size, 256);
+        // Each its own binding.
+        let mut b: Vec<u32> = r.uniforms.iter().map(|b| b.binding).collect();
+        b.dedup();
+        assert_eq!(b.len(), 3);
+        // Moved to a group of the renderer's.
+        p.place_block(Part::Draw, 2, 5).unwrap();
+        let d = &p.reflection.uniforms[0];
+        assert_eq!((d.group, d.binding), (2, 5));
+        let wgsl = naga::back::wgsl::write_string(
+            &p.module,
+            &p.info,
+            naga::back::wgsl::WriterFlags::empty(),
+        )
+        .unwrap();
+        assert!(wgsl.contains("@group(2) @binding(5)"), "{wgsl}");
+        // A program without loose uniforms has nothing to split.
+        let src: BTreeMap<String, String> = [(
+            "fs_plain".to_string(),
+            "#define SHADER_TYPE 2\nvoid main() { gl_FragColor = vec4(1.0); }\n".to_string(),
+        )]
+        .into();
+        let mut p = compile("fs_plain", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(!p.split_uniforms(part).unwrap());
     }
 
     #[test]
