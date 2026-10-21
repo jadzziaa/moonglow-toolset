@@ -273,7 +273,7 @@ fn find_window(app: &mut Moonglow, ui: &mut Ui) {
             ui.horizontal_wrapped(|ui| {
                 crate::widgets::field_label(ui, "Search For");
                 for kind in ObjectKind::ALL {
-                    ui.checkbox(&mut f.kinds[kind.index()], kind.plural());
+                    ui.checkbox(&mut f.kinds[kind.index()], kind.label());
                 }
             });
             egui::Grid::new("find").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {

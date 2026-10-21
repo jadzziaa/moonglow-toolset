@@ -177,10 +177,10 @@ fn waypoints_show_their_flags() {
     assert_eq!(flag(200), None);
 }
 
-/// A merchant is drawn as the game's marker for one (`gi_store`), a model
+/// A store is drawn as the game's marker for one (`gi_store`), a model
 /// in the scene, so that what stands in front of it hides it.
 #[test]
-fn merchants_show_their_marker() {
+fn stores_show_their_marker() {
     let root = corpus!();
     let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
     let store = Struct::new(0);
@@ -207,7 +207,7 @@ fn sounds_show_their_markers() {
     assert_eq!(marker(0, 0).as_deref(), Some("gi_sound_area"));
     assert_eq!(marker(1, 1).as_deref(), Some("gi_sound_rndm"));
     assert_eq!(marker(1, 0).as_deref(), Some("gi_sound_pos"));
-    // Sounds have no arrow to fall back to; merchants and waypoints do.
+    // Sounds have no arrow to fall back to; stores and waypoints do.
     assert!(ObjectKind::Sound.is_marker() && !ObjectKind::Sound.has_arrow());
     assert!(ObjectKind::Store.has_arrow() && ObjectKind::Waypoint.has_arrow());
 }

@@ -122,9 +122,10 @@ pub struct Settings {
     /// area view).
     pub no_grass: bool,
     /// The kinds of objects the area view's toolbar hides (`Triggers`,
-    /// `Encounters`…, as [`mg_area::ObjectKind::plural`] names them, and
-    /// `Start` for the start location's marker): every area view, the
-    /// open ones and those opened from now on, hides them, as in Aurora.
+    /// `Encounters`…, as [`mg_area::ObjectKind::label`] names them, and
+    /// `Start` for the start location's marker; `Merchants`, as 1.35 and
+    /// earlier wrote it, is read as `Stores`): every area view, the open
+    /// ones and those opened from now on, hides them, as in Aurora.
     pub hidden_in_areas: Vec<String>,
     /// Options › Verify: the groups Verify Module leaves out of its report
     /// (by [`mg_module::doctor::Group::id`]).
@@ -304,8 +305,9 @@ pub struct Settings {
     /// Options > Area: Show Door Orientation Arrows off (Aurora's default:
     /// on).
     pub no_door_arrows: bool,
-    /// Options > Area: Show merchants as the game's $ sign (its marker
+    /// Options > Area: Show stores as the game's $ sign (its marker
     /// model, as Aurora shows them) rather than as Moonglow's arrow.
+    /// (Named for Aurora's merchants: kept, so saved settings load.)
     pub merchant_signs: bool,
     /// Options > Area: Show the turning and tilt rings around selected
     /// objects is off.

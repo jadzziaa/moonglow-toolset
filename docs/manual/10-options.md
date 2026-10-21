@@ -3,7 +3,7 @@ type: Manual Page
 title: Options
 description: The Options dialog page by page (folders, area, general, script editor, conversation editor, sounds, verify, language, keyboard) and where the settings are kept.
 tags: [manual, options]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T08:28:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
 ---
 
 # Options
@@ -35,7 +35,7 @@ the module is opened again from its file.
 - **Show Encounter Spawnpoint Markers**, and their **Height** and
   **Width**: at each spawn point, the game's marker (see-through), a post
   of that size, and an arrow the way what spawns there faces.
-- **Show merchants as $ signs**: the game's marker for a merchant, rather
+- **Show stores as $ signs**: the game's marker for a store, rather
   than an arrow along its facing.
 - **Show the turning and tilt rings around selected objects**: the ring
   that turns the selection when dragged round, and the two that tilt

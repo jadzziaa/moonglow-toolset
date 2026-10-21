@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:40:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:03:11Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -54,7 +54,7 @@ Subsystems, roughly in the order a user meets them:
 - **Area editor**: area wizard, tile painting (terrain, crossers, groups,
   heights), area properties (lighting, fog and fog clip, shadows, sound, music,
   weather, skybox, scripts), resize/rotate, 3D view with EE lighting, object
-  placement and editing (creatures, doors, encounters, items, merchants,
+  placement and editing (creatures, doors, encounters, items, stores,
   placeables, sounds, triggers, waypoints, start location, visual transforms),
   filters, grid, fade geometry, AABB view, find instance, multi-edit,
   copy/paste, undo/redo, preview window, area statistics.

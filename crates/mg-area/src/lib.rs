@@ -189,7 +189,7 @@ pub struct AreaObject {
     /// `ResRef`).
     pub template: Option<ResRef>,
     /// Its models: creatures, doors, items, placeables, and the markers of
-    /// waypoints (their flags) and merchants. `None` for the others (drawn as markers) and when its
+    /// waypoints (their flags) and stores. `None` for the others (drawn as markers) and when its
     /// appearance cannot be shown (see `problem`).
     pub preview: Option<Preview>,
     /// Why a creature, door, item or placeable has no preview.
@@ -258,7 +258,7 @@ impl AreaObject {
             // A waypoint without a flag (no appearance) is drawn as a
             // marker: nothing is wrong with it.
             ObjectKind::Waypoint => mg_preview::waypoint(game, s).ok().map(Ok),
-            // A merchant's marker; without the game's model, drawn as one.
+            // A store's marker; without the game's model, drawn as one.
             ObjectKind::Store => mg_preview::store(game).ok().map(Ok),
             ObjectKind::Sound => mg_preview::sound(game, s).ok().map(Ok),
             _ => None,

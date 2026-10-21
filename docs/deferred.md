@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:40:10Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:03:11Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -890,7 +890,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **The start location's marker** is still drawn over the view, not
   hidden by what is in front of it, as the selection's boxes and the
   outlines of triggers and encounters are by design. (S)
-- **Marker models against Aurora:** merchants, sounds and waypoints use
+- **Marker models against Aurora:** stores, sounds and waypoints use
   the game's marker models in their materials' colors, unlit; that Aurora
   draws them so was not captured. Waypoints' flags are drawn unlit so
   their colors tell apart in a dark area; how Aurora lights them was
@@ -2108,15 +2108,11 @@ of truth, and does each caller's difference matter.
   (`mg_area::ObjectKind` and `mg_module::palette::BlueprintKind` are
   that type under the names their callers use), but mg-ui keeps tables
   of its own that the merge with the editors' work in progress left
-  alone: Advanced Search's kinds (`search.rs:58`, "Stores"), the module
-  tree's categories (`tree.rs:22`, "Merchants") and its New wizard per
-  type (`tree.rs:1280`), the tabs' kind names (`tabs.rs:116`, five
-  types), `icons::blueprint` (a kind turned into itself). And one
-  question: the same objects are "Stores" in the palette's tabs,
-  Verify's filters, the Store Wizard and Advanced Search, and
-  "Merchants" in the area view's filters and the module tree, where
-  Aurora says Merchants on both its object filters and its palette's
-  buttons ("Paint Merchants", `docs/parity/aurora-ui-inventory.md`). (S)
+  alone: Advanced Search's kinds (`search.rs:58`), the module tree's
+  categories (`tree.rs:22`) and its New wizard per type
+  (`tree.rs:1280`), the palettes' New menu items (`palette_view.rs:1117`),
+  the tabs' kind names (`tabs.rs:116`, five types), `icons::blueprint`
+  (a kind turned into itself). (S)
 - **A localized string's text, without the toolset's language or the
   talk table:** `query.rs:74`, `dialog.rs:598`, `:502`, `rename.rs:513`,
   `hak_edit.rs:120`, `areas.rs:63`, `tree.rs:85` and `:112` (beside

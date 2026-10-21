@@ -127,16 +127,11 @@ impl ObjectKind {
         }
     }
 
-    /// As Aurora's palette tabs and Verify's filters say it (`Stores`).
+    /// What the toolset calls them, in the plural: the palettes' tabs, the
+    /// area view's filters, the module tree, Verify. Stores are `Stores`
+    /// everywhere, where Aurora says Merchants on its area filters and
+    /// palette buttons and Stores elsewhere.
     pub fn label(self) -> &'static str {
-        match self {
-            ObjectKind::Store => "Stores",
-            k => k.plural(),
-        }
-    }
-
-    /// As the area editor's filters say it (Aurora's Show Merchants).
-    pub fn plural(self) -> &'static str {
         match self {
             ObjectKind::Creature => "Creatures",
             ObjectKind::Door => "Doors",
@@ -144,7 +139,7 @@ impl ObjectKind {
             ObjectKind::Item => "Items",
             ObjectKind::Placeable => "Placeables",
             ObjectKind::Sound => "Sounds",
-            ObjectKind::Store => "Merchants",
+            ObjectKind::Store => "Stores",
             ObjectKind::Trigger => "Triggers",
             ObjectKind::Waypoint => "Waypoints",
         }
@@ -198,14 +193,14 @@ impl ObjectKind {
     }
 
     /// Whether its model is the toolset's marker for it, not something
-    /// the game shows: a waypoint's flag, a merchant's sign, a sound's
+    /// the game shows: a waypoint's flag, a store's sign, a sound's
     /// speaker.
     pub fn is_marker(self) -> bool {
         matches!(self, ObjectKind::Waypoint | ObjectKind::Store | ObjectKind::Sound)
     }
 
     /// Whether it is drawn as an arrow along its facing when it has no
-    /// marker model (or, a merchant, when arrows are preferred).
+    /// marker model (or, a store, when arrows are preferred).
     pub fn has_arrow(self) -> bool {
         matches!(self, ObjectKind::Waypoint | ObjectKind::Store)
     }
@@ -268,8 +263,7 @@ mod tests {
         }
         assert_eq!(ObjectKind::resref_field_of(ResType::GIT), "TemplateResRef");
         assert_eq!(ObjectKind::Store.label(), "Stores");
-        assert_eq!(ObjectKind::Store.plural(), "Merchants");
-        assert_eq!(ObjectKind::Creature.label(), ObjectKind::Creature.plural());
+        assert_eq!(ObjectKind::Store.name(), "store");
         assert_eq!(ObjectKind::Sound.skeleton_key().to_string(), "soundpal.itp");
         assert_eq!(ObjectKind::Item.custom_key().to_string(), "itempalcus.itp");
     }

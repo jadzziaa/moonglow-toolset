@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:26:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:02:33Z }
 ---
 
 # Areas
@@ -292,7 +292,7 @@ places and turns around it.
   **Turn On**. Triggers and encounters: **Redraw Polygon**; encounters:
   **Add Spawn Point** (at the point you right-clicked).
 - **Conversation**, **Inventory** (creatures, placeables with an
-  inventory, merchants), **Variables…**.
+  inventory, stores), **Variables…**.
 - **Add to Palette**: the instance as a new custom blueprint.
 - **Test From Here**: starts the game at the point you right-clicked,
   facing the way the camera looks, with the module as it is now (see
