@@ -9,7 +9,8 @@
 // roughness, height (parallax and occlusion) and self-illumination maps as
 // the normal-mapped variants (fslit_nm); their tangent frame is the stock
 // shaders' (the vertex tangent, the bitangent N × T by its sign) where the
-// model has tangents, else from screen-space derivatives.
+// model has tangents, else from screen-space derivatives (the tangents made
+// for a mesh without, for the game's shaders, are left alone).
 
 struct Frame {
     view: mat4x4<f32>,
@@ -72,7 +73,8 @@ struct Draw {
     // lightmap there, 8 a flow map slides the texture), y = slide speed,
     // z = shadow reduction, w = shadow brightening.
     effect: vec4<f32>,
-    // x = number of lights for this draw, y = 1 if skinned, z = first bone
+    // x = number of lights for this draw, y = 1 if skinned, z = first bone,
+    // w = 1 if the mesh's tangents were made (not the model's)
     light_count: vec4<u32>,
     // Up to 32 light indices.
     light_index: array<vec4<u32>, 8>,
@@ -344,7 +346,9 @@ fn fs_main(in: VertexOut, @builtin(front_facing) front: bool) -> @location(0) ve
     var tsb = mat3x3<f32>(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), surface_n);
     if (normal_mapped || height_mapped) {
         let t = in.tangent_view.xyz;
-        if (in.tangent_view.w != 0.0 && dot(t, t) > 1e-12) {
+        // (The model's own tangents; those made for the game's shaders,
+        // light_count.w, are not used here.)
+        if (in.tangent_view.w != 0.0 && dot(t, t) > 1e-12 && draws[this_draw].light_count.w == 0u) {
             let tn = normalize(t);
             let handed = select(-1.0, 1.0, in.tangent_view.w >= 0.0);
             tsb = mat3x3<f32>(tn, cross(surface_n, tn) * handed, surface_n);

@@ -7186,6 +7186,120 @@ fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     assert_eq!(drawn(&h).game, 0);
 }
 
+/// The area view with The Domains of Dread's tileset and shaders (its haks
+/// where `MOONGLOW_HAKS` has them, linked into a scratch user folder; the
+/// haks themselves untouched; skipped without): a field of `mst04` tiles
+/// whose trees' leaves and plants sway by its custom shaders. With the
+/// Shaders switch off the view holds still from one moment to the next;
+/// on, it is drawn otherwise (its own lighting, `tdod_shaders`'
+/// `inc_lighting`), and moves. Pictures in
+/// `target/test-output/ui-area-tdod-shaders/` to look at.
+#[cfg(unix)]
+#[test]
+fn tdod_s_wind_shaders_move_in_the_area_view() {
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let Some(root) = mg_testkit::nwn_root() else { return };
+    let Some(haks) = mg_testkit::builder_hak_dirs()
+        .into_iter()
+        .find(|d| d.join("tdod_t_tap.hak").is_file() && d.join("tdod_shaders.hak").is_file())
+    else {
+        eprintln!("skipped: no tdod_t_tap.hak in MOONGLOW_HAKS");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    if mg_render::Gpu::headless().is_none() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let dir = mg_testkit::scratch_dir("ui-area-tdod-shaders");
+    let user = dir.join("user");
+    std::fs::create_dir_all(user.join("hak")).unwrap();
+    let names = ["tdod_shaders", "tdod_t_tap"];
+    for name in names {
+        let file = format!("{name}.hak");
+        std::os::unix::fs::symlink(haks.join(&file), user.join("hak").join(&file)).unwrap();
+    }
+    // A module on a stock tileset, made Medieval Rural's field of TDoD's
+    // `mst04` tiles 42 and 48 (trees and plants of the wind shaders).
+    let install = mg_resman::GameInstall::new(&root, Some(user.clone()), "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Wind", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 2,
+        height: 2,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::new(area, ResType::ARE);
+    let mut are = m.gff(&key).unwrap().unwrap();
+    are.root.set("Tileset", mg_gff::Value::ResRef(b"mst04".to_vec()));
+    for (i, t) in are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+        t.set("Tile_ID", mg_gff::Value::Int(if i % 2 == 0 { 42 } else { 48 }));
+        t.set("Tile_Orientation", mg_gff::Value::Int(0));
+        t.set("Tile_Height", mg_gff::Value::Int(0));
+    }
+    m.set_gff(key, &are).unwrap();
+    let ifo_key = ResKey::parse("module", ResType::IFO).unwrap();
+    let mut ifo = m.gff(&ifo_key).unwrap().unwrap();
+    let list = mg_module::attach::hak_list(&ifo.root, &names.map(String::from));
+    ifo.root.set("Mod_HakList", list);
+    m.set_gff(ifo_key, &ifo).unwrap();
+    let path = dir.join("wind.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.actions.push(mg_ui::Action::OpenTab(Tab::Area(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 900.0))
+        .with_step_dt(1.0 / 60.0)
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(20);
+    // Close on the trees, from low down.
+    if let Some(o) = h.state_mut().area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+        o.target = glam::Vec3::new(5.0, 10.0, 2.0);
+        (o.distance, o.pitch) = (16.0, 0.35);
+    }
+    h.run_steps(10);
+    let shot = |h: &mut Harness<'_, Moonglow>, name: &str| {
+        let img = h.render().expect("render");
+        img.save(dir.join(format!("{name}.png"))).unwrap();
+        img
+    };
+    let differ = |a: &image::RgbaImage, b: &image::RgbaImage| {
+        a.pixels().zip(b.pixels()).filter(|(p, q)| (0..3).any(|i| p[i].abs_diff(q[i]) > 2)).count()
+    };
+    let off = [shot(&mut h, "off_a"), {
+        h.run_steps(30);
+        shot(&mut h, "off_b")
+    }];
+    h.get_by_label("🎨 Shaders").click();
+    h.run_steps(5);
+    let on_a = shot(&mut h, "on_a");
+    h.run_steps(30);
+    let on_b = shot(&mut h, "on_b");
+    let log: Vec<String> = h.state().log.entries.iter().map(|e| e.1.clone()).collect();
+    let drawn = h.state().viewport.as_ref().unwrap().renderer.drawn;
+    let (still, moved, changed) =
+        (differ(&off[0], &off[1]), differ(&on_a, &on_b), differ(&off[1], &on_a));
+    eprintln!("{drawn:?}; off {still} pixels moved, on {moved}; {changed} changed by the switch");
+    assert!(
+        !log.iter().any(|l| l.contains("drawn with Moonglow's own")),
+        "no program failed: {log:?}"
+    );
+    assert!(drawn.game > 0 && drawn.timed > 0, "{drawn:?}");
+    assert!(changed > 1000, "the switch changes the view: {changed}");
+    assert!(moved > still + 200, "the wind moves it: {moved} against {still}");
+}
+
 /// A waypoint's position in the workspace's GIT.
 fn waypoint(h: &mut Harness<'_, Moonglow>, area: ResRef, index: usize) -> Option<(f32, f32, u32)> {
     let ws = h.state_mut().ws.as_mut().unwrap();

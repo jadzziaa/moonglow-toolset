@@ -7,6 +7,8 @@
 #[path = "../mdl_common/mod.rs"]
 mod mdl_common;
 
+#[path = "../game_shaders.rs"]
+mod game_shaders;
 #[path = "../mdl_compile.rs"]
 mod mdl_compile;
 #[path = "../mdl_decompile.rs"]

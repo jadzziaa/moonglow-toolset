@@ -1583,11 +1583,13 @@ impl Renderer {
                         }
                         None => [0.0; 4],
                     },
+                    // (w: the tangents were made, not the model's: the
+                    // tangent frame is taken from the derivatives.)
                     light_count: [
                         chosen.len() as u32,
                         u32::from(mesh.skin.is_some()),
                         bone_base,
-                        0,
+                        u32::from(mesh.tangents_made),
                     ],
                     light_index,
                 };
