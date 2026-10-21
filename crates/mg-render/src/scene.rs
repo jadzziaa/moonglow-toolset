@@ -229,6 +229,12 @@ impl Camera {
     pub fn projection(&self, aspect: f32) -> Mat4 {
         Mat4::perspective_rh(self.fov_y, aspect.max(1e-3), self.near, self.far)
     }
+
+    /// The projection as the game's shaders take it: OpenGL's, depth from
+    /// -1 to 1 (`m_proj`).
+    pub fn projection_gl(&self, aspect: f32) -> Mat4 {
+        Mat4::perspective_rh_gl(self.fov_y, aspect.max(1e-3), self.near, self.far)
+    }
 }
 
 #[cfg(test)]

@@ -79,7 +79,8 @@ rodio = { version = "0.22", default-features = false, features = ["playback"] }
 symphonia = { version = "0.6", default-features = false, features = ["adpcm", "mp3", "pcm", "wav"] }
 thiserror = "2"
 toml = "1"
-wgpu = "30"
+# (`naga-ir`: the game's shaders reach wgpu as naga modules, mg-shader's.)
+wgpu = { version = "30", features = ["naga-ir"] }
 # (Reading a plugin's archive: flate2 with zlib-rs is built in already.)
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

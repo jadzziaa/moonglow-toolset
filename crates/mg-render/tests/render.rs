@@ -1424,3 +1424,509 @@ fn a_punch_through_particle_is_cut_at_the_client_s_alpha() {
     assert!((share - 0.8).abs() < 0.04, "{cut} of {whole} pixels: {share}");
     assert_eq!(kept, white, "what is kept is solid, not blended");
 }
+
+/// A pair standing in for the game's `vslit`/`fslit` (authored here: the
+/// game's own are compared in `the_game_s_lit_shaders_match_moonglow_s`):
+/// OpenGL's matrices as the engine uploads them, the texture by its
+/// engine name, and two varyings of one type that the fragment program
+/// uses in the other order (glslang numbers each stage's as they are first
+/// used: unmatched, white and black swap, which wgpu can't see).
+fn authored_lit_pair(assets: &mut TestAssets) {
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+uniform mat4 m_texture;
+attribute vec4 vPos;
+attribute vec3 vNormal;
+attribute vec2 vTcIn;
+varying vec3 vWhite;
+varying vec3 vBlack;
+varying vec2 vUv;
+void main ()
+{
+    vUv = mat2(m_texture) * vTcIn;
+    vWhite = vec3(1.0) + vNormal * 0.0;
+    vBlack = vec3(0.0);
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+uniform int texture0Bound;
+varying vec2 vUv;
+varying vec3 vBlack;
+varying vec3 vWhite;
+void main ()
+{
+    vec3 t = texture2D(texUnit0, vUv).rgb;
+    vec3 c = vBlack;
+    c += t * vWhite * float(texture0Bound);
+    gl_FragColor = vec4(c, 1.0);
+}
+"#;
+    assets.shaders.insert("vslit".into(), vs.into());
+    assets.shaders.insert("fslit".into(), fs.into());
+}
+
+/// A quad of `size` standing up at `at`, facing -Y (the camera), with
+/// texture `texture`.
+fn standing_quad(gpu: &Gpu, texture: &str, at: Vec3, size: f32) -> Instance {
+    let mut model = quad();
+    if let NodeKind::Mesh(m) = &mut model.nodes[1].kind {
+        m.textures[0] = Some(texture.into());
+    }
+    let model = Arc::new(GpuModel::new(gpu, Arc::new(model)));
+    let t = Mat4::from_translation(at)
+        * Mat4::from_rotation_x(90f32.to_radians())
+        * Mat4::from_scale(Vec3::splat(size));
+    Instance::new(model, t)
+}
+
+/// The scene for the game path's clip space: from the camera, looking
+/// north, a large red quad; nearer, a small blue one before its middle; and
+/// a green one just beyond the near plane at the upper left (where OpenGL's
+/// depth is -0.9: not taken to wgpu's range, it would be clipped).
+fn clip_space_scene(gpu: &Gpu) -> (Scene, Camera) {
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    // At 0.105 m the picture is 2 × 0.0444 m high.
+    let near = 0.105;
+    let scene = Scene {
+        instances: vec![
+            standing_quad(gpu, "blue", Vec3::new(0.0, -3.0, 1.0), 0.5),
+            standing_quad(gpu, "red", Vec3::new(0.0, 0.0, 1.0), 3.0),
+            standing_quad(gpu, "green", Vec3::new(-0.025, -10.0 + near, 1.025), 0.01),
+        ],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    (scene, camera)
+}
+
+impl TestAssets {
+    /// A 4×4 texture of one colour, without an alpha channel.
+    fn opaque(&mut self, name: &str, rgb: [u8; 3]) {
+        let data = [rgb[0], rgb[1], rgb[2], 255].repeat(16);
+        let t = mg_image::Rgba { width: 4, height: 4, data }.into_texture(false);
+        self.textures.insert(name.into(), t);
+    }
+}
+
+fn clip_space_assets() -> TestAssets {
+    let mut assets = TestAssets::default();
+    assets.opaque("red", [255, 0, 0]);
+    assets.opaque("blue", [0, 0, 255]);
+    assets.opaque("green", [0, 255, 0]);
+    authored_lit_pair(&mut assets);
+    assets
+}
+
+/// The game path draws OpenGL's clip space the right way up and at the
+/// right depths: what is high in the scene is at the top of the picture, a
+/// mesh at the near plane's side of OpenGL's depth range is drawn, the
+/// nearer of two meshes hides the farther (drawn first, it is not drawn
+/// over), the varyings arrive under their names and the texture under
+/// `texUnit0`, bound. The meshes cover what Moonglow's own shader covers.
+#[test]
+fn the_game_path_draws_opengl_s_clip_space_right() {
+    let Some(gpu) = gpu() else { return };
+    let assets = clip_space_assets();
+    let (scene, camera) = clip_space_scene(&gpu);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.game_shader_failures(), &[]);
+    assert_eq!(r.drawn.game, 3, "{:?}", r.drawn);
+    save(&img, &mg_testkit::scratch_dir("render").join("game_clip_space.png"));
+    let px = |x, y| img.pixel(x, y);
+    // The middle: the blue quad, in front of the red one.
+    assert_eq!(px(32, 32), [0, 0, 255, 255]);
+    // Around it, the red one.
+    assert_eq!(px(32, 12), [255, 0, 0, 255]);
+    // Upper left: the green one at the near plane; not at the lower left.
+    assert_eq!(px(14, 14), [0, 255, 0, 255]);
+    assert_eq!(px(14, 50), [255, 0, 0, 255]);
+
+    // Moonglow's own shader covers the same pixels with each.
+    let mut own = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let theirs = own.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    let which = |p: [u8; 4]| (p[0] > p[1] && p[0] > p[2], p[1] > p[0], p[2] > p[0]);
+    let mut differ = 0;
+    for y in 0..64 {
+        for x in 0..64 {
+            if which(img.pixel(x, y)) != which(theirs.pixel(x, y)) {
+                differ += 1;
+            }
+        }
+    }
+    assert!(differ <= 8, "{differ} pixels differ in what they show");
+}
+
+/// A program that doesn't compile is drawn with Moonglow's own shader
+/// (the picture is the same as without the game's shaders) and reported
+/// once, however many frames.
+#[test]
+fn a_program_that_does_not_compile_falls_back() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    assets
+        .shaders
+        .insert("fslit".into(), "#define SHADER_TYPE 2\nvoid main() { gl_FragColor = ; }\n".into());
+    let (scene, camera) = clip_space_scene(&gpu);
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    let again = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.drawn.game, 0);
+    let failures = r.game_shader_failures();
+    assert_eq!(failures.len(), 1, "{failures:?}");
+    assert_eq!(failures[0].0, "vslit/fslit");
+    assert!(failures[0].1.contains("fslit"), "{failures:?}");
+    let mut own = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let theirs = own.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert!(img.data == theirs.data && again.data == theirs.data);
+}
+
+/// A UV sphere of radius 1 (`rings` × `segments`), textured `texture`.
+fn sphere(texture: &str, rings: u32, segments: u32) -> Model {
+    let (mut vertices, mut normals, mut uvs, mut faces) = (vec![], vec![], vec![], vec![]);
+    for r in 0..=rings {
+        let theta = std::f32::consts::PI * r as f32 / rings as f32;
+        for s in 0..=segments {
+            let phi = std::f32::consts::TAU * s as f32 / segments as f32;
+            let n = [theta.sin() * phi.cos(), theta.sin() * phi.sin(), theta.cos()];
+            vertices.push(n);
+            normals.push(n);
+            uvs.push([s as f32 / segments as f32 * 2.0, r as f32 / rings as f32]);
+        }
+    }
+    let at = |r: u32, s: u32| r * (segments + 1) + s;
+    for r in 0..rings {
+        for s in 0..segments {
+            let (a, b, c, d) = (at(r, s), at(r + 1, s), at(r + 1, s + 1), at(r, s + 1));
+            // Counter-clockwise seen from outside.
+            faces.push(Face { vertices: [a, b, c], material: 0 });
+            faces.push(Face { vertices: [a, c, d], material: 0 });
+        }
+    }
+    let n = vertices.len() as u32;
+    let mesh = Mesh {
+        diffuse: [0.9, 0.85, 0.8],
+        ambient: [1.0; 3],
+        render: true,
+        textures: [Some(texture.into()), None, None, None],
+        vertices,
+        normals,
+        uvs: [uvs, vec![], vec![], vec![]],
+        faces,
+        source: (0..n).collect(),
+        ..Default::default()
+    };
+    let mut root = Node::new("sphere", NodeKind::Dummy);
+    root.children = vec![1];
+    let mut m = Node::new("ball", NodeKind::Mesh(Box::new(mesh)));
+    m.parent = Some(0);
+    Model {
+        name: "sphere".into(),
+        animation_scale: 1.0,
+        nodes: vec![root, m],
+        ..Default::default()
+    }
+}
+
+/// The authored textures, the install's shaders.
+struct WithGameShaders<'a> {
+    own: TestAssets,
+    game: &'a mg_resman::ResMan,
+}
+
+impl mg_render::Assets for WithGameShaders<'_> {
+    fn texture(&self, name: &str) -> Option<mg_render::LoadedTexture> {
+        self.own.texture(name).or_else(|| mg_render::Assets::texture(self.game, name))
+    }
+
+    fn material(&self, name: &str) -> Option<mg_image::mtr::Mtr> {
+        mg_render::Assets::material(self.game, name)
+    }
+
+    fn txi(&self, name: &str) -> Option<mg_image::txi::Txi> {
+        self.own.txi(name).or_else(|| mg_render::Assets::txi(self.game, name))
+    }
+
+    fn shader(&self, name: &str) -> Option<String> {
+        mg_render::Assets::shader(self.game, name)
+    }
+}
+
+/// How two pictures differ where either shows something other than the
+/// background: per channel (0–255), the mean, the 99th percentile and the
+/// largest difference, and over how many pixels; pixels where either has
+/// a channel at 255 (what the game's post pass, which neither runs, would
+/// tone down: Moonglow's shader clamps them as it does) are left out and
+/// counted.
+struct Difference {
+    pixels: usize,
+    saturated: usize,
+    mean: f32,
+    p99: u8,
+    max: u8,
+}
+
+fn difference(
+    a: &mg_image::Rgba,
+    b: &mg_image::Rgba,
+    background: [u8; 4],
+) -> (Difference, mg_image::Rgba) {
+    let mut diffs = Vec::new();
+    let mut saturated = 0;
+    let mut picture =
+        mg_image::Rgba { width: a.width, height: a.height, data: vec![0; a.data.len()] };
+    for (i, (p, q)) in a.data.as_chunks::<4>().0.iter().zip(b.data.as_chunks::<4>().0).enumerate() {
+        if *p == background && *q == background {
+            continue;
+        }
+        if p[..3].contains(&255) || q[..3].contains(&255) {
+            saturated += 1;
+            continue;
+        }
+        let d: [u8; 3] = std::array::from_fn(|c| p[c].abs_diff(q[c]));
+        diffs.extend_from_slice(&d);
+        for (c, d) in d.iter().enumerate() {
+            picture.data[i * 4 + c] = d.saturating_mul(16);
+        }
+        picture.data[i * 4 + 3] = 255;
+    }
+    let mut sorted = diffs.clone();
+    sorted.sort_unstable();
+    let pct = |q: f32| {
+        sorted
+            .get(((sorted.len() as f32 * q) as usize).min(sorted.len().saturating_sub(1)))
+            .copied()
+            .unwrap_or(0)
+    };
+    let mean = diffs.iter().map(|&d| f32::from(d)).sum::<f32>() / diffs.len().max(1) as f32;
+    (
+        Difference {
+            pixels: diffs.len() / 3,
+            saturated,
+            mean,
+            p99: pct(0.99),
+            max: sorted.last().copied().unwrap_or(0),
+        },
+        picture,
+    )
+}
+
+/// The WGSL port's oracle: the game's own `vslit`/`fslit` (and `_nm`,
+/// `_sm`, `_sm_nm` where a game model asks for them), compiled from the
+/// install, against Moonglow's WGSL shader, on the same scenes: a textured
+/// sphere on a textured ground in an area light, a point light and fog;
+/// then a tile, a placeable and a skinned creature of the game's. Pictures
+/// of both and of their difference (×16) are written to
+/// `target/test-output/render/game_*.png`.
+#[test]
+fn the_game_s_lit_shaders_match_moonglow_s() {
+    let Some(root) = mg_testkit::nwn_root() else {
+        eprintln!("skipped: no game install");
+        return;
+    };
+    let Some(gpu) = gpu() else { return };
+    let rm = mg_resman::ResMan::for_game(&mg_resman::GameInstall::new(&root, None, "en")).unwrap();
+    let dir = mg_testkit::scratch_dir("render");
+    let mut own = TestAssets::default();
+    // A checker of two colours with a gradient across it, no alpha.
+    let (w, h) = (64u32, 64u32);
+    let mut data = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            let check = ((x / 8) + (y / 8)) % 2 == 0;
+            let g = (y * 255 / h) as u8;
+            data.extend_from_slice(&if check { [200, 120, g / 2, 255] } else { [60, g, 170, 255] });
+        }
+    }
+    own.textures.insert(
+        "mgchecker".into(),
+        mg_image::Rgba { width: w, height: h, data: data.clone() }.into_texture(false),
+    );
+    // The same, its alpha the environment map's share (1 - reflectivity)
+    // in every other check.
+    let mut reflective = data;
+    for (i, p) in reflective.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let (x, y) = (i as u32 % w, i as u32 / w);
+        p[3] = if ((x / 8) + (y / 8)) % 2 == 0 { 255 } else { 90 };
+    }
+    own.textures.insert(
+        "mgshiny".into(),
+        mg_image::Rgba { width: w, height: h, data: reflective }.into_texture(true),
+    );
+    // An environment map: a sky over a dark ground.
+    let env: Vec<u8> = (0..32 * 32)
+        .flat_map(|i| if i / 32 < 16 { [90, 140, 220, 255] } else { [70, 50, 30, 255] })
+        .collect();
+    own.textures.insert(
+        "mgenv".into(),
+        mg_image::Rgba { width: 32, height: 32, data: env }.into_texture(false),
+    );
+    // A normal map of ridges along u, and a specular map of stripes.
+    let normal: Vec<u8> = (0..w * h)
+        .flat_map(|i| {
+            let x = (i % w) as f32 / w as f32 * std::f32::consts::TAU * 4.0;
+            [((0.3 * x.sin() + 0.5) * 255.0) as u8, 128, 255, 255]
+        })
+        .collect();
+    own.textures.insert(
+        "mgnormal".into(),
+        mg_image::Rgba { width: w, height: h, data: normal }.into_texture(false),
+    );
+    let spec: Vec<u8> = (0..w * h)
+        .flat_map(|i| if (i / w) % 16 < 8 { [200, 200, 200, 255] } else { [20, 20, 20, 255] })
+        .collect();
+    own.textures.insert(
+        "mgspec".into(),
+        mg_image::Rgba { width: w, height: h, data: spec }.into_texture(false),
+    );
+    let assets = WithGameShaders { own, game: &rm };
+
+    let ball = Arc::new(GpuModel::new(&gpu, Arc::new(sphere("mgchecker", 24, 48))));
+    let mut ground = quad();
+    if let NodeKind::Mesh(m) = &mut ground.nodes[1].kind {
+        m.textures[0] = Some("mgchecker".into());
+        m.uvs[0] = vec![[0.0, 0.0], [3.0, 0.0], [3.0, 3.0], [0.0, 3.0]];
+        m.diffuse = [0.8; 3];
+    }
+    let ground = Arc::new(GpuModel::new(&gpu, Arc::new(ground)));
+    let area = AreaLight {
+        ambient: Vec3::new(0.08, 0.08, 0.1),
+        diffuse: Vec3::new(0.45, 0.42, 0.38),
+        direction: Vec3::new(0.4, -0.5, 0.75).normalize(),
+    };
+    let light = mg_render::PointLight::new(
+        Vec3::new(-1.8, -1.6, 1.2),
+        Vec3::new(1.0, 0.75, 0.5),
+        6.0,
+        false,
+        2,
+    );
+    let fog = mg_render::Fog { start: 6.0, end: 16.0, color: Vec3::new(0.45, 0.5, 0.55) };
+    let base = Scene {
+        area,
+        lights: vec![light],
+        fog: Some(fog),
+        // (Magenta: what is left of it is the background.)
+        background: [1.0, 0.0, 1.0],
+        ..Default::default()
+    };
+    let sphere_scene = Scene {
+        instances: vec![
+            Instance::new(ball, Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0))),
+            Instance::new(ground, Mat4::from_scale(Vec3::new(5.0, 5.0, 1.0))),
+        ],
+        ..base.clone()
+    };
+    let camera =
+        Camera::orbit(Vec3::new(0.0, 0.0, 0.8), 7.0, -70f32.to_radians(), 28f32.to_radians());
+    // A sphere that reflects (`_sm`), and one normal- and specular-mapped
+    // with tangents (`_nm`), in the same light.
+    let close =
+        Camera::orbit(Vec3::new(0.0, 0.0, 1.0), 3.5, -70f32.to_radians(), 20f32.to_radians());
+    let mut shiny = Instance::new(
+        Arc::new(GpuModel::new(&gpu, Arc::new(sphere("mgshiny", 24, 48)))),
+        Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+    );
+    shiny.env_map = Some("mgenv".into());
+    let mut bumpy = sphere("mgchecker", 24, 48);
+    if let NodeKind::Mesh(m) = &mut bumpy.nodes[1].kind {
+        m.textures[1] = Some("mgnormal".into());
+        m.textures[2] = Some("mgspec".into());
+        // Along +u, around the axis.
+        m.tangents = m
+            .vertices
+            .iter()
+            .map(|v| {
+                let t = Vec3::new(-v[1], v[0], 0.0).normalize_or(Vec3::X);
+                [t.x, t.y, t.z, 1.0]
+            })
+            .collect();
+    }
+    let bumpy = Instance::new(
+        Arc::new(GpuModel::new(&gpu, Arc::new(bumpy))),
+        Mat4::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+    );
+    let mut scenes = vec![
+        ("sphere", sphere_scene, camera),
+        ("reflecting", Scene { instances: vec![shiny], ..base.clone() }, close),
+        ("normal_mapped", Scene { instances: vec![bumpy], ..base.clone() }, close),
+    ];
+    for name in ["tcn01_a01_01", "plc_a01", "c_wolf"] {
+        let data = rm.get_named(name, mg_core::ResType::MDL).unwrap();
+        let model = Arc::new(GpuModel::new(&gpu, Arc::new(Model::read(&data).unwrap())));
+        let camera = framing(&model);
+        let mut scene = base.clone();
+        // The point light by the model, at its size.
+        let c = camera.target;
+        let r = (camera.eye - c).length() * 0.3;
+        scene.lights = vec![mg_render::PointLight::new(
+            c + Vec3::new(-r, -r, r),
+            Vec3::new(1.0, 0.75, 0.5),
+            r * 2.0,
+            false,
+            2,
+        )];
+        scene.fog = Some(mg_render::Fog {
+            start: (camera.eye - c).length() * 0.8,
+            end: (camera.eye - c).length() * 2.5,
+            ..fog
+        });
+        scene.instances = vec![Instance::new(model, Mat4::IDENTITY)];
+        scenes.push((name, scene, camera));
+    }
+
+    let mut failures = Vec::new();
+    for (name, scene, camera) in &scenes {
+        let mut theirs = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        theirs.game_shaders = true;
+        let game = theirs.render_image(&gpu, &assets, scene, camera, 320, 320);
+        let drawn = theirs.drawn;
+        assert_eq!(theirs.game_shader_failures(), &[], "{name}");
+        let mut ours = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let wgsl = ours.render_image(&gpu, &assets, scene, camera, 320, 320);
+        let bg = [255, 0, 255, 255];
+        let (d, picture) = difference(&game, &wgsl, bg);
+        save(&game, &dir.join(format!("game_{name}_stock.png")));
+        save(&wgsl, &dir.join(format!("game_{name}_wgsl.png")));
+        save(&picture, &dir.join(format!("game_{name}_diff.png")));
+        eprintln!(
+            "{name}: {} of {} meshes by the game's shaders; {} pixels compared ({} saturated left out): \
+             mean {:.2}, 99% within {}, at most {} (of 255)",
+            drawn.game, drawn.meshes, d.pixels, d.saturated, d.mean, d.p99, d.max
+        );
+        if drawn.game == 0 || d.pixels < 1000 {
+            failures.push(format!("{name}: nothing compared ({drawn:?})"));
+        }
+        // The tolerance: the same equations, in another language; 1 in
+        // 255 for rounding. Where the environment map shows (`_sm`, and the
+        // specular map's bright stripes of `_nm`), Moonglow's shader
+        // samples it at the roughness's level, where the game's
+        // `texture2D(texUnitEnv, uv, bias)` adds that to the level the
+        // derivatives give (a magnified map stays sharp): measured 2026-10-21,
+        // mean 0.73 / 99% 15 (`_sm`) and 1.11 / 11 (`_nm`) of 255, and
+        // 0.02 / 1 for `_sm` with the bias applied as GLSL applies it
+        // (`docs/deferred.md`).
+        let (mean, p99) = if name.contains("reflecting") || name.contains("normal") {
+            (2.0, 20)
+        } else {
+            (0.5, 1)
+        };
+        if d.mean > mean || d.p99 > p99 {
+            failures.push(format!("{name}: mean {:.2}, 99% {}, max {}", d.mean, d.p99, d.max));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}

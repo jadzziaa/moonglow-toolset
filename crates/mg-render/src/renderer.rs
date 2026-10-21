@@ -121,7 +121,7 @@ struct TextureEntry {
 /// Texture slots: diffuse, normal, specular, roughness, height,
 /// self-illumination; then the two a known custom shader reads
 /// ([`Effect`]): an alpha mask or lightmap, and a flow map.
-const SLOTS: usize = 8;
+pub(crate) const SLOTS: usize = 8;
 /// The slots the stock shaders read (the rest are a custom shader's).
 const STOCK_SLOTS: usize = 6;
 
@@ -183,6 +183,8 @@ struct Slots {
     no_env: bool,
     /// The MTR's `transparency`: the mesh is blended.
     transparency: bool,
+    /// The MTR's `parameter`s, which the game's shaders take by name.
+    params: Vec<(String, mg_image::mtr::Param)>,
     /// The MTR's `twosided`: its faces are drawn from behind too. Nothing
     /// else shows a face's back in the game: not a cut-out texture
     /// (`blending punchthrough`), not `decal` (seen in the client:
@@ -284,6 +286,15 @@ pub enum DebugView {
 #[derive(Debug)]
 pub struct Renderer {
     pub debug: DebugView,
+    /// Lit meshes are drawn with the game's own shaders (`vslit`/`fslit`
+    /// and their variants, compiled from the assets' `.shd`) where they
+    /// can be, Moonglow's own shader drawing the rest and any whose
+    /// program doesn't compile (`docs/shaders-proposal.md`, M1). Off by
+    /// default.
+    pub game_shaders: bool,
+    game: crate::game::GameShaders,
+    /// Each material's key, by its place among [`Renderer::groups`].
+    material_keys: Vec<MaterialKey>,
     /// Draws of one mesh are drawn as instances of one draw (on; off,
     /// each is drawn by itself, in the order they came in: to compare).
     pub instancing: bool,
@@ -351,6 +362,9 @@ pub struct Drawn {
     /// How many times a draw's material was another than the draw's
     /// before it.
     pub materials: usize,
+    /// The meshes drawn with the game's own shaders
+    /// ([`Renderer::game_shaders`]), each a draw of its own.
+    pub game: usize,
 }
 
 /// A line's end ([`crate::Line`]), in world space.
@@ -735,6 +749,9 @@ impl Renderer {
         });
         Renderer {
             debug: DebugView::Lit,
+            game_shaders: false,
+            game: crate::game::GameShaders::new(gpu),
+            material_keys: Vec::new(),
             instancing: true,
             color_format,
             sample_count,
@@ -786,7 +803,15 @@ impl Renderer {
         self.slots.clear();
         self.materials.clear();
         self.groups.clear();
+        self.material_keys.clear();
         self.surfaces.clear();
+        self.game.clear();
+    }
+
+    /// The game's shaders that couldn't be drawn ([`Renderer::game_shaders`]),
+    /// as `vs/fs` pairs or programs, and why: drawn with Moonglow's own.
+    pub fn game_shader_failures(&self) -> &[(String, String)] {
+        &self.game.failures
     }
 
     /// A mesh's texture slots and MTR parameters: an MTR named by the model,
@@ -826,6 +851,7 @@ impl Renderer {
             out.displacement_offset = f("DisplacementOffset");
             out.displacement_multiplier = f("DisplacementMultiplier");
             out.specular_color = custom_specular(mtr);
+            out.params = mtr.params.clone();
             let fs = mtr.shader_fs.as_deref().unwrap_or_default().to_ascii_lowercase();
             let known = EFFECT_SHADERS.iter().any(|known| fs.starts_with(known));
             out.transparency = mtr.transparency;
@@ -905,6 +931,7 @@ impl Renderer {
             ],
         });
         self.groups.push(group);
+        self.material_keys.push(key.clone());
         let at = self.groups.len() as u32 - 1;
         self.materials.insert(key.clone(), at);
         at
@@ -1160,6 +1187,30 @@ impl Renderer {
             time: [scene.time, 0.0, 0.0, 0.0],
         };
         gpu.queue.write_buffer(&self.frame_buffer, 0, bytemuck::bytes_of(&frame));
+        // What the game's shaders share across the frame's draws.
+        let game_frame = self.game_shaders.then(|| {
+            let (max_intensity_inv, falloff) = attenuation_params();
+            crate::game::FrameValues {
+                proj: camera.projection_gl(size.0 as f32 / size.1.max(1) as f32),
+                view,
+                size: (size.0.max(1) as f32, size.1.max(1) as f32),
+                near: camera.near,
+                far: camera.far,
+                area_ambient: scene.area.ambient,
+                area_diffuse: scene.area.diffuse,
+                area_direction: area_dir,
+                max_intensity_inv,
+                falloff,
+                fog,
+                fog_color: frame.fog_color,
+                seconds: scene.time,
+                eye: camera.eye,
+                target: camera.target,
+                fov_y: camera.fov_y,
+            }
+        });
+        self.game.begin();
+        let mut game_draws: Vec<crate::game::GameDraw<'_>> = Vec::new();
 
         // Lights in view space.
         let lights: Vec<LightUniform> = scene
@@ -1302,6 +1353,51 @@ impl Renderer {
                 for (j, (_, _, i)) in chosen.iter().enumerate() {
                     light_index[j / 4][j % 4] = *i;
                 }
+                // The game's own shaders, where they can draw it: a lit,
+                // solid mesh Moonglow's shader does nothing of its own for.
+                if let Some(f) = &game_frame
+                    && pass == Pass::Opaque
+                    && !is_sky
+                    && !inst.unlit
+                    && !surface.decal
+                    && slots.effect.is_none()
+                    && surface.ripple.is_none()
+                    && !surface.water
+                    && self.debug == DebugView::Lit
+                    && mesh.skin.as_ref().is_none_or(|s| s.bones.len() <= 64)
+                {
+                    let (vs, fs) = crate::game::lit_pair(slots.normal_variant, surface.reflects);
+                    let key = crate::game::PipelineKey {
+                        vs: vs.into(),
+                        fs: fs.into(),
+                        skinned: mesh.skin.is_some(),
+                        twosided: slots.twosided,
+                    };
+                    let (format, samples) = (self.color_format, self.sample_count);
+                    if let Some(p) = self.game.pipeline(gpu, assets, &key, format, samples) {
+                        let light_positions: Vec<[f32; 4]> =
+                            chosen.iter().map(|(_, _, i)| lights[*i as usize].pos).collect();
+                        let light_colors: Vec<[f32; 4]> =
+                            chosen.iter().map(|(_, _, i)| lights[*i as usize].color).collect();
+                        let d = crate::game::DrawValues {
+                            world,
+                            bones: &bones[bone_base as usize..],
+                            ambient: lin(mat.ambient).extend(1.0).to_array(),
+                            diffuse: lin(mat.diffuse).extend(alpha).to_array(),
+                            emissive: lin(emissive).extend(1.0).to_array(),
+                            bound: std::array::from_fn(|i| bound.get(i).copied().unwrap_or(false)),
+                            env_cube: surface.env_cube,
+                            alpha_discard: ALPHA_DISCARD,
+                            light_positions: &light_positions,
+                            light_colors: &light_colors,
+                            bbox: (mesh.min, mesh.max),
+                            params: &slots.params,
+                        };
+                        let draw = self.game.push(p, surface.material, mesh, dynamic_range, f, &d);
+                        game_draws.push(draw);
+                        continue;
+                    }
+                }
                 let normal = model_view.inverse().transpose();
                 let uniform = DrawUniform {
                     world: cols(world),
@@ -1417,7 +1513,12 @@ impl Renderer {
                 }
             }
         }
-        self.drawn = Drawn { meshes: draws.len(), hidden, ..Drawn::default() };
+        self.drawn = Drawn {
+            meshes: draws.len() + game_draws.len(),
+            hidden,
+            game: game_draws.len(),
+            ..Drawn::default()
+        };
         // Opaque (any order), then blended back to front by hint then depth,
         // then additive.
         draws.sort_by(|a, b| {
@@ -1473,7 +1574,7 @@ impl Renderer {
         }
         let (starts, order) = crate::batch::in_order(&batch_of, batcher.batches());
         self.batcher = batcher;
-        self.drawn.batches = starts.len() - 1;
+        self.drawn.batches = starts.len() - 1 + game_draws.len();
         // (Each instance's uniforms, by its number.)
         let named: Vec<u32> = order.iter().map(|&d| draws[d as usize].uniform).collect();
         upload(
@@ -1593,6 +1694,39 @@ impl Renderer {
             &line_vertices,
             0,
         );
+        // The game's shaders' blocks and bind groups.
+        if !game_draws.is_empty() {
+            self.game.upload(gpu);
+            let (white, white_cube) = (self.white.clone(), self.white_cube.clone());
+            let noise = self.texture(gpu, assets, "solid_noise");
+            let env_sampler = self.env_sampler.clone();
+            for d in &game_draws {
+                let key = self.material_keys[d.material as usize].clone();
+                let textures: Vec<Option<Arc<TextureEntry>>> = key
+                    .0
+                    .iter()
+                    .map(|n| n.as_deref().and_then(|t| self.texture(gpu, assets, t)))
+                    .collect();
+                let env = self.texture(gpu, assets, &key.1);
+                let sampler = self.sampler(gpu, key.2);
+                let (env_view, cube_view) = match &env {
+                    Some(t) if t.cube => (&white.view, &t.gpu.view),
+                    Some(t) => (&t.gpu.view, &white_cube.view),
+                    None => (&white.view, &white_cube.view),
+                };
+                let views = crate::game::MaterialViews {
+                    slots: std::array::from_fn(|i| textures[i].as_ref().map(|t| &t.gpu.view)),
+                    env: env_view,
+                    env_cube: cube_view,
+                    noise: noise.as_ref().map_or(&white.view, |t| &t.gpu.view),
+                    white: &white.view,
+                    white_cube: &white_cube.view,
+                    sampler: &sampler,
+                    env_sampler: &env_sampler,
+                };
+                self.game.prepare(gpu, d, &views);
+            }
+        }
         let bg = scene.background;
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         {
@@ -1629,9 +1763,17 @@ impl Renderer {
             // every draw was a quarter of drawing a large area.)
             let (mut pipeline, mut material) = (None, None);
             let mut materials = 0;
+            // The game's shaders' draws, after the solid ones of Moonglow's.
+            let mut game_drawn = game_draws.is_empty();
             for batch in starts.windows(2) {
                 // (A batch's draws are of one mesh and one material.)
                 let d = &draws[order[batch[0] as usize] as usize];
+                if !game_drawn && !matches!(d.pass, Pass::Sky | Pass::SkyFade | Pass::Opaque) {
+                    self.game.draw(&mut pass, &game_draws, &self.dynamic_buffer);
+                    game_drawn = true;
+                    pass.set_bind_group(0, &frame_group, &[]);
+                    (pipeline, material) = (None, None);
+                }
                 let key = (d.pass, d.mesh.skin.is_some(), d.twosided);
                 if pipeline != Some(key) {
                     pass.set_pipeline(&self.pipelines[&key]);
@@ -1653,6 +1795,9 @@ impl Renderer {
                 }
                 pass.set_index_buffer(d.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..d.mesh.index_count, 0, batch[0]..batch[1]);
+            }
+            if !game_drawn {
+                self.game.draw(&mut pass, &game_draws, &self.dynamic_buffer);
             }
             self.drawn.materials = materials;
             if !particle_draws.is_empty() {
