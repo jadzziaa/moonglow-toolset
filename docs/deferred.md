@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T17:53:49Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:26:25Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1186,48 +1186,47 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   out. M2 turns it on with the Shaders switch in the area view and the
   model viewer (off by default); `mgv` and Moonglow Viewer have none (M6).
   (from M1, 2026-10-21)
-  - **The WGSL port samples the environment map at the wrong level**,
-    found by the comparison with the stock shaders
-    (`the_game_s_lit_shaders_match_moonglow_s`): `inc_envmap`'s
-    `texture2D(texUnitEnv, uv, bias)` adds the roughness's
-    `clamp(r·30 − 1, 0, 10)` to the level the derivatives give, where
-    `shader.wgsl` samples at that level (`textureSampleLevel`). A
-    magnified map (most: 64² and smaller over a whole mesh) stays sharp in
-    the game and is blurred in Moonglow. Measured: `_sm` differs by 0.73
-    in 255 on average, 15 at the 99th percentile; with the bias applied
-    as GLSL applies it (derivatives taken at the start of `fs_main`, as
-    an experiment), 0.02 and 1. For `_nm` the game takes the derivatives
-    of the coordinates from the normal-mapped normal (1.11 and 11 now):
-    the normal map would have to be read before the shader's first
-    `discard`. Fixing it changes every reflecting mesh's look, so it
-    waits for a verdict; the test's tolerance for those two scenes says
-    why it is looser. (S)
+  - ~~**The WGSL port samples the environment map at the wrong
+    level**~~ Done in M4: the derivatives of the coordinates (from the
+    normal map's normal) are taken at `fs_main`'s start and scaled by
+    2^bias (`textureSampleGrad`): `_sm` 0.73 / 15 → 0.00 / 0 of 255,
+    `_nm` 1.11 / 11 → 0.08 / 2, the test's tolerance tightened. `_nm`'s
+    derivatives are the normal map's normal's before the parallax and the
+    bend of a normal facing away, which the game takes after (2 of 255 at
+    the 99th percentile). (S)
   - Solid and see-through lit meshes go through the game's programs
-    (M2); additive ones, the sky and its fade, decals, unlit markers,
-    water and ripples (unless their material names a pair), and skins of
-    more than 64 bones stay with the WGSL shader. (M4, M5)
+    (M2), decals too (`vsvt`/`fst`, M4); additive ones, the sky and its
+    fade, unlit markers, water and ripples (unless their material names a
+    pair), and skins of more than 64 bones stay with the WGSL shader.
+    (M5)
   - ~~Each game draw a draw of its own, its blocks written anew every
     frame, programs compiled on the UI thread.~~ Done in M3: blocks split
     in IR, draws as instances of storage arrays, compiles on a worker,
     a disk cache (see "The frame budget of the game's shaders").
-  - `NO_DISCARD` is 0 for every material (alpha-tested, as Moonglow's
-    shader draws them); the engine's choice per material is not known
-    (notes §M.10). Keyholing is compiled out (`KEYHOLING_ENABLED 0`):
-    the editor has no player. (M4)
+  - ~~`NO_DISCARD` is 0 for every material~~ Per material since M4, as
+    read from the client (notes §A.4). Keyholing is compiled out
+    (`KEYHOLING_ENABLED 0`): the editor has no player. (S)
   - `gl_FragCoord.y` counts from the top in wgpu and from the bottom in
-    OpenGL: not flipped. No stock lit program reads it but keyholing
-    (off); `fs_cg_btn_col` and screen-space custom shaders would see it
+    OpenGL: not flipped. No program the game path draws reads it: of the
+    stock ones keyholing (off), `fswater`, `fs_shadowplane`, `fsparticle`
+    and `fs_cg_btn_col` (none drawn by it), and none of The Domains of
+    Dread's 37 (checked in M4). A screen-space custom shader would see it
     upside down. (S)
-  - `m_texture` is the identity: a mesh's `rotatetexture` (tiles' UV
-    compensation) is applied by neither path. (S)
+  - ~~`m_texture` is the identity~~ Done in M4: a tile's `rotatetexture`
+    meshes have their texture turned by the tile's turn, in both paths
+    (read from the client: a placeable's never). The height map's
+    parallax direction (`inc_displacement` turns it by `mat2(m_texture)`)
+    is not turned in Moonglow's own shader. (S)
   - Values the editor has no source for are the game's defaults or
-    zero: `vColor`, `vStaticLightDir` (`staticLighting` 0), the module's
-    clock (12:00, 2 minutes an hour, dawn 6, dusk 18, not the module's
-    IFO), the weather (clear; M2 reads the area's flags and wind from the
-    ARE), wind sources, targeting,
-    `scriptable*`. The camera's `cameraPitch` and `cameraYaw` are taken
-    as degrees from straight down and from east, not checked in the
-    client. (M2)
+    zero: `vColor`, `vStaticLightDir` (`staticLighting` 0, as the client
+    has it at fragment lighting), the weather (clear; M2 reads the area's
+    flags and wind from the ARE), wind sources, targeting,
+    `scriptable*`. Since M4 the module's clock is its IFO's (as the client
+    starts it; the editor's doesn't run), `cameraYaw` anticlockwise from
+    north and `cameraPitch` from straight down (both read from the
+    client). The model viewer and previews have no module: noon, two
+    minutes an hour. `cameraViewAngle` is the editor's field of view (the
+    client's 45 is its setting's). (S)
   - `worldtimerTimeOfDay` counts real milliseconds and
     `sceneCurrentFrame` frames (measured, notes §B.4); Moonglow's clock
     starts both at 0 when the scene's time does. The client's timer has
@@ -1258,8 +1257,9 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     shader even when their material names a pair: the ghost would need a
     depth-only pipeline of the game's programs. (S)
   - `texture8`–`texture15` of a material are white to its programs
-    (Moonglow keeps eight slots); no TDoD shader reads past `texUnit6`.
-    (S)
+    (Moonglow keeps eight slots); no TDoD shader reads past `texUnit6`,
+    and none of its 18,146 materials, nor the game's 7, names one
+    (checked in M4). (S)
   - The two-part see-through split is Moonglow's, not the engine's (one
     blended draw); a custom shader that writes an alpha it means
     otherwise (not opacity) would be cut at 0.95. (S to check)
@@ -1316,9 +1316,7 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     shader draws until they are ready. Making the pipelines of the
     programs a module needs when it opens, or keeping the drivers'
     pipeline caches (wgpu's `PipelineCache`), would shorten it. (S)
-  - `texNoiseBound` is zero (the contract leaves it unfilled) while
-    `texUnitNoise` is bound to `solid_noise`; the game presumably sets it
-    to 1 where it binds the noise. (S to check in the client)
+  - ~~`texNoiseBound` is zero~~ 1 since M4, as read from the client.
   - `mg` and `mgv`'s previews compile the programs each run: no shader
     cache is set outside the window (`Renderer::set_shader_cache`). (S)
   - **Not yet run on Direct3D 12 or Metal:** the zero inputs read at
@@ -1339,6 +1337,58 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - The tests that compare pictures of the area view and the model
     viewer choose the switch off; only the switch tests and TDoD's wind
     test draw the game's shaders through the window. (S)
+- **The engine's choice of program (M4 of [the shaders
+  proposal](shaders-proposal.md)):** what M4 settled in the client and
+  left, and what it changed in Moonglow's own drawing. (from M4,
+  2026-10-21)
+  - **A static placeable's meshes** sharing a texture seemed to share
+    one `NO_DISCARD` in the client (the plain and transparency-hint cards
+    of a static copy were alpha-tested beside an `alpha 0.5` card of the
+    same texture): the game bakes static geometry into buckets (.37).
+    Moonglow decides it per mesh. Not worked out: which meshes share a
+    bucket, whether tiles' do (they are baked too). (S to check in the
+    client)
+  - Not read: an additive mesh's program (blended, the marker can't be
+    read), a decal with an environment map (`vsvt_sm`/`fst_sm`?
+    Moonglow draws `vsvt`/`fst`), an item's environment map (Moonglow's
+    previews give items `chrome1`), `fswater` (water stays Moonglow's,
+    M5), what `cameraFocus` holds (read back as (34.31, 20, 0) once). (S)
+  - **What Moonglow's own shader now draws otherwise** (both paths, as
+    the client draws): a texture's `bumpyshinytexture` reflects nothing
+    (33 of the game's TXIs name one; water keeps it for Moonglow's own
+    water, standing in for `fswater`); maps named without a render hint
+    are not read (21 of TDoD's 18,146 materials); a DXT1's transparent
+    texels are drawn black, opaque (TDoD has 690 DXT1 textures); a
+    32-bit TGA all opaque is solid (drawn among the solid meshes); every
+    lit mesh reflects the area's map (the tileset's `EnvMap`) where it
+    has none of its own, not `chrome1`; `default` in placeables.2da's
+    `Reflection` and appearance.2da's `ENVMAP` is the area's map (the
+    previews keep `default`; `chrome1` without an area). (S to look at in
+    the builders' areas)
+  - **NO_DISCARD and the dense view**: with each material's own, 826 of
+    the 16,605 game meshes of TDoD's synthetic woods seen whole are
+    `NO_DISCARD` 1 (its textures nearly all DXT5); its GPU time 16.6 ms
+    against 17.5 with 0 for all (same session): early depth was not what
+    made that view slow. It is still over the budget either way
+    (frame budget entry above). Pairs drawn both ways are compiled twice
+    (TDoD: 26 programs, 22 before). (M)
+  - `program_choice_in_the_client` reads the cards by where they should
+    be on the client's picture (the camera fitted to the reference room),
+    so a card behind something reads as that (a tree's leaves hid three
+    at first): the cards stand clear of the tcn01 tile's tree, and one
+    straddling its cut (DXT5 alpha) isn't read. (S)
+  - Against the client, the switch on is as close as off on the stock
+    scenes and closer on TDoD's room, but for its far floor (1.0 of 255
+    from the client on, 0.4 off), beside a dark wall where the fitted
+    camera is a fraction of a pixel off. Not chased. (S)
+  - `time_uniforms_in_the_client` fails now and then: the client's
+    window, screenshot every three seconds, gave a picture it had shown
+    before (the same frame count), leaving two of five. Alone it
+    passes. (S)
+  - Moonglow Viewer (builds on these crates by tag) meets new fields at
+    its next bump: `Instance::tile`, `Material::rotate_texture` and
+    `uvs`, `Environment::clock` (`ModuleClock`), `Renderer::game_programs`
+    (`GameProgram`); a struct literal without `..` stops compiling. (M6)
 - **A tileset's custom shader:** with the Shaders switch on (M2 above),
   the material's own programs draw it where their source is in the
   load order; off, Moonglow runs none (see Custom shader effects above).

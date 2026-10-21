@@ -1,9 +1,9 @@
 ---
 type: Proposal
 title: 'The game''s own shaders in the area view: a proposal for 2.0'
-description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies; M3 built - the Shaders switch on by default, every view within 144 fps where Moonglow's own shader is (a large stock area zoomed out 5.97 ms on, 3.97 off; a synthetic TDoD area seen whole, over the budget either way, 54 ms on, 29 off), through uniforms split in IR into a draw's, its lights', the frame's and the bones', draws as instances of storage arrays, compiles on a worker thread and a disk cache.
+description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies; M3 built - the Shaders switch on by default, every view within 144 fps where Moonglow's own shader is (a large stock area zoomed out 5.97 ms on, 3.97 off; a synthetic TDoD area seen whole, over the budget either way, 54 ms on, 29 off), through uniforms split in IR into a draw's, its lights', the frame's and the bones', draws as instances of storage arrays, compiles on a worker thread and a disk cache; M4 built - every mesh drawn with the program the engine chooses for it and its material's NO_DISCARD, read from the client by marking every stock program (36 kinds of mesh, Moonglow choosing as the client for each), the WGSL shader's environment map sampled as the game's (`_sm` 0.73 to 0.00 of 255 from the stock programs), a hak's inc_lighting through the load order (TDoD's area view), and the client's reference scenes compared with the switch off and on.
 tags: [proposal, rendering, shaders, custom-content, renderer, release-2]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T17:50:05Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:18:30Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -42,6 +42,9 @@ sources:
   - id: m3
     resource: crates/mg-shader/src/spirv.rs (add_spare_blocks, add_draw_index), link.rs (split_uniforms), cache.rs, crates/mg-render/src/game.rs, renderer.rs, crates/mg-ui/src/settings.rs (GAME_SHADERS_BY_DEFAULT), crates/mg-ui/tests/frame_perf.rs (game_shaders_frames_at_144), crates/mg-render/tests/render.rs (an_authored_glsl_pair_draws_on_this_platform_s_gpu), run 2026-10-21 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
     title: M3, the frame budget
+  - id: m4
+    resource: crates/mg-corpus-tests/tests/client_render/programs.rs (program_choice_in_the_client), client_render.rs (reference_scenes_match_the_client, the look tests off and on, tdod_custom_shaders_look), crates/mg-render/src/game.rs (stock_pair, no_discard), renderer.rs, shader.wgsl, crates/mg-render/tests/render.rs (the_game_s_lit_shaders_match_moonglow_s), crates/mg-ui/tests/app.rs (tdod_s_inc_lighting_changes_the_area_view_through_the_load_order), frame_perf.rs, run 2026-10-21 on 89.8193.37-17 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
+    title: M4, the engine's choice
   - id: wiki-shaders
     resource: ~/.local/opt/neverwinter/wiki/pages/NWN1/106856449-shaders-introduction-editing-a-textures-colour.md, 12027232-mtr.md
     title: 'nwn.wiki: Shaders Introduction (both programs needed), MTR (renderhint makes tangents)'
@@ -55,7 +58,9 @@ M1, the stock lit programs drawn beside Moonglow's shader
 ([M1: one stock pair drawn](#m1-one-stock-pair-drawn-2026-10-21)), and M2, tier A
 behind a **Shaders** switch ([M2: tier A](#m2-tier-a-2026-10-21)), and M3,
 the switch within the frame budget and **on by default**
-([M3: the frame budget](#m3-the-frame-budget-2026-10-21)).
+([M3: the frame budget](#m3-the-frame-budget-2026-10-21)), and M4, every
+mesh with the program the engine would choose, settled in the client
+([M4: the engine's choice](#m4-the-engines-choice-2026-10-21)).
 
 Moonglow draws with one WGSL shader of its own that approximates EE's
 lighting ([the plan](PLAN.md) §5.5). This proposes that 2.0 draws with
@@ -726,6 +731,200 @@ budget of the game's shaders").
 
 [^m3]: M3: the files in the frontmatter's `m3` source, measured 2026-10-21.
 
+## M4: the engine's choice (2026-10-21)
+
+With **Shaders** on, every mesh the game path draws uses the program pair
+the engine would choose for it, with its material's `NO_DISCARD`. Both
+were read from the client, not inferred.[^m4]
+
+**How it was read** (`program_choice_in_the_client`, `client_render.rs`,
+ignored). Every stock vertex and fragment program goes into the scratch
+user folder's `override` with its `main` wrapped. The post passes' and the
+PLT's are left out. The vertex program hands its number to the fragment
+program, which paints over what it drew: red is its own number, green the
+vertex program's, and blue the preamble's `NO_DISCARD`,
+`FRAGMENT_LIGHTING`, `KEYHOLING_ENABLED` and the turn of `m_texture`. What
+it discards stays discarded. Lit, textured fragments in a band near the
+picture's foot show the uniforms instead (the module's clock, the camera's
+angles, `m_texture`, `texNoiseBound`, the mean colour of the bound
+environment map). The scene is an exterior `tcn01` area with every tile
+turned a quarter. North of the player stand 36 cards, each a mesh of
+another kind, in front of a decal board, so that a missing card shows.
+Around them are the game's placeables with and without a `Reflection`,
+creatures with and without an appearance `ENVMAP`, a placeable turned a
+quarter, and a square lying under the band. Further runs moved the
+camera (the entry direction), set a `Reflection` on the square, and used
+DDS cards with all their levels (with a single level the client read
+noise past it). The test then draws the same module with Moonglow and
+**asserts that Moonglow chooses the client's pair and `NO_DISCARD` for
+each card read** (34 of 36: the additive card is blended, and one card
+straddles its own cut).
+
+**The rules** (the table, card by card, is notes §A.4[^notes-shaders]):
+
+- **Pairs.** A decal (TXI `decal 1`) draws with `vsvt`/`fst`: unlit,
+  without fog, `globalColor` white with the mesh's alpha. A mesh without
+  texture coordinates draws with `vslitnotex`, or `vslitnt_sm` when it
+  reflects. Everything else draws with `vslit`. It takes `_sm` for an
+  environment map: a TXI `envmaptexture` (`default` too), a
+  placeables.2da `Reflection` or an appearance `ENVMAP` (`default` too).
+  It takes `_nm` for a render hint, the model's or the MTR's. Vertex
+  colors never choose `vslitc*`, and no content mesh draws with `vsv`,
+  `vsvc` or `vsvtc`.
+- **What the engine ignores.** A texture's `bumpyshinytexture` changes
+  nothing. Normal and specular maps named without a render hint are not
+  read (`fslit` samples none). The tileset's `EnvMap` doesn't choose
+  `_sm`: it is the map bound to `texUnitEnv` for every lit mesh without
+  one of its own, the one its specular light reflects, and what `default`
+  means.
+- **`NO_DISCARD`** (open question 10) is 0, alpha-tested, without a
+  texture, with a texture whose alpha means opacity, with a mesh alpha
+  below 1, or with an MTR's `transparency`. Otherwise it is 1, and the
+  program's `discard`s are defined away. A TGA's alpha is read from its
+  texels: a 32-bit TGA all opaque is opaque. A standard DDS's comes from
+  its format: DXT1 has none (its transparent texels are drawn black),
+  DXT5 always has some. A TXI `alphamean` below 1 marks a texture as
+  having alpha. An environment-mapped texture's alpha is its
+  reflectivity, so it gives 1.
+- **The uniforms the band read.** `m_texture` turns a tile's
+  `rotatetexture` meshes by the tile's own turn. A turned placeable's
+  `rotatetexture` mesh keeps the identity. The module's clock is the
+  IFO's starting values. `cameraYaw` is anticlockwise from north (0 facing
+  north, −45 north-east) and `cameraPitch` is from straight down.
+  `texNoiseBound` is 1, `staticLighting` 0 and `areaGlobalWind`
+  (1.414, 1.414, 0) for a strong wind, as M2 had it.
+
+**Decided:**
+
+- `game::stock_pair` and `game::no_discard` hold the rules, and a unit
+  test holds the table. `NO_DISCARD` is a pipeline's: `PipelineKey`
+  carries it, the worker keeps programs by name, stage and `NO_DISCARD`,
+  and the disk cache needs no new format (its key is the assembled
+  text). A mesh whose alpha an animation lowers changes pipeline as it
+  does.
+- What the engine ignores is ignored in **both** paths, so Moonglow's own
+  shader draws as the client does too. Water keeps its
+  `bumpyshinytexture` for Moonglow's own water, which stands in for
+  `fswater` (M5). The previews keep `default` and the renderer resolves
+  it: the area's map, or `chrome1` without an area. DXT1's no-alpha is
+  `mg-image`'s, so a preview's picture agrees.
+- Decals join the game path. Additive meshes, the sky, markers and water
+  stay Moonglow's.
+- `m_texture` is applied in Moonglow's shader too: a `uv_turn` in the
+  draw's values, and the normal map's x and y turned back on the
+  model-tangent path, as `inc_standard` does. `Instance::tile` marks a
+  tile's instance.
+- Static placeables are drawn per mesh: the client's baking of a static
+  placeable's meshes together, which seemed to share one `NO_DISCARD`, is
+  recorded, not followed.
+- `gl_FragCoord.y` stays unflipped. No program the game path draws reads
+  it, and none of TDoD's 37 do. Texture slots 8 to 15 stay white: no
+  material on this machine names one (TDoD's 18,146, the game's 7).
+
+**The WGSL fallback's environment map** is now sampled as `inc_envmap`
+samples it, with the roughness's `clamp(r·30 − 1, 0, 10)` as a bias over
+the derivatives' level. The coordinates' derivatives, from the normal
+map's normal, are taken at `fs_main`'s start and scaled by 2^bias in
+`textureSampleGrad`, which needs no uniform control flow. Against the
+stock programs (`the_game_s_lit_shaders_match_moonglow_s`, mean / 99th
+percentile of 255):
+
+| Scene | Before | After |
+|---|---|---|
+| `_sm`, a sphere reflecting a map | 0.73 / 15 | **0.00 / 0** |
+| `_nm`, normal and specular maps, render hint | 1.11 / 11 | **0.08 / 2** |
+| the plain scenes (sphere, tile, placeable, wolf) | 0.01–0.12 / 0–1 | 0.00–0.01 / 0 |
+| M4's new: a decal; a sphere without coordinates; a tile turned a quarter with `rotatetexture` | | 0.00 / 0; 0.08 / 1; 0.00 / 0 |
+
+The tolerance is now 0.5 / 1, and 0.5 / 3 for `_nm`, whose derivatives
+are taken before the parallax and the bend of a normal facing away.
+Pictures looked at: the reflecting sphere's seams, sharp in the stock
+programs, are now sharp in Moonglow's too. A mutation check holds the
+turned tile to differ from an unturned one (more than 5,000 pixels).
+
+**A hak's include through the load order**
+(`tdod_s_inc_lighting_changes_the_area_view_through_the_load_order`,
+`mg-ui`, `MOONGLOW_HAKS`). The area is 4 by 4 of TDoD's `mst04` tiles in
+two modules, one listing `tdod_shaders.hak` over `tdod_t_tap` and one
+without. With the switch on, 259,475 of the view's 330,000 pixels differ.
+The diffuse-wrap `inc_lighting` draws the ground and the cliffs darker
+(mean brightness 50.6 against 63.5), and the ground's texture shows more
+contrast, since the wrap lets N·L go below zero (`DARKER_SHADOWS`). With
+the switch off, Moonglow's own shader draws both modules identically
+(63.9). The stock-include picture with the switch on (63.5) is within 0.4
+of the switch off. Pictures looked at:
+`target/test-output/ui-area-tdod-lighting/`.
+
+**Against the client** (the reference scenes and the look tests of
+`client_render.rs`, by hand on the off-screen display; each of Moonglow's
+pictures with the switch off and on beside the client's, the mean
+difference over the picture away from the GUI, of 255):
+
+| Scene | Switch off | Switch on |
+|---|---|---|
+| reference room, the sun (`reference_scenes_match_the_client`): regions' worst mean; the picture | 4.7; 5.91 | 4.7; 5.91 |
+| reference room, tile lights | 0.9; 5.05 | 0.9; 5.05 |
+| placeables (`placeables_look`) | 8.52 | 8.52 |
+| creatures (`creatures_look`) | 9.71 | 9.71 |
+| cut-outs and cards (`cutouts_look`) | 7.45 | 7.45 |
+| items on the floor (`items_look`; its camera isn't fitted) | 50.57 | 50.57 |
+| grass and the sky (`grass_and_sky_look`) | 14.71 | 14.71 |
+| an area's grass (`grass_overrides_look`) | 18.52 | 18.52 |
+| TDoD's fountain room (`tdod_custom_shaders_look`): the fountain's 7,091 pixels | 13.7 | **11.7** |
+| its centre floor, mean RGB (client 73.5, 68.8, 64.0) | 88.6, 82.5, 76.5 | **73.6, 68.8, 64.0** |
+| its left floor (client 36.2, 33.4, 31.8) | 39.3, 36.1, 34.1 | **36.7, 33.8, 32.2** |
+| its far floor (client 55.0, 49.1, 46.6) | 55.4, 49.1, 46.5 | 54.0, 48.4, 46.0 |
+
+On the stock scenes, on and off are within 0.01 of each other: the game's
+lit programs and Moonglow's port match within rounding (the M1 oracle).
+Only a few hundred pixels differ between them, by at most 14 to 58 at
+edges. On TDoD's room, on is the closer, as M2 found: its `inc_lighting`
+is drawn, and the centre floor now matches the client within 0.1 (M2:
+73.4, 69.0, 64.8). What is left there is the fountain's water (M5). The
+one region where on is farther is TDoD's far floor: 1.0 of 255 from the
+client against off's 0.4. It borders a dark wall where the fitted camera
+is a fraction of a pixel off (the reference test allows 6 there), so it
+was left. Everywhere else on is at least as close as off. The
+whole-picture means are the camera fit's as much as the shading's: a
+region's mean (floor, wall, armoire) agrees within 1 to 5 of 255.
+
+**Measured** (`frame_perf`, `game_shaders_frames_at_144`, release build,
+this machine; M3 rebuilt in this session for the baseline, one area a
+run, since a run of both areas came out up to 40% slower for the second):
+
+| View | M3 off | M3 on | M4 off | M4 on |
+|---|---|---|---|---|
+| TDoD woods, overview, wheel | 29.4 ms (GPU 5.7) | 56.4 (GPU 17.5) | 27.8 (5.9) | **52.0** (16.6) |
+| TDoD woods, turning, wheel | 46.3 | 50.4 | 43.4 | 48.7 |
+| TDoD woods, close, pointer | 3.92 | 5.30 | 3.69 | 5.14 |
+| TDoD woods, area parts: encoded / GPU | 29.1 / 9.57 | 38.6 / 9.74 | 26.8 / 9.86 | 37.3 / 9.47 |
+| area092, overview, wheel | 3.97 (M3's session) | 5.97 | 3.98 | **6.17** (worst 6.60) |
+| area092, turning, wheel | 4.21 | 5.01 | 4.28 | 5.47 |
+| area092, area parts: encoded / GPU | 2.57 / 0.96 | 4.01 / 1.00 | 2.64 / 1.12 | 4.22 / 1.17 |
+
+`NO_DISCARD` 1 goes to 2,060 of area092's 2,649 game meshes, but to only
+826 of the woods' 16,605, whose textures are nearly all DXT5. Its GPU
+time is 16.6 ms against 17.5 with 0 for every material, so early depth
+was not what made the woods slow (notes §M.10, M3's suspicion). Moonglow's
+own shader got a little quicker there (27.8 against 29.4 ms): DXT1 meshes
+left the see-through draws. Every view within the budget with the switch
+off stays within it on (area092's overview 6.17 ms). Opening costs more
+programs: area092 compiles 8 where it compiled 4, and makes 12 pipelines
+where it made 8 (87 ms of the worker's, 47 with the cache filled); TDoD
+26 and 27 (341 ms, 158 filled), for the pairs drawn both ways.
+
+**Tests:** `mg-render` holds the rules (`the_engine_s_choice_of_program_and_no_discard`),
+the camera's angles, a tile's `m_texture` in the block, maps unread
+without a render hint (`material_maps_shade`), and the oracle's new
+scenes; `mg-preview` keeps `default`; `mg-ui` holds the hak's include
+(TDoD) and the module clock in the area view; `program_choice_in_the_client`
+(ignored) holds Moonglow to the client card by card.
+
+What M4 leaves is in [the deferred list](deferred.md) ("The engine's
+choice of program").
+
+[^m4]: M4: the files in the frontmatter's `m4` source, run 2026-10-21.
+
 ## Two tiers
 
 - **Tier A, custom shaders.** A mesh whose MTR names
@@ -827,9 +1026,10 @@ Decided on 2026-10-21:[^decisions]
 - What the client's `worldtimerTimeOfDay` counts from (its rate is real
   milliseconds; its value follows the module's minutes an hour, not its
   hour or day: notes §B.4).
-- How the engine chooses `_sm` and plain programs, and when it uses
-  `fswater` (notes §M.12; needed for M4).
-- How the engine sets `NO_DISCARD` per material (notes §M.10; M2 keeps 0).
+- ~~How the engine chooses `_sm` and plain programs~~ and ~~how it sets
+  `NO_DISCARD`~~: read from the client in M4 (notes §A.4). Still open:
+  when it uses `fswater` (M5), and a static placeable's meshes baked
+  together.
 - What the toolset itself runs with: `FRAGMENT_LIGHTING`, quality,
   `MAX_NUM_LIGHTS` (notes §M.5). This only matters if Aurora's look is ever
   wanted rather than the game's.

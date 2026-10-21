@@ -3,11 +3,14 @@ type: Research Note
 title: 'NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)'
 description: The NWN:EE rendering and lighting pipeline read from the stock shaders - shader selection, vertex attributes and uniforms, texture slots, lighting equations, light sources, fog, shadows, gamma and tonemapping, keyholing - every claim tagged with its evidence.
 tags: [rendering, shaders, lighting, renderer]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T15:43:46Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:26:25Z }
 sources:
   - id: time-uniforms
     resource: crates/mg-corpus-tests/tests/client_render.rs (time_uniforms_in_the_client), run 2026-10-21 on 89.8193.37-17
     title: The time uniforms read back from the client
+  - id: program-choice
+    resource: crates/mg-corpus-tests/tests/client_render/programs.rs (program_choice_in_the_client), run 2026-10-21 on 89.8193.37-17
+    title: Every stock program marked in the client's override; the pair, NO_DISCARD and the uniforms read per kind of mesh
 ---
 
 # NWN:EE rendering and lighting pipeline: research notes (game 89.8193.37-17)
@@ -15,7 +18,7 @@ sources:
 Scope: what a from-scratch area renderer for Moonglow Toolset needs to match NWN:EE visuals.
 Evidence tags: **[SRC]** read in the effective stock `.shd` source; **[ENG]** strings in `nwmain-linux` / `nwtoolset.exe`;
 **[WIKI]** nwn.wiki (local mirror, see section L); **[CL]** game changelog / patch notes; **[DATA]** extracted 2DA/MDL/TXI/ARE;
-**[INF]** my inference, not verified.
+**[CLIENT]** read back from the running client (`client_render.rs`); **[INF]** my inference, not verified.
 
 Working copies (scratch, all read-only extracts):
 - shaders: `$SP/shaders/*.shd` (92 files, extracted with `nwn_resman_extract` + empty `--userdirectory` = effective highest-priority versions)
@@ -86,7 +89,7 @@ Other programs loaded by name elsewhere ([ENG]):
 - `fs_cg_btn_col` (with `vsvt`): only through `gui_cg_color.mtr`, the chargen colour button.
 
 Legacy / unreferenced, safe to ignore:
-- `vslitc*`: byte-identical defines to `vslit*`.
+- `vslitc*`: byte-identical defines to `vslit*`. [CLIENT] Never chosen: a mesh with vertex `colors` draws with `vslit` (§A.4).
 - `vslit_sk`, `vslit_sk_nm`: same as `vslit_sm` / `vslit_sm_nm`. Skinning is a runtime uniform (`skinmesh`), not a permutation.
 - `vswaterc`, `fsc_ls`, `fsc_sm`, `fstc_sm`.
 - The old full-screen passes `fsfbdof/fsfbgam/fsfblvls/fsfbshrp/fsfbvib` and their `vsfb*`, superseded by `fsfbpostpr` + `inc_postpr_*`.
@@ -113,17 +116,35 @@ Naming key ([WIKI] + [SRC]):
 1. **MTR** (`materialname` in the MDL, or an MTR whose name matches `bitmap`/`texture0`) with `customshaderVS` + `customshaderFS`: both must be given ([WIKI]). `customShaderGS` also exists ([ENG]).
    - [INF] One named alone is ignored: the mesh gets the stock pair of step 2. Evidence (shaders proposal, M2): 250 of The Domains of Dread's materials (217 armor parts in `tdod_fbr`) name `fslit_nm`, a fragment program, alone as `customshaderVS`; compiled as a vertex program it fails, and the game would draw those parts magenta, which it doesn't. Moonglow draws them so, and Verify's `shader-pair` warns.
    - With a render hint (MDL or MTR) the engine makes tangents for a mesh that has none ([WIKI] MTR); a binary model compiled without them gets them too [INF: TDoD's grass, binary without tangents, MTR `renderhint NormalAndSpecMapped`, would be black in the stock `_nm` programs otherwise: `SetupTSB` normalizes the tangent as it comes].
-2. Otherwise the engine picks a stock pair from mesh traits:
-   - lit or not
-   - has UVs or not
-   - environment map present (TXI `envmaptexture` / `bumpyshinytexture` / `cube`; appearance.2da `ENVMAP`; model envmap) → `_sm`
-   - `renderhint NormalAndSpecMapped|NormalTangents` (MDL or MTR) → `_nm`, and tangents + handedness are generated for ASCII models
-   - water TXI → `fswater`
-   - TXI `decal 1` → unlit ([CL] .21: "decal property actually disable lighting")
-   - GUI → `vsvt/fst`
-   - [INF] the exact decision tree is engine code; the list above covers what shows in the data.
+2. Otherwise the engine picks a stock pair from mesh traits. **Settled in the client** (89.8193.37-17, High Quality; `client_render.rs` `program_choice_in_the_client`, 2026-10-21: every stock `vs*`/`fs*` program but the post passes' and the PLT's was put in the scratch user directory's `override` with its `main` wrapped, the vertex program passing its number to the fragment program, which painted red = its own number × 8, green = the vertex program's, blue = the preamble's `NO_DISCARD`, `FRAGMENT_LIGHTING`, `KEYHOLING_ENABLED` and `m_texture`'s turn, over what it drew; 36 cards of authored meshes in a `tcn01` area with a decal board behind them, placeables, creatures, the floor) [CLIENT]:
+
+   | Mesh | Pair | `NO_DISCARD` |
+   |---|---|---|
+   | 24-bit TGA, no TXI; 32-bit TGA all opaque; DXT1 (opaque, or with transparent texels: drawn black) | `vslit`/`fslit` | 1 |
+   | 32-bit TGA with alpha in its texels; DXT5 (opaque texels too); `blending punchthrough` with alpha; TXI `alphamean 0.5` on an opaque 32-bit TGA | `vslit`/`fslit` | 0 |
+   | `blending punchthrough` on an opaque texture; `transparencyhint 1`; vertex `colors` | `vslit`/`fslit` | 1 |
+   | mesh `alpha 0.5`; MTR `transparency 1`; `bitmap NULL` (no texture) | `vslit`/`fslit` | 0 |
+   | TXI `envmaptexture chrome1` or `default` (an alpha texture too: alpha = reflectivity) | `vslit_sm`/`fslit_sm` | 1 (0 with mesh alpha) |
+   | TXI `bumpyshinytexture` (with an alpha texture: cut, `NO_DISCARD` 0) | `vslit`/`fslit`: ignored | 1 |
+   | TXI `decal 1` | `vsvt`/`fst` (unlit, FOG 0; `globalColor` = (1, 1, 1, mesh alpha): diffuse ignored, alpha blended) | 1 (0 with alpha) |
+   | no `tverts` (textured or not) | `vslitnotex`/`fslit` | 1 (0 untextured) |
+   | no `tverts`, `envmaptexture` | `vslitnt_sm`/`fslit_sm` | 1 |
+   | `renderhint NormalAndSpecMapped` (MDL or MTR, with or without maps) | `vslit_nm`/`fslit_nm` | 1 |
+   | render hint and `envmaptexture` | `vslit_sm_nm`/`fslit_sm_nm` | 1 |
+   | `texture1` (MDL or MTR) or an MTR's `texture2`, **without** a render hint | `vslit`/`fslit`: the maps are not read | 1 |
+   | placeables.2da `Reflection` `PLC_G_ENV` or `default` (treasure, mirror); appearance `ENVMAP` `default` (human) or `evmap_irrid` (diamond golem, mesh alpha 0.8: `NO_DISCARD` 0) | `vslit_sm`/`fslit_sm` | 1 |
+   | `Reflection`/`ENVMAP` none (armoire, badger); the tileset's floor under its `EnvMap` | `vslit`/`fslit` | 1 |
+   | `TXI blending additive` | blended: not readable this way | |
+
+   - **`vslitc*` are never chosen** (vertex colors draw `vslit`), nor `vsv`, `vsvc`, `vsvtc`, `vsvt_sm` for any content mesh; `vsvt`/`fst` is also the GUI's.
+   - **A tileset's `EnvMap` doesn't choose `_sm`** (§M.12): it is the map bound to `texUnitEnv` for every lit mesh without one of its own (read as its mean colour through the band: the floor's and a placeable's `texUnitEnv` were `tcn01__ref01`'s, not `chrome1`'s), and `default` (2DA `Reflection`/`ENVMAP`, TXI `envmaptexture default`) means it too. `bumpyshinytexture` changes nothing (not the program, not the map bound).
+   - **`NO_DISCARD`** (§M.10): 0 where the mesh may be cut or blended by its alpha: no texture, a texture with alpha (in its texels for TGA, by format for DDS: DXT5 yes, DXT1 never; a TXI `alphamean` below 1), a mesh alpha below 1, an MTR's `transparency`. An environment-mapped texture's alpha is not opacity: 1.
+   - **Static placeables** (`Static 1`): the plain and `transparencyhint` cards of a static copy came out `NO_DISCARD` 0, next to the `alpha 0.5` card of the same texture: since .37 static geometry is baked into buckets, and a see-through mesh among them seems to make the bucket alpha-tested [INF]. Moonglow draws per mesh and doesn't follow this (open, §M).
+   - The stock DDS reader reads past a single-level standard DDS (a 64² DXT1 with `mipMapCount` 0 drew noise at a distance); with all its levels it drew right.
+   - Moonglow implements this (`mg-render` `game::stock_pair`, `game::no_discard`, `Renderer::slots`/`surface`; the test asserts Moonglow's choice for each card read).
+   - water TXI → `fswater` [INF from [WIKI]+[DATA]: not read here; water is still Moonglow's own, M5]
 3. The old TXI way of naming shaders is deprecated ([WIKI] TXI/MTR).
-4. Engine-side variant keys beyond the file: `NO_DISCARD` (per material: alpha-tested, keyholed, transparent), plus the global quality and lighting defines. Base-game MTRs (7 in total):
+4. Engine-side variant keys beyond the file: `NO_DISCARD` (above), plus the global quality and lighting defines (the client here: `FRAGMENT_LIGHTING` 1, `KEYHOLING_ENABLED` 0 with keyholing off, quality 2). Base-game MTRs (7 in total):
    - ice (`tti01_*`): `vslit_sm/fslit_sm` with Metallicness 0.001, Specularity 0.0179
    - old heads: Specularity 0.04, Roughness 0.65
    - `gui_cg_color`
@@ -178,7 +199,7 @@ Derived in `inc_common` / `inc_config`:
 | `m_mv` | model→view (view-space lighting) |
 | `m_proj`, `m_proj_inv`, `m_view`, `m_view_inv`, `m_vp_inv` | as named. **Lighting is done in VIEW space** |
 | `m_m` | model→world (shadow/beam volume shaders) |
-| `m_texture` | UV transform; **only `mat2(m_texture)` is used** (rotation/flip, no translation) → `rotatetexture` tile-UV compensation. Normal map XY rotated by `transpose(mat2(m_texture))` |
+| `m_texture` | UV transform; **only `mat2(m_texture)` is used** (rotation/flip, no translation) → `rotatetexture` tile-UV compensation. Normal map XY rotated by `transpose(mat2(m_texture))`. [CLIENT] On a `tcn01` ground mesh (`rotatetexture 1`) of a tile at orientation 1: columns (0, 1), (−1, 0), translation 0: the tile's own quarter turn. The tiles' other meshes, and a placeable's `rotatetexture 1` mesh turned a quarter (GIT bearing π/2): the identity |
 | `m_normal`, `m_vp` | exist, unused by stock shaders |
 | `skinmesh` (int) | 1 = skinned |
 | `m_bones[MAX_NUM_BONES]` | mat4. Mobile uses `m_boneRotations` / `m_bonePositions` (quat + pos). Skinning: `pos = Σ w_i · (m_bones[idx_i] · vPos)`, same for normal/tangent via `mat3`, 4 influences |
@@ -240,17 +261,18 @@ Keyhole:
 Player and camera:
 - `playerPosition`, `playerCameraDist`, `playerInCutscene`, `playerOrientation`
 - `cameraPosition`, `cameraFocus`, `cameraPitch`, `cameraYaw`, `cameraViewAngle`, `cameraDialogState`
+- [CLIENT] The default camera behind a player facing north: `cameraPitch` 50 (degrees from straight down, towards a focus about 1.25 m above the player's feet), `cameraYaw` 0; facing north-east (`Mod_Entry_Dir` (0.707, 0.707)) `cameraYaw` −45: **degrees anticlockwise from north**, the facing − 90. `playerCameraDist` 20.83, the eye's distance from `playerPosition` (the feet); `cameraViewAngle` 45 (the client's FOV setting). The script's `SetCameraFacing` from the OnClientEnter didn't move this camera (the entry direction did).
 
 Time (both `int`; measured in the client, `client_render.rs` `time_uniforms_in_the_client`: read back through a patched `inc_standard` in five screenshots 3 s apart, each one's time measured, 89.8193.37-17, 2026-10-21):
 - `sceneCurrentFrame`: **the client's frame count**, 54–55 a second on the off-screen display (it follows the frame rate); about 370 some 7 s after the area was entered. Stock use: `fstc_sm`, `fs_cg_btn_col` (`/2048.0`, `/991.0` wobbles).
 - `worldtimerTimeOfDay`: **real milliseconds**, 999–1000 a second whatever the module's minutes an hour (2 or 10) — not game time. Its value follows neither the module's hour (13:00 and 06:00 gave the same) nor its day (1 and 15): about 424,800 a few seconds in at 2 minutes an hour and 3,304,900 at 10 (2,880,000 more: six game hours' worth at 8 more minutes an hour). The origin is not worked out [INF: a world timer started some game hours back]. Stock use: `vswater` (`× 0.001`: seconds), `inc_target` (throb); TDoD's wind shaders as a phase (`sin(y · t / fSwaySpeedMult)`) and as seconds (`/1000.0`), `shd_tooltip` (`> 0`).
-- `moduleYear/Month/Day/Hour`, `moduleDawnHour`, `moduleDuskHour`, `moduleMinutesPerHour`
+- `moduleYear/Month/Day/Hour`, `moduleDawnHour`, `moduleDuskHour`, `moduleMinutesPerHour`: [CLIENT] the module.ifo's `Mod_StartYear` (1372), `Mod_StartMonth` (4), `Mod_StartDay` (7), `Mod_StartHour` (13), `Mod_DawnHour` (5), `Mod_DuskHour` (19), `Mod_MinPerHour` (3), a few seconds after the module started (`program_choice_in_the_client`).
 - `moduleTimeIntoTransition`, `moduleTransitionTime`
 
 Area and weather:
 - `areaFlags` (1 interior, 2 underground, 4 natural)
 - `areaWeatherType` (0 clear, 1 rain, 2 snow), `areaWeatherDensity`
-- `areaGlobalWind` (vec3, magnitude²: 1 medium, 4 strong). From the ARE's `WindPower` 0/1/2 as (0, 0, 0), (0.707, 0.707, 0), (1.414, 1.414, 0) by The Domains of Dread's wind shaders' comments (`shd_windgrass_vs`: "Toolset Mid wind (0.707, 0.707, 0)"), which Moonglow uploads (M2) [INF: not read back from the client]. `areaFlags` is the ARE's `Flags`.
+- `areaGlobalWind` (vec3, magnitude²: 1 medium, 4 strong). From the ARE's `WindPower` 0/1/2 as (0, 0, 0), (0.707, 0.707, 0), (1.414, 1.414, 0) by The Domains of Dread's wind shaders' comments (`shd_windgrass_vs`: "Toolset Mid wind (0.707, 0.707, 0)"), which Moonglow uploads (M2). [CLIENT] `WindPower` 2 read back as (1.414, 1.414, 0); `areaWeatherType` 0 and `areaWeatherDensity` 0 with no weather chances. `areaFlags` is the ARE's `Flags` (0 for the exterior here).
 
 Wind sources (`MAX_WINDS=32`):
 - `windPointSourcesCount`
@@ -293,13 +315,16 @@ Script-driven:
 | 15 | `texUnitNoise` | noise: **`solid_noise.dds`** (bd_misc.bif, 1024², BC4/ATI1, 11 mips) [ENG]+[DATA] | raw |
 
 - `textureNBound` (int) exists per unit 0–10. Stock code checks 0–5 (a "not bound" slot may hold stale data [WIKI]).
+- `texNoiseBound` [CLIENT] 1 (read through a program including `inc_random`, which only keyholing, water and the post passes include).
+- The texture's alpha [CLIENT]: a TGA's by its texels (a 32-bit picture all opaque is opaque), a standard DDS's by its format (DXT1 none: its transparent texels are drawn black, opaque; DXT3/5 alpha whatever their texels), a TXI `alphamean` below 1 marking alpha (§A.4).
 - MTR `textureN` overrides MDL `bitmap`/`textureN`. `null` skips a slot. An MTR takes precedence over TGA/DDS/PLT of the same name.
 - For PLT, omit `texture0` in the MTR.
 
 Env map sources:
 - TXI `envmaptexture X` / `bumpyshinytexture X` (on the base texture's TXI)
 - appearance/wingmodel/tailmodel.2da `ENVMAP`
-- tileset `.set` `[GENERAL] EnvMap=` (area default, e.g. `tno01.set: EnvMap=ttr01__ref01`)
+- tileset `.set` `[GENERAL] EnvMap=` (area default, e.g. `tno01.set: EnvMap=ttr01__ref01`). [CLIENT] It is what `texUnitEnv` holds for every lit mesh without a map of its own (its specular reflection), and what `default` means; it doesn't choose `_sm` (§A.4).
+- [CLIENT] `bumpyshinytexture` is read for nothing (no `_sm`, not bound; with an alpha texture the alpha is opacity).
 - fallback **`chrome1`** (TGA 64×64, and a legacy BioWare-format DDS) ([ENG], [CL] .26)
 - Env maps are always bound for SPECULAR_LIGHT shaders; the code never checks `texEnvBound`.
 
@@ -725,7 +750,7 @@ See C and D.5.
 - MDL `animmesh` (animverts/animtverts) and emitters animate on the CPU.
 
 ### Tile specifics
-- `rotatetexture 1` (ground meshes): the engine counter-rotates UVs when the tile is rotated, through `m_texture` (and the normal map XY).
+- `rotatetexture 1` (ground meshes): the engine counter-rotates UVs when the tile is rotated, through `m_texture` (and the normal map XY). [CLIENT] tiles only (§B.2); Moonglow turns them in both its paths (M4).
 - `tilefade`: see I.
 - Animation dummy `<tile>a` holds animated meshes (static geometry otherwise). `Tile_AnimLoop1..3` toggle `animloop01..03` (day/night windows etc. [WIKI]).
 - Static tile geometry is combined into buckets and baked into world-space vertex data ([CL] .37).
@@ -879,7 +904,7 @@ Sources: CHANGELOG.md / patchnotes (85.32 → 37-17), `Neverwinter Nights Enhanc
 7. **Cubemap face order** for `filerange 6` (`name0..5`) and the axis convention (NWN is Z-up; `m_view_inv` reflection in world space).
 8. **Tile main-light overrides**: radius 10/5 is forced (E.6). Not checked: shadowradius 12/8, shadow 1, priority 4.
 9. **Shadow plane colour/alpha source** (`vColor` of the plane = ShadowOpacity?). How are static sun projections built? Only relevant if shadows are implemented.
-10. **SSAO composite blend mode**; the framebuffer format (RGBA8 vs 16F) with and without bloom; how `NO_DISCARD` is chosen per material.
+10. **SSAO composite blend mode**; the framebuffer format (RGBA8 vs 16F) with and without bloom. ~~How `NO_DISCARD` is chosen per material~~: answered in §A.4 [CLIENT]. Still open: a static placeable's meshes baked together sharing one (§A.4).
 11. `vso` is referenced by nwtoolset.exe but absent from resman. What does the toolset do with it?
-12. **Engine selection logic** for `_sm` vs plain (e.g. does an area/tileset default envmap force `_sm` on every tile, or only when a TXI or appearance asks?) and for `fswater` (TXI `bumpmaptexture shinywater` + setting).
+12. ~~**Engine selection logic** for `_sm` vs plain~~: answered in §A.4 [CLIENT] (a TXI's `envmaptexture` or the object's `Reflection`/`ENVMAP` choose `_sm`; the tileset's `EnvMap` doesn't, it is the map every lit mesh reflects). Still open: `fswater` (TXI `bumpmaptexture shinywater` + the setting), a decal with an environment map (`vsvt_sm`?), additive meshes (blended: the marker can't be read), items' environment map.
 13. **Procedural TXI textures** (arturo/cycle/water): exact CPU algorithms; the wiki has only descriptions.

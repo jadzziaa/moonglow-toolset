@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T17:50:38Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T19:26:25Z }
 ---
 
 # Areas
@@ -60,9 +60,11 @@ looking straight down at their middle, north up, as in Aurora.
   machine from the game and the module's haks, as the game draws: a
   material's custom shaders (its MTR's `customshaderVS` and
   `customshaderFS`: grass and leaves that sway in the wind, water that
-  flows, roofs that show only to a low camera indoors), and the game's
-  lit shaders for the rest, with a hak's changes to them (a hak that
-  replaces `inc_lighting` lights every surface its way). What moves by
+  flows, roofs that show only to a low camera indoors), and for the rest
+  the game's own programs, each mesh with the one the game chooses for
+  it (a decal unlit, a reflecting mesh's, a normal-mapped one's where
+  its model or material has a render hint), with a hak's changes to them
+  (a hak that replaces `inc_lighting` lights every surface its way). What moves by
   itself moves while the view is open. The wind is the area's (Area
   Properties › Wind Power), the indoor and outdoor flags its own. Off,
   Moonglow draws with its own shader, which looks like the game's stock
