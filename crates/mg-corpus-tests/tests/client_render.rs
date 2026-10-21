@@ -274,6 +274,57 @@ fn fitted_camera(pc: Vec3, fov: f32, focus: f32, distance: f32, pitch: f32) -> C
     }
 }
 
+/// How far a picture of Moonglow's is from the client's: the mean
+/// difference per channel (of 255) over the picture away from the game's
+/// GUI (its middle, from a tenth in at each side to seven tenths down).
+fn picture_difference(client: &Rgba, ours: &Rgba) -> f64 {
+    let (mut sum, mut n) = (0f64, 0f64);
+    let (w, h) = (client.width as usize, client.height as usize);
+    for y in h / 10..h * 7 / 10 {
+        for x in w / 10..w * 9 / 10 {
+            let i = (y * w + x) * 4;
+            sum += (0..3)
+                .map(|c| f64::from(client.data[i + c].abs_diff(ours.data[i + c])))
+                .sum::<f64>()
+                / 3.0;
+            n += 1.0;
+        }
+    }
+    sum / n.max(1.0)
+}
+
+/// Moonglow's pictures of a scene with the Shaders switch off (its own
+/// shader: `{name}.png`) and on (the game's: `{name}_on.png`), and how far
+/// each is from the client's ([`picture_difference`]), printed.
+#[allow(clippy::too_many_arguments)]
+fn off_and_on(
+    gpu: &Gpu,
+    game: &GameData,
+    scene: &Scene,
+    camera: &Camera,
+    (w, h): (u32, u32),
+    client: Option<&Rgba>,
+    dir: &Path,
+    name: &str,
+) {
+    let mut r = Renderer::new(gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+    let off = r.render_image(gpu, &game.resman, scene, camera, w, h);
+    r.game_shaders = true;
+    let on = r.render_image(gpu, &game.resman, scene, camera, w, h);
+    save_png(&off, &dir.join(format!("{name}.png")));
+    save_png(&on, &dir.join(format!("{name}_on.png")));
+    if let Some(c) = client {
+        eprintln!(
+            "{}/{name}: from the client's picture, Shaders off {:.2}, on {:.2} of 255 \
+             (failures {:?})",
+            dir.display(),
+            picture_difference(c, &off),
+            picture_difference(c, &on),
+            r.game_shader_failures()
+        );
+    }
+}
+
 /// Exploration (`MG_FIT=1`): the camera that matches the client's image best
 /// (grey levels, outside the GUI).
 fn fit_camera(r: &mut Renderer, gpu: &Gpu, game: &GameData, scene: &Scene, client: &Rgba) {
@@ -912,9 +963,7 @@ fn grass_and_sky_look() {
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join("moonglow.png"));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
@@ -1006,9 +1055,7 @@ fn grass_overrides_look() {
         let camera =
             fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
         let (w, h) = client.as_ref().map_or((1024, 768), |c| (c.width, c.height));
-        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-        let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-        save_png(&ours, &dir.join("moonglow.png"));
+        off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
         eprintln!("{variant}: {} (client {})", dir.display(), client.is_some());
     }
 }
@@ -1528,9 +1575,7 @@ fn placeables_look() {
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join("moonglow.png"));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
@@ -1607,9 +1652,7 @@ fn items_look() {
         .collect();
     let camera = fitted_camera(Vec3::new(20.0, 20.0, 0.0), c[3], c[2], c[0], c[1]);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join("moonglow.png"));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
@@ -1843,9 +1886,7 @@ fn creatures_look() {
         .collect();
     let camera = fitted_camera(Vec3::new(20.0, 20.0, 0.0), c[3], c[2], c[0], c[1]);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join("moonglow.png"));
+    off_and_on(&gpu, &game, &scene, &camera, (w, h), client.as_ref(), &dir, "moonglow");
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
@@ -2096,9 +2137,16 @@ fn cutouts_look() {
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
-    let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
-    save_png(&ours, &dir.join(format!("moonglow_{mode}.png")));
+    off_and_on(
+        &gpu,
+        &game,
+        &scene,
+        &camera,
+        (w, h),
+        client.as_ref(),
+        &dir,
+        &format!("moonglow_{mode}"),
+    );
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
