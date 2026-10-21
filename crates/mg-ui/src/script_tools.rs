@@ -276,6 +276,23 @@ pub fn byte_index(text: &str, chars: usize) -> usize {
     text.char_indices().nth(chars).map_or(text.len(), |(b, _)| b)
 }
 
+/// The character index `lines` lines down from `at` (up, if negative), in
+/// the same column or at the end of a shorter line; past the first line the
+/// text's start, past the last its end (Page Up and Page Down).
+pub fn line_moved(text: &str, at: usize, lines: isize) -> usize {
+    let starts: Vec<usize> = std::iter::once(0)
+        .chain(text.chars().enumerate().filter(|(_, c)| *c == '\n').map(|(i, _)| i + 1))
+        .collect();
+    let line = starts.partition_point(|s| *s <= at) - 1;
+    let target = line as isize + lines;
+    if target < 0 {
+        return 0;
+    }
+    let Some(start) = starts.get(target as usize) else { return text.chars().count() };
+    let end = starts.get(target as usize + 1).map_or(text.chars().count(), |s| s - 1);
+    (start + (at - starts[line])).min(end)
+}
+
 /// The character index of a byte index.
 pub fn char_index(text: &str, bytes: usize) -> usize {
     text[..bytes.min(text.len())].chars().count()
@@ -486,6 +503,23 @@ pub fn nss(name: &str) -> Option<ResKey> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn page_keys_move_by_lines_in_the_same_column() {
+        let text = "abcd\nx\nefgh\nij";
+        // From "c" (column 2) two lines down: "g".
+        assert_eq!(super::line_moved(text, 2, 2), 9);
+        // One down: the end of the short line "x".
+        assert_eq!(super::line_moved(text, 2, 1), 6);
+        // Back up from "g": "c".
+        assert_eq!(super::line_moved(text, 9, -2), 2);
+        // Past the first line, the start; past the last, the end.
+        assert_eq!(super::line_moved(text, 9, -10), 0);
+        assert_eq!(super::line_moved(text, 2, 10), text.chars().count());
+        // A cursor at a line's end (on its "\n") stays in that line.
+        assert_eq!(super::line_moved(text, 4, 2), 11);
+        assert_eq!(super::line_moved("", 0, 5), 0);
+    }
+
     #[test]
     fn tab_indents_and_shift_tab_outdents_the_selected_lines() {
         let text = "a\nb\nc\n";
