@@ -1802,6 +1802,110 @@ fn files_a_hak_already_has_are_asked_about_before_they_are_replaced() {
     assert_eq!(sizes(&h), [("mg_one.2da".to_string(), now), ("mg_two.2da".to_string(), two)]);
 }
 
+/// The side editors (a hak's, a 2DA's, a tileset's) ask of unsaved changes
+/// as the module does (Save, Don't Save, Cancel), and of each tab closed
+/// in turn: Close All with two changed haks asks of both, not only the
+/// last. Cancel keeps the tab open and asks no more.
+#[test]
+fn closing_two_changed_haks_asks_of_both() {
+    let dir = mg_testkit::scratch_dir("ui-hak-close-two");
+    let file = dir.join("mg_one.2da");
+    std::fs::write(&file, "2DA V2.0\n\n   Label\n0  one\n").unwrap();
+    let app = Moonglow::new(None, Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    for _ in 0..2 {
+        mg_ui::hak_view::new_hak(h.state_mut());
+        h.run();
+    }
+    let ids: Vec<u32> = h.state().haks.iter().map(|d| d.id).collect();
+    for (d, name) in h.state_mut().haks.iter_mut().zip(["first.hak", "second.hak"]) {
+        d.hak.path = Some(dir.join(name));
+        d.hak.add_files(std::slice::from_ref(&file));
+        assert!(d.hak.is_dirty());
+    }
+    let tabs = || ids.iter().map(|&id| Tab::Hak(id)).collect::<Vec<_>>();
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(tabs()));
+    h.run();
+    h.get_by_label("Save changes to first.hak?");
+    assert!(h.query_by_label_contains("1 more tab has unsaved changes").is_some());
+    assert!(h.query_by_label("Discard").is_none(), "said as the module's question says it");
+    h.get_by_label("Don't Save").click();
+    h.run();
+    assert!(h.state().dock.find_tab(&Tab::Hak(ids[0])).is_none(), "the first closed");
+    // The second is asked of too.
+    h.get_by_label("Save changes to second.hak?");
+    assert!(h.query_by_label_contains("more tab").is_none());
+    h.get_by_label("Cancel").click();
+    h.run();
+    assert!(h.query_by_label("Save changes to second.hak?").is_none());
+    assert!(h.state().dock.find_tab(&Tab::Hak(ids[1])).is_some(), "kept open");
+    assert_eq!(h.state().haks.len(), 1);
+    // Closed again and saved: written, and closed.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(tabs()));
+    h.run();
+    h.get_by_label("Save changes to second.hak?");
+    h.get_all_by_label("Save").last().unwrap().click();
+    h.run();
+    assert!(dir.join("second.hak").is_file());
+    assert!(!dir.join("first.hak").exists(), "the first was not saved");
+    assert!(h.state().haks.is_empty());
+    assert!(h.state().dock.find_tab(&Tab::Hak(ids[1])).is_none());
+}
+
+/// Undo and Redo over a hak's editor are the hak's (Ctrl+Z, Ctrl+Shift+Z),
+/// not the module's: with the pointer over it, even with nothing of the
+/// hak's left to undo. Away from it, they are the module's again.
+#[test]
+fn undo_over_a_hak_editor_is_the_hak_s() {
+    let dir = mg_testkit::scratch_dir("ui-hak-undo");
+    let file = dir.join("mg_one.2da");
+    std::fs::write(&file, "2DA V2.0\n\n   Label\n0  one\n").unwrap();
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1800.0, 1000.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run();
+    mg_ui::hak_view::new_hak(h.state_mut());
+    h.run();
+    h.state_mut().haks[0].hak.add_files(std::slice::from_ref(&file));
+    h.run();
+    let items = |h: &Harness<'_, Moonglow>| h.state().haks[0].hak.items().len();
+    let module_step =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    assert_eq!((items(&h), module_step(&h).as_deref()), (1, Some("A table")));
+    let ctrl = egui::Modifiers::COMMAND;
+    h.hover_at(h.get_by_label("Add Files…").rect().center());
+    h.run();
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run();
+    assert_eq!(items(&h), 0, "the hak's step undone");
+    assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
+    // Nothing of the hak's to undo: nothing is, not the module's.
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run();
+    assert_eq!(module_step(&h).as_deref(), Some("A table"));
+    h.key_press_modifiers(ctrl | egui::Modifiers::SHIFT, egui::Key::Z);
+    h.run();
+    assert_eq!(items(&h), 1, "redone");
+    // Away from the editor (over the module tree), the module's.
+    h.hover_at(h.get_by_label("Areas (1)").rect().center());
+    h.run();
+    h.key_press_modifiers(ctrl, egui::Key::Z);
+    h.run();
+    assert_eq!(items(&h), 1);
+    assert_ne!(module_step(&h).as_deref(), Some("A table"), "the module's step undone");
+}
+
 /// The hak editor's Compile Models compiles the hak's models kept as
 /// text, one step to undo; a model whose supermodel is nowhere stays as
 /// text and is named in the log, and a compiled model shows as text.
@@ -5140,7 +5244,7 @@ fn the_editors_cancel_sets_back_what_they_changed() {
         h.get_by_label(press).click();
         h.run_steps(4);
         if press == "Cancel" {
-            h.get_by_label("Discard").click();
+            h.get_by_label("Don't Save").click();
             h.run_steps(4);
         }
         assert!(h.state().dock.find_tab(&Tab::Table(id)).is_none(), "closed by {press}");
@@ -18765,6 +18869,54 @@ fn a_table_s_cells_are_selected_and_its_columns_changed() {
     assert_eq!(table_of(&h, id).columns(), ["Costs", "Label"], "a step to take back");
 }
 
+/// Undo and Redo in a 2DA's grid go through the keymap: a key given to
+/// Undo in Options › Keyboard reaches the grid that has the keys (the
+/// pointer elsewhere), and takes the table's step back, not the module's.
+#[test]
+fn a_rebound_undo_key_reaches_a_table_s_grid() {
+    let dir = mg_testkit::scratch_dir("ui-table-undo-key");
+    let path = sample_module(&dir);
+    let mut app = app_with(Vec::new());
+    app.settings.no_last_area = true;
+    app.settings.key_bindings.insert("undo".into(), vec!["Ctrl+Alt+U".into()]);
+    app.open_module(&path);
+    let key = ResKey::parse("mystore", ResType::TWODA).unwrap();
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new(
+        "A table",
+        vec![mg_edit::Edit::SetResource { key, data: Some(SMALL_TABLE.to_vec()) }],
+    )));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1800.0, 1000.0))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let id = mg_ui::table_view::open_in_module(h.state_mut(), key).unwrap();
+    h.run_steps(4);
+    let module_step =
+        |h: &Harness<'_, Moonglow>| h.state().ws.as_ref().unwrap().can_undo().map(str::to_string);
+    // A cell emptied in the grid, which has the keys.
+    h.get_by_label("Bread").click();
+    h.run_steps(2);
+    h.key_press(egui::Key::Delete);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), None);
+    // The pointer away over the module tree: the keys are the grid's still.
+    h.hover_at(h.get_by_label("Areas (1)").rect().center());
+    h.run_steps(2);
+    // Ctrl+Z is not Undo's key now: nothing.
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), None);
+    // Its new key is: the table's step, not the module's.
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::ALT, egui::Key::U);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), Some("Bread"), "the table's undo");
+    assert_eq!(module_step(&h).as_deref(), Some("A table"), "not the module's");
+    // Redo's other key, Ctrl+Shift+Z, reaches it too.
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::Z);
+    h.run_steps(2);
+    assert_eq!(table_of(&h, id).get(0, "Label"), None, "redone");
+}
+
 /// A table with a description beside it (`name.2da.toml`): its cells are
 /// held to what the description says, values show by their names, and a
 /// cell is chosen from its list or ticked from its flags, which a
@@ -19227,6 +19379,11 @@ fn a_module_s_table_is_edited_cell_by_cell() {
     // empty rows after its last.)
     assert_eq!(stored(&mut h).rows[..], table_of(&h, id).rows[..2]);
     assert!(h.query_by_label("(unsaved)").is_none(), "saved: not marked");
+    // (Closed, the table's grid has the keys no more: Undo is the
+    // module's.)
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
+    h.run_steps(2);
+    assert!(h.state().tables.is_empty(), "saved: closed without a question");
     h.state_mut().actions.push(mg_ui::Action::Undo);
     h.run_steps(3);
     assert_eq!(stored(&mut h).get(1, "Label"), Some("Cheese"), "the module's Undo takes the save");
@@ -19313,7 +19470,7 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     (doc.selected, doc.typing) = (Some((0, 1)), Some("Bun".into()));
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(loose)]));
     h.run_steps(3);
-    h.get_by_label("loose.2da has unsaved changes.");
+    h.get_by_label("Save changes to loose.2da?");
     h.get_all_by_label("Save").last().unwrap().click();
     h.run_steps(3);
     assert!(std::fs::read_to_string(&file).unwrap().contains("Bun"), "saved what was typed");
@@ -19327,8 +19484,8 @@ fn a_hak_s_table_and_a_file_s_are_saved_where_they_live() {
     h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(loose)]));
     h.run_steps(3);
     let _ = tab;
-    h.get_by_label("loose.2da has unsaved changes.");
-    h.get_by_label("Discard").click();
+    h.get_by_label("Save changes to loose.2da?");
+    h.get_by_label("Don't Save").click();
     h.run_steps(3);
     assert!(h.state().tables.iter().all(|d| d.id != loose));
     assert!(std::fs::read_to_string(&file).unwrap().contains("Bread"), "discarded");

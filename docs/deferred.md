@@ -1657,6 +1657,17 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 - **Sharing key sets:** Options › Keyboard › Export… and Import… write
   and take the keys chosen as a file; the dialogs themselves weren't
   driven.
+- **Undo's name for a side editor's step:** with the pointer over a
+  hak's, a 2DA's, a tileset's or the talk table's editor, or the keys in
+  a 2DA's grid, Edit › Undo and Redo (and the toolbar's) are that
+  editor's, and say plain "Undo" rather than the step (the module's step
+  is named; the hak's and the 2DA's have names to give, the tileset's
+  and the talk table's none). The tileset's editor has no test of its
+  own for its keys (it shares the hak's path, `side_doc.rs`). A text
+  field in one of these editors that has the keyboard but has not been
+  typed in since it took it (the Find field, clicked again) passes
+  Undo's key to the editor's step, as fields elsewhere pass it to the
+  module's; the 2DA grid's own reading of Ctrl+Z left it to the field. (S)
 
 ## NUI Creator (the review of its pull request, October 2026)
 
@@ -2088,25 +2099,11 @@ of truth, and does each caller's difference matter.
   `creature.rs:704`, `levelup_view.rs:84`, `creature_lists.rs:629`,
   `search.rs:242`, `store.rs:256`, `:314`). One `widgets::row_choice`
   and `mg_rules::choice_text`. (M)
-- **The side editors' unsaved work, close and undo (hak, 2DA,
-  tileset):** the "has unsaved changes" window three times
-  (`hak_view.rs:768`, `table_view.rs:2101`, `tileset_view.rs:790`), with
-  three `*_closing` fields, three arms of `may_close`, three
-  `unsaved`/`save_all` pairs; one slot each, so Close All with two
-  changed haks asks of the last only; they say Discard where the
-  module's says Don't Save. Undo: the talk table's goes through
-  `Action::Undo` and the keymap; the 2DA grid reads Ctrl+Z and Ctrl+Y by
-  hand (`table_view.rs:1100`: a key set in Options › Keyboard and
-  Ctrl+Shift+Z don't reach it); the hak and tileset editors have buttons
-  alone, and Ctrl+Z over them undoes the module's last change. A
-  `SideDoc` trait, one closing window with a queue, and one
-  `local_undo`. (M)
 - **Dialog windows built by hand:** `widgets::window` and
   `widgets::dialog` exist; `script_wizard.rs:916`, `module_props.rs:690`,
-  `palette_categories.rs:194`, `hak_view.rs:718`, `:777`, `outside.rs:363`,
-  `references.rs:681`, `table_view.rs:2110`, `model_view.rs:270`,
-  `tileset_view.rs:799` are one of them by hand, and six more
-  (`store_wizard.rs:141`, `:348`, `levelup_view.rs:87`,
+  `palette_categories.rs:194`, `hak_view.rs:696`, `outside.rs:363`,
+  `references.rs:681`, `model_view.rs:270` are one of them by hand, and
+  six more (`store_wizard.rs:141`, `:348`, `levelup_view.rs:87`,
   `faction_view.rs:257`, `:290`, `NameWindow` at `widgets.rs:1268`)
   repeat a movable variant with no helper; `creature_wizard.rs:257`
   and `situated.rs:247` (an `egui::Modal`) are two more styles, and

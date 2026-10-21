@@ -198,7 +198,7 @@ impl TableDoc {
         self.selected = Some(to);
     }
 
-    fn changed(&mut self) {
+    pub(crate) fn changed(&mut self) {
         self.revision += 1;
         self.references = None;
     }
@@ -540,20 +540,6 @@ pub fn save(app: &mut Moonglow, id: u32) -> bool {
     }
 }
 
-/// Whether a table in the editor has changes not saved where it lives.
-pub(crate) fn unsaved(app: &Moonglow) -> bool {
-    app.tables.iter().any(TableDoc::has_unsaved)
-}
-
-/// Saves every table with unsaved changes where it lives (with the
-/// module's Save).
-pub(crate) fn save_all(app: &mut Moonglow) {
-    let ids: Vec<u32> = app.tables.iter().filter(|d| d.has_unsaved()).map(|d| d.id).collect();
-    for id in ids {
-        save(app, id);
-    }
-}
-
 /// Save As File…: the table written to a file, which is its home from
 /// then on.
 fn save_as_file(app: &mut Moonglow, id: u32) {
@@ -772,10 +758,7 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui, id: u32) {
         // no Undo bringing a table's back.)
         Some(crate::blueprint::Pressed::Cancel) => {
             app.tables[at].commit();
-            if app.tables[at].edit.is_dirty() {
-                app.table_closing = Some(id);
-            } else {
-                app.tables.retain(|d| d.id != id);
+            if app.may_close_side(&Tab::Table(id)) {
                 app.actions.push(Action::CloseTab(Tab::Table(id)));
                 return;
             }
@@ -1075,7 +1058,8 @@ fn keys_table(ctx: &egui::Context) -> Option<u32> {
 /// The keys in the grid, from a click on a cell: the arrows, Tab, Page Up
 /// and Down, Home and End move; Enter or F2 types into the cell, Delete
 /// empties it; Ctrl+C copies it, Ctrl+V pastes cells from there on;
-/// Ctrl+Z and Ctrl+Y are the table's while the keys are in its grid.
+/// Undo and Redo (Ctrl+Z and Ctrl+Y, or the keys they have in Options ›
+/// Keyboard) are the table's while the keys are in its grid.
 fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
     let doc = &mut app.tables[at];
     // "Go to the next wrong cell", from the header's button.
@@ -1095,18 +1079,10 @@ fn keys(app: &mut Moonglow, ui: &mut Ui, at: usize) {
             take_keys(ui.ctx(), doc.id);
         }
     }
-    // Undo and Redo are the table's while the keys are in its grid.
-    let mine = keys_are(ui.ctx(), Keys::Table) && keys_table(ui.ctx()) == Some(doc.id);
-    if mine && doc.typing.is_none() && !ui.ctx().egui_wants_keyboard_input() {
-        let (undo, redo) = ui.input_mut(|i| {
-            (
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z),
-                i.consume_key(egui::Modifiers::COMMAND, egui::Key::Y),
-            )
-        });
-        if undo && doc.edit.undo() || redo && doc.edit.redo() {
-            doc.changed();
-        }
+    // Undo and Redo are the table's while the keys are in its grid (the
+    // keymap's, through `Moonglow::local_undo`).
+    if keys_are(ui.ctx(), Keys::Table) && keys_table(ui.ctx()) == Some(doc.id) {
+        app.undo_keys = Some(Tab::Table(doc.id));
     }
     if !keys_are(ui.ctx(), Keys::Table) || doc.typing.is_some() {
         return;
@@ -2096,43 +2072,5 @@ fn taking_window(app: &mut Moonglow, ctx: &egui::Context, at: usize, others: &[(
         doc.taking = None;
     } else {
         doc.taking = (open && !cancelled).then_some(taking);
-    }
-}
-
-/// Asks what to do with a table's unsaved changes when its tab is closed.
-pub(crate) fn closing_window(app: &mut Moonglow, ctx: &egui::Context) {
-    let Some(id) = app.table_closing else { return };
-    let Some(doc) = app.tables.iter().find(|d| d.id == id) else {
-        app.table_closing = None;
-        return;
-    };
-    let title = doc.key.to_string();
-    let mut answer = None;
-    egui::Window::new("Unsaved Table")
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(format!("{title} has unsaved changes."));
-            ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    answer = Some(true);
-                }
-                if ui.button("Discard").clicked() {
-                    answer = Some(false);
-                }
-                if crate::widgets::cancel(ui) {
-                    app.table_closing = None;
-                }
-            });
-        });
-    let Some(keep) = answer else { return };
-    app.table_closing = None;
-    if keep && !save(app, id) {
-        return;
-    }
-    app.tables.retain(|d| d.id != id);
-    if let Some(t) = app.dock.find_tab(&Tab::Table(id)) {
-        app.dock.remove_tab(t);
     }
 }

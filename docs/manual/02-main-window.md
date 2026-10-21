@@ -3,7 +3,7 @@ type: Manual Page
 title: The main window
 description: The main window - menus, keyboard shortcuts, the module tree, tabs and windows, the palette, the resource browser, the model viewer and the log.
 tags: [manual, window, shortcuts]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T08:28:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:37:34Z }
 ---
 
 # The main window
@@ -225,8 +225,10 @@ used for as long as Ctrl is held: one press goes back to the tab before,
 and again returns), and Ctrl+Shift+T opens the tab
 closed last again (the last twenty are kept; one whose area or script is
 gone from the module is passed over). A middle click on a tab closes it.
-A hak or a tileset with unsaved changes asks first, as its close button
-does.
+A hak, a 2DA or a tileset with unsaved changes asks first, as its close
+button does, and as the module asks: **Save**, **Don't Save** or
+**Cancel**. Closing several at once (Close All) asks of each in turn;
+Cancel keeps that one and the rest open.
 
 **A window opens where one of its kind was last dragged to.** Drag a
 window by its tab into the main pane (beside the areas' tabs) or into
@@ -276,6 +278,11 @@ module (and undoable) the moment you make it. **Save** writes the module.
 
 **Undo and redo** cover every change, in every editor, without limit: a
 field typed into, an object moved, a tile painted, a script compiled.
+The editors of files of their own (a hak, a 2DA, a tileset, the talk
+table) keep their own steps: Undo and Redo, by their keys (Ctrl+Z,
+Ctrl+Y and Ctrl+Shift+Z, or those set in Options › Keyboard), are that
+editor's with the pointer over it (and a 2DA's while the keys are in
+its grid), and never the module's last change there.
 
 ## The palette
 

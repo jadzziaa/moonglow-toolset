@@ -268,6 +268,11 @@ impl Viewer<'_> {
         if escape && !recording && (model || (front && !tool)) {
             self.app.actions.push(crate::Action::CloseTab(tab.clone()));
         }
+        // (A side editor's Undo and Redo are its own with the pointer over
+        // it.)
+        if crate::side_doc::is_side(tab) {
+            crate::side_doc::note_pointer(self.app, ui, tab);
+        }
         match tab {
             Tab::Welcome => welcome(self.app, ui),
             Tab::NoArea => no_area(self.app, ui),
@@ -508,7 +513,8 @@ impl TabViewer for Viewer<'_> {
         }
     }
 
-    /// A hak with unsaved changes asks first; a closed hak is let go.
+    /// A side editor with unsaved changes asks first; a closed one is let
+    /// go.
     fn on_close(&mut self, tab: &mut Tab) -> egui_dock::tab_viewer::OnCloseResponse {
         use egui_dock::tab_viewer::OnCloseResponse;
         if self.app.may_close(tab) {

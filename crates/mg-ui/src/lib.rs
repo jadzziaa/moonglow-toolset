@@ -53,6 +53,7 @@ mod script_view;
 pub mod script_wizard;
 pub mod search;
 pub mod settings;
+mod side_doc;
 pub mod store_wizard;
 pub mod table_view;
 mod tabs;
@@ -433,11 +434,7 @@ pub struct Moonglow {
     pub(crate) next_table: u32,
     /// The Open 2DA window.
     pub open_table: Option<table_view::OpenTable>,
-    /// A table whose tab was asked to close with unsaved changes.
-    pub(crate) table_closing: Option<u32>,
     pub(crate) next_hak: u32,
-    /// A hak whose tab is being closed with unsaved changes.
-    pub(crate) hak_closing: Option<u32>,
     /// Module Properties › Custom Content: the hak list's rows chosen.
     pub hak_list: module_props::HakList,
     /// Where Build Hak from Folder suggests saving.
@@ -449,8 +446,16 @@ pub struct Moonglow {
     /// Tilesets open in the tileset editor.
     pub tilesets: Vec<tileset_view::TilesetDoc>,
     pub(crate) next_tileset: u32,
-    /// A tileset whose tab is being closed with unsaved changes.
-    pub(crate) tileset_closing: Option<u32>,
+    /// The side editors' tabs (a hak's, a 2DA's, a tileset's) closed with
+    /// unsaved changes, waiting in turn for the question to be answered
+    /// (`side_doc::closing_window`).
+    pub(crate) side_closing: std::collections::VecDeque<Tab>,
+    /// The side editor (or the talk table's) under the pointer, as drawn
+    /// this frame: Undo and Redo are its (`Moonglow::local_undo`).
+    pub(crate) undo_under_pointer: Option<Tab>,
+    /// The 2DA grid that has the keys, as drawn this frame: Undo and Redo
+    /// are its, the pointer over no side editor.
+    pub(crate) undo_keys: Option<Tab>,
     pub model_views: HashMap<model_view::Source, model_view::ModelView>,
     /// The Palette Categories window, when open.
     pub palette_categories: Option<palette_categories::PaletteCategories>,
@@ -757,15 +762,15 @@ impl Moonglow {
             tables: Vec::new(),
             next_table: 0,
             open_table: None,
-            table_closing: None,
-            hak_closing: None,
             hak_list: Default::default(),
             suggested_hak: None,
             attach: None,
             publish: None,
             tilesets: Vec::new(),
             next_tileset: 0,
-            tileset_closing: None,
+            side_closing: Default::default(),
+            undo_under_pointer: None,
+            undo_keys: None,
             model_views: HashMap::new(),
             palette_categories: None,
             area_names: Default::default(),
@@ -1077,8 +1082,10 @@ impl Moonglow {
             }
             // (The dock is out of reach while its tabs are drawn: the model
             // windows open, for a page that shows a model unless one is.)
-            // (Set again by the talk table's editor, if it is drawn.)
-            self.talk_view.hovered = false;
+            // (Set again by the side editors and the talk table's, if they
+            // are drawn.)
+            self.undo_under_pointer = None;
+            self.undo_keys = None;
             self.open_models = self
                 .dock
                 .iter_all_tabs()
@@ -1138,14 +1145,12 @@ impl Moonglow {
         palette_categories::window(self, ui.ctx());
         bulk::update_window(self, ui.ctx());
         area_props::chooser_window(self, ui.ctx());
-        hak_view::closing_window(self, ui.ctx());
-        table_view::closing_window(self, ui.ctx());
+        side_doc::closing_window(self, ui.ctx());
         table_view::open_table_ui(self, ui.ctx());
         hak_view::adding_window(self, ui.ctx());
         model_view::export_window(self, ui.ctx());
         module_props::attach_window(self, ui.ctx());
         nwsync_view::window(self, ui.ctx());
-        tileset_view::closing_window(self, ui.ctx());
         bulk::text_window(self, ui.ctx());
         levelup_view::window(self, ui.ctx());
         creature_wizard::window(self, ui.ctx());
@@ -1456,8 +1461,9 @@ impl Moonglow {
         self.show_panel(commands::Id::ViewPalettes, true);
     }
 
-    /// Whether a tab may close now, letting go of what it held: a hak or a
-    /// tileset with unsaved changes asks first, and stays for the answer.
+    /// Whether a tab may close now, letting go of what it held: a side
+    /// editor's (a hak, a 2DA, a tileset) with unsaved changes asks first,
+    /// and stays for the answer.
     pub(crate) fn may_close(&mut self, tab: &Tab) -> bool {
         // (Closed, its draft goes: Cancel.)
         if *tab == Tab::Options {
@@ -1466,38 +1472,14 @@ impl Moonglow {
         if *tab == Tab::TileProperties {
             self.tile_props = None;
         }
-        if let Tab::Hak(id) = *tab {
-            if self.haks.iter().any(|d| d.id == id && d.hak.is_dirty()) {
-                self.hak_closing = Some(id);
-                return false;
-            }
-            self.haks.retain(|d| d.id != id);
-        }
-        if let Tab::Table(id) = *tab {
-            if self.tables.iter().any(|d| d.id == id && d.has_unsaved()) {
-                self.table_closing = Some(id);
-                return false;
-            }
-            self.tables.retain(|d| d.id != id);
-        }
-        if let Tab::Tileset(id) = *tab {
-            if self.tilesets.iter().any(|d| d.id == id && d.is_dirty()) {
-                self.tileset_closing = Some(id);
-                return false;
-            }
-            self.tilesets.retain(|d| d.id != id);
-        }
-        true
+        self.may_close_side(tab)
     }
 
     /// Notes a tab closed, for Reopen Closed Tab: those that show a
-    /// resource or a tool of the module, not a hak's or a tileset's own
-    /// editor (closed, it has let its file go).
+    /// resource or a tool of the module, not a side editor's (a hak's, a
+    /// 2DA's, a tileset's: closed, it has let its file go).
     pub(crate) fn closed(&mut self, tab: &Tab) {
-        if matches!(
-            tab,
-            Tab::Hak(_) | Tab::Table(_) | Tab::Tileset(_) | Tab::Options | Tab::TileProperties
-        ) {
+        if side_doc::is_side(tab) || matches!(tab, Tab::Options | Tab::TileProperties) {
             return;
         }
         // (The palettes' pane closed is the palettes folded away: View
@@ -2234,9 +2216,7 @@ impl Moonglow {
         self.ws.as_ref().is_some_and(|ws| ws.is_modified() || ws.module.location.is_none())
             || self.scripts.values().any(|b| b.is_dirty())
             || self.talk.as_ref().is_some_and(|t| t.is_dirty() && t.editable())
-            || hak_view::unsaved(self)
-            || table_view::unsaved(self)
-            || tileset_view::unsaved(self)
+            || self.side_unsaved()
     }
 
     fn new_module(&mut self, name: &str) {
@@ -2516,8 +2496,9 @@ impl Moonglow {
             }
             Action::Close => self.close(),
             Action::Undo | Action::Redo => {
-                // (Over the talk table's editor, its own.)
-                if talk_view::undo(self, action == Action::Redo) {
+                // (Over a hak's, a 2DA's, a tileset's or the talk table's
+                // editor, its own.)
+                if self.local_undo(action == Action::Redo) {
                     return;
                 }
                 // (A Ctrl + wheel scaling under way is what Undo takes
@@ -2951,9 +2932,7 @@ impl Moonglow {
         talk_view::save(self);
         // (Tables first: one of a hak's is saved into the hak, which is
         // then written; one of the module's is a step saved below.)
-        table_view::save_all(self);
-        hak_view::save_all(self);
-        tileset_view::save_all(self);
+        self.save_side_docs();
         let Some(ws) = &mut self.ws else { return };
         // The custom palettes list the module's blueprints, as Aurora keeps
         // them.

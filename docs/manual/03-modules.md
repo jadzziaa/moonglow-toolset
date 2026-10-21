@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T00:51:33Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:37:34Z }
 ---
 
 # Modules
@@ -411,8 +411,9 @@ folder's files, subfolders included, to look over and save.
   files, `Thumbs.db` and `desktop.ini` are skipped.
 - **Extracting:** **Extract…** and **Extract All…** write resources as
   files into a folder.
-- **Undo** and **Redo** in its toolbar. **Description** is the hak's own
-  note, for people.
+- **Undo** and **Redo** in its toolbar, and Undo's and Redo's keys
+  with the pointer over the editor (the hak's steps, not the module's).
+  **Description** is the hak's own note, for people.
 - **Saving:** **Save** writes the hak beside the old one, one resource at
   a time, then moves it over the old one. A hak of gigabytes needn't fit
   in memory, and a failed save leaves the old one whole. It warns when
@@ -422,7 +423,8 @@ folder's files, subfolders included, to look over and save.
 - **The game's own haks** (in its `data/hk`) aren't written: **Save As…**
   keeps your changes in a copy.
 
-Closing a hak with unsaved changes asks first.
+Closing a hak with unsaved changes asks first: **Save**, **Don't
+Save** or **Cancel**.
 
 ## The 2DA editor
 
@@ -483,13 +485,12 @@ numbers at the left as it scrolls.
   opens; its cells go with it. The same menu renames the column or
   removes it, with its cells (Undo puts it back where it was).
 - **Undo** and **Redo** in the editor's own row are the table's steps,
-  and so are Ctrl+Z and Ctrl+Y while the keys are in its grid (after a
-  click on a cell): there they take back a paste or a typed cell, not
-  the module's last change.
+  and so are Undo's and Redo's keys (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z, or
+  those set in Options › Keyboard) with the pointer over the editor or
+  the keys in its grid (after a click on a cell): there they take back a
+  paste or a typed cell, not the module's last change.
 - **Find** narrows the rows to those with the text in any cell (Ctrl+F
   goes to it, Escape clears it); **Go to** takes a row's number.
-- **Undo** and **Redo** are the table's own, step by step (Ctrl+Z and
-  Ctrl+Y with the pointer over the table).
 
 **Cells are checked as you type**, as Verify Module checks a hak's
 tables: a cell that names a row of another table which isn't there (a
@@ -525,8 +526,9 @@ end is not written: a table has no empty rows after its last.
 
 Under the table are **OK** and **Cancel**: OK saves the table and closes
 its window; Cancel closes it without saving, asking first where there
-are unsaved changes, as the window's × does (a table's changes are its
-own, and the module's Undo does not bring them back).
+are unsaved changes (**Save**, **Don't Save** or **Cancel**), as the
+window's × does (a table's changes are its own, and the module's Undo
+does not bring them back).
 
 ### A table's description
 

@@ -701,8 +701,9 @@ music's volume.
 starts one, **Open Tileset…** opens one (a copy of a game tileset, or one
 being made beside its models). An edit changes only the lines it is
 about, so comments, order and spacing stay. **Undo**, **Redo** and
-**Save** are in the editor's toolbar; saving the module saves open
-tilesets too.
+**Save** are in the editor's toolbar (Undo's and Redo's keys are the
+tileset's too with the pointer over the editor); saving the module saves
+open tilesets too, and closing one with unsaved changes asks first.
 - **General:** the name, the name players see, the height step, the
   border, default and floor terrains, interior, height transitions, and
   grass.

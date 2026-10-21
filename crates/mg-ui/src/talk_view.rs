@@ -27,9 +27,6 @@ pub struct TalkView {
     /// New Talk Table: its name and whether it has a feminine table.
     pub new_name: String,
     pub new_feminine: bool,
-    /// The pointer is over the editor: Ctrl+Z and Ctrl+Y are the table's
-    /// there.
-    pub(crate) hovered: bool,
     /// Only the lines with text or a sound are listed.
     pub only_text: bool,
     /// Those lines, and the revision they are of.
@@ -164,16 +161,18 @@ pub(crate) fn ui(app: &mut Moonglow, ui: &mut Ui) {
         ui.horizontal_wrapped(|ui| files(&mut app.actions, ui));
         return;
     }
-    app.talk_view.hovered = ui.rect_contains_pointer(ui.max_rect());
+    // (The pointer over the editor: Undo and Redo are the table's there.)
+    crate::side_doc::note_pointer(app, ui, &crate::Tab::TalkTable);
     table(app, ui);
 }
 
-/// Undo (or redo) in the talk table, when the pointer is over its editor
-/// and it has something to undo: whether it did.
+/// Undo (or redo) in the talk table, the pointer over its editor
+/// (`Moonglow::local_undo`): whether it is open (with nothing to undo,
+/// nothing is).
 pub(crate) fn undo(app: &mut Moonglow, redo: bool) -> bool {
-    let Some(t) = app.talk.as_mut().filter(|_| app.talk_view.hovered) else { return false };
+    let Some(t) = app.talk.as_mut() else { return false };
     if !(if redo { t.can_redo() } else { t.can_undo() }) {
-        return false;
+        return true;
     }
     if redo {
         t.redo()

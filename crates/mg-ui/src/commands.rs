@@ -517,6 +517,11 @@ impl Id {
     fn label(self, app: &Moonglow) -> String {
         let ws = app.ws.as_ref();
         match self {
+            // (A side editor's step, with the keys in its grid: not the
+            // module's to name.)
+            Id::Undo | Id::Redo if app.local_can_undo(self == Id::Redo).is_some() => {
+                self.text().1.into_owned()
+            }
             Id::Undo => match ws.and_then(|ws| ws.can_undo()) {
                 Some(what) => format!("Undo {what}"),
                 None => "Undo".into(),
@@ -586,15 +591,14 @@ impl Id {
             Id::CloseTab => app.front_tab().is_some(),
             Id::ReopenTab => !app.closed_tabs.is_empty(),
             Id::InstallPlugin => app.plugin_dir.is_some(),
-            // (The talk table's own, with the pointer over its editor.)
-            Id::Undo => {
-                app.ws.as_ref().is_some_and(|ws| ws.can_undo().is_some())
-                    || (app.talk_view.hovered && app.talk.as_ref().is_some_and(|t| t.can_undo()))
-            }
-            Id::Redo => {
-                app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())
-                    || (app.talk_view.hovered && app.talk.as_ref().is_some_and(|t| t.can_redo()))
-            }
+            // (A side editor's own or the talk table's, with the pointer
+            // over it or the keys in its grid.)
+            Id::Undo => app
+                .local_can_undo(false)
+                .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_undo().is_some())),
+            Id::Redo => app
+                .local_can_undo(true)
+                .unwrap_or_else(|| app.ws.as_ref().is_some_and(|ws| ws.can_redo().is_some())),
             Id::ResizeArea | Id::RotateArea | Id::AreaStatistics => shown_area(app).is_some(),
             Id::PackTarget => self.shown(app),
             Id::TakeInLeftOut => (app.ws.as_ref())
@@ -835,9 +839,6 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
     // Find field and came back.)
     let in_text = (app.text_typed.is_some() && ui.ctx().egui_wants_keyboard_input())
         || crate::script_view::has_keys(app, ui.ctx());
-    // (And a 2DA's, while the keys are in its grid: the table's own steps
-    // are taken back there, not the module's last change.)
-    let in_table = crate::palette_view::keys_are(ui.ctx(), crate::palette_view::Keys::Table);
     // A command kept from the frame before (see below): run now.
     if let Some(id) = app.command_after_text.take()
         && id.enabled(app)
@@ -845,7 +846,7 @@ pub(crate) fn keys_pressed(app: &mut Moonglow, ui: &Ui) {
         id.run(app, ui.ctx());
     }
     for id in Id::all() {
-        if (in_text || in_table) && matches!(id, Id::Undo | Id::Redo) {
+        if in_text && matches!(id, Id::Undo | Id::Redo) {
             continue;
         }
         let pressed = ui.input_mut(|i| app.keymap.consume_outside_text(i, &id.id(), typing));
