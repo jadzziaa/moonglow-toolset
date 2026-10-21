@@ -45,6 +45,13 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="1.37.0" date="2026-10-21">
+      <description>
+        <p>Script parameters kept through Ink and Twine, 2DA columns sized
+        by the edge of their name, and a warning when an appearance has no
+        model.</p>
+      </description>
+    </release>
     <release version="1.36.0" date="2026-10-21">
       <description>
         <p>An area's lighting copied from another or kept under a name,
