@@ -538,7 +538,7 @@ pub(crate) fn resource_ui(app: &mut Moonglow, ui: &mut Ui, key: ResKey) {
         }
     }
     if let Content::TwoDa(l) = &viewed.content {
-        two_da(app, ui, l);
+        two_da(app, ui, key, l);
         return;
     }
     let palette = crate::script_view::Palette::for_ui(&app.settings.script_style, ui);
@@ -650,10 +650,16 @@ fn gff_tree(ui: &mut Ui, s: &Struct, id: &str) {
 /// A 2DA as a table; only the rows in view are laid out. With copies of
 /// it in several layers (haks over the game's), each row says which layer
 /// it comes from, and the cells a layer changed are marked, with what they
-/// were below. Cells of StrRef columns show their text.
-fn two_da(app: &mut Moonglow, ui: &mut Ui, l: &mg_module::table_layers::Layered) {
+/// were below. Cells of StrRef columns show their text. As in the 2DA
+/// editor, the column names stay in sight over the rows and the rows'
+/// numbers beside them, and a column is as wide as the edge of its name
+/// was dragged to (here or there: the widths are the table's).
+fn two_da(app: &mut Moonglow, ui: &mut Ui, key: ResKey, l: &mg_module::table_layers::Layered) {
+    use crate::table_view::{
+        Edge, NUMBER, column_edge, column_widths, fit_width, set_column_width,
+    };
     use mg_module::table_layers::is_strref_column;
-    let Moonglow { browser, game, .. } = app;
+    let Moonglow { browser, game, settings, .. } = app;
     let t = l.table();
     let layered = l.copies.len() > 1;
     ui.horizontal(|ui| {
@@ -695,73 +701,146 @@ fn two_da(app: &mut Moonglow, ui: &mut Ui, l: &mg_module::table_layers::Layered)
     };
     let strrefs: Vec<bool> =
         t.columns().iter().map(|c| !browser.raw_strrefs && is_strref_column(c)).collect();
-    let game = game.as_ref();
+    let game = game.as_deref();
+    // What a cell shows: its string's text, in a StrRef column (and that
+    // text), else its value.
+    let shows = |r: usize, c: usize| {
+        let raw = t.cell(r, c);
+        let text = raw
+            .filter(|_| strrefs[c])
+            .and_then(|v| v.parse::<u32>().ok())
+            .and_then(|n| game?.string(mg_core::StrRef(n)));
+        (text.clone().unwrap_or_else(|| raw.unwrap_or("****").into()), text)
+    };
     let bottom = l.copies.len() - 1;
     let changed = ui.visuals().warn_fg_color;
     let width = 110.0;
+    let name = key.resref.to_string();
+    let columns: Vec<String> = t.columns().to_vec();
+    let widths = column_widths(settings, &name, &columns, width);
     let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
     let fixed = |ui: &mut Ui, w: f32, text: egui::RichText| {
         ui.add_sized([w, row_height], egui::Label::new(text).truncate())
     };
-    egui::ScrollArea::both().id_salt("2da").auto_shrink([false, false]).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            fixed(ui, 50.0, egui::RichText::new(""));
-            if layered {
-                fixed(ui, width, egui::RichText::new("From").strong());
-            }
-            for c in t.columns() {
-                fixed(ui, width, egui::RichText::new(c).strong());
-            }
-        });
-        egui::ScrollArea::vertical().id_salt("2da-rows").auto_shrink([false, false]).show_rows(
-            ui,
-            row_height,
-            rows.len(),
-            |ui, range| {
-                for &r in &rows[range] {
-                    ui.horizontal(|ui| {
-                        fixed(ui, 50.0, egui::RichText::new(r.to_string()).weak());
-                        let origin = l.row_origin(r);
-                        if layered {
-                            let text = egui::RichText::new(&l.copies[origin].0);
-                            fixed(ui, width, if origin < bottom { text } else { text.weak() });
+    // The column names over the rows and the rows' numbers beside them go
+    // with the rows' own scroll (a frame behind), kept here.
+    let id = egui::Id::new(("2da-view", key));
+    let scroll: egui::Vec2 = ui.data(|d| d.get_temp(id)).unwrap_or_default();
+    let hidden = egui::scroll_area::ScrollBarVisibility::AlwaysHidden;
+    let still = egui::scroll_area::ScrollSource::NONE;
+    let mut edge = None;
+    ui.horizontal(|ui| {
+        fixed(ui, NUMBER, egui::RichText::new(""));
+        egui::ScrollArea::horizontal()
+            .id_salt(id.with("head"))
+            .auto_shrink([false, true])
+            .scroll_bar_visibility(hidden)
+            .scroll_source(still)
+            .horizontal_scroll_offset(scroll.x)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if layered {
+                        fixed(ui, width, egui::RichText::new("From").strong());
+                    }
+                    for (c, column) in columns.iter().enumerate() {
+                        let size = egui::vec2(widths[c], row_height);
+                        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                        let text = egui::RichText::new(column).strong();
+                        ui.put(rect, egui::Label::new(text).truncate().selectable(false))
+                            .on_hover_text(format!(
+                                "{column}\nDrag its right edge: its width (double click there: \
+                                 as wide as its widest cell)"
+                            ));
+                        if let Some(act) = column_edge(ui, id.with(("edge", c)), rect, column) {
+                            edge = Some((c, act));
                         }
-                        for (c, &strref) in strrefs.iter().enumerate() {
-                            let raw = t.cell(r, c);
-                            let text = raw
-                                .filter(|_| strref)
-                                .and_then(|v| v.parse::<u32>().ok())
-                                .and_then(|n| game?.string(mg_core::StrRef(n)));
-                            let shown =
-                                text.clone().unwrap_or_else(|| raw.unwrap_or("****").into());
-                            let mut rich = egui::RichText::new(shown).monospace();
-                            let cell_origin = l.cell_origin(r, c);
-                            // Changed, not added: the row is in the copy below.
-                            let was = (layered
-                                && cell_origin < bottom
-                                && r < l.copies[cell_origin + 1].1.len())
-                            .then(|| l.before(r, c))
-                            .flatten();
-                            if was.is_some() {
-                                rich = rich.color(changed);
-                            }
-                            let resp = fixed(ui, width, rich);
-                            if text.is_some() || was.is_some() {
-                                let mut tip = Vec::new();
-                                if text.is_some() {
-                                    tip.push(format!("StrRef {}", raw.unwrap_or_default()));
-                                }
-                                if let Some((below, value)) = was {
-                                    let from = &l.copies[cell_origin].0;
-                                    let value = value.unwrap_or("****");
-                                    tip.push(format!("Set by {from}; {value} in {below}"));
-                                }
-                                resp.on_hover_text(tip.join("\n"));
-                            }
+                    }
+                    // (Room for the rows' own scroll bar at the right.)
+                    ui.add_space(ui.spacing().scroll.bar_width + 12.0);
+                });
+            });
+    });
+    match edge {
+        Some((c, Edge::Width(w))) => set_column_width(settings, &name, &columns[c], w),
+        Some((c, Edge::Fit)) => {
+            let w = fit_width(ui, &columns[c], rows.iter().map(|&r| shows(r, c).0));
+            set_column_width(settings, &name, &columns[c], w);
+        }
+        None => {}
+    }
+    let room = ui.available_height();
+    let bar = ui.spacing().scroll.bar_width + ui.spacing().scroll.bar_inner_margin;
+    let shown = ui
+        .horizontal_top(|ui| {
+            let gutter = egui::vec2(NUMBER, (room - bar).max(row_height));
+            let down = egui::Layout::top_down(egui::Align::Min);
+            ui.allocate_ui_with_layout(gutter, down, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt(id.with("numbers"))
+                    .auto_shrink([false, false])
+                    .scroll_bar_visibility(hidden)
+                    .scroll_source(still)
+                    .vertical_scroll_offset(scroll.y)
+                    .show_rows(ui, row_height, rows.len(), |ui, range| {
+                        for &r in &rows[range] {
+                            fixed(
+                                ui,
+                                NUMBER,
+                                egui::RichText::new(r.to_string()).weak().monospace(),
+                            );
                         }
                     });
-                }
-            },
-        );
-    });
+            });
+            ui.vertical(|ui| {
+                egui::ScrollArea::both()
+                    .id_salt(id.with("rows"))
+                    .auto_shrink([false, false])
+                    .show_rows(ui, row_height, rows.len(), |ui, range| {
+                        for &r in &rows[range] {
+                            ui.horizontal(|ui| {
+                                let origin = l.row_origin(r);
+                                if layered {
+                                    let text = egui::RichText::new(&l.copies[origin].0);
+                                    fixed(
+                                        ui,
+                                        width,
+                                        if origin < bottom { text } else { text.weak() },
+                                    );
+                                }
+                                for (c, &w) in widths.iter().enumerate() {
+                                    let raw = t.cell(r, c);
+                                    let (shown, text) = shows(r, c);
+                                    let mut rich = egui::RichText::new(shown).monospace();
+                                    let cell_origin = l.cell_origin(r, c);
+                                    // Changed, not added: the row is in the copy below.
+                                    let was = (layered
+                                        && cell_origin < bottom
+                                        && r < l.copies[cell_origin + 1].1.len())
+                                    .then(|| l.before(r, c))
+                                    .flatten();
+                                    if was.is_some() {
+                                        rich = rich.color(changed);
+                                    }
+                                    let resp = fixed(ui, w, rich);
+                                    if text.is_some() || was.is_some() {
+                                        let mut tip = Vec::new();
+                                        if text.is_some() {
+                                            tip.push(format!("StrRef {}", raw.unwrap_or_default()));
+                                        }
+                                        if let Some((below, value)) = was {
+                                            let from = &l.copies[cell_origin].0;
+                                            let value = value.unwrap_or("****");
+                                            tip.push(format!("Set by {from}; {value} in {below}"));
+                                        }
+                                        resp.on_hover_text(tip.join("\n"));
+                                    }
+                                }
+                            });
+                        }
+                    })
+            })
+            .inner
+        })
+        .inner;
+    ui.data_mut(|d| d.insert_temp(id, shown.state.offset));
 }

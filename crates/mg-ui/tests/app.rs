@@ -19819,6 +19819,177 @@ fn a_game_table_is_edited_as_a_copy() {
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
 }
 
+/// A double click at `at`: two clicks, a frame each.
+fn double_click(h: &mut Harness<'_, Moonglow>, at: egui::Pos2) {
+    h.hover_at(at);
+    h.run_steps(2);
+    for pressed in [true, false, true, false] {
+        press(h, at, pressed, egui::Modifiers::NONE);
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+}
+
+/// A drag from `from` to `to`, a little at a time.
+fn drag(h: &mut Harness<'_, Moonglow>, from: egui::Pos2, to: egui::Pos2) {
+    h.hover_at(from);
+    h.run_steps(2);
+    h.drag_at(from);
+    h.run_steps(1);
+    for step in 1..=8 {
+        h.hover_at(from + (to - from) * (step as f32 / 8.0));
+        h.run_steps(1);
+    }
+    h.drop_at(to);
+    h.run_steps(3);
+}
+
+/// A builder's report: the 2DA editor's columns could not be made wider.
+/// The edge at the right of a column's name is dragged to set its width
+/// (kept for the table's name, between runs too), and a double click
+/// there makes it as wide as its widest cell; a drag on the rest of the
+/// name still moves the column.
+#[test]
+fn a_table_s_column_is_widened_by_the_edge_of_its_name() {
+    let dir = mg_testkit::scratch_dir("ui-table-widths");
+    let file = dir.join("loose.2da");
+    std::fs::write(&file, SMALL_TABLE).unwrap();
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1200.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app_with(Vec::new()));
+    h.run_steps(2);
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    let left_of = |h: &Harness<'_, Moonglow>, name: &str| h.get_by_label(name).rect().left();
+    let (label, cost) = (left_of(&h, "Label"), left_of(&h, "Cost"));
+    let widths = |h: &Harness<'_, Moonglow>| h.state().settings.table_widths.clone();
+    assert!(widths(&h).is_empty());
+    // Label's edge dragged 100 points on: Cost is that much further right.
+    let edge = h.get_by_label("Width of Label").rect().center();
+    drag(&mut h, edge, edge + egui::vec2(100.0, 0.0));
+    let wide = widths(&h);
+    assert_eq!(wide.len(), 1);
+    assert_eq!(wide[0].0, "loose");
+    let (column, width) = &wide[0].1[0];
+    assert_eq!(column, "Label");
+    // (116 points at first.)
+    assert!(width.abs_diff(216) <= 1, "{width}");
+    assert!((left_of(&h, "Cost") - cost - 100.0).abs() < 3.0, "the next column moved on");
+    assert_eq!(table_of(&h, id).columns(), ["Label", "Cost"], "not moved");
+    // A double click on the edge: as wide as "Cheese", much narrower.
+    let edge = h.get_by_label("Width of Label").rect().center();
+    double_click(&mut h, edge);
+    let fitted = widths(&h)[0].1[0].1;
+    assert!((40..90).contains(&fitted), "fitted to its widest cell: {fitted}");
+    assert!(left_of(&h, "Cost") < cost, "{} < {cost}", left_of(&h, "Cost"));
+    // Dragged by its name, Cost moves before Label, and Label's width goes
+    // with it.
+    let (from, to) =
+        (h.get_by_label("Cost").rect().center(), h.get_by_label("Label").rect().center());
+    drag(&mut h, from, to);
+    assert_eq!(table_of(&h, id).columns(), ["Cost", "Label"], "moved by its name");
+    let now = left_of(&h, "Label") - left_of(&h, "Cost");
+    assert!((now - (cost - label)).abs() < 3.0, "Cost is as wide as before: {now}");
+    // Another table of the name (the same file, opened again) is as wide.
+    h.state_mut().actions.push(mg_ui::Action::CloseTabs(vec![Tab::Table(id)]));
+    h.run_steps(3);
+    h.get_by_label("Don't Save").click();
+    h.run_steps(3);
+    assert!(h.state().tables.is_empty());
+    let id = mg_ui::table_view::open_path(h.state_mut(), &file).unwrap();
+    h.run_steps(4);
+    let _ = id;
+    let label_width = h.get_by_label("Width of Label").rect().center().x - left_of(&h, "Label");
+    assert!((label_width - fitted as f32).abs() < 12.0, "{label_width} for {fitted}");
+}
+
+/// A builder's report: a game's table read in the resource browser (not
+/// editable) had no scroll bar. The rows' scroll bar is drawn in sight,
+/// at the right of the rows, and scrolls them; so does the wheel, down
+/// and sideways, and the column names and the rows' numbers follow.
+#[test]
+fn a_game_table_read_only_scrolls() {
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let install = mg_resman::GameInstall::new(&root, None, "en");
+    let app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1280.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .wgpu()
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    let key = ResKey::parse("spells", ResType::TWODA).unwrap();
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::Resource(key)));
+    h.run_steps(5);
+    h.get_by_label("Acid_Fog");
+    let pane = h
+        .state()
+        .dock
+        .iter_leaves()
+        .find(|(_, l)| l.tabs.contains(&Tab::Resource(key)))
+        .map(|(_, l)| l.viewport)
+        .unwrap();
+    // The scroll bar at the right of the rows, in the picture: a column of
+    // pixels near the pane's right edge, from the rows' top to their
+    // bottom, is the bar's track, with its handle at the top.
+    let (top, bottom) = (h.get_by_label("Acid_Fog").rect().top(), pane.bottom() - 30.0);
+    let image = h.render().expect("render");
+    let visuals = h.ctx.global_style().visuals.clone();
+    let (track, handle) = (visuals.extreme_bg_color, visuals.widgets.inactive.bg_fill);
+    let is = |x: f32, y: u32, c: egui::Color32| {
+        let p = image.get_pixel(x as u32, y);
+        (0..3).all(|i| p[i].abs_diff(c.to_array()[i]) <= 3)
+    };
+    let x = (1..=24).map(|dx| pane.right() - dx as f32).find(|&x| {
+        let ys = top as u32..bottom as u32;
+        let handle_at_top = (top as u32 + 1..top as u32 + 10).all(|y| is(x, y, handle));
+        let bar = ys.clone().filter(|&y| is(x, y, track) || is(x, y, handle)).count();
+        let track = ys.clone().filter(|&y| is(x, y, track)).count();
+        handle_at_top && bar as f32 > 0.95 * ys.len() as f32 && track > ys.len() / 2
+    });
+    let x = x.expect("a scroll bar at the right of the rows, its handle at the top");
+    // A press low on it brings rows far down into view.
+    let bar = egui::pos2(x, pane.bottom() - 40.0);
+    h.hover_at(bar);
+    h.run_steps(3);
+    press(&h, bar, true, egui::Modifiers::NONE);
+    h.run_steps(2);
+    press(&h, bar, false, egui::Modifiers::NONE);
+    h.run_steps(30);
+    assert!(h.query_by_label("Acid_Fog").is_none(), "scrolled down by the scroll bar");
+    // (The rows' numbers, at the left: those in view are far down.)
+    let numbers = |h: &Harness<'_, Moonglow>| -> Vec<usize> {
+        h.query_all(egui_kittest::kittest::by().role(egui::accesskit::Role::Label))
+            .filter(|n| (pane.left()..pane.left() + 60.0).contains(&n.rect().center().x))
+            .filter_map(|n| n.accesskit_node().value().and_then(|l| l.parse::<usize>().ok()))
+            .collect()
+    };
+    let far = numbers(&h);
+    assert!(far.iter().min().is_some_and(|n| *n > 300), "{far:?}");
+    // The wheel: back up, and sideways; the column names go with the rows.
+    let over = pane.center();
+    h.hover_at(over);
+    h.run_steps(2);
+    let label = h.get_by_label("Label").rect().left();
+    for delta in [egui::vec2(0.0, 100_000.0), egui::vec2(-600.0, 0.0)] {
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta,
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(30);
+    }
+    h.get_by_label("Acid_Fog");
+    assert!(h.query_by_label("Label").is_none_or(|n| n.rect().left() < label - 300.0));
+    let acid = h.get_by_label("Acid_Fog").rect().left();
+    assert!(acid < label - 300.0, "the rows went sideways with the names: {acid}");
+    // The rows' numbers stay in sight at the left.
+    assert!(numbers(&h).contains(&0), "{:?}", numbers(&h));
+}
+
 /// Area Properties › Grass: the tileset's grass turned off, grass added
 /// to a surface material, each one step to undo, stored in the GIT where
 /// the game reads it (and kept when the module is saved), and grown in

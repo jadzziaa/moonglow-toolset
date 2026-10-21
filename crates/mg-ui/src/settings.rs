@@ -151,6 +151,11 @@ pub struct Settings {
     /// of its own: `middle` (a tab of the main pane) or `palettes` (a tab
     /// of the palettes' pane). The next of its kind opens there.
     pub window_places: Vec<(String, String)>,
+    /// The 2DA columns given a width of their own by dragging the edge of
+    /// their name: each table's (by name, lowercase; the last changed
+    /// first) columns and widths in points. The 2DA editor and the
+    /// resource browser's read-only view show the table so.
+    pub table_widths: Vec<(String, Vec<(String, u32)>)>,
     /// The plugins enabled, by id (one installed is off until it is here).
     pub plugins_enabled: Vec<String>,
     /// What each plugin's events were allowed, kept between runs: the

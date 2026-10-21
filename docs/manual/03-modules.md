@@ -3,7 +3,7 @@ type: Manual Page
 title: Modules
 description: Modules - opening and saving, where things are used and renaming, find and replace, advanced search, nasher projects, recovering unsaved work, Module Properties, haks and talk tables, the hak editor, the 2DA editor, import and export.
 tags: [manual, modules, haks, nasher]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:37:34Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T11:30:49Z }
 ---
 
 # Modules
@@ -479,6 +479,12 @@ numbers at the left as it scrolls.
   follow: delete a row others come after only in a table whose rows
   nothing names yet (**Find References to Row** shows the tables that
   do), and empty it otherwise.
+- **A column's width** is set by dragging the edge at the right of its
+  name (the pointer turns into a double arrow over it); a double click
+  there makes the column as wide as its widest cell, as a spreadsheet
+  does. Widths are kept for the table's name, between runs too: another
+  copy of `appearance.2da`, and the game's own read in the resource
+  browser, show the columns as wide.
 - **Add Column…** adds one at the end. A column is moved by dragging
   its name onto another column's (a line shows where it will go), or by
   **Move Left** and **Move Right** in the menu a right click on its name
