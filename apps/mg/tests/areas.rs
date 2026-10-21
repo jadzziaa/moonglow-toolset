@@ -154,3 +154,62 @@ fn placeables_are_made_static_in_the_areas_chosen() {
     assert!(ok, "{err}");
     assert_eq!(fixed(), [1, 0], "the Useable chest stays dynamic");
 }
+
+/// `--grass`, `--remove-grass` and `--tileset-grass`: the areas' own grass
+/// set in their GITs' AreaProperties, where the game reads it.
+#[test]
+fn areas_grow_grass_of_their_own() {
+    use mg_module::grass::AreaGrass;
+    let dir = mg_testkit::scratch_dir("mg-areas-grass");
+    let path = dir.join("caves.mod");
+    module(&path);
+    let run = |args: &[&str]| {
+        let out = crate::mg().arg("areas").arg(&path).args(args).output().unwrap();
+        let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+        (out.status.success(), text(&out.stdout), text(&out.stderr))
+    };
+    let grass = |name: &str| {
+        let git = Module::open(&path).unwrap().gff(&key(name, ResType::GIT)).unwrap().unwrap();
+        AreaGrass::read(&git.root)
+    };
+    let (ok, out, notes) = run(&[
+        "--underground",
+        "--grass",
+        "1:mgdirt:3:0.5:1,0,0",
+        "--grass",
+        "5:grass:2:1",
+        "--tileset-grass",
+        "no",
+    ]);
+    assert!(ok, "{notes}");
+    assert!(out.contains("cave1\tgrass on material 1\t(none) -> mgdirt, density 3"), "{out}");
+    assert!(out.contains("cave2\ttileset grass\tyes -> no"), "{out}");
+    let cave = grass("cave1");
+    assert!(cave.default_disabled);
+    let set: Vec<(u32, &str, f32)> = cave
+        .overrides
+        .iter()
+        .map(|o| (o.material, o.look.texture.as_str(), o.look.height))
+        .collect();
+    assert_eq!(set, [(1, "mgdirt", 0.5), (5, "grass", 1.0)]);
+    assert_eq!(cave.overrides[0].look.diffuse, [1.0, 0.0, 0.0]);
+    assert_eq!(cave.overrides[1].look.ambient, mg_module::grass::GAME_GRASS_COLOR);
+    assert_eq!(grass("inn"), AreaGrass::default());
+    // Changed in place, then taken off; set again, nothing changes.
+    let (ok, out, notes) =
+        run(&["cave1", "--grass", "1:mgdirt:6:0.5:1,0,0", "--remove-grass", "5"]);
+    assert!(ok, "{notes}");
+    assert!(out.contains("density 3") && out.contains("-> mgdirt, density 6"), "{out}");
+    let cave = grass("cave1");
+    assert_eq!(cave.overrides.len(), 1);
+    assert_eq!(cave.overrides[0].look.density, 6.0);
+    let (ok, out, notes) = run(&["cave1", "--grass", "1:mgdirt:6:0.5:1,0,0"]);
+    assert!(ok && out.is_empty() && notes.contains("changed 0 of 1"), "{out}{notes}");
+    // What can't be read changes nothing.
+    let bytes = std::fs::read(&path).unwrap();
+    for bad in [&["--all", "--grass", "1:mgdirt:3"][..], &["--all", "--tileset-grass", "maybe"]] {
+        let (ok, _, notes) = run(bad);
+        assert!(!ok, "{bad:?}: {notes}");
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+}

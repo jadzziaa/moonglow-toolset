@@ -118,6 +118,9 @@ pub struct Settings {
     /// The area view's Animations switch is off: creatures and other
     /// placed objects hold still.
     pub still_objects: bool,
+    /// The area view's Grass switch is off: no grass is drawn (in every
+    /// area view).
+    pub no_grass: bool,
     /// The folder each hak was built from (the hak's path, the folder's),
     /// most recent first: Update from Folder reads it again.
     pub hak_folders: Vec<(PathBuf, PathBuf)>,

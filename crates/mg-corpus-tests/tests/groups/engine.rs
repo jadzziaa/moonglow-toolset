@@ -33,6 +33,8 @@ mod engine_encoding;
 mod engine_facings;
 #[path = "../engine_factions.rs"]
 mod engine_factions;
+#[path = "../engine_grass.rs"]
+mod engine_grass;
 #[path = "../engine_item_cost.rs"]
 mod engine_item_cost;
 #[path = "../engine_journal.rs"]

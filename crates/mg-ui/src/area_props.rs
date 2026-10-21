@@ -1,6 +1,7 @@
 //! Area Properties (`TdlgAreaProperties`): Basic, Visual (lighting schemes,
 //! and the environment Aurora edits in its Customize Environment dialog),
-//! Audio (the GIT's `AreaProperties`), Events, Advanced and Comments.
+//! Grass (Moonglow's: `crate::area_grass`), Audio (the GIT's
+//! `AreaProperties`), Events, Advanced and Comments.
 //! Every change is an undoable command, as in the blueprint editors.
 
 use egui::Ui;
@@ -13,7 +14,8 @@ use mg_rules::{Choice, ChoiceColumns};
 use crate::blueprint::Form;
 use crate::{Action, Moonglow};
 
-pub(crate) const PAGES: [&str; 6] = ["Basic", "Visual", "Audio", "Events", "Advanced", "Comments"];
+pub(crate) const PAGES: [&str; 7] =
+    ["Basic", "Visual", "Grass", "Audio", "Events", "Advanced", "Comments"];
 
 /// ARE `Flags` bits.
 const INTERIOR: u32 = 0x1;
@@ -29,7 +31,7 @@ fn choices(app: &Moonglow, table: &str, name: &str, label: &str) -> Vec<Choice> 
 
 /// The pages for several areas edited together: what is an area's own
 /// (its name, tag and comments) is edited one area at a time.
-const SHARED_PAGES: [&str; 4] = ["Visual", "Audio", "Events", "Advanced"];
+const SHARED_PAGES: [&str; 5] = ["Visual", "Grass", "Audio", "Events", "Advanced"];
 
 /// Area Properties of `area`; with `others`, of them all (Edit Areas
 /// Together): shown as `area`'s, and what is changed is set on each.
@@ -129,6 +131,10 @@ fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
             audio(app, ui, area, others);
             return;
         }
+        if page == "Grass" {
+            crate::area_grass::page(app, ui, area, others);
+            return;
+        }
         let mut f = Form { app, key: are, path: GffPath::root(), also, root };
         match page {
             "Basic" => basic(&mut f, ui),
@@ -183,6 +189,7 @@ fn page_fields(page: &str) -> (bool, &'static [&'static str]) {
                 "MusicNight",
             ],
         ),
+        "Grass" => (true, &[mg_area::grass::DISABLED, mg_area::grass::OVERRIDES]),
         "Events" => (false, &["OnEnter", "OnExit", "OnHeartbeat", "OnUserDefined"]),
         "Advanced" => (
             false,
@@ -209,9 +216,15 @@ fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str) {
         (ResType::ARE, GffPath::root())
     };
     let Some(ws) = app.ws.as_mut() else { return };
-    let values: Vec<(&str, Value)> = match ws.doc(&ResKey::new(area, restype)) {
+    // (The grass the first area lacks, the others lose: what is not there
+    // is what grows.)
+    let lacking = |l: &'static str| (page == "Grass").then_some((l, None));
+    let values: Vec<(&str, Option<Value>)> = match ws.doc(&ResKey::new(area, restype)) {
         Ok(doc) => match path.get(&doc.root) {
-            Some(from) => labels.iter().filter_map(|l| Some((*l, from.get(l)?.clone()))).collect(),
+            Some(from) => labels
+                .iter()
+                .filter_map(|l| from.get(l).map(|v| (*l, Some(v.clone()))).or_else(|| lacking(l)))
+                .collect(),
             None => return,
         },
         Err(_) => return,
@@ -227,7 +240,7 @@ fn give_page(app: &mut Moonglow, area: ResRef, others: &[ResRef], page: &str) {
             key,
             path: path.clone(),
             label: (*label).into(),
-            value: Some(value.clone()),
+            value: value.clone(),
         }));
     }
     if !edits.is_empty() {

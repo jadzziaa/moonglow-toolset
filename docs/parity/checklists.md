@@ -3,7 +3,7 @@ type: Checklist
 title: Parity checklists
 description: Aurora's dialogs against Moonglow, control by control - done and tested, partly, not yet, or deliberately different with the reason - naming the test that covers each.
 tags: [aurora, parity, checklist, ui]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T07:30:42Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:26:14Z }
 sources:
   - id: inventory
     resource: aurora-ui-inventory.md
@@ -264,7 +264,7 @@ scripts (name, picker, Edit), Comments.
 | Object Filters: Show Creatures … Waypoints, Start Location, Show All, Show None | toggles in the view's toolbar (per view, not per frame) | ✅ [area_viewer_selects_moves_and_deletes] |
 | Preview: Fog, Use Area Lighting; day or night | Fog (off at first, as Aurora's Scene › Fog), Night; the area's lighting always | ✅ the fog is the client's: it ends at the fog clip distance and starts the fog amount nearer than 30 m (`client_render.rs`, measured uniforms) |
 | Sky (Aurora's view: none; the game: the area's skybox) | the skybox (skyboxes.2da, day or night as shown) around the camera at ground level, unlit, behind everything, with the game's horizon fade in the area's fog colour | ✅ improvement (`render.rs` [the_sky_is_behind_everything_beyond_the_far_plane_and_unfogged]; `client_render.rs` grass_and_sky_look: the horizon band in the client's colour) |
-| Grass (Aurora's view: none; the game: tufts on grass-material walkmesh faces, `[GRASS]` of the tileset) | not drawn: the client's grass does not show at the distances the editor views from (`client_render.rs` grass_and_sky_look, with a close camera too) | — |
+| Grass (Aurora's view: none; the game: tufts on grass-material walkmesh faces, `[GRASS]` of the tileset, and the area's overrides, `SetAreaGrassOverride`) | 🌿 Grass on the toolbar: tufts by face area × density on each material that grows grass (the tileset's on Grass unless turned off, the area's own from the GIT's AreaProperties), on the tiles within 30 m of the view's focus; Area Properties › Grass edits it, grown live | ✅ improvement (`client_render.rs` grass_overrides_look: mean color near the client's camera within 3 of the client's for default, sparse, dense, tall and red; the client's grass ends about 24 m from its camera and gathers in patches; `engine_grass.rs`: where the engine reads it) [grass_is_set_in_area_properties_and_grown_in_the_view] |
 | Preview: Play Placed Sounds, Play Ambient Sound, Play Ambient Music (toolbar and View menu) | 🔊 Sounds, Ambient, Music on the area view's toolbar (the Options › Sounds settings): the area's ambient sound and music (day or night as shown) looped, placed sounds heard from the view's focus (full within Max Volume Distance, fading out at Cutoff Distance, a linear approximation), in order or random, looping, repeating after their interval or once, by their hours | ✅ (`area_audio.rs` tests) [the_area_view_plays_the_area_s_sounds] |
 | Display Grid | Grid (tile outlines at each tile's height) | ✅ |
 | Reorient Camera, Go to Start Location | the same | ✅ |

@@ -3,7 +3,7 @@ type: Manual Page
 title: Differences from Aurora
 description: Where Moonglow deliberately departs from Aurora.
 tags: [manual, aurora, differences]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-12T06:03:06Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:26:14Z }
 ---
 
 # Differences from Aurora
@@ -29,8 +29,11 @@ it differs, it is on purpose:
   the box, switched off, as "Not yet").
 - **Environment maps** on creatures and items are always drawn, as the
   game draws them.
-- **Grass** is not drawn in the area viewer, as in Aurora (the game's
-  grass does not show at the distances the editor views from).
+- **Grass** is drawn in the area viewer, which Aurora does not draw: the
+  tileset's and the area's own (Area Properties › Grass, which Aurora
+  hasn't), on the tiles within 30 m of where the view looks, whatever
+  its distance (the game draws it within about 24 m of its camera). Its
+  tufts are spread evenly, where the game's gather in patches.
 - **Waypoints** are the flags of their appearance (blue, red, green,
   yellow), **sounds** the game's markers for them (a note: heard from
   where it stands, from a random position, or everywhere in the area)

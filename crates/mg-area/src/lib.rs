@@ -26,6 +26,7 @@ use mg_set::Tileset;
 
 pub mod arrange;
 pub mod edit;
+pub mod grass;
 pub mod marker;
 pub mod pick;
 pub mod reshape;
@@ -33,7 +34,7 @@ mod scene;
 pub mod terrain;
 pub mod walk;
 
-pub use scene::{AreaScene, Usage, View, fog, overview};
+pub use scene::{AreaScene, GRASS_REACH, Usage, View, fog, overview};
 
 /// A tile's edge, metres.
 pub const TILE_SIZE: f32 = 10.0;
@@ -582,6 +583,9 @@ pub struct AreaModel {
     /// The tiles' door hooks.
     pub hooks: Vec<DoorHook>,
     pub lighting: Lighting,
+    /// What grass grows on the tiles' walkmesh faces, by surface material
+    /// (the tileset's and the area's overrides: [`grass::AreaGrass`]).
+    pub grass: Vec<(u32, grass::GrassLook)>,
     /// What could not be read: a missing tileset, unknown tiles.
     pub problems: Vec<String>,
 }
@@ -670,6 +674,7 @@ impl AreaModel {
             objects,
             hooks,
             lighting: Lighting::read(are, tileset),
+            grass: grass::AreaGrass::read(git).growing(tileset),
             problems,
         }
     }

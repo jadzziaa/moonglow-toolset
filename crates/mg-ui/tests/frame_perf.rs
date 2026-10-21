@@ -690,3 +690,88 @@ fn frames_at_144_in_a_persistent_world() {
     tab(&mut h, &mut r, "Area Properties (300 areas)", Tab::AreaProperties(areas[0]));
     println!("over the budget:\n  {}", r.over.join("\n  "));
 }
+
+/// Grass's cost: a 32 by 32 rural field (ttr01, grass on nearly every
+/// tile) seen close to the ground, with the area view's grass and without,
+/// and the tufts grown again as a drag on Area Properties › Grass grows
+/// them each frame. `FRAME_GRASS_DENSITY` sets the field's density (the
+/// tileset's 5 otherwise). Needs the game and a GPU; run in release:
+/// `cargo test --release -p mg-ui --test frame_perf grass -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn grass_frames_at_144() {
+    use mg_area::grass::{AreaGrass, GrassOverride};
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Grass", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: 32,
+        height: 32,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let set = mg_area::tileset(&game, ResRef::from_str("ttr01").unwrap()).ok();
+    if let Some(density) = std::env::var("FRAME_GRASS_DENSITY").ok().and_then(|d| d.parse().ok()) {
+        let key = ResKey::new(area, ResType::GIT);
+        let mut git = m.gff(&key).unwrap().unwrap();
+        let mut o = GrassOverride::new(3, set.as_ref());
+        o.look.density = density;
+        let props = git.root.child_mut(mg_area::grass::PROPERTIES).unwrap();
+        mg_module::grass::set_in(props, &o);
+        m.set_gff(key, &git).unwrap();
+    }
+    let path = mg_testkit::scratch_dir("frame-grass").join("grass.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let mut r = Report::new();
+    let rs = render_state();
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    let mut h = harness(app, rs);
+    h.run_steps(3);
+    let tab = Tab::Area(area);
+    open(&mut h, tab.clone());
+    h.run_steps(5);
+    let close_in = |app: &mut Moonglow, _: usize| {
+        if let Some(o) = app.area_views.get_mut(&area).and_then(|v| v.orbit.as_mut()) {
+            o.target = glam::Vec3::new(160.0, 160.0, 0.0);
+            o.pitch = 0.7;
+            o.distance = 25.0;
+            o.yaw += 0.01;
+        }
+    };
+    for no_grass in [false, true] {
+        h.state_mut().settings.no_grass = no_grass;
+        let what = if no_grass { "field, close, no grass" } else { "field, close, grass" };
+        view_with(&mut h, &mut r, what, Some(&tab), close_in);
+    }
+    // Grown again, as each frame of a drag grows it.
+    let ws_root = {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&ResKey::new(area, ResType::GIT)).unwrap().root.clone()
+    };
+    let mut grass = AreaGrass::read(&ws_root);
+    let mut o = GrassOverride::new(3, set.as_ref());
+    let gpu = h.state().viewport.as_ref().unwrap().gpu.clone();
+    let model = h.state().area_views[&area].model.clone().unwrap();
+    let mut scene = mg_area::AreaScene::new(&gpu, &game, &model);
+    let mut times = Vec::new();
+    for k in 0..10 {
+        o.look.density = 5.0 + k as f32 * 0.1;
+        grass.overrides = vec![o.clone()];
+        let growing = grass.growing(set.as_ref());
+        let t = Instant::now();
+        scene.update_grass(&gpu, &game, &model, &growing);
+        times.push(t.elapsed());
+    }
+    println!("  grown again (a drag's frame): {:.2} ms", ms(pick(times, 0.5)));
+    for over in &r.over {
+        println!("OVER: {over}");
+    }
+}

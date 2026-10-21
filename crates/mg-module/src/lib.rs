@@ -17,6 +17,7 @@ pub mod doctor;
 pub mod external_compiler;
 pub mod factions;
 pub mod folder;
+pub mod grass;
 pub mod hak_edit;
 pub mod haks;
 pub mod instances;

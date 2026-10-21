@@ -6,6 +6,7 @@
 
 mod appearance_gallery;
 mod area_audio;
+mod area_grass;
 mod area_props;
 pub mod area_reshape;
 pub mod area_tools;

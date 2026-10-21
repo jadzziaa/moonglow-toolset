@@ -129,6 +129,13 @@ pub enum Change {
     StaticPlaceables,
     /// Makes every static placeable of the area dynamic.
     DynamicPlaceables,
+    /// Grows grass of the area's own on a surface material (in place of
+    /// what it grows there): `SetAreaGrassOverride` from the start.
+    Grass(crate::grass::GrassOverride),
+    /// Takes the area's own grass off a surface material.
+    RemoveGrass(u32),
+    /// The tileset's grass grows (`true`) or not: `GrassDefDisabled`.
+    TilesetGrass(bool),
 }
 
 impl Change {
@@ -266,7 +273,8 @@ fn integer(text: &str) -> Option<i64> {
     }
 }
 
-fn yes_no(text: &str) -> Option<bool> {
+/// `yes` or `no` (`1`, `true`, `on`; `0`, `false`, `off`).
+pub fn yes_no(text: &str) -> Option<bool> {
     match text.trim().to_ascii_lowercase().as_str() {
         "1" | "yes" | "true" | "on" => Some(true),
         "0" | "no" | "false" | "off" => Some(false),
@@ -490,6 +498,43 @@ pub fn apply(m: &mut Module, areas: &[ResRef], changes: &[Change]) -> Result<Vec
                             note(what, Some("1".into()), Some("0".into()));
                             git_changed = true;
                         }
+                    }
+                }
+                Change::Grass(_) | Change::RemoveGrass(_) | Change::TilesetGrass(_) => {
+                    use crate::grass;
+                    let props = git
+                        .as_mut()
+                        .and_then(|g| g.root.child_mut(grass::PROPERTIES))
+                        .ok_or_else(|| {
+                            format!("{area} has no grass settings (its GIT lacks AreaProperties)")
+                        })?;
+                    let shown = |o: &grass::GrassOverride| o.look.describe();
+                    match change {
+                        Change::Grass(o) => {
+                            if let Some(was) = grass::set_in(props, o) {
+                                let what = format!("grass on material {}", o.material);
+                                note(what, was.as_ref().map(shown), Some(shown(o)));
+                                git_changed = true;
+                            }
+                        }
+                        Change::RemoveGrass(material) => {
+                            if let Some(was) = grass::remove_in(props, *material) {
+                                note(
+                                    format!("grass on material {material}"),
+                                    Some(shown(&was)),
+                                    None,
+                                );
+                                git_changed = true;
+                            }
+                        }
+                        Change::TilesetGrass(on) => {
+                            if grass::set_disabled_in(props, !on) {
+                                let text = |b: bool| Some(if b { "yes" } else { "no" }.to_string());
+                                note("tileset grass".into(), text(!on), text(*on));
+                                git_changed = true;
+                            }
+                        }
+                        _ => unreachable!(),
                     }
                 }
                 Change::RemoveVar(name) => {

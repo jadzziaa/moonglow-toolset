@@ -511,9 +511,9 @@ enum Cmd {
     },
     /// List a module's areas, or set properties of several at once and
     /// save. Which areas: those named, narrowed by the filters (all that are
-    /// given must hold). With `--set`, `--var` or `--remove-var`, each
-    /// change is made to each of them: all of the changes, or none if one
-    /// cannot be made.
+    /// given must hold). With `--set`, `--var`, `--remove-var` or the
+    /// grass options, each change is made to each of them: all of the
+    /// changes, or none if one cannot be made.
     Areas {
         module: PathBuf,
         /// Only these areas (ResRefs); none: every area.
@@ -560,6 +560,23 @@ enum Cmd {
         /// Make every static placeable of each area dynamic.
         #[arg(long)]
         dynamic_placeables: bool,
+        /// `MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`: grass of
+        /// each area's own on a surface material (a surfacemat.2da row, by
+        /// number or label: `Dirt:grass:3:0.5`), in place of what grows
+        /// there, as `SetAreaGrassOverride` sets it, with an ambient and a
+        /// diffuse color (0 to 1; the diffuse the ambient's when left out,
+        /// both the game's grass color when neither is given). Kept in the
+        /// GIT's AreaProperties, where the game reads it.
+        #[arg(long = "grass", value_name = "GRASS")]
+        grass: Vec<String>,
+        /// A surface material (number or label) to take each area's own
+        /// grass off.
+        #[arg(long, value_name = "MATERIAL")]
+        remove_grass: Vec<String>,
+        /// `yes` or `no`: the tileset's grass grows on grass faces or not
+        /// (`SetAreaDefaultGrassDisabled`).
+        #[arg(long, value_name = "YES_OR_NO")]
+        tileset_grass: Option<String>,
         /// Change every area of the module (needed when no area is named
         /// and no filter given).
         #[arg(long)]
@@ -2021,6 +2038,9 @@ fn run(cli: &Cli) -> Result<Output> {
             remove_var,
             static_placeables,
             dynamic_placeables,
+            grass,
+            remove_grass,
+            tileset_grass,
             all,
             dry_run,
         } => {
@@ -2050,6 +2070,36 @@ fn run(cli: &Cli) -> Result<Output> {
             }
             if *dynamic_placeables {
                 changes.push(Change::DynamicPlaceables);
+            }
+            // A surface material by surfacemat.2da's label (read only when a
+            // material is named rather than numbered).
+            let named = std::cell::OnceCell::new();
+            let material = |name: &str| -> Option<u32> {
+                let table = named.get_or_init(|| {
+                    install(cli)
+                        .ok()
+                        .and_then(|gi| mg_rules::GameData::open(&gi).ok())
+                        .and_then(|g| g.table("surfacemat").ok())
+                });
+                let t = table.as_ref()?;
+                (0..t.len())
+                    .find(|&r| t.get(r, "Label").is_some_and(|l| l.eq_ignore_ascii_case(name)))
+                    .map(|r| r as u32)
+            };
+            for g in grass {
+                let o = mg_module::grass::GrassOverride::parse(g, material)
+                    .map_err(anyhow::Error::msg)?;
+                changes.push(Change::Grass(o));
+            }
+            for name in remove_grass {
+                let m = name.trim().parse().ok().or_else(|| material(name.trim()));
+                let m = m.ok_or_else(|| anyhow::anyhow!("{name}: not a surface material"))?;
+                changes.push(Change::RemoveGrass(m));
+            }
+            if let Some(on) = tileset_grass {
+                let on = areas::yes_no(on)
+                    .ok_or_else(|| anyhow::anyhow!("--tileset-grass {on:?}: yes or no"))?;
+                changes.push(Change::TilesetGrass(on));
             }
             let mut m = Module::open(module)?;
             let listed = areas::list_in(&m, module_codepage(cli, &m));

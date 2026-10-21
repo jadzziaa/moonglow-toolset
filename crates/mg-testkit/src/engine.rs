@@ -108,3 +108,76 @@ pub fn run_server(
         std::thread::sleep(Duration::from_millis(100));
     }
 }
+
+/// Runs `<user_dir>/modules/<module>.mod` in the headless server until a
+/// log line contains `ready_marker`, then saves the game from the server's
+/// console (`save <slot> <name>`): what the engine holds, read back where
+/// no script can ask for it. The saved game's `.sav` (an ERF holding the
+/// areas' ARE and GIT as the engine writes them); an error with what the
+/// server printed and logged if it did not get to the marker or the save
+/// did not complete in `timeout`.
+pub fn save_game(
+    root: &Path,
+    user_dir: &Path,
+    module: &str,
+    ready_marker: &str,
+    timeout: Duration,
+) -> io::Result<std::path::PathBuf> {
+    let server = server_binary(root)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, mg_serve::no_server(root)))?;
+    let _turn = Turn::take();
+    let saves = user_dir.join("saves");
+    let _ = std::fs::remove_dir_all(&saves);
+    let mut server = mg_serve::Server::start(&mg_serve::Options {
+        server,
+        user_dir: user_dir.to_path_buf(),
+        module: module.to_string(),
+        name: "moonglow-test".into(),
+        console: true,
+        ..Default::default()
+    })?;
+    // What it prints, line by line (and read, or the server blocks once
+    // its pipe is full).
+    let (said, lines) = std::sync::mpsc::channel();
+    if let Some(out) = server.console() {
+        std::thread::spawn(move || {
+            for line in io::BufRead::lines(io::BufReader::new(out)).map_while(Result::ok) {
+                let _ = said.send(line);
+            }
+        });
+    }
+    let mut printed = Vec::new();
+    let failed = |printed: &[String], log: String, what: &str| {
+        let printed = printed.join("\n");
+        io::Error::other(format!("{what}; the server printed:\n{printed}\nand logged:\n{log}"))
+    };
+    let start = Instant::now();
+    while !server.log().contains(ready_marker) {
+        printed.extend(lines.try_iter());
+        if start.elapsed() > timeout {
+            return Err(failed(&printed, server.log(), "the module did not get ready"));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    // (A command typed while the module is still being set up is not
+    // taken: typed again until the server says it is saving.)
+    let mut complete = false;
+    let mut saving = false;
+    let mut asked = None::<Instant>;
+    while start.elapsed() < timeout && !complete {
+        if !saving && asked.is_none_or(|at| at.elapsed() > Duration::from_secs(3)) {
+            server.say("save 2 mgsave")?;
+            asked = Some(Instant::now());
+        }
+        let Ok(line) = lines.recv_timeout(Duration::from_millis(200)) else { continue };
+        saving |= line.contains("Saving");
+        complete = line.contains("Save complete");
+        printed.push(line);
+    }
+    let log = server.log();
+    server.stop(Duration::from_secs(10));
+    if !complete {
+        return Err(failed(&printed, log, "the save did not complete"));
+    }
+    Ok(saves.join("000002 - mgsave").join(format!("{module}.sav")))
+}

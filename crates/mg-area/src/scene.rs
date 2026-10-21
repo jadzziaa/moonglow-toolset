@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use mg_core::ResType;
 use mg_mdl::{Animation, Model};
 use mg_preview::compose::Composed;
@@ -19,7 +19,13 @@ use mg_render::scene::{AreaLight, Fog, Instance, PointLight, Scene};
 use mg_render::{Gpu, GpuModel};
 use mg_rules::GameData;
 
+use crate::grass::GrassLook;
+use crate::walk::Walkmesh;
 use crate::{AreaModel, AreaObject, AreaTile, Lighting, ObjectKind, TILE_SIZE};
+
+/// How far from the view's focus grass is drawn, meters (the game draws it
+/// near the camera alone): the tiles whose middle is this near.
+pub const GRASS_REACH: f32 = 30.0;
 
 /// How many objects' particles are simulated in a frame at most (an area
 /// of hundreds of torches still draws at once): those nearest the view.
@@ -74,6 +80,9 @@ pub struct View {
     /// black caps under them, stay), as Aurora's Environment › Fade
     /// Geometry leaves them out. (The game's tiles have 0, 1, 2 and 4.)
     pub fade: bool,
+    /// Grass is drawn on the tiles within [`GRASS_REACH`] of this point
+    /// (the view's focus, on the ground); `None`: none.
+    pub grass: Option<Vec2>,
 }
 
 impl View {
@@ -88,6 +97,7 @@ impl View {
             show: [true; 9],
             animate: true,
             fade: false,
+            grass: None,
         }
     }
 
@@ -193,6 +203,14 @@ pub struct AreaScene {
     spawn_point: Option<Arc<GpuModel>>,
     /// Encounters' spawn points are marked (Options › Area).
     pub spawn_markers: bool,
+    /// By tile index, the grass it grows ([`crate::grass::tufts`]).
+    tile_grass: Vec<Option<Arc<GpuModel>>>,
+    /// What grows (by material) that the grass was made for, and the
+    /// grass of each tile model, by name.
+    grass_for: Vec<(u32, GrassLook)>,
+    grass_cache: HashMap<String, Option<Arc<GpuModel>>>,
+    /// The tile models' walkmeshes, by name.
+    walkmesh_cache: HashMap<String, Option<Arc<Walkmesh>>>,
 }
 
 /// Loads models (and their supermodels) by name, each once.
@@ -326,6 +344,47 @@ impl AreaScene {
         self.missing.extend(missing);
         self.missing.sort();
         self.missing.dedup();
+        self.update_grass(gpu, game, area, &area.grass);
+    }
+
+    /// Grows `growing` (what grows on each surface material: the area's
+    /// own, [`AreaModel::grass`], or settings being tried out) on
+    /// `area`'s tiles: each tile model's grass is made once, until what
+    /// grows changes.
+    pub fn update_grass(
+        &mut self,
+        gpu: &Gpu,
+        game: &GameData,
+        area: &AreaModel,
+        growing: &[(u32, GrassLook)],
+    ) {
+        if self.grass_for != growing {
+            self.grass_for = growing.to_vec();
+            self.grass_cache.clear();
+        }
+        let (grass, walkmeshes) = (&mut self.grass_cache, &mut self.walkmesh_cache);
+        self.tile_grass = area
+            .tiles
+            .iter()
+            .map(|t| {
+                let name = t.model.as_ref().filter(|_| !growing.is_empty())?;
+                grass
+                    .entry(name.clone())
+                    .or_insert_with(|| {
+                        let walk = walkmeshes
+                            .entry(name.clone())
+                            .or_insert_with(|| Walkmesh::of_tile(game, name).map(Arc::new));
+                        let model = crate::grass::tufts(name, &walk.as_ref()?.faces, growing)?;
+                        Some(Arc::new(GpuModel::new(gpu, Arc::new(model))))
+                    })
+                    .clone()
+            })
+            .collect();
+    }
+
+    /// What grows that the grass shown was made for.
+    pub fn grass_grown(&self) -> &[(u32, GrassLook)] {
+        &self.grass_for
     }
 
     /// `object` (not in the area: a blueprint about to be placed) as
@@ -700,6 +759,14 @@ impl AreaScene {
                 instances.truncate(drawn);
                 lights.truncate(lit);
                 self.failed.borrow_mut().insert(key);
+            }
+        }
+        if let Some(focus) = view.grass {
+            for (i, (tile, grass)) in area.tiles.iter().zip(&self.tile_grass).enumerate() {
+                let Some(grass) = grass.as_ref().filter(|_| !hidden.contains(&i)) else { continue };
+                if tile.position.truncate().distance(focus) <= GRASS_REACH {
+                    instances.push(Instance::new(grass.clone(), tile.transform()));
+                }
             }
         }
         for (o, shown) in area.objects.iter().zip(&self.objects) {

@@ -13,6 +13,7 @@ pub(crate) const START: &str = "🏁";
 pub(crate) const NIGHT: &str = "🌙";
 pub(crate) const FOG: &str = "☁";
 pub(crate) const GRID: &str = "⊞";
+pub(crate) const GRASS: &str = "🌿";
 pub(crate) const AMBIENT: &str = "🍃";
 pub(crate) const MUSIC: &str = "🎵";
 pub(crate) const WALKMESH: &str = "👣";

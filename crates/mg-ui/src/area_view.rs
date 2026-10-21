@@ -636,6 +636,12 @@ impl AreaView {
         self.orbit.map(|o| o.camera())
     }
 
+    /// What grows on each surface material in the view's scene (the
+    /// area's grass, or what Area Properties › Grass is trying out).
+    pub fn grass_grown(&self) -> Option<&[(u32, mg_area::grass::GrassLook)]> {
+        self.scene.as_ref().map(AreaScene::grass_grown)
+    }
+
     /// Where a point shows on screen (last drawn view).
     pub fn screen_pos(&self, p: Vec3) -> Option<Pos2> {
         let camera = self.camera()?;
@@ -1655,6 +1661,18 @@ fn toolbar(app: &mut Moonglow, ui: &mut egui::Ui, view: &mut AreaView) {
         {
             app.settings.still_objects = !animated;
         }
+        let mut grass = !app.settings.no_grass;
+        if ui
+            .toggle_value(&mut grass, labelled(icons::GRASS, "Grass"))
+            .on_hover_text(
+                "Grass on the tiles near the view's center, as the game grows it near the \
+                 camera: the tileset's, and the area's own (Area Properties › Grass); in every \
+                 area view",
+            )
+            .changed()
+        {
+            app.settings.no_grass = !grass;
+        }
         ui.toggle_value(&mut view.grid, labelled(icons::GRID, "Grid"))
             .on_hover_text("Display Grid");
         // Aurora's Play Placed Sounds, Play Ambient Sound, Play Ambient
@@ -1939,6 +1957,17 @@ fn viewport(
     view.ghost_shown.clone_from(&ghost);
     // What a tile brush's click would make, under the pointer: the tiles in
     // place of those they replace.
+    // The grass: as Area Properties › Grass tries it out, else the area's.
+    if let (Some(scene), Some(model), Some(vp), Some(game)) =
+        (view.scene.as_mut(), &view.model, app.viewport.as_ref(), app.game.as_deref())
+    {
+        let tried = crate::area_grass::tried(ui.ctx(), view.area);
+        let growing = tried.as_deref().unwrap_or(&model.grass);
+        if scene.grass_grown() != growing {
+            scene.update_grass(&vp.gpu, game, model, growing);
+            view.drawn = None;
+        }
+    }
     let settings = View {
         time: view.time,
         night: view.night,
@@ -1947,6 +1976,7 @@ fn viewport(
         show: view.show,
         animate: !app.settings.still_objects,
         fade: view.fade.now(view.tile_mode || crate::terrain_mode::active(app, view).is_some()),
+        grass: view.orbit.filter(|_| !app.settings.no_grass).map(|o| o.target.truncate()),
     };
     let shift = ui.input(|i| i.modifiers.shift);
     let preview = crate::terrain_mode::preview(app, view, shift);

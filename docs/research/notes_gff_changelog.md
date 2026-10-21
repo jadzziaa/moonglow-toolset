@@ -3,7 +3,7 @@ type: Research Note
 title: NWN:EE GFF resources authored by the toolset + EE toolset changelog — research notes for Moonglow Toolset
 description: Field reference for the GFF resource types the toolset authors (NWN:EE 89.8193.37), toolset-only data in a module, the EE-added fields, and the EE toolset's changes in order and by topic, with citations and open questions.
 tags: [gff, fields, ee, changelog]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-09-30T13:38:36Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:09:03Z }
 ---
 
 # NWN:EE GFF resources authored by the toolset + EE toolset changelog — research notes for Moonglow Toolset
@@ -117,7 +117,8 @@ Not real (prompt guesses checked and absent everywhere [D,T,S]): `Mod_Cache`, `M
 
 Tile_List struct: `Tile_ID` I (index into .set TILES), `Tile_Orientation` I (0-3 ×90°), `Tile_Height` I, `Tile_MainLight1/2` B (lightcolor.2da; 0 = none), `Tile_SrcLight1/2` B (0 = off, else lightcolor), `Tile_AnimLoop1/2/3` B.
 ARE write order (DoIWD): ID, Creator_ID, Version, Tag, Name, ResRef, Comments, Expansion_List, Flags, ModSpotCheck, ModListenCheck, MoonAmbientColor, MoonDiffuseColor, MoonFogAmount, MoonFogColor, MoonShadows, SunAmbientColor, SunDiffuseColor, SunFogAmount, SunFogColor, SunShadows, IsNight, LightingScheme, ShadowOpacity, FogClipDist, SkyBox, DayNightCycle, ChanceRain, ChanceSnow, ChanceLightning, WindPower, LoadScreenID, PlayerVsPlayer, NoRest, Width, Height, OnEnter, OnExit, OnHeartbeat, OnUserDefined, TileBrdrDisabled, Tileset, Tile_List.
-Engine/savegame-only ARE labels [S] (EE runtime state, preserve): `Tile_ReplaceTex`, `ChanceFog`, `AreaEffectList`, `GrassDefDisabled`, `GrassOverrides`/`GrassOvrList` {GrassMaterialId, GrassTexture, GrassDensity, GrassHeight, GrassAmbientX/Y/Z, GrassDiffuseX/Y/Z} (EE SetAreaGrassOverride), `MoonDirectionX/Y/Z`, `SunDirectionX/Y/Z` (EE area light direction), `WindDirectionX/Y/Z`, `WindMagnitude`, `WindYaw`, `WindPitch` (EE SetAreaWind), `CurrentWeather`, `WeatherStarted`.
+Engine/savegame-only ARE labels [S] (EE runtime state, preserve): `Tile_ReplaceTex`, `ChanceFog`, `AreaEffectList`, `MoonDirectionX/Y/Z`, `SunDirectionX/Y/Z` (EE area light direction), `WindDirectionX/Y/Z`, `WindMagnitude`, `WindYaw`, `WindPitch` (EE SetAreaWind), `CurrentWeather`, `WeatherStarted`.
+**Grass (corrected 2026-10-20, `engine_grass`):** `GrassDefDisabled` (B) and `GrassOverrides` (St, struct id 101) › `GrassOvrList` (L of struct 0: `GrassMaterialId` B, `GrassTexture` CExoString, `GrassDensity`, `GrassHeight`, `GrassAmbientX/Y/Z`, `GrassDiffuseX/Y/Z` F) are not ARE labels: the engine saves them in the **GIT's `AreaProperties`**, and reads them from a module's GIT when the module loads (a server's `save` of a module holding them in one area's GIT kept them; the same fields in another area's ARE root were dropped). The client draws them (`client_render.rs` grass_overrides_look). The same saves had `MoonDirectionX/Y/Z`, `SunDirectionX/Y/Z` and `DisplayName` in the GIT's `AreaProperties` too, and `CurrentWeather`, `WeatherStarted` at the GIT's root [observed; whether a module's are read: not tested].
 Area *local variables* are not in the ARE: they go in the **GIT root `VarTable`** [D + T Area Properties has a Variables button].
 Area defaults (lighting schemes, ambient/music presets) come from `areag.ini`/environment.2da [T strings LIGHT_AMB_RED…, DAYNIGHT, SKYBOX; wiki areag.ini]; DFT files unused.
 

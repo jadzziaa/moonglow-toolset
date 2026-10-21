@@ -19006,3 +19006,107 @@ fn a_game_table_is_edited_as_a_copy() {
     h.run_steps(3);
     assert!(h.state().ws.as_ref().unwrap().module.contains(&key));
 }
+
+/// Area Properties › Grass: the tileset's grass turned off, grass added
+/// to a surface material, each one step to undo, stored in the GIT where
+/// the game reads it (and kept when the module is saved), and grown in
+/// the area's view; the toolbar's Grass switch shows it or not, in the
+/// picture.
+#[test]
+fn grass_is_set_in_area_properties_and_grown_in_the_view() {
+    use mg_area::grass::{AreaGrass, GRASS_MATERIAL};
+    let Some((mut h, area)) = area_harness("grass") else { return };
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        o.target = glam::Vec3::new(20.0, 20.0, 0.0);
+        (o.pitch, o.yaw, o.distance) = (35f32.to_radians(), -60f32.to_radians(), 9.0);
+    }
+    h.run_steps(3);
+    let grown = |h: &Harness<'_, Moonglow>| -> Vec<(u32, String)> {
+        let view = &h.state().area_views[&area];
+        let grown = view.grass_grown().unwrap_or(&[]);
+        grown.iter().map(|(m, l)| (*m, l.texture.clone())).collect()
+    };
+    // The tileset's (ttr01: `grass` on grass faces).
+    assert_eq!(grown(&h), [(GRASS_MATERIAL, "grass".to_string())]);
+    // In the picture, and gone with the toolbar's switch.
+    let with = h.render().expect("render");
+    h.get_by_label(&format!("{} Grass", "🌿")).click();
+    h.run_steps(3);
+    assert!(h.state().settings.no_grass);
+    let without = h.render().expect("render");
+    let changed = with
+        .pixels()
+        .zip(without.pixels())
+        .filter(|(a, b)| (0..3).any(|c| a[c].abs_diff(b[c]) > 24))
+        .count();
+    assert!(changed > 20_000, "the grass changed {changed} pixels");
+    h.get_by_label(&format!("{} Grass", "🌿")).click();
+    h.run_steps(3);
+    assert!(!h.state().settings.no_grass);
+
+    let git = ResKey::new(area, ResType::GIT);
+    let stored = |h: &mut Harness<'_, Moonglow>| {
+        AreaGrass::read(&h.state_mut().ws.as_mut().unwrap().doc(&git).unwrap().root)
+    };
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(area)));
+    h.run_steps(5);
+    // (The window's page: the palette has a Grass terrain too.)
+    h.get_all_by_label("Grass").last().unwrap().click();
+    h.run_steps(3);
+    h.get_by_label("Grow the tileset's grass on Grass faces").click();
+    h.run_steps(3);
+    assert!(stored(&mut h).default_disabled);
+    assert!(grown(&h).is_empty(), "nothing grows: {:?}", grown(&h));
+    // Grass of the area's own on dirt: the tileset's, as a start.
+    h.get_by_label("Add Grass to…").click();
+    h.run_steps(2);
+    h.get_by_label("Dirt (1)").click();
+    h.run_steps(3);
+    let now = stored(&mut h);
+    assert_eq!(now.overrides.len(), 1);
+    assert_eq!(now.overrides[0].material, 1);
+    assert_eq!(now.overrides[0].look.texture, "grass");
+    assert_eq!(now.overrides[0].look.height, 1.2);
+    assert_eq!(grown(&h), [(1, "grass".to_string())]);
+    // Its density dragged: grown in the view as it goes, set when let go.
+    let density = |h: &Harness<'_, Moonglow>| {
+        h.state().area_views[&area].grass_grown().unwrap_or(&[]).first().map(|(_, l)| l.density)
+    };
+    let field = h.get_by_value("5.00").rect().center();
+    h.hover_at(field);
+    press(&h, field, true, egui::Modifiers::NONE);
+    for k in 1..=10 {
+        h.hover_at(field + egui::vec2(8.0 * k as f32, 0.0));
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    let dragged = density(&h).unwrap();
+    assert!(dragged > 5.5, "grown at {dragged} while dragged");
+    assert_eq!(stored(&mut h).overrides[0].look.density, 5.0, "not set yet");
+    press(&h, field + egui::vec2(80.0, 0.0), false, egui::Modifiers::NONE);
+    h.run_steps(3);
+    let set = stored(&mut h).overrides[0].look.density;
+    assert!(set > 5.5, "set to {set}");
+    assert_eq!(density(&h), Some(set));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert_eq!(stored(&mut h).overrides[0].look.density, 5.0, "the drag, one step");
+    // Each a step of its own.
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(3);
+    assert!(stored(&mut h).overrides.is_empty());
+    h.state_mut().actions.push(mg_ui::Action::Redo);
+    h.run_steps(3);
+    assert_eq!(stored(&mut h).overrides.len(), 1);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    // Saved, and read again from the file.
+    h.state_mut().actions.push(mg_ui::Action::Save);
+    h.run_steps(3);
+    let location = h.state().ws.as_ref().unwrap().module.location.clone();
+    let Some(ModuleLocation::Archive(path)) = location else { panic!("{location:?}") };
+    let back = mg_module::Module::open(&path).unwrap();
+    let saved = AreaGrass::read(&back.gff(&git).unwrap().unwrap().root);
+    assert_eq!(saved, stored(&mut h));
+    assert!(saved.default_disabled && saved.overrides[0].material == 1);
+}

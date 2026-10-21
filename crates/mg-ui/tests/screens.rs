@@ -1962,6 +1962,78 @@ fn area_properties_advanced() {
 
 #[test]
 #[ignore]
+fn area_properties_grass() {
+    // The Grass page beside the area's view: the tileset's grass off, the
+    // area's own on grass (red) and on stone.
+    use mg_area::grass::{GrassLook, GrassOverride};
+    use mg_module::ModuleLocation;
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    mg_testkit::gpu::hold();
+    let root = mg_testkit::corpus!();
+    let dir = mg_testkit::output_dir("screens");
+    let install = GameInstall::new(&root, None, "en");
+    let game = mg_rules::GameData::open(&install).unwrap();
+    let mut rng = fastrand::Rng::with_seed(7);
+    let mut m = new_module(&game, "Props", &mut rng).unwrap();
+    let spec = AreaSpec {
+        name: "Field".into(),
+        tileset: mg_core::ResRef::from_str("ttr01").unwrap(),
+        width: 4,
+        height: 4,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let path = dir.join("grass.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    let rs = egui_kittest::wgpu::create_render_state(
+        egui_kittest::wgpu::default_wgpu_setup(),
+        egui_wgpu::RendererOptions::PREDICTABLE,
+    );
+    let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+    app.set_render_state(rs.clone());
+    app.open_module(&path);
+    app.open_palette = false;
+    let are = ResKey::new(area, ResType::ARE);
+    app.blueprint_pages.insert((are, GffPath::root()), "Grass");
+    let git = ResKey::new(area, ResType::GIT);
+    let look = |texture: &str, color: [f32; 3]| GrassLook {
+        texture: texture.into(),
+        density: 6.0,
+        height: 1.0,
+        ambient: color,
+        diffuse: color,
+    };
+    let red = GrassOverride { material: 3, look: look("grass", [0.8, 0.2, 0.1]) };
+    let stone = GrassOverride { material: 4, look: look("ttz_grass", [0.4, 0.7, 0.3]) };
+    let mut overrides = mg_gff::Struct::new(mg_area::grass::OVERRIDES_ID);
+    overrides.set(mg_area::grass::LIST, mg_gff::Value::List(vec![red.item(), stone.item()]));
+    let edits = vec![
+        mg_area::grass::set_disabled(git, true),
+        mg_edit::Edit::SetField {
+            key: git,
+            path: mg_area::grass::properties_path(),
+            label: mg_area::grass::OVERRIDES.into(),
+            value: Some(mg_gff::Value::Struct(overrides)),
+        },
+    ];
+    app.actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Setup", edits)));
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::Area(area)));
+    app.actions.push(mg_ui::Action::OpenTab(mg_ui::Tab::AreaProperties(area)));
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 900.0))
+        .renderer(egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs))
+        .build_ui_state(|ui, app: &mut Moonglow| app.ui(ui), app);
+    h.run_steps(3);
+    if let Some(o) = &mut h.state_mut().area_views.get_mut(&area).unwrap().orbit {
+        o.target = glam::Vec3::new(20.0, 20.0, 0.0);
+        (o.pitch, o.yaw, o.distance) = (35f32.to_radians(), -60f32.to_radians(), 14.0);
+    }
+    place(&mut h, &mg_ui::Tab::AreaProperties(area), (800.0, 70.0), (580.0, 760.0));
+    h.run_steps(3);
+    shoot(&mut h, &dir, "area-properties-grass");
+}
+
+#[test]
+#[ignore]
 fn area_ghost() {
     // A placeable chosen in the palette: see-through under the pointer.
     mg_testkit::gpu::hold();

@@ -47,6 +47,12 @@ looking straight down at their middle, north up, as in Aurora.
   its source light has a color (Tile Properties). Switched off, they hold
   still (tiles' water and flames go on), in every area view; it stays as
   you leave it.
+- **🌿 Grass**: the grass the area grows, as the game grows it on the
+  tiles' walkmesh faces: the tileset's, and the area's own (Area
+  Properties › Grass). It is drawn on the tiles within 30 m of where the
+  view looks (the game draws it within about 24 m of its camera, which
+  the editor's views are farther off than). Switched off, in every area
+  view; it stays as you leave it.
 - **💡 Lighting**: the area's lighting. Switched off, everything is evenly
   lit, whatever the area's colors and lights: for working in a dark area.
   Areas opened later open as you left it.
@@ -537,6 +543,8 @@ Properties** on the viewer's toolbar:
 - **Visual**: the lighting scheme, day and night (or always one), the sun and moon colors,
   fog colors and amounts, shadows, the skybox, lightning, rain and snow
   chances, as Aurora's Customize Environment sets them.
+- **Grass**: the grass the area grows, by surface material (see
+  [Grass](#grass)).
 - **Audio**: day and night ambient sounds and their volumes, music, battle
   music, the environment's sound effects.
 - **Events**, **Advanced** (the tag, the loading screen, Variables; flags
@@ -548,6 +556,65 @@ Properties** on the viewer's toolbar:
   opening the area's Variables moves them to the GIT (one step to undo;
   a variable of the same name already there keeps its value), and
   **Verify Module** lists the areas that still hold some in their ARE.
+
+### Grass
+
+The game grows grass on the walkmesh faces of an area's tiles, by their
+surface material (a row of `surfacemat.2da`). The tileset's grass (its
+`[GRASS]` section: a texture, density, height and colors) grows on
+**Grass** faces (material 3). An area can turn it off and grow grass of
+its own on any material: on Grass in place of the tileset's, or on dirt,
+sand, snow, even the wood floor of an inn. These are what the game's
+`SetAreaGrassOverride` and `SetAreaDefaultGrassDisabled` set while it
+runs; the Grass page sets them from the start, and the area view grows
+them as you change them (while a value is dragged or a color picked, as
+it goes; each change is one step to undo).
+
+- **Grow the tileset's grass on Grass faces**: off, the tileset's grass
+  is gone (`SetAreaDefaultGrassDisabled(oArea, TRUE)`). Under it, what
+  the tileset grows. A tileset without grass (an interior) says so.
+- **The Area's Own Grass**: a box for each material with grass of the
+  area's own, and **Add Grass to…** for another (it starts as the
+  tileset's grass). In each: the **Surface Material** (one already
+  growing the area's grass isn't offered twice), the **Texture** (a
+  ResRef; the game's are four tufts, two by two: `grass`, `ttz_grass`),
+  the **Density** (tufts to a square meter of the faces), the **Height**
+  (meters), the **Ambient Color** and **Diffuse Color** (the light they
+  take, as the tileset's are), and **Remove**.
+
+**Where it is kept.** In the area's GIT (`area.git`), in its
+`AreaProperties` struct, where the game reads it when the module loads
+(the same fields in the ARE are not read; Moonglow's engine test
+`engine_grass` saves a game on the server and reads them back):
+
+| Field | Type | |
+|---|---|---|
+| `GrassDefDisabled` | BYTE | 1: the tileset's grass is off |
+| `GrassOverrides` | struct (id 101) | holds `GrassOvrList` |
+| `GrassOvrList` | list of structs (id 0) | one for each material |
+| `GrassMaterialId` | BYTE | the surfacemat.2da row |
+| `GrassTexture` | CExoString | the texture's ResRef |
+| `GrassDensity`, `GrassHeight` | FLOAT | as on the page |
+| `GrassAmbientX`, `Y`, `Z` | FLOAT | the ambient color's red, green and blue, 0 to 1 |
+| `GrassDiffuseX`, `Y`, `Z` | FLOAT | the diffuse color's |
+
+They are no local variables: a script can't read them. A script that
+changes grass while the game runs calls `SetAreaGrassOverride`,
+`RemoveAreaGrassOverride` or `SetAreaDefaultGrassDisabled`; what it sets
+lasts in a saved game (which keeps it in the same fields), and the module
+starts again with what the GIT holds. A server that keeps grass settings of
+its own (in its database, say) applies them in the area's OnEnter or the
+module's OnModuleLoad, over what the GIT holds.
+
+From the command line, `mg areas` sets them on many areas at once:
+`--grass Dirt:grass:3:0.5:0.5,0.6,0.3` (the material by number or
+surfacemat.2da label, the texture, density, height, then the ambient and
+the diffuse colors, which may be left out), `--remove-grass Dirt` and
+`--tileset-grass no`.
+
+Moonglow draws the grass closely enough to judge an override by: a
+tuft's size, the density and the colors match the game near its camera.
+The game's tufts gather in patches, Moonglow's are spread evenly.
 
 ### Several areas together
 
@@ -572,6 +639,11 @@ ticked, shown as the first of them:
   area keeps its other flags.
 - **Variables**: the variables you add or change are set on each area,
   those you delete are deleted from each, and each keeps its others.
+- **Grass**: turning the tileset's grass off or on is set on each area;
+  a material's grass, added, changed or removed, is that material's in
+  each area (one an area has for it already changes in place). Give
+  Every Area This Page's Settings gives them the first area's grass as
+  it is.
 - Names, tags and comments are an area's own, and aren't offered.
 
 To give every underground area the same music: Underground in the

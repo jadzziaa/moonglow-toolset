@@ -93,7 +93,7 @@ mg [--root GAME] [--user-dir DIR | --no-user-dir] [--json] COMMAND ...
 | `mg replace MODULE FIND WITH` | replace text in the module's names, descriptions, conversations and journal and save (`--match-case`, `--whole-word`, `--only names,journal,…`, `--dry-run` to list the strings only) |
 | `mg set MODULE NAME.EXT FIELD=VALUE…` | set fields of a resource and save: a field is a path from the resource's root (`Tag`, `/ClassList[0]/ClassLevel`) and keeps its type; `--remove FIELD`; `--dry-run` prints the change and makes none |
 | `mg apply MODULE EDITS.json` | apply a file of edits (below) and save: all of them, or none if one does not apply; `-` reads standard input; `--dry-run` only checks |
-| `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`; with `--set FIELD=VALUE`, `--var NAME=VALUE`, `--remove-var NAME`, `--static-placeables` or `--dynamic-placeables`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area) |
+| `mg areas MODULE [AREA…]` | list the module's areas, narrowed by `--match TEXT` (in the name, tag or ResRef), `--tileset`, `--interior` or `--exterior`, `--underground` or `--above-ground`, `--natural` or `--artificial`; with `--set FIELD=VALUE`, `--var NAME=VALUE`, `--remove-var NAME`, `--static-placeables` or `--dynamic-placeables`, `--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`, `--remove-grass MATERIAL` or `--tileset-grass yes|no`, make each change to each of those areas and save (`--dry-run` to list the changes only; `--all` to change every area) |
 
 A module is a `.mod` archive, a module folder or a nasher project. `mg
 compile` and `mg import` write the module in place; an archive's previous
@@ -172,7 +172,20 @@ mg areas mymodule.mod --underground --set MusicDay=57 --set MusicNight=57 --dry-
 mg areas mymodule.mod --tileset tdc01 --set SunFogAmount=8 --set SunFogColor=0x201810
 mg areas mymodule.mod cave1 cave2 --var nSpawnLevel=4 --remove-var bOld --set Natural=yes
 mg areas mymodule.mod --all --static-placeables --dry-run
+mg areas mymodule.mod --tileset tin01 --grass Wood:grass:2:0.4 --tileset-grass no
 ```
+
+- **`--grass MATERIAL:TEXTURE:DENSITY:HEIGHT[:R,G,B[:R,G,B]]`**: grass of
+  each area's own on a surface material (a `surfacemat.2da` row, by
+  number or label), in place of what grows there, as the game's
+  `SetAreaGrassOverride` sets it: its texture, density (tufts to a square
+  meter), height (meters), ambient color and diffuse color (red, green
+  and blue, 0 to 1; the diffuse the ambient's when it is left out, both
+  the game's grass color, 0.5,0.6,0.3, when neither is). One an area has
+  for the material already changes in place. **`--remove-grass
+  MATERIAL`** takes it off; **`--tileset-grass no`** turns the tileset's
+  grass off (`yes` on). Kept in the area's GIT, where the game reads it;
+  see [Areas](04-areas.md#grass).
 
 - **`--static-placeables`**: sets Static on each area's placeables that
   lose nothing by it (not the Useable ones, those a visual transform

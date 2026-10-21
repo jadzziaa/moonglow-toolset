@@ -751,6 +751,101 @@ fn grass_and_sky_look() {
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
 
+/// One grass override for [`grass_overrides_look`], as Moonglow writes it.
+fn grass_override(
+    material: u32,
+    texture: &str,
+    density: f32,
+    height: f32,
+    color: [f32; 3],
+) -> mg_gff::Struct {
+    let look = mg_area::grass::GrassLook {
+        texture: texture.into(),
+        density,
+        height,
+        ambient: color,
+        diffuse: color,
+    };
+    mg_area::grass::GrassOverride { material, look }.item()
+}
+
+/// Grass overrides as the client and Moonglow draw them, on a rural field
+/// (ttr01) under the fitted camera, side by side for a look; no comparison.
+/// `MG_GRASS` names the variants (comma-separated): `default`, `off` (the
+/// tileset's grass disabled), `dense` and `sparse` (density 20 and 1 on
+/// grass, material 3), `tall` (height 3), `red` (colors 1, 0, 0), `dirt`
+/// (grass on dirt too, material 1). Each one's pictures:
+/// `target/test-output/client_grass_<variant>/` `client.png` and
+/// `moonglow.png`. `MG_DISTANCE` and `MG_PITCH` move the client's camera
+/// (then Moonglow's is not fitted to it).
+#[test]
+#[ignore]
+fn grass_overrides_look() {
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let game = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let light = Lighting { ambient: 0x404040, diffuse: 0xB0B0B0, main_light: 0, only_tile: None };
+    let variants = std::env::var("MG_GRASS").unwrap_or_else(|_| "default".into());
+    let pitch = std::env::var("MG_PITCH").unwrap_or_else(|_| "45.0".into());
+    let distance = std::env::var("MG_DISTANCE").unwrap_or_else(|_| "12.0".into());
+    let skip_client = std::env::var_os("MG_NO_CLIENT").is_some();
+    for variant in variants.split(',') {
+        let dir = scratch_dir(&format!("client_grass_{variant}"));
+        let (mut m, are) = build_module_on(&game, &dir, light, "ttr01", 0);
+        let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let green = [0.5, 0.6, 0.3];
+        let list = match variant {
+            "dense" => vec![grass_override(3, "grass", 20.0, 1.2, green)],
+            "sparse" => vec![grass_override(3, "grass", 1.0, 1.2, green)],
+            "tall" => vec![grass_override(3, "grass", 5.0, 3.0, green)],
+            "red" => vec![grass_override(3, "grass", 5.0, 1.2, [1.0, 0.0, 0.0])],
+            "dirt" => vec![grass_override(1, "grass", 5.0, 1.2, [0.2, 0.2, 1.0])],
+            _ => Vec::new(),
+        };
+        let Some(Value::Struct(props)) = git.root.get_mut("AreaProperties") else { panic!() };
+        if variant == "off" {
+            props.set("GrassDefDisabled", Value::Byte(1));
+        }
+        if !list.is_empty() {
+            let mut ovr = mg_gff::Struct::new(101);
+            ovr.set("GrassOvrList", Value::List(list));
+            props.set("GrassOverrides", Value::Struct(ovr));
+        }
+        m.set_gff(git_key, &git).unwrap();
+        std::fs::create_dir_all(dir.join("user")).unwrap();
+        let settings =
+            SETTINGS.replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2");
+        std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
+        let camera = format!("SetCameraFacing(90.0, {distance}, {pitch}");
+        let enter = ENTER
+            .replace("SetCameraFacing(90.0, 12.0, 45.0", &camera)
+            .replace("CreateObject(", "if (FALSE) CreateObject(");
+        let ncs = compile(&dir, "mg_enter", &enter);
+        m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), ncs);
+        m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+        let client = if skip_client { None } else { client_screenshot(&dir, "MgScene") };
+        let tileset = mg_area::tileset(&game, ResRef::from_str("ttr01").unwrap()).ok();
+        let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+        let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+        let focus = glam::Vec2::new(20.0, 20.0);
+        let view = mg_area::View { fog: false, grass: Some(focus), ..mg_area::View::of(&model) };
+        let scene = area_scene.scene(&model, &view);
+        let camera =
+            fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+        let (w, h) = client.as_ref().map_or((1024, 768), |c| (c.width, c.height));
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        let ours = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+        save_png(&ours, &dir.join("moonglow.png"));
+        eprintln!("{variant}: {} (client {})", dir.display(), client.is_some());
+    }
+}
+
 /// An emitter for [`particles_look`]: at (x, y, z) of the probe model, its
 /// particles 12 cm white squares rising 1 m/s for 3 s unless `extra` says
 /// otherwise (later keywords win).

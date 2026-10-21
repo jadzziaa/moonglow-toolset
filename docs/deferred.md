@@ -800,6 +800,40 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
 
 ## Area visibility
 
+- **Grass in patches:** the client's tufts gather in patches across a
+  field (dark clumps, seen in `client_render.rs` grass_overrides_look);
+  Moonglow scatters them evenly by face area and density. The mean color
+  near the camera matches; how the engine places them (per face, by a
+  noise) isn't known. (S–M) (Bee AI's ask, October 2026)
+- **Grass's reach:** the client draws grass within about 24 m of its
+  camera, fading over 2 m; Moonglow draws whole tiles within 30 m of the
+  view's focus, at any distance, with a tile's edge for its edge. (S)
+- **Dense grass's cost:** on a 32 by 32 field (ttr01) seen close to the
+  ground at 3440 by 1400, the GPU takes about 0.2 ms a frame without
+  grass, 3 to 4 ms at the tileset's density 5 and about 8 ms at 20 (over
+  the 6.94 ms budget; measured with the game running beside it, so an
+  upper bound: `grass_frames_at_144` in `frame_perf.rs`). The cost is the
+  overlapping tufts' fragments near the camera: a cheaper shader for
+  them, fewer tufts drawn far off, or a cap below 2000 a tile would bring
+  it down. The CPU's frame is 0.15 ms longer, and a drag's regrowing
+  0.7 ms. (S–M)
+- **A grass tuft's shape:** one upright quad turned at random, a texture
+  quarter, as tall as wide; the client's geometry (crossed quads, a lean,
+  its sway in the wind) wasn't read, and Moonglow's tufts don't sway. (S)
+- **Aurora and an area's grass:** Aurora has no grass page; whether it
+  keeps `GrassDefDisabled` and `GrassOverrides` in a GIT's
+  `AreaProperties` when it saves the area wasn't checked (a module saved
+  in Aurora may lose them). (S)
+- **Grass on placeables:** grass is grown on tiles' walkmeshes only;
+  whether the game grows it on a static placeable's walkmesh (merged into
+  the tiles) wasn't checked. (S)
+- **Add Grass to… lists every surfacemat.2da row:** which materials the
+  area's tiles have isn't shown, nor a texture's picture beside its name;
+  any texture is taken as four tufts, two by two, as the game's are. (S)
+- **The other runtime fields of an area's GIT:** a saved game holds
+  `SunDirectionX/Y/Z`, `MoonDirectionX/Y/Z` and `DisplayName` in the GIT's
+  `AreaProperties` and `CurrentWeather` at its root; whether the engine
+  reads them from a module's GIT (as it reads the grass) isn't tested. (S)
 - **Walkmesh cutters:** not drawn, and not placed (the trigger kind EE
   added). (S–M)
 - **A walkmesh's own node position:** one shipped placeable
