@@ -36,6 +36,9 @@ pub struct Viewport3d {
     pub render_state: egui_wgpu::RenderState,
     pub gpu: Gpu,
     pub renderer: Renderer,
+    /// The renderer has its shader cache and waker
+    /// ([`crate::Moonglow::shader_cache_dir`]).
+    pub(crate) configured: bool,
 }
 
 impl std::fmt::Debug for Viewport3d {
@@ -48,7 +51,7 @@ impl Viewport3d {
     pub fn new(render_state: egui_wgpu::RenderState) -> Viewport3d {
         let gpu = Gpu::new(render_state.device.clone(), render_state.queue.clone());
         let renderer = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, SAMPLES);
-        Viewport3d { render_state, gpu, renderer }
+        Viewport3d { render_state, gpu, renderer, configured: false }
     }
 
     /// Makes the targets a view of `w` by `h` pixels renders into, and the
@@ -741,6 +744,9 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         Some(rm) => rm,
         None => &mg_render::NoAssets,
     };
+    // (Drawn again and again: the game's programs are made while it goes
+    // on, Moonglow's own shader drawing until they are.)
+    vp.renderer.game_background = true;
     vp.renderer.render(
         &vp.gpu,
         assets,
@@ -751,9 +757,11 @@ fn show(app: &mut Moonglow, ui: &mut egui::Ui, source: Source, embedded: bool) -
         &targets.depth,
         (w, h),
     );
+    vp.renderer.game_background = false;
     // A program of the game's that reads the clock moves what it draws:
-    // drawn again as the area view's animations step, while the view plays.
-    if vp.renderer.drawn.timed > 0 && view.playing {
+    // drawn again as the area view's animations step, while the view plays;
+    // and, while its pipelines are made, until they are.
+    if (vp.renderer.drawn.timed > 0 && view.playing) || vp.renderer.drawn.game_pending > 0 {
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f32(CLOCK_STEP));
     }
     let response = ui.add(

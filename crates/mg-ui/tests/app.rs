@@ -3281,7 +3281,10 @@ fn the_model_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     let drawn = |h: &Harness<'_, Moonglow>| h.state().viewport.as_ref().unwrap().renderer.drawn;
     assert_eq!(drawn(&h).game, 0);
     h.get_by_label("Shaders").click();
-    h.run_steps(3);
+    h.run_steps(1);
+    // (Its programs made while the view goes on: Moonglow's shader first.)
+    assert!(drawn(&h).game_pending > 0 || drawn(&h).game > 0, "{:?}", drawn(&h));
+    until_the_game_draws(&mut h);
     assert_eq!(h.state().settings.game_shaders, Some(true));
     let vp = h.state().viewport.as_ref().unwrap();
     assert_eq!(vp.renderer.game_shader_failures(), &[]);
@@ -7155,6 +7158,25 @@ fn area_harness_on(
     Some((h, area))
 }
 
+/// Frames until the game's programs, made while the frames go on, draw
+/// (at most a minute).
+fn until_the_game_draws(h: &mut Harness<'_, Moonglow>) {
+    let start = std::time::Instant::now();
+    loop {
+        h.run_steps(1);
+        let d = h.state().viewport.as_ref().unwrap().renderer.drawn;
+        if d.game > 0 && d.game_pending == 0 {
+            // (And one more frame: the area view's picture is drawn anew
+            // as its animations step.)
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            h.run_steps(2);
+            return;
+        }
+        assert!(start.elapsed().as_secs() < 60, "the game's programs never drew: {d:?}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 /// The area view's Shaders switch: off by default (the setting not yet
 /// chosen); on, the area is drawn again with the game's own shaders (the
 /// stock lit programs for the tiles), and the choice is kept in the
@@ -7169,7 +7191,10 @@ fn the_area_view_s_shaders_switch_draws_with_the_game_s_shaders() {
     assert!(pictures > 0);
     assert_eq!(drawn(&h).game, 0);
     h.get_by_label("🎨 Shaders").click();
-    h.run_steps(3);
+    h.run_steps(1);
+    // (Its programs made while the view goes on: Moonglow's shader first.)
+    assert!(drawn(&h).game_pending > 0 || drawn(&h).game > 0, "{:?}", drawn(&h));
+    until_the_game_draws(&mut h);
     assert_eq!(h.state().settings.game_shaders, Some(true));
     assert!(h.state().area_views[&area].pictures > pictures, "drawn again");
     let vp = h.state().viewport.as_ref().unwrap();
@@ -7282,7 +7307,7 @@ fn tdod_s_wind_shaders_move_in_the_area_view() {
         shot(&mut h, "off_b")
     }];
     h.get_by_label("🎨 Shaders").click();
-    h.run_steps(5);
+    until_the_game_draws(&mut h);
     let on_a = shot(&mut h, "on_a");
     h.run_steps(30);
     let on_b = shot(&mut h, "on_b");

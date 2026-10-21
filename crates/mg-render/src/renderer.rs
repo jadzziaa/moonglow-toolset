@@ -310,6 +310,13 @@ pub struct Renderer {
     /// program doesn't compile (`docs/shaders-proposal.md`, M1). Off by
     /// default.
     pub game_shaders: bool,
+    /// The game's programs are compiled, and their pipelines made, while
+    /// the frames go on (a view drawn again and again: the area view, the
+    /// model viewer), a mesh drawn with Moonglow's own shader until its
+    /// pipeline is ready ([`Drawn::game_pending`]); off, a frame waits for
+    /// them (a picture drawn once: a thumbnail, a preview, a test). Off by
+    /// default.
+    pub game_background: bool,
     game: crate::game::GameShaders,
     /// The pipelines of each mesh's slots ([`Renderer::game_pipelines`]): by
     /// the slots (their place), whether it reflects, is skinned, and its
@@ -388,6 +395,11 @@ pub struct Drawn {
     /// ([`Renderer::game_shaders`]), each a draw of its own (two for a
     /// see-through one).
     pub game: usize,
+    /// Pipelines of the game's programs being made
+    /// ([`Renderer::game_background`]): meshes waiting for them were drawn
+    /// with Moonglow's own shader, and a frame drawn again once they are
+    /// ready shows them otherwise.
+    pub game_pending: usize,
     /// Of those, the meshes whose programs read the clock
     /// (`worldtimerTimeOfDay`, `sceneCurrentFrame`): they move by
     /// themselves, and a view that shows them draws them again as time
@@ -778,6 +790,7 @@ impl Renderer {
         Renderer {
             debug: DebugView::Lit,
             game_shaders: false,
+            game_background: false,
             game: crate::game::GameShaders::new(gpu),
             game_pipelines: HashMap::new(),
             material_keys: Vec::new(),
@@ -874,19 +887,47 @@ impl Renderer {
         let (vs, fs, _) =
             crate::game::program_pair(slots.custom.as_ref(), slots.normal_variant, reflects);
         let key = PipelineKey { vs, fs, skinned, twosided: slots.twosided, pass };
-        let (format, samples) = (self.color_format, self.sample_count);
-        let p = match pass {
-            GamePass::Solid => {
-                let fringe = PipelineKey { pass: GamePass::Fringe, ..key.clone() };
-                self.game.pipeline(gpu, assets, &key, format, samples).and_then(|p| {
-                    let q = self.game.pipeline(gpu, assets, &fringe, format, samples);
-                    q.map(|q| (p, Some(q)))
-                })
+        let (format, samples, wait) = (self.color_format, self.sample_count, !self.game_background);
+        use crate::game::Ready;
+        let p = match self.game.pipeline(gpu, assets, &key, format, samples, wait) {
+            Ready::Yes(p) if pass == GamePass::Solid => {
+                let fringe = PipelineKey { pass: GamePass::Fringe, ..key };
+                match self.game.pipeline(gpu, assets, &fringe, format, samples, wait) {
+                    Ready::Yes(q) => Some((p, Some(q))),
+                    Ready::No => None,
+                    Ready::Pending => return None,
+                }
             }
-            _ => self.game.pipeline(gpu, assets, &key, format, samples).map(|p| (p, None)),
+            Ready::Yes(p) => Some((p, None)),
+            Ready::No => None,
+            // (Drawn with Moonglow's own until it is made; not kept.)
+            Ready::Pending => return None,
         };
         self.game_pipelines.insert(at, p.clone());
         p
+    }
+
+    /// Keeps the game's compiled programs in `dir` between sessions (the
+    /// user's cache folder: what is made of the game's shaders stays on
+    /// the user's machine), or nowhere. Read where a program compiled
+    /// before is drawn again.
+    pub fn set_shader_cache(&mut self, dir: Option<std::path::PathBuf>) {
+        self.game.cache = dir.map(mg_shader::ProgramCache::new);
+    }
+
+    /// Calls `wake` when a pipeline of the game's programs is ready
+    /// ([`Renderer::game_background`]), from the thread that made it: a
+    /// window asks for a frame.
+    pub fn set_game_waker(&mut self, wake: impl Fn() + Send + Sync + 'static) {
+        if let Ok(mut w) = self.game.waker.lock() {
+            *w = Some(crate::game::Waker(Arc::new(wake)));
+        }
+    }
+
+    /// What has been compiled and read from the cache, and how long the
+    /// pipelines took to make.
+    pub fn game_shader_stats(&self) -> crate::game::ShaderStats {
+        self.game.stats
     }
 
     /// The game's shaders that couldn't be drawn ([`Renderer::game_shaders`]),
@@ -1309,6 +1350,8 @@ impl Renderer {
             }
             .derive()
         });
+        // (What the worker made since the last frame is drawn from now.)
+        self.game.poll();
         self.game.begin();
         // The solid meshes drawn with the game's shaders (drawn after
         // Moonglow's own solid ones), and the see-through ones' two parts
@@ -1664,6 +1707,7 @@ impl Renderer {
             hidden,
             game: game_draws.len() + game_blended.len(),
             timed,
+            game_pending: self.game.busy(),
             ..Drawn::default()
         };
         // Opaque (any order), then blended back to front by hint then depth,

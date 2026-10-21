@@ -26,6 +26,7 @@
 //! game's shaders are only ever read from the user's install and haks.
 
 pub mod assemble;
+mod cache;
 mod glsl;
 mod link;
 mod reflect;
@@ -39,6 +40,7 @@ pub use assemble::{
     Assembled, At, LineOrigin, Preamble, SourceFile, Sources, Stage, assemble, defines_main,
     program_stage,
 };
+pub use cache::{Cached, ProgramCache};
 pub use link::AlphaKeep;
 pub use reflect::{Member, Part, Reflection, Scalar, Texture, UniformBlock, ValueType, Varying};
 
@@ -133,10 +135,24 @@ pub fn compile(
 
 /// Compiles an assembled program.
 pub fn compile_assembled(a: &Assembled) -> Result<Program, ShaderError> {
+    let (words, io) = to_words(a)?;
+    from_words(a, &words, &io)
+}
+
+/// glslang and the passes on the words: what [`ProgramCache`] keeps.
+pub(crate) fn to_words(a: &Assembled) -> Result<(Vec<u32>, Vec<spirv::Io>), ShaderError> {
     let words = glsl::compile(a)?;
     let words = spirv::split_samplers(&words)?;
     let words = spirv::add_spare_blocks(&words)?;
-    let (words, io) = spirv::assign_locations(&words)?;
+    spirv::assign_locations(&words)
+}
+
+/// naga on the words: the program.
+pub(crate) fn from_words(
+    a: &Assembled,
+    words: &[u32],
+    io: &[spirv::Io],
+) -> Result<Program, ShaderError> {
     let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).collect();
     let options = naga::front::spv::Options {
         // (No y flip: the game's shaders are OpenGL's, whose clip space has
@@ -148,7 +164,7 @@ pub fn compile_assembled(a: &Assembled) -> Result<Program, ShaderError> {
     let mut module = naga::front::spv::parse_u8_slice(&bytes, &options)
         .map_err(|e| ShaderError::Naga(chain(&e)))?;
     link::gl_depth_to_wgpu(&mut module).map_err(ShaderError::Naga)?;
-    let reflection = reflect::bind(&mut module, &io);
+    let reflection = reflect::bind(&mut module, io);
     let info = naga::valid::Validator::new(
         naga::valid::ValidationFlags::all(),
         naga::valid::Capabilities::default(),

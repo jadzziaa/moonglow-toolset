@@ -832,22 +832,87 @@ fn game_shaders_frames_at_144() {
         let (area, tiles) = *areas(&mut app).last().unwrap();
         let mut h = harness(app, rs);
         shaders_off_and_on(&mut h, &mut r, area, tiles);
+        drop(h);
+        shaders_opening(&root, None, &path, area);
     }
     if wanted("tdod") {
         match tdod_area(&root) {
             Some((module, user, area, tiles)) => {
                 let rs = render_state();
-                let install = GameInstall::new(&root, Some(user), "en");
+                let install = GameInstall::new(&root, Some(user.clone()), "en");
                 let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
                 app.set_render_state(rs.clone());
                 app.open_module(&module);
                 let mut h = harness(app, rs);
                 shaders_off_and_on(&mut h, &mut r, area, tiles);
+                drop(h);
+                shaders_opening(&root, Some(user), &module, area);
             }
             None => println!("skipped The Domains of Dread: no tdod_t_tap.hak in MOONGLOW_HAKS"),
         }
     }
     println!("over the budget:\n  {}", r.over.join("\n  "));
+}
+
+/// An area opened with its module in a new window, the switch on from the
+/// start (the module's own frames counted: it may open the area itself), its
+/// programs' cache folder empty, then again with it filled: the frames of
+/// its opening (the longest, and the time until its models show), and the
+/// time until the game's programs draw it (their pipelines made while the
+/// frames go on).
+fn shaders_opening(
+    root: &std::path::Path,
+    user: Option<std::path::PathBuf>,
+    module: &std::path::Path,
+    area: ResRef,
+) {
+    let cache = mg_testkit::scratch_dir("frame-shader-cache");
+    for run in ["the cache empty", "the cache filled"] {
+        let rs = render_state();
+        let install = GameInstall::new(root, user.clone(), "en");
+        let mut app = Moonglow::new(Some(install), Box::new(NoDialogs::default()));
+        app.set_render_state(rs.clone());
+        app.shader_cache_dir = Some(cache.clone());
+        app.settings.game_shaders = Some(true);
+        app.open_module(module);
+        // (From the module's first frame: it may open the area itself.)
+        let mut h = harness(app, rs);
+        let tab = Tab::Area(area);
+        h.state_mut().actions.push(Action::OpenTab(tab.clone()));
+        let t0 = Instant::now();
+        let (mut longest, mut frames) = (Duration::ZERO, 0);
+        let (mut shown_at, mut drawn_at) = (None, None);
+        while t0.elapsed() < Duration::from_secs(60) {
+            let t = Instant::now();
+            h.run_steps(1);
+            longest = longest.max(t.elapsed());
+            frames += 1;
+            let app = h.state();
+            if shown_at.is_none() && app.area_views.get(&area).is_some_and(|v| v.model.is_some()) {
+                shown_at = Some(t0.elapsed());
+            }
+            let drawn = app.viewport.as_ref().map(|v| v.renderer.drawn);
+            if shown_at.is_some() && drawn.is_some_and(|d| d.game > 0 && d.game_pending == 0) {
+                drawn_at = Some(t0.elapsed());
+                break;
+            }
+        }
+        let stats = h.state().viewport.as_ref().map(|v| v.renderer.game_shader_stats());
+        let stats = stats.unwrap_or_default();
+        println!(
+            "  area {area} opened with the Shaders on, {run}: its longest frame {:.0} ms of {frames}; \
+             shown after {:.0} ms, drawn by the game's programs after {:.0} ms ({} programs \
+             compiled, {} read from the cache, {} pipelines made in {:.0} ms of the worker's)",
+            ms(longest),
+            shown_at.map_or(f64::NAN, ms),
+            drawn_at.map_or(f64::NAN, ms),
+            stats.compiled,
+            stats.cached,
+            stats.pipelines,
+            stats.seconds * 1000.0,
+        );
+        close(&mut h, &tab);
+    }
 }
 
 /// An area of an opened module in the viewer with the switch off, then on;

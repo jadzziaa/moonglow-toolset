@@ -2204,6 +2204,10 @@ fn viewport(
         // (As the picture's key has it: the switch may have changed this
         // frame.)
         vp.renderer.game_shaders = from.shaders;
+        // (The game's programs made while the view goes on, Moonglow's own
+        // shader drawing until they are: no frame waits on them. The view
+        // is drawn again as the animations step, and when one is ready.)
+        vp.renderer.game_background = true;
         vp.renderer.render(
             &vp.gpu,
             &game.resman,
@@ -2214,6 +2218,7 @@ fn viewport(
             &targets.depth,
             (w, h),
         );
+        vp.renderer.game_background = false;
         view.drawn = Some((from, view.time));
         view.pictures += 1;
     }

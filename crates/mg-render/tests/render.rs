@@ -2034,6 +2034,68 @@ fn a_material_s_own_programs_draw_it_and_move_with_the_clock() {
     assert_eq!(a.data, b.data);
 }
 
+/// Made while the frames go on (`game_background`, the area view's): the
+/// first frame draws the mesh with Moonglow's own shader and says a
+/// pipeline is being made; the window is woken when it is; then the
+/// material's programs draw it. A cache folder keeps the programs: a
+/// renderer of its own reads them back instead of compiling them.
+#[test]
+fn the_game_s_programs_are_made_while_frames_go_on() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = clip_space_assets();
+    authored_custom_pair(&mut assets);
+    assets.opaque("swaying", [255, 0, 0]);
+    let mtr = "customshadervs vs_sway\ncustomshaderfs fs_tint\n\
+        parameter float vOverrideColor 0.0 1.0 0.0 1.0\nparameter int iForceOverrideColor 1\n";
+    assets.materials.insert("swaying".into(), mg_image::mtr::Mtr::parse(mtr.as_bytes()));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let scene = Scene {
+        instances: vec![standing_quad(&gpu, "swaying", Vec3::new(0.0, 0.0, 1.0), 1.0)],
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let cache = mg_testkit::scratch_dir("render-shader-cache");
+    let woken = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    r.game_background = true;
+    r.set_shader_cache(Some(cache.clone()));
+    let w = woken.clone();
+    r.set_game_waker(move || {
+        w.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    let first = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    // (Moonglow's own: the texture's red.)
+    assert_eq!((r.drawn.game, r.drawn.game_pending), (0, 1), "{:?}", r.drawn);
+    let p = first.pixel(32, 32);
+    assert!(p[0] > 60 && p[1] < 40, "{p:?}");
+    let start = std::time::Instant::now();
+    while woken.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        assert!(start.elapsed().as_secs() < 60, "never made");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let then = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!((r.drawn.game, r.drawn.game_pending), (1, 0), "{:?}", r.drawn);
+    assert_eq!(then.pixel(32, 32), [0, 255, 0, 255]);
+    assert_eq!(r.game_shader_failures(), &[]);
+    let stats = r.game_shader_stats();
+    assert_eq!((stats.compiled, stats.cached, stats.pipelines), (2, 0, 1), "{stats:?}");
+    // Another renderer, the same cache: read, not compiled; drawn alike.
+    let mut again = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    again.game_shaders = true;
+    again.set_shader_cache(Some(cache));
+    let img = again.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    let stats = again.game_shader_stats();
+    assert_eq!((stats.compiled, stats.cached), (0, 2), "{stats:?}");
+    assert_eq!(img.data, then.data);
+}
+
 /// A material that names one program alone is drawn with the stock pair
 /// (the engine takes a pair or neither); one whose program is of the other
 /// stage (`customshaderVS fslit`) falls back to Moonglow's own shader and is

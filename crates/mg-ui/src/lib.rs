@@ -527,6 +527,9 @@ pub struct Moonglow {
     /// Where what Compile All remembers is kept from one session to the
     /// next (a file a module, in Moonglow's own folder); `None`: not kept.
     pub compiled_dir: Option<PathBuf>,
+    /// Where the game's shaders, compiled, are kept from one session to the
+    /// next (in the user's cache folder); `None`: compiled each session.
+    pub shader_cache_dir: Option<PathBuf>,
     /// The Rename window, while open.
     pub rename: Option<references::RenameDraft>,
     /// The Placeable Gallery, while it is open.
@@ -790,6 +793,7 @@ impl Moonglow {
             command_after_text: None,
             script_stamps: Default::default(),
             compiled_dir: None,
+            shader_cache_dir: None,
             rename: None,
             copy_as: None,
             placeable_gallery: None,
@@ -950,6 +954,14 @@ impl Moonglow {
         // and the game's programs that couldn't be drawn, said once each.
         if let Some(vp) = self.viewport.as_mut() {
             vp.renderer.game_shaders = self.settings.game_shaders();
+            // (Once: the programs' cache folder, and a frame asked for when
+            // the worker has made a pipeline.)
+            if !vp.configured {
+                vp.configured = true;
+                vp.renderer.set_shader_cache(self.shader_cache_dir.clone());
+                let ctx = ui.ctx().clone();
+                vp.renderer.set_game_waker(move || ctx.request_repaint());
+            }
             // (Forgotten with the programs, when the resources are read
             // again: told again if they still fail.)
             if vp.renderer.game_shader_failures().is_empty() {

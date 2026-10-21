@@ -28,8 +28,8 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 use mg_image::mtr::Param as MtrParam;
 use mg_shader::{
-    AlphaKeep, Member, Part, Preamble, Program, Reflection, Scalar, Sources, Stage, Texture,
-    UniformBlock, ValueType,
+    AlphaKeep, Member, Part, Preamble, Program, ProgramCache, Reflection, Scalar, Sources, Stage,
+    Texture, UniformBlock, ValueType,
 };
 
 use crate::Gpu;
@@ -794,8 +794,22 @@ fn blocks_buffer(gpu: &Gpu, label: &str, size: u64) -> wgpu::Buffer {
 #[derive(Debug)]
 pub(crate) struct GameShaders {
     preamble: Preamble,
-    programs: HashMap<(String, Stage), Result<Arc<Program>, String>>,
+    /// Each pair's pipeline, made by the worker (`None`: it can't be).
     pipelines: HashMap<PipelineKey, Option<Arc<GamePipeline>>>,
+    /// Those asked of the worker and not yet made.
+    pending: std::collections::HashSet<PipelineKey>,
+    worker: Option<WorkerLink>,
+    /// Bumped as the programs are forgotten: what the worker made of the
+    /// ones before is dropped.
+    era: u64,
+    /// Where compiled programs are kept between sessions, if anywhere.
+    pub(crate) cache: Option<ProgramCache>,
+    /// Called when the worker has made a pipeline (a window asks for a
+    /// frame); shared with the worker.
+    pub(crate) waker: Arc<std::sync::Mutex<Option<Waker>>>,
+    /// What the worker did: programs compiled and read from the cache, and
+    /// how long it took.
+    pub(crate) stats: ShaderStats,
     /// What couldn't be drawn, and why: each reported once.
     pub(crate) failures: Vec<(String, String)>,
     zero: wgpu::Buffer,
@@ -818,6 +832,40 @@ pub(crate) struct GameShaders {
     groups_generation: u64,
     align: u32,
     next_id: u32,
+}
+
+/// What a window is told by when a pipeline is ready (it asks for a
+/// frame).
+#[derive(Clone)]
+pub(crate) struct Waker(pub(crate) Arc<dyn Fn() + Send + Sync>);
+
+impl std::fmt::Debug for Waker {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Waker")
+    }
+}
+
+/// What the worker has done ([`crate::Renderer::game_shader_stats`]).
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ShaderStats {
+    /// Programs compiled with glslang, and read from the disk cache.
+    pub compiled: usize,
+    pub cached: usize,
+    /// Pipelines made, and those that couldn't be.
+    pub pipelines: usize,
+    pub failed: usize,
+    /// The worker's time making them, in all: seconds.
+    pub seconds: f64,
+}
+
+/// Whether a pair's pipeline is ready.
+#[derive(Debug, Clone)]
+pub(crate) enum Ready {
+    Yes(Arc<GamePipeline>),
+    /// It can't be made (said in [`GameShaders::failures`]).
+    No,
+    /// The worker is making it.
+    Pending,
 }
 
 /// The zero buffer's size: 16 inputs of 16 bytes.
@@ -843,130 +891,151 @@ fn checked<T>(gpu: &Gpu, f: impl FnOnce() -> T) -> Result<T, String> {
     }
 }
 
-impl GameShaders {
-    pub(crate) fn new(gpu: &Gpu) -> GameShaders {
-        let zero = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("game zeros"),
-            size: ZERO_SIZE,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        gpu.queue.write_buffer(&zero, 0, &[0; ZERO_SIZE as usize]);
-        GameShaders {
-            // The game at its highest settings; no keyholing (the editor
-            // has no player to cut a view to) and materials that may
-            // discard (alpha-tested), as Moonglow's own shader draws them.
-            preamble: Preamble { keyholing: false, no_discard: false, ..Preamble::default() },
-            programs: HashMap::new(),
-            pipelines: HashMap::new(),
-            failures: Vec::new(),
-            zero,
-            draws: Blocks::new(gpu, "game draws' blocks"),
-            zero_bones: 0,
-            frames: Blocks::new(gpu, "game frame blocks"),
-            filled: HashMap::new(),
-            frame: 0,
-            written: Vec::new(),
-            generation: 0,
-            groups: HashMap::new(),
-            draw_groups: HashMap::new(),
-            groups_generation: 0,
-            align: gpu.device.limits().min_uniform_buffer_offset_alignment.max(16),
-            next_id: 0,
+/// A pair's program assembled where the assets are (the UI's thread), for
+/// the worker to compile; or why it can't be.
+fn assembled(
+    assets: &dyn crate::Assets,
+    preamble: &Preamble,
+    name: &str,
+    stage: Stage,
+) -> Result<mg_shader::Assembled, String> {
+    // (A material may name a program for the other stage: an MTR's
+    // `customshaderVS fslit_nm`. The game would draw it magenta; it is
+    // drawn with Moonglow's own shader.)
+    let declared =
+        assets.shader(&name.to_ascii_lowercase()).and_then(|text| Stage::declared(&text));
+    if let Some(other) = declared.filter(|d| *d != stage) {
+        return Err(format!("it is a {} program, named for the {} stage", other.id(), stage.id()));
+    }
+    mg_shader::assemble(name, stage, preamble, &AssetSources(assets)).map_err(|e| e.to_string())
+}
+
+/// A pipeline to make.
+struct Job {
+    era: u64,
+    key: PipelineKey,
+    vs: Result<mg_shader::Assembled, String>,
+    fs: Result<mg_shader::Assembled, String>,
+    format: wgpu::TextureFormat,
+    samples: u32,
+    cache: Option<ProgramCache>,
+}
+
+/// A pipeline made, without its places in the renderer's buffers.
+struct Built {
+    pipeline: wgpu::RenderPipeline,
+    layouts: [wgpu::BindGroupLayout; 3],
+    stages: [StagePlan; 2],
+    skin_slot: Option<u32>,
+    zero_slot: Option<u32>,
+    timed: bool,
+}
+
+/// What the worker made of a job.
+struct Done {
+    era: u64,
+    key: PipelineKey,
+    built: Result<Built, String>,
+    stats: ShaderStats,
+}
+
+/// The renderer's end of the worker.
+struct WorkerLink {
+    jobs: std::sync::mpsc::Sender<Job>,
+    done: std::sync::mpsc::Receiver<Done>,
+}
+
+impl std::fmt::Debug for WorkerLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WorkerLink")
+    }
+}
+
+/// The worker's own: the GPU, and the programs it compiled (this era's).
+struct Worker {
+    gpu: Gpu,
+    era: u64,
+    programs: HashMap<(String, Stage), Result<Arc<Program>, String>>,
+    stats: ShaderStats,
+}
+
+impl Worker {
+    /// Runs until the renderer's end is dropped: one thread for all the
+    /// programs, glslang's compiler being the process's one.
+    fn run(
+        gpu: Gpu,
+        jobs: std::sync::mpsc::Receiver<Job>,
+        done: std::sync::mpsc::Sender<Done>,
+        waker: Arc<std::sync::Mutex<Option<Waker>>>,
+    ) {
+        let mut w = Worker { gpu, era: 0, programs: HashMap::new(), stats: ShaderStats::default() };
+        while let Ok(job) = jobs.recv() {
+            if job.era != w.era {
+                w.era = job.era;
+                w.programs.clear();
+            }
+            let t = std::time::Instant::now();
+            w.stats = ShaderStats::default();
+            let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| w.build(&job)))
+                .unwrap_or_else(|_| Err("making its pipeline stopped".into()));
+            w.stats.seconds = t.elapsed().as_secs_f64();
+            if built.is_ok() {
+                w.stats.pipelines = 1;
+            } else {
+                w.stats.failed = 1;
+            }
+            let reply = Done { era: job.era, key: job.key, built, stats: w.stats };
+            if done.send(reply).is_err() {
+                break;
+            }
+            if let Ok(waker) = waker.lock()
+                && let Some(wake) = waker.as_ref()
+            {
+                (wake.0)();
+            }
         }
     }
 
-    /// Forgets the programs (the resources changed: a hak's include).
-    pub(crate) fn clear(&mut self) {
-        self.programs.clear();
-        self.pipelines.clear();
-        self.groups.clear();
-        self.draw_groups.clear();
-        self.filled.clear();
-        self.frames.bytes.clear();
-        self.zero_bones = 0;
-        self.failures.clear();
-    }
-
-    pub(crate) fn fail(&mut self, what: &str, why: String) {
-        if !self.failures.iter().any(|(w, _)| w == what) {
-            eprintln!(
-                "moonglow: the game's shader {what} is drawn with Moonglow's own instead: {why}"
-            );
-            self.failures.push((what.to_string(), why));
-        }
-    }
-
+    /// A program, compiled once (and read from the cache where it is).
     fn program(
         &mut self,
-        assets: &dyn crate::Assets,
-        name: &str,
+        a: &Result<mg_shader::Assembled, String>,
         stage: Stage,
+        cache: Option<&ProgramCache>,
     ) -> Result<Arc<Program>, String> {
-        let preamble = &self.preamble;
-        self.programs
-            .entry((name.to_string(), stage))
-            .or_insert_with(|| {
-                // (A material may name a program for the other stage: an
-                // MTR's `customshaderVS fslit_nm`. The game would draw it
-                // magenta; it is drawn with Moonglow's own shader.)
-                let declared = assets
-                    .shader(&name.to_ascii_lowercase())
-                    .and_then(|text| mg_shader::Stage::declared(&text));
-                if let Some(other) = declared.filter(|d| *d != stage) {
-                    return Err(format!(
-                        "it is a {} program, named for the {} stage",
-                        other.id(),
-                        stage.id()
-                    ));
-                }
-                mg_shader::compile(name, stage, preamble, &AssetSources(assets))
-                    .map(Arc::new)
-                    .map_err(|e| e.to_string())
-            })
-            .clone()
-    }
-
-    /// The pipeline for a program pair, built on first use; `None` (and
-    /// reported once) where a program doesn't compile or the pair can't
-    /// be drawn: the draw is Moonglow's own then.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn pipeline(
-        &mut self,
-        gpu: &Gpu,
-        assets: &dyn crate::Assets,
-        key: &PipelineKey,
-        color_format: wgpu::TextureFormat,
-        samples: u32,
-    ) -> Option<Arc<GamePipeline>> {
-        if let Some(p) = self.pipelines.get(key) {
+        let a = a.as_ref().map_err(Clone::clone)?;
+        let key = (a.name.to_ascii_lowercase(), stage);
+        if let Some(p) = self.programs.get(&key) {
             return p.clone();
         }
-        let built = self.build(gpu, assets, key, color_format, samples);
-        let p = match built {
-            Ok(p) => Some(Arc::new(p)),
-            Err(why) => {
-                self.fail(&format!("{}/{}", key.vs, key.fs), why);
-                None
+        let p = match cache {
+            Some(c) => c.compile(a).map(|(p, how)| {
+                match how {
+                    mg_shader::Cached::Hit => self.stats.cached += 1,
+                    mg_shader::Cached::Miss => self.stats.compiled += 1,
+                }
+                p
+            }),
+            None => {
+                self.stats.compiled += 1;
+                mg_shader::compile_assembled(a)
             }
-        };
-        self.pipelines.insert(key.clone(), p.clone());
+        }
+        .map(Arc::new)
+        .map_err(|e| e.to_string());
+        self.programs.insert(key, p.clone());
         p
     }
 
-    fn build(
-        &mut self,
-        gpu: &Gpu,
-        assets: &dyn crate::Assets,
-        key: &PipelineKey,
-        color_format: wgpu::TextureFormat,
-        samples: u32,
-    ) -> Result<GamePipeline, String> {
+    fn build(&mut self, job: &Job) -> Result<Built, String> {
+        let key = &job.key;
+        let w = self;
         let at = |name: &str, e: String| format!("{name}: {e}");
+        let cache = job.cache.as_ref();
         let mut vs =
-            (*self.program(assets, &key.vs, Stage::Vertex).map_err(|e| at(&key.vs, e))?).clone();
+            (*w.program(&job.vs, Stage::Vertex, cache).map_err(|e| at(&key.vs, e))?).clone();
         let mut fs =
-            (*self.program(assets, &key.fs, Stage::Fragment).map_err(|e| at(&key.fs, e))?).clone();
+            (*w.program(&job.fs, Stage::Fragment, cache).map_err(|e| at(&key.fs, e))?).clone();
         if key.skinned {
             vs.read_input_as_uint("vIndex").map_err(|e| at(&key.vs, e.to_string()))?;
         }
@@ -1014,9 +1083,9 @@ impl GameShaders {
             })
             .collect();
         let layouts = [
-            layout(gpu, &stages[0], visibility[0]),
-            layout(gpu, &stages[1], visibility[1]),
-            gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            layout(&w.gpu, &stages[0], visibility[0]),
+            layout(&w.gpu, &stages[1], visibility[1]),
+            w.gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("game draws"),
                 entries: &draw_entries,
             }),
@@ -1067,6 +1136,7 @@ impl GameShaders {
             buffers.len() as u32 - 1
         });
 
+        let gpu = &w.gpu;
         let device = &gpu.device;
         let modules = checked(gpu, || {
             let make = |label: &str, p: &Program| {
@@ -1106,13 +1176,13 @@ impl GameShaders {
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
-                multisample: wgpu::MultisampleState { count: samples, ..Default::default() },
+                multisample: wgpu::MultisampleState { count: job.samples, ..Default::default() },
                 fragment: Some(wgpu::FragmentState {
                     module: &modules.1,
                     entry_point: fs_entry.as_deref(),
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: color_format,
+                        format: job.format,
                         blend: (key.pass != GamePass::Opaque)
                             .then_some(wgpu::BlendState::ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
@@ -1122,28 +1192,198 @@ impl GameShaders {
                 cache: None,
             })
         })?;
-        // Its frame blocks' places, for good; and room for the bones of a
-        // draw without.
-        let mut frame_at = [None; 2];
-        for (s, at) in stages.iter().zip(&mut frame_at) {
-            if let Some(b) = &s.frame {
-                *at = Some(self.frames.take(b.plan.size, self.align));
-            }
-            if let Some(b) = &s.bones {
-                self.zero_bones = self.zero_bones.max(b.plan.size);
-            }
+        Ok(Built { pipeline, layouts, stages, skin_slot, zero_slot, timed })
+    }
+}
+
+impl GameShaders {
+    pub(crate) fn new(gpu: &Gpu) -> GameShaders {
+        let zero = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("game zeros"),
+            size: ZERO_SIZE,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        gpu.queue.write_buffer(&zero, 0, &[0; ZERO_SIZE as usize]);
+        GameShaders {
+            // The game at its highest settings; no keyholing (the editor
+            // has no player to cut a view to) and materials that may
+            // discard (alpha-tested), as Moonglow's own shader draws them.
+            preamble: Preamble { keyholing: false, no_discard: false, ..Preamble::default() },
+            pipelines: HashMap::new(),
+            pending: std::collections::HashSet::new(),
+            worker: None,
+            era: 0,
+            cache: None,
+            waker: Arc::new(std::sync::Mutex::new(None)),
+            stats: ShaderStats::default(),
+            failures: Vec::new(),
+            zero,
+            draws: Blocks::new(gpu, "game draws' blocks"),
+            zero_bones: 0,
+            frames: Blocks::new(gpu, "game frame blocks"),
+            filled: HashMap::new(),
+            frame: 0,
+            written: Vec::new(),
+            generation: 0,
+            groups: HashMap::new(),
+            draw_groups: HashMap::new(),
+            groups_generation: 0,
+            align: gpu.device.limits().min_uniform_buffer_offset_alignment.max(16),
+            next_id: 0,
         }
-        self.next_id += 1;
-        Ok(GamePipeline {
-            id: self.next_id,
-            pipeline,
-            layouts,
-            stages,
-            frame_at,
-            skin_slot,
-            zero_slot,
-            timed,
-        })
+    }
+
+    /// Forgets the programs (the resources changed: a hak's include).
+    pub(crate) fn clear(&mut self) {
+        self.era += 1;
+        self.pending.clear();
+        self.pipelines.clear();
+        self.groups.clear();
+        self.draw_groups.clear();
+        self.filled.clear();
+        self.frames.bytes.clear();
+        self.zero_bones = 0;
+        self.failures.clear();
+    }
+
+    pub(crate) fn fail(&mut self, what: &str, why: String) {
+        if !self.failures.iter().any(|(w, _)| w == what) {
+            eprintln!(
+                "moonglow: the game's shader {what} is drawn with Moonglow's own instead: {why}"
+            );
+            self.failures.push((what.to_string(), why));
+        }
+    }
+
+    /// The pipeline for a program pair, made on first use by the worker
+    /// (`wait`: waited for, as a picture drawn once needs it; else the
+    /// draw is Moonglow's own until it is ready); [`Ready::No`], reported
+    /// once, where a program doesn't compile or the pair can't be drawn.
+    pub(crate) fn pipeline(
+        &mut self,
+        gpu: &Gpu,
+        assets: &dyn crate::Assets,
+        key: &PipelineKey,
+        format: wgpu::TextureFormat,
+        samples: u32,
+        wait: bool,
+    ) -> Ready {
+        let ready = |p: &Option<Arc<GamePipeline>>| p.clone().map_or(Ready::No, Ready::Yes);
+        if let Some(p) = self.pipelines.get(key) {
+            return ready(p);
+        }
+        if !self.pending.contains(key) {
+            let job = Job {
+                era: self.era,
+                key: key.clone(),
+                vs: assembled(assets, &self.preamble, &key.vs, Stage::Vertex),
+                fs: assembled(assets, &self.preamble, &key.fs, Stage::Fragment),
+                format,
+                samples,
+                cache: self.cache.clone(),
+            };
+            if self.worker.is_none() {
+                let (jobs, inbox) = std::sync::mpsc::channel();
+                let (outbox, done) = std::sync::mpsc::channel();
+                let (gpu, waker) = (gpu.clone(), self.waker.clone());
+                let started = std::thread::Builder::new()
+                    .name("moonglow shaders".into())
+                    .spawn(move || Worker::run(gpu, inbox, outbox, waker));
+                if started.is_err() {
+                    self.fail(&format!("{}/{}", key.vs, key.fs), "no thread to compile in".into());
+                    self.pipelines.insert(key.clone(), None);
+                    return Ready::No;
+                }
+                self.worker = Some(WorkerLink { jobs, done });
+            }
+            let sent = self.worker.as_ref().is_some_and(|w| w.jobs.send(job).is_ok());
+            if !sent {
+                self.worker = None;
+                self.fail(&format!("{}/{}", key.vs, key.fs), "the compiling thread stopped".into());
+                self.pipelines.insert(key.clone(), None);
+                return Ready::No;
+            }
+            self.pending.insert(key.clone());
+        }
+        if wait {
+            while self.pending.contains(key) {
+                let Some(done) = self.worker.as_ref().and_then(|w| w.done.recv().ok()) else {
+                    self.worker = None;
+                    self.pending.clear();
+                    self.fail(
+                        &format!("{}/{}", key.vs, key.fs),
+                        "the compiling thread stopped".into(),
+                    );
+                    self.pipelines.insert(key.clone(), None);
+                    return Ready::No;
+                };
+                self.finish(done);
+            }
+            return self.pipelines.get(key).map_or(Ready::No, ready);
+        }
+        Ready::Pending
+    }
+
+    /// Takes what the worker has made since: whether anything.
+    pub(crate) fn poll(&mut self) -> bool {
+        let mut any = false;
+        while let Some(done) = self.worker.as_ref().and_then(|w| w.done.try_recv().ok()) {
+            any |= self.finish(done);
+        }
+        any
+    }
+
+    /// Whether pipelines are being made.
+    pub(crate) fn busy(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// A pipeline the worker made, given its places in the buffers.
+    fn finish(&mut self, done: Done) -> bool {
+        if done.era != self.era {
+            return false;
+        }
+        self.pending.remove(&done.key);
+        let s = &mut self.stats;
+        s.compiled += done.stats.compiled;
+        s.cached += done.stats.cached;
+        s.pipelines += done.stats.pipelines;
+        s.failed += done.stats.failed;
+        s.seconds += done.stats.seconds;
+        let key = done.key;
+        let p = match done.built {
+            Ok(b) => {
+                // Its frame blocks' places, for good; and room for the
+                // bones of a draw without.
+                let mut frame_at = [None; 2];
+                for (s, at) in b.stages.iter().zip(&mut frame_at) {
+                    if let Some(block) = &s.frame {
+                        *at = Some(self.frames.take(block.plan.size, self.align));
+                    }
+                    if let Some(block) = &s.bones {
+                        self.zero_bones = self.zero_bones.max(block.plan.size);
+                    }
+                }
+                self.next_id += 1;
+                Some(Arc::new(GamePipeline {
+                    id: self.next_id,
+                    pipeline: b.pipeline,
+                    layouts: b.layouts,
+                    stages: b.stages,
+                    frame_at,
+                    skin_slot: b.skin_slot,
+                    zero_slot: b.zero_slot,
+                    timed: b.timed,
+                }))
+            }
+            Err(why) => {
+                self.fail(&format!("{}/{}", key.vs, key.fs), why);
+                None
+            }
+        };
+        self.pipelines.insert(key, p);
+        true
     }
 
     /// Starts a frame's blocks.
