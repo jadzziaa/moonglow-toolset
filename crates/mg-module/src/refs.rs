@@ -9,6 +9,7 @@
 use mg_core::{ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_resman::ResKey;
+use mg_rules::ObjectKind;
 
 /// What kind of resource a reference points at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -42,18 +43,7 @@ impl RefKind {
         match self {
             RefKind::Script => &[ResType::NCS, ResType::NSS],
             RefKind::Conversation => &[ResType::DLG],
-            RefKind::Blueprint(t) => match t {
-                ResType::UTC => &[ResType::UTC],
-                ResType::UTD => &[ResType::UTD],
-                ResType::UTE => &[ResType::UTE],
-                ResType::UTI => &[ResType::UTI],
-                ResType::UTM => &[ResType::UTM],
-                ResType::UTP => &[ResType::UTP],
-                ResType::UTS => &[ResType::UTS],
-                ResType::UTT => &[ResType::UTT],
-                ResType::UTW => &[ResType::UTW],
-                _ => &[],
-            },
+            RefKind::Blueprint(t) => ObjectKind::from_restype(t).map_or(&[], ObjectKind::restypes),
             RefKind::Area => &[ResType::ARE],
             RefKind::Sound => &[ResType::WAV],
             RefKind::Tileset => &[ResType::SET],
@@ -100,19 +90,15 @@ impl Reference {
     }
 }
 
-/// The blueprint type of the instances or items in a list.
+/// The blueprint type of the instances or items in a list: a GIT's list
+/// of placed objects but `List` (a name other files use for other
+/// things: [`classify`] takes a GIT's), an encounter's creatures, an
+/// inventory.
 fn list_blueprint(list: &str) -> Option<ResType> {
     Some(match list {
-        "Creature List" | "CreatureList" => ResType::UTC,
-        "Door List" => ResType::UTD,
-        "Encounter List" => ResType::UTE,
-        "Placeable List" => ResType::UTP,
-        "SoundList" => ResType::UTS,
-        "StoreList" => ResType::UTM,
-        "TriggerList" => ResType::UTT,
-        "WaypointList" => ResType::UTW,
+        "CreatureList" => ResType::UTC,
         "ItemList" | "Equip_ItemList" => ResType::UTI,
-        _ => return None,
+        l => ObjectKind::from_list(l).filter(|k| *k != ObjectKind::Item)?.restype(),
     })
 }
 
@@ -311,6 +297,21 @@ mod tests {
                 (RefKind::Conversation, "chicken_talk".into(), "/Creature List[0]/Conversation"),
             ]
         );
+    }
+
+    #[test]
+    fn every_placed_object_references_its_blueprint() {
+        for k in ObjectKind::ALL {
+            let mut placed = Struct::new(k.struct_id());
+            placed.set(k.resref_field(), Value::resref(rr("bp")));
+            let mut g = Gff::new(*b"GIT ");
+            g.root.set(k.list(), Value::List(vec![placed]));
+            let refs = gff_references(ResKey::parse("area1", ResType::GIT).unwrap(), &g);
+            let got: Vec<(RefKind, String)> =
+                refs.iter().map(|r| (r.kind, r.path.clone())).collect();
+            let path = format!("/{}[0]/{}", k.list(), k.resref_field());
+            assert_eq!(got, [(RefKind::Blueprint(k.restype()), path)], "{k:?}");
+        }
     }
 
     #[test]

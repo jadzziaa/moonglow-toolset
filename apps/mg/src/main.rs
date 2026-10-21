@@ -2192,9 +2192,10 @@ fn run(cli: &Cli) -> Result<Output> {
             let mut m = Module::open(module)?;
             let gi = install(cli)?;
             let wanted: Vec<ResKey> = if blueprints.is_empty() {
-                let types: Vec<_> =
-                    mg_module::instances::GIT_LISTS.iter().map(|(_, t)| *t).collect();
-                m.keys().copied().filter(|k| types.contains(&k.restype)).collect()
+                m.keys()
+                    .copied()
+                    .filter(|k| mg_rules::ObjectKind::from_restype(k.restype).is_some())
+                    .collect()
             } else {
                 blueprints
                     .iter()
@@ -2416,7 +2417,7 @@ fn run(cli: &Cli) -> Result<Output> {
                 .iter()
                 .map(|t| {
                     ResType::from_extension(t.trim_start_matches('.'))
-                        .filter(|t| mg_module::instances::GIT_LISTS.iter().any(|(_, x)| x == t))
+                        .filter(|t| mg_rules::ObjectKind::from_restype(*t).is_some())
                         .with_context(|| format!("{t}: not a blueprint type (utc, utp, …)"))
                 })
                 .collect::<Result<Vec<_>>>()?;

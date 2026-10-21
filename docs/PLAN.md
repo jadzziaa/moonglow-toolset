@@ -3,7 +3,7 @@ type: Reference
 title: 'Moonglow Toolset: Architecture and Record of the Phases'
 description: What Moonglow Toolset reproduces of Aurora, the landscape, its principles, crate architecture and key designs, a record of the phases it was built in with the tests that hold each, the testing strategy and licensing. The plan it began as, kept as the description of what was built.
 tags: [architecture, testing, parity, phases, plan]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-13T22:39:56Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:40:10Z }
 ---
 
 # Moonglow Toolset: Architecture and Record of the Phases
@@ -143,7 +143,7 @@ in this list (test code may also use `mg-testkit`). All of these exist.
 | `mg-image` | TGA, DDS (standard and BioWare, BC1–BC5), PLT and palettes, TXI, MTR (KTX: not yet) |
 | `mg-mdl` | MDL binary and ASCII, read and written; the model compiler, the linter and the outline; WOK/PWK/DWK walkmeshes |
 | `mg-schema` | typed views of IFO, ARE, GIT, GIC, UTC/UTD/UTE/UTI/UTM/UTP/UTS/UTT/UTW, DLG, JRL, FAC, ITP, PTM and PTT, generated from the observed schema |
-| `mg-rules` | 2DA/TLK-backed game data (appearance, baseitems, classes, feats, spells, skills, item properties, placeables, doors, portraits, sounds, ...) |
+| `mg-rules` | 2DA/TLK-backed game data (appearance, baseitems, classes, feats, spells, skills, item properties, placeables, doors, portraits, sounds, ...); the nine types of placed object (`ObjectKind`: blueprint type, GIT list and struct id, names) |
 | `mg-script` | the compiler built in; NWScript lexer, outline and analysis for the editor and `mg lsp`; the `nwscript.nss` spec |
 | `mg-tiles` | the tile grid over a lattice of corners, tile fitting, and terrain painting with the SET's rules |
 | `mg-module` | module workspace: open/save, working copy, palettes, reference graph, verify and the content doctor, build, import/export, haks/TLK, nasher projects |

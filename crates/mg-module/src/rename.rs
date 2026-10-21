@@ -7,6 +7,7 @@
 use mg_core::{Gender, Language, ResRef, ResType};
 use mg_gff::{Gff, Struct, Value};
 use mg_resman::{ResKey, ResMan};
+use mg_rules::ObjectKind;
 use mg_script::lex::{TokenKind, tokenize};
 
 use crate::Module;
@@ -14,21 +15,15 @@ use crate::refs::{RefKind, Reference, references, rewrite_references};
 
 /// The reference kinds that point at a resource of this type; empty if
 /// nothing refers to such resources by name (they can't be renamed here).
-pub fn kinds(restype: ResType) -> &'static [RefKind] {
+pub fn kinds(restype: ResType) -> Vec<RefKind> {
     match restype {
-        ResType::NSS | ResType::NCS | ResType::NDB => &[RefKind::Script, RefKind::Include],
-        ResType::DLG => &[RefKind::Conversation],
-        ResType::ARE | ResType::GIT | ResType::GIC => &[RefKind::Area],
-        ResType::UTC => &[RefKind::Blueprint(ResType::UTC)],
-        ResType::UTD => &[RefKind::Blueprint(ResType::UTD)],
-        ResType::UTE => &[RefKind::Blueprint(ResType::UTE)],
-        ResType::UTI => &[RefKind::Blueprint(ResType::UTI)],
-        ResType::UTM => &[RefKind::Blueprint(ResType::UTM)],
-        ResType::UTP => &[RefKind::Blueprint(ResType::UTP)],
-        ResType::UTS => &[RefKind::Blueprint(ResType::UTS)],
-        ResType::UTT => &[RefKind::Blueprint(ResType::UTT)],
-        ResType::UTW => &[RefKind::Blueprint(ResType::UTW)],
-        _ => &[],
+        ResType::NSS | ResType::NCS | ResType::NDB => vec![RefKind::Script, RefKind::Include],
+        ResType::DLG => vec![RefKind::Conversation],
+        ResType::ARE | ResType::GIT | ResType::GIC => vec![RefKind::Area],
+        t => ObjectKind::from_restype(t)
+            .map(|k| RefKind::Blueprint(k.restype()))
+            .into_iter()
+            .collect(),
     }
 }
 
@@ -38,16 +33,7 @@ fn family(restype: ResType) -> &'static [ResType] {
         ResType::NSS | ResType::NCS | ResType::NDB => &[ResType::NSS, ResType::NCS, ResType::NDB],
         ResType::ARE | ResType::GIT | ResType::GIC => &[ResType::ARE, ResType::GIT, ResType::GIC],
         ResType::DLG => &[ResType::DLG],
-        ResType::UTC => &[ResType::UTC],
-        ResType::UTD => &[ResType::UTD],
-        ResType::UTE => &[ResType::UTE],
-        ResType::UTI => &[ResType::UTI],
-        ResType::UTM => &[ResType::UTM],
-        ResType::UTP => &[ResType::UTP],
-        ResType::UTS => &[ResType::UTS],
-        ResType::UTT => &[ResType::UTT],
-        ResType::UTW => &[ResType::UTW],
-        _ => &[],
+        t => ObjectKind::from_restype(t).map_or(&[], ObjectKind::restypes),
     }
 }
 
@@ -457,18 +443,7 @@ pub(crate) fn describe(key: ResKey, gff: Option<&Gff>, path: &str) -> String {
             let Some((list, index)) = steps.first().and_then(|s| item(s)) else {
                 return format!("{name} › {}", field(last));
             };
-            let kind = match list.as_str() {
-                "Creature List" => "creature",
-                "Door List" => "door",
-                "Encounter List" => "encounter",
-                "List" => "item",
-                "Placeable List" => "placeable",
-                "SoundList" => "sound",
-                "StoreList" => "store",
-                "TriggerList" => "trigger",
-                "WaypointList" => "waypoint",
-                _ => "object",
-            };
+            let kind = ObjectKind::from_list(&list).map_or("object", ObjectKind::name);
             let tag = gff
                 .and_then(|g| match g.root.get(&list) {
                     Some(Value::List(items)) => items.get(index),
@@ -622,9 +597,8 @@ pub fn rename(
         let mut data = module.remove(&old).expect("present").to_vec();
         let own = match t {
             ResType::ARE => Some("ResRef"),
-            ResType::UTM => Some("ResRef"),
             t if t.is_gff() && kinds.iter().any(|k| matches!(k, RefKind::Blueprint(_))) => {
-                Some("TemplateResRef")
+                Some(ObjectKind::resref_field_of(t))
             }
             _ => None,
         };
@@ -644,7 +618,7 @@ pub fn rename(
     for key in keys {
         if key.restype.is_gff() {
             let Some(Ok(mut g)) = module.gff(&key) else { continue };
-            let n = rewrite_references(&mut g, kinds, from.resref, to);
+            let n = rewrite_references(&mut g, &kinds, from.resref, to);
             if n > 0 {
                 module.set_gff(key, &g).map_err(|e| bad(key)(e.to_string()))?;
                 report.references += n;

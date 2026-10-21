@@ -116,7 +116,7 @@ fn probe(capture: &std::path::Path) -> Module {
     for (list, t) in LISTS {
         let Some(items) = git.root.list_mut(list) else { continue };
         for s in items {
-            let field = if t == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+            let field = mg_rules::ObjectKind::resref_field_of(t);
             if let Some(r) = s.resref(field).filter(|r| !r.is_empty()) {
                 blueprints.push(ResKey::new(r, t));
             }

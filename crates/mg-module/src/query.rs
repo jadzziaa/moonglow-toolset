@@ -5,9 +5,9 @@
 use mg_core::{Gender, Language, ResRef, ResType};
 use mg_gff::{Struct, Value};
 use mg_resman::ResKey;
+use mg_rules::ObjectKind;
 
 use crate::Module;
-use crate::instances::GIT_LISTS;
 
 /// Something found: a blueprint, or an object placed in an area.
 #[derive(Debug, Clone, PartialEq)]
@@ -109,7 +109,7 @@ fn describe(s: &Struct, restype: ResType, placed: Option<(ResRef, usize)>) -> Fo
         let n = english(s.get("LocalizedName"));
         if n.is_empty() { english(s.get("LocName")) } else { n }
     };
-    let template = if restype == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+    let template = ObjectKind::resref_field_of(restype);
     let resref = s.resref(template).filter(|r| !r.is_empty());
     let float = |l: &str| s.float(l);
     let position = match (float("X"), float("Y"), float("Z")) {
@@ -152,7 +152,7 @@ pub fn find(m: &Module, q: &Query) -> Vec<Found> {
         let mut keys: Vec<ResKey> = m
             .keys()
             .copied()
-            .filter(|k| GIT_LISTS.iter().any(|(_, t)| *t == k.restype) && wanted(k.restype))
+            .filter(|k| ObjectKind::from_restype(k.restype).is_some() && wanted(k.restype))
             .collect();
         keys.sort();
         for k in keys {
@@ -170,7 +170,7 @@ pub fn find(m: &Module, q: &Query) -> Vec<Found> {
                 continue;
             }
             let Some(Ok(git)) = m.gff(&ResKey::new(area, ResType::GIT)) else { continue };
-            for (list, restype) in GIT_LISTS {
+            for (list, restype) in ObjectKind::ALL.map(|k| (k.list(), k.restype())) {
                 if !wanted(restype) {
                     continue;
                 }

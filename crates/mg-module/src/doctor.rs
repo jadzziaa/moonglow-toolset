@@ -1235,15 +1235,13 @@ fn area_variables(d: &mut Doctor, module: &Module) {
     }
 }
 
-/// The object type a GIT list or inventory holds.
+/// The object type a GIT list or inventory holds (of these,
+/// [`walk_objects`] checks creatures, doors, placeables and items, and
+/// the items stores and the others hold).
 fn list_type(list: &str) -> Option<ResType> {
     Some(match list {
-        "Creature List" => ResType::UTC,
-        "Door List" => ResType::UTD,
-        "Placeable List" => ResType::UTP,
-        "List" | "ItemList" | "Equip_ItemList" => ResType::UTI,
-        "StoreList" => ResType::UTM,
-        _ => return None,
+        "ItemList" | "Equip_ItemList" => ResType::UTI,
+        l => mg_rules::ObjectKind::from_list(l)?.restype(),
     })
 }
 

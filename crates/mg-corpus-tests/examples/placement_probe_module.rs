@@ -51,7 +51,7 @@ fn main() {
     let copy = |from: &str, t: ResType, name: &str| -> Gff {
         let data = game.resman.get(&ResKey::new(r(from), t)).unwrap();
         let mut g = Gff::read(&data).unwrap();
-        let field = if t == ResType::UTM { "ResRef" } else { "TemplateResRef" };
+        let field = mg_rules::ObjectKind::resref_field_of(t);
         g.root.set(field, Value::resref(r(name)));
         g.root.set("Tag", Value::String(name.to_uppercase().into_bytes()));
         g
@@ -107,8 +107,8 @@ fn main() {
         let ext = t.extension().unwrap_or_default();
         let name = format!("mgq_{ext}");
         let mut g = Gff::new(base.file_type);
-        let (resref_field, palette_field) =
-            if t == ResType::UTM { ("ResRef", "ID") } else { ("TemplateResRef", "PaletteID") };
+        let kind = mg_rules::ObjectKind::from_restype(t).expect("a blueprint type");
+        let (resref_field, palette_field) = (kind.resref_field(), kind.palette_field());
         g.root.set(resref_field, Value::resref(r(&name)));
         g.root.set("Tag", Value::String(name.to_uppercase().into_bytes()));
         let text = format!("Minimal {ext}");
