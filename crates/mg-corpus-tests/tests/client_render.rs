@@ -2069,3 +2069,130 @@ fn cutouts_look() {
     save_png(&ours, &dir.join(format!("moonglow_{mode}.png")));
     eprintln!("{}: client {}", dir.display(), client.is_some());
 }
+
+/// The Domains of Dread's custom shaders in the client beside Moonglow's
+/// drawing (`docs/shaders-proposal.md`, M2): its fountain
+/// (`dd_tap_stron1030`, placeables.2da row 63754 of `tdod_top`; the
+/// falling water by `dd_tap_flow_vs`/`_fs`) north of the player in the
+/// reference room, with its haks (`MOONGLOW_HAKS`, linked into the scratch
+/// user folder's `hak`; `tdod_shaders`' `inc_lighting` with them). Moonglow
+/// draws it with the Shaders switch off and on; each is compared with the
+/// client over the fountain's pixels (where Moonglow's drawing with it
+/// differs from one without it) and over the floor regions: the mean
+/// difference per channel. Pictures in `target/test-output/client_tdod_shaders/`.
+#[test]
+#[ignore]
+fn tdod_custom_shaders_look() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let Some(haks) = mg_testkit::builder_hak_dirs()
+        .into_iter()
+        .find(|d| d.join("tdod_p_tap.hak").is_file() && d.join("tdod_top.hak").is_file())
+    else {
+        eprintln!("skipped: no tdod_p_tap.hak in MOONGLOW_HAKS");
+        return;
+    };
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped: no GPU");
+        return;
+    };
+    let dir = scratch_dir("client_tdod_shaders");
+    std::fs::create_dir_all(dir.join("user/hak")).unwrap();
+    std::fs::write(dir.join("user/settings.tml"), SETTINGS).unwrap();
+    // (Highest priority first, as the module lists them.)
+    let names = ["tdod_shaders", "tdod_p_tap", "tdod_top"];
+    for name in names {
+        let file = format!("{name}.hak");
+        std::os::unix::fs::symlink(haks.join(&file), dir.join("user/hak").join(&file)).unwrap();
+    }
+    let mut game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
+    for name in names.iter().rev() {
+        let c = mg_resman::ErfContainer::open(&haks.join(format!("{name}.hak"))).unwrap();
+        game.resman.add(
+            mg_resman::priority::HAK_USER,
+            format!("hak:{name}"),
+            mg_resman::LayerClass::Erf,
+            c,
+        );
+    }
+    game.invalidate();
+    let light = Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+    let (mut m, are) = build_module(&game, &dir, light);
+    let enter: String =
+        ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+    m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+    let mut info = m.info().unwrap();
+    let list = mg_module::attach::hak_list(&info.root, &names.map(String::from));
+    info.root.set("Mod_HakList", list);
+    m.set_info(&info).unwrap();
+    let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    let bp = game.resman.get_named("plc_armoire", ResType::UTP).unwrap();
+    let mut bp = Gff::read(&bp).unwrap();
+    bp.root.set("Appearance", Value::Dword(63754));
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let at = Placement { position: [20.0, 20.0 + AHEAD + 2.0, 0.0], rotation: 0.0 };
+    let fountain = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+    let mut empty = git.clone();
+    git.root.set("Placeable List", Value::List(vec![fountain]));
+    empty.root.set("Placeable List", Value::List(Vec::new()));
+    m.set_gff(git_key, &git).unwrap();
+    m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+    let client = client_screenshot(&dir, "MgScene");
+    if let Some(c) = &client {
+        save_png(c, &dir.join("client.png"));
+    }
+
+    let tileset = mg_area::tileset(&game, ResRef::from_str("tic01").unwrap()).ok();
+    let camera =
+        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
+    let draw = |git: &Gff, on: bool| {
+        let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
+        let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
+        let view = mg_area::View { fog: false, time: 4.0, ..mg_area::View::of(&model) };
+        let scene = area_scene.scene(&model, &view);
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.game_shaders = on;
+        let img = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+        (img, r.drawn, r.game_shader_failures().to_vec())
+    };
+    let (bare, _, _) = draw(&empty, false);
+    let (off, _, _) = draw(&git, false);
+    let (on, drawn, failures) = draw(&git, true);
+    save_png(&off, &dir.join("moonglow_off.png"));
+    save_png(&on, &dir.join("moonglow_on.png"));
+    eprintln!("switch on: {drawn:?}, failures {failures:?}");
+    let Some(client) = client else {
+        eprintln!("{}: no client picture", dir.display());
+        return;
+    };
+    // The fountain's pixels: where it changes Moonglow's picture.
+    let mask: Vec<bool> = (bare.data.chunks(4).zip(off.data.chunks(4)))
+        .map(|(a, b)| (0..3).any(|i| a[i].abs_diff(b[i]) > 6))
+        .collect();
+    let over = |img: &Rgba| {
+        let (mut sum, mut n) = (0.0f64, 0.0f64);
+        for (k, (a, b)) in img.data.chunks(4).zip(client.data.chunks(4)).enumerate() {
+            if mask[k] {
+                sum += (0..3).map(|i| f64::from(a[i].abs_diff(b[i]))).sum::<f64>() / 3.0;
+                n += 1.0;
+            }
+        }
+        (sum / n.max(1.0), n as usize)
+    };
+    let (d_off, n) = over(&off);
+    let (d_on, _) = over(&on);
+    eprintln!(
+        "fountain ({n} pixels): Moonglow's own shader differs from the client by {d_off:.1} of 255 \
+         on average, the game's shaders by {d_on:.1}"
+    );
+    for (name, r, _) in REGIONS.iter().filter(|(n, ..)| n.contains("floor")) {
+        let c = mean(&client, *r);
+        let (a, b) = (mean(&off, *r), mean(&on, *r));
+        eprintln!("{name}: client {c:.1?}, own {a:.1?}, game's {b:.1?}");
+    }
+}

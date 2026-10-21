@@ -299,6 +299,37 @@ impl Program {
         self.revalidate()
     }
 
+    /// Whether the program reads uniform `name`: glslang keeps every loose
+    /// uniform the program declares in its block (the stock includes
+    /// declare `worldtimerTimeOfDay` for every program), read or not.
+    pub fn reads_uniform(&self, name: &str) -> bool {
+        let m = &self.module;
+        // The blocks' variables, and the member's place in each.
+        let mut members = Vec::new();
+        for (h, g) in m.global_variables.iter() {
+            if g.space != naga::AddressSpace::Uniform {
+                continue;
+            }
+            if let TypeInner::Struct { members: list, .. } = &m.types[g.ty].inner
+                && let Some(i) = list.iter().position(|x| x.name.as_deref() == Some(name))
+            {
+                members.push((h, i as u32));
+            }
+        }
+        let reads = |f: &naga::Function| {
+            f.expressions.iter().any(|(_, e)| match e {
+                Expression::AccessIndex { base, index } => matches!(
+                    f.expressions[*base],
+                    Expression::GlobalVariable(g) if members.contains(&(g, *index))
+                ),
+                _ => false,
+            })
+        };
+        !members.is_empty()
+            && (m.functions.iter().any(|(_, f)| reads(f))
+                || m.entry_points.iter().any(|e| reads(&e.function)))
+    }
+
     /// Puts every resource in bind group `group` (a pipeline's two
     /// programs each bind their own block at binding 0).
     pub fn set_group(&mut self, group: u32) -> Result<(), ShaderError> {
@@ -494,6 +525,25 @@ void main ()
         }
         // A vertex program has no color to test.
         assert!(program("vs_link", Stage::Vertex).keep_alpha(AlphaKeep::Below(0.5)).is_err());
+    }
+
+    /// A uniform declared and not read is no uniform the program reads.
+    #[test]
+    fn uniforms_read_are_told_from_those_declared() {
+        let src: BTreeMap<String, String> = [(
+            "fs_time".to_string(),
+            "#define SHADER_TYPE 2\nuniform int worldtimerTimeOfDay;\nuniform int sceneCurrentFrame;\n\
+             uniform vec4 vColor;\nvoid main() { gl_FragColor = vColor * \
+             float(worldtimerTimeOfDay); }\n"
+                .to_string(),
+        )]
+        .into();
+        let p = compile("fs_time", Stage::Fragment, &Preamble::default(), &src).unwrap();
+        assert!(p.reflection.uniform("sceneCurrentFrame").is_some(), "declared, kept");
+        assert!(p.reads_uniform("worldtimerTimeOfDay"));
+        assert!(p.reads_uniform("vColor"));
+        assert!(!p.reads_uniform("sceneCurrentFrame"));
+        assert!(!p.reads_uniform("nothing"));
     }
 
     #[test]

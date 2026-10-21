@@ -799,11 +799,7 @@ impl GameShaders {
         }
         fs.set_group(1).map_err(|e| at(&key.fs, e.to_string()))?;
         let timed = [&vs, &fs].iter().any(|p| {
-            p.reflection.uniforms.iter().any(|b| {
-                b.members
-                    .iter()
-                    .any(|m| matches!(self::key(&m.name), Key::WorldTimer | Key::SceneCurrentFrame))
-            })
+            p.reads_uniform("worldtimerTimeOfDay") || p.reads_uniform("sceneCurrentFrame")
         });
         let stages = [
             StagePlan::new(&vs.reflection).map_err(|e| at(&key.vs, e))?,
