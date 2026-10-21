@@ -1,9 +1,9 @@
 ---
 type: Proposal
 title: 'The game''s own shaders in the area view: a proposal for 2.0'
-description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies; M3 built - the Shaders switch on by default, every view within 144 fps where Moonglow's own shader is (a large stock area zoomed out 5.97 ms on, 3.97 off; a synthetic TDoD area seen whole, over the budget either way, 54 ms on, 29 off), through uniforms split in IR into a draw's, its lights', the frame's and the bones', draws as instances of storage arrays, compiles on a worker thread and a disk cache; M4 built - every mesh drawn with the program the engine chooses for it and its material's NO_DISCARD, read from the client by marking every stock program (36 kinds of mesh, Moonglow choosing as the client for each), the WGSL shader's environment map sampled as the game's (`_sm` 0.73 to 0.00 of 255 from the stock programs), a hak's inc_lighting through the load order (TDoD's area view), and the client's reference scenes compared with the switch off and on; M5 built - the special surfaces read in the client (water vswater/fswater with the tileset's 2D map, grass vsgrass/fsgrass, the skybox vsvt/fst, additive meshes as any mesh, a decal with an envmap vsvt_sm/fst_sm, particles vsparticle/fsparticle by blend) and drawn with the game's programs - the sky at the far plane, grass, additive meshes, particles - but water, kept Moonglow's because fswater without the framebuffer is farther from the client (TDoD's fountain 16.4 of 255 against 11.7); see-through game draws batched as Moonglow's own; M4's macOS failure (a cube map read with gradients) fixed.
+description: Drawing areas, blueprints and models with NWN:EE's own GLSL shaders (the stock ones from the install, a hak's overrides of them, and the custom shaders MTRs name) as the centerpiece of Moonglow 2.0 - what the tabled shaders branch held, what the renderer is today, the corpus now on hand, a spike in which all 102 programs reached valid wgpu shader modules, the route (glslang, SPIRV-Tools, naga with two fixups), the uniform contract, costs, milestones with their tests, and the owner's decisions (accepted 2026-10-21 - the game's shaders throughout, native glslang, on by default, a failed program falls back and is reported); M0 built - the mg-shader crate (glslang-rs, the sampler split in Rust), its corpus test (102 of 102) and Verify's shader-compile check; M1 built - the stock lit pair and its variants drawn by mg-render beside its WGSL shader (opt-in), matching it within 1 in 255 on plain lit meshes, the WGSL port's first oracle, and the time uniforms' units measured in the client; M2 built - tier A, a material's own program pair drawn in the area view, the model viewer and the previews behind a Shaders switch (off by default), see-through meshes in Moonglow's two parts, the area's wind, tangents made where a model has none, The Domains of Dread's grass, leaves, water and roof shaders moving, and the client's floor matched where its inc_lighting applies; M3 built - the Shaders switch on by default, every view within 144 fps where Moonglow's own shader is (a large stock area zoomed out 5.97 ms on, 3.97 off; a synthetic TDoD area seen whole, over the budget either way, 54 ms on, 29 off), through uniforms split in IR into a draw's, its lights', the frame's and the bones', draws as instances of storage arrays, compiles on a worker thread and a disk cache; M4 built - every mesh drawn with the program the engine chooses for it and its material's NO_DISCARD, read from the client by marking every stock program (36 kinds of mesh, Moonglow choosing as the client for each), the WGSL shader's environment map sampled as the game's (`_sm` 0.73 to 0.00 of 255 from the stock programs), a hak's inc_lighting through the load order (TDoD's area view), and the client's reference scenes compared with the switch off and on; M5 built - the special surfaces read in the client (water vswater/fswater with the tileset's 2D map, grass vsgrass/fsgrass, the skybox vsvt/fst, additive meshes as any mesh, a decal with an envmap vsvt_sm/fst_sm, particles vsparticle/fsparticle by blend) and drawn with the game's programs - the sky at the far plane, grass, additive meshes, particles - but water, kept Moonglow's because fswater without the framebuffer is farther from the client (TDoD's fountain 16.4 of 255 against 11.7); see-through game draws batched as Moonglow's own; M4's macOS failure (a cube map read with gradients) fixed; after M5, the light-dense water view brought back within the budget with the switch on (7.5 to 6.5 ms, off 5.6) by the game's programs reading the lights by their places in the frame's (a SPIR-V pass) and cheaper writing of the draws' values.
 tags: [proposal, rendering, shaders, custom-content, renderer, release-2]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:40:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:40:00Z }
 stale_after: 2027-04-01T00:00:00Z
 sources:
   - id: request
@@ -48,6 +48,9 @@ sources:
   - id: m5
     resource: crates/mg-corpus-tests/tests/client_render/programs.rs (surfaces_in_the_client), client_render.rs (tdod_custom_shaders_look), crates/mg-render/src/game.rs, renderer.rs, shader.wgsl (cube_level), crates/mg-shader/src/link.rs (at_far_plane), crates/mg-render/tests/render.rs, crates/mg-ui/tests/frame_perf.rs (FRAME_AREA=water), run 2026-10-21 on 89.8193.37-17 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
     title: M5, the special surfaces
+  - id: lights
+    resource: crates/mg-shader/src/spirv.rs (index_lights), crates/mg-render/src/game.rs (fill, push, upload), renderer.rs, crates/mg-render/tests/render.rs (an_authored_glsl_pair_draws_on_this_platform_s_gpu), crates/mg-corpus-tests/tests/shaders.rs, crates/mg-ui/tests/frame_perf.rs (game_shaders_frames_at_144), run 2026-10-21 with MOONGLOW_HAKS=~/Projects/tdod-module/build/hak
+    title: After M5, the lights
   - id: wiki-shaders
     resource: ~/.local/opt/neverwinter/wiki/pages/NWN1/106856449-shaders-introduction-editing-a-textures-colour.md, 12027232-mtr.md
     title: 'nwn.wiki: Shaders Introduction (both programs needed), MTR (renderhint makes tangents)'
@@ -66,6 +69,8 @@ mesh with the program the engine would choose, settled in the client
 ([M4: the engine's choice](#m4-the-engines-choice-2026-10-21)), and M5,
 the special surfaces each drawn the game's way or kept Moonglow's with
 the reason ([M5: the special surfaces](#m5-the-special-surfaces-2026-10-21)).
+After M5, the lights read by their places brought M5's light-dense view
+back within the budget ([After M5: the lights](#after-m5-the-lights-2026-10-21)).
 
 Moonglow draws with one WGSL shader of its own that approximates EE's
 lighting ([the plan](PLAN.md) §5.5). This proposes that 2.0 draws with
@@ -734,7 +739,135 @@ it off); the shader corpus splits every program: 65 of 65 stock, 102 of
 What M3 leaves is in [the deferred list](deferred.md) ("The frame
 budget of the game's shaders").
 
+### After M5: the lights (2026-10-21)
+
+M5's water area broke M3's rule. Zooming out, a frame took **7.5 ms with
+the switch on and 5.6 off**, so a view within the budget with the switch
+off went over it with the switch on. Now it takes **6.5 ms on**, and the
+rule holds again for every view measured. The default stays on. What the
+game's programs compute is unchanged: the same values reach them, found
+another way.[^lights]
+
+**Where the time went** (`area_parts`, the water area seen whole; phase
+timers in `Renderer::render`). Encoding took 4.36 ms on against 2.74 off,
+while the GPU took less with the switch on (1.35 against 1.69 ms). Of
+the 1.6 ms more, 1.4 was in the loop over the meshes and 1.3 of that in
+writing the game draws' values:
+
+- **The renderer's light sets: about 0.45 ms.** Each draw built arrays
+  of its lights' positions and colors (21 lights on average), hashed the
+  set with SipHash and allocated it when new.
+- **The lights' blocks: 0.57 ms.** The draws had 1,468 sets of lights,
+  giving 1,524 blocks of 1,040 bytes each (`numLights` and 32 lights'
+  places for each array), written an element at a time.
+- **The draws' own values: 0.46 ms.**
+- **The upload: 0.15 ms**, for 2 MB a frame, 1.58 MB of it the lights'
+  blocks. The submit took 0.1 ms more.
+
+The sets of lights are 96% unique in the water area (2,698 draws, every
+mesh near a different few of the 160 fires). area092 shares more: 3,571
+draws took 2,032 blocks of 1,895 sets, with 6.9 lights on average. So the
+lights a draw shares with others stay shared.
+
+**What was done**, with the encoding time of the water area's overview
+(and area092's), each step measured back to back:
+
+| Step | Water | area092 | Kept |
+|---|---|---|---|
+| M5 | 4.36 | 4.00 | |
+| A draw's lights written as their indices into the frame's lights, each array a vector at a time (and the bones a matrix at a time), not built per draw and written an element at a time | 3.83, all three steps | | yes |
+| The light sets hashed eight bytes at a time with the quick hasher, after a check against the last draw's set | (the values' writing 1.07 to 0.99) | | yes |
+| `m_mv` worked out once a draw for `m_mv`, `m_mvp` and `m_normal` | (0.69 to 0.66) | | yes |
+| **The lights read by their places in the frame's** (below) | 3.80 to 3.68 | the frame 5.5 to 5.3 | yes |
+| The regions, light places and frame marks in vectors indexed by number, not hash maps | 3.67 to 3.60 | 3.60 to 3.51 | yes |
+
+(The rows in brackets were timed inside the loop with timers of their
+own, which cost about 0.25 ms a frame themselves.)
+
+**The lights by their places.** The engine declares `uniform vec4
+lightPosition[MAX_NUM_LIGHTS]` and `lightColor` (32 lights, the client's
+default `max-lights`). The stock programs read them an element at a time
+in a loop to `numLights`. A SPIR-V pass, `index_lights`, does the
+following:
+
+- It gives the uniform block a member of the draw's lights' places,
+  `mg_lightIndex`, four places to a `uvec4` (eight for 32 lights).
+- It makes each read of `lightPosition[i]` or `lightColor[i]` (or of a
+  component of one) a read of the frame's lights, `mg_light_table`, at
+  place `mg_lightIndex[i]` times two (plus one for the color). The
+  table is a storage buffer written once a frame. Its place 0 holds
+  zeros, which is what the arrays held past a draw's lights.
+- The arrays are then read nowhere, so the split leaves them out. A lights
+  block is now 144 bytes instead of 1,040.
+
+The pass runs in SPIR-V, before naga, for the reason M3's split needs
+SPIR-V's help: naga's expressions must come before what uses them, and
+the new reads come before each access. A program that reads the arrays
+otherwise than an element at a time (a whole array copied), or whose
+arrays aren't `vec4`s, is left as it was. The renderer fills either
+layout by name. The shader corpus requires every stock program that reads
+the lights to read them by index: 7 of 65, and 26 of TDoD's 102.
+
+A smaller `MAX_NUM_LIGHTS` in the preamble, for draws with fewer lights,
+was not used. The engine's loops are bounded by `numLights` when they
+run, so a smaller define only shrinks the arrays, and the places do that
+already, without a pipeline for each count. The preamble keeps the
+client's default of 32, which is also the most lights Moonglow's light
+grid gives a draw.
+
+**Measured** (`game_shaders_frames_at_144`, release build, this machine;
+the median CPU time of a frame, ms, with the GPU's in brackets where it
+leads). Other sessions were building on the machine at the same time.
+Each pair was run back to back under one GPU lock: the water area at load
+2.2–2.5, area092 at 2.3–4.0, TDoD's woods at 2–5.
+
+| View | Off | On, M5 | On, now |
+|---|---|---|---|
+| water area, overview, wheel | 5.6 | 7.3–7.5 | **6.5** |
+| water area, turning, wheel | 5.9 | 7.4 | **6.5** |
+| water area, close, pointer | 3.9 (6.9) | 4.4 | 4.1 (2.7) |
+| water area, parts: encoded / GPU | 2.7 / 1.5 | 4.3 / 1.24 | 3.6 / 1.24 |
+| water area, close parts: encoded / GPU | 0.9 / 2.8 | 1.28 / 2.48 | 1.18 / 2.55 |
+| area092, overview, wheel | 4.0 | 5.7–6.1 | **5.2** |
+| area092, turning, wheel | 4.3 | 4.8–5.4 | 4.4–4.6 |
+| area092, parts: encoded / GPU | 2.65 / 1.1 | 4.0 / 1.0 | 3.45 / 1.0 |
+| TDoD woods, overview, wheel | 28.5 | 55–66 | 59 |
+| TDoD woods, close, pointer | 3.8 | 5.3 | 5.3 |
+
+TDoD's woods have no lights. They are as they were: over the budget
+either way seen whole, within it close up. Close up, the GPU takes 0.06
+ms more for the read through the places (2.55 ms against 2.48), and it
+leads nowhere this was measured.
+
+**Pictures looked at.** The water area's three views with the switch on
+are the same as M5's to the bit. area092's were compared at a fixed clock
+(`area_parts`' last frame, saved), with the pass on and off from one
+build. They are the same but for 12 values of the overview with 4×
+MSAA, at most 3 apart, and two runs of one build differ by as much.
+area092's views saved with `FRAME_SHOTS=1` differ from M5's by up to 64
+of 255 over the sea, brighter and darker alike. The sea's tiles move with
+the view's clock, which counts the frames of the opening, so those shots
+are not comparable from one run to the next (two runs of this build
+differ by 31). The oracle (`the_game_s_lit_shaders_match_moonglow_s`:
+stock `fslit` lit by a point light, through the table) gives the same
+numbers as before, within 1 of 255.
+
+**Tests:** mg-shader (the pass on an authored program: a component, a
+constant index, a vector constant; a whole array copied left as it was;
+the pass on bad words); mg-render (the fill writes each light's place plus
+one; the platform test lights its three instances of one draw apart, so
+CI's Direct3D 12 and Metal read through the table, mutation-checked);
+the shader corpus (above).
+
+**What is left.** In the water view the switch on still costs about 0.9
+ms of encoding (3.6 against 2.7 ms off). Most of it is the draws' own
+values, about 0.75 ms: the material's template copied, and `m_mv`,
+`m_mvp` and `m_normal` with an inverse for each draw. The upload costs
+0.09 ms and the submit 0.07 ms more. The places are not yet run on
+Direct3D 12 or Metal. In [the deferred list](deferred.md).
+
 [^m3]: M3: the files in the frontmatter's `m3` source, measured 2026-10-21.
+[^lights]: After M5: the files in the frontmatter's `lights` source, measured 2026-10-21.
 
 ## M4: the engine's choice (2026-10-21)
 
@@ -1063,7 +1196,8 @@ run twice or more):
 | TDoD woods, overview, wheel | 29.9 | 56.4 | 59 to 66 | |
 | TDoD woods, close, pointer | 3.8 | 5.2 | 5.4 | |
 
-- **The water area is over the budget with the switch on, and was at
+- **The water area was over the budget with the switch on** (brought
+  within it after M5: [the lights](#after-m5-the-lights-2026-10-21)), **and was at
   M4** (7.9 ms, off 5.6): its 160 fires' lights and 2,400 game meshes,
   more than half see-through. M5 brought it from 7.9 to 7.5 (see-through
   game draws batched: 1,347 calls to 391; floats written a vector at a

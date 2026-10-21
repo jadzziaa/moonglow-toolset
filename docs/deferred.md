@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T21:04:00Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T22:40:00Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -1441,17 +1441,32 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   - `Instance::grass`, `game::Traits`' `water`, `grass` and `sky`, and
     `Renderer::game_water`: Moonglow Viewer meets them at its next bump (a
     struct literal without `..` stops compiling). (M6)
-  - **A view dense in lights over the budget with the switch on:**
-    `frame_perf`'s water area (16 by 16 of ttr01, half water, 160 fires
-    with their lights) zooming out takes 7.5 ms a frame on, 5.6 off (7.9
-    on at M4: M5 batched the see-through game draws). What is left is a
-    game draw's values: its lights' block is 32 lights' places (a
-    kilobyte) for every set of lights and pipeline, written and uploaded
-    whole where a mesh has a few. Places counted by `vec4` rather than by
-    block (the lights packed, `numLights` of them), or a set's block shared
-    by the pipelines of one lights layout, would cut it. TDoD's woods seen
-    whole are about 5% slower than at M4 (the batcher's work for 30,000
-    see-through draws; over the budget either way). (M)
+  - ~~**A view dense in lights over the budget with the switch on**~~
+    (`frame_perf`'s water area, 7.5 ms a frame on, 5.6 off): 6.5 ms on
+    since the game's programs read the lights by their places in the
+    frame's (`mg_shader`'s `index_lights`) and a draw's values are
+    written more cheaply ([the shaders proposal](shaders-proposal.md),
+    "After M5: the lights"). TDoD's woods seen whole are about 5% slower
+    than at M4 (the batcher's work for 30,000 see-through draws; over the
+    budget either way). What is left of the switch's cost there is below.
+  - **The switch on still costs the water view about 0.9 ms of
+    encoding** (3.6 ms against 2.7 off, at 6.5 ms a frame within the
+    budget by 0.4): about 0.75 ms the draws' own values (the material's
+    template copied, `m_mv`, `m_mvp` and `m_normal` with an inverse each
+    draw), the upload 0.09 ms, the submit 0.07 ms. `m_normal` from the
+    3×3 part (not bit for bit the same as the 4×4 inverse), or values
+    that the camera alone changes kept per instance and multiplied in the
+    vertex program (a change to what the game's programs compute), would
+    cut it. (M)
+  - **The lights read by their places not yet run on Direct3D 12 or
+    Metal:** a dynamic index into a `uvec4` of the lights' block in a
+    storage array, and a fourth storage buffer in the vertex stage.
+    `an_authored_glsl_pair_draws_on_this_platform_s_gpu` now lights its
+    instances apart through the table: the next CI run says. (S)
+  - The area views saved with `FRAME_SHOTS=1` are not comparable from
+    one run to the next where tiles animate (area092's sea): the view's
+    clock counts the frames of the opening. A fixed clock for the shots
+    would make them so. (S)
 - **A tileset's custom shader:** with the Shaders switch on (M2 above),
   the material's own programs draw it where their source is in the
   load order; off, Moonglow runs none (see Custom shader effects above).
