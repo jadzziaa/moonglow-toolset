@@ -395,6 +395,9 @@ float MgBand(int k)
     // The 2D environment map bound, by its mean colour (its smallest
     // level); here and under the lying square (k 56 on).
     if ((k >= 44 && k < 47) || (k >= 56 && k < 59)) return textureLod(texUnitEnv, vec2(0.5), 20.0)[(k - 44) % 4];
+    // The cube map bound, by the mean colours of its +Z and +X faces.
+    if (k >= 47 && k < 50) return textureLod(texUnitEnvCube, vec3(0.0, 0.0, 1.0), 20.0)[k - 47];
+    if (k >= 50 && k < 53) return textureLod(texUnitEnvCube, vec3(1.0, 0.0, 0.0), 20.0)[k - 50];
     return 0.0;
 }
 #define MG_BAND 1
@@ -403,6 +406,15 @@ float MgBand(int k)
 
 /// A program's text marked with its number: `main` wrapped.
 fn marked(src: &str, vertex: bool, id: usize) -> String {
+    marked_as(src, vertex, id, false)
+}
+
+/// [`marked`]; `black`: a fragment program that paints black instead of
+/// its mark (the decal board's `fst`, for reading what is added over it).
+/// `fsparticle` paints its `blendMode` where the others paint `m_texture`'s
+/// turn, and whether its `particleSoftness` is above 0 where they paint
+/// `KEYHOLING_ENABLED`.
+fn marked_as(src: &str, vertex: bool, id: usize, black: bool) -> String {
     let src = src.replace("\r\n", "\n");
     if vertex {
         return format!(
@@ -422,13 +434,18 @@ fn marked(src: &str, vertex: bool, id: usize) -> String {
          #endif\n    float flags = 4.0 + 8.0 * rot\n        \
          + (KEYHOLING_ENABLED == 1 ? 32.0 : 0.0)\n        \
          + (FRAGMENT_LIGHTING == 1 ? 64.0 : 0.0)\n        \
-         + (NO_DISCARD == 1 ? 128.0 : 0.0);\n    \
+         + (NO_DISCARD == 1 ? 128.0 : 0.0);\n\
+         #if defined(BLEND_MODE_NORMAL) && SHADER_QUALITY_MODE > 0\n    \
+         flags = 4.0 + 8.0 * float(blendMode) + (particleSoftness > 0.0 ? 32.0 : 0.0)\n        \
+         + (FRAGMENT_LIGHTING == 1 ? 64.0 : 0.0) + (NO_DISCARD == 1 ? 128.0 : 0.0);\n\
+         #endif\n    \
          vec4 c = vec4(float({id}) * 8.0 / 255.0, floor(mgVs + 0.5) * 8.0 / 255.0, flags / 255.0, 1.0);\n\
          #ifdef MG_BAND\n    int row = int(gl_FragCoord.y / 32.0) - 6;\n    \
          if (row >= 0 && row < 2)\n    {{\n        \
          float x = clamp(MgBand(row * 32 + int(gl_FragCoord.x / 32.0)), 0.0, 0.99999);\n        \
          c = vec4(floor(x * 255.0) / 255.0, fract(x * 255.0), 0.0, 1.0);\n    }}\n#endif\n    \
-         gl_FragColor = c;\n}}\n"
+         {}gl_FragColor = c;\n}}\n",
+        if black { "c = vec4(0.0, 0.0, 0.0, 1.0);\n    " } else { "" }
     )
 }
 
@@ -889,4 +906,356 @@ fn program_choice_in_the_client() {
     }
     assert!(seen.len() >= 25, "{} cards read", seen.len());
     assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The cards of [`surfaces_in_the_client`], west to east on the ground row:
+/// what each is, its bitmap.
+const SURFACE_CARDS: [(&str, &str); 6] = [
+    ("water (TXI shinywater)", "mgp_water"),
+    ("additive", "mgp_add"),
+    ("additive decal", "mgp_adddc"),
+    ("decal envmap", "mgp_decenv"),
+    ("additive envmap", "mgp_addenv"),
+    ("plain", "mgp_plain"),
+];
+
+/// The particles of [`surfaces_in_the_client`]: what, the emitter's blend,
+/// its column on the cards' second row.
+const SURFACE_PARTICLES: [(&str, &str, usize); 3] = [
+    ("particle Normal", "Normal", 7),
+    ("particle Punch-Through", "Punch-Through", 9),
+    ("particle Lighten", "Lighten", 11),
+];
+
+/// A placeable's model of still, large particles, one an emitter of
+/// [`SURFACE_PARTICLES`], in front of the cards' board.
+fn particles_model() -> String {
+    let emitters: String = SURFACE_PARTICLES
+        .iter()
+        .map(|(_, blend, column)| {
+            let (x, _) = card_corner(*column);
+            // (One particle at a time where they are added up: a few
+            // in one place, added, are white.)
+            let life = if *blend == "Lighten" { 0.95 } else { 30.0 };
+            let one = format!(
+                "birthrate 1\n  lifeExp {life}\n  velocity 0\n  sizeStart 0.7\n  sizeEnd 0.7\n  \
+                 blend {blend}"
+            );
+            super::probe_emitter(&format!("e{column}"), [x + 0.4, -0.4, 1.5], &one)
+                .replace("parent plc_a01", "parent mg_parts")
+        })
+        .collect();
+    format!(
+        "newmodel mg_parts\nsetsupermodel mg_parts NULL\nclassification Character\n\
+         setanimationscale 1\nbeginmodelgeom mg_parts\nnode dummy mg_parts\n  parent NULL\n\
+         endnode\n{emitters}endmodelgeom mg_parts\ndonemodel mg_parts\n"
+    )
+}
+
+/// Exploration (M5 of `docs/shaders-proposal.md`): which programs the
+/// client draws the special surfaces with, marked as
+/// [`program_choice_in_the_client`] marks them. A rural area (`ttr01`, its
+/// grass on, its north row of tiles water, a skybox) with cards of water,
+/// additive and decal textures in front of a decal board, still particles
+/// of the three blends, a sword and a shield on the ground. `MG_RUNS`
+/// (comma-separated) picks the runs: `marked` (default), `black` (the
+/// board's `fst` painting black: what is added over it reads as its own
+/// mark), `sky` (the camera raised to the horizon) and `unmarked` (the
+/// scene as it looks, for comparing Moonglow's pictures). Reports and
+/// pictures in `target/test-output/client_surfaces_<run>/`.
+#[test]
+#[ignore]
+fn surfaces_in_the_client() {
+    use mg_module::instances::{Placement, Placing, instance};
+    let root = corpus!();
+    let _ = oracle_tool!("nwn_script_comp");
+    let base = GameData::open(&GameInstall::new(&root, None, "en")).unwrap();
+    let (vs, fs) = programs(&base);
+    let runs = std::env::var("MG_RUNS").unwrap_or_else(|_| "marked,black".into());
+    for run in runs.split(',').map(str::trim) {
+        let dir = scratch_dir(&format!("client_surfaces_{run}"));
+        let over = dir.join("user/override");
+        std::fs::create_dir_all(&over).unwrap();
+        if run != "unmarked" {
+            for (list, vertex) in [(&vs, true), (&fs, false)] {
+                for (i, name) in list.iter().enumerate() {
+                    let src = base.resman.get_named(name, ResType::SHD).unwrap();
+                    let black = run == "black" && name == "fst";
+                    let text = marked_as(&String::from_utf8_lossy(&src), vertex, i + 1, black);
+                    std::fs::write(over.join(format!("{name}.shd")), text).unwrap();
+                }
+            }
+        }
+        write_textures(&over);
+        let w = |name: &str, bytes: Vec<u8>| std::fs::write(over.join(name), bytes).unwrap();
+        // Water: a see-through blue, with the TXI of the rural tileset's
+        // water (`ttr01_water01`).
+        w("mgp_water.tga", tga(true, |x, y| [40, 90 + ((x + y) % 16) as u8, 160, 140]));
+        let water_txi = base.resman.get_named("ttr01_water01", ResType::TXI).unwrap();
+        w("mgp_water.txi", water_txi.to_vec());
+        for name in ["mgp_adddc", "mgp_decenv", "mgp_addenv"] {
+            w(&format!("{name}.tga"), tga(false, checker));
+        }
+        w("mgp_adddc.txi", b"blending additive\ndecal 1\n".to_vec());
+        w("mgp_decenv.txi", b"decal 1\nenvmaptexture chrome1\n".to_vec());
+        w("mgp_addenv.txi", b"blending additive\nenvmaptexture chrome1\n".to_vec());
+        w("mgwhite.tga", super::white_tga());
+        let quads: Vec<Quad> = SURFACE_CARDS
+            .iter()
+            .enumerate()
+            .map(|(i, (_, bitmap))| {
+                let (x, z) = card_corner(i);
+                Quad {
+                    name: format!("s{i}"),
+                    at: [x, 0.0, z],
+                    corners: standing(0.8),
+                    bitmap,
+                    extra: "",
+                    tverts: true,
+                    colors: false,
+                }
+            })
+            .chain(std::iter::once(Quad {
+                name: "board".into(),
+                at: [-6.0, 0.05, 0.0],
+                corners: [[0.0, 0.0, 0.0], [12.0, 0.0, 0.0], [12.0, 0.0, 3.1], [0.0, 0.0, 3.1]],
+                bitmap: "mgp_decal",
+                extra: "",
+                tverts: true,
+                colors: false,
+            }))
+            .collect();
+        std::fs::write(over.join("mg_surf.mdl"), model("mg_surf", &quads)).unwrap();
+        std::fs::write(over.join("mg_parts.mdl"), particles_model()).unwrap();
+        let table = base.resman.get_named("placeables", ResType::TWODA).unwrap();
+        let mut table = String::from_utf8_lossy(&table).into_owned();
+        let header: Vec<&str> = table.lines().nth(2).unwrap().split_whitespace().collect();
+        let model_col = header.iter().position(|c| *c == "ModelName").unwrap() + 1;
+        let first = table.lines().count() - 3;
+        let armoire: Vec<String> =
+            table.lines().nth(3).unwrap().split_whitespace().map(str::to_owned).collect();
+        let rows: Vec<String> = ["mg_surf", "mg_parts"]
+            .iter()
+            .enumerate()
+            .map(|(k, model)| {
+                let mut row = armoire.clone();
+                row[0] = (first + k).to_string();
+                row[model_col] = (*model).to_owned();
+                row.join(" ")
+            })
+            .collect();
+        if !table.ends_with('\n') {
+            table.push('\n');
+        }
+        table += &(rows.join("\n") + "\n");
+        std::fs::write(over.join("placeables.2da"), table).unwrap();
+
+        let game = GameData::open(&GameInstall::new(&root, Some(dir.join("user")), "en")).unwrap();
+        let light =
+            Lighting { ambient: 0x606060, diffuse: 0xC0C0C0, main_light: 0, only_tile: None };
+        let (mut m, mut are) = build_module_on(&game, &dir, light, "ttr01", 1);
+        let settings = SETTINGS
+            .replace("[graphics.grass]\n\t\tmode = 0", "[graphics.grass]\n\t\tmode = 2")
+            .replace(
+                "[graphics.skyboxes]\n\t\tenabled = false",
+                "[graphics.skyboxes]\n\t\tenabled = true",
+            );
+        assert!(settings.contains("mode = 2") && settings.contains("enabled = true"));
+        std::fs::write(dir.join("user/settings.tml"), settings).unwrap();
+        let are_key = *m.keys_of(ResType::ARE).next().unwrap();
+        are.root.set("WindPower", Value::Int(2));
+        // (The north row water: ttr01's tile 20, `ttr01_b20_01`, all water.)
+        // (`waterband`: the row south of the player's water too, under
+        // the band of uniforms.)
+        let width = are.root.int("Width").unwrap_or(4) as usize;
+        let water_rows: &[usize] = if run == "waterband" { &[1, 3] } else { &[3] };
+        for (i, t) in are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+            if water_rows.contains(&(i / width)) {
+                t.set("Tile_ID", Value::Int(20));
+                t.set("Tile_Height", Value::Int(0));
+            }
+        }
+        m.set_gff(are_key, &are).unwrap();
+        let mut enter: String =
+            ENTER.lines().filter(|l| !l.contains("CreateObject")).collect::<Vec<_>>().join("\n");
+        if run == "sky" {
+            // (Once the player is in the area: from its OnClientEnter, the
+            // camera doesn't move.)
+            enter = enter.replace(
+                "AssignCommand(pc, SetCameraFacing(90.0, 12.0, 45.0, CAMERA_TRANSITION_TYPE_SNAP));",
+                "DelayCommand(1.0, AssignCommand(pc, SetCameraFacing(90.0, 12.0, 89.0, \
+                 CAMERA_TRANSITION_TYPE_SNAP)));",
+            );
+        }
+        m.set(ResKey::parse("mg_enter", ResType::NCS).unwrap(), compile(&dir, "mg_enter", &enter));
+        let git_key = *m.keys_of(ResType::GIT).next().unwrap();
+        let mut git = m.gff(&git_key).unwrap().unwrap();
+        let bp = Gff::read(&game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
+        let none = |_: ResRef| None;
+        let placing = Placing { game: &game, item: &none };
+        let cards_at = [18.0f32, 23.0];
+        let placed: Vec<_> = (0..2)
+            .map(|k| {
+                let at = Placement { position: [cards_at[0], cards_at[1], 0.0], rotation: 0.0 };
+                let mut p = instance(&placing, ResType::UTP, &bp.root, at, &[]).unwrap();
+                p.set("Appearance", Value::Dword((first + k) as u32));
+                p.set("Static", Value::Byte(0));
+                p
+            })
+            .collect();
+        git.root.set("Placeable List", Value::List(placed));
+        let items = [
+            ("short sword", "nw_wswss001", [16.5f32, 21.0]),
+            ("small shield", "nw_ashsw001", [19.5, 21.0]),
+        ];
+        let placed: Vec<_> = items
+            .iter()
+            .map(|(_, name, [x, y])| {
+                let bp = Gff::read(&game.resman.get_named(name, ResType::UTI).unwrap()).unwrap();
+                let at = Placement { position: [*x, *y, 0.0], rotation: 0.0 };
+                instance(&placing, ResType::UTI, &bp.root, at, &[]).unwrap()
+            })
+            .collect();
+        git.root.set(mg_area::ObjectKind::Item.list(), Value::List(placed));
+        m.set_gff(git_key, &git).unwrap();
+        m.save_as(&ModuleLocation::Archive(dir.join("user/modules/MgScene.mod"))).unwrap();
+        let Some(client) = client_screenshot(&dir, "MgScene") else {
+            panic!("{run}: the client did not reach the scene (see {})", dir.display());
+        };
+        save_png(&client, &dir.join("client.png"));
+        if run == "unmarked" {
+            eprintln!("{run}: {}", dir.display());
+            continue;
+        }
+
+        let (wd, ht) = (client.width as f32, client.height as f32);
+        let camera =
+            fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+        let vp = camera.projection(wd / ht) * camera.view();
+        let screen = |p: Vec3| {
+            let c = vp * p.extend(1.0);
+            let n = c.truncate() / c.w;
+            ((n.x * 0.5 + 0.5) * wd, (0.5 - n.y * 0.5) * ht)
+        };
+        let name = |m: &Mark| {
+            let v = vs.get(usize::from(m.vs).wrapping_sub(1)).map_or("?", String::as_str);
+            let f = fs.get(usize::from(m.fs).wrapping_sub(1)).map_or("?", String::as_str);
+            format!(
+                "{v}/{f} NO_DISCARD {} FRAGMENT_LIGHTING {} KEYHOLING_ENABLED {} turn {}",
+                u8::from(m.no_discard),
+                u8::from(m.fragment_lighting),
+                u8::from(m.keyholing),
+                m.rot
+            )
+        };
+        let listed = |marks: Vec<(Mark, f32)>, most: usize| {
+            let shown: Vec<String> = marks
+                .iter()
+                .take(most)
+                .map(|(m, s)| format!("{} ({:.0}%)", name(m), s * 100.0))
+                .collect();
+            if shown.is_empty() { "(no mark)".to_string() } else { shown.join("; ") }
+        };
+        let mut report = format!("run {run} ({}x{})\n", client.width, client.height);
+        let [x0, y0] = cards_at;
+        let mut places = Vec::new();
+        for (i, (what, _)) in SURFACE_CARDS.iter().enumerate() {
+            let (x, z) = card_corner(i);
+            places.push((what.to_string(), screen(Vec3::new(x0 + x + 0.4, y0, z + 0.4)), 4));
+        }
+        for (what, _, column) in SURFACE_PARTICLES {
+            let (x, _) = card_corner(column);
+            places.push((what.to_string(), screen(Vec3::new(x0 + x + 0.4, y0 - 0.4, 1.5)), 4));
+        }
+        for (what, _, [x, y]) in items {
+            places.push((what.to_string(), screen(Vec3::new(x, y, 0.05)), 8));
+        }
+        places.push(("water tile".into(), screen(Vec3::new(25.0, 35.0, 0.0)), 8));
+        places.push(("grass tile".into(), screen(Vec3::new(22.0, 16.0, 0.0)), 8));
+        let mut shown = client.clone();
+        for (what, (sx, sy), r) in &places {
+            report += &format!("{what:26} {}\n", listed(marks_at(&client, *sx, *sy, *r), 3));
+            for d in -4i32..=4 {
+                for (px, py) in [(*sx as i32 + d, *sy as i32), (*sx as i32, *sy as i32 + d)] {
+                    if px >= 0 && py >= 0 && px < shown.width as i32 && py < shown.height as i32 {
+                        let i = (py as usize * shown.width as usize + px as usize) * 4;
+                        shown.data[i..i + 4].copy_from_slice(&[255, 255, 0, 255]);
+                    }
+                }
+            }
+        }
+        save_png(&shown, &dir.join("client_places.png"));
+        // Every mark in the picture, with where it lies.
+        let mut all: HashMap<Mark, (usize, f64, f64, f64, f64)> = HashMap::new();
+        for (k, p) in client.data.chunks(4).enumerate() {
+            if let Some(m) = mark(p) {
+                let (x, y) =
+                    ((k % client.width as usize) as f64, (k / client.width as usize) as f64);
+                let e = all.entry(m).or_insert((0, 0.0, 0.0, f64::MAX, f64::MIN));
+                e.0 += 1;
+                e.1 += x;
+                e.2 += y;
+                e.3 = e.3.min(y);
+                e.4 = e.4.max(y);
+            }
+        }
+        let mut all: Vec<_> = all.into_iter().filter(|(_, (n, ..))| *n >= 30).collect();
+        all.sort_by_key(|(_, (n, ..))| std::cmp::Reverse(*n));
+        for (m, (n, sx, sy, top, bottom)) in &all {
+            let n = *n as f64;
+            report += &format!(
+                "mark {:70} {n:7} pixels about ({:.0}, {:.0}), rows {top:.0}..{bottom:.0}\n",
+                name(m),
+                sx / n,
+                sy / n
+            );
+        }
+        if run == "waterband" {
+            // The band, over the near water: what `fswater` is given.
+            let b = |k| debug_value(&client, k, 1.0);
+            let byte = |k| debug_byte(&client, k);
+            let s = |k| (b(k) - 0.5) * 4.0;
+            report += &format!(
+                "band sentinel {:.3} (0.5)\nenvMapCube {} texEnvBound {} texEnvCubeBound {} \
+                 texture0Bound {}\nareaGlobalWind ({:.3}, {:.3}, {:.3}) areaFlags {}\n\
+                 texUnitEnv's mean ({:.3}, {:.3}, {:.3}); texUnitEnvCube's +Z ({:.3}, {:.3}, {:.3}), \
+                 +X ({:.3}, {:.3}, {:.3})\n",
+                b(0),
+                byte(18),
+                byte(19),
+                byte(20),
+                byte(17),
+                s(23),
+                s(24),
+                s(25),
+                byte(21),
+                b(44),
+                b(45),
+                b(46),
+                b(47),
+                b(48),
+                b(49),
+                b(50),
+                b(51),
+                b(52),
+            );
+            let mean_of = |name: &str| {
+                let t = <mg_resman::ResMan as mg_render::Assets>::texture(&game.resman, name)?;
+                let img = t.texture.to_rgba();
+                let n = (img.width * img.height) as f64;
+                let mut sum = [0f64; 3];
+                for p in img.data.chunks(4) {
+                    for c in 0..3 {
+                        sum[c] += f64::from(p[c]) / 255.0;
+                    }
+                }
+                Some(sum.map(|v| v / n))
+            };
+            for name in ["chrome1", "ttr01__ref01", "ttr01__env4", "ttr01__env0", "ttr01__env"] {
+                report += &format!("{name}'s mean {:.3?}\n", mean_of(name));
+            }
+        }
+        std::fs::write(dir.join("report.txt"), &report).unwrap();
+        eprintln!("{report}\n{}", dir.display());
+    }
 }
