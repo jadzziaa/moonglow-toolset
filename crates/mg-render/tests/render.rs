@@ -2469,3 +2469,291 @@ fn a_see_through_mesh_is_drawn_in_two_parts_by_its_programs() {
         "a blended edge"
     );
 }
+
+// The special surfaces through the game's programs (`docs/shaders-proposal.md`,
+// M5): authored stand-ins under the stock names the engine draws them with
+// (read from the client: `surfaces_in_the_client` in `mg-corpus-tests`).
+
+/// `vsvt`/`fst` standing in for the game's: the mesh in `globalColor`
+/// (white, its alpha the mesh's), times magenta, so the program shows.
+fn authored_unlit_pair(assets: &mut TestAssets) {
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+attribute vec4 vPos;
+void main ()
+{
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform vec4 globalColor;
+void main ()
+{
+    gl_FragColor = vec4(globalColor.rgb * vec3(1.0, 0.0, 1.0), 1.0);
+}
+"#;
+    assets.shaders.insert("vsvt".into(), vs.into());
+    assets.shaders.insert("fst".into(), fs.into());
+}
+
+/// The skybox is drawn with the game's `vsvt`/`fst`, at the far plane: a
+/// sky five times as far as the far plane is not cut off by it, and what
+/// is in front hides it.
+#[test]
+fn the_game_s_programs_draw_the_sky_at_the_far_plane() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_unlit_pair(&mut assets);
+    authored_lit_pair(&mut assets);
+    let model = Arc::new(GpuModel::new(&gpu, Arc::new(quad())));
+    let sky = Instance::new(
+        model.clone(),
+        Mat4::from_translation(Vec3::new(0.0, 0.0, -500.0)) * Mat4::from_scale(Vec3::splat(2000.0)),
+    );
+    let scene = Scene {
+        instances: vec![Instance::new(model, Mat4::IDENTITY)],
+        area: AreaLight { ambient: Vec3::splat(0.2), diffuse: Vec3::ZERO, direction: Vec3::Z },
+        sky: Some(sky),
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -2.0, 4.0),
+        target: Vec3::ZERO,
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    r.game_programs = Some(Vec::new());
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.game_shader_failures(), &[]);
+    let programs = r.game_programs.take().unwrap();
+    assert!(programs.iter().any(|p| p.vs == "vsvt" && p.fs == "fst" && p.no_discard));
+    // Around the quad: the sky, by `fst` (magenta).
+    assert_eq!(img.pixel(0, 0), [255, 0, 255, 255]);
+    // The quad, in front of it, by the authored `fslit` (black: it has no
+    // texture).
+    assert_eq!(img.pixel(32, 32), [0, 0, 0, 255]);
+}
+
+/// An additive mesh (TXI `blending additive`) is drawn by the game's
+/// programs, added to what is behind it, as Moonglow's own shader adds it.
+#[test]
+fn the_game_s_programs_draw_an_additive_mesh_added() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_lit_pair(&mut assets);
+    assets.opaque("red", [255, 0, 0]);
+    assets.opaque("glow", [0, 128, 0]);
+    assets.txis.insert("glow".into(), mg_image::txi::Txi::parse(b"blending additive\n"));
+    let scene = Scene {
+        instances: vec![
+            standing_quad(&gpu, "red", Vec3::new(0.0, 0.0, 1.0), 3.0),
+            standing_quad(&gpu, "glow", Vec3::new(0.0, -2.0, 1.0), 1.0),
+        ],
+        area: AreaLight { ambient: Vec3::ONE, diffuse: Vec3::ZERO, direction: Vec3::Z },
+        background: [0.0, 0.0, 0.0],
+        ..Default::default()
+    };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -10.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut pictures = Vec::new();
+    for on in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = on;
+        r.game_programs = Some(Vec::new());
+        pictures.push(r.render_image(&gpu, &assets, &scene, &camera, 64, 64));
+        if on {
+            assert_eq!(r.game_shader_failures(), &[]);
+            assert_eq!(r.drawn.game, 2, "both by the game's programs: {:?}", r.drawn);
+        }
+    }
+    let on = pictures[1].pixel(32, 32);
+    // (The authored `fslit` draws the texture unlit: red and green, added.)
+    assert_eq!(on, [255, 128, 0, 255], "added: {on:?}");
+    // (Around it, the red quad alone; and with the switch off, the same.)
+    assert!(pictures[1].data.chunks(4).any(|p| p == [255, 0, 0, 255]));
+    // (Moonglow's own lights it, the authored `fslit` doesn't: added too.)
+    let off = pictures[0].pixel(32, 32);
+    assert!(off[0] == 255 && off[1] > 100, "Moonglow's own: {off:?}");
+}
+
+/// `vsgrass`/`fsgrass` standing in for the game's: cyan.
+fn authored_grass_pair(assets: &mut TestAssets) {
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+attribute vec4 vPos;
+void main ()
+{
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = "#define SHADER_TYPE 2\nvoid main () { gl_FragColor = vec4(0.0, 1.0, 1.0, 1.0); }\n";
+    assets.shaders.insert("vsgrass".into(), vs.into());
+    assets.shaders.insert("fsgrass".into(), fs.into());
+}
+
+/// An area's grass (an instance marked so) is drawn with the game's
+/// `vsgrass`/`fsgrass`; the same mesh not grass, with `vslit`/`fslit`.
+#[test]
+fn the_game_s_programs_draw_the_grass() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_lit_pair(&mut assets);
+    authored_grass_pair(&mut assets);
+    assets.opaque("red", [255, 0, 0]);
+    let grass =
+        Instance { grass: true, ..standing_quad(&gpu, "red", Vec3::new(-1.0, 0.0, 1.0), 1.5) };
+    let plain = standing_quad(&gpu, "red", Vec3::new(1.0, 0.0, 1.0), 1.5);
+    let scene =
+        Scene { instances: vec![grass, plain], background: [0.0, 0.0, 0.0], ..Default::default() };
+    let camera = Camera {
+        eye: Vec3::new(0.0, -8.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    r.game_shaders = true;
+    r.game_programs = Some(Vec::new());
+    let img = r.render_image(&gpu, &assets, &scene, &camera, 64, 64);
+    assert_eq!(r.game_shader_failures(), &[]);
+    let programs = r.game_programs.take().unwrap();
+    assert_eq!(programs.iter().filter(|p| p.vs == "vsgrass" && p.fs == "fsgrass").count(), 1);
+    assert_eq!(img.pixel(20, 32), [0, 255, 255, 255], "the grass");
+    assert_eq!(img.pixel(44, 32), [255, 0, 0, 255], "the rest");
+}
+
+/// `vsparticle`/`fsparticle` standing in for the game's: the particle's
+/// color (`vColor`) times its texture, its `blendMode` choosing the channel
+/// it is drawn in (red normal, green additive, blue punch-through).
+fn authored_particle_pair(assets: &mut TestAssets) {
+    let vs = r#"
+#define SHADER_TYPE 1
+uniform mat4 m_mv;
+uniform mat4 m_proj;
+attribute vec4 vPos;
+attribute vec2 vTcIn;
+attribute vec4 vColor;
+varying vec2 vUv;
+varying vec4 vTint;
+void main ()
+{
+    vUv = vTcIn;
+    vTint = vColor;
+    gl_Position = m_proj * (m_mv * vPos);
+}
+"#;
+    let fs = r#"
+#define SHADER_TYPE 2
+uniform sampler2D texUnit0;
+uniform int blendMode;
+varying vec2 vUv;
+varying vec4 vTint;
+void main ()
+{
+    vec4 c = vTint * texture2D(texUnit0, vUv);
+    vec3 channel = blendMode == 1 ? vec3(0.0, 1.0, 0.0)
+        : (blendMode == 2 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0));
+    gl_FragColor = vec4(c.rgb * channel, c.a);
+}
+"#;
+    assets.shaders.insert("vsparticle".into(), vs.into());
+    assets.shaders.insert("fsparticle".into(), fs.into());
+}
+
+/// Particles are drawn by the game's `vsparticle`/`fsparticle`, each
+/// emitter's in its blend (its `blendMode`); with the switch off, by
+/// Moonglow's own (white).
+#[test]
+fn the_game_s_programs_draw_particles_in_their_blends() {
+    let Some(gpu) = gpu() else { return };
+    let mut assets = TestAssets::default();
+    authored_particle_pair(&mut assets);
+    assets.solid("white", [255, 255, 255, 255]);
+    let emitter = |name: &str, x: f32, blend: &str| {
+        format!(
+            "node emitter {name}\n  parent fx\n  position {x} 0 1\n  update Fountain\n  \
+             render Normal\n  blend {blend}\n  texture white\n  loop 1\n  xgrid 1\n  ygrid 1\n  \
+             spawntype 0\n  birthrate 1\n  lifeExp 100\n  velocity 0\n  randvel 0\n  spread 0\n  \
+             mass 0\n  particleRot 0\n  sizeStart 0.8\n  sizeEnd 0.8\n  xsize 0\n  ysize 0\n  \
+             alphaStart 1\n  alphaEnd 1\n  colorStart 1 1 1\n  colorEnd 1 1 1\nendnode\n"
+        )
+    };
+    let text = format!(
+        "newmodel fx\nsetsupermodel fx NULL\nbeginmodelgeom fx\nnode dummy fx\n  parent NULL\n\
+         endnode\n{}{}{}endmodelgeom fx\ndonemodel fx\n",
+        emitter("normal", -1.2, "Normal"),
+        emitter("lighten", 0.0, "Lighten"),
+        emitter("punch", 1.2, "Punch-Through"),
+    );
+    let model = Arc::new(Model::read(text.as_bytes()).unwrap());
+    let gm = Arc::new(GpuModel::new(&gpu, model.clone()));
+    let camera = Camera {
+        eye: Vec3::new(0.0, -4.0, 1.0),
+        target: Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 0.8,
+        near: 0.1,
+        far: 100.0,
+    };
+    let mut p = mg_render::particles::Particles::new(&model);
+    let mut particles = Vec::new();
+    for _ in 0..200 {
+        p.update(&model, None, 0.0, 0.02, &gm.rest, Mat4::IDENTITY);
+        particles = p.batches(&model, None, 0.0, &gm.rest, Mat4::IDENTITY, camera.view());
+        if particles.iter().filter(|b| !b.vertices.is_empty()).count() == 3 {
+            break;
+        }
+    }
+    let scene = Scene {
+        instances: vec![Instance::new(gm, Mat4::IDENTITY)],
+        background: [0.0, 0.0, 0.0],
+        particles,
+        ..Default::default()
+    };
+    let (w, h) = (192, 64);
+    // (Where each emitter's particle is on the picture.)
+    let at = |x: f32| {
+        let c = camera.projection(w as f32 / h as f32)
+            * camera.view()
+            * Vec3::new(x, 0.0, 1.0).extend(1.0);
+        (((c.x / c.w) * 0.5 + 0.5) * w as f32) as u32
+    };
+    for on in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        r.game_shaders = on;
+        r.game_programs = Some(Vec::new());
+        let img = r.render_image(&gpu, &assets, &scene, &camera, w, h);
+        let seen: Vec<[u8; 4]> = [-1.2, 0.0, 1.2].iter().map(|&x| img.pixel(at(x), 32)).collect();
+        if !on {
+            assert!(seen.iter().all(|p| p[..3] == [255, 255, 255]), "Moonglow's own: {seen:?}");
+            continue;
+        }
+        assert_eq!(r.game_shader_failures(), &[]);
+        let programs = r.game_programs.take().unwrap();
+        let nd: Vec<(String, bool)> = programs
+            .iter()
+            .filter(|p| p.fs == "fsparticle")
+            .map(|p| (p.node.clone(), p.no_discard))
+            .collect();
+        assert_eq!(nd.len(), 3, "{programs:?}");
+        assert!(
+            nd.contains(&("PunchThrough".into(), false)) && nd.contains(&("Normal".into(), true))
+        );
+        assert_eq!(seen[0][..3], [255, 0, 0], "normal: {seen:?}");
+        assert_eq!(seen[1][..3], [0, 255, 0], "additive: {seen:?}");
+        assert_eq!(seen[2][..3], [0, 0, 255], "punch-through: {seen:?}");
+    }
+}

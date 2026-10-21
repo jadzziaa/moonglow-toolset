@@ -765,7 +765,10 @@ impl AreaScene {
             for (i, (tile, grass)) in area.tiles.iter().zip(&self.tile_grass).enumerate() {
                 let Some(grass) = grass.as_ref().filter(|_| !hidden.contains(&i)) else { continue };
                 if tile.position.truncate().distance(focus) <= GRASS_REACH {
-                    instances.push(Instance::new(grass.clone(), tile.transform()));
+                    instances.push(Instance {
+                        grass: true,
+                        ..Instance::new(grass.clone(), tile.transform())
+                    });
                 }
             }
         }

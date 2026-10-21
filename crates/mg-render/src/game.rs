@@ -71,6 +71,25 @@ pub(crate) fn attribute(name: &str, skinned: bool) -> Attr {
     }
 }
 
+/// A vertex input of `vsparticle`'s, by the engine's name, from Moonglow's
+/// [`ParticleVertex`](crate::particles::ParticleVertex): the position (in
+/// the world), the texture coordinates, and the particle's color and alpha
+/// as `vColor` (gamma space, as `vsparticle` takes it).
+pub(crate) fn particle_attribute(name: &str) -> Attr {
+    use std::mem::offset_of;
+
+    use wgpu::VertexFormat as F;
+
+    use crate::particles::ParticleVertex as P;
+    let v = |offset: usize, format| Attr::Vertex(offset as u64, format);
+    match name {
+        "vPos" => v(offset_of!(P, pos), F::Float32x3),
+        "vTcIn" => v(offset_of!(P, uv), F::Float32x2),
+        "vColor" => v(offset_of!(P, color), F::Float32x4),
+        _ => Attr::Zero,
+    }
+}
+
 /// The format a zero input is read in, for the shader's type.
 fn zero_format(ty: ValueType) -> Option<wgpu::VertexFormat> {
     use wgpu::VertexFormat as F;
@@ -165,6 +184,9 @@ pub(crate) enum Key {
     AreaGlobalWind,
     AreaWeatherType,
     AreaWeatherDensity,
+    /// `blendMode`: a particle's blend (0 normal, 1 additive, 2
+    /// punch-through, as `fsparticle` names them; read from the client).
+    BlendMode,
     /// The material's MTR `parameter` of this name, else zero: the
     /// material values (`Specularity`, `Roughness`, `Metallicness`,
     /// `CustomSpecularColor`, `DisplacementOffset`…) and a custom
@@ -235,6 +257,7 @@ pub(crate) fn key(name: &str) -> Key {
         "areaGlobalWind" => AreaGlobalWind,
         "areaWeatherType" => AreaWeatherType,
         "areaWeatherDensity" => AreaWeatherDensity,
+        "blendMode" => BlendMode,
         _ => match name.strip_prefix("texture").and_then(|n| n.strip_suffix("Bound")) {
             Some(n) if n.parse::<u8>().is_ok_and(|n| n <= 15) => {
                 TextureBound(n.parse().unwrap_or_default())
@@ -364,6 +387,8 @@ pub(crate) struct DrawValues<'a> {
     pub(crate) material: u32,
     /// `m_texture`.
     pub(crate) texture_matrix: Mat4,
+    /// A particle's `blendMode` ([`Key::BlendMode`]).
+    pub(crate) blend_mode: i32,
 }
 
 /// A value to write.
@@ -460,6 +485,7 @@ fn value<'a>(key: &Key, f: &FrameValues, d: &DrawValues<'a>) -> Val<'a> {
         AreaGlobalWind => Val::V(v3(f.environment.wind, 0.0)),
         AreaWeatherType => Val::I(i32::from(f.environment.weather)),
         AreaWeatherDensity => Val::F(f.environment.weather_density),
+        BlendMode => Val::I(d.blend_mode),
         Param(name) => match d.params.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)) {
             Some((_, MtrParam::Int(i))) => Val::I(*i),
             Some((_, MtrParam::Float(v))) if v.len() == 1 => Val::F(v[0]),
@@ -616,7 +642,7 @@ pub(crate) fn part(m: &Member) -> Part {
     match key(&m.name) {
         Mv | Mvp | M | Normal | TextureMatrix | Skinmesh | BboxMin | BboxMax | MaterialAmbient
         | MaterialDiffuse | MaterialEmissive | GlobalColor | TextureBound(_) | AlphaDiscard
-        | EnvMapCube | TexEnvBound | TexEnvCubeBound => Part::Draw,
+        | EnvMapCube | TexEnvBound | TexEnvCubeBound | BlendMode => Part::Draw,
         NumLights | LightPosition | LightColor => Part::Lights,
         Bones => Part::Bones,
         Param(name) if unfilled(&name) => Part::Frame,
@@ -739,6 +765,51 @@ pub(crate) enum GamePass {
     Solid,
     /// The rest of it: blended over everything solid, hiding nothing.
     Fringe,
+    /// An additive mesh (TXI `blending additive`): added to what is behind,
+    /// hiding nothing.
+    Additive,
+    /// The skybox: first, at the far plane, both sides, hiding nothing.
+    Sky,
+    /// An emitter's particles ([`crate::particles::ParticleVertex`]), in
+    /// their blend.
+    Particles(crate::particles::ParticleBlend),
+}
+
+impl GamePass {
+    /// How the pass blends.
+    fn blend(self) -> Option<wgpu::BlendState> {
+        use crate::particles::ParticleBlend as B;
+        let add = |src_factor| wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent::OVER,
+        };
+        match self {
+            GamePass::Opaque | GamePass::Sky | GamePass::Particles(B::PunchThrough) => None,
+            GamePass::Solid | GamePass::Fringe | GamePass::Particles(B::Normal) => {
+                Some(wgpu::BlendState::ALPHA_BLENDING)
+            }
+            // (As Moonglow's own shader adds an additive mesh.)
+            GamePass::Additive => Some(add(wgpu::BlendFactor::One)),
+            // (`fsparticle` fades an additive particle by its alpha, into
+            // the fog: added as much as its alpha.)
+            GamePass::Particles(B::Lighten) => Some(add(wgpu::BlendFactor::SrcAlpha)),
+        }
+    }
+
+    /// Whether the pass writes its depth.
+    fn depth_write(self) -> bool {
+        use crate::particles::ParticleBlend as B;
+        matches!(self, GamePass::Opaque | GamePass::Solid | GamePass::Particles(B::PunchThrough))
+    }
+
+    /// Whether its faces are drawn from behind whatever the material says.
+    fn both_sides(self) -> bool {
+        matches!(self, GamePass::Sky | GamePass::Particles(_))
+    }
 }
 
 /// A pipeline of a program pair.
@@ -819,13 +890,32 @@ enum Kind {
     Lights(usize),
 }
 
+/// What a game draw draws.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Geometry<'a> {
+    /// A mesh, by its indices.
+    Mesh(&'a crate::model::GpuMesh),
+    /// Particles: vertices of the frame's particle buffer, from and to.
+    Particles(u32, u32),
+}
+
+impl Geometry<'_> {
+    /// A number of its own among the frame's (for keeping draws together).
+    fn id(&self) -> usize {
+        match self {
+            Geometry::Mesh(m) => std::ptr::from_ref(*m) as usize,
+            Geometry::Particles(from, _) => usize::MAX - *from as usize,
+        }
+    }
+}
+
 /// One draw through a program pair.
 #[derive(Debug)]
 pub(crate) struct GameDraw<'a> {
     pub(crate) pipeline: Arc<GamePipeline>,
     /// The material's place among the renderer's.
     pub(crate) material: u32,
-    pub(crate) mesh: &'a crate::model::GpuMesh,
+    pub(crate) geometry: Geometry<'a>,
     /// Replaced vertices, in the frame's dynamic buffer: from, to.
     pub(crate) dynamic: Option<(u64, u64)>,
     /// Its place among its pipeline's values this frame: each stage's draw
@@ -842,14 +932,14 @@ impl GameDraw<'_> {
     /// material, then the mesh (one bound for all its draws in a row, as
     /// instances of one draw).
     pub(crate) fn order(&self) -> (u32, u32, usize) {
-        (self.pipeline.id, self.material, std::ptr::from_ref(self.mesh) as usize)
+        (self.pipeline.id, self.material, self.geometry.id())
     }
 
     /// Whether `next` can be drawn as the next instance of this draw.
     fn joins(&self, next: &GameDraw<'_>) -> bool {
         self.pipeline.id == next.pipeline.id
             && self.material == next.material
-            && std::ptr::eq(self.mesh, next.mesh)
+            && matches!((self.geometry, next.geometry), (Geometry::Mesh(a), Geometry::Mesh(b)) if std::ptr::eq(a, b))
             && self.dynamic == next.dynamic
             && self.bones.is_none()
             && next.bones.is_none()
@@ -1221,13 +1311,17 @@ impl Worker {
         }
         fs.link_inputs(&vs.reflection.outputs).map_err(|e| at(&key.fs, e.to_string()))?;
         let keep = match key.pass {
-            GamePass::Opaque => None,
             GamePass::Solid => Some(AlphaKeep::AtLeast(crate::renderer::SOLID_ALPHA)),
             GamePass::Fringe => Some(AlphaKeep::Below(crate::renderer::SOLID_ALPHA)),
+            _ => None,
         };
         if let Some(keep) = keep {
             fs.keep_alpha(keep).map_err(|e| at(&key.fs, e.to_string()))?;
         }
+        if key.pass == GamePass::Sky {
+            vs.at_far_plane().map_err(|e| at(&key.vs, e.to_string()))?;
+        }
+        let particles = matches!(key.pass, GamePass::Particles(_));
         fs.set_group(1).map_err(|e| at(&key.fs, e.to_string()))?;
         // Each program's uniforms in parts: the draw's and the lights' are
         // elements of storage arrays (group 2, with the vertex program's
@@ -1296,7 +1390,12 @@ impl Worker {
         let (mut own, mut skin, mut zero) = (Vec::new(), Vec::new(), Vec::new());
         for input in &vs.reflection.inputs {
             let location = input.location;
-            match attribute(&input.name, key.skinned) {
+            let attr = if particles {
+                particle_attribute(&input.name)
+            } else {
+                attribute(&input.name, key.skinned)
+            };
+            match attr {
                 Attr::Vertex(offset, format) => {
                     own.push(wgpu::VertexAttribute { format, offset, shader_location: location })
                 }
@@ -1315,8 +1414,13 @@ impl Worker {
                 }
             }
         }
+        let stride = if particles {
+            std::mem::size_of::<crate::particles::ParticleVertex>()
+        } else {
+            std::mem::size_of::<Vertex>()
+        };
         let mut buffers = vec![Some(wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as u64,
+            array_stride: stride as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &own,
         })];
@@ -1373,12 +1477,16 @@ impl Worker {
                 },
                 primitive: wgpu::PrimitiveState {
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: if key.twosided { None } else { Some(wgpu::Face::Back) },
+                    cull_mode: if key.twosided || key.pass.both_sides() {
+                        None
+                    } else {
+                        Some(wgpu::Face::Back)
+                    },
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: crate::DEPTH_FORMAT,
-                    depth_write_enabled: Some(key.pass != GamePass::Fringe),
+                    depth_write_enabled: Some(key.pass.depth_write()),
                     depth_compare: Some(wgpu::CompareFunction::LessEqual),
                     stencil: Default::default(),
                     bias: Default::default(),
@@ -1390,8 +1498,7 @@ impl Worker {
                     compilation_options: Default::default(),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: job.format,
-                        blend: (key.pass != GamePass::Opaque)
-                            .then_some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend: key.pass.blend(),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -1630,7 +1737,7 @@ impl GameShaders {
         &mut self,
         pipeline: Arc<GamePipeline>,
         material: u32,
-        mesh: &'a crate::model::GpuMesh,
+        geometry: Geometry<'a>,
         dynamic: Option<(u64, u64)>,
         f: &FrameValues,
         d: &DrawValues<'_>,
@@ -1677,7 +1784,7 @@ impl GameShaders {
             fill(&b.plan, f, d, &mut self.bones.bytes[at as usize..end]);
             at
         });
-        GameDraw { pipeline, material, mesh, dynamic, places, bones, instance: 0 }
+        GameDraw { pipeline, material, geometry, dynamic, places, bones, instance: 0 }
     }
 
     /// The same draw through another pipeline of the same programs (a
@@ -1891,6 +1998,7 @@ impl GameShaders {
         pass: &mut wgpu::RenderPass<'_>,
         draws: &[GameDraw<'_>],
         dynamic: &wgpu::Buffer,
+        particles: &wgpu::Buffer,
         bound: &mut Bound3,
     ) -> usize {
         let Bound3 { pipeline, material, mesh } = bound;
@@ -1944,20 +2052,31 @@ impl GameShaders {
                 pass.set_bind_group(1, &groups[1], &[]);
                 *material = Some(d.material);
             }
+            let instances = d.instance..d.instance + n as u32;
+            let gpu_mesh = match d.geometry {
+                Geometry::Mesh(m) => m,
+                Geometry::Particles(from, to) => {
+                    *mesh = None;
+                    pass.set_vertex_buffer(0, particles.slice(..));
+                    pass.draw(from..to, instances);
+                    calls += 1;
+                    continue;
+                }
+            };
             // (The mesh the draw before drew stays bound.)
-            let this = (std::ptr::from_ref(d.mesh) as usize, d.dynamic);
+            let this = (std::ptr::from_ref(gpu_mesh) as usize, d.dynamic);
             if *mesh != Some(this) {
                 *mesh = Some(this);
                 match d.dynamic {
                     Some((from, to)) => pass.set_vertex_buffer(0, dynamic.slice(from..to)),
-                    None => pass.set_vertex_buffer(0, d.mesh.vertices.slice(..)),
+                    None => pass.set_vertex_buffer(0, gpu_mesh.vertices.slice(..)),
                 }
-                if let (Some(slot), Some(skin)) = (d.pipeline.skin_slot, &d.mesh.skin) {
+                if let (Some(slot), Some(skin)) = (d.pipeline.skin_slot, &gpu_mesh.skin) {
                     pass.set_vertex_buffer(slot, skin.vertices.slice(..));
                 }
-                pass.set_index_buffer(d.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
+                pass.set_index_buffer(gpu_mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
             }
-            pass.draw_indexed(0..d.mesh.index_count, 0, d.instance..d.instance + n as u32);
+            pass.draw_indexed(0..gpu_mesh.index_count, 0, instances);
             calls += 1;
         }
         calls
@@ -2046,6 +2165,13 @@ pub(crate) struct Traits {
     pub(crate) hint: bool,
     /// Its texture is a decal (TXI `decal 1`): unlit.
     pub(crate) decal: bool,
+    /// Its texture is the game's shiny water (TXI `bumpmaptexture
+    /// shinywater`), on a tile or anything else.
+    pub(crate) water: bool,
+    /// It is an area's grass (the tufts the editor grows on the walkmesh).
+    pub(crate) grass: bool,
+    /// It is the skybox.
+    pub(crate) sky: bool,
 }
 
 /// The stock pair the engine draws a mesh with (notes §A.4), as read from
@@ -2064,8 +2190,17 @@ pub(crate) struct Traits {
 /// Vertex colors don't choose `vslitc*`; nothing a content mesh is chose
 /// `vsv`, `vsvc` or `vsvtc`.
 pub(crate) fn stock_pair(t: Traits) -> (&'static str, &'static str) {
-    if t.decal {
+    if t.grass {
+        return ("vsgrass", "fsgrass");
+    }
+    if t.water {
+        return ("vswater", "fswater");
+    }
+    if t.sky {
         return ("vsvt", "fst");
+    }
+    if t.decal {
+        return if t.reflects { ("vsvt_sm", "fst_sm") } else { ("vsvt", "fst") };
     }
     match (t.uvs, t.reflects, t.hint) {
         (false, false, _) => ("vslitnotex", "fslit"),
@@ -2151,7 +2286,8 @@ mod tests {
     /// pair, and `NO_DISCARD` (textured, cut, alpha, MTR transparency).
     #[test]
     fn the_engine_s_choice_of_program_and_no_discard() {
-        let t = |uvs, reflects, hint, decal| Traits { uvs, reflects, hint, decal };
+        let t =
+            |uvs, reflects, hint, decal| Traits { uvs, reflects, hint, decal, ..Traits::default() };
         // (What, traits, pair, `NO_DISCARD`'s inputs, `NO_DISCARD`.)
         let seen: [Seen; 17] = [
             (
@@ -2280,6 +2416,18 @@ mod tests {
             assert_eq!(stock_pair(traits), pair, "{what}");
             assert_eq!(no_discard(textured, cut, alpha, transparency), nd, "{what}");
         }
+        // M5 (`surfaces_in_the_client`): a decal reflecting; water, the
+        // grass and the skybox by what they are, whatever else (the water
+        // card had an envmap of its TXI's, the sky's texture may be a
+        // decal's).
+        let lit = t(true, true, false, true);
+        assert_eq!(stock_pair(lit), ("vsvt_sm", "fst_sm"), "decal envmap");
+        assert_eq!(stock_pair(Traits { water: true, ..lit }), ("vswater", "fswater"));
+        assert_eq!(stock_pair(Traits { grass: true, ..lit }), ("vsgrass", "fsgrass"));
+        assert_eq!(stock_pair(Traits { sky: true, ..lit }), ("vsvt", "fst"));
+        // (An additive mesh is chosen for as any other: `vslit`/`fslit`,
+        // `_sm` with an envmap, a decal's `vsvt`/`fst`.)
+        assert_eq!(stock_pair(t(true, false, false, false)), ("vslit", "fslit"));
     }
 
     use super::*;

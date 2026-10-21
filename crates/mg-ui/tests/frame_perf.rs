@@ -411,6 +411,12 @@ fn area_views(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64, label: 
     close(h, &tab);
 }
 
+/// `FRAME_GAME_WATER=1`: shiny water by the game's `fswater` too, with the
+/// Shaders switch on.
+fn game_water() -> bool {
+    std::env::var_os("FRAME_GAME_WATER").is_some()
+}
+
 /// The area viewer's frame taken apart, on a renderer of the test's own:
 /// the scene built (every tile and object posed), the particles moved on,
 /// the draws encoded and sent, and the GPU drawing them; with the Shaders
@@ -465,6 +471,7 @@ fn area_parts(h: &mut App<'_>, area: ResRef, count: usize, shaders: &[bool]) {
         let mut renderer = Renderer::new(&gpu, format, samples);
         renderer.instancing = instancing;
         renderer.game_shaders = on;
+        renderer.game_water = on && game_water();
         let mut first = Duration::ZERO;
         let targets = Targets::new(&gpu, format, samples, w, h_px);
         let mut sims = std::collections::HashMap::new();
@@ -828,7 +835,8 @@ fn grass_frames_at_144() {
 /// and then on (its opening timed: on, the game's programs are made), and
 /// taken apart off and on. Needs the game and a GPU; run in release:
 /// `cargo test --release -p mg-ui --test frame_perf game_shaders -- --ignored --nocapture`.
-/// `FRAME_AREA=stock` or `tdod` times only that one.
+/// `FRAME_AREA=stock`, `water` ([`water_area`]: water, grass, fires,
+/// a skybox) or `tdod` times only that one.
 #[test]
 #[ignore]
 fn game_shaders_frames_at_144() {
@@ -853,6 +861,19 @@ fn game_shaders_frames_at_144() {
         drop(h);
         shaders_opening(&root, None, &path, area);
     }
+    if wanted("water") {
+        let (module, area, tiles) = water_area(&root);
+        let rs = render_state();
+        let mut app = Moonglow::new(
+            Some(GameInstall::new(&root, None, "en")),
+            Box::new(NoDialogs::default()),
+        );
+        app.set_render_state(rs.clone());
+        app.open_module(&module);
+        let mut h = harness(app, rs);
+        shaders_off_and_on(&mut h, &mut r, area, tiles);
+        drop(h);
+    }
     if wanted("tdod") {
         match tdod_area(&root) {
             Some((module, user, area, tiles)) => {
@@ -870,6 +891,65 @@ fn game_shaders_frames_at_144() {
         }
     }
     println!("over the budget:\n  {}", r.over.join("\n  "));
+}
+
+/// A stock area of water, grass and fires (M5's special surfaces): 16 by
+/// 16 of the rural tileset (`ttr01`), every other pair of rows all water
+/// (tile 20, `ttr01_b20_01`: shiny water), the rest its grassy tiles, a
+/// skybox, a medium wind, and 160 braziers, campfires and flames (their
+/// particles). The module, the area and its tiles.
+fn water_area(root: &std::path::Path) -> (std::path::PathBuf, ResRef, i64) {
+    use mg_gff::{Gff, Value};
+    use mg_module::ModuleLocation;
+    use mg_module::instances::{Placement, Placing, instance};
+    use mg_module::new::{AreaSpec, add_area, new_module};
+    let game = mg_rules::GameData::open(&GameInstall::new(root, None, "en")).unwrap();
+    let mut rng = fastrand::Rng::with_seed(5);
+    let mut m = new_module(&game, "Water and fires", &mut rng).unwrap();
+    let side = 16;
+    let spec = AreaSpec {
+        name: "Lake".into(),
+        tileset: ResRef::from_str("ttr01").unwrap(),
+        width: side,
+        height: side,
+    };
+    let area = add_area(&mut m, &game, &spec, &mut rng).unwrap();
+    let key = ResKey::new(area, ResType::ARE);
+    let mut are = m.gff(&key).unwrap().unwrap();
+    are.root.set("WindPower", Value::Int(1));
+    are.root.set("SkyBox", Value::Byte(1));
+    for (i, t) in are.root.list_mut("Tile_List").unwrap().iter_mut().enumerate() {
+        if (i / side as usize) % 4 < 2 {
+            t.set("Tile_ID", Value::Int(20));
+            t.set("Tile_Height", Value::Int(0));
+        }
+    }
+    m.set_gff(key, &are).unwrap();
+    // Braziers, campfires (with a spit), large and medium flames
+    // (placeables.2da rows 57, 58, 60, 149, 150), on the grass.
+    let rows = [57u32, 58, 60, 149, 150];
+    let bp = Gff::read(&game.resman.get_named("plc_armoire", ResType::UTP).unwrap()).unwrap();
+    let none = |_: ResRef| None;
+    let placing = Placing { game: &game, item: &none };
+    let span = side as f32 * 10.0;
+    let placed: Vec<_> = (0..160)
+        .map(|i| {
+            let mut root = bp.root.clone();
+            root.set("Appearance", Value::Dword(rows[i % rows.len()]));
+            // (Rows 2 and 3 of every four: the grass.)
+            let band = (i % (side as usize / 4)) as f32 * 40.0 + 20.0 + rng.f32() * 20.0;
+            let at = Placement { position: [rng.f32() * span, band, 0.0], rotation: 0.0 };
+            instance(&placing, ResType::UTP, &root, at, &[]).unwrap()
+        })
+        .collect();
+    let git_key = ResKey::new(area, ResType::GIT);
+    let mut git = m.gff(&git_key).unwrap().unwrap();
+    git.root.set("Placeable List", Value::List(placed));
+    m.set_gff(git_key, &git).unwrap();
+    let path = mg_testkit::scratch_dir("frame-water").join("water.mod");
+    m.save_as(&ModuleLocation::Archive(path.clone())).unwrap();
+    println!("Water and fires: {side} by {side} of ttr01, half water, 160 fires");
+    (path, area, i64::from(side) * i64::from(side))
 }
 
 /// An area opened with its module in a new window, the switch on from the
@@ -960,6 +1040,17 @@ fn shaders_off_and_on(h: &mut App<'_>, r: &mut Report, area: ResRef, tiles: i64)
         h.state_mut().settings.game_shaders = Some(on);
         let label = if on { ", Shaders on" } else { ", Shaders off" };
         area_views(h, r, area, tiles, label);
+    }
+    // (`FRAME_GAME_WATER=1`: on again, shiny water by `fswater` too, as
+    // M5 timed it.)
+    if game_water() {
+        if let Some(vp) = h.state_mut().viewport.as_mut() {
+            vp.renderer.game_water = true;
+        }
+        area_views(h, r, area, tiles, ", Shaders on, the game's water");
+        if let Some(vp) = h.state_mut().viewport.as_mut() {
+            vp.renderer.game_water = mg_render::GAME_WATER;
+        }
     }
     if !r.shots {
         area_parts(h, area, r.count, &[false, true]);

@@ -1124,7 +1124,7 @@ fn surfaces_in_the_client() {
         };
         save_png(&client, &dir.join("client.png"));
         if run == "unmarked" {
-            eprintln!("{run}: {}", dir.display());
+            surfaces_in_moonglow(&game, &are, &git, &client, &dir);
             continue;
         }
 
@@ -1258,4 +1258,190 @@ fn surfaces_in_the_client() {
         std::fs::write(dir.join("report.txt"), &report).unwrap();
         eprintln!("{report}\n{}", dir.display());
     }
+}
+
+/// The regions of [`surfaces_in_moonglow`]'s comparison: what, and where
+/// (fractions of the picture, top-left origin), clear of the GUI.
+const SURFACE_REGIONS: [(&str, [f32; 4]); 7] = [
+    ("sky", [0.02, 0.01, 0.90, 0.12]),
+    ("water, far", [0.02, 0.15, 0.90, 0.26]),
+    ("grass field", [0.10, 0.50, 0.68, 0.78]),
+    ("decal board", [0.20, 0.32, 0.65, 0.37]),
+    ("particle Normal", [0.465, 0.380, 0.490, 0.410]),
+    ("particle Punch-Through", [0.550, 0.380, 0.575, 0.410]),
+    ("particle Lighten", [0.632, 0.380, 0.657, 0.410]),
+];
+
+/// Moonglow's side of [`surfaces_in_the_client`]'s `unmarked` run: the
+/// same area drawn with the Shaders switch off and on (`moonglow_off.png`,
+/// `moonglow_on.png`), each region's mean colour against the client's, and
+/// the programs the game path chose for the surfaces, held to the client's
+/// (as the marked runs read them).
+fn surfaces_in_moonglow(game: &GameData, are: &Gff, git: &Gff, client: &Rgba, dir: &Path) {
+    mg_testkit::gpu::hold();
+    let Some(gpu) = Gpu::headless() else {
+        eprintln!("skipped Moonglow's side: no GPU");
+        return;
+    };
+    let tileset = mg_area::tileset(game, ResRef::from_str("ttr01").unwrap()).ok();
+    let model = mg_area::AreaModel::read(game, &are.root, &git.root, tileset.as_ref());
+    let area_scene = mg_area::AreaScene::new(&gpu, game, &model);
+    let view = mg_area::View {
+        fog: false,
+        time: 6.0,
+        grass: Some(glam::Vec2::new(20.0, 20.0)),
+        ..mg_area::View::of(&model)
+    };
+    let camera =
+        fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
+    let mut scene = area_scene.scene(&model, &view);
+    let mut sims = HashMap::new();
+    scene.particles = area_scene.particles(&model, &view, &mut sims, 0.0, camera.view());
+    let (w, h) = (client.width, client.height);
+    let mut pictures = Vec::new();
+    let mut chosen = Vec::new();
+    // (Off, on, and on with the game's water: `fswater` without the
+    // framebuffer, which M5 measured and left out.)
+    for (on, water, name) in [
+        (false, false, "moonglow_off"),
+        (true, false, "moonglow_on"),
+        (true, true, "moonglow_water"),
+    ] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.game_shaders = on;
+        r.game_water = water;
+        r.game_programs = Some(Vec::new());
+        let img = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
+        save_png(&img, &dir.join(format!("{name}.png")));
+        if on && !water {
+            chosen = r.game_programs.take().unwrap_or_default();
+            eprintln!("failures: {:?}", r.game_shader_failures());
+        }
+        pictures.push(img);
+    }
+    // A close look, low over the grass towards the cards, the water and
+    // the sky (for looking at, not compared: the client's camera can't be
+    // put there).
+    let close = Camera {
+        eye: Vec3::new(20.0, 17.0, 1.4),
+        target: Vec3::new(20.0, 30.0, 1.6),
+        fov_y: 60f32.to_radians(),
+        near: 0.1,
+        far: 200.0,
+    };
+    for on in [false, true] {
+        let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
+        r.game_shaders = on;
+        let img = r.render_image(&gpu, &game.resman, &scene, &close, w, h);
+        save_png(&img, &dir.join(if on { "close_on.png" } else { "close_off.png" }));
+    }
+    let mut report = String::new();
+    // (And each card's upper half, above the grass, a little in from its
+    // edges.)
+    let vp = camera.projection(w as f32 / h as f32) * camera.view();
+    let fraction = |p: Vec3| {
+        let c = vp * p.extend(1.0);
+        let n = c.truncate() / c.w;
+        (n.x * 0.5 + 0.5, 0.5 - n.y * 0.5)
+    };
+    let cards = SURFACE_CARDS.iter().enumerate().map(|(i, (what, _))| {
+        let (x, z) = card_corner(i);
+        let (x0, y0) = fraction(Vec3::new(18.0 + x + 0.15, 23.0, z + 0.75));
+        let (x1, y1) = fraction(Vec3::new(18.0 + x + 0.65, 23.0, z + 0.45));
+        (*what, [x0, y0, x1, y1])
+    });
+    for (what, rect) in SURFACE_REGIONS.into_iter().chain(cards) {
+        let c = mean(client, rect);
+        let [off, on, water] = [&pictures[0], &pictures[1], &pictures[2]].map(|p| mean(p, rect));
+        let away = |m: [f32; 3]| (0..3).map(|i| (m[i] - c[i]).abs()).sum::<f32>() / 3.0;
+        report += &format!(
+            "{what:24} client {c:5.1?}  off {off:5.1?} ({:.1})  on {on:5.1?} ({:.1})  \
+             the game's water {water:5.1?} ({:.1})\n",
+            away(off),
+            away(on),
+            away(water)
+        );
+    }
+    report += &format!(
+        "the picture: off {:.2}, on {:.2}, the game's water {:.2} of 255 from the client's\n",
+        super::picture_difference(client, &pictures[0]),
+        super::picture_difference(client, &pictures[1]),
+        super::picture_difference(client, &pictures[2])
+    );
+    // What the client chose (the marked runs), and Moonglow.
+    let pair = |model: &dyn Fn(&str) -> bool, node: &dyn Fn(&str) -> bool| {
+        chosen
+            .iter()
+            .find(|g| model(&g.model) && node(&g.node))
+            .map(|g| (g.vs.as_str(), g.fs.as_str(), g.no_discard))
+    };
+    let card = |i: usize| {
+        let node = format!("s{i}");
+        pair(&|m: &str| m == "mg_surf", &move |n: &str| n.eq_ignore_ascii_case(&node))
+    };
+    // (Shiny water: Moonglow's own while `GAME_WATER` is off, M5's decision:
+    // the client's pair is `vswater`/`fswater`, read in the marked runs.)
+    let water = mg_render::GAME_WATER.then_some(("vswater", "fswater", true));
+    let expected: Vec<(&str, Option<Chosen>, Option<Chosen>)> = vec![
+        ("water card", card(0), water),
+        ("additive card", card(1), Some(("vslit", "fslit", true))),
+        ("additive decal card", card(2), Some(("vsvt", "fst", true))),
+        ("decal envmap card", card(3), Some(("vsvt_sm", "fst_sm", true))),
+        ("additive envmap card", card(4), Some(("vslit_sm", "fslit_sm", true))),
+        (
+            "water tile's water",
+            chosen
+                .iter()
+                .find(|g| g.model.eq_ignore_ascii_case("ttr01_b20_01") && g.fs == "fswater")
+                .map(|g| (g.vs.as_str(), g.fs.as_str(), g.no_discard)),
+            water,
+        ),
+        (
+            "grass",
+            pair(&|m: &str| m.ends_with("_grass"), &|_| true),
+            Some(("vsgrass", "fsgrass", false)),
+        ),
+        (
+            "particle Normal",
+            pair(&|m: &str| m == "(particles)", &|n: &str| n == "Normal"),
+            Some(("vsparticle", "fsparticle", true)),
+        ),
+        (
+            "particle Lighten",
+            pair(&|m: &str| m == "(particles)", &|n: &str| n == "Lighten"),
+            Some(("vsparticle", "fsparticle", true)),
+        ),
+        (
+            "particle Punch-Through",
+            pair(&|m: &str| m == "(particles)", &|n: &str| n == "PunchThrough"),
+            Some(("vsparticle", "fsparticle", false)),
+        ),
+    ];
+    let sky_model = area_scene_sky_name(&scene);
+    let sky = sky_model
+        .as_deref()
+        .and_then(|name| pair(&|m: &str| m.eq_ignore_ascii_case(name), &|_| true));
+    report +=
+        &format!("skybox {sky_model:?}: Moonglow {sky:?} (the client: vsvt/fst, NO_DISCARD 1)\n");
+    let mut wrong = Vec::new();
+    for (what, ours, theirs) in &expected {
+        report += &format!("{what:24} Moonglow should {theirs:?}, draws {ours:?}\n");
+        if ours != theirs {
+            wrong.push(format!("{what}: the client {theirs:?}, Moonglow {ours:?}"));
+        }
+    }
+    if sky_model.is_some() && sky != Some(("vsvt", "fst", true)) {
+        wrong.push(format!("skybox: Moonglow {sky:?}"));
+    }
+    std::fs::write(dir.join("report.txt"), &report).unwrap();
+    eprintln!("{report}{}", dir.display());
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A program pair and its `NO_DISCARD`, as chosen for a mesh.
+type Chosen<'a> = (&'a str, &'a str, bool);
+
+/// The skybox's model name in a scene, if it has one.
+fn area_scene_sky_name(scene: &Scene) -> Option<String> {
+    scene.sky.as_ref().map(|s| s.model.model.name.clone())
 }

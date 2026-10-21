@@ -21,8 +21,8 @@ pub use game::ShaderStats;
 pub use gpu::Gpu;
 pub use model::{GpuModel, rest_pose};
 pub use renderer::{
-    DEPTH_FORMAT, DebugView, Drawn, GameProgram, MAX_LIGHTS, Renderer, Targets, attenuation_params,
-    tint_light,
+    DEPTH_FORMAT, DebugView, Drawn, GAME_WATER, GameProgram, MAX_LIGHTS, Renderer, Targets,
+    attenuation_params, tint_light,
 };
 pub use scene::{
     AreaLight, Camera, Environment, Fog, Instance, Line, MeshOverride, MeshState, ModuleClock,

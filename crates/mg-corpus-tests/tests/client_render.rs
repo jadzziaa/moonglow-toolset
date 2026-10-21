@@ -2231,21 +2231,26 @@ fn tdod_custom_shaders_look() {
     let camera =
         fitted_camera(Vec3::new(20.0, 20.0, 0.0), FIT_FOV, FIT_FOCUS, FIT_DISTANCE, FIT_PITCH);
     let (w, h) = client.as_ref().map_or((1280, 800), |c| (c.width, c.height));
-    let draw = |git: &Gff, on: bool| {
+    let draw = |git: &Gff, on: bool, water: bool| {
         let model = mg_area::AreaModel::read(&game, &are.root, &git.root, tileset.as_ref());
         let area_scene = mg_area::AreaScene::new(&gpu, &game, &model);
         let view = mg_area::View { fog: false, time: 4.0, ..mg_area::View::of(&model) };
         let scene = area_scene.scene(&model, &view);
         let mut r = Renderer::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 4);
         r.game_shaders = on;
+        r.game_water = water;
         let img = r.render_image(&gpu, &game.resman, &scene, &camera, w, h);
         (img, r.drawn, r.game_shader_failures().to_vec())
     };
-    let (bare, _, _) = draw(&empty, false);
-    let (off, _, _) = draw(&git, false);
-    let (on, drawn, failures) = draw(&git, true);
+    let (bare, _, _) = draw(&empty, false, false);
+    let (off, _, _) = draw(&git, false, false);
+    let (on, drawn, failures) = draw(&git, true, false);
+    // (The basin's water by `fswater`, as the client draws it, but without
+    // the framebuffer: M5 measured it, and left it out.)
+    let (water, _, _) = draw(&git, true, true);
     save_png(&off, &dir.join("moonglow_off.png"));
     save_png(&on, &dir.join("moonglow_on.png"));
+    save_png(&water, &dir.join("moonglow_water.png"));
     eprintln!("switch on: {drawn:?}, failures {failures:?}");
     let Some(client) = client else {
         eprintln!("{}: no client picture", dir.display());
@@ -2267,9 +2272,10 @@ fn tdod_custom_shaders_look() {
     };
     let (d_off, n) = over(&off);
     let (d_on, _) = over(&on);
+    let (d_water, _) = over(&water);
     eprintln!(
         "fountain ({n} pixels): Moonglow's own shader differs from the client by {d_off:.1} of 255 \
-         on average, the game's shaders by {d_on:.1}"
+         on average, the game's shaders by {d_on:.1}, and with the game's water by {d_water:.1}"
     );
     for (name, r, _) in REGIONS.iter().filter(|(n, ..)| n.contains("floor")) {
         let c = mean(&client, *r);

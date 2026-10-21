@@ -40,6 +40,11 @@ pub struct Instance {
     /// from the client: `program_choice_in_the_client` in
     /// `client_render.rs`). A placeable's are not, however it is turned.
     pub tile: bool,
+    /// An area's grass (the tufts the editor grows on its tiles'
+    /// walkmesh): the game draws it with `vsgrass`/`fsgrass`, lit at its
+    /// corners (read from the client: `surfaces_in_the_client` in
+    /// `client_render.rs`).
+    pub grass: bool,
 }
 
 impl Instance {
@@ -56,6 +61,7 @@ impl Instance {
             opacity: 1.0,
             unlit: false,
             tile: false,
+            grass: false,
         }
     }
 }

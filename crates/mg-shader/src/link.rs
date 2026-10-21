@@ -22,6 +22,20 @@ use crate::{Program, ShaderError};
 /// flipped (naga's `adjust_coordinate_space` is for SPIR-V written for
 /// Vulkan, whose y points down).
 pub(crate) fn gl_depth_to_wgpu(module: &mut Module) -> Result<(), String> {
+    set_clip_z(module, ClipZ::FromGl)
+}
+
+/// What [`set_clip_z`] makes of the position's depth as it leaves.
+#[derive(Debug, Clone, Copy)]
+enum ClipZ {
+    /// `(z + w) / 2`: OpenGL's depth range to wgpu's.
+    FromGl,
+    /// `w · 0.99999`: at the far plane, never cut off by it (the sky).
+    Far,
+}
+
+/// Gives each vertex entry point's position a new depth as it leaves.
+fn set_clip_z(module: &mut Module, how: ClipZ) -> Result<(), String> {
     let types = &mut module.types;
     for ep in module.entry_points.iter_mut().filter(|e| e.stage == naga::ShaderStage::Vertex) {
         let f = &mut ep.function;
@@ -57,19 +71,26 @@ pub(crate) fn gl_depth_to_wgpu(module: &mut Module) -> Result<(), String> {
                 _ => return Err("the vertex entry point's result isn't composed".into()),
             },
         };
-        let half = e.append(Expression::Literal(Literal::F32(0.5)), Span::UNDEFINED);
+        let factor = match how {
+            ClipZ::FromGl => 0.5,
+            ClipZ::Far => 0.99999,
+        };
+        let factor = e.append(Expression::Literal(Literal::F32(factor)), Span::UNDEFINED);
         let mut emitter = Emitter::default();
         emitter.start(e);
         let c = |e: &mut naga::Arena<Expression>, index| {
             e.append(Expression::AccessIndex { base: pos, index }, Span::UNDEFINED)
         };
         let (x, y, z, w) = (c(e, 0), c(e, 1), c(e, 2), c(e, 3));
-        let sum = e.append(
-            Expression::Binary { op: BinaryOperator::Add, left: z, right: w },
-            Span::UNDEFINED,
-        );
+        let scaled = match how {
+            ClipZ::FromGl => e.append(
+                Expression::Binary { op: BinaryOperator::Add, left: z, right: w },
+                Span::UNDEFINED,
+            ),
+            ClipZ::Far => w,
+        };
         let z = e.append(
-            Expression::Binary { op: BinaryOperator::Multiply, left: sum, right: half },
+            Expression::Binary { op: BinaryOperator::Multiply, left: scaled, right: factor },
             Span::UNDEFINED,
         );
         let new_pos = e.append(
@@ -108,6 +129,15 @@ fn naga_err(what: impl std::fmt::Display) -> ShaderError {
 }
 
 impl Program {
+    /// Puts what a vertex program draws at the far plane, behind everything
+    /// and never cut off by it, as Moonglow draws the sky around the camera
+    /// (its depth `w · 0.99999` as it leaves, after the depth range's
+    /// remap). A fragment program is left as it is.
+    pub fn at_far_plane(&mut self) -> Result<(), ShaderError> {
+        set_clip_z(&mut self.module, ClipZ::Far).map_err(ShaderError::Naga)?;
+        self.revalidate()
+    }
+
     /// Validates the module again after a pass changed it.
     fn revalidate(&mut self) -> Result<(), ShaderError> {
         self.info = naga::valid::Validator::new(
@@ -807,6 +837,35 @@ void main ()
             panic!()
         };
         assert_eq!((index(z), index(w)), (Some(2), Some(3)));
+    }
+
+    /// At the far plane (the sky): the position leaves as (x, y, w · 0.99999,
+    /// w), x, y and w as the depth range's remap left them.
+    #[test]
+    fn the_sky_s_position_is_put_at_the_far_plane() {
+        let mut p = program("vs_link", Stage::Vertex);
+        p.at_far_plane().unwrap();
+        let f = &p.module.entry_points[0].function;
+        let e = &f.expressions;
+        let Some(Statement::Return { value: Some(v) }) = f.body.last() else { panic!() };
+        let Expression::Compose { components, .. } = &e[*v] else { panic!("{:?}", e[*v]) };
+        let pos = components
+            .iter()
+            .find_map(|&c| match &e[c] {
+                Expression::Compose { components, .. } if components.len() == 4 => {
+                    Some(components.clone())
+                }
+                _ => None,
+            })
+            .expect("a position composed anew");
+        let Expression::Binary { op: BinaryOperator::Multiply, left, right } = e[pos[2]] else {
+            panic!("{:?}", e[pos[2]])
+        };
+        assert_eq!(e[right], Expression::Literal(Literal::F32(0.99999)));
+        assert!(matches!(e[left], Expression::AccessIndex { index: 3, .. }), "{:?}", e[left]);
+        // (The fragment programs have no position to move.)
+        let mut fs = program("fs_link", Stage::Fragment);
+        fs.at_far_plane().unwrap();
     }
 
     #[test]
