@@ -147,34 +147,37 @@ fn pages(app: &mut Moonglow, ui: &mut Ui, area: ResRef, others: &[ResRef]) {
 }
 
 /// The fields of a page shared by several areas: in the area (`false`),
+/// The Visual page's fields: the lighting scheme, the sun's and the
+/// moon's colors, fog and shadows, day and night, the sky and the weather.
+/// What Give Every Area This Page's Settings, Copy From Area and saved
+/// lighting ([`crate::lighting`]) give an area.
+pub(crate) const VISUAL_FIELDS: &[&str] = &[
+    "ChanceLightning",
+    "ChanceRain",
+    "ChanceSnow",
+    "DayNightCycle",
+    "IsNight",
+    "LightingScheme",
+    "MoonAmbientColor",
+    "MoonDiffuseColor",
+    "MoonFogAmount",
+    "MoonFogColor",
+    "MoonShadows",
+    "SunAmbientColor",
+    "SunDiffuseColor",
+    "SunFogAmount",
+    "SunFogColor",
+    "SunShadows",
+    "ShadowOpacity",
+    "SkyBox",
+    "WindPower",
+    "FogClipDist",
+];
+
 /// or in its GIT's `AreaProperties` (`true`).
 fn page_fields(page: &str) -> (bool, &'static [&'static str]) {
     match page {
-        "Visual" => (
-            false,
-            &[
-                "ChanceLightning",
-                "ChanceRain",
-                "ChanceSnow",
-                "DayNightCycle",
-                "IsNight",
-                "LightingScheme",
-                "MoonAmbientColor",
-                "MoonDiffuseColor",
-                "MoonFogAmount",
-                "MoonFogColor",
-                "MoonShadows",
-                "SunAmbientColor",
-                "SunDiffuseColor",
-                "SunFogAmount",
-                "SunFogColor",
-                "SunShadows",
-                "ShadowOpacity",
-                "SkyBox",
-                "WindPower",
-                "FogClipDist",
-            ],
-        ),
+        "Visual" => (false, VISUAL_FIELDS),
         "Audio" => (
             true,
             &[
@@ -291,17 +294,32 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
         "Choosing a scheme replaces the area's lighting and weather settings and its tiles' \
          custom lighting.",
     );
+    // In as many columns as the page is wide, each filled downwards, all of
+    // them shown (Heed's ask: one column, scrolled, left the width unused).
     let mut picked = None;
-    egui::ScrollArea::vertical().id_salt("schemes").max_height(160.0).show(ui, |ui| {
-        for c in &schemes {
-            if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
-                picked = Some(c.row);
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let widest = (schemes.iter())
+        .map(|c| ui.painter().layout_no_wrap(c.text.clone(), font.clone(), egui::Color32::WHITE))
+        .map(|g| g.size().x)
+        .fold(0.0, f32::max);
+    let column = widest + 2.0 * ui.spacing().button_padding.x + 16.0;
+    let columns = ((ui.available_width() / column) as usize).clamp(1, schemes.len().max(1));
+    let rows = schemes.len().div_ceil(columns);
+    egui::Grid::new(("schemes", f.key)).spacing([16.0, 2.0]).min_col_width(widest).show(ui, |ui| {
+        for row in 0..rows {
+            for c in (0..columns).filter_map(|col| schemes.get(col * rows + row)) {
+                if ui.selectable_label(c.row as i64 == current, &c.text).clicked() {
+                    picked = Some(c.row);
+                }
             }
+            ui.end_row();
         }
     });
     if let Some(row) = picked {
         apply_scheme(f, row);
     }
+    ui.add_space(4.0);
+    lighting_buttons(f, ui);
     ui.add_space(crate::widgets::SECTION_GAP);
     crate::widgets::section_heading(ui, "Environment");
     let skyboxes = choices(f.app, "skyboxes", "STRING_REF", "LABEL");
@@ -390,6 +408,113 @@ fn visual(f: &mut Form<'_>, ui: &mut Ui) {
 
 /// Applies an environment.2da scheme: the area's lighting and weather, and
 /// each tile's lights picked anew from the scheme's colours (one command).
+/// Under the schemes: another area's lighting given to this one (and to
+/// those edited with it), and lighting kept under a name, saved from here
+/// or given from it (dansen9191's ask: the colors of one area in another,
+/// and schemes of one's own).
+fn lighting_buttons(f: &mut Form<'_>, ui: &mut Ui) {
+    let targets: Vec<ResRef> =
+        std::iter::once(f.key.resref).chain(f.also.iter().map(|(k, _)| k.resref)).collect();
+    let by_name = f.app.settings.area_names;
+    let mut areas: Vec<(ResRef, String)> = match &f.app.ws {
+        Some(ws) => (ws.module.keys_of(ResType::ARE).map(|k| k.resref))
+            .filter(|a| !targets.contains(a))
+            .map(|a| (a, f.app.area_names.label(ws, f.app.game.as_deref(), a, by_name)))
+            .collect(),
+        None => Vec::new(),
+    };
+    areas.sort_by_cached_key(|(_, name)| name.to_lowercase());
+    let saved = crate::lighting::list(f.app.lighting_dir.as_deref());
+    let naming = ui.id().with(("lighting-name", f.key.resref));
+    ui.horizontal(|ui| {
+        ui.menu_button("Copy From Area", |ui| {
+            egui::ScrollArea::vertical().max_height(400.0).show(ui, |ui| {
+                for (area, name) in &areas {
+                    if ui.button(name).clicked() {
+                        give_page(f.app, *area, &targets, "Visual");
+                        ui.close();
+                    }
+                }
+            });
+        })
+        .response
+        .on_hover_text(
+            "This page's settings (the lighting, fog, sky and weather) from another area",
+        );
+        ui.menu_button("Saved Lighting", |ui| {
+            if saved.is_empty() {
+                ui.weak("None saved yet");
+            }
+            for name in &saved {
+                if ui.button(name).clicked() {
+                    give_saved(f, name);
+                    ui.close();
+                }
+            }
+            ui.separator();
+            if ui.button("Save This Lighting…").clicked() {
+                ui.data_mut(|d| d.insert_temp(naming, String::new()));
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text("Lighting kept under a name, for any area of any module");
+    });
+    // Save This Lighting's name.
+    let Some(mut name) = ui.data(|d| d.get_temp::<String>(naming)) else { return };
+    let mut done = false;
+    ui.horizontal(|ui| {
+        crate::widgets::field_label(ui, "Name");
+        let r = ui.add(egui::TextEdit::singleline(&mut name).desired_width(200.0));
+        crate::widgets::autofocus(ui, &r);
+        let ok = crate::saved::valid_name(&name);
+        let entered = r.lost_focus()
+            && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
+        if ui.add_enabled(ok, egui::Button::new("Save")).clicked() || (ok && entered) {
+            match crate::lighting::save(f.app.lighting_dir.as_deref(), &name, &f.root) {
+                Ok(p) => f.app.log.info(format!("Lighting saved: {}", p.display())),
+                Err(e) => f.app.log.error(format!("Save This Lighting: {e}")),
+            }
+            done = true;
+        }
+        if ui.button("Cancel").clicked() {
+            done = true;
+        }
+        if saved.iter().any(|s| s.eq_ignore_ascii_case(name.trim())) {
+            ui.weak("replaces the one of that name");
+        }
+    });
+    if done {
+        ui.data_mut(|d| d.remove::<String>(naming));
+    } else {
+        ui.data_mut(|d| d.insert_temp(naming, name));
+    }
+}
+
+/// The lighting kept as `name` given to the area (and those edited with
+/// it), as one step.
+fn give_saved(f: &mut Form<'_>, name: &str) {
+    let fields = match crate::lighting::load(f.app.lighting_dir.as_deref(), name, &f.root) {
+        Ok(fields) => fields,
+        Err(e) => {
+            f.app.log.error(format!("Saved Lighting: {e}"));
+            return;
+        }
+    };
+    let keys = std::iter::once(f.key).chain(f.also.iter().map(|(k, _)| *k));
+    let edits: Vec<Edit> = keys
+        .flat_map(|key| {
+            fields.iter().map(move |(label, value)| Edit::SetField {
+                key,
+                path: GffPath::root(),
+                label: (*label).into(),
+                value: Some(value.clone()),
+            })
+        })
+        .collect();
+    f.app.actions.push(Action::Apply(Command::new(format!("Lighting {name}"), edits)));
+}
+
 fn apply_scheme(f: &mut Form<'_>, row: usize) {
     let Some(game) = f.app.game.as_deref() else { return };
     let scheme = match mg_module::new::Scheme::read(game, row) {

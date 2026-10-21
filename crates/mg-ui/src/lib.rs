@@ -31,6 +31,7 @@ pub mod jobs;
 pub mod journal_view;
 pub mod keys;
 pub mod levelup_view;
+pub mod lighting;
 mod manual;
 pub mod model_view;
 pub mod module_props;
@@ -45,6 +46,7 @@ pub mod plugins;
 pub mod prefabs;
 pub mod recovery;
 pub mod references;
+pub mod saved;
 pub mod script_nav;
 pub mod script_tools;
 mod script_view;
@@ -550,6 +552,9 @@ pub struct Moonglow {
     pub prefab_deleted: Option<(String, String)>,
     /// Where variable sets are kept (`var_sets`).
     pub var_set_dir: Option<PathBuf>,
+    /// Where lighting is kept (`lighting`: an area's Visual settings under
+    /// a name).
+    pub lighting_dir: Option<PathBuf>,
     /// When changed haks and folders were last looked for.
     reload_checked: Option<std::time::Instant>,
     /// The custom talk table's file and its time when loaded.
@@ -791,6 +796,7 @@ impl Moonglow {
             prefab_dir: None,
             prefab_deleted: None,
             var_set_dir: None,
+            lighting_dir: None,
             reload_checked: None,
             tlk_stamp: None,
             paint: false,

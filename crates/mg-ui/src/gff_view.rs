@@ -38,7 +38,7 @@ fn labels(path: &GffPath) -> Vec<&str> {
 }
 
 /// A whole number's value.
-fn integer(v: &Value) -> Option<i64> {
+pub(crate) fn integer(v: &Value) -> Option<i64> {
     Some(match v {
         Value::Byte(x) => i64::from(*x),
         Value::Char(x) => i64::from(*x),

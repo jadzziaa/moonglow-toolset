@@ -6381,6 +6381,91 @@ fn module_gff(h: &mut Harness<'_, Moonglow>, name: &str, t: ResType) -> Option<G
     ws.module.gff(&key).map(|g| g.unwrap())
 }
 
+/// Area Properties › Visual: another area's lighting given to this one
+/// (Copy From Area), and lighting kept under a name and given to another
+/// area (Saved Lighting): dansen9191's ask.
+#[test]
+fn an_area_s_lighting_is_copied_and_kept_for_another() {
+    use mg_module::new::{AreaSpec, add_area};
+    let Some(mut h) = game_harness("lighting") else { return };
+    let dir = mg_testkit::scratch_dir("ui-lighting-kept");
+    h.state_mut().lighting_dir = Some(dir.clone());
+    let first = ResRef::from_str("start").unwrap();
+    let second = {
+        let app = h.state_mut();
+        let game = app.game.clone().unwrap();
+        let spec = AreaSpec {
+            name: "Second".into(),
+            tileset: ResRef::from_str("ttr01").unwrap(),
+            width: 4,
+            height: 4,
+        };
+        let ws = app.ws.as_mut().unwrap();
+        add_area(&mut ws.module, &game, &spec, &mut fastrand::Rng::with_seed(3)).unwrap()
+    };
+    let field = |h: &mut Harness<'_, Moonglow>, area: ResRef, label: &str| {
+        let ws = h.state_mut().ws.as_mut().unwrap();
+        ws.doc(&ResKey::new(area, ResType::ARE)).unwrap().root.get(label).cloned()
+    };
+    // The first area's colors made its own.
+    let set = |label: &str, v: mg_gff::Value| mg_edit::Edit::SetField {
+        key: ResKey::new(first, ResType::ARE),
+        path: mg_edit::GffPath::root(),
+        label: label.into(),
+        value: Some(v),
+    };
+    let edits = vec![
+        set("SunAmbientColor", mg_gff::Value::Dword(0x12_3456)),
+        set("MoonFogColor", mg_gff::Value::Dword(0x00_0a0b)),
+    ];
+    h.state_mut().actions.push(mg_ui::Action::Apply(mg_edit::Command::new("Own", edits)));
+    h.run();
+    assert_ne!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
+    // In the second's Visual page: Copy From Area › the first.
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(second)));
+    h.run_steps(3);
+    h.get_by_label("Visual").click();
+    h.run_steps(2);
+    h.get_by_label("Copy From Area").click();
+    h.run_steps(2);
+    h.get_all_by_label("start").last().unwrap().click();
+    h.run_steps(3);
+    assert_eq!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
+    assert_eq!(field(&mut h, second, "MoonFogColor"), Some(mg_gff::Value::Dword(0x00_0a0b)));
+    assert!(h.state().ws.as_ref().unwrap().can_undo().is_some_and(|u| u.starts_with("Visual")));
+    h.state_mut().actions.push(mg_ui::Action::Undo);
+    h.run_steps(2);
+    assert_ne!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
+    // The first's lighting kept as "Dusk", from its own page.
+    close_tab(h.state_mut(), &Tab::AreaProperties(second));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(first)));
+    h.run_steps(3);
+    h.get_by_label("Visual").click();
+    h.run_steps(2);
+    h.get_by_label("Saved Lighting").click();
+    h.run_steps(2);
+    h.get_by_label("None saved yet");
+    h.get_by_label("Save This Lighting…").click();
+    h.run_steps(3);
+    h.get_all_by_role(egui::accesskit::Role::TextInput).last().unwrap().type_text("Dusk");
+    h.run_steps(2);
+    h.get_by_label("Save").click();
+    h.run_steps(2);
+    assert_eq!(mg_ui::lighting::list(Some(&dir)), ["Dusk"]);
+    // Given to the second: its colors are the first's.
+    close_tab(h.state_mut(), &Tab::AreaProperties(first));
+    h.state_mut().actions.push(mg_ui::Action::OpenTab(Tab::AreaProperties(second)));
+    h.run_steps(3);
+    h.get_by_label("Visual").click();
+    h.run_steps(2);
+    h.get_by_label("Saved Lighting").click();
+    h.run_steps(2);
+    h.get_by_label("Dusk").click();
+    h.run_steps(3);
+    assert_eq!(field(&mut h, second, "SunAmbientColor"), Some(mg_gff::Value::Dword(0x12_3456)));
+    assert_eq!(h.state().ws.as_ref().unwrap().can_undo(), Some("Lighting Dusk"));
+}
+
 #[test]
 fn store_wizard_makes_aurora_s_store() {
     use mg_module::palette::BlueprintKind;

@@ -13,27 +13,19 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::recovery;
+use crate::saved::Shelf;
 use crate::widgets::VarRow;
 
-const SUFFIX: &str = ".vars.json";
+const SHELF: Shelf = Shelf { folder: "variable-sets", suffix: ".vars.json", what: "variable set" };
 
 /// Where variable sets are kept.
 pub fn dir() -> Option<PathBuf> {
-    recovery::data_dir().map(|d| d.join("variable-sets"))
+    SHELF.dir()
 }
 
 /// The sets saved in `dir`, by name.
 pub fn list(dir: Option<&Path>) -> Vec<String> {
-    let Some(dir) = dir else { return Vec::new() };
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().to_str()?.strip_suffix(SUFFIX).map(str::to_string))
-        .collect();
-    names.sort_by_key(|n| n.to_lowercase());
-    names
+    SHELF.list(dir)
 }
 
 /// Variables as a set's text (only int, float and string variables).
@@ -93,16 +85,12 @@ pub fn merge(rows: &mut Vec<VarRow>, set: Vec<VarRow>) {
 
 /// Saves variables as a set named `name`.
 pub fn save(dir: &Path, name: &str, rows: &[VarRow]) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("{}{SUFFIX}", name.trim()));
-    std::fs::write(&path, to_text(rows)).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(path)
+    SHELF.write(Some(dir), name, &to_text(rows))
 }
 
 /// Reads the set named `name`.
 pub fn load(dir: &Path, name: &str) -> Result<Vec<VarRow>, String> {
-    let path = dir.join(format!("{name}{SUFFIX}"));
-    let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let text = SHELF.read(Some(dir), name)?;
     from_text(&text).map_err(|e| format!("{name}: {e}"))
 }
 

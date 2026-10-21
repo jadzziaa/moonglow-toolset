@@ -13,36 +13,26 @@ use mg_core::Codepage;
 use mg_gff::{Gff, Struct, TextStyle, Value, from_json, to_json, to_json_text};
 use mg_rules::GameData;
 
+use crate::Moonglow;
 use crate::area_view::ObjectClip;
-use crate::{Moonglow, recovery};
+use crate::saved::Shelf;
+pub use crate::saved::valid_name;
 
-const SUFFIX: &str = ".prefab.json";
+const SHELF: Shelf = Shelf { folder: "prefabs", suffix: ".prefab.json", what: "prefab" };
 
 /// Where prefabs are kept.
 pub fn dir() -> Option<PathBuf> {
-    recovery::data_dir().map(|d| d.join("prefabs"))
+    SHELF.dir()
 }
 
 /// The prefabs saved in `dir`, by name.
 pub fn list(dir: Option<&std::path::Path>) -> Vec<String> {
-    let Some(dir) = dir else { return Vec::new() };
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().to_str()?.strip_suffix(SUFFIX).map(str::to_string))
-        .collect();
-    names.sort_by_key(|n| n.to_lowercase());
-    names
+    SHELF.list(dir)
 }
 
 /// A prefab's file.
 fn file(dir: Option<&std::path::Path>, name: &str) -> Result<PathBuf, String> {
-    let dir = dir.ok_or("Moonglow has no data folder")?;
-    if !valid_name(name) {
-        return Err(format!("'{name}' is not a prefab's name"));
-    }
-    Ok(dir.join(format!("{}{SUFFIX}", name.trim())))
+    SHELF.file(dir, name)
 }
 
 /// Deletes a prefab's file: its text, to put it back with [`restore`].
@@ -121,14 +111,6 @@ pub fn summary(dir: Option<&std::path::Path>, name: &str) -> Result<String, Stri
 /// How many tags a prefab's summary names.
 const SUMMARY_TAGS: usize = 8;
 
-/// Whether a name can be a prefab's (it names a file).
-pub fn valid_name(name: &str) -> bool {
-    !name.trim().is_empty()
-        && name.len() <= 64
-        && name.chars().all(|c| c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.'))
-        && !name.starts_with('.')
-}
-
 /// A clipboard of objects as prefab text.
 pub fn to_text(clip: &ObjectClip) -> Result<String, String> {
     let mut g = Gff::new(*b"MGPF");
@@ -178,23 +160,14 @@ pub fn from_text(game: &GameData, text: &str) -> Result<ObjectClip, String> {
 impl Moonglow {
     /// Saves objects as a prefab.
     pub fn save_prefab(&mut self, name: &str, clip: &ObjectClip) -> Result<PathBuf, String> {
-        let dir = self.prefab_dir.clone().ok_or("Moonglow has no data folder")?;
-        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let path = dir.join(format!("{}{SUFFIX}", name.trim()));
-        std::fs::write(&path, to_text(clip)?).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(path)
+        SHELF.write(self.prefab_dir.as_deref(), name, &to_text(clip)?)
     }
 
     /// Edit › Prefabs › a prefab: its objects follow the pointer in the area
     /// shown last, to be placed with a click.
     pub fn place_prefab(&mut self, name: &str) {
         let Some(game) = &self.game else { return };
-        let path = self.prefab_dir.as_ref().map(|d| d.join(format!("{name}{SUFFIX}")));
-        let loaded = path
-            .as_ref()
-            .ok_or("Moonglow has no data folder".to_string())
-            .and_then(|p| std::fs::read_to_string(p).map_err(|e| e.to_string()))
-            .and_then(|t| from_text(game, &t));
+        let loaded = SHELF.read(self.prefab_dir.as_deref(), name).and_then(|t| from_text(game, &t));
         match loaded {
             Ok(clip) => {
                 self.object_clip = Some(clip);

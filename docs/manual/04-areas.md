@@ -3,7 +3,7 @@ type: Manual Page
 title: Areas
 description: Areas - the viewer's toolbar, minimaps and camera, selecting, arranging and placing objects, painting placeables, painting terrain, tiles, Area Properties, area sounds and making tilesets.
 tags: [manual, areas, terrain, tiles]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T01:26:14Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:08:37Z }
 ---
 
 # Areas
@@ -545,7 +545,17 @@ Properties** on the viewer's toolbar:
 - **Basic**: name, the tileset (fixed once made) and the size.
 - **Visual**: the lighting scheme, day and night (or always one), the sun and moon colors,
   fog colors and amounts, shadows, the skybox, lightning, rain and snow
-  chances, as Aurora's Customize Environment sets them.
+  chances, as Aurora's Customize Environment sets them. The schemes are
+  listed in as many columns as the page is wide. Under them:
+  - **Copy From Area** gives this area what another's Visual page holds
+    (its lighting, fog, shadows, sky and weather), as one undoable step.
+  - **Saved Lighting** keeps this page's settings under a name (**Save
+    This Lighting…**) and gives lighting kept so to this area: yours
+    from any module, as small files in Moonglow's data folder
+    (`lighting`), easy to share. A tile's own lights aren't part of it
+    (a scheme picks those).
+  With several areas edited together, both give each of them the
+  lighting.
 - **Grass**: the grass the area grows, by surface material (see
   [Grass](#grass)).
 - **Audio**: day and night ambient sounds and their volumes, music, battle

@@ -3,7 +3,7 @@ type: Backlog
 title: 'Deferred: what was left out, for a decision later'
 description: What finished work left undone or unchecked, filed by area of the program (an entry's last words say which report, issue or review it came from), each awaiting a verdict - fix, add or drop; what is settled by decision or design is gathered at the end.
 tags: [backlog, deferred, after-parity]
-generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T09:07:07Z }
+generated: { by: claude-code/claude-opus-5-5, at: 2026-10-21T10:08:37Z }
 ---
 
 # Deferred: what was left out, for a decision later
@@ -527,6 +527,14 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
   set names or list fields. Nor does Give Every Area This Page's
   Settings: it copies the fields the page shows, not the tiles' lights
   a lighting scheme sets (GitHub issue 6). (S)
+- **Lighting of one's own:** Saved Lighting and Copy From Area give an
+  area the Visual page's fields; not the tiles' lights (each tile's
+  own, as a scheme picks them at random from its colors), and lighting
+  kept isn't made an environment.2da row of a hak, for the toolset's
+  scheme list and the game's `SetAreaLightingScheme` (`mg areas` takes
+  no saved lighting either). Saved lighting is listed, not renamed or
+  deleted in the toolset (its files are). (S–M) (dansen9191's ask,
+  October 2026)
 - **Find and Replace beyond strings players read:** tags, resrefs,
   variables and other plain fields are found (Advanced Search, `mg
   search`) but not replaced, and neither has regular expressions (`*`
@@ -2252,8 +2260,7 @@ of truth, and does each caller's difference matter.
   `Form::choices`); the Variables button three times (`Form::variables`,
   `widgets::variables_button`, `area_props.rs:645`); the model-number
   scan and `set_part` twice (`item.rs:244`, `:308`, `creature.rs:405`,
-  `:451`; the creature's drops the three-digit check); `var_sets::list`
-  and `prefabs::list` alike; the autosave and backup default of five
+  `:451`; the creature's drops the three-digit check); the autosave and backup default of five
   minutes in four places; `ui.label` where `field_label` is meant
   (`wizards.rs:67`, `:86`, `:106`, `faction_view.rs:263`,
   `store_wizard.rs:355`, `:358`, `widgets.rs:369`, `:604`).
