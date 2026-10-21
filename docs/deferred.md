@@ -1464,9 +1464,12 @@ galleries' pictures made for 2 ms a frame and kept while in sight.
     `an_authored_glsl_pair_draws_on_this_platform_s_gpu` now lights its
     instances apart through the table: the next CI run says. (S)
   - The area views saved with `FRAME_SHOTS=1` are not comparable from
-    one run to the next where tiles animate (area092's sea): the view's
-    clock counts the frames of the opening. A fixed clock for the shots
-    would make them so. (S)
+    one run to the next where tiles animate: two runs of the build with
+    the lights by their places differ by up to 31 of 255 over area092's
+    sea, where the builds before were the same run to run. At a fixed
+    clock (`area_parts`) its pictures are the same, so it is the clock
+    the view was drawn at; why it differs from run to run was not looked
+    into. A fixed clock for the shots would make them comparable. (S)
 - **A tileset's custom shader:** with the Shaders switch on (M2 above),
   the material's own programs draw it where their source is in the
   load order; off, Moonglow runs none (see Custom shader effects above).

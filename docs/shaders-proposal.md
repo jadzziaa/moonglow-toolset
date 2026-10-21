@@ -845,10 +845,12 @@ are the same as M5's to the bit. area092's were compared at a fixed clock
 build. They are the same but for 12 values of the overview with 4×
 MSAA, at most 3 apart, and two runs of one build differ by as much.
 area092's views saved with `FRAME_SHOTS=1` differ from M5's by up to 64
-of 255 over the sea, brighter and darker alike. The sea's tiles move with
-the view's clock, which counts the frames of the opening, so those shots
-are not comparable from one run to the next (two runs of this build
-differ by 31). The oracle (`the_game_s_lit_shaders_match_moonglow_s`:
+of 255 over the sea, brighter and darker alike, and only there (its
+tiles animate). Two runs of this build differ there by up to 31, where
+M5's and the first steps' shots were the same from run to run. At a
+fixed clock the pictures are the same, so the difference is the clock
+the view was drawn at, not the lights; why it differs from run to run
+was not looked into. The oracle (`the_game_s_lit_shaders_match_moonglow_s`:
 stock `fslit` lit by a point light, through the table) gives the same
 numbers as before, within 1 of 255.
 

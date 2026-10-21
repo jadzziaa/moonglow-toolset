@@ -27,5 +27,5 @@ touches:
 - A result-type map over function instructions must skip no-result ops (OpStore's args[1] is a value, OpDecorate's a decoration number).
 - New types a modified struct member uses must be declared before the struct: hoist uint/uvec4/float/vec4 to the first declaration.
 - Per-draw Instant::now() timers cost ~0.25 ms on 2,700 draws; use frame-level phases for A/B.
-- FRAME_SHOTS of areas with animated tiles (area092's sea) differ run to run: the view's clock counts opening frames. Compare at a fixed clock (area_parts render_image) instead.
+- FRAME_SHOTS of areas with animated tiles (area092's sea) differed run to run with stage 2 (up to 31 of 255; earlier builds were stable; cause not looked into, the view's clock at the shot). Compare at a fixed clock (area_parts render_image) instead: identical there.
 - Other agents' builds give bimodal runs (a whole renderer config at +0.7 ms, sort/batch phase doubled): alternate A/B several times; run GPU work under the shared flock.
