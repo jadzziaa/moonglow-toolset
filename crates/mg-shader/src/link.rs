@@ -350,8 +350,9 @@ impl Program {
     /// [`Part::Bones`]): one a renderer writes for each draw, one written
     /// once a frame (the projection, the fog, the clock: the same for
     /// every draw), one of the bones (a skinned draw's). Each is laid out
-    /// anew, its members in the order they came in, so a draw's block is
-    /// as small as its own members make it (`vslit`'s whole block is 8.7
+    /// anew, its members in the order they came in, and those the program
+    /// never reads left out (glslang keeps every one declared), so a draw's
+    /// block is as small as its own members make it (`vslit`'s whole block is 8.7
     /// KB, 4 KB of it `m_bones`). A part with no members holds one unused
     /// `vec4`. The draw's block keeps the block's binding; the frame's and
     /// the bones' take the two that were kept for them (bound after the
@@ -479,14 +480,42 @@ fn split_module(
             return Ok(None);
         }
     }
-    // Each part's members, laid out anew.
+    // The members the program reads (glslang keeps every one declared:
+    // the stock includes declare the lights in the vertex programs too).
+    let mut read = vec![false; members.len()];
+    for f in module
+        .functions
+        .iter()
+        .map(|(_, f)| f)
+        .chain(module.entry_points.iter().map(|e| &e.function))
+    {
+        let mine: Vec<_> = f
+            .expressions
+            .iter()
+            .filter(|(_, e)| matches!(e, Expression::GlobalVariable(g) if *g == block))
+            .map(|(h, _)| h)
+            .collect();
+        for (_, e) in f.expressions.iter() {
+            if let Expression::AccessIndex { base, index } = e
+                && mine.contains(base)
+                && let Some(r) = read.get_mut(*index as usize)
+            {
+                *r = true;
+            }
+        }
+    }
+    // Each part's members, laid out anew (those never read in none).
     let mut layouter = naga::proc::Layouter::default();
     layouter.update(module.to_ctx()).map_err(naga_err)?;
     let order = [Part::Draw, Part::Frame, Part::Bones];
     let mut parts: [Vec<StructMember>; 3] = Default::default();
     let mut ends = [0u32; 3];
     let mut moved = Vec::with_capacity(members.len());
-    for m in &members {
+    for (m, read) in members.iter().zip(&read) {
+        if !read {
+            moved.push(None);
+            continue;
+        }
         let part = match part_of(&crate::reflect::member(module, m)) {
             Part::Whole => Part::Draw,
             p => p,
@@ -502,7 +531,7 @@ fn split_module(
         let align = own.max(layouter[m.ty].alignment * 1);
         let offset = ends[k].div_ceil(align) * align;
         ends[k] = offset + inner.size(module.to_ctx());
-        moved.push((k, parts[k].len() as u32));
+        moved.push(Some((k, parts[k].len() as u32)));
         parts[k].push(StructMember { offset, ..m.clone() });
     }
     let vec4 = module.types.insert(
@@ -561,6 +590,7 @@ fn split_module(
             {
                 let &(k, j) = moved
                     .get(*index as usize)
+                    .and_then(Option::as_ref)
                     .ok_or_else(|| naga_err("an access past the block's members"))?;
                 // (The draw's part stays on the expression it was read by.)
                 if k != 0 {
@@ -791,6 +821,7 @@ uniform float fogEnd;
 uniform vec3 lightAreaAmbient;
 uniform vec4 materialFrontDiffuse;
 uniform int skinmesh;
+uniform vec4 lightColor[8];
 attribute vec4 vPos;
 attribute vec4 vIndex;
 varying vec4 vColor;
@@ -832,6 +863,8 @@ void main ()
             s(&[("m_proj", 0), ("fogEnd", 64), ("lightAreaAmbient", 80)])
         );
         assert_eq!(names(&r.uniforms[2]), s(&[("m_bones", 0)]));
+        // (Declared and not read: in none.)
+        assert!(r.uniform("lightColor").is_none());
         assert_eq!(r.uniforms[2].size, 256);
         // Each its own binding.
         let mut b: Vec<u32> = r.uniforms.iter().map(|b| b.binding).collect();

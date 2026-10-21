@@ -570,12 +570,38 @@ pub(crate) fn part(m: &Member) -> Part {
         | MaterialDiffuse | MaterialEmissive | TextureBound(_) | AlphaDiscard | EnvMapCube
         | TexEnvBound | TexEnvCubeBound | NumLights | LightPosition | LightColor => Part::Draw,
         Bones => Part::Bones,
+        Param(name) if unfilled(&name) => Part::Frame,
         // (An MTR's parameter is one value, a float, a vector or an int:
         // an array or a matrix of a name the contract doesn't know is
         // zero for every draw.)
         Param(_) if m.count.is_none() && !matches!(m.ty, ValueType::Matrix(..)) => Part::Draw,
         _ => Part::Frame,
     }
+}
+
+/// The engine's uniforms the contract leaves zero (`staticLighting`, as
+/// Moonglow has no baked light; the target, scriptable, keyhole and wind
+/// sources' values; the module's date): the same for every draw, so the
+/// frame's, not looked up as an MTR's parameter for each.
+fn unfilled(name: &str) -> bool {
+    matches!(
+        name,
+        "staticLighting"
+            | "frontLightModelProductSceneColor"
+            | "subvariant"
+            | "userinputMousePosition"
+            | "playerInCutscene"
+            | "cameraDialogState"
+            | "moduleYear"
+            | "moduleMonth"
+            | "moduleDay"
+            | "lightAmbient"
+            | "lightDiffuse"
+            | "lightQuadraticAtten"
+            | "texNoiseBound"
+            | "texFBColor"
+            | "texFBDepth"
+    ) || ["target", "scriptable", "keyhole", "windPointSource"].iter().any(|p| name.starts_with(p))
 }
 
 /// Group 2 (the draws' blocks): the vertex program's draw block and bones,
@@ -701,10 +727,10 @@ pub(crate) struct GameDraw<'a> {
 }
 
 impl GameDraw<'_> {
-    /// What its draws are best kept together by: the pipeline, then the
-    /// material.
-    pub(crate) fn order(&self) -> (u32, u32) {
-        (self.pipeline.id, self.material)
+    /// What its draws are best kept together by: the pipeline, the
+    /// material, then the mesh (one bound for all its draws in a row).
+    pub(crate) fn order(&self) -> (u32, u32, usize) {
+        (self.pipeline.id, self.material, std::ptr::from_ref(self.mesh) as usize)
     }
 }
 
@@ -1300,7 +1326,7 @@ impl GameShaders {
         draws: &[GameDraw<'_>],
         dynamic: &wgpu::Buffer,
     ) {
-        let (mut pipeline, mut material) = (None, None);
+        let (mut pipeline, mut material, mut mesh) = (None, None, None);
         for d in draws {
             let id = d.pipeline.id;
             let (Some(groups), Some(blocks)) =
@@ -1311,7 +1337,10 @@ impl GameShaders {
             if pipeline != Some(id) {
                 pass.set_pipeline(&d.pipeline.pipeline);
                 pipeline = Some(id);
-                material = None;
+                (material, mesh) = (None, None);
+                if let Some(slot) = d.pipeline.zero_slot {
+                    pass.set_vertex_buffer(slot, self.zero.slice(..));
+                }
             }
             if material != Some(d.material) {
                 pass.set_bind_group(0, &groups[0], &[]);
@@ -1319,17 +1348,19 @@ impl GameShaders {
                 material = Some(d.material);
             }
             pass.set_bind_group(DRAW_GROUP, blocks, &d.offsets[..usize::from(d.count)]);
-            match d.dynamic {
-                Some((from, to)) => pass.set_vertex_buffer(0, dynamic.slice(from..to)),
-                None => pass.set_vertex_buffer(0, d.mesh.vertices.slice(..)),
+            // (The mesh the draw before drew stays bound.)
+            let this = (std::ptr::from_ref(d.mesh), d.dynamic);
+            if mesh != Some(this) {
+                mesh = Some(this);
+                match d.dynamic {
+                    Some((from, to)) => pass.set_vertex_buffer(0, dynamic.slice(from..to)),
+                    None => pass.set_vertex_buffer(0, d.mesh.vertices.slice(..)),
+                }
+                if let (Some(slot), Some(skin)) = (d.pipeline.skin_slot, &d.mesh.skin) {
+                    pass.set_vertex_buffer(slot, skin.vertices.slice(..));
+                }
+                pass.set_index_buffer(d.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
             }
-            if let (Some(slot), Some(skin)) = (d.pipeline.skin_slot, &d.mesh.skin) {
-                pass.set_vertex_buffer(slot, skin.vertices.slice(..));
-            }
-            if let Some(slot) = d.pipeline.zero_slot {
-                pass.set_vertex_buffer(slot, self.zero.slice(..));
-            }
-            pass.set_index_buffer(d.mesh.indices.slice(..), wgpu::IndexFormat::Uint32);
             pass.draw_indexed(0..d.mesh.index_count, 0, 0..1);
         }
     }

@@ -1358,6 +1358,8 @@ impl Renderer {
         let frustum = Frustum::new(proj * view);
         let mut reach = LightGrid::new(&scene.lights);
         let mut chosen = Vec::new();
+        // (A game draw's lights, as its blocks take them.)
+        let (mut light_positions, mut light_colors) = (Vec::new(), Vec::new());
         let scene_env = scene.env_map.as_deref();
         let scene_env_id = self.name_id(scene_env);
         let mut hidden = 0;
@@ -1488,10 +1490,12 @@ impl Renderer {
                         game_pass,
                     );
                     if let Some((p, fringe)) = pipelines {
-                        let light_positions: Vec<[f32; 4]> =
-                            chosen.iter().map(|(_, _, i)| lights[*i as usize].pos).collect();
-                        let light_colors: Vec<[f32; 4]> =
-                            chosen.iter().map(|(_, _, i)| lights[*i as usize].color).collect();
+                        light_positions.clear();
+                        light_colors.clear();
+                        for (_, _, i) in &chosen {
+                            light_positions.push(lights[*i as usize].pos);
+                            light_colors.push(lights[*i as usize].color);
+                        }
                         let d = crate::game::DrawValues {
                             world,
                             bones: &bones[bone_base as usize..],
